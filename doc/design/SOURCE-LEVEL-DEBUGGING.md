@@ -1,6 +1,6 @@
 # Source-level debugging: design (CAP-SRC)
 
-> Status: **partly implemented** (v1.1.64, plus E23-07 on the epic branch). The backend
+> Status: **partly implemented** (v1.1.64, plus E23-07 and E23-06 on the epic branch). The backend
 > capability, the SLD and `Memory.txt` adapters, the Source tab, the ownership rules, and the
 > fetch identity (one read arbiter, the current-PC prediction; section 4) exist. The rest is
 > designed here and built by the sub-issues of epic #23, named `E23-NN (#NNN)` wherever a
@@ -269,7 +269,7 @@ scripts) sees the same source map and symbols.
 
 | Input | Adapter | Fills | State |
 |---|---|---|---|
-| `prog.sld` `T` records | SLD | `SourceMap` | done; ranges in E23-06 (#338) |
+| `prog.sld` `T` records | SLD | `SourceMap` | done (ranges, E23-06 (#338)) |
 | `prog.sld` `L` records | SLD labels | `SymbolTable` | E23-23 (#375) |
 | `Memory.txt` | NextBuild symbols | `SymbolTable` | done |
 | `prog.map` (`-m`) | z88dk map symbols | `SymbolTable` | done (#352) |
@@ -309,7 +309,7 @@ locations. `lookup(space, addr)` returns all of them with a primary (the shortes
 tie the record emitted last, which for a z88dk map is the highest line, G3).
 `resolve("file:line")` returns every start; a zero-width line resolves through its alias or
 refuses with "no code at file:line". Built by E23-06 (#338), with the z88dk extents in E23-13
-(#344) and E23-17 (#348). Check (epic acceptance 2): SRCRNG-01 to SRCRNG-09, Z88MAP-02,
+(#344) and E23-17 (#348). Built (E23-06): SRCRNG-01 to SRCRNG-12. Check (epic acceptance 2): Z88MAP-02,
 Z88MAP-05.
 
 **D3. Every record says which memory it describes, and the bytes are checked.** No adapter
@@ -336,10 +336,10 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The source map and the call stack still take a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind; the trace flag and the breakpoint gate reduce the identity to "not a `Page`" | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The call stack still takes a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind; the trace flag and the breakpoint gate reduce the identity to "not a `Page`" | 4.1, 4.2, 4.4 | E23-07 (#339) |
 | Identity in history | `TraceLog` keeps a flag per entry beside `TraceEntry` (`not_ram_`), predicted just before the instruction runs by `Emulator::predict_instruction_()` (the bytes the CPU will fetch, so the flag and the trace bytes follow the M1 overlay); Back reads `te.mmu[slot]`, `rom_slots` and the flag. `Mmu::last_m1()` records the fetch but nothing reads it yet | 4.3 | E23-08 (#340) |
 | Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay), from the same prediction; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
-| Source map | exact (page, address) to one `SourceLocation`, a duplicate replaces; `lookup` returns a copy; `resolve()` returns the first start, by exact path or unique basename; an unqualified-record fallback that no adapter feeds (SLD records always name a page) | 5 | E23-06 (#338) |
+| Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | `sidecar_attach_cycle`; `machine_replaced()` drops the sidecar stores at once on a reset or a state from outside the rewind ring; a rewind rechecks by the clock | 6 | E23-10 (#342) |
 | z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
@@ -618,10 +618,13 @@ at file:line" (G3; `main.c:14` in the fixture, the line of `int main(void)`). Tw
 at the same position when the primary locations of the ranges under them have equal file, line
 and column.
 
-E23-06 (#338) builds the store on a placeholder 16-bit page key and fixes its interface. E23-07
-(#339) gave `source_page()` the `FetchSource` but left the store's key alone: `source_location()`
-still looks up `ram_page_of(source_page(addr))`, and that bridge goes with the key swap to
-`FetchSource` (E23-06, when it merges after E23-07, or E23-09).
+Built by E23-06 (#338), as above with these particulars. The store is keyed by `FetchSource`
+directly (E23-07 landed first), and `source_location()` has no `ram_page_of()` bridge. File
+strings are kept once per position (no interning, no function field yet). A line's *entries*
+are the starts `resolve()` returns: a range that continues another range of the same line
+(`hi_excl == lo`, same space), as one instruction after another does for a multi-statement
+line, a macro or a `DUP`, is not an entry; disjoint copies are. History (`TraceLog`) and call
+frames still identify code by page number until E23-08 (#340).
 
 ### 5.2 The backend verbs (CAP-SRC, `debug/debugger.h`)
 
@@ -629,10 +632,10 @@ still looks up `ram_page_of(source_page(addr))`, and that bridge goes with the k
 |---|---|---|
 | `load_source_map(path, accept_identity_mismatch)` | load a source map by hand; refused on a parse error, or on an identity mismatch unless accepted; the path is stored absolute | accepts `.map` (E23-13 (#344)) |
 | `clear_source_map()`, `source_map()` | the store | |
-| `source_location(addr)`, `source_location()` | the position of `addr` or of the PC | the primary location and all the others, by pointer (E23-06 (#338)) |
+| `source_location(addr)`, `source_location()` | the primary position of `addr` or of the PC, by pointer into the store (done, E23-06 (#338)); every location there: `source_map().lookup_all()` | |
 | `source_page(addr)`, `effective_page(addr)` | the `FetchSource` that supplies the M1 at `addr` (done, E23-07); the MMU's page | `effective_page` stays, as the MMU's page for the legacy qualifier |
 | `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | `<stem>.map` (E23-13); lifetime (E23-10 (#342)) |
-| `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (E23-06); recorded identity (E23-08 (#340)) |
+| `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (done, E23-06); recorded identity (E23-08 (#340)) |
 | `load_map(path, MapFormat::NextBuild)` | `Memory.txt` by hand (CAP-SYM gains a format) | |
 | `--source-map FILE` (command line) | a source map at startup | new (OD-15, E23-13) |
 
@@ -773,7 +776,9 @@ there is fixed in `CallStack` for every program, never as a special case for `ba
 **Backward** steps search the trace from newest to oldest, considering only entries before the
 machine's current cycle: a Frame Back or a slider jump leaves the abandoned history in the
 trace, and that is not "back". `Back` takes the newest mapped position different from the
-current one (a statement repeated over consecutive instructions counts once). `ReverseContinue`
+current one (a statement repeated over consecutive instructions counts once), then lands on the
+FIRST instruction of that statement's run: it walks older entries, passing unmapped ones, while
+they are at that same position. That is the inverse of `Into`. `ReverseContinue`
 takes the newest mapped instruction covered by a live, unconditional, handler-less,
 non-transient `Execute` Stop (or a legacy PC breakpoint). Both match entries by the recorded
 identity (E23-08 (#340)) and use the one breakpoint predicate (E23-09 (#341)). The count goes
@@ -1143,7 +1148,13 @@ arbiter's order, one row per arm, and `read()` equal to its route; `mmu_test` an
 `mmu_integration_test`), MF-M1G-07 (`multiface_test`), DM-PRED-01 (`divmmc_test`) and
 SRCDBG-ID-09 to SRCDBG-ID-15 and SRCDBG-ID-18 to SRCDBG-ID-50, and SRCDBG-PURE-01/02
 (`source_debug_test`: the prediction against the recorded fetch, the fetch and data
-views, the prefix chains, the trace bytes, the call stack).
+views, the prefix chains, the trace bytes, the call stack). E23-06 (#338) added SRCRNG-01 to
+SRCRNG-15 (`source_map_test`: ranges, overlap, line entries, "no code at", the file suffix
+rule, sorted unique starts, the SLD page-end cap), SRCDBG-STEP-18/19 and SRCDBG-BACK-10 to
+SRCDBG-BACK-12 (`source_debug_test`: steps by range, Back to the statement's first
+instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
+(`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
+column of a logical breakpoint).
 
 **Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), the fixture-hash row
 Z88FIX-01 (E23-12), and the functional rows `source-map-func` (a looked-up line, E23-15) and

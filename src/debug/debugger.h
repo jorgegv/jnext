@@ -963,10 +963,12 @@ public:
     /// CAP-SRC — the store itself.
     const SourceMap& source_map() const;
 
-    /// CAP-SRC — the source position of `addr` as it is mapped NOW (the
-    /// physical page behind its slot), or of the current PC.
-    std::optional<SourceLocation> source_location(uint16_t addr) const;
-    std::optional<SourceLocation> source_location() const;
+    /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
+    /// `source_page(addr)` says supplies it), or of the current PC. Null when
+    /// unmapped. A pointer into the store, valid until the store changes: copy
+    /// what you keep. Every location there: `source_map().lookup_all()`.
+    const SourceLocation* source_location(uint16_t addr) const;
+    const SourceLocation* source_location() const;
 
     /// CAP-SRC — the physical 8K page the MMU maps behind logical `addr` now.
     uint8_t effective_page(uint16_t addr) const;

@@ -70,7 +70,12 @@ code that is not the one in memory. Code supplied by ROM or by an overlay
 (DivMMC — including the instruction at which its automatic paging switches on
 or off —, the Multiface, the Layer 2 read mapping, the boot ROM) is not any RAM
 page, so page-tagged records never describe it; the Source tab says "ROM or
-overlay" there. A record with no page matches whatever is there.
+overlay" there.
+
+A statement covers every byte up to the next one: the data of a
+`DB` after an instruction belongs to that instruction's statement, and so does everything after the last
+statement of a page up to the end of that 8K page. Only addresses below a
+page's first statement, and pages with no statement at all, are unmapped.
 
 Code your program copies somewhere else at run time (a routine moved out of a
 bank into low memory, say) has no record where it runs unless your build made
@@ -81,11 +86,11 @@ one, and shows as unmapped there.
 See [Source](../panels/15-source.md). Its buttons step by statement:
 
 - **Into** — run to the next source statement, entering calls. Instructions
-  with no source record (compiler runtime, library code) are run through.
+  with no source statement (compiler runtime, library code) are run through.
 - **Over** — the same, but a call is run to its return.
 - **Out** — run until a statement in the routine that called this one.
-- **Back** — rewind to the previous source statement that ran before this
-  point (after a **Frame Back**, the history you rewound away from does not
+- **Back** — rewind to the start of the previous source statement that ran
+  before this point (after a **Frame Back**, the history you rewound away from does not
   count).
 - **Reverse** — rewind to the most recent source statement with an Execute
   breakpoint on it.
@@ -112,8 +117,10 @@ their target in the instructions the trace has kept.
 
 In the Breakpoints panel's **Add** dialog, the address can be a number
 (`8000`, `$8000`, `0x8000`), a symbol (`PlayerTick`), or, for an Execute
-breakpoint, a source line, `file:line`: `main.bas:120`, or the full path
-when two files share a name. A number wins over a symbol: `FE` or `B` is that
+breakpoint, a source line, `file:line`: `main.bas:120`, or the end of the
+path (`game/main.bas:120`) when two files share a name. A line the program
+compiled to several places (a routine in two banks, say) gets a breakpoint at
+each; a line with no code is refused with "no code at main.bas:120". A number wins over a symbol: `FE` or `B` is that
 address even when the program has a variable called `FE` or `B`. Write `@FE`
 to mean the symbol. A breakpoint on a line of banked code is tied to
 its page (shown as `$C000 @2E`): it fires only while that RAM page supplies the

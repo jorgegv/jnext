@@ -113,13 +113,13 @@ MemSpace Debugger::source_page(uint16_t addr) const {
     return impl_->emu.predict_fetch(addr);
 }
 
-std::optional<SourceLocation> Debugger::source_location(uint16_t addr) const {
+const SourceLocation* Debugger::source_location(uint16_t addr) const {
     impl_->recheck_sidecars();
-    if (impl_->source_map.empty()) return std::nullopt;
-    return impl_->source_map.lookup(ram_page_of(source_page(addr)), addr);
+    if (impl_->source_map.empty()) return nullptr;
+    return impl_->source_map.lookup(source_page(addr), addr);
 }
 
-std::optional<SourceLocation> Debugger::source_location() const {
+const SourceLocation* Debugger::source_location() const {
     return source_location(impl_->emu.cpu().get_registers().PC);
 }
 
@@ -287,30 +287,52 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
             impl_->explain_rewind_refusal(by, verb, "the instruction trace is off");
             return Result::RefusedUnavailable;
         }
-        const auto here = source_location();
+        // A copy: a handler may replace the map, and the pointer with it.
+        std::optional<SourceLocation> here;
+        if (const SourceLocation* p = source_location()) here = *p;
         // After a Frame Back or a slider jump the trace still holds the
         // history the machine left: only what ran BEFORE now is "back".
         const uint64_t now = impl_->emu.clock().get();
         const size_t size = trace.size();
+        // History identity is still page-based; E23-08 (trace entries carry
+        // the FetchSource) replaces this.
+        auto at_entry = [&](size_t index) -> const SourceLocation* {
+            const TraceEntry& te = trace.at(index);
+            const int slot = te.pc >> 13;
+            const bool not_ram = ((te.rom_slots >> slot) & 1) != 0 ||
+                                 trace.fetch_not_mmu_ram(index);
+            return not_ram ? nullptr
+                           : impl_->source_map.lookup(MemSpace::page(te.mmu[slot]), te.pc);
+        };
         for (size_t i = size; i > 0; --i) {
             const TraceEntry& te = trace.at(i - 1);
             if (te.cycle >= now) continue;
             const int slot = te.pc >> 13;
             const bool not_ram = ((te.rom_slots >> slot) & 1) != 0 ||
                                  trace.fetch_not_mmu_ram(i - 1);
-            const auto at = impl_->source_map.lookup(not_ram ? NOT_RAM_PAGE : te.mmu[slot],
-                                                     te.pc);
+            const SourceLocation* at = at_entry(i - 1);
             if (!at) continue;
+            size_t target = i - 1;
             if (kind == SourceStep::Back) {
                 // A position repeated across consecutive instructions (a loop on
                 // one line, or several records for one statement) is one step.
                 if (here && SourceMap::same_position(*here, *at)) continue;
+                // Land on the statement's first instruction: the inverse of
+                // Into, which runs through unmapped code and over the
+                // statement's own instructions.
+                const SourceLocation pos = *at;
+                for (size_t k = target; k > 0; --k) {
+                    const SourceLocation* older = at_entry(k - 1);
+                    if (!older) continue;
+                    if (!SourceMap::same_position(pos, *older)) break;
+                    target = k - 1;
+                }
             } else if (!history_stop_at(impl_->events, te.pc, te.mmu[slot], not_ram) &&
                        !impl_->ds().breakpoints().has_pc(te.pc)) {
                 continue;
             }
             // step_back(n) lands on trace[size - n].pc.
-            return step_back(by, static_cast<uint32_t>(size - (i - 1)));
+            return step_back(by, static_cast<uint32_t>(size - target));
         }
         impl_->explain_rewind_refusal(
             by, verb,
@@ -345,7 +367,9 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         return Result::Ok;
     };
 
-    const auto start = source_location();
+    // A copy: a handler may load a map mid-step and invalidate the pointer.
+    std::optional<SourceLocation> start;
+    if (const SourceLocation* p = source_location()) start = *p;
     const size_t start_depth = impl_->emu.call_stack().frames().size();
     // No statement under the PC, or nowhere to step out to: one instruction,
     // which is where an unmapped stretch is left from.
@@ -356,13 +380,13 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
 
     // Has the step reached its boundary, with the machine where it is now?
     auto reached = [&]() {
-        const auto now = source_location();
+        const SourceLocation* now = source_location();
         const size_t depth = impl_->emu.call_stack().frames().size();
         const bool moved = now && !SourceMap::same_position(*start, *now);
         switch (kind) {
             case SourceStep::Into: return moved;
             case SourceStep::Over: return moved && depth <= start_depth;
-            case SourceStep::Out:  return now.has_value() && depth < start_depth;
+            case SourceStep::Out:  return now != nullptr && depth < start_depth;
             case SourceStep::Back:
             case SourceStep::ReverseContinue: break;   // handled above
         }

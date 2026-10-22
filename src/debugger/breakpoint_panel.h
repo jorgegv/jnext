@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QTableWidget>
 
+#include <utility>
 #include <vector>
 
 #include "debugger/breakpoint_model.h"
@@ -56,10 +57,13 @@ public slots:
     void on_remove();
 
 private:
-    /// `page` is in and out: an Execute breakpoint set on a source line whose
-    /// record names a physical page comes back qualified with it.
-    bool show_bp_dialog(const QString& title, uint16_t& addr, uint16_t& page,
-                        int& type_index);
+    /// (address, page) of one breakpoint to set.
+    using BpTarget = std::pair<uint16_t, uint16_t>;
+    /// `addr` / `page` seed the text. `targets` comes back with one entry for an
+    /// address or symbol, and one per place a source line compiled to (each
+    /// qualified with the page its record names).
+    bool show_bp_dialog(const QString& title, uint16_t addr, uint16_t page,
+                        int& type_index, std::vector<BpTarget>& targets);
 
     /// GH #225 — apply the check state of the Enabled cell `row` to the model.
     void apply_enabled_cell(int row, bool enabled);

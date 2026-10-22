@@ -2886,7 +2886,8 @@ a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
 the functional row <code>script-map-pipe-func</code>).</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
 <p>The backend also owns one <code>SourceMap</code> (<code>src/debug/source_map.*</code>): records of
-(RAM page, logical address) → file, line, column, filled by a format adapter —
+ranges <code>{space, lo, hi_excl, location}</code> (file, line, column) keyed by the
+<code>FetchSource</code> that supplies the code, filled by a format adapter —
 <code>load_sld()</code> in <code>src/debug/sld_loader.*</code> reads sjasmplus SLD v1 — and replaced
 only by a complete, successful load. Matching uses one identity everywhere:
 <code>source_page(addr)</code> is a <code>MemSpace</code>, from <code>Emulator::predict_fetch()</code>: a
@@ -2895,10 +2896,19 @@ including what the M1 itself switches (DivMMC's instant entry points and the
 hold from the previous M1 via <code>DivMmc::active_on_m1()</code>, the Multiface at
 0x0066 via <code>Multiface::would_latch_on_m1()</code>), then <code>Mmu::route_with()</code> for the
 rest (ROM slot, boot ROM, Layer 2 read mapping, alt-ROM, config mode). It is
-<code>Page{n}</code> when the MMU's RAM page <code>n</code> supplies it. The page-keyed consumers read
-it through <code>ram_page_of()</code> (<code>debug/ram_page.h</code>): the page, else <code>NOT_RAM_PAGE</code>,
-and <code>SourceMap::lookup(NOT_RAM_PAGE, addr)</code> matches
-only an unqualified record. After the instruction, <code>Mmu::last_m1()</code> is what its
+<code>Page{n}</code> when the MMU's RAM page <code>n</code> supplies it, and the source map is keyed
+by it directly: there are no unqualified records, so code from a ROM slot or an
+overlay has a location only if a record names that space. <code>source_location()</code>
+returns the primary location (the shortest covering range; on a tie the one the
+adapter emitted last) as a <code>const SourceLocation*</code> into the store, valid until
+the next load or clear, so copy what you keep; <code>source_map().lookup_all()</code> lists
+every location, primary first. The SLD adapter makes each <code>T</code> record cover its
+instruction up to the next distinct start in its page, never past the 8K page
+end. <code>resolve("file:line")</code> returns the line's entries (every place it compiled
+to; a later instruction of the same line is not one), or a reason ("no code at
+file:line"); the file is the exact path or the unique file whose path ends in the
+text on a component boundary. The trace and the call frames still use page
+numbers (<code>ram_page_of()</code>, <code>debug/ram_page.h</code>) until E23-08. After the instruction, <code>Mmu::last_m1()</code> is what its
 fetch actually recorded: the prediction and the record are one function evaluated
 before and after, and the tests compare them for every fetch of a guest tour. The trace records the same flag beside each entry
 (<code>TraceLog::fetch_not_mmu_ram()</code>; <code>TraceEntry</code> itself stays 56 bytes), call
@@ -2953,7 +2963,10 @@ HALT with IFF1 clear, after <code>SOURCE_STEP_LIMIT</code> instructions or after
 <code>SOURCE_STEP_FRAME_LIMIT</code> frames. <code>Back</code> and <code>ReverseContinue</code> search the trace
 for entries before the current cycle (a Frame Back leaves newer ones), derive
 each entry's identity from <code>mmu[]</code>, <code>rom_slots</code> and the overlay flag, and hand
-the count to <code>step_back()</code>, so they inherit its refusals.</p>
+the count to <code>step_back()</code>, so they inherit its refusals. <code>Back</code> finds the newest
+earlier position that differs from the current one, then walks older entries
+(passing unmapped ones) while they are at that position, and lands on the
+oldest: the first instruction of the previous statement, the inverse of <code>Into</code>.</p>
 <h3 id="coverage-and-the-trace">Coverage and the trace<a class="headerlink" href="#coverage-and-the-trace" title="Permanent link">&para;</a></h3>
 <p>INS-20 coverage is recorded in <code>step_one_instruction()</code>, the one body that
 <code>run_frame()</code>, the debugger's Step and <code>execute_single_instruction()</code> share,

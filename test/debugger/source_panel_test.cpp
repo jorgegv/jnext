@@ -12,12 +12,12 @@
 // backend, as debugger_verbs_test drives them. The program and its source:
 //
 //   8000  00           NOP          main.bas:10
-//   8001  00           NOP          (unmapped)
+//   8001  00           NOP          (inside main.bas:10's range)
 //   8002  CD 00 90     CALL SUB     main.bas:11
 //   8005  00           NOP          main.bas:12
 //   8006  C3 00 80     JP $8000     main.bas:13
 //   9000  00           NOP          sub.bas:1
-//   9001  C9           RET          (unmapped)
+//   9001  C9           RET          (inside sub.bas:1's range)
 //
 // Every row fails on a tree without the feature: there is no Source tab, no
 // page-qualified model row and no source map to read.
@@ -896,6 +896,118 @@ void test_breakpoint_page_rows() {
                                     " own=" + std::to_string(listed[0].own)));
 }
 
+// ── A source line compiled to several places (GH #338) ─────────────────
+
+void test_line_starts() {
+    Fixture fx;
+    fx.enable();
+    // main.bas:11 is [$8002,$8005) and [$9000,$A000): two places.
+    const std::string two = g_tmp->path().toStdString() + "/two.sld";
+    write_text(two, std::string("|SLD.data.version|1\n") + "main.bas|10||0" + kNextDevice +
+                        "main.bas|10||0|" + std::to_string(fx.p80) + "|32768|T|\n" +
+                        "main.bas|11||0|" + std::to_string(fx.p80) + "|32770|T|\n" +
+                        "main.bas|12||0|" + std::to_string(fx.p80) + "|32773|T|\n" +
+                        "main.bas|11||0|" + std::to_string(fx.p90) + "|36864|T|\n");
+    fx.backend->load_source_map(two, false);
+    BreakpointModel& m = fx.mgr->breakpoints();
+    BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
+    auto* table = bp ? bp->findChild<QTableWidget*>() : nullptr;
+    if (!bp || !table) { check("QBPP-04", "Breakpoints panel", false); return; }
+    const auto p80 = static_cast<uint16_t>(fx.p80);
+    const auto p90 = static_cast<uint16_t>(fx.p90);
+    auto two_rows = [&](bool enabled) {
+        const auto r = m.rows();
+        return r.size() == 2 && r[0].type == BreakpointModel::Execute && r[0].own &&
+               r[1].own && r[0].addr == 0x8002 && r[0].page == p80 && r[1].addr == 0x9000 &&
+               r[1].page == p90 && r[0].enabled == enabled && r[1].enabled == enabled;
+    };
+
+    const bool seen = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_add(); });
+    const bool rows = seen && two_rows(true);
+    fx.backend->run(jnext::dbg::CLIENT_NONE);
+    for (int i = 0; i < 4 && !fx.backend->state().paused; ++i) fx.emu.run_frame();
+    const bool first = fx.pc() == 0x8002;
+    fx.backend->run(jnext::dbg::CLIENT_NONE);
+    for (int i = 0; i < 4 && !fx.backend->state().paused; ++i) fx.emu.run_frame();
+    check("QBPP-04", "file:line typed into Add Breakpoint arms every place the line "
+                     "compiled to, each on its own page, and a run stops at both",
+          rows && first && fx.pc() == 0x9000,
+          "rows=" + std::to_string(rows) + " first=" + std::to_string(first) +
+              " pc=" + std::to_string(fx.pc()));
+    m.clear_all();
+
+    QString reason;
+    const int shown = drive_modals(
+        [&](QWidget* w, int n) {
+            auto* dlg = qobject_cast<QDialog*>(w);
+            if (!dlg) return;
+            if (n == 0) {
+                if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText("main.bas:5");
+                dlg->accept();
+                return;
+            }
+            if (auto* err = dlg->findChild<QLabel*>(QStringLiteral("bp_dialog_error")))
+                if (err->isVisible()) reason = err->text();
+            dlg->reject();
+        },
+        [&]() { bp->on_add(); });
+    check("QBPP-05", "a line of a known file with no code is refused with \"no code at\", "
+                     "the dialog stays open and nothing is added",
+          shown == 2 && reason.contains(QStringLiteral("no code at main.bas:5")) &&
+              m.rows().empty(),
+          "shown=" + std::to_string(shown) + " reason=" + s(reason));
+
+    m.add(BreakpointModel::Execute, 0x8005, p80);
+    bp->refresh();
+    if (QTableWidgetItem* en = table->item(0, 0)) en->setCheckState(Qt::Unchecked);
+    table->setCurrentCell(0, 1);
+    const bool edited = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_edit(); });
+    check("QBPP-06", "Edit to a line with several places leaves one breakpoint per place, "
+                     "each disabled as the edited one was, and the old one gone",
+          edited && two_rows(false), "rows=" + std::to_string(m.rows().size()));
+    m.clear_all();
+
+    // A logical breakpoint (no page) on a mapped address names its line too.
+    m.add(BreakpointModel::Execute, 0x8002);
+    bp->refresh();
+    check("QBPP-07", "the Symbol / Source column names the line of a breakpoint with no "
+                     "page, by what is mapped at its address",
+          cell(bp, 0, 3) == QStringLiteral("main.bas:11"), s(cell(bp, 0, 3)));
+    m.clear_all();
+
+    QAction* add_exec = nullptr;
+    for (QAction* a : fx.dbg()->menuBar()->actions())
+        if (a->menu())
+            for (QAction* i : a->menu()->actions())
+                if (i->text() == QStringLiteral("Add &Execute Breakpoint...")) add_exec = i;
+    const bool seen2 =
+        add_exec && answer_modal(QStringLiteral("main.bas:11"), [&]() { add_exec->trigger(); });
+    check("QADR-10", "Add Execute Breakpoint arms every place a source line compiled to",
+          seen2 && two_rows(true));
+    m.clear_all();
+
+    QString reason2;
+    const int shown2 = add_exec ? drive_modals(
+        [&](QWidget* w, int n) {
+            auto* dlg = qobject_cast<QDialog*>(w);
+            if (!dlg) return;
+            if (n == 0) {
+                if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText("main.bas:5");
+                dlg->accept();
+                return;
+            }
+            if (auto* err = dlg->findChild<QLabel*>(QStringLiteral("bp_dialog_error")))
+                if (err->isVisible()) reason2 = err->text();
+            dlg->reject();
+        },
+        [&]() { add_exec->trigger(); }) : 0;
+    check("QADR-11", "Add Execute Breakpoint refuses a line with no code with \"no code at\" "
+                     "and stays open",
+          shown2 == 2 && reason2.contains(QStringLiteral("no code at main.bas:5")) &&
+              m.rows().empty(),
+          "shown=" + std::to_string(shown2) + " reason=" + s(reason2));
+}
+
 // ── QBPM-10: Edit never cancels silently ──────────────────────────────
 
 void test_edit_type_refused() {
@@ -1213,11 +1325,11 @@ void test_source_hex() {
     SourcePanel* sp = fx.dbg()->source_panel();
     const QString want = QString::asprintf("main.bas:10  $%04X  page %02X", addr, page);
     const QString mapped = sp->location_text();
-    r.PC = static_cast<uint16_t>(addr + 1);
+    r.PC = static_cast<uint16_t>(addr - 1);   // below the only record; addr + 1 is inside its range
     fx.emu.cpu().set_registers(r);
     fx.mgr->refresh_panels();
     const QString want_unmapped =
-        QString::asprintf("$%04X (page %02X): no source mapping; use the disassembly", addr + 1, page);
+        QString::asprintf("$%04X (page %02X): no source mapping; use the disassembly", addr - 1, page);
     check("QSRC-44", "the Source tab prints the PC and the page in upper-case hex, mapped "
                      "or not",
           addr != 0 && mapped == want && sp->location_text() == want_unmapped,
@@ -1809,6 +1921,7 @@ int main(int argc, char** argv) {
     test_gutter();
     test_edit_type_refused();
     test_breakpoint_page_rows();
+    test_line_starts();
     test_source_hex();
     test_source_scroll();
     test_source_recentre_terms();

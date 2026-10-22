@@ -180,10 +180,10 @@ void BreakpointPanel::refresh()
         // sits on: on its own page, or on the page mapped there now.
         if (sym.isEmpty() && dbg_ && e.type == BreakpointModel::Execute &&
             !dbg_->source_map().empty()) {
-            const uint8_t page = e.page != jnext::dbg::PAGE_ANY
-                                     ? static_cast<uint8_t>(e.page)
-                                     : ram_page_of(dbg_->source_page(e.addr));
-            if (const auto src = dbg_->source_map().lookup(page, e.addr))
+            const jnext::dbg::MemSpace space =
+                e.page != jnext::dbg::PAGE_ANY ? jnext::dbg::MemSpace::page(e.page)
+                                               : dbg_->source_page(e.addr);
+            if (const SourceLocation* src = dbg_->source_map().lookup(space, e.addr))
                 sym = QString::fromStdString(src->file) + ":" + QString::number(src->line);
         }
         auto* sym_item = new QTableWidgetItem(sym);
@@ -215,8 +215,8 @@ void BreakpointPanel::apply_enabled_cell(int row, bool enabled)
     entries_[row].enabled = enabled;
 }
 
-bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, uint16_t& page,
-                                     int& type_index)
+bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr, uint16_t page,
+                                     int& type_index, std::vector<BpTarget>& targets)
 {
     QDialog dlg(this);
     dlg.setWindowTitle(title);
@@ -239,7 +239,8 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, uint1
     // A breakpoint on a source line edits as that line.
     QString initial = QString::asprintf("%04X", addr);
     if (page != jnext::dbg::PAGE_ANY && dbg_) {
-        if (const auto src = dbg_->source_map().lookup(static_cast<uint8_t>(page), addr))
+        if (const SourceLocation* src =
+                dbg_->source_map().lookup(jnext::dbg::MemSpace::page(page), addr))
             initial = QString::fromStdString(src->file) + ":" + QString::number(src->line);
     }
     addr_edit->setText(initial);
@@ -277,25 +278,43 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, uint1
         // breaks only while that bank is mapped.
         if (const auto resolved = symbol_table_ ? symbol_table_->resolve(text)
                                                 : SymbolTable().resolve(text)) {
-            addr = *resolved;
-            page = jnext::dbg::PAGE_ANY;
+            targets = {{*resolved, jnext::dbg::PAGE_ANY}};
             type_index = type;
             return true;
         }
-        std::optional<SourceAddress> src;
+        SourceResolution src;
         if (dbg_) src = dbg_->source_map().resolve(text);
-        if (src && type == BreakpointModel::Execute) {
-            addr = src->address;
-            page = src->page ? *src->page : jnext::dbg::PAGE_ANY;
-            type_index = type;
-            return true;
+        if (!src.starts.empty() && type == BreakpointModel::Execute) {
+            // One breakpoint per place the line compiled to, each tied to its
+            // page. A start outside a Page cannot come from any adapter in
+            // the tree; GH #337 / E23-09 replace the page qualifier with the
+            // space, and this refusal with it.
+            targets.clear();
+            for (const SourceAddress& s : src.starts) {
+                if (s.space.kind != jnext::dbg::MemSpace::Kind::Page) {
+                    targets.clear();
+                    break;
+                }
+                targets.push_back({s.address, s.space.index});
+            }
+            if (!targets.empty()) {
+                type_index = type;
+                return true;
+            }
+            error->setText(tr("%1 is not in a RAM page: no breakpoint can be set on it")
+                               .arg(addr_edit->text().trimmed()));
+            error->show();
+            continue;
         }
         // A source line names an instruction, so only an Execute breakpoint
         // can be set on one.
-        error->setText(src ? tr("A source line can only be an Execute breakpoint. "
+        error->setText(!src.starts.empty()
+                           ? tr("A source line can only be an Execute breakpoint. "
                                 "Use an address or a symbol for this type.")
-                           : tr("Not an address, symbol or source line: %1")
-                                 .arg(addr_edit->text().trimmed()));
+                           : !src.error.empty()
+                                 ? QString::fromStdString(src.error)
+                                 : tr("Not an address, symbol or source line: %1")
+                                       .arg(addr_edit->text().trimmed()));
         error->show();
     }
     return false;
@@ -304,16 +323,15 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, uint1
 void BreakpointPanel::on_add()
 {
     if (!model_) return;
-    uint16_t addr = 0;
-    uint16_t page = jnext::dbg::PAGE_ANY;
+    std::vector<BpTarget> targets;
     int type_index = 0;
-    if (!show_bp_dialog(tr("Add Breakpoint"), addr, page, type_index))
+    if (!show_bp_dialog(tr("Add Breakpoint"), 0, jnext::dbg::PAGE_ANY, type_index, targets))
         return;
 
     // No repaint call here: the mutation notified, and it notified the RIGHT
     // views — the gutter only for an Execute breakpoint, because a data
     // breakpoint changes nothing the gutter draws.
-    model_->add(type_index, addr, page);
+    for (const auto& [addr, page] : targets) model_->add(type_index, addr, page);
 }
 
 void BreakpointPanel::on_edit()
@@ -323,11 +341,10 @@ void BreakpointPanel::on_edit()
 
     auto old = entries_[row];
     if (!old.own) return;           // another client's: read-only (REQ-qt-13d)
-    uint16_t addr = old.addr;
-    uint16_t page = old.page;
     int type_index = old.type;
+    std::vector<BpTarget> targets;
 
-    if (!show_bp_dialog(tr("Edit Breakpoint"), addr, page, type_index))
+    if (!show_bp_dialog(tr("Edit Breakpoint"), old.addr, old.page, type_index, targets))
         return;
 
     model_->remove(old.type, old.addr, old.page);
@@ -336,8 +353,10 @@ void BreakpointPanel::on_edit()
     // moves a breakpoint; it does not create one, so a disabled breakpoint
     // whose address the user corrects must come back still disabled. add()
     // always creates enabled, hence the explicit re-apply.
-    model_->add(type_index, addr, page);
-    model_->set_enabled(type_index, addr, old.enabled, page);
+    for (const auto& [addr, page] : targets) {
+        model_->add(type_index, addr, page);
+        model_->set_enabled(type_index, addr, old.enabled, page);
+    }
     // Each of the mutations above notified; the last one left the table
     // showing the edited breakpoint. Nothing to repaint by hand.
 }

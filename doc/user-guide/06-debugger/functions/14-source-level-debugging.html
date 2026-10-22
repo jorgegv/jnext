@@ -3747,7 +3747,11 @@ code that is not the one in memory. Code supplied by ROM or by an overlay
 (DivMMC — including the instruction at which its automatic paging switches on
 or off —, the Multiface, the Layer 2 read mapping, the boot ROM) is not any RAM
 page, so page-tagged records never describe it; the Source tab says "ROM or
-overlay" there. A record with no page matches whatever is there.</p>
+overlay" there.</p>
+<p>A statement covers every byte up to the next one: the data of a
+<code>DB</code> after an instruction belongs to that instruction's statement, and so does everything after the last
+statement of a page up to the end of that 8K page. Only addresses below a
+page's first statement, and pages with no statement at all, are unmapped.</p>
 <p>Code your program copies somewhere else at run time (a routine moved out of a
 bank into low memory, say) has no record where it runs unless your build made
 one, and shows as unmapped there.</p>
@@ -3755,11 +3759,11 @@ one, and shows as unmapped there.</p>
 <p>See <a href="../panels/15-source.html">Source</a>. Its buttons step by statement:</p>
 <ul>
 <li><strong>Into</strong> — run to the next source statement, entering calls. Instructions
-  with no source record (compiler runtime, library code) are run through.</li>
+  with no source statement (compiler runtime, library code) are run through.</li>
 <li><strong>Over</strong> — the same, but a call is run to its return.</li>
 <li><strong>Out</strong> — run until a statement in the routine that called this one.</li>
-<li><strong>Back</strong> — rewind to the previous source statement that ran before this
-  point (after a <strong>Frame Back</strong>, the history you rewound away from does not
+<li><strong>Back</strong> — rewind to the start of the previous source statement that ran
+  before this point (after a <strong>Frame Back</strong>, the history you rewound away from does not
   count).</li>
 <li><strong>Reverse</strong> — rewind to the most recent source statement with an Execute
   breakpoint on it.</li>
@@ -3782,8 +3786,10 @@ their target in the instructions the trace has kept.</p>
 <h2 id="breakpoints-on-a-source-line">Breakpoints on a source line<a class="headerlink" href="#breakpoints-on-a-source-line" title="Permanent link">&para;</a></h2>
 <p>In the Breakpoints panel's <strong>Add</strong> dialog, the address can be a number
 (<code>8000</code>, <code>$8000</code>, <code>0x8000</code>), a symbol (<code>PlayerTick</code>), or, for an Execute
-breakpoint, a source line, <code>file:line</code>: <code>main.bas:120</code>, or the full path
-when two files share a name. A number wins over a symbol: <code>FE</code> or <code>B</code> is that
+breakpoint, a source line, <code>file:line</code>: <code>main.bas:120</code>, or the end of the
+path (<code>game/main.bas:120</code>) when two files share a name. A line the program
+compiled to several places (a routine in two banks, say) gets a breakpoint at
+each; a line with no code is refused with "no code at main.bas:120". A number wins over a symbol: <code>FE</code> or <code>B</code> is that
 address even when the program has a variable called <code>FE</code> or <code>B</code>. Write <code>@FE</code>
 to mean the symbol. A breakpoint on a line of banked code is tied to
 its page (shown as <code>$C000 @2E</code>): it fires only while that RAM page supplies the

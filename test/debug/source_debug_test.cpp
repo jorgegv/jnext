@@ -12,13 +12,13 @@
 // them; no ROM. The program (interrupts off), with the source map's lines:
 //
 //   8000  00           NOP          main.bas:10
-//   8001  00           NOP          (unmapped: same statement)
+//   8001  00           NOP          (inside main.bas:10's range: same statement)
 //   8002  CD 00 90     CALL SUB     main.bas:11
 //   8005  00           NOP          main.bas:12
 //   8006  C3 00 80     JP $8000     main.bas:13
 //   9000  32 00 A0     LD ($A000),A sub.bas:1
 //   9003  00           NOP          sub.bas:2
-//   9004  C9           RET          (unmapped)
+//   9004  C9           RET          (inside sub.bas:2's range)
 //
 // Every row fails on a tree without the feature: there is no source map,
 // source_step() or load_program_sidecars() to call.
@@ -60,7 +60,9 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <initializer_list>
 #include <unistd.h>
+#include <utility>
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
@@ -120,6 +122,29 @@ static std::string program_sld(unsigned page80, unsigned page90, const std::stri
            "main.bas|13||0|" + p80 + "|32774|T|\n" +
            "sub.bas|1||0|" + p90 + "|36864|T|\n" +
            "sub.bas|2||0|" + p90 + "|36867|T|\n" + extra;
+}
+
+// program_sld() without the given statement's record (`lines` are main.bas
+// line numbers): under ranges the previous record would cover its address.
+static std::string program_sld_without(unsigned page80, unsigned page90,
+                                       std::initializer_list<int> lines) {
+    std::string text = program_sld(page80, page90);
+    for (const int line : lines) {
+        const size_t at = text.find("main.bas|" + std::to_string(line) + "||0|" +
+                                    std::to_string(page80) + "|");
+        text.erase(at, text.find('\n', at) + 1 - at);
+    }
+    return text;
+}
+
+// A one-file SLD of `x.asm` records (position, address) on page `page`.
+static std::string x_sld(unsigned page,
+                         std::initializer_list<std::pair<const char*, unsigned>> records) {
+    std::string text = std::string("|SLD.data.version|1\n") + "x.asm|1||0" + kNextDevice;
+    for (const auto& [pos, addr] : records)
+        text += std::string("x.asm|") + pos + "||0|" + std::to_string(page) + "|" +
+                std::to_string(addr) + "|T|\n";
+    return text;
 }
 
 struct Machine {
@@ -272,8 +297,13 @@ int main() {
         const auto sub = m.dbg->source_location(0x9003);
         check("SRCDBG-LOC-02", "any address's statement, on the page mapped there now",
               sub && sub->file == "sub.bas" && sub->line == 2);
+        // $8000-$8001 sit below the first record of the page: no statement.
+        const fs::path no10 = dir / "no-line10.sld";
+        write_text(no10, program_sld_without(p80, p90, {10}));
+        m.dbg->load_source_map(no10.string(), false);
         check("SRCDBG-LOC-03", "an unmapped instruction has no location",
               !m.dbg->source_location(0x8001));
+        m.dbg->load_source_map(sld.string(), false);
         // The same addresses recorded on other pages do not describe this
         // machine's memory.
         const fs::path other = dir / "other-pages.sld";
@@ -366,8 +396,8 @@ int main() {
         m.dbg->load_source_map(sld.string(), false);
 
         const Result r = m.dbg->source_step(m.a, Step::Into);
-        check("SRCDBG-STEP-02", "Into skips the unmapped instruction of the same "
-                                "statement: main.bas:10 -> :11",
+        check("SRCDBG-STEP-02", "Into runs through the rest of the statement (the second "
+                                "instruction of main.bas:10): main.bas:10 -> :11",
               r == Result::Ok && m.pc() == 0x8002, m.where());
         check("SRCDBG-STEP-03", "the machine is left paused, reason Step",
               m.dbg->state().paused && m.dbg->state().pause_reason.kind == PauseReason::Kind::Step);
@@ -391,8 +421,8 @@ int main() {
         m.dbg->load_source_map(sld.string(), false);
         m.dbg->subscribe(m.a, execute_stop(0x8001));
         m.dbg->source_step(m.a, Step::Into);
-        check("SRCDBG-STEP-08", "an Execute breakpoint on an unmapped instruction ends "
-                                "the step there, before it runs",
+        check("SRCDBG-STEP-08", "an Execute breakpoint inside the statement (on its second "
+                                "instruction) ends the step there, before it runs",
               m.pc() == 0x8001, m.where());
         m.dbg->source_step(m.a, Step::Into);
         check("SRCDBG-STEP-09", "a step from the breakpoint's own address steps off it",
@@ -416,11 +446,14 @@ int main() {
     }
     {
         Machine m;
-        m.dbg->load_source_map(sld.string(), false);
-        m.set_pc(0x8001);   // unmapped
+        const fs::path no10 = dir / "no-line10-step.sld";
+        write_text(no10, program_sld_without(p80, p90, {10}));
+        m.dbg->load_source_map(no10.string(), false);
+        m.set_pc(0x8001);   // below the page's first record: unmapped
         m.dbg->source_step(m.a, Step::Into);
         check("SRCDBG-STEP-11", "from an unmapped instruction a step is one instruction",
               m.pc() == 0x8002, m.where());
+        m.set_pc(0x8002);
         m.dbg->source_step(m.a, Step::Out);
         check("SRCDBG-STEP-12", "Out with no tracked call is one instruction",
               m.pc() == 0x9000, m.where());
@@ -441,15 +474,13 @@ int main() {
     {
         // The caller's return address has no record: Out keeps going past it
         // to the first mapped position below the call.
+        // Lines 10-12 have no record: the return address $8005 lies below the
+        // page's first record ($8006).
         const fs::path no12 = dir / "no-line12.sld";
-        std::string text = program_sld(p80, p90);
-        const std::string line12 = "main.bas|12||0|" + std::to_string(p80) + "|32773|T|\n";
-        text.erase(text.find(line12), line12.size());
-        write_text(no12, text);
+        write_text(no12, program_sld_without(p80, p90, {10, 11, 12}));
         Machine m;
         m.dbg->load_source_map(no12.string(), false);
-        m.dbg->source_step(m.a, Step::Into);
-        m.dbg->source_step(m.a, Step::Into);   // main.bas:11, sub.bas:1
+        for (int i = 0; i < 3; ++i) m.dbg->step_into(m.a);   // NOP, NOP, CALL -> sub.bas:1
         const bool in_sub = m.pc() == 0x9000;
         m.dbg->source_step(m.a, Step::Out);
         check("SRCDBG-STEP-14", "Out whose caller returns into unmapped code stops at the "
@@ -461,8 +492,8 @@ int main() {
         m.dbg->load_source_map(sld.string(), false);
         m.emu.debug_state().breakpoints().add_pc(0x8001);
         m.dbg->source_step(m.a, Step::Into);
-        check("SRCDBG-STEP-15", "a legacy PC breakpoint between two statements stops the "
-                                "step there, before it runs",
+        check("SRCDBG-STEP-15", "a legacy PC breakpoint on the statement's second instruction "
+                                "stops the step there, before it runs",
               m.pc() == 0x8001, m.where());
     }
     {
@@ -514,6 +545,31 @@ int main() {
               m.where() + " ran " + std::to_string(ran));
     }
 
+    // A record covers the bytes up to the next one: the step goes by statement,
+    // not by exact record address (GH #338).
+    {
+        const fs::path nops = dir / "nops.sld";
+        write_text(nops, x_sld(p80, {{"1", 0x8000}, {"2", 0x8003}}));
+        Machine m;
+        for (uint16_t a = 0x8000; a < 0x8004; ++a) m.emu.mmu().write(a, 0x00);   // NOP x4
+        m.dbg->load_source_map(nops.string(), false);
+        m.set_pc(0x8001);   // inside x.asm:1, not at its record
+        m.dbg->source_step(m.a, Step::Into);
+        check("SRCDBG-STEP-18", "a step from inside a statement's range, not at its record "
+                                "address, runs to the next statement",
+              m.pc() == 0x8003, m.where());
+
+        const fs::path cols = dir / "cols.sld";
+        write_text(cols, x_sld(p80, {{"5:1", 0x8000}, {"5:7", 0x8001}, {"6", 0x8002}}));
+        Machine n;
+        for (uint16_t a = 0x8000; a < 0x8004; ++a) n.emu.mmu().write(a, 0x00);
+        n.dbg->load_source_map(cols.string(), false);
+        n.dbg->source_step(n.a, Step::Into);
+        check("SRCDBG-STEP-19", "a step stops between two columns of one line: the column is "
+                                "part of the position",
+              n.pc() == 0x8001, n.where());
+    }
+
     // ── source_step() backwards ─────────────────────────────────────────
     {
         Machine m(/*rewind=*/true);
@@ -528,7 +584,7 @@ int main() {
         check("SRCDBG-BACK-03", "Back rewinds to the previous statement: main.bas:12",
               r == Result::Ok && m.pc() == 0x8005, m.where());
         m.dbg->source_step(m.a, Step::Back);
-        check("SRCDBG-BACK-04", "Back again skips the unmapped RET: sub.bas:2",
+        check("SRCDBG-BACK-04", "Back again lands on the start of sub.bas:2, not on its RET: sub.bas:2",
               m.pc() == 0x9003, m.where());
         check("SRCDBG-BACK-05", "the call stack is the one at that point (inside SUB)",
               m.dbg->call_stack().size() == 1);
@@ -566,6 +622,63 @@ int main() {
         check("SRCDBG-BACK-08", "Back counts a statement's consecutive instructions as one "
                                 "position: from the second, it lands on the statement before",
               at && m.pc() == 0x9003, m.where());
+    }
+
+    {
+        // Back lands on the FIRST instruction of the previous statement (the
+        // inverse of Into), not on the last one it ran (GH #338).
+        const fs::path nops = dir / "back-nops.sld";
+        write_text(nops, x_sld(p80, {{"1", 0x8000}, {"2", 0x8003}}));
+        Machine m(/*rewind=*/true);
+        for (uint16_t a = 0x8000; a < 0x8004; ++a) m.emu.mmu().write(a, 0x00);   // NOP x4
+        m.dbg->load_source_map(nops.string(), false);
+        m.dbg->set_trace_enabled(true);
+        m.dbg->source_step(m.a, Step::Into);   // $8000 -> $8003
+        const bool at = m.pc() == 0x8003;
+        m.dbg->source_step(m.a, Step::Back);
+        check("SRCDBG-BACK-10", "Back lands on the first instruction of the previous "
+                                "multi-instruction statement",
+              at && m.pc() == 0x8000, m.where());
+
+        // The statement's run is not broken by code that has no location: a
+        // call into code on another page is part of the statement.
+        const fs::path call = dir / "back-call.sld";
+        write_text(call, x_sld(p80, {{"1", 0x8000}, {"2", 0x8004}}));
+        Machine n(/*rewind=*/true);
+        const uint8_t prog[] = {0xCD, 0x00, 0xC0, 0x00, 0x00};   // CALL $C000; NOP; NOP
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            n.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        n.emu.mmu().write(0xC000, 0xC9);   // RET
+        const bool other_page = n.dbg->effective_page(0xC000) != p80;   // read, not assumed
+        n.dbg->load_source_map(call.string(), false);
+        n.dbg->set_trace_enabled(true);
+        n.dbg->source_step(n.a, Step::Into);   // CALL, RET, NOP -> $8004
+        const bool there = n.pc() == 0x8004;
+        n.dbg->source_step(n.a, Step::Back);
+        check("SRCDBG-BACK-11", "Back passes over unmapped code inside the previous "
+                                "statement and lands on its first instruction",
+              other_page && there && n.pc() == 0x8000, n.where());
+    }
+
+    {
+        // A statement that ran twice: Back lands on its LAST pass.
+        //   8000 LD B,2   1      8002 NOP   2      8003 DJNZ 8002   3      8005 NOP   4
+        const fs::path loop = dir / "back-loop.sld";
+        write_text(loop, x_sld(p80, {{"1", 0x8000}, {"2", 0x8002}, {"3", 0x8003}, {"4", 0x8005}}));
+        Machine m(/*rewind=*/true);
+        const uint8_t prog[] = {0x06, 0x02, 0x00, 0x10, 0xFD, 0x00};
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        m.dbg->load_source_map(loop.string(), false);
+        m.dbg->set_trace_enabled(true);
+        for (int i = 0; i < 5; ++i) m.dbg->source_step(m.a, Step::Into);   // 1,2,3,2,3 -> 4
+        const bool at4 = m.pc() == 0x8005;
+        m.dbg->source_step(m.a, Step::Back);
+        const unsigned b = m.emu.cpu().get_registers().BC >> 8;
+        check("SRCDBG-BACK-12", "Back after a loop lands on the last pass of the previous "
+                                "statement, not the first",
+              at4 && m.pc() == 0x8003 && b == 1,
+              m.where() + " B=" + std::to_string(b));
     }
 
     // ── fetch identity: a page names RAM only when RAM supplies the fetch ─
@@ -1906,7 +2019,7 @@ int main() {
     {
         Machine m;
         m.emu.mmu().write(0x8000, 0xF3);   // DI      main.bas:10
-        m.emu.mmu().write(0x8001, 0x76);   // HALT    (unmapped)
+        m.emu.mmu().write(0x8001, 0x76);   // HALT    (same statement, inside h.bas:10)
         const fs::path hs = dir / "halt.sld";
         write_text(hs, std::string("|SLD.data.version|1\n") + "h.bas|1||0" + kNextDevice +
                            "h.bas|10||0|" + std::to_string(p80) + "|32768|T|\n");
@@ -1974,7 +2087,7 @@ int main() {
     }
 
     {
-        // A handler that redirects: at the unmapped $8001 it sends the PC to
+        // A handler that redirects: at $8001 (inside main.bas:10) it sends the PC to
         // $8005 (main.bas:12). The step must stop there, not run line 12.
         Machine m;
         m.dbg->load_source_map(sld.string(), false);
