@@ -79,8 +79,8 @@ int main() {
     SourceMap map;
     const SourceMapLoadResult loaded = load_sld(map, sld.string());
     check("SLD-01", "an SLD with five trace records loads five", loaded.count == 5);
-    check("SLD-02", "label (L) records are not source traces; a duplicate address "
-                    "keeps one record", map.size() == 4);
+    check("SLD-02", "label (L) records are not source traces; both records at one "
+                    "address are kept", map.size() == 5);
     check("SLD-03", "the map remembers the file it came from",
           map.loaded_file() == sld.string());
 
@@ -206,7 +206,7 @@ int main() {
                   r.count == -1 && r.error.find("invalid SHA-256") != std::string::npos);
         }
         check("SLD-13", "a refused load leaves the live map in place",
-              kept.size() == 4 && kept.lookup(MemSpace::page(4), 0x8016) != nullptr);
+              kept.size() == 5 && kept.lookup(MemSpace::page(4), 0x8016) != nullptr);
     }
 
     // CRLF line ends (an SLD edited or produced on Windows).
