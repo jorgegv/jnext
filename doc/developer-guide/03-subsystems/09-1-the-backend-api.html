@@ -2916,7 +2916,7 @@ before and after, and the tests compare them for every fetch of a guest tour.
 frames (<code>CallFrame::caller_space</code> is the CALL's own fetch, <code>target_space</code> is
 recorded at the first fetch at the target and stays unrecorded, <code>cpu()</code>, until
 then; an INT or NMI frame's caller is the prediction at the interrupted PC). A
-slot that fetched nothing (an accepted INT or NMI, the esxdos shim) keeps the
+slot that records no fetch (an accepted INT or NMI, the esxdos shim) keeps the
 prediction for its PC in its trace entry.
 <code>TraceLog::fetch_not_mmu_ram()</code> is a view of that identity, for the page
 qualifier below. An <code>Execute</code> filter with
