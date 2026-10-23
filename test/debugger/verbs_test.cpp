@@ -1899,6 +1899,66 @@ static void test_rewind_ui() {
         }
     }
 
+    {
+        // QRW-25 - GH #400: trace off, then Rewind Buffer Size 0 (no ring): the
+        // resize records no "trace on" (Emulator::resize_rewind_buffer(0) never
+        // touches the trace), so a hard reset keeps the trace off.
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "trace off, then Rewind Buffer Size 0, then a hard reset: "
+                           "the trace stays off and there is no ring";
+        if (!fx.ok) { check("QRW-25", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            const EmulatorConfig stale = fx.emu.config();
+            DebuggerWindow* dbg = fx.dbg();
+            fx.backend->set_trace_enabled(false);
+            Modals m;
+            m.spin_value = 0;
+            if (QAction* sz = debug_sub_item(dbg, "Rewind", "Rewind Buffer Size..."))
+                sz->trigger();
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, stale, std::string(), ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            const bool trace = fx.emu.trace_log().enabled();
+            check("QRW-25", desc, m.seen.size() == 1 && !trace && fx.emu.rewind_buffer() == nullptr,
+                  fmt("dialogs=%zu trace=%d ring=%d", m.seen.size(), trace,
+                      fx.emu.rewind_buffer() != nullptr));
+        }
+    }
+
+    {
+        // QRW-26 - GH #400: Enable Rewind, THEN the trace off (an explicit later
+        // choice): a hard reset rebuilds the ring but honours the trace choice.
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "Enable Rewind, then trace off, then a hard reset: rewind "
+                           "on at the chosen size, trace off, Step Back not offered";
+        if (!fx.ok) { check("QRW-26", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            const EmulatorConfig stale = fx.emu.config();
+            DebuggerWindow* dbg = fx.dbg();
+            QAction* enable = debug_sub_item(dbg, "Rewind", "Enable Rewind");
+            if (enable) enable->trigger();
+            run_frames_then_break(fx, 2);
+            fx.backend->set_trace_enabled(false);
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, stale, std::string(), ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            fx.mgr->on_run();
+            run_frames_then_break(fx, 3);
+            const bool trace = fx.emu.trace_log().enabled();
+            const bool offered = action_enabled(debug_item(dbg, "Step Back"));
+            check("QRW-26", desc,
+                  fx.emu.rewind_enabled() && fx.emu.rewind_buffer() &&
+                      fx.emu.rewind_buffer()->capacity() == 500 && !trace && !offered,
+                  fmt("rewind=%d cap=%zu trace=%d step_back_enabled=%d", fx.emu.rewind_enabled(),
+                      fx.emu.rewind_buffer() ? fx.emu.rewind_buffer()->capacity() : 0, trace,
+                      offered));
+        }
+    }
+
     // ── Failure classes (Task 60e): refused, benign, corrupt ─────────
     {
         Fixture fx(MachineType::ZX48K, 10);
