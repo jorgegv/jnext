@@ -1750,6 +1750,7 @@ void test_paged_symbols() {
         check("QSYM-05", "panels", false);
         check("QSYM-10", "panels", false);
         check("QSYM-11", "panels", false);
+        check("QSYM-12", "panels", false);
         return;
     }
     bp->set_symbol_table(&t);
@@ -1850,6 +1851,15 @@ void test_paged_symbols() {
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $9000
+    const bool at_call_target = fx.pc() == 0x9000;
+    // Before that fetch the frame has no target_space: the target is named by the page mapped now.
+    fx.emu.mmu().set_page(4, 30);
+    cs->set_paused(true);
+    cs->refresh();
+    const QString unrecorded = cell(cs, 0, 3);
+    fx.emu.mmu().set_page(4, static_cast<uint8_t>(fx.p80));
+    check("QSYM-12", "a Call Stack frame whose target has not been fetched yet is named after the page mapped now",
+          at_call_target && unrecorded == QStringLiteral("sub_now"), s(unrecorded));
     // The frame's target_space is filled by the first fetch AT the target: run the NOP there.
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     const bool at_target = fx.pc() == 0x9001;
