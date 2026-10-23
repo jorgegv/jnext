@@ -518,6 +518,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(sd_no_digest_linux_test PRIVATE jnext_core)
     target_include_directories(sd_no_digest_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME sd_no_digest_linux_tests COMMAND sd_no_digest_linux_test)
+
+    # GH #401: a host path that is not UTF-8 must not abort a .jns save. A
+    # non-UTF-8 file name can be created only on a Linux filesystem.
+    add_executable(jns_host_path_linux_test snapshot/jns_host_path_linux_test.cpp)
+    target_link_libraries(jns_host_path_linux_test PRIVATE jnext_core)
+    target_include_directories(jns_host_path_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME jns_host_path_linux_tests COMMAND jns_host_path_linux_test)
 endif()
 
 # Sprites subsystem compliance test
