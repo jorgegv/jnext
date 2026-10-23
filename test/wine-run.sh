@@ -13,7 +13,10 @@
 # The environment is the one tools/pgo-build.sh trains the Windows PGO build
 # in: a private WINEPREFIX under the build tree, no wine debug noise, no Mono /
 # Gecko prompt, and NO DISPLAY / WAYLAND_DISPLAY / XDG_RUNTIME_DIR, so nothing
-# can ever open a window on the developer's desktop. The DLLs the executables
+# can ever open a window on the developer's desktop, and BOTH D-Bus addresses
+# pointed at nothing (DBUS_SESSION_BUS_ADDRESS, DBUS_SYSTEM_BUS_ADDRESS: GH #383, see
+# the line that sets them), so nothing a Windows process loads can call the
+# developer's desktop session. The DLLs the executables
 # link (SDL3, libpng, zlib, winpthreads, libstdc++ ...) are found through
 # WINEPATH -- the MinGW sys-root and the build's own spdlog DLL -- rather than
 # copied beside ninety executables.
@@ -34,24 +37,30 @@
 #   - bash and wine by absolute path, since a row may set PATH to an empty dir;
 #   - DISPLAY is kept only for an xvfb-run display, never a desktop one.
 # (JNEXT_WINE_BIN replaces /usr/bin/wine: the harness self-test's stub.)
-#   - a stalled jnext.exe names its blocked call (GH #383): when the row's `timeout`
-#     sends TERM at the bound and JNEXT_WINE_CAPTURE_DIR is set, the TERM handler first
-#     saves what the one stalled process is doing to <dir>/wine-stall-<time>-<pid>.txt
-#     (its Linux threads and CPU time from /proc; the prefix's processes with their
-#     thread counts; `winedbg info thread`; `winedbg bt all` of THAT Windows pid), then
-#     forwards TERM as before. It runs after the row's verdict is decided (reaching the
-#     bound is the failure), so it cannot change one. It is the internal mode
-#     `--capture`, so `timeout` can bound it; `--prefix-state` prints the thread counts
-#     of the prefix's wine processes (the driver's end-of-run line).
-#     BUDGET: the rows wrap $JNEXT in `timeout --foreground --kill-after=5s`, so KILL
-#     reaches this script 5 s after TERM; if it dies before forwarding, wine keeps the
-#     row's pipes and the row hangs. CAPTURE_BUDGET plus its 0.4 s kill leaves >= 1.1 s.
+#   - a stalled jnext.exe names its blocked call (GH #383): when JNEXT_WINE_CAPTURE_DIR is
+#     set, a watchdog (the internal mode `--watchdog`, a child of this script with its stdio
+#     on /dev/null, so it holds none of the row's pipes) reads /proc/<wine pid>/stat once a
+#     second and fires ONCE when the process is >= 20 s old, its CPU time (utime+stime) has
+#     not moved for 10 s and its total is <= 2 s: a startup stall has 0.1-0.3 s of CPU, a
+#     starved but runnable process keeps advancing, one that worked and went idle is over
+#     the cap. It then runs the internal mode `--capture`, which saves to
+#     <dir>/wine-stall-<time>-<pid>.txt: the target's Linux threads and CPU time from /proc;
+#     the prefix's processes with their thread counts; the threads of the prefix's
+#     winedevice.exe hosts (/proc only); `winedbg info thread`; and one `Backtrace:` per
+#     thread of THAT Windows pid (one `winedbg --file` session: attach, `bt <tid>` for each
+#     tid `info thread` lists under the pid, detach). It never uses `bt all`: real winedbg
+#     answers it with "can't debug several processes at once" (the stub of the harness
+#     self-test mirrors that). Then it signals this script (USR1), which writes one stderr
+#     line naming the file. TERM is simply forwarded, at once: nothing is captured at the
+#     bound, so no kill is racing the capture. `--prefix-state` prints the thread counts of
+#     the prefix's wine processes (the driver's end-of-run line).
 #     winedbg runs only while the target is alive, and the name fallback only if /proc shows
 #     it as the only process of its name in the prefix: a winedbg killed by its bound kills
 #     its debuggee under wine 11, so it may only ever be pointed at the stalled process.
-#     The /proc sections come first and are never cut. `bt all` is per pid on purpose:
-#     prefix-wide it took 21.6 s at load 20 and pauses other rows' processes. wine does
-#     not catch SIGTERM (measured), so the forward always lands. INT is forwarded at once.
+#     The /proc sections come first and are never cut. wine does not catch SIGTERM
+#     (measured), so the forward always lands. INT is forwarded at once.
+#     JNEXT_WINE_STALL_AFTER_S and JNEXT_WINE_STALL_FLAT_S replace the 20 s and the 10 s:
+#     TEST-ONLY, for the harness self-test and the driver's once-per-run self-check.
 # A persistent wineserver (--serve, started once before the rows, stopped with
 # `wineserver -k`) must exist first: the first wine process otherwise spawns one
 # that inherits the filters' pipes, never lets them see EOF, and the row hangs.
@@ -64,9 +73,6 @@ set -euo pipefail
 # This script's own absolute path, for --capture (parameter expansion only: PATH may be empty).
 SELF=${BASH_SOURCE[0]}
 [[ $SELF == /* ]] || SELF=$PWD/$SELF
-# What the TERM handler may spend on the stall capture (see the header: BUDGET).
-CAPTURE_BUDGET_MS=3500
-CAPTURE_BUDGET=$((CAPTURE_BUDGET_MS / 1000)).$((CAPTURE_BUDGET_MS % 1000 / 100))s
 
 if [[ "${1:-}" == --jnext ]]; then
     EXE=${2:?usage: wine-run.sh --jnext <jnext.exe> [args...]}
@@ -82,7 +88,7 @@ if [[ "${1:-}" == --jnext ]]; then
     [[ -n "${DISPLAY:-}" && "${XAUTHORITY:-}" == */xvfb-run.*/Xauthority ]] && KEEP_DISPLAY=$DISPLAY
 elif [[ "${1:-}" == --init || "${1:-}" == --serve ]]; then
     BUILD=$(cd "${2:?usage: wine-run.sh $1 <build_dir>}" && pwd)
-elif [[ "${1:-}" == --capture || "${1:-}" == --prefix-state ]]; then
+elif [[ "${1:-}" == --capture || "${1:-}" == --prefix-state || "${1:-}" == --watchdog ]]; then
     # Internal modes: the prefix is the caller's (exported WINEPREFIX).
     : "${WINEPREFIX:?wine-run.sh $1 needs WINEPREFIX}"
     BUILD=.
@@ -99,6 +105,15 @@ export WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all LC_ALL=C.UTF-8 LANG=C.U
 # directory here, GH #316). Unix or DOS form; appended after the two above.
 export WINEPATH="$SYSROOT/bin;$BUILD/third_party/spdlog${JNEXT_EXTRA_WINEPATH:+;$JNEXT_EXTRA_WINEPATH}"
 unset DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR
+# Test-environment isolation (GH #383), the same kind as the line above: a Windows process
+# under the developer's session inherited its D-Bus. SDL's WASAPI init makes wine load
+# winealsa, whose pipewire plugin loads module-rt, which makes SYNCHRONOUS calls to the
+# desktop's xdg-desktop-portal; when the portal is slow the start waits on D-Bus timeouts past
+# a row's bound (captured, and reproduced with a bus that never answers). Both buses are
+# overridden, not unset: libdbus falls back to the system bus (RTKit) when the session one is
+# missing. CI's container has no D-Bus at all, so this makes a local run equal CI. It is NOT a
+# workaround for anything jnext does on Windows, where none of this exists.
+export DBUS_SESSION_BUS_ADDRESS=disabled: DBUS_SYSTEM_BUS_ADDRESS=disabled:
 [[ -z "${KEEP_DISPLAY:-}" ]] || export DISPLAY=$KEEP_DISPLAY
 
 # As root (the CI container) wine would write through a read-only file: wine
@@ -206,6 +221,28 @@ prefix_procs() {
     return 0
 }
 
+# The threads of the prefix's winedevice.exe driver hosts, from /proc only (attaching a
+# debugger to one would pause every row's device I/O): pid tid comm state wchan syscall.
+winedevice_threads() {
+    local d c env_txt t tc ts tw tsy f
+    for d in /proc/[0-9]*; do
+        { read -r c < "$d/comm"; } 2>/dev/null || continue
+        [[ $c == winedevice.exe ]] || continue
+        env_txt=$({ tr '\0' '\n' < "$d/environ"; } 2>/dev/null || true)
+        grep -qxF "WINEPREFIX=$WINEPREFIX" <<<"$env_txt" || continue
+        for t in "$d"/task/*; do
+            [[ -d $t ]] || continue
+            { read -r tc < "$t/comm"; } 2>/dev/null || tc=?
+            { read -r ts < "$t/stat"; } 2>/dev/null || ts="? ? ?"
+            read -ra f <<<"${ts##*) }"
+            tw=; { read -r tw < "$t/wchan" || [[ -n $tw ]]; } 2>/dev/null || tw=?
+            { read -r tsy < "$t/syscall"; } 2>/dev/null || tsy=?
+            echo "${d#/proc/} ${t##*/} $tc ${f[0]:-?} $tw syscall: $tsy"
+        done
+    done
+    return 0
+}
+
 if [[ "${1:-}" == --prefix-state ]]; then
     # "plugplay.exe=212 services.exe=10 winedevice.exe=8/12 (threads)": every run gets a
     # data point on the 500-worker hypothesis of GH #383, stall or not.
@@ -261,24 +298,24 @@ if [[ "${1:-}" == --capture ]]; then
         echo "== prefix processes (pid comm threads state wchan)"
         prefix_procs
         echo
+        echo "== winedevice processes (pid tid comm state wchan syscall)"
+        winedevice_threads
+        echo
     } >> "$cap_out" 2>&1 || true
 
-    # A DEADLINE, not fixed bounds (GH #383 review): the outer timeout kills this mode at
-    # CAPTURE_BUDGET_MS, so winedbg gets what is left of it. `info thread` is capped (it only
-    # finds the pid); `bt all` gets all the rest less a margin for its own 0.2 s kill.
-    deadline_us=$((cap_start_us + CAPTURE_BUDGET_MS * 1000))
-    left_ms() { echo $(((deadline_us - ${EPOCHREALTIME/./}) / 1000)); }
-    secs() { printf '%d.%03ds' $(($1 / 1000)) $(($1 % 1000)); }   # secs <ms>
+    # The watchdog calls this while the target is stalled and alive, with nothing racing a
+    # kill, so winedbg gets a generous bound per call (still with --kill-after).
+    DBG_BOUND=20
 
     # winedbg, its output only ever to the capture file (never the row's pipes). A winedbg
     # killed by its bound kills its debuggee under wine 11 (measured), so it is only ever
     # pointed at the stalled process itself, and only while that is alive.
-    dbg_run() {   # dbg_run <ms> <tmpfile> <winedbg args...>
-        local ms=$1 tmp=$2 rc=0
-        shift 2
-        /usr/bin/timeout --kill-after=0.2s "$(secs "$ms")" ${PRIV[@]+"${PRIV[@]}"} "$WINE_BIN" winedbg "$@" \
+    dbg_run() {   # dbg_run <tmpfile> <winedbg args...>
+        local tmp=$1 rc=0
+        shift
+        /usr/bin/timeout --kill-after=2s "${DBG_BOUND}s" ${PRIV[@]+"${PRIV[@]}"} "$WINE_BIN" winedbg "$@" \
             </dev/null >"$tmp" 2>&1 || rc=$?
-        if [[ $rc -eq 124 || $rc -eq 137 ]]; then echo "winedbg $*: no answer within $(secs "$ms") (rc $rc)" >> "$cap_out"; fi
+        if [[ $rc -eq 124 || $rc -eq 137 ]]; then echo "winedbg $*: no answer within ${DBG_BOUND}s (rc $rc)" >> "$cap_out"; fi
         /usr/bin/tr -d '\r' < "$tmp" >> "$cap_out" 2>/dev/null || true
         return 0
     }
@@ -293,9 +330,8 @@ if [[ "${1:-}" == --capture ]]; then
         exit 0
     fi
     info_tmp=$cap_out.info
-    info_ms=$(($(left_ms) - 500)); ((info_ms <= 1500)) || info_ms=1500
     echo "== winedbg info thread" >> "$cap_out"
-    if ((info_ms >= 200)); then dbg_run "$info_ms" "$info_tmp" --command "info thread"; else echo "no time left for it" >> "$cap_out"; fi
+    dbg_run "$info_tmp" --command "info thread"
     echo >> "$cap_out"
 
     # The Windows pid of the target: the one process block whose command line is exactly
@@ -309,6 +345,8 @@ if [[ "${1:-}" == --capture ]]; then
     done
     base=${cap_exe##*/}
     exact=(); byname=(); hdr=
+    declare -A tids=()   # Windows pid -> its tids, as `info thread` lists them
+    tab=$'\t'
     if [[ -r $info_tmp ]]; then
         while IFS= read -r line; do
             line=${line%$'\r'}
@@ -318,6 +356,8 @@ if [[ "${1:-}" == --capture ]]; then
             elif [[ -n $hdr && $line == $'\t['*']' ]]; then
                 cl=${line#*[}; cl=${cl%]}
                 [[ $cl == "$want" ]] && exact+=("$hdr")
+            elif [[ -n $hdr && $line =~ ^${tab}([0-9a-fA-F]{8})([[:space:]]|$) ]]; then
+                tids[$hdr]+=" ${BASH_REMATCH[1]}"
             fi
         done < "$info_tmp" 2>/dev/null || true
     fi
@@ -332,19 +372,54 @@ if [[ "${1:-}" == --capture ]]; then
         done < <(prefix_procs)
         if ((same == 1 && me == 1)); then pid=${byname[0]}; how="matched by name only; the only $base in the prefix"; fi
     fi
-    bt_ms=$(($(left_ms) - 300))
     if [[ -z $pid ]]; then
-        { echo "== winedbg bt all"; echo "no unique match (${#exact[@]} exact, ${#byname[@]} by name); no backtrace"; } >> "$cap_out"
+        { echo "== winedbg backtraces"; echo "no unique match (${#exact[@]} exact, ${#byname[@]} by name); no backtrace"; } >> "$cap_out"
     elif ! target_alive; then
-        { echo "== winedbg bt all"; echo "pid $cap_pid is gone: no backtrace"; } >> "$cap_out"
-    elif ((bt_ms < 300)); then
-        { echo "== winedbg bt all 0x$pid ($how)"; echo "no time left for it"; } >> "$cap_out"
+        { echo "== winedbg backtraces"; echo "pid $cap_pid is gone: no backtrace"; } >> "$cap_out"
+    elif [[ -z "${tids[$pid]:-}" ]]; then
+        { echo "== winedbg backtraces of 0x$pid ($how)"; echo "info thread lists no thread for it: no backtrace"; } >> "$cap_out"
     else
-        echo "== winedbg bt all 0x$pid ($how)" >> "$cap_out"
-        dbg_run "$bt_ms" "$cap_out.bt" --command "bt all" "0x$pid"
-        /usr/bin/rm -f "$cap_out.bt"
+        # One session: attach, one `bt <tid>` per thread of THAT pid, detach. `bt all` is not used:
+        # real winedbg answers it "can't debug several processes at once" (GH #383).
+        {
+            echo "attach 0x$pid"
+            for t in ${tids[$pid]}; do echo "bt 0x$t"; done
+            echo detach
+            echo quit
+        } > "$cap_out.cmds"
+        echo "== winedbg backtrace per thread of 0x$pid ($how)" >> "$cap_out"
+        dbg_run "$cap_out.bt" --file "$cap_out.cmds"
+        /usr/bin/rm -f "$cap_out.bt" "$cap_out.cmds"
     fi
     exit 0
+fi
+
+if [[ "${1:-}" == --watchdog ]]; then
+    # --watchdog <wpid> <outfile> <exe> [args...]  (see the header). Started by --jnext mode with
+    # its stdio on /dev/null; ends when the process does or after the one capture. PPID is the
+    # runner: it is told with USR1 once the file is complete.
+    wd_pid=${2:?}; wd_out=${3:?}; shift 3
+    wd_after=$(( ${JNEXT_WINE_STALL_AFTER_S:-20} * 100 ))   # centiseconds, like /proc/uptime
+    wd_flat=$(( ${JNEXT_WINE_STALL_FLAT_S:-10} * 100 ))
+    wd_cpu_cap=200                                          # ticks (100/s): 2 s
+    wd_last=-1; wd_since=0
+    while :; do
+        { read -r st < "/proc/$wd_pid/stat"; } 2>/dev/null || exit 0
+        read -ra f <<<"${st##*) }"
+        [[ ${f[0]} != Z && ${f[0]} != X ]] || exit 0
+        { read -r up _ < /proc/uptime; } 2>/dev/null || exit 0
+        now=$((10#${up/./}))
+        cpu=$((f[11] + f[12]))
+        if ((cpu != wd_last)); then wd_last=$cpu; wd_since=$now; fi
+        if ((now - f[19] >= wd_after && now - wd_since >= wd_flat && cpu <= wd_cpu_cap)); then
+            if /usr/bin/mkdir -p "${wd_out%/*}" 2>/dev/null; then
+                /bin/bash "$SELF" --capture "$wd_pid" "$wd_out" "$@" </dev/null >/dev/null 2>&1 || true
+                kill -USR1 "$PPID" 2>/dev/null || true
+            fi
+            exit 0
+        fi
+        /usr/bin/sleep 1
+    done
 fi
 
 if [[ -n "${JNEXT_MODE:-}" ]]; then
@@ -364,27 +439,24 @@ if [[ -n "${JNEXT_MODE:-}" ]]; then
     fi
     ${PRIV[@]+"${PRIV[@]}"} "${JNEXT_WINE_BIN:-/usr/bin/wine}" "$@" <&3 >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- 3<&- &
     wpid=$!
+    # GH #383: the stall watchdog (header). Its stdio is /dev/null and it closes the filters'
+    # pipes and fd 3 like the wine line above, so it holds nothing of the row's. It runs the
+    # capture while wine is alive and tells this script with USR1, which names the file.
+    cap_file=
+    wd=
+    if [[ -n "${JNEXT_WINE_CAPTURE_DIR:-}" ]]; then
+        cap_file=$JNEXT_WINE_CAPTURE_DIR/wine-stall-$(/usr/bin/date +%Y%m%d-%H%M%S)-$wpid.txt
+        on_capture() {   # $1 = the exe
+            [[ -e $cap_file ]] || return 0
+            # After the capture, and in a subshell: a dead stderr pipe must not kill this shell.
+            ( trap '' PIPE; echo "wine-run: ${1##*/} (pid $wpid) made no progress for ${JNEXT_WINE_STALL_FLAT_S:-10} s at age ${JNEXT_WINE_STALL_AFTER_S:-20} s; state saved to $cap_file" >&2 ) || true
+        }
+        trap 'on_capture "$@"' USR1
+        /bin/bash "$SELF" --watchdog "$wpid" "$cap_file" "$@" </dev/null >/dev/null 2>&1 {out_fd}>&- {err_fd}>&- 3<&- &
+        wd=$!
+    fi
     exec {out_fd}>&- {err_fd}>&- 3<&-
-    cap_done=; cap_file=; cap_msg=
-    on_term() {   # $1 = the exe, the rest its arguments
-        # GH #383: save the stalled process's state BEFORE forwarding (it is gone after).
-        if [[ -z $cap_done && -n "${JNEXT_WINE_CAPTURE_DIR:-}" ]]; then
-            cap_done=1
-            cap_file=
-            cap_file=$JNEXT_WINE_CAPTURE_DIR/wine-stall-$(/usr/bin/date +%Y%m%d-%H%M%S)-$wpid.txt
-            if /usr/bin/mkdir -p "$JNEXT_WINE_CAPTURE_DIR" 2>/dev/null; then
-                /usr/bin/timeout --kill-after=0.4s "$CAPTURE_BUDGET" /bin/bash "$SELF" --capture \
-                    "$wpid" "$cap_file" "$@" </dev/null >/dev/null 2>&1 || true
-                cap_msg="wine-run: TERM at the bound; state of ${1##*/} (pid $wpid) saved to $cap_file"
-            fi
-        fi
-        kill -TERM "$wpid" 2>/dev/null || true
-        # After the forward: an echo into a dead pipe must not kill this shell first. A cut
-        # capture can leave its temp files behind.
-        if [[ -n ${cap_file:-} ]]; then /usr/bin/rm -f "$cap_file.info" "$cap_file.bt"; fi
-        if [[ -n ${cap_msg:-} ]]; then ( trap '' PIPE; echo "$cap_msg" >&2 ) || true; cap_msg=; fi
-    }
-    trap 'on_term "$@"' TERM
+    trap 'kill -TERM "$wpid" 2>/dev/null || true' TERM
     trap 'kill -INT "$wpid" 2>/dev/null' INT
     rc=0
     wait "$wpid" || rc=$?
@@ -394,6 +466,8 @@ if [[ -n "${JNEXT_MODE:-}" ]]; then
     # bash keeps a reaped child's status, so collect the real one, not the interrupted wait's 128+sig.
     rc=0; wait "$wpid" 2>/dev/null || rc=$?
     for p in "${fpids[@]}"; do wait "$p" 2>/dev/null || true; done
+    # The watchdog ends with wine; if it is still sleeping, stop it (the exit status stays wine's).
+    if [[ -n $wd ]]; then kill "$wd" 2>/dev/null || true; wait "$wd" 2>/dev/null || true; fi
     exit "$rc"
 fi
 
