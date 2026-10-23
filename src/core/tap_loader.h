@@ -67,6 +67,12 @@ public:
     /// Most anomaly warnings parse_blocks() reports before it only counts them.
     static constexpr size_t kMaxWarnings = 20;
 
+    /// Most blocks a tape may hold. A TapBlock costs 40 bytes before its payload,
+    /// so a file of 4-byte blocks takes ~10x its size in memory (64 MiB -> 751 MB,
+    /// and a 256 MiB zip member 3 GB). Real tapes hold a few thousand blocks;
+    /// 1 Mi blocks bounds the structures at ~40 MB and is refused above that.
+    static constexpr size_t kMaxBlocks = 1024 * 1024;
+
     static bool parse_blocks(const std::vector<uint8_t>& file_data,
                              std::vector<TapBlock>& blocks,
                              const std::function<void(const std::string&)>& warn = {},
@@ -102,6 +108,13 @@ public:
                 snprintf(msg, sizeof(msg),
                          "block %zu at offset %zu declares %u bytes but only %zu remain",
                          blocks.size(), pos - 2, block_len, file_data.size() - pos);
+                if (error) *error = msg;
+                blocks.clear();
+                return false;
+            }
+
+            if (blocks.size() >= kMaxBlocks) {
+                snprintf(msg, sizeof(msg), "the tape has more than %zu blocks", kMaxBlocks);
                 if (error) *error = msg;
                 blocks.clear();
                 return false;

@@ -59,6 +59,7 @@
 #include "../row_id.h"
 #include "../test_portable.h"
 #include "../zip_fixture.h"
+#include "core/program_archive.h"
 #include "platform/pok_trainers.h"
 
 namespace {
@@ -894,6 +895,47 @@ int main(int argc, char** argv) {
         for (QChar c : st) if (c.unicode() < 0x20 || c.unicode() == 0x7F) ctl = true;
         check("ZIPG-15", "control bytes in member names never reach the status bar (escaped as \\xNN)",
               f.ok && h.n == 0 && !st.isEmpty() && !ctl && st.contains("\\x1B"), q(st));
+    }
+
+    // ZIPG-16
+    {
+        bool all = true;
+        std::string det;
+        int i = 0;
+        for (const char* name : {"\x1b[2J\xC3\xA9.TAP", "F\x82.TAP"}) {
+            Fixture f; Handed h; hook(f, h);
+            zipfx::Member m; m.name = name; m.data = Bytes(8, 1); m.method = 0; m.flags = 1;   // encrypted: extraction fails
+            const std::string zp = write_zip(i++ ? "enc_cp437.zip" : "enc_esc.zip", {m});
+            DialogWatcher w;
+            f.win.handle_load_path(QString::fromStdString(zp));
+            w.stop();
+            const QString shown = QString::fromStdString(program_archive::display_name(name));
+            const QString st = f.win.statusBar()->currentMessage();
+            auto once = [&shown](const QString& t) { return t.count(shown) == 1; };
+            bool ctl = false;
+            for (const QString& t : {st, w.text}) for (QChar c : t) if (c.unicode() < 0x20 || c.unicode() == 0x7F) ctl = true;
+            if (!(f.ok && h.n == 0 && w.seen == 1 && once(st) && once(w.text) && !ctl &&
+                  st.contains("encrypted"))) {
+                all = false;
+                det += q(st) + " | " + q(w.text) + " || ";
+            }
+        }
+        check("ZIPG-16",
+              "an escape-named and a CP437-named program whose extraction fails are shown escaped, exactly once, "
+              "in the dialog and the status bar (the line the log also carries)", all, det);
+    }
+    // ZIPG-17
+    {
+        Fixture f; Handed h; hook(f, h);
+        const std::string pok = "\x1b[0m.POK";
+        const std::string zp = write_zip("pokname.zip", {zmem("G.TAP", Bytes(8, 1)),
+                                                         zmem(pok, Bytes(trainer.begin(), trainer.end()))});
+        f.win.handle_load_path(QString::fromStdString(zp));
+        const auto* s = f.win.pok_session();
+        check("ZIPG-17", "the POK session of an archive names the .pok member escaped",
+              f.ok && h.n == 1 && s && s->path() == zp + " (" + program_archive::display_name(pok) + ")" &&
+                  s->path().find('\x1b') == std::string::npos,
+              s ? s->path() : std::string("no session"));
     }
 
     std::filesystem::remove_all(g_root, ec);

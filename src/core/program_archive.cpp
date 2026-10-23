@@ -52,15 +52,6 @@ bool unsafe_name(const std::string& n) {
     return false;
 }
 
-std::string safe_basename(const std::string& name) {
-    std::string b = base_of(name);
-    for (auto& c : b) {
-        const unsigned char u = static_cast<unsigned char>(c);
-        if (u < 0x20 || u > 0x7E || std::string("<>:\"|?*").find(c) != std::string::npos) c = '_';
-    }
-    return b;
-}
-
 std::string join_names(const std::vector<std::string>& v) {
     std::string s;
     for (size_t i = 0; i < v.size() && i < 20; ++i) s += (i ? ", " : "") + display_name(v[i]);
@@ -69,6 +60,29 @@ std::string join_names(const std::vector<std::string>& v) {
 }
 
 }  // namespace
+
+bool is_windows_reserved_name(const std::string& base) {
+    // A DOS device name is reserved with any extension, any case, and trailing
+    // dots or spaces on the stem: CON, PRN, AUX, NUL, COM1-9, LPT1-9.
+    std::string stem = base.substr(0, base.find('.'));
+    while (!stem.empty() && (stem.back() == ' ')) stem.pop_back();
+    stem = lower(stem);
+    if (stem == "con" || stem == "prn" || stem == "aux" || stem == "nul") return true;
+    return stem.size() == 4 && (stem.compare(0, 3, "com") == 0 || stem.compare(0, 3, "lpt") == 0) &&
+           stem[3] >= '1' && stem[3] <= '9';
+}
+
+std::string extraction_name(const std::string& name) {
+    std::string b = base_of(name);
+    for (auto& c : b) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (u < 0x20 || u > 0x7E || std::string("<>:\"|?*").find(c) != std::string::npos) c = '_';
+    }
+    // Windows 10 refuses to create CON.TAP (the name is the device): the file is
+    // ours, so it gets a name it can have, on every OS alike.
+    if (is_windows_reserved_name(b)) b = "_" + b;
+    return b;
+}
 
 std::string display_name(const std::string& name) {
     std::string out;
@@ -248,7 +262,7 @@ bool ProgramArchive::extract(const std::string& member, ScratchDir& scratch,
     if (!read_member(member, bytes, why)) return false;
     const std::string slot = scratch.new_slot(why);
     if (slot.empty()) return false;
-    const std::string dest = slot + "/" + safe_basename(member);
+    const std::string dest = slot + "/" + extraction_name(member);
     const std::string part = slot + "/.part";
     {
         std::ofstream o(part, std::ios::binary | std::ios::trunc);

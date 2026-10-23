@@ -34,6 +34,15 @@ bool is_program_ext(const std::string& path);
 /// name goes through it, in this layer, so no consumer can forget.
 std::string display_name(const std::string& name);
 
+/// True when `base` (a file name) is a Windows DOS device name: CON PRN AUX NUL
+/// COM1-9 LPT1-9, any case, with any extension and trailing spaces on the stem.
+bool is_windows_reserved_name(const std::string& base);
+
+/// The file name a member is extracted under: its last path component (split on
+/// both separators), bytes outside 0x20-0x7E and `<>:\"|?*` replaced by `_`, and
+/// a reserved Windows device name prefixed with `_`, on every OS.
+std::string extraction_name(const std::string& name);
+
 /// True when `path` must be opened as an archive: `.zip` in any case whatever
 /// the content (so a broken one is refused as "not a ZIP archive"); never for a
 /// program extension or `.pok` (a `.jns` IS a zip and keeps its route); for any

@@ -790,6 +790,41 @@ int main() {
                   display_name("\xE0\x80\x80") == "\\xE0\\x80\\x80" &&
                   display_name("F\x82") != display_name("F\x83"));
     }
+    {
+        using pa::display_name;
+        check("ZIPL-31", "display_name escapes a lead byte followed by a control byte, surrogates, overlong F0 and above U+10FFFF",
+              display_name("\xC3\x1b[2J") == "\\xC3\\x1B[2J" &&
+                  display_name("\xED\xA0\x80") == "\\xED\\xA0\\x80" &&
+                  display_name("\xF0\x80\x80\x80") == "\\xF0\\x80\\x80\\x80" &&
+                  display_name("\xF4\x90\x80\x80") == "\\xF4\\x90\\x80\\x80" &&
+                  display_name("\xF0\x9F\x98\x80") == "\xF0\x9F\x98\x80");
+    }
+    {
+        // Oracle: Microsoft "Naming Files, Paths, and Namespaces": CON PRN AUX NUL
+        // COM1-9 LPT1-9 are reserved with or without an extension, in any case.
+        using pa::is_windows_reserved_name;
+        using pa::extraction_name;
+        bool reserved = true;
+        for (const char* n : {"CON.TAP", "con.tap", "PRN.Z80", "Aux.SNA", "NUL.tar.TAP", "COM1.NEX", "com9.tzx",
+                              "LPT1.TAP", "LPT9.WAV", "CON .TAP", "NUL"})
+            reserved = reserved && is_windows_reserved_name(n);
+        bool ordinary = true;
+        for (const char* n : {"GAME.TAP", "CONSOLE.TAP", "COM0.TAP", "COM10.TAP", "LPT.TAP", "XCON.TAP", "COM.TAP", "AUXX.TAP"})
+            ordinary = ordinary && !is_windows_reserved_name(n);
+        check("ZIPL-32", "the Windows reserved device names are recognised (any case, any extension) and ordinary names are not",
+              reserved && ordinary);
+        check("ZIPL-33", "an extraction name prefixes `_` to a reserved name and leaves others alone",
+              extraction_name("GAMES/CON.TAP") == "_CON.TAP" && extraction_name("nul.z80") == "_nul.z80" &&
+                  extraction_name("GAME.TAP") == "GAME.TAP" && extraction_name("a\\COM1.NEX") == "_COM1.NEX");
+    }
+    {
+        spit(files + "/con.zip", zipfx::build({mem("CON.TAP", pattern(9))}));
+        pa::ProgramArchive a;
+        std::string why, path;
+        const bool ok = a.open(files + "/con.zip", why) && a.extract("CON.TAP", scratch, path, why);
+        check("ZIPL-34", "a member named CON.TAP extracts (as _CON.TAP) with its bytes on every OS",
+              ok && fs::path(path).filename() == "_CON.TAP" && slurp(path) == pattern(9), path + " " + why);
+    }
 
     fs::remove_all(root, ec);
     std::printf("\n===============================================\n");
