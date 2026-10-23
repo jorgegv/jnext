@@ -45,7 +45,10 @@ if want tape-mode-unified-func; then
     tm_expect() { grep -qE "tape attached.*mode: $2|reattached \(TAP, $2" "$1" || tm_faults+=("$3: not $2"); }
 
     # --- a .jns of a FAST tape, from the SDL frontend (no preferences) ---
-    tm_sdl "$tm_dir/mk.log" --load "$tm_tap" --delayed-snapshot "$tm_dir/fast.jns" --delayed-snapshot-frames 20 || tm_faults+=("could not make the fast snapshot")
+    timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine 48k "${SD_CARD_ARGS[@]}" \
+        --rewind-buffer-size 0 --load "$tm_tap" --delayed-snapshot "$tm_dir/fast.jns" \
+        --delayed-snapshot-frames 20 --delayed-automatic-exit-frames 22 >"$tm_dir/mk.log" 2>&1 \
+        || tm_faults+=("could not make the fast snapshot")
     # the SDL frontend: the flag is the setting
     tm_sdl "$tm_dir/sdl-def.log" --load "$tm_tap" || tm_faults+=("sdl default run failed")
     tm_expect "$tm_dir/sdl-def.log" fast "SDL .tap without the flag"
