@@ -32,6 +32,7 @@
 #include "debug/debugger.h"
 #include "debug/ram_page.h"
 #include "debug/source_file.h"
+#include "debug/symbol_table.h"
 #include "debugger/breakpoint_model.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/callstack_panel.h"
@@ -1635,6 +1636,94 @@ void test_call_stack_pages() {
           "pages " + std::to_string(fx.p80) + "/" + std::to_string(pc0) + " " + s(cell(cs, 0, 4)));
 }
 
+// ── Paged symbol labels in the panels (GH #375) ────────────────────────
+// Two labels at $C000, assembled for pages 20 and 30. The tables below are the
+// test's own (set_symbol_table), so no loader is involved: what is under test
+// is which memory each panel asks about.
+
+void test_paged_symbols() {
+    using jnext::dbg::MemSpace;
+    Fixture fx;
+    fx.enable();
+    SymbolTable t;
+    t.add_label("banked", 0xC000, MemSpace::page(20));
+    t.add_label("other_bank", 0xC000, MemSpace::page(30));
+    t.add_label("scr", 0x4000, std::nullopt);
+    BreakpointModel& m = fx.mgr->breakpoints();
+    BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
+    CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+    if (!bp || !cs) {
+        check("QSYM-03", "panels", false);
+        check("QSYM-04", "panels", false);
+        check("QSYM-05", "panels", false);
+        return;
+    }
+    bp->set_symbol_table(&t);
+    cs->set_symbol_table(&t);
+
+    // The Symbol column reads the breakpoint's own page, else the page mapped now.
+    fx.emu.mmu().set_page(6, 20);
+    m.add(BreakpointModel::Execute, 0xC000, 30);
+    bp->refresh();
+    const QString own = cell(bp, 0, 3);
+    m.remove(BreakpointModel::Execute, 0xC000, 30);
+    m.add(BreakpointModel::Execute, 0xC000);
+    bp->refresh();
+    const QString mapped20 = cell(bp, 0, 3);
+    fx.emu.mmu().set_page(6, 30);
+    bp->refresh();
+    const QString mapped30 = cell(bp, 0, 3);
+    fx.emu.mmu().set_page(6, 21);
+    bp->refresh();
+    const QString mapped21 = cell(bp, 0, 3);
+    m.clear_all();
+    check("QSYM-03", "the Breakpoints Symbol column names a page-qualified row after its own page, an "
+                     "unqualified one after the page mapped at its address now, and nothing for a third page",
+          own == QStringLiteral("other_bank") && mapped20 == QStringLiteral("banked") &&
+              mapped30 == QStringLiteral("other_bank") && mapped21.isEmpty(),
+          s(own) + " / " + s(mapped20) + " / " + s(mapped30) + " / " + s(mapped21));
+
+    // The Add dialog keeps the page of a paged name; a number or an unpaged name has none.
+    const bool seen_a = answer_modal(QStringLiteral("banked"), [&]() { bp->on_add(); });
+    const auto after_a = m.rows();
+    const bool paged = seen_a && after_a.size() == 1 && after_a[0].addr == 0xC000 && after_a[0].page == 20;
+    m.clear_all();
+    const bool seen_b = answer_modal(QStringLiteral("scr"), [&]() { bp->on_add(); });
+    const auto after_b = m.rows();
+    const bool unpaged = seen_b && after_b.size() == 1 && after_b[0].addr == 0x4000 &&
+                         after_b[0].page == jnext::dbg::PAGE_ANY;
+    m.clear_all();
+    const bool seen_c = answer_modal(QStringLiteral("C000"), [&]() { bp->on_add(); });
+    const auto after_c = m.rows();
+    const bool number = seen_c && after_c.size() == 1 && after_c[0].addr == 0xC000 &&
+                        after_c[0].page == jnext::dbg::PAGE_ANY;
+    m.clear_all();
+    check("QSYM-04", "the Add dialog sets a breakpoint on a paged name in that name's page, and on an "
+                     "unpaged name or a number in any page",
+          paged && unpaged && number,
+          "paged=" + std::to_string(paged) + " unpaged=" + std::to_string(unpaged) +
+              " number=" + std::to_string(number));
+
+    // The Call Stack names the target in the memory it was entered in, not the one mapped now.
+    SymbolTable ct;
+    ct.add_label("sub_recorded", 0x9000, MemSpace::page(static_cast<uint16_t>(fx.p90)));
+    ct.add_label("sub_now", 0x9000, MemSpace::page(30));
+    cs->set_symbol_table(&ct);
+    fx.backend->set_call_stack_enabled(true);
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $9000
+    const bool at_target = fx.pc() == 0x9000;
+    fx.emu.mmu().set_page(4, 30);                      // another page now supplies $9000
+    cs->set_paused(true);
+    cs->refresh();
+    const QString target = cell(cs, 0, 3);
+    fx.emu.mmu().set_page(4, static_cast<uint8_t>(fx.p80));
+    check("QSYM-05", "the Call Stack names a frame's target after the page it was entered in, "
+                     "though another page is mapped there now",
+          at_target && target == QStringLiteral("sub_recorded"), s(target));
+}
+
 }  // namespace
 
 // ── GH #337: Debug > Source ───────────────────────────────────────────
@@ -1934,6 +2023,7 @@ int main(int argc, char** argv) {
     test_source_reverse_refused();
     test_source_messages();
     test_call_stack_pages();
+    test_paged_symbols();
     test_source_menu();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

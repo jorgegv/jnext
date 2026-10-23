@@ -1111,6 +1111,9 @@ target_link_libraries(source_map_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(source_map_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# SLDL-* (GH #375) load the committed sjasmplus SLD and --sym fixtures.
+target_compile_definitions(source_map_test PRIVATE
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
 add_test(NAME source_map_tests COMMAND source_map_test)
 add_executable(source_debug_test debug/source_debug_test.cpp)
 target_link_libraries(source_debug_test PRIVATE

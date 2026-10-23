@@ -1830,6 +1830,29 @@ int main() {
                                       std::to_string(m.dbg->instruction_length(0x8000)));
         }
         {
+            // GH #375: the disassembly names an address in the memory that supplies it NOW. Two
+            // labels at $C000, assembled for pages 20 and 30; MMU slot 6 (NR 0x56) picks one.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            SymbolTable syms;
+            syms.add_label("banked", 0xC000, MemSpace::page(20));
+            syms.add_label("other_bank", 0xC000, MemSpace::page(30));
+            const uint8_t prog[] = {0xCD, 0x00, 0xC0};   // CALL $C000
+            for (size_t i = 0; i < sizeof prog; ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            const auto call_at = [&](uint8_t page) {
+                m.dbg->nextreg_write(m.a, 0x56, page);
+                return std::string(m.dbg->disassemble(0x8000, 1, &syms)[0].mnemonic);
+            };
+            const std::string a = call_at(20), b = call_at(30), c = call_at(21);
+            check("SRCDBG-SYM-11", "disassemble() reads CALL $C000 as banked, other_bank or neither, by the page "
+                                   "mapped at slot 6",
+                  a.find("banked") != std::string::npos && a.find("other") == std::string::npos &&
+                      b.find("other_bank") != std::string::npos &&
+                      c.find("banked") == std::string::npos && c.find("other_bank") == std::string::npos &&
+                      c.find("C000") != std::string::npos,
+                  a + " / " + b + " / " + c);
+        }
+        {
             // Memory full of DD / FD bytes (or the address space wrapping onto one) must not recurse
             // once per byte: the chain is bounded at 64 redundant prefixes, the next prefix byte is a
             // line of its own (DB $DD), so one line is 65 bytes long.

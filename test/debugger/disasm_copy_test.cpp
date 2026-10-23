@@ -854,6 +854,52 @@ void test_painter_symbols() {
               painted_plain == expected ? "es" : " does NOT"));
 }
 
+// ── Group SYM, paged labels (GH #375) ───────────────────────────────
+// Two labels at $C000, assembled for pages 20 and 30: the painter and the
+// clipboard name a CALL $C000 after whichever page MMU slot 6 maps now, and
+// leave the address alone when neither does.
+
+void test_paged_symbols() {
+    set_group("SYM");
+    Fixture fx;
+    if (!fx.ok) {
+        check("QSYM-01", "fixture came up", false, "emulator or memory setup failed");
+        check("QSYM-02", "fixture came up", false, "emulator or memory setup failed");
+        return;
+    }
+    fx.symbols.clear();
+    fx.symbols.add_label("banked", 0xC000, jnext::dbg::MemSpace::page(20));
+    fx.symbols.add_label("other_bank", 0xC000, jnext::dbg::MemSpace::page(30));
+    // CALL $C000 on the sixth line ($800A, over the NOP padding).
+    const uint8_t call[] = {0xCD, 0x00, 0xC0};
+    for (size_t i = 0; i < sizeof call; ++i)
+        fx.emu.mmu().write(static_cast<uint16_t>(0x800A + i), call[i]);
+
+    struct Seen { QString copied; QImage painted; };
+    auto with_slot6 = [&](uint8_t page) {
+        fx.emu.mmu().set_page(6, page);
+        fx.panel->refresh();
+        QApplication::processEvents();
+        press_line(fx.panel, 5);
+        release_mouse(fx.panel, 5);
+        Seen seen;
+        seen.copied = fx.panel->selection_text(disasm_text::CopyFormat::AsmOnly).trimmed();
+        fx.panel->clear_selection();
+        QApplication::processEvents();
+        seen.painted = mnemonic_cell(render_panel(fx.panel), 5);
+        return seen;
+    };
+    const Seen a = with_slot6(20), b = with_slot6(30), c = with_slot6(21);
+
+    check("QSYM-01", "the painter names CALL $C000 after the page mapped at slot 6, exactly as the clipboard text",
+          a.painted == reference_cell("CALL banked") && b.painted == reference_cell("CALL other_bank") &&
+              c.painted == reference_cell("CALL $C000") && a.painted != b.painted,
+          "copied: " + shown(a.copied) + " / " + shown(b.copied) + " / " + shown(c.copied));
+    check("QSYM-02", "the copied text names CALL $C000 after the page mapped at slot 6: banked, other_bank, or the address",
+          a.copied == "CALL banked" && b.copied == "CALL other_bank" && c.copied == "CALL $C000",
+          shown(a.copied) + " / " + shown(b.copied) + " / " + shown(c.copied));
+}
+
 // ── Group EDGE — the branches nothing else reaches ───────────────────
 
 void test_edge_cases() {
@@ -1144,6 +1190,7 @@ int main(int argc, char** argv)
     test_selection_painting();
     std::printf("  Group: PAINT          — done\n");
     test_painter_symbols();
+    test_paged_symbols();
     std::printf("  Group: SYM            — done\n");
     test_edge_cases();
     std::printf("  Group: EDGE           — done\n");

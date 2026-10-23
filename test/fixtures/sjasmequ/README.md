@@ -55,3 +55,18 @@ the loader),
 `QMAP-05`, `QMAP-06` in `test/debugger/verbs_test.cpp`, and the functional row
 `script-map-pipe-func` (`test/00regression/scripts/`), which feeds `equlabels.sym` to `--map`
 through a pipe.
+
+## `equlabels.sld` (GH #375)
+
+The SLD sjasmplus v1.23.1 (same commit as above) writes for the same source:
+
+    sjasmplus --sld=equlabels.sld equlabels.asm
+
+    sha256
+    7d83c5e351e5c5a33610585c373080b390c81ff2b7393c66ae5641e1990f15ea  equlabels.sld
+
+50 lines: 18 `T` traces, 19 `L` labels (12 accepted, 3 name-only `+struct_def`, 4 skipped:
+`PASTTOP` and `NEG` past 16 bits, the two `gfx` module markers). The same invocation's `--sym` and
+`--exp` are byte-identical to the committed ones, which is why `equlabels.sym` is the oracle for
+the SLD's names and values.
+Rows: `SLDL-01`..`SLDL-09` in `test/debug/source_map_test.cpp`.
