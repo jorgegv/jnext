@@ -7052,24 +7052,39 @@ static std::vector<std::string> tape_warnings(const jnext::JnsLoadReport& rep)
     return v;
 }
 
-static bool decks_equal(Emulator& a, Emulator& b)
-{
-    const uint64_t t = a.monotonic_tstates();
-    return a.tape().is_loaded() == b.tape().is_loaded() &&
-           a.tzx_tape().is_loaded() == b.tzx_tape().is_loaded() &&
-           a.wav_tape().is_loaded() == b.wav_tape().is_loaded() &&
-           a.tape().fast_load() == b.tape().fast_load() &&
-           a.tzx_tape().fast_load() == b.tzx_tape().fast_load() &&
-           (!a.tape().is_loaded() || a.tape().deck_state() == b.tape().deck_state()) &&
-           (!a.tzx_tape().is_loaded() || a.tzx_tape().deck_state(t) == b.tzx_tape().deck_state(b.monotonic_tstates())) &&
-           (!a.wav_tape().is_loaded() || a.wav_tape().deck_state(t) == b.wav_tape().deck_state(b.monotonic_tstates()));
-}
+// NOTE: every Emulator in the process shares ONE live FUSE T-state counter
+// (fuse_z80_tstates_ptr()), so two machines must never be run in turns: a
+// load into B zeroes the counter under A. The continuation rows therefore run
+// A to its end, capture it, drop it, and only then build and run B.
+struct Fin {
+    Bytes st;
+    uint64_t mono = 0;
+    bool lt = false, lz = false, lw = false, ft = false, fz = false;
+    TapLoader::DeckState tap;
+    TzxLoader::DeckState tzx;
+    WavLoader::DeckState wav;
+    std::string path;
+    bool decks_same(const Fin& o) const {
+        return lt == o.lt && lz == o.lz && lw == o.lw && ft == o.ft && fz == o.fz &&
+               tap == o.tap && tzx == o.tzx && wav == o.wav && path == o.path;
+    }
+};
 
-// Run both `frames` frames; true when streams and decks agree at the end.
-static bool continue_equal(Emulator& a, Emulator& b, int frames)
+static Fin cap(Emulator& e, bool with_stream)
 {
-    for (int i = 0; i < frames; ++i) { a.run_frame(); b.run_frame(); }
-    return a.monotonic_tstates() == b.monotonic_tstates() && stream(a) == stream(b) && decks_equal(a, b);
+    Fin f;
+    f.mono = e.monotonic_tstates();
+    f.lt = e.tape().is_loaded();
+    f.lz = e.tzx_tape().is_loaded();
+    f.lw = e.wav_tape().is_loaded();
+    f.ft = e.tape().fast_load();
+    f.fz = e.tzx_tape().fast_load();
+    if (f.lt) f.tap = e.tape().deck_state();
+    if (f.lz) f.tzx = e.tzx_tape().deck_state(f.mono);
+    if (f.lw) f.wav = e.wav_tape().deck_state(f.mono);
+    f.path = f.lt ? e.tape().path() : f.lz ? e.tzx_tape().path() : f.lw ? e.wav_tape().path() : std::string();
+    if (with_stream) f.st = stream(e);
+    return f;
 }
 
 template <typename P>
@@ -7080,6 +7095,36 @@ static bool run_until(Emulator& e, P pred, int max_frames)
         e.run_frame();
     }
     return pred();
+}
+
+// Run A `frames` more, capture it, drop it; then a fresh B loads `j` (with the
+// session's `tape_realtime`), is compared with A's decks at the save, runs the
+// same frames and is compared with A's end. True when all agree.
+static bool resume_equal(std::unique_ptr<Emulator>& a, const Bytes& j, bool tape_realtime, bool auto_play,
+                         int frames, std::unique_ptr<Emulator>& b_out, jnext::JnsLoadReport& rep, std::string& why)
+{
+    const Fin f0 = cap(*a, false);
+    for (int i = 0; i < frames; ++i) a->run_frame();
+    const Fin fa = cap(*a, true);
+    a.reset();
+    b_out = make(auto_play);
+    if (!load(*b_out, j, tape_realtime, rep)) { why = "load failed"; return false; }
+    const Fin g0 = cap(*b_out, false);
+    if (!f0.decks_same(g0) || f0.mono != g0.mono) {
+        why = f0.mono != g0.mono ? "clock differs after load" : "decks differ right after load";
+        return false;
+    }
+    for (int i = 0; i < frames; ++i) b_out->run_frame();
+    const Fin fb = cap(*b_out, true);
+    if (fa.mono != fb.mono) { why = "clock differs at the end"; return false; }
+    if (fa.st != fb.st) {
+        size_t at = 0;
+        while (at < fa.st.size() && at < fb.st.size() && fa.st[at] == fb.st[at]) ++at;
+        why = "state stream differs at byte " + std::to_string(at) + " of " + std::to_string(fa.st.size());
+        return false;
+    }
+    if (!fa.decks_same(fb)) { why = "decks differ at the end"; return false; }
+    return true;
 }
 
 static bool block_in_ram(Emulator& e, int blk, int n = 200)
@@ -7154,7 +7199,8 @@ static int test_gh402_tape_reattach()
 
     // ── S6-EMU-TAPE-09: real-time TAP, saved mid-block ────────────────────
     {
-        auto a = make(), b = make();
+        auto a = make();
+        std::unique_ptr<Emulator> b;
         a->load_tap(tap, false);
         inject(*a, three.code);
         const bool mid = run_until(*a, [&] {
@@ -7164,19 +7210,18 @@ static int test_gh402_tape_reattach()
         Bytes j;
         const bool saved = mid && save(*a, j);
         jnext::JnsLoadReport rep;
-        const bool loaded = saved && load(*b, j, true, rep);
-        const bool b_mid = loaded && b->tape().is_loaded() && !b->tape().fast_load() &&
-                           b->tape().deck_state() == a->tape().deck_state();
-        const bool same = b_mid && continue_equal(*a, *b, 400);
-        check("S6-EMU-TAPE-09", same && b->tape().path() == a->tape().path() && a->tape().current_block() >= 1 &&
-              block_in_ram(*a, 0) && block_in_ram(*b, 1) && b->cpu().pc() == three.end && tape_warnings(rep).empty(),
+        std::string why;
+        const bool same = saved && resume_equal(a, j, true, true, 400, b, rep, why);
+        check("S6-EMU-TAPE-09", same && block_in_ram(*b, 0) && block_in_ram(*b, 1) && block_in_ram(*b, 2) &&
+              b->cpu().pc() == three.end && tape_warnings(rep).empty() && b->tape().is_loaded(),
               "a real-time TAP saved mid-DATA of its second block (found by measuring the deck) restores into a fresh machine "
               "with the deck at the same place: 400 frames later the state streams and decks are identical and the program "
-              "has loaded every block");
+              "has loaded every block", why);
     }
     // ── -10: real-time TZX ────────────────────────────────────────────────
     {
-        auto a = make(), b = make();
+        auto a = make();
+        std::unique_ptr<Emulator> b;
         a->load_tzx(tzx, false);
         inject(*a, three.code);
         const bool mid = run_until(*a, [&] {
@@ -7186,12 +7231,11 @@ static int test_gh402_tape_reattach()
         Bytes j;
         const bool saved = mid && save(*a, j);
         jnext::JnsLoadReport rep;
-        const bool loaded = saved && load(*b, j, true, rep);
-        const bool same = loaded && decks_equal(*a, *b) && continue_equal(*a, *b, 400);
-        check("S6-EMU-TAPE-10", same && block_in_ram(*b, 2) && b->cpu().pc() == three.end && tape_warnings(rep).empty() &&
-              b->tzx_tape().path() == a->tzx_tape().path(),
+        std::string why;
+        const bool same = saved && resume_equal(a, j, true, true, 400, b, rep, why);
+        check("S6-EMU-TAPE-10", same && block_in_ram(*b, 2) && b->cpu().pc() == three.end && tape_warnings(rep).empty(),
               "the same for a real-time TZX saved mid-DATA of its second block: the player's pointers, edge time and "
-              "counters come back, and the continuation is identical to the uninterrupted machine's");
+              "counters come back, and the continuation is identical to the uninterrupted machine's", why);
     }
     // ── -11: WAV ──────────────────────────────────────────────────────────
     {
@@ -7199,67 +7243,73 @@ static int test_gh402_tape_reattach()
                      0x44,0xAC,0,0,0x44,0xAC,0,0,1,0,8,0,'d','a','t','a',0x40,0x9C,0,0};   // 40000 samples
         for (int i = 0; i < 40000; ++i) wav.push_back(((i / 7) & 1) ? 0xC0 : 0x40);
         write(base / "t.wav", wav);
-        auto a = make(), b = make();
+        auto a = make();
+        std::unique_ptr<Emulator> b;
         a->load_wav((base / "t.wav").string());
         inject(*a, edge_poll_prog());
         for (int i = 0; i < 90; ++i) a->run_frame();
         Bytes j;
         const bool saved = save(*a, j);
         jnext::JnsLoadReport rep;
-        const bool loaded = saved && load(*b, j, true, rep);
-        const bool same = loaded && b->wav_tape().is_playing() && decks_equal(*a, *b) && continue_equal(*a, *b, 120);
-        check("S6-EMU-TAPE-11", same && tape_warnings(rep).empty() && b->wav_tape().path() == a->wav_tape().path(),
+        std::string why;
+        const bool same = saved && resume_equal(a, j, true, true, 120, b, rep, why);
+        check("S6-EMU-TAPE-11", same && b->wav_tape().is_playing() && tape_warnings(rep).empty(),
               "a WAV deck playing for 90 frames restores playing from the same sample instant: 120 frames later the "
-              "streams and decks are identical (the playback start travels as a distance from the saved clock)");
+              "streams and decks are identical (the playback start travels as a distance from the saved clock)", why);
     }
     // ── -12: fast TAP between blocks ──────────────────────────────────────
     {
-        auto a = make(), b = make();
+        auto a = make();
+        std::unique_ptr<Emulator> b;
         a->load_tap(tap, true);
         inject(*a, three.code);
         const bool between = run_until(*a, [&] { return a->tape().current_block() == 1; }, 400);
         Bytes j;
         const bool saved = between && save(*a, j);
         jnext::JnsLoadReport rep;
-        const bool loaded = saved && load(*b, j, false, rep);
-        const bool start = loaded && b->tape().fast_load() && b->tape().current_block() == a->tape().current_block();
-        const bool same = start && continue_equal(*a, *b, 60);
+        std::string why;
+        const bool same = saved && resume_equal(a, j, false, true, 60, b, rep, why);
         check("S6-EMU-TAPE-12", same && block_in_ram(*b, 0) && block_in_ram(*b, 1) && block_in_ram(*b, 2) &&
-              b->tape().current_block() == 3 && tape_warnings(rep).empty(),
+              b->tape().current_block() == 3 && tape_warnings(rep).empty() && b->tape().fast_load(),
               "a fast TAP saved after its first block restores with the cursor on the second: the next traps serve "
-              "blocks 2 and 3 into RAM exactly as the uninterrupted machine's do");
+              "blocks 2 and 3 into RAM exactly as the uninterrupted machine's do", why);
     }
     // ── -13: held at a gap, auto play on ──────────────────────────────────
     {
-        auto gap_long = [](int) { return wait_rounds(14); };
+        auto gap_long = [](int) { return wait_rounds(3); };
         const Prog held_prog = loader_prog(2, gap_long);
         const std::string t2 = (base / "two.tap").string();
         write(t2, tap_of(2));
-        auto a = make(), b = make();
+        auto a = make();
+        std::unique_ptr<Emulator> b;
         a->load_tap(t2, false);
         inject(*a, held_prog.code);
         const bool held = run_until(*a, [&] { return a->tape().is_held(); }, 1500);
         Bytes j;
         const bool saved = held && save(*a, j);
         jnext::JnsLoadReport rep;
-        const bool loaded = saved && load(*b, j, true, rep);
-        const bool b_held = loaded && b->tape().is_held() && !b->tape().is_playing() && b->tape_auto_play();
-        const bool same = b_held && continue_equal(*a, *b, 700);
-        check("S6-EMU-TAPE-13", same && block_in_ram(*b, 1) && b->cpu().pc() == held_prog.end && tape_warnings(rep).empty(),
+        std::string why;
+        const bool same = saved && resume_equal(a, j, true, true, 700, b, rep, why);
+        check("S6-EMU-TAPE-13", same && block_in_ram(*b, 1) && b->cpu().pc() == held_prog.end && tape_warnings(rep).empty() &&
+              b->tape_auto_play(),
               "a real-time deck held at a gap (auto play on, the program not listening) restores held with the poll "
               "detector as it was: after the program polls again both machines resume on the same read, load the next "
-              "block and stay identical");
+              "block and stay identical", why);
     }
     // ── -14 / -15: a load changes no setting ──────────────────────────────
     {
         auto run_pair = [&](bool a_auto, bool b_auto, bool& ok_loaded, bool& b_cfg, bool& b_val) {
-            auto a = make(a_auto), b = make(b_auto);
-            a->load_tap(tap, false);
-            inject(*a, edge_poll_prog());
-            for (int i = 0; i < 30; ++i) a->run_frame();
             Bytes j;
+            {
+                auto a = make(a_auto);
+                a->load_tap(tap, false);
+                inject(*a, edge_poll_prog());
+                for (int i = 0; i < 30; ++i) a->run_frame();
+                ok_loaded = save(*a, j);
+            }
+            auto b = make(b_auto);
             jnext::JnsLoadReport rep;
-            ok_loaded = save(*a, j) && load(*b, j, true, rep) && b->tape().is_loaded();
+            ok_loaded = ok_loaded && load(*b, j, true, rep) && b->tape().is_loaded();
             b_cfg = b->config().tape_auto_play == b_auto;
             b_val = b->tape_auto_play() == b_auto;
         };
@@ -7274,19 +7324,20 @@ static int test_gh402_tape_reattach()
     }
     // ── -16: the phantom typist travels ───────────────────────────────────
     {
-        auto a = make(), b = make();
+        auto a = make();
+        std::unique_ptr<Emulator> b;
         a->load_tap(tap, true);
         for (int i = 0; i < 2; ++i) a->run_frame();
         const bool waiting = a->phantom_typist().is_active();
         Bytes j;
         const bool saved = save(*a, j);
         jnext::JnsLoadReport rep;
-        const bool loaded = saved && load(*b, j, false, rep);
-        const bool same = loaded && b->phantom_typist().is_active() && continue_equal(*a, *b, 300);
-        check("S6-EMU-TAPE-16", waiting && same && a->tape().current_block() >= 1 && tape_warnings(rep).empty(),
+        std::string why;
+        const bool same = saved && resume_equal(a, j, false, true, 300, b, rep, why);
+        check("S6-EMU-TAPE-16", waiting && same && b->tape().current_block() >= 1 && tape_warnings(rep).empty(),
               "a fast TAP saved two frames after load_tap (the typist waiting for BASIC) restores a machine that "
               "types LOAD \"\" at the same moment: 300 frames later, with the first block trapped on both, the "
-              "streams are identical");
+              "streams are identical", why);
     }
     // The snapshot the failure rows start from: a real-time TAP, mid-block.
     Bytes base_jns;
@@ -7461,7 +7512,7 @@ static int test_gh402_tape_reattach()
     // A real-time snapshot mid-block, and one held at a gap, and fast ones.
     Bytes held_jns, fast_tap_jns, fast_tzx_jns, stop_jns, play_off_jns, play_on_jns;
     const std::string two = (base / "two.tap").string();
-    auto gap_long = [](int) { return wait_rounds(14); };
+    auto gap_long = [](int) { return wait_rounds(3); };
     const Prog held_prog = loader_prog(2, gap_long);
     {
         auto a = make();

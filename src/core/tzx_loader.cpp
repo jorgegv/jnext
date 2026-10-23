@@ -474,6 +474,7 @@ void TzxLoader::start_playback_from_fast_position(uint64_t cpu_clocks, bool held
     if (!loaded_) return;
     tzx_play(P(), cpu_clocks);
     P()->offset = fast_load_offset_;
+    fast_load_ = false;
     handover_pending_ = false;
     if (held && fast_load_offset_ < static_cast<int>(file_data_.size())) {
         P()->playing = 0;
