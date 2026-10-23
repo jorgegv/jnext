@@ -1497,6 +1497,9 @@ void DebuggerWindow::show_add_exec_bp_dialog() {
 }
 
 void DebuggerWindow::refresh_panels() {
+    // GH #342: settle a pending landing first, so the panels that hold the
+    // symbol table by pointer read the processed state.
+    (void)dbg_.source_map_status();
     if (cpu_panel_) cpu_panel_->refresh();
     if (disasm_panel_) disasm_panel_->refresh();
     if (memory_panel_) memory_panel_->refresh();

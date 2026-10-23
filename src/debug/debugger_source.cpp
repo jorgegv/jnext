@@ -76,6 +76,7 @@ void add_problem(Debugger::SidecarLoad& out, const std::string& problem) {
 
 Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
                                                   bool accept_identity_mismatch) {
+    impl_->recheck();   // a writer first: a pending landing must not undo it later
     SourceMapLoad out;
     SourceMap candidate;
     const SourceMapLoadResult parsed = load_sld(candidate, path);
@@ -88,21 +89,52 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
         out.error = "the program in memory does not match the source map's binary identity";
         return out;
     }
-    impl_->source_map    = std::move(candidate);
-    impl_->sources_owner = Impl::StoreOwner::User;
+    impl_->source_map         = std::move(candidate);
+    impl_->sources_owner      = Impl::StoreOwner::User;
+    impl_->user_sources_gen   = impl_->ds().load_generation();
+    impl_->user_sources_stale = false;
+    impl_->pause_verify_user  = false;
+    impl_->source_reason.clear();
     out.count = parsed.count;
     return out;
 }
 
 Result Debugger::clear_source_map() {
+    impl_->recheck();
     impl_->source_map.clear();
-    impl_->sources_owner = Impl::StoreOwner::None;
+    impl_->sources_owner      = Impl::StoreOwner::None;
+    impl_->user_sources_stale = false;
+    impl_->pause_verify_user  = false;
+    impl_->source_reason.clear();
     return Result::Ok;
 }
 
 const SourceMap& Debugger::source_map() const {
-    impl_->recheck_sidecars();   // a reader never sees a stale sidecar
-    return impl_->source_map;
+    impl_->recheck();   // a reader never sees a stale map or sidecar
+    static const SourceMap none;
+    const SourceMap* m = impl_->live_sources();
+    return m ? *m : none;
+}
+
+Debugger::SourceMapStatus Debugger::source_map_status() const {
+    impl_->recheck();
+    SourceMapStatus st;
+    if (impl_->sources_owner == Impl::StoreOwner::User) {
+        st.by_user = true;
+        st.file    = impl_->source_map.loaded_file();
+        if (impl_->user_sources_stale) {
+            st.state  = SourceMapStatus::State::Stale;
+            st.reason = impl_->source_reason;
+        } else {
+            st.state = SourceMapStatus::State::Attached;
+        }
+    } else if (!impl_->source_map.empty()) {
+        st.state = SourceMapStatus::State::Attached;
+        st.file  = impl_->source_map.loaded_file();
+    } else {
+        st.reason = impl_->source_reason;
+    }
+    return st;
 }
 
 uint8_t Debugger::effective_page(uint16_t addr) const {
@@ -114,9 +146,10 @@ MemSpace Debugger::source_page(uint16_t addr) const {
 }
 
 const SourceLocation* Debugger::source_location(uint16_t addr) const {
-    impl_->recheck_sidecars();
-    if (impl_->source_map.empty()) return nullptr;
-    return impl_->source_map.lookup(source_page(addr), addr);
+    impl_->recheck();
+    const SourceMap* m = impl_->live_sources();
+    if (!m || m->empty()) return nullptr;
+    return m->lookup(source_page(addr), addr);
 }
 
 const SourceLocation* Debugger::source_location() const {
@@ -130,9 +163,23 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     const fs::path program(program_path);
     auto log = Log::debugger();
 
-    // The sidecars about to be attached belong to the program loaded now.
-    impl_->sidecar_attach_cycle = impl_->emu.clock().get();
-    impl_->sidecar_recheck      = false;
+    // A writer first (a pending landing is judged against the machine as it is
+    // now), then the new generation: the sidecars about to be attached belong
+    // to the program loaded now. The user's source map is carried into it
+    // without a second verification - the machine has not changed since.
+    impl_->recheck();
+    const uint64_t gen = impl_->begin_generation();
+    if (impl_->sources_owner == Owner::User) impl_->user_sources_gen = gen;
+    else impl_->source_reason.clear();
+    struct Attached {
+        Impl* impl;
+        uint64_t gen;
+        ~Attached() {
+            impl->attach_gen            = gen;
+            impl->pause_verify_sidecar  = false;
+            impl->cache_push_current();
+        }
+    } attached{impl_.get(), gen};
 
     // Symbols. The user's store is never touched; a previous program's
     // sidecar symbols never survive into a program they do not describe —
@@ -180,7 +227,9 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     if (!parsed) {
         if (parsed.error != "no adjacent SLD sidecar") {
             log->error("Rejected SLD source map '{}': {}", parsed.file, parsed.error);
-            add_problem(out, "source map '" + parsed.file + "' rejected: " + parsed.error);
+            const std::string why = "source map '" + parsed.file + "' rejected: " + parsed.error;
+            add_problem(out, why);
+            impl_->source_reason = why;
         }
         return out;
     }
@@ -197,9 +246,11 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     if (identity && !*identity) {
         log->error("Rejected SLD source map '{}': the loaded program's bytes differ "
                    "from its binary identity", candidate.loaded_file());
-        add_problem(out, "source map '" + candidate.loaded_file() +
-                             "' rejected: the loaded program's bytes differ from its "
-                             "binary identity");
+        const std::string why = "source map '" + candidate.loaded_file() +
+                                "' rejected: the loaded program's bytes differ from its "
+                                "binary identity";
+        add_problem(out, why);
+        impl_->source_reason = why;
         return out;
     }
     impl_->source_map    = std::move(candidate);
@@ -211,39 +262,203 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     return out;
 }
 
-void Debugger::Impl::recheck_sidecars() {
-    if (!sidecar_recheck) return;
-    sidecar_recheck = false;
-    if (emu.clock().get() >= sidecar_attach_cycle) return;
-    // The machine now stands before the load the sidecars came with: they
-    // describe a program that, in this history, has not been loaded.
-    drop_sidecars("the machine is before the load they came with");
+uint64_t Debugger::Impl::begin_generation() {
+    ++generation_counter;
+    ds().set_load_generation(generation_counter);
+    note_generation(generation_counter);
+    return generation_counter;
 }
 
-void Debugger::Impl::drop_sidecars(const char* why) {
+void Debugger::Impl::cache_push_current() {
+    Attachment a;
+    a.generation    = attach_gen;
+    a.source_reason = source_reason;
+    if (sources_owner == StoreOwner::Sidecar)
+        a.sources = std::make_shared<const SourceMap>(source_map);
+    if (symbols_owner == StoreOwner::Sidecar)
+        a.symbols = std::make_shared<const SymbolTable>(symbols);
+    cache_erase(attach_gen);
+    attach_cache.push_back(std::move(a));
+    while (attach_cache.size() > ATTACH_CACHE_MAX) attach_cache.pop_front();
+}
+
+void Debugger::Impl::cache_erase(uint64_t generation) {
+    for (auto it = attach_cache.begin(); it != attach_cache.end(); ++it) {
+        if (it->generation == generation) {
+            attach_cache.erase(it);
+            return;
+        }
+    }
+}
+
+const Debugger::Impl::Attachment* Debugger::Impl::cache_find(uint64_t generation) const {
+    for (const auto& a : attach_cache)
+        if (a.generation == generation) return &a;
+    return nullptr;
+}
+
+void Debugger::Impl::note_generation(uint64_t generation) {
+    const TraceLog& t = emu.trace_log();
+    const uint64_t rec = t.recorded();
+    // A cold boot made a new TraceLog: the old sequence numbers mean nothing.
+    if (!trace_gens.empty() && rec < trace_gens.back().first) trace_gens.clear();
+    if (trace_gens.empty() || trace_gens.back().second != generation)
+        trace_gens.emplace_back(rec, generation);
+    // Markers older than the oldest retained entry are not needed (keep one).
+    const uint64_t oldest = rec - t.size();
+    while (trace_gens.size() >= 2 && trace_gens[1].first <= oldest)
+        trace_gens.erase(trace_gens.begin());
+}
+
+uint64_t Debugger::Impl::generation_of_seq(uint64_t seq) const {
+    uint64_t g = trace_gen_initial;
+    for (const auto& m : trace_gens) {
+        if (m.first > seq) break;
+        g = m.second;
+    }
+    return g;
+}
+
+void Debugger::Impl::drop_sidecars(const std::string& why) {
     if (symbols_owner == StoreOwner::Sidecar) {
         symbols.clear();
         symbols_owner = StoreOwner::None;
-        Log::debugger()->info("Dropped the program's NextBuild symbols: {}", why);
+        pending_log.push_back("Dropped the program's NextBuild symbols: " + why);
     }
     if (sources_owner == StoreOwner::Sidecar) {
         source_map.clear();
         sources_owner = StoreOwner::None;
-        Log::debugger()->info("Dropped the program's SLD source map: {}", why);
+        source_reason = why;
+        pending_log.push_back("Dropped the program's SLD source map: " + why);
     }
+}
+
+// The one place the lifetime rules run (design §6.5). Pending flags are
+// cleared before anything is logged: a listener may call a reader back.
+void Debugger::Impl::recheck() {
+    if (!landing_pending && !ring_pending && !pause_verify_sidecar && !pause_verify_user)
+        return;
+    const uint64_t g = ds().load_generation();
+    auto identity = [this]() { return source_map.verify_program(peek_reader(emu)); };
+    auto verify_user = [&](bool carried_by_landing) {
+        const std::optional<bool> id = identity();
+        if (id && *id) {
+            user_sources_gen   = g;
+            user_sources_stale = false;
+            source_reason.clear();
+            if (carried_by_landing) {
+                pause_verify_user  = true;
+                pause_verify_clock = emu.clock().get();
+            }
+            return;
+        }
+        user_sources_stale = true;
+        user_sources_gen   = g;
+        source_reason = id ? "its binary identity does not match the program now in memory"
+                           : "it carries no binary identity to check against the program now "
+                             "in memory";
+        pending_log.push_back("The loaded source map '" + source_map.loaded_file() +
+                              "' is stale: " + source_reason);
+    };
+
+    if (landing_pending || ring_pending) {
+        const bool fresh = landing_pending && g == generation_counter;
+        landing_pending = ring_pending = false;
+        if (fresh) {
+            // Tier 2: a program, snapshot, RZX or reset put this machine here.
+            if (symbols_owner == StoreOwner::Sidecar || sources_owner == StoreOwner::Sidecar) {
+                const bool has_src = sources_owner == StoreOwner::Sidecar;
+                const std::optional<bool> id =
+                    has_src ? identity() : std::optional<bool>{};
+                if (id && *id) {
+                    pause_verify_sidecar = true;
+                    pause_verify_clock   = emu.clock().get();
+                } else {
+                    // A verification failure also forgets the cached record: a
+                    // detached map must not come back by a rewind.
+                    if (id) cache_erase(attach_gen);
+                    drop_sidecars(id ? "its binary identity does not match the program now "
+                                       "in memory"
+                                     : "the machine was reset or replaced and it has no binary "
+                                       "identity to check");
+                }
+            }
+            const bool kept = symbols_owner == StoreOwner::Sidecar ||
+                              sources_owner == StoreOwner::Sidecar;
+            attach_gen = g;
+            if (kept) cache_push_current();
+            if (sources_owner == StoreOwner::User) verify_user(true);
+        } else {
+            // Tier 1: a ring landing, back into a recorded history.
+            if (g != attach_gen) {
+                const Attachment* rec = cache_find(g);
+                if (symbols_owner != StoreOwner::User) {
+                    if (rec && rec->symbols) {
+                        symbols = *rec->symbols;
+                        symbols_owner = StoreOwner::Sidecar;
+                    } else {
+                        symbols.clear();
+                        symbols_owner = StoreOwner::None;
+                    }
+                }
+                if (sources_owner != StoreOwner::User) {
+                    if (rec && rec->sources) {
+                        source_map    = *rec->sources;
+                        sources_owner = StoreOwner::Sidecar;
+                    } else {
+                        source_map.clear();
+                        sources_owner = StoreOwner::None;
+                    }
+                    source_reason = rec ? rec->source_reason : std::string();
+                }
+                attach_gen = g;
+                pending_log.push_back(rec ? "Restored the program's sidecars of this point in "
+                                            "the history"
+                                          : "No program sidecars belong to this point in the "
+                                            "history");
+            }
+            if (sources_owner == StoreOwner::User && g != user_sources_gen) verify_user(false);
+        }
+    }
+
+    if ((pause_verify_sidecar || pause_verify_user) && ds().paused() &&
+        emu.clock().get() != pause_verify_clock) {
+        const bool sc = pause_verify_sidecar, us = pause_verify_user;
+        pause_verify_sidecar = pause_verify_user = false;
+        if (sc && sources_owner == StoreOwner::Sidecar) {
+            const std::optional<bool> id = identity();
+            if (id && !*id) {
+                cache_erase(attach_gen);
+                drop_sidecars("its binary identity no longer matches the program in memory");
+            }
+        }
+        if (us && sources_owner == StoreOwner::User) {
+            const std::optional<bool> id = identity();
+            if (id && !*id) {
+                user_sources_stale = true;
+                source_reason = "its binary identity no longer matches the program in memory";
+                pending_log.push_back("The loaded source map '" + source_map.loaded_file() +
+                                      "' is stale: " + source_reason);
+            }
+        }
+    }
+
+    std::vector<std::string> lines;
+    lines.swap(pending_log);
+    for (const auto& l : lines) self->log(CLIENT_NONE, LogLevel::Info, l);
 }
 
 void Debugger::Impl::machine_replaced() {
     arm(PauseReason::Kind::None, CLIENT_NONE);
-    // The sidecars describe the program that was loaded when they were
-    // attached. A rewind-ring restore goes back into that program's own
-    // history, so only where it lands says (recheck_sidecars()). Anything else
-    // - a reset, a cold boot, a state from a snapshot, a bookmark or a remote
-    // client - puts a machine in front of them that they may not describe.
-    if (ds().restoring_from_rewind())
-        sidecar_recheck = true;
-    else
-        drop_sidecars("the machine was reset or replaced");
+    // Only marks the landing; recheck() judges it when somebody reads. The
+    // machine may still be half-built here (inside init() or a warm start).
+    if (ds().restoring_from_rewind()) {
+        ring_pending = true;
+        note_generation(ds().load_generation());
+    } else {
+        begin_generation();
+        landing_pending = true;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -275,8 +490,8 @@ bool history_stop_at(const EventTable& events, uint16_t pc, uint8_t mmu_page, bo
 Result Debugger::source_step(ClientId by, SourceStep kind) {
     if (const Result nested = impl_->refuse_inside_delivery("source_step"); nested != Result::Ok)
         return nested;
-    impl_->recheck_sidecars();
-    if (impl_->source_map.empty()) return Result::RefusedUnavailable;
+    impl_->recheck();
+    if (!impl_->live_sources() || impl_->source_map.empty()) return Result::RefusedUnavailable;
 
     // ── Backwards: find the target in the retained trace, then step_back() ──
     if (kind == SourceStep::Back || kind == SourceStep::ReverseContinue) {
@@ -294,6 +509,13 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         // history the machine left: only what ran BEFORE now is "back".
         const uint64_t now = impl_->emu.clock().get();
         const size_t size = trace.size();
+        // An entry from before a landing is another machine's history (a
+        // different generation): Back never crosses it (design §6.5).
+        const uint64_t cur_gen = impl_->ds().load_generation();
+        const uint64_t base_seq = trace.recorded() - size;
+        auto same_gen = [&](size_t index) {
+            return impl_->generation_of_seq(base_seq + index) == cur_gen;
+        };
         // History identity is still page-based; E23-08 (trace entries carry
         // the FetchSource) replaces this.
         auto at_entry = [&](size_t index) -> const SourceLocation* {
@@ -306,7 +528,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         };
         for (size_t i = size; i > 0; --i) {
             const TraceEntry& te = trace.at(i - 1);
-            if (te.cycle >= now) continue;
+            if (te.cycle >= now || !same_gen(i - 1)) continue;
             const int slot = te.pc >> 13;
             const bool not_ram = ((te.rom_slots >> slot) & 1) != 0 ||
                                  trace.fetch_not_mmu_ram(i - 1);
@@ -322,6 +544,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
                 // statement's own instructions.
                 const SourceLocation pos = *at;
                 for (size_t k = target; k > 0; --k) {
+                    if (!same_gen(k - 1)) break;
                     const SourceLocation* older = at_entry(k - 1);
                     if (!older) continue;
                     if (!SourceMap::same_position(pos, *older)) break;
