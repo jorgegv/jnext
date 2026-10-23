@@ -323,7 +323,7 @@ bool QtApp::init(int argc, char* argv[]) {
             // GH #323: a snapshot saved on another machine switches it in
             // place; the frontend must follow, or its next reset boots the old one.
             // GH #386: the load wipes the matrix; the helper re-asserts held keys.
-            return emulator_apply_load_keeping_keys(emulator_, path, tape_realtime_,
+            return emulator_apply_load_keeping_keys(emulator_, path, tape_realtime(),
                 [this](MachineType t) {
                     config_.type = t;
                     if (main_window_) main_window_->sync_machine_type_display();
@@ -657,7 +657,7 @@ bool QtApp::TickEffects::pre_frames() {
         // GH #386 - the load wipes the matrix, keys the host holds included; the
         // helper re-asserts them.
         const bool loaded = emulator_apply_load_keeping_keys(
-            a.emulator_, a.load_file_, a.tape_realtime_, [&a](MachineType t) {
+            a.emulator_, a.load_file_, a.tape_realtime(), [&a](MachineType t) {
                 a.config_.type = t;
                 if (a.main_window_) a.main_window_->sync_machine_type_display();
             }, a.key_router_);
@@ -1038,4 +1038,9 @@ void QtApp::on_status_tick() {
     main_window_->update_status(fps, static_cast<double>(cad.presented),
                                 speed_idx, speed_multiplier_,
                                 emulator_.frame_period_ms(), measured_rate);
+}
+
+bool QtApp::tape_realtime() const
+{
+    return main_window_ ? !main_window_->tape_fast_load() : false;
 }

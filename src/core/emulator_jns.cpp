@@ -1267,7 +1267,8 @@ void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
     if (rzx_recorder_.is_recording()) rzx_suspend_tape_traps();
 
     Log::emulator()->info("load_jns: tape {} reattached ({}, {}, block/offset {})", label, kind,
-                          ti.realtime ? "realtime" : "fast",
+                          (t.loader == "tap" ? tape_.fast_load() : t.loader == "tzx" ? tzx_tape_.fast_load() : false)
+                              ? "fast" : "realtime",   // the mode it continues in
                           t.loader == "tap" ? static_cast<long>(t.tap.block)
                           : t.loader == "tzx" ? static_cast<long>(t.tzx.offset) : 0L);
     if (!converted.empty())

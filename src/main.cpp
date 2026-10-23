@@ -284,6 +284,7 @@ int main(int argc, char* argv[]) {
     std::string benchmark_label;       // --benchmark-label; empty = derive
     bool        silent = false;
     bool        tape_realtime = false;
+    bool        tape_realtime_set = false;   // GH #402: --tape-realtime given
     // GH #395 - --tape-auto-play / --no-tape-auto-play: last one wins; `_set`
     // lets the negation override a saved GUI preference.
     bool        tape_auto_play = true;
@@ -589,6 +590,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::TapeRealtime:
                 tape_realtime = true;
+                tape_realtime_set = true;
                 break;
             case cli::OptId::TapeAutoPlay:
                 tape_auto_play = true;
@@ -1852,6 +1854,13 @@ int main(int argc, char* argv[]) {
             cfg.tape_auto_play = merge_cli_precedence(tape_auto_play_set, tape_auto_play,
                                                       gui_app_config.data().tape_auto_play);
             gui_app_config.data().tape_auto_play = cfg.tape_auto_play;
+            // GH #402 - ONE fast/real-time setting, the Tape > Fast Load toggle:
+            // Tape > Open, File > Load, --load of a .tap/.tzx and a .jns restore
+            // all read it. --tape-realtime sets it for this session (CLI over
+            // saved, like --tape-auto-play); it reaches the toggle through the
+            // startup mirror below and is never written to the preferences file.
+            gui_app_config.data().tape_fast_load = merge_cli_precedence(
+                tape_realtime_set, false, gui_app_config.data().tape_fast_load);
             cfg.esp_allowed_hosts = merge_cli_precedence(
                 esp_allow_set, esp_allow.allowed_hosts,
                 gui_app_config.data().esp_allowed_hosts);
@@ -2139,6 +2148,17 @@ int main(int argc, char* argv[]) {
             if (pok_request) app.set_delayed_pok(*pok_request, pok_frames);
         }
 
+        // GH #402 - the session's fast/real-time setting. Qt reads the Tape >
+        // Fast Load toggle (merged with --tape-realtime above); the SDL and
+        // headless frontends have no toggle and no saved preference, so the
+        // CLI flag is the whole setting.
+        auto note_tape_mode = [&](auto& a, bool realtime) {
+#ifdef ENABLE_QT_UI
+            if constexpr (!std::is_same_v<std::decay_t<decltype(a)>, QtApp>) a.set_tape_realtime(realtime);
+#else
+            a.set_tape_realtime(realtime);
+#endif
+        };
         // Set up pending load (auto-detect format by extension).
         if (!load_file.empty()) {
             std::string ext;
@@ -2185,7 +2205,7 @@ int main(int argc, char* argv[]) {
                 app.set_pending_load(load_file, 0);
                 // GH #402 — a `.jns` puts its tape back in this session's mode
                 // (--tape-realtime or not), as a plain .tap would be attached.
-                if (ext == ".jns") app.set_tape_realtime(tape_realtime);
+                if (ext == ".jns") note_tape_mode(app, tape_realtime);
             } else if (ext == ".tap") {
                 // Task 19: TAP loading uses the phantom typist
                 // (src/input/phantom_typist.h) — no boot-delay needed.
@@ -2193,17 +2213,17 @@ int main(int argc, char* argv[]) {
                 // first full keyboard scan from the ROM and types
                 // LOAD"" the moment BASIC is ready.
                 app.set_pending_load(load_file, 0);
-                app.set_tape_realtime(tape_realtime);
+                note_tape_mode(app, tape_realtime);
             } else if (ext == ".tzx") {
                 // TZX still uses the legacy immediate-keystroke path
                 // (Task 19 scope is .tap only). Keep the 100-frame
                 // delay so BASIC has time to reach its prompt.
                 app.set_pending_load(load_file, 100);
-                app.set_tape_realtime(tape_realtime);
+                note_tape_mode(app, tape_realtime);
             } else if (ext == ".wav") {
                 // WAV is always real-time; needs BASIC delay like tape files
                 app.set_pending_load(load_file, 100);
-                app.set_tape_realtime(true);
+                note_tape_mode(app, true);
             } else {
                 Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx, .zip)", ext);
                 audio_recorder.stop();
