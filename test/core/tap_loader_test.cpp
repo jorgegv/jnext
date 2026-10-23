@@ -23,7 +23,9 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "core/host_path.h"
 #include "core/tap_loader.h"
+#include "core/wav_loader.h"
 #include "ld_trap_rig.h"
 #include "core/tape_poll_detector.h"
 
@@ -846,6 +848,58 @@ int main() {
               ok && warns.size() == TapLoader::kMaxWarnings + 1 &&
                   warns.back().find("49980 more warnings suppressed") != std::string::npos,
               "warnings=" + std::to_string(warns.size()));
+    }
+
+    {   // TAPP-01..03 (GH #401): path() is the absolute host path, beside the bare filename()
+        namespace fs = std::filesystem;
+        const fs::path cwd0 = fs::current_path();
+        fs::create_directories(g_root / "sub");
+        write_file("p1.tap", concat({header_block(), data_block()}));
+        Bytes wav = {'R', 'I', 'F', 'F', 100, 0, 0, 0, 'W', 'A', 'V', 'E',
+                     'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                     0x44, 0xAC, 0, 0, 0x44, 0xAC, 0, 0, 1, 0, 8, 0,
+                     'd', 'a', 't', 'a', 64, 0, 0, 0};
+        wav.resize(wav.size() + 64, 0x80);
+        write_file("p1.wav", wav);
+        fs::current_path(g_root);
+
+        TapLoader t;
+        const bool tok = t.load("p1.tap");                       // a RELATIVE name
+        const fs::path tp = fs::u8path(t.path());
+        const bool t_abs = tok && tp.is_absolute() && fs::equivalent(tp, g_root / "p1.tap") &&
+                           t.filename() == "p1.tap";
+        t.eject();
+        check("TAPP-01", "TapLoader::path() is the absolute path of a relatively-loaded file "
+              "(filename() stays the bare name) and eject() empties it",
+              t_abs && t.path().empty(), t.path());
+
+        WavLoader w;
+        const bool wok = w.load("p1.wav");
+        const fs::path wp = fs::u8path(w.path());
+        const bool w_abs = wok && wp.is_absolute() && fs::equivalent(wp, g_root / "p1.wav") &&
+                           w.filename() == "p1.wav";
+        const bool failed_reload = !w.load("no-such-file.wav");
+        const bool cleared_by_reload = w.path().empty();
+        const bool again = w.load("p1.wav");
+        w.eject();
+        check("TAPP-02", "WavLoader::path() is absolute for a relative load, empty after a FAILED reload, "
+              "and empty after eject()",
+              w_abs && failed_reload && cleared_by_reload && again && w.path().empty(), w.path());
+
+        TapLoader n;
+        const bool nok = n.load("sub/./../p1.tap");
+        const std::string np = n.path();
+        const std::string ah = jnext::absolute_host_path("sub/./../p1.tap");
+        bool dots = false;
+        for (const auto& el : fs::u8path(ah)) {
+            if (el == "." || el == "..") dots = true;
+        }
+        check("TAPP-03", "a path with ./ and ../ components is recorded absolute and lexically normalised "
+              "(no . or .. element) and still names the file",
+              nok && np == ah && fs::u8path(ah).is_absolute() && !dots &&
+                  fs::u8path(ah) == fs::u8path(ah).lexically_normal() &&
+                  fs::equivalent(fs::u8path(ah), g_root / "p1.tap"), ah);
+        fs::current_path(cwd0);
     }
 
     Log::emulator()->sinks().pop_back();

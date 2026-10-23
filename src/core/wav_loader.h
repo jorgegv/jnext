@@ -49,8 +49,13 @@ public:
     /// The tape's file name, without its directory (for UI display).
     const std::string& filename() const { return filename_; }
 
+    /// The absolute UTF-8 host path the tape was loaded from (GH #401);
+    /// empty when nothing is loaded. filename() stays the display name.
+    const std::string& path() const { return path_; }
+
 private:
     std::string filename_;
+    std::string path_;
     bool loaded_ = false;
     bool playing_ = false;
     uint64_t start_tstates_ = 0;

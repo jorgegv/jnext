@@ -49,6 +49,8 @@
 #include "save/state_desc_json.h"
 #include "core/clock.h"
 #include "core/log.h"
+#include "core/host_path.h"
+#include "core/sha256.h"
 #include "peripheral/uart.h"
 
 #include <spdlog/sinks/ostream_sink.h>
@@ -57,6 +59,8 @@
 
 #include <cstring>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <cassert>
@@ -6645,6 +6649,227 @@ static int test_s8_jns_roundtrip()
     return 0;
 }
 
+// ── GH #401: the .jns records the attached tape by FULL path ──────────────
+//
+// Oracle: the owner's requirement on the issue ("store the tape's whole path
+// ... and use it when the snapshot is loaded") plus NEXT-SNAPSHOT-FORMAT.md
+// §8 `media.tape.path`; for the digest, the SHA-256 of the fixture's bytes.
+// Paths are compared with fs::equivalent, never as strings: on macOS the temp
+// dir sits under a symlink (/var -> /private/var).
+static void gh401_write(const std::filesystem::path& p,
+                        const std::vector<uint8_t>& bytes)
+{
+    std::ofstream f(p, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+}
+
+static std::vector<uint8_t> gh401_tap_bytes()
+{
+    // One header block: 2-byte LE length, flag 0x00, 17 bytes, XOR checksum.
+    std::vector<uint8_t> v = {19, 0, 0x00};
+    uint8_t x = 0;
+    for (int i = 0; i < 17; ++i) { v.push_back(static_cast<uint8_t>(0x30 + i)); }
+    for (size_t i = 2; i < v.size(); ++i) x ^= v[i];
+    v.push_back(x);
+    return v;
+}
+
+static std::vector<uint8_t> gh401_tzx_bytes()
+{
+    std::vector<uint8_t> v = {'Z','X','T','a','p','e','!',0x1A, 1, 20};
+    // Block 0x10: pause (2), length (2), data (flag 0xFF + 3 bytes + checksum).
+    v.insert(v.end(), {0x10, 0xE8, 0x03, 5, 0, 0xFF, 1, 2, 3, 0xFF ^ 1 ^ 2 ^ 3});
+    return v;
+}
+
+static std::vector<uint8_t> gh401_wav_bytes()
+{
+    auto le32 = [](std::vector<uint8_t>& v, uint32_t n) {
+        for (int i = 0; i < 4; ++i) v.push_back(static_cast<uint8_t>(n >> (8 * i)));
+    };
+    auto le16 = [](std::vector<uint8_t>& v, uint16_t n) {
+        v.push_back(static_cast<uint8_t>(n)); v.push_back(static_cast<uint8_t>(n >> 8));
+    };
+    const uint32_t n = 64;
+    std::vector<uint8_t> v = {'R','I','F','F'};
+    le32(v, 36 + n);
+    v.insert(v.end(), {'W','A','V','E','f','m','t',' '});
+    le32(v, 16); le16(v, 1); le16(v, 1); le32(v, 44100); le32(v, 44100);
+    le16(v, 1); le16(v, 8);
+    v.insert(v.end(), {'d','a','t','a'});
+    le32(v, n);
+    for (uint32_t i = 0; i < n; ++i) v.push_back((i & 4) ? 0xC0 : 0x40);
+    return v;
+}
+
+static bool gh401_manifest(const std::vector<uint8_t>& jns,
+                           jnext::jns::Manifest& m)
+{
+    jnext::zip::Reader r;
+    std::string text, why;
+    std::vector<std::string> unk;
+    return r.open(jns.data(), jns.size(), why) &&
+           r.read_text(jnext::jns::kManifestMember, text, why) &&
+           jnext::jns::manifest_from_json(text, m, unk, why);
+}
+
+// Re-zip `in` with media.tape.path replaced by `new_path`.
+static bool gh401_rewrite_tape_path(const std::vector<uint8_t>& in,
+                                    const std::string& new_path,
+                                    std::vector<uint8_t>& out)
+{
+    jnext::zip::Reader r;
+    std::string why;
+    if (!r.open(in.data(), in.size(), why)) return false;
+    jnext::zip::Writer w(r.comment());
+    for (const auto& e : r.entries()) {
+        std::vector<uint8_t> data;
+        if (!r.read(e.name, data, why)) return false;
+        if (e.name == jnext::jns::kManifestMember) {
+            jnext::jns::Manifest m;
+            std::vector<std::string> unk;
+            const std::string text(data.begin(), data.end());
+            if (!jnext::jns::manifest_from_json(text, m, unk, why)) return false;
+            m.tape.path = new_path;
+            const std::string t2 = jnext::jns::manifest_to_json(m);
+            if (!w.add(e.name, t2, jnext::zip::Method::Stored, why)) return false;
+        } else if (!w.add(e.name, data.data(), data.size(),
+                          jnext::zip::Method::Stored, why)) {
+            return false;
+        }
+    }
+    return w.finish(out, why);
+}
+
+// Tape-related lines among a load's warnings.
+static std::vector<std::string> gh401_tape_warnings(const jnext::JnsLoadReport& rep)
+{
+    std::vector<std::string> v;
+    for (const auto& s : rep.warnings)
+        if (s.find("tape") != std::string::npos) v.push_back(s);
+    return v;
+}
+
+static int test_gh401_tape_path()
+{
+    printf("\n--- GH #401: the .jns records the tape by full path ---\n");
+    namespace fs = std::filesystem;
+    const fs::path cwd0 = fs::current_path();
+    const fs::path base = fs::temp_directory_path() /
+                          ("jnext-gh401-" + std::to_string(getpid()));
+    const fs::path A = base / "a", B = base / "b";
+    std::error_code ec;
+    fs::remove_all(base, ec);
+    fs::create_directories(A);
+    fs::create_directories(B);
+    const auto tap = gh401_tap_bytes(), tzx = gh401_tzx_bytes(), wav = gh401_wav_bytes();
+    gh401_write(A / "game.tap", tap);
+    gh401_write(A / "game.tzx", tzx);
+    gh401_write(A / "game.wav", wav);
+
+    // Attach `name` (relative, CWD = A) by `how`, switch CWD to B, save.
+    auto save_with = [&](int how, std::vector<uint8_t>& out) {
+        auto up = std::make_unique<Emulator>();
+        build_emulator(*up, 2);
+        fs::current_path(A);
+        bool ok = how == 0 ? up->load_tap("game.tap")
+                : how == 1 ? up->load_tzx("game.tzx")
+                :            up->load_wav("game.wav");
+        fs::current_path(B);
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        return ok && up->save_jns(opt, out, rep, why);
+    };
+    auto path_ok = [&](const jnext::jns::Manifest& m, const char* name) {
+        const fs::path p = fs::u8path(m.tape.path);
+        return m.tape.present && p.is_absolute() &&
+               fs::equivalent(p, A / name, ec);
+    };
+
+    std::vector<uint8_t> jtap, jtzx, jwav;
+    jnext::jns::Manifest m1, m2, m3;
+    const bool s1 = save_with(0, jtap) && gh401_manifest(jtap, m1);
+    check("S6-EMU-TAPE-01",
+          s1 && path_ok(m1, "game.tap") && m1.tape.sha256 == sdcard::sha256_hex(tap),
+          "a .tap attached by a relative name records an ABSOLUTE path and the digest of THAT file, "
+          "whatever the working directory is at save time (GH #401)", m1.tape.path);
+    const bool s2 = save_with(1, jtzx) && gh401_manifest(jtzx, m2);
+    check("S6-EMU-TAPE-02",
+          s2 && path_ok(m2, "game.tzx") && m2.tape.sha256 == sdcard::sha256_hex(tzx),
+          "the same through load_tzx, which installs the tape by move assignment", m2.tape.path);
+    const bool s3 = save_with(2, jwav) && gh401_manifest(jwav, m3);
+    check("S6-EMU-TAPE-03",
+          s3 && path_ok(m3, "game.wav") && m3.tape.sha256 == sdcard::sha256_hex(wav),
+          "the same through load_wav", m3.tape.path);
+
+    // Load `jns` into a fresh machine with CWD = `cwd`.
+    auto load_from = [&](const std::vector<uint8_t>& jns, const fs::path& cwd,
+                         bool strict, jnext::JnsLoadReport& lrep) {
+        auto up = std::make_unique<Emulator>();
+        build_emulator(*up, 2);
+        fs::current_path(cwd);
+        jnext::JnsLoadOptions lopt;
+        lopt.strict = strict;
+        std::string refusal;
+        return up->load_jns(jns.data(), jns.size(), lopt, lrep, refusal);
+    };
+
+    {
+        jnext::JnsLoadReport rep;
+        const bool ok = s1 && load_from(jtap, B, false, rep);
+        check("S6-EMU-TAPE-04", ok && gh401_tape_warnings(rep).empty(),
+              "the archive loaded with a working directory that does NOT hold the tape "
+              "(the tape still at its recorded path) raises no tape warning",
+              std::to_string(gh401_tape_warnings(rep).size()) + " tape warning(s)");
+    }
+    {
+        fs::remove(A / "game.tap");
+        jnext::JnsLoadReport rep;
+        const bool ok = s1 && load_from(jtap, B, true, rep);
+        const auto tw = gh401_tape_warnings(rep);
+        check("S6-EMU-TAPE-05",
+              ok && tw.size() == 1 && tw[0].find(m1.tape.path) != std::string::npos,
+              "with the tape gone, a STRICT load still succeeds (§10.2 P4) and raises exactly one "
+              "tape warning that names the full recorded path");
+        gh401_write(A / "game.tap", tap);
+    }
+    std::vector<uint8_t> legacy;
+    const bool lw = s1 && gh401_rewrite_tape_path(jtap, "game.tap", legacy);
+    {
+        jnext::JnsLoadReport rep;
+        const bool ok = lw && load_from(legacy, A, false, rep);
+        check("S6-EMU-TAPE-06", ok && gh401_tape_warnings(rep).empty(),
+              "a file from a version that recorded only the file name (a bare name) loaded with the tape in the "
+              "working directory raises no tape warning: old files keep loading as today");
+    }
+    {
+        jnext::JnsLoadReport rep;
+        const bool ok = lw && load_from(legacy, B, false, rep);
+        const auto tw = gh401_tape_warnings(rep);
+        check("S6-EMU-TAPE-07",
+              ok && tw.size() == 1 && tw[0].find("'game.tap'") != std::string::npos,
+              "the same legacy file loaded from a directory WITHOUT the tape warns, naming 'game.tap'");
+    }
+    fs::current_path(cwd0);
+    {
+        const std::string rel = "dir-\xC3\xA9/cinta-\xC3\xB1.tap";
+        const std::string got = jnext::absolute_host_path(rel);
+        const std::string head = fs::current_path().u8string();
+        const std::string tail = std::string("dir-\xC3\xA9") +
+                                 static_cast<char>(fs::path::preferred_separator) +
+                                 "cinta-\xC3\xB1.tap";
+        const bool ends = got.size() >= tail.size() &&
+                          got.compare(got.size() - tail.size(), tail.size(), tail) == 0;
+        check("S6-EMU-TAPE-08",
+              fs::u8path(got).is_absolute() && got.compare(0, head.size(), head) == 0 && ends,
+              "absolute_host_path keeps non-ASCII UTF-8 bytes exact: absolute, starting with the "
+              "working directory, ending with the original name in native separators", got);
+    }
+    fs::remove_all(base, ec);
+    return 0;
+}
 
 // ── GH #400: the rewind setting survives a program load ────────────────────
 //
@@ -6909,6 +7134,7 @@ int main()
     test_s5b_duplicated_ram_removed();
     test_s6_gaps();
     test_s8_jns_roundtrip();
+    test_gh401_tape_path();
     test_rewind_setting_survives_load();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

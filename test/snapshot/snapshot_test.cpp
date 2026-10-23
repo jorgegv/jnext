@@ -2542,6 +2542,44 @@ int main(int argc, char** argv) {
               "have turned into a requirement",
               bad.empty(), all_of_them(bad));
     }
+    {   // JNSN-31 (GH #401)
+        // A host path that is not UTF-8 (a Latin-1 folder name) used to make
+        // json::dump throw, and the save aborted. Oracle: RFC 8259 s8.1 (JSON
+        // text exchanged between systems MUST be UTF-8) and nlohmann's
+        // documented error_handler_t::replace (U+FFFD per invalid byte).
+        Manifest m = make_manifest();
+        m.tape.present         = true;
+        m.tape.path            = "/t\xE4pe/game.tap";
+        m.sdcard.present       = true;
+        m.sdcard.mounted_path  = "/s\xE4/card.img";
+        m.esxdos_root          = "/r\xE4/root";
+        std::string text, err;
+        bool threw = false;
+        try {
+            text = jnext::jns::manifest_to_json(m);
+        } catch (const std::exception& e) {
+            threw = true;
+            err = e.what();
+        }
+        bool parses = false;
+        if (!threw) {
+            // manifest_from_json parses with nlohmann's default STRICT parser.
+            Manifest back;
+            std::vector<std::string> unk;
+            std::string w2;
+            parses = jnext::jns::manifest_from_json(text, back, unk, w2);
+        }
+        const char* rep = "\xEF\xBF\xBD";
+        const bool all_replaced =
+            text.find(std::string("/t") + rep + "pe/game.tap") != std::string::npos &&
+            text.find(std::string("/s") + rep + "/card.img")   != std::string::npos &&
+            text.find(std::string("/r") + rep + "/root")       != std::string::npos &&
+            text.find('\xE4') == std::string::npos;
+        check("JNSN-31",
+              "manifest_to_json does not throw on a tape, SD or esxDOS path that is not UTF-8: "
+              "each invalid byte becomes U+FFFD and the text parses with the strict parser",
+              !threw && parses && all_replaced, err);
+    }
     {
         Manifest m = make_manifest();
         std::vector<uint8_t> z =

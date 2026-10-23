@@ -758,6 +758,30 @@ int main(int argc, char** argv) {
                   held && still && resumed && pilot == 8062,
                   "pilot_intervals=" + std::to_string(pilot));
         }
+        {   // TZXC-110 (GH #401)
+            namespace fs = std::filesystem;
+            write_file("t110.tzx", concat({kHeader, b10(hdr_body()), b10(data_body())}));
+            const fs::path cwd0 = fs::current_path();
+            fs::current_path(g_root);
+            TzxLoader a;
+            const bool ok = a.load("t110.tzx");            // a RELATIVE name
+            fs::current_path(cwd0);
+            const fs::path p = fs::u8path(a.path());
+            const bool abs_ok = ok && p.is_absolute() &&
+                                fs::equivalent(p, g_root / "t110.tzx") &&
+                                a.filename() == "t110.tzx";
+            const std::string want = a.path();
+            TzxLoader b(std::move(a));
+            const bool ctor_ok = b.path() == want;
+            TzxLoader c;
+            c = std::move(b);
+            const bool assign_ok = c.path() == want;
+            c.eject();
+            check("TZXC-110", "path() is the absolute path of a relatively-loaded file (filename() stays the bare name), "
+                  "survives a move construction and a move assignment, and eject() clears it",
+                  abs_ok && ctor_ok && assign_ok && c.path().empty(),
+                  "path=" + want);
+        }
     }
 
     Log::emulator()->sinks().pop_back();

@@ -1,6 +1,7 @@
 #include "core/tap_loader.h"
 #include "core/emulator.h"
 #include "core/log.h"
+#include "core/host_path.h"
 #include "core/tape_trap.h"
 
 #include <cstring>
@@ -65,6 +66,7 @@ bool TapLoader::load(const std::string& path) {
     // separators: a Windows path from `--load C:\...` or a native dialog has
     // backslashes, which rfind('/') never saw).
     filename_ = std::filesystem::path(path).filename().string();
+    path_ = jnext::absolute_host_path(path);
 
     return true;
 }
@@ -112,6 +114,7 @@ void TapLoader::eject() {
     playing_ = false;
     held_ = false;
     filename_.clear();
+    path_.clear();
     Log::emulator()->info("TAP: tape ejected");
 }
 
