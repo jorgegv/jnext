@@ -6672,7 +6672,7 @@ static int test_rewind_setting_survives_load()
 {
     printf("\n--- Test GH400: rewind setting survives a program load ---\n");
 
-    // Fixtures: a 48K machine saved as .sna/.szx/.nex, a 128K one as .jns,
+    // Fixtures: a 48K machine saved as .sna/.szx/.nex, a Next one as .jns,
     // a hand-built .z80 v1 (48K, uncompressed), a one-block .tap.
     const std::string sna = rwload_path("a.sna");
     const std::string szx = rwload_path("a.szx");
@@ -6680,7 +6680,7 @@ static int test_rewind_setting_survives_load()
     const std::string z80 = rwload_path("a.z80");
     const std::string jns = rwload_path("a.jns");
     const std::string tap = rwload_path("a.tap");
-    size_t fresh128_bytes = 0;
+    size_t fresh_next_bytes = 0;
     {
         auto src = std::make_unique<Emulator>();
         build_emulator(*src, 0);
@@ -6709,16 +6709,16 @@ static int test_rewind_setting_survives_load()
     {
         auto src = std::make_unique<Emulator>();
         EmulatorConfig c;
-        c.type = MachineType::ZX128K;
+        c.type = MachineType::ZXN_ISSUE2;
         c.rewind_buffer_frames = 8;
         src->init(c);
-        fresh128_bytes = src->rewind_buffer()->snapshot_bytes();
+        fresh_next_bytes = src->rewind_buffer()->snapshot_bytes();
         jnext::JnsSaveOptions opt;
         jnext::JnsLoadReport rep;
         std::string why;
         std::vector<uint8_t> out;
         const bool ok = src->save_jns(opt, out, rep, why) && rwload_write(jns, out);
-        if (!require("RWLOAD-PRE-02", ok, "RWLOAD fixtures: 128K .jns written")) return 1;
+        if (!require("RWLOAD-PRE-02", ok, "RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one)")) return 1;
     }
 
     auto frames = [](Emulator& e, int n) { for (int i = 0; i < n; ++i) e.run_frame(); };
@@ -6779,18 +6779,18 @@ static int test_rewind_setting_survives_load()
         check("RWLOAD-04", pre && e.rewind_buffer()->depth() == 2,
               "a .nex load keeps the debugger-enabled rewind", detail(e, ok));
     }
-    {   // RWLOAD-05 .jns that switches the machine 48K -> 128K
+    {   // RWLOAD-05 .jns that switches the machine 48K -> Next (slot size differs)
         auto up = std::make_unique<Emulator>(); Emulator& e = *up;
         dbg_on(e);
         const bool ok = emulator_apply_load(e, jns, false);
-        const bool pre = kept8(e, ok) && e.config().type == MachineType::ZX128K;
+        const bool pre = kept8(e, ok) && e.config().type == MachineType::ZXN_ISSUE2;
         frames(e, 2);
         check("RWLOAD-05", pre && e.rewind_buffer()->depth() == 2 &&
-                           e.rewind_buffer()->snapshot_bytes() == fresh128_bytes,
+                           e.rewind_buffer()->snapshot_bytes() == fresh_next_bytes,
               "a machine-switching .jns keeps the rewind setting and re-measures the slot "
               "for the new machine", detail(e, ok) + " slot=" +
               std::to_string(e.rewind_buffer() ? e.rewind_buffer()->snapshot_bytes() : 0) +
-              " want=" + std::to_string(fresh128_bytes));
+              " want=" + std::to_string(fresh_next_bytes));
     }
     {   // RWLOAD-06 in-memory snapshot (RZX playback path)
         auto up = std::make_unique<Emulator>(); Emulator& e = *up;
