@@ -4408,7 +4408,8 @@ written by a jnext whose state model this build does not know, or
 one whose recorded ROM digests differ from the ROMs now loaded. A
 missing tape file is <strong>not</strong> covered — that always warns and never
 refuses, because a machine restores perfectly well without the tape
-it was loading from.</p>
+it was loading from. The same goes for a tape that has changed or
+whose position cannot be restored.</p>
 <p><code>force</code> restores even though the mounted SD card is not the one the
 snapshot was taken on, printing a warning that names both cards.
 This is the setting that lets you create exactly the silently-wrong

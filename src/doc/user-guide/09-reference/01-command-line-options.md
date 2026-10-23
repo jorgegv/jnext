@@ -796,7 +796,8 @@ with status 1.
     one whose recorded ROM digests differ from the ROMs now loaded. A
     missing tape file is **not** covered — that always warns and never
     refuses, because a machine restores perfectly well without the tape
-    it was loading from.
+    it was loading from. The same goes for a tape that has changed or
+    whose position cannot be restored.
 
     `force` restores even though the mounted SD card is not the one the
     snapshot was taken on, printing a warning that names both cards.
