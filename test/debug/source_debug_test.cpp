@@ -2993,7 +2993,8 @@ int main() {
                       " pre=" + std::to_string(int(pre)) + " n=" + std::to_string(t.size()));
         }
 
-        // SRCLIFE-22: verification is pure (no watch, no latch).
+        // SRCLIFE-22: verification is pure (no watch, no latch). The check runs
+        // as a guest read would be seen: inside the guest-execution scope.
         {
             Machine m;
             m.dbg->load_source_map(good.string(), false);
@@ -3009,15 +3010,23 @@ int main() {
                 return Action::Continue;
             };
             m.dbg->subscribe(m.a, sub);
+            for (uint16_t p = 0x8000; p <= 0x8003; ++p)
+                m.emu.debug_state().breakpoints().add_watchpoint(p, WatchType::READ);
             const std::vector<uint8_t> s = own_state(m);
             m.dbg->load_state_bytes(m.a, s.data(), s.size());
             const std::vector<uint8_t> before = own_state(m);
-            (void)m.dbg->source_map_status();
-            m.dbg->pump(jnext::dbg::PumpBudget{});
+            const size_t ring_before = m.emu.debug_state().event_table()->size();
+            Debugger::SourceMapStatus st;
+            {
+                DebugState::GuestExecutionScope guest(m.emu.debug_state());
+                st = m.dbg->source_map_status();
+            }
             const std::vector<uint8_t> after = own_state(m);
-            check("SRCLIFE-22", "verifying a map's identity runs no Mem Read handler and changes "
-                                "no byte of the state",
-                  hits == 0 && before == after && m.dbg->source_map().size() == 6);
+            check("SRCLIFE-22", "verifying a map's identity after a landing runs no Mem Read "
+                                "handler, raises no watchpoint and changes no byte of the state",
+                  st.state == State::Attached && hits == 0 && before == after &&
+                      !m.emu.debug_state().watch_stop() &&
+                      m.emu.debug_state().event_table()->size() == ring_before);
         }
 
         // SRCLIFE-23: after a Frame Back into A's history across B's load,
