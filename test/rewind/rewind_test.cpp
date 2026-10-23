@@ -7064,9 +7064,11 @@ struct Fin {
     TzxLoader::DeckState tzx;
     WavLoader::DeckState wav;
     std::string path;
+    uint8_t typ[4] = {0, 0, 0, 0};   // the phantom typist
     bool decks_same(const Fin& o) const {
         return lt == o.lt && lz == o.lz && lw == o.lw && ft == o.ft && fz == o.fz &&
-               tap == o.tap && tzx == o.tzx && wav == o.wav && path == o.path;
+               tap == o.tap && tzx == o.tzx && wav == o.wav && path == o.path &&
+               std::memcmp(typ, o.typ, sizeof(typ)) == 0;
     }
 };
 
@@ -7083,6 +7085,8 @@ static Fin cap(Emulator& e, bool with_stream)
     if (f.lz) f.tzx = e.tzx_tape().deck_state(f.mono);
     if (f.lw) f.wav = e.wav_tape().deck_state(f.mono);
     f.path = f.lt ? e.tape().path() : f.lz ? e.tzx_tape().path() : f.lw ? e.wav_tape().path() : std::string();
+    const PhantomTypist::Snapshot ty = e.phantom_typist().snapshot();
+    f.typ[0] = ty.state; f.typ[1] = ty.mode; f.typ[2] = ty.ports_read; f.typ[3] = ty.post_delay;
     if (with_stream) f.st = stream(e);
     return f;
 }
@@ -7334,10 +7338,24 @@ static int test_gh402_tape_reattach()
         jnext::JnsLoadReport rep;
         std::string why;
         const bool same = saved && resume_equal(a, j, false, true, 300, b, rep, why);
-        check("S6-EMU-TAPE-16", waiting && same && b->tape().current_block() >= 1 && tape_warnings(rep).empty(),
+        // The same after the typing is done: a typist that had finished stays finished
+        // (a restore must not arm it again, which would type LOAD "" a second time).
+        auto a2 = make();
+        std::unique_ptr<Emulator> b2;
+        a2->load_tap(tap, true);
+        for (int i = 0; i < 400; ++i) a2->run_frame();
+        const bool done_typing = !a2->phantom_typist().is_active();
+        Bytes j2;
+        const bool saved2 = save(*a2, j2);
+        jnext::JnsLoadReport rep2;
+        std::string why2;
+        const bool same2 = saved2 && resume_equal(a2, j2, false, true, 30, b2, rep2, why2) &&
+                           !b2->phantom_typist().is_active();
+        check("S6-EMU-TAPE-16", waiting && same && done_typing && same2 && b->tape().current_block() >= 1 &&
+              tape_warnings(rep).empty(),
               "a fast TAP saved two frames after load_tap (the typist waiting for BASIC) restores a machine that "
               "types LOAD \"\" at the same moment: 300 frames later, with the first block trapped on both, the "
-              "streams are identical", why);
+              "streams are identical; and one saved after the typing was done restores a typist that stays idle", why + why2);
     }
     // The snapshot the failure rows start from: a real-time TAP, mid-block.
     Bytes base_jns;
