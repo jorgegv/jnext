@@ -83,7 +83,12 @@ void CallStackPanel::refresh() {
         // Show symbol name for target if available
         QString target_text = QString::asprintf("%04X", f.target_pc);
         if (symbol_table_) {
-            auto sym = symbol_table_->lookup(f.target_pc);
+            // The memory the target was entered in when recorded; else the
+            // one that supplies it now.
+            const jnext::dbg::MemSpace space =
+                f.target_space != jnext::dbg::MemSpace::cpu() ? f.target_space
+                                                              : dbg_->source_page(f.target_pc);
+            auto sym = symbol_table_->lookup(space, f.target_pc);
             if (sym)
                 target_text = QString::fromStdString(*sym);
         }

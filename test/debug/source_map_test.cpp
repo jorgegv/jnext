@@ -6,6 +6,9 @@
 //   SLD-*      the sjasmplus SLD v1 adapter, its validation and sidecar search
 //   NBSYM-*    the NextBuild / Boriel ZX Basic Memory.txt adapter and
 //              SymbolTable::resolve() for address fields
+//   SYMPG-*    SymbolTable keyed by (memory, address): paged and unpaged
+//              labels, name-only values, nearest(), resolve_key() (GH #375)
+//   SLDL-*     the SLD `L` records into a SymbolTable (GH #375)
 //   Z88FIX-*   the committed z88dk ground-truth fixtures match their manifest
 //
 // Pure: no machine. The looping-link row (SLD-18) needs a symlink, so it is in
@@ -24,6 +27,9 @@
 #include <set>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
+#include <sstream>
 #include <string>
 #include <type_traits>
 #include <unistd.h>
@@ -575,11 +581,11 @@ int main() {
         check("NBSYM-01", "five labels load; out-of-range, non-hex and malformed lines do not",
               st.load_nextbuild_memory(mem.string()) == 5);
         check("NBSYM-02", "one name per address: the first label there",
-              st.size() == 4 && st.lookup(0xACB5) == std::optional<std::string>("FillScreen"));
+              st.size() == 4 && st.lookup(jnext::dbg::MemSpace::cpu(), 0xACB5) == std::optional<std::string>("FillScreen"));
         check("NBSYM-03", "a Boriel user label shows without '.' and the compiler's '_'",
-              st.lookup(0x7335) == std::optional<std::string>("factoryFxDirty"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0x7335) == std::optional<std::string>("factoryFxDirty"));
         check("NBSYM-04", "a runtime label keeps its double underscore",
-              st.lookup(0x7320) == std::optional<std::string>("core.__START_PROGRAM"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0x7320) == std::optional<std::string>("core.__START_PROGRAM"));
         check("NBSYM-05", "the shown name, the raw label and the label without '.' all "
                           "resolve by name",
               st.lookup_name("FillScreen") == 0xACB5 && st.lookup_name("._FillScreen") == 0xACB5 &&
@@ -587,7 +593,7 @@ int main() {
         check("NBSYM-06", "a second label at an address still resolves by name",
               st.lookup_name("core.alias_at_same_address") == 0xACB5);
         check("NBSYM-07", "a CRLF line loads",
-              st.lookup(0xC735) == std::optional<std::string>("RespawnPlayer"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0xC735) == std::optional<std::string>("RespawnPlayer"));
         std::string why08;
         check("NBSYM-08", "an unreadable file is -1, and the reason is \"could not open "
                           "Memory.txt file\"",
@@ -613,6 +619,282 @@ int main() {
                           "never the number",
               !hexy.resolve("@4000") && !hexy.resolve("@") &&
                   st.resolve("@ RespawnPlayer") == 0xC735);
+    }
+
+    // ── SymbolTable keyed by (memory, address) — GH #375 ────────────────
+    // Oracle: design 10.1 (SOURCE-LEVEL-DEBUGGING.md): a paged label names its
+    // address in its own space only; an unpaged one in every space.
+    {
+        const MemSpace p20 = MemSpace::page(20), p30 = MemSpace::page(30);
+        const auto name = [](const char* n) { return std::optional<std::string>(n); };
+        {
+            SymbolTable t;
+            t.add_label("banked", 0xC000, p20);
+            t.add_label("other_bank", 0xC000, p30);
+            check("SYMPG-01", "a paged label names its address only in its own space",
+                  t.lookup(p20, 0xC000) == name("banked") && t.lookup(p30, 0xC000) == name("other_bank") &&
+                      !t.lookup(MemSpace::page(21), 0xC000) && !t.lookup(MemSpace::rom(0), 0xC000) &&
+                      !t.lookup(MemSpace::cpu(), 0xC000) && !t.lookup(p20, 0xC001));
+        }
+        {
+            SymbolTable t;
+            t.add_label("scr", 0x4000, std::nullopt);
+            check("SYMPG-02", "an unpaged label names its address in every space",
+                  t.lookup(MemSpace::page(4), 0x4000) == name("scr") &&
+                      t.lookup(MemSpace::rom(0), 0x4000) == name("scr") &&
+                      t.lookup(MemSpace::cpu(), 0x4000) == name("scr") && !t.lookup(p20, 0x4001));
+        }
+        {
+            SymbolTable t;
+            t.add_label("any", 0xC000, std::nullopt);
+            t.add_label("banked", 0xC000, p20);
+            check("SYMPG-03", "at one address a paged label wins in its space, the unpaged one answers elsewhere",
+                  t.lookup(p20, 0xC000) == name("banked") &&
+                      t.lookup(MemSpace::page(21), 0xC000) == name("any") &&
+                      t.lookup(MemSpace::cpu(), 0xC000) == name("any"));
+        }
+        {
+            SymbolTable t;
+            const bool first = t.add_label("pos", 0x8014, MemSpace::page(4));
+            const bool second = t.add_label("pos.x", 0x8014, MemSpace::page(4));
+            check("SYMPG-04", "first wins per key and per name: pos names (Page 4, $8014), pos.x still resolves there",
+                  first && !second && t.lookup(MemSpace::page(4), 0x8014) == name("pos") &&
+                      t.find_name("pos.x") == std::optional<SymbolNameKey>(SymbolNameKey{0x8014, MemSpace::page(4)}) &&
+                      t.add_label("pos", 0x9000, MemSpace::page(4)) && t.find_name("pos")->addr == 0x8014);
+        }
+        {
+            SymbolTable t;
+            t.add_value("point.y", 1);
+            check("SYMPG-05", "a name-only value resolves by name and names no address",
+                  t.lookup_name("point.y") == std::optional<uint16_t>(1) && !t.find_name("point.y")->space &&
+                      !t.lookup(MemSpace::cpu(), 1) && !t.lookup(MemSpace::page(4), 1) && t.size() == 0 && t.empty() &&
+                      t.symbols().empty());
+        }
+        {
+            SymbolTable t;
+            t.add_label("banked", 0xC000, p20);
+            t.add_label("scr", 0x4000, std::nullopt);
+            t.add_label("$zz", 0x1111, std::nullopt);
+            t.add_label("0xzz", 0x2222, std::nullopt);
+            const auto key = std::optional<SymbolNameKey>(SymbolNameKey{0xC000, p20});
+            check("SYMPG-06", "find_name and resolve_key give the space; a number or unpaged name has none; resolve is the address",
+                  t.find_name("banked") == key && t.resolve_key("@banked") == key && t.resolve_key("banked") == key &&
+                      t.resolve_key("C000") == std::optional<SymbolNameKey>(SymbolNameKey{0xC000, std::nullopt}) &&
+                      t.resolve_key("scr") == std::optional<SymbolNameKey>(SymbolNameKey{0x4000, std::nullopt}) &&
+                      !t.resolve_key("nope") && !t.resolve_key("$zz") && !t.resolve_key("0xzz") &&
+                      t.resolve("banked") == std::optional<uint16_t>(0xC000));
+        }
+        {
+            SymbolTable t;
+            t.add_label("a", 0x8000, std::nullopt);
+            t.add_label("banked", 0xC000, p20);
+            t.add_label("other_bank", 0xC000, p30);
+            const auto in20 = [](uint16_t a) { return a >= 0xC000 ? MemSpace::page(20) : MemSpace::page(4); };
+            const auto in30 = [](uint16_t a) { return a >= 0xC000 ? MemSpace::page(30) : MemSpace::page(4); };
+            const auto in21 = [](uint16_t a) { return a >= 0xC000 ? MemSpace::page(21) : MemSpace::page(4); };
+            using Near = std::optional<std::pair<uint16_t, std::string>>;
+            check("SYMPG-07", "nearest() skips paged labels that are not mapped, and gives the base of name+offset",
+                  t.nearest(0xC004, in20) == Near(std::make_pair<uint16_t, std::string>(0xC000, "banked")) &&
+                      t.nearest(0xC004, in30) == Near(std::make_pair<uint16_t, std::string>(0xC000, "other_bank")) &&
+                      t.nearest(0xC004, in21) == Near(std::make_pair<uint16_t, std::string>(0x8000, "a")) &&
+                      t.nearest(0xC004, nullptr) == Near(std::make_pair<uint16_t, std::string>(0x8000, "a")) &&
+                      !t.nearest(0x7FFF, in20));
+        }
+        {
+            SymbolTable t;
+            t.add_label("a", 0x8000, std::nullopt);
+            t.add_label("banked", 0xC000, p20);
+            t.add_label("other_bank", 0xC000, p30);
+            check("SYMPG-08", "symbols() lists every label (two at $C000); size() counts the keys",
+                  t.symbols().count(0xC000) == 2 && t.symbols().size() == 3 && t.size() == 3);
+        }
+        {
+            SymbolTable t;
+            t.add_label("p", 0xC000, p20);
+            t.add_label("u", 0xC000, std::nullopt);   // added AFTER the paged one
+            const auto in20 = [](uint16_t) { return MemSpace::page(20); };
+            check("SYMPG-10", "nearest() gives the name lookup() gives: the paged label in its space, even when an "
+                              "unpaged one was added later at the same address",
+                  t.nearest(0xC004, in20) == std::optional<std::pair<uint16_t, std::string>>(
+                                                 std::make_pair<uint16_t, std::string>(0xC000, "p")) &&
+                      t.lookup(p20, 0xC000) == name("p"));
+        }
+        {
+            SymbolTable t;
+            t.add_value("v", 1);
+            t.add_value("v", 2);
+            check("SYMPG-11", "the first value of a name wins", t.lookup_name("v") == std::optional<uint16_t>(1));
+        }
+        {
+            SymbolTable t;
+            t.add_label("banked", 0xC000, p20);
+            t.add_value("sz", 5);
+            const SymbolTable copy = t;
+            SymbolTable cleared = t;
+            cleared.clear();
+            check("SYMPG-09", "a copy equals the original; clear() empties labels, names and values",
+                  copy.symbols() == t.symbols() && copy.lookup_name("sz") == std::optional<uint16_t>(5) &&
+                      copy.lookup(p20, 0xC000) == name("banked") && cleared.empty() &&
+                      !cleared.lookup_name("banked") && !cleared.lookup_name("sz"));
+        }
+    }
+
+    // ── SLD `L` records into a SymbolTable — GH #375 ────────────────────
+    // equlabels.sld is what sjasmplus v1.23.1 writes for equlabels.asm (README
+    // in the fixture directory); its `--sym` of the same source is the oracle
+    // for the names and values.
+    {
+        const std::string fixture = JNEXT_SJASMEQU_DIR "/equlabels.sld";
+        const MemSpace p4 = MemSpace::page(4);
+        const auto name = [](const char* n) { return std::optional<std::string>(n); };
+        SourceMap map;
+        SymbolTable labels;
+        const SourceMapLoadResult r = load_sld(map, fixture, &labels);
+        check("SLDL-01", "equlabels.sld loads 18 traces and 12 labels (19 L records: 3 name-only, 4 skipped) "
+                         "naming 11 keys",
+              r.count == 18 && r.labels == 12 && labels.size() == 11 && labels.loaded_file().size() > 0);
+
+        std::map<std::string, uint16_t> sym;
+        {
+            std::ifstream in(JNEXT_SJASMEQU_DIR "/equlabels.sym");
+            std::string line;
+            while (std::getline(in, line)) {
+                const auto at = line.find(": EQU 0x");
+                if (at != std::string::npos)
+                    sym[line.substr(0, at)] = static_cast<uint16_t>(std::stoul(line.substr(at + 8), nullptr, 16));
+            }
+        }
+        static const char* const kFromSld[] = {
+            "SCREEN", "SCRSIZE", "TOPADDR", "main", "main.loop", "pos", "pos.x", "pos.y",
+            "gfx.draw", "gfx.draw.loop", "banked", "other_bank", "point", "point.x", "point.y"};
+        std::string bad;
+        std::set<std::string> from_sld;
+        for (const char* n : kFromSld) {
+            from_sld.insert(n);
+            const auto v = labels.lookup_name(n);
+            if (!v || !sym.count(n) || sym[n] != *v) bad += std::string(n) + " ";
+        }
+        std::set<std::string> absent;
+        for (const auto& [n, v] : sym)
+            if (!from_sld.count(n)) absent.insert(n);
+        check("SLDL-02", "every name the SLD gives is in sjasmplus's own --sym with the same value; "
+                         "the only --sym names it lacks are NEG, PASTTOP and counter",
+              bad.empty() && sym.size() == 18 && absent == std::set<std::string>({"NEG", "PASTTOP", "counter"}));
+        check("SLDL-03", "page -1 values past 16 bits (PASTTOP) or negative (NEG) are skipped, not truncated",
+              !labels.lookup_name("PASTTOP") && !labels.lookup_name("NEG") &&
+                  !labels.lookup(MemSpace::cpu(), 0x0000) &&
+                  labels.lookup(MemSpace::cpu(), 0xFFFF) == name("TOPADDR"));
+        check("SLDL-04", "module markers name nothing; gfx.draw.loop is Page 4 $8018",
+              !labels.find_name("gfx") && !labels.find_name("gfx.") && !labels.find_name("") &&
+                  labels.find_name("gfx.draw.loop") == std::optional<SymbolNameKey>(SymbolNameKey{0x8018, p4}));
+        check("SLDL-05", "+struct_def is name-only: point.y is 1 and no address in any space is named by it",
+              labels.lookup_name("point.y") == std::optional<uint16_t>(1) && !labels.find_name("point.y")->space &&
+                  !labels.lookup(p4, 0x0001) && !labels.lookup(MemSpace::cpu(), 0x0002) &&
+                  !labels.lookup(p4, 0x0000));
+        check("SLDL-09", "a page -1 label in range stays unpaged: SCREEN names $4000 in any space",
+              labels.lookup(MemSpace::page(10), 0x4000) == name("SCREEN") &&
+                  labels.lookup(MemSpace::page(40), 0x4000) == name("SCREEN") &&
+                  labels.lookup(MemSpace::cpu(), 0x4000) == name("SCREEN") &&
+                  labels.lookup(MemSpace::page(20), 0xC000) == name("banked") &&
+                  labels.lookup(MemSpace::page(30), 0xC000) == name("other_bank"));
+
+        // Synthetic SLDs: header, device, one T (so the source half loads) and the records under test.
+        const std::string z =
+            "x.asm|1||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+            "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n";
+        const std::string t = "x.asm|2||0|4|32768|T|\n";
+        const auto sld = [&](const char* file, const std::string& body) {
+            const fs::path f = dir / file;
+            write_text(f, "|SLD.data.version|1\n" + body);
+            return f.string();
+        };
+        {
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, sld("fd.sld", z + t + "x.asm|3||0|4|32768|F|,main,\nx.asm|3||0|-1|16384|D|,SCREEN,\n"), &l);
+            check("SLDL-06", "F and D records are not read: an SLD with only those has no labels",
+                  rr.count == 1 && rr.labels == 0 && l.empty() && !l.find_name("main") && !l.find_name("SCREEN"));
+        }
+        {
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, sld("badpage.sld",
+                                            z + t + "x.asm|3||0|224|32768|L|,high,\nx.asm|3||0|4|32768|L|,ok,\n"
+                                                    "x.asm|3||0|4|65536|L|,wide,\n"), &l);
+            check("SLDL-07", "an L record whose page the device lacks (or whose value is past 16 bits) is skipped; "
+                             "the rest and the source half load",
+                  rr.count == 1 && rr.labels == 1 && !l.find_name("high") && !l.find_name("wide") &&
+                      l.lookup(p4, 0x8000) == name("ok"));
+        }
+        {
+            // sjasmplus v1.23.1 (46aae3fa7) on sizeof.asm: `msg` is used in SIZEOF(), so its record
+            // carries +sizeof - and still the label's own address.
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, JNEXT_SJASMEQU_DIR "/sizeof.sld", &l);
+            std::map<std::string, uint16_t> sym;
+            std::ifstream in(JNEXT_SJASMEQU_DIR "/sizeof.sym");
+            std::string line;
+            while (std::getline(in, line)) {
+                const auto at = line.find(": EQU 0x");
+                if (at != std::string::npos)
+                    sym[line.substr(0, at)] = static_cast<uint16_t>(std::stoul(line.substr(at + 8), nullptr, 16));
+            }
+            check("SLDL-10", "a +sizeof record is an ordinary label: msg names its Page 4 address, with the value "
+                             "sjasmplus's own --sym gives",
+                  rr.labels == 2 && sym.size() == 2 && sym["msg"] == 0x8004 &&
+                      l.lookup(p4, 0x8004) == name("msg") &&
+                      l.find_name("msg") == std::optional<SymbolNameKey>(SymbolNameKey{0x8004, p4}));
+        }
+        {
+            SourceMap m;
+            SymbolTable l;
+            l.add_label("old", 0x1234, std::nullopt);
+            l.add_value("oldv", 7);
+            load_sld(m, sld("clr.sld", z + t + "x.asm|3||0|4|32768|L|,new,\n"), &l);
+            check("SLDL-11", "a load replaces the label table: what it held before is gone",
+                  !l.find_name("old") && !l.find_name("oldv") && !l.lookup(MemSpace::cpu(), 0x1234) &&
+                      l.lookup(p4, 0x8000) == name("new") && l.size() == 1);
+        }
+        {
+            // Each source-half problem refuses the source half only: count -1, an error naming it, labels loaded.
+            const std::string lab = "x.asm|9||0|-1|16384|L|,scr,\n";
+            const std::string bodies[] = {
+                z + t + "x.asm|3||0|4|32768|T\n" + lab,                       // a record of 7 fields
+                "x.asm|2||0|4|32768|T|\n" + z + lab,                          // a trace before the device
+                z + "|3||0|4|32768|T|\n" + lab,                               // a trace with no file
+                z + lab,                                                      // no trace at all
+            };
+            bool all = true;
+            int n = 0;
+            for (const std::string& body : bodies) {
+                SourceMap m;
+                SymbolTable l;
+                const auto rr = load_sld(m, sld(("src" + std::to_string(n++) + ".sld").c_str(), body), &l);
+                const bool ok = rr.count == -1 && !rr.error.empty() && rr.labels == 1 &&
+                                l.lookup(MemSpace::cpu(), 0x4000) == name("scr") && m.empty();
+                all = all && ok;
+            }
+            check("SLDL-12", "a malformed record, a trace before the device, a trace with no file and no trace "
+                             "at all each refuse the source half only: the labels still load",
+                  all);
+        }
+        {
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, sld("badt.sld", z + "x.asm|2||0|999|32768|T|\nx.asm|3||0|4|32768|L|,ok,\n"), &l);
+            SymbolTable untouched;
+            untouched.add_label("keep", 0x1234, std::nullopt);
+            SourceMap m2;
+            const fs::path nohdr = dir / "nohdr.sld";
+            write_text(nohdr, z + t + "x.asm|3||0|4|32768|L|,ok,\n");
+            const auto r2 = load_sld(m2, nohdr.string(), &untouched);
+            check("SLDL-08", "a bad trace refuses the source half and the labels still load; a missing header "
+                             "refuses both and leaves the table untouched",
+                  !rr && rr.count == -1 && !rr.error.empty() && rr.labels == 1 && l.lookup(p4, 0x8000) == name("ok") &&
+                      m.empty() && !r2 && r2.labels == -1 && untouched.size() == 1 &&
+                      untouched.lookup(MemSpace::cpu(), 0x1234) == name("keep"));
+        }
     }
 
     fs::remove_all(dir);

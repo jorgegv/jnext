@@ -2,6 +2,7 @@
 
 #include "debug/source_file.h"
 #include "debug/source_map.h"
+#include "debug/symbol_table.h"
 
 #include <algorithm>
 #include <charconv>
@@ -146,7 +147,54 @@ bool read_line(std::istream& input, std::string& line)
 
 } // namespace
 
-SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
+namespace {
+
+struct PendingLabel {
+    std::string name;
+    uint16_t address;
+    std::optional<uint16_t> page;   // nullopt: unpaged (SLD page -1)
+};
+
+// The label half of one `L` record (design 10.1): `module,main,local[,traits]`
+// named `module.main.local` as sjasmplus --sym spells it. Returns false when the
+// record names nothing (a module marker, a bad number, a value that does not fit
+// 16 bits or a page the device does not have); a `+struct_def` value (a struct's
+// offsets and size) goes to `values` (name only: it names no address). `+sizeof`
+// only says SIZEOF(label) was used somewhere (sjasm/tables.h LABEL_HAS_SIZE): the
+// record is an ordinary label.
+bool parse_label(const std::vector<std::string_view>& fields, int page_count,
+                 std::vector<PendingLabel>& labels,
+                 std::vector<std::pair<std::string, uint16_t>>& values)
+{
+    const auto data = split(fields[7], ',');
+    if (data.size() < 3 || data[1].empty()) return false;
+    std::string name;
+    if (!data[0].empty()) name = std::string(data[0]) + ".";
+    name += data[1];
+    if (!data[2].empty()) name += "." + std::string(data[2]);
+
+    const auto page = decimal<int>(fields[4]);
+    const auto value = decimal<int>(fields[5]);
+    if (!page || !value || *value < 0 || *value > 0xFFFF) return false;
+    for (size_t i = 3; i < data.size(); ++i) {
+        if (data[i] == "+struct_def") {
+            values.emplace_back(std::move(name), static_cast<uint16_t>(*value));
+            return false;
+        }
+    }
+    if (*page == -1) {
+        labels.push_back({std::move(name), static_cast<uint16_t>(*value), std::nullopt});
+        return true;
+    }
+    if (*page < 0 || *page >= page_count || *page > 0xFF) return false;
+    labels.push_back({std::move(name), static_cast<uint16_t>(*value),
+                      static_cast<uint16_t>(*page)});
+    return true;
+}
+
+} // namespace
+
+SourceMapLoadResult load_sld(SourceMap& map, const std::string& path, SymbolTable* labels)
 {
     if (std::string why = source_file_problem(path); !why.empty()) return failed(why);
     std::ifstream input(path);
@@ -166,6 +214,13 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
     int page_count = 0;
     int line_number = 1;
     bool has_identity_metadata = false;
+    // The source half's first refusal. Without a label table it ends the load
+    // at once; with one the scan goes on, because the labels are a transaction
+    // of their own.
+    std::string source_error;
+    std::vector<PendingLabel> pending;
+    std::vector<std::pair<std::string, uint16_t>> values;
+    int label_count = 0;
 
     while (read_line(input, line)) {
         ++line_number;
@@ -191,8 +246,12 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
         }
 
         const auto fields = split(line, '|');
-        if (fields.size() != 8)
-            return failed("malformed SLD record at line " + std::to_string(line_number));
+        if (fields.size() != 8) {
+            if (!labels) return failed("malformed SLD record at line " + std::to_string(line_number));
+            if (source_error.empty())
+                source_error = "malformed SLD record at line " + std::to_string(line_number);
+            continue;
+        }
         if (fields[6] == "Z") {
             const auto page = decimal<int>(fields[4]);
             const auto value = decimal<int>(fields[5]);
@@ -204,11 +263,23 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
             if (++device_count != 1) return failed("SLD contains multiple device records");
             continue;
         }
+        if (fields[6] == "L") {
+            if (labels && parse_label(fields, device_count == 1 ? page_count : 0, pending, values))
+                ++label_count;
+            continue;
+        }
         if (fields[6] != "T") continue;
-        if (device_count != 1)
-            return failed("SLD trace appears before device metadata");
-        if (fields[0].empty() || !fields[7].empty())
-            return failed("invalid SLD trace at line " + std::to_string(line_number));
+        if (device_count != 1) {
+            if (!labels) return failed("SLD trace appears before device metadata");
+            if (source_error.empty()) source_error = "SLD trace appears before device metadata";
+            continue;
+        }
+        if (fields[0].empty() || !fields[7].empty()) {
+            if (!labels) return failed("invalid SLD trace at line " + std::to_string(line_number));
+            if (source_error.empty())
+                source_error = "invalid SLD trace at line " + std::to_string(line_number);
+            continue;
+        }
 
         int source_line = 0;
         int source_column = 0;
@@ -217,7 +288,10 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
         if (!parse_position(fields[1], source_line, source_column)
             || !page || *page < 0 || *page >= page_count || *page > 0xFF
             || !address || *address < 0 || *address > 0xFFFF) {
-            return failed("invalid SLD trace at line " + std::to_string(line_number));
+            if (!labels) return failed("invalid SLD trace at line " + std::to_string(line_number));
+            if (source_error.empty())
+                source_error = "invalid SLD trace at line " + std::to_string(line_number);
+            continue;
         }
         ranges.push_back({jnext::dbg::MemSpace::page(static_cast<uint16_t>(*page)),
                           static_cast<uint16_t>(*address), 0,
@@ -226,7 +300,10 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
     }
 
     if (device_count != 1) return failed("SLD must contain one device record");
-    if (trace_count == 0) return failed("SLD contains no source traces");
+    if (trace_count == 0 && source_error.empty()) {
+        if (!labels) return failed("SLD contains no source traces");
+        source_error = "SLD contains no source traces";
+    }
 
     const int identity_fields = static_cast<int>(program_name.has_value())
         + static_cast<int>(program_sha256.has_value())
@@ -245,10 +322,28 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
                                          *program_size};
     }
 
-    // Absolute, so a source file named relative to the map can be found from
-    // its directory whatever the working directory is later.
     std::error_code ec;
     const std::filesystem::path absolute = std::filesystem::absolute(path, ec);
+    const std::string loaded = ec ? path : absolute.lexically_normal().string();
+    if (labels) {
+        labels->clear();
+        for (const PendingLabel& l : pending)
+            labels->add_label(l.name, l.address,
+                              l.page ? std::optional<jnext::dbg::FetchSource>(
+                                           jnext::dbg::MemSpace::page(*l.page))
+                                     : std::nullopt);
+        for (const auto& [name, value] : values)
+            labels->add_value(name, value);
+        labels->set_loaded_file(loaded);
+    }
+    if (!source_error.empty()) {
+        SourceMapLoadResult result = failed(source_error);
+        result.labels = label_count;
+        return result;
+    }
+
+    // Absolute, so a source file named relative to the map can be found from
+    // its directory whatever the working directory is later.
     // A record covers its instruction's bytes up to the next distinct start in
     // its page, never past the 8K page end (design 9.1; an SLD names 8K pages).
     // Records sharing a start share the extent.
@@ -262,12 +357,15 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
                                               : std::min<uint32_t>(*next, page_end);
     }
     map.replace(std::move(ranges), {}, std::move(identity),
-                ec ? path : absolute.lexically_normal().string());
-    return {trace_count, {}};
+                loaded);
+    SourceMapLoadResult result{trace_count, {}};
+    if (labels) result.labels = label_count;
+    return result;
 }
 
 SourceMapLoadResult load_sld_sidecar(SourceMap& map,
-                                     const std::string& program_path)
+                                     const std::string& program_path,
+                                     SymbolTable* labels)
 {
     namespace fs = std::filesystem;
     const fs::path program(program_path);
@@ -281,7 +379,7 @@ SourceMapLoadResult load_sld_sidecar(SourceMap& map,
         std::error_code ec;
         const auto st = fs::status(candidate, ec);
         if (!ec && fs::is_regular_file(st)) {
-            SourceMapLoadResult result = load_sld(map, candidate.string());
+            SourceMapLoadResult result = load_sld(map, candidate.string(), labels);
             result.file = candidate.string();
             return result;
         }

@@ -2605,7 +2605,12 @@ shows in the panels too. <code>src/debug/symbol_table.*</code> reads z88dk maps
 (<code>load_z88dk_map()</code>), plain <code>SYMBOL = $ADDR</code> lists (<code>load_simple_map()</code>),
 sjasmplus <code>--sym</code> / <code>--exp</code> files (<code>load_sjasmplus_equ()</code>) and NextBuild
 <code>Memory.txt</code> files (<code>load_nextbuild_memory()</code>); the address fields of the
-breakpoint and watch dialogs go through <code>SymbolTable::resolve()</code>.</p>
+breakpoint and watch dialogs go through <code>SymbolTable::resolve()</code>. The panels
+name an address in the memory that supplies it now (<code>Debugger::source_page()</code>),
+through <code>disasm_text::symbol_namer()</code> for the disassembly; a Breakpoints row uses
+its own page when it has one, a Call Stack frame the page its target was entered
+in, and a breakpoint dialog keeps the page of a name assembled for one
+(<code>resolve_key()</code>).</p>
 <p>The three Map &gt; Load MAP File items (Z88DK, Simple, sjasmplus) are three handlers
 in <code>DebuggerManager</code>, each calling <code>load_map()</code> and then <code>refresh_panels()</code>. The
 Breakpoints Symbol column and the Call Stack's target names are computed in the

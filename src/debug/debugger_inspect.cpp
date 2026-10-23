@@ -830,6 +830,8 @@ std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,
     std::vector<DisasmLine> out;
     out.reserve(n);
     const DisasmReadFn read = memory_reader();
+    const disasm_text::SymbolNamer namer = disasm_text::symbol_namer(
+        syms, [this](uint16_t a) { return source_page(a); });
     uint16_t pc = addr;
     for (size_t i = 0; i < n; ++i) {
         DisasmLine line = disasm_one(pc, read);
@@ -837,7 +839,7 @@ std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,
             // ONE substitution rule, shared with the panel's painter and with
             // the clipboard path (`disasm_text::apply_symbols`), so a symbol
             // cannot be spelled one way in a panel and another in a script.
-            const std::string m = disasm_text::apply_symbols(line.mnemonic, syms);
+            const std::string m = disasm_text::apply_symbols(line.mnemonic, namer);
             std::snprintf(line.mnemonic, sizeof(line.mnemonic), "%s", m.c_str());
         }
         out.push_back(line);

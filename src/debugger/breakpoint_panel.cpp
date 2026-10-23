@@ -171,18 +171,21 @@ void BreakpointPanel::refresh()
         auto* addr_item = new QTableWidgetItem(e.addr_text);
         table_->setItem(i, COL_ADDR, addr_item);
 
+        // The breakpoint's own page, else the one mapped there now: the memory
+        // the source line below is looked up in.
+        const jnext::dbg::MemSpace space =
+            e.page != jnext::dbg::PAGE_ANY ? jnext::dbg::MemSpace::page(e.page)
+            : dbg_                         ? dbg_->source_page(e.addr)
+                                           : jnext::dbg::MemSpace::cpu();
         QString sym;
         if (symbol_table_) {
-            auto s = symbol_table_->lookup(e.addr);
+            auto s = symbol_table_->lookup(space, e.addr);
             if (s) sym = QString::fromStdString(*s);
         }
         // CAP-SRC — with no symbol, the source line an Execute breakpoint
         // sits on: on its own page, or on the page mapped there now.
         if (sym.isEmpty() && dbg_ && e.type == BreakpointModel::Execute &&
             !dbg_->source_map().empty()) {
-            const jnext::dbg::MemSpace space =
-                e.page != jnext::dbg::PAGE_ANY ? jnext::dbg::MemSpace::page(e.page)
-                                               : dbg_->source_page(e.addr);
             if (const SourceLocation* src = dbg_->source_map().lookup(space, e.addr))
                 sym = QString::fromStdString(src->file) + ":" + QString::number(src->line);
         }
@@ -276,9 +279,14 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr, uint16
         // A number or a symbol first; then, for an Execute breakpoint, a source
         // line, which keeps the page its record names, so a line of banked code
         // breaks only while that bank is mapped.
-        if (const auto resolved = symbol_table_ ? symbol_table_->resolve(text)
-                                                : SymbolTable().resolve(text)) {
-            targets = {{*resolved, jnext::dbg::PAGE_ANY}};
+        if (const auto resolved = symbol_table_ ? symbol_table_->resolve_key(text)
+                                                : SymbolTable().resolve_key(text)) {
+            // A name assembled for a RAM page keeps it on an Execute breakpoint
+            // (as a source line does): it breaks only while that page is mapped.
+            const bool paged = resolved->space &&
+                               resolved->space->kind == jnext::dbg::MemSpace::Kind::Page &&
+                               type == BreakpointModel::Execute;
+            targets = {{resolved->addr, paged ? resolved->space->index : jnext::dbg::PAGE_ANY}};
             type_index = type;
             return true;
         }

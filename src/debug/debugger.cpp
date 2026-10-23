@@ -264,7 +264,7 @@ Result Debugger::clear_symbols() {
 
 std::optional<std::string> Debugger::lookup(uint16_t addr) const {
     impl_->recheck();   // CAP-SRC: a reader never sees a stale sidecar
-    return impl_->symbols.lookup(addr);
+    return impl_->symbols.lookup(source_page(addr), addr);
 }
 
 std::optional<uint16_t> Debugger::lookup_name(const std::string& name) const {

@@ -985,16 +985,18 @@ bool GdbServer::monitor_sym(const std::vector<std::string>& args) {
     std::uint32_t addr = 0;
     if (parse_number(args[0], addr)) {
         if (addr > 0xFFFF) return false;
-        const auto& table = dbg_.symbols().symbols();
-        auto        it    = table.upper_bound(static_cast<std::uint16_t>(addr));
-        if (it == table.begin()) {
+        // The nearest label at or below, among those that name their address in
+        // the memory mapped there now (a paged label is not seen elsewhere).
+        const auto near = dbg_.symbols().nearest(
+            static_cast<std::uint16_t>(addr),
+            [this](std::uint16_t a) { return dbg_.source_page(a); });
+        if (!near) {
             monitor_line(strf("no symbol at or below $%04X", addr));
             return true;
         }
-        --it;
-        const std::uint32_t delta = addr - it->first;
-        monitor_line(delta == 0 ? strf("$%04X = ", addr) + it->second
-                                : strf("$%04X = ", addr) + it->second + strf("+%u", delta));
+        const std::uint32_t delta = addr - near->first;
+        monitor_line(delta == 0 ? strf("$%04X = ", addr) + near->second
+                                : strf("$%04X = ", addr) + near->second + strf("+%u", delta));
         return true;
     }
     const auto a = dbg_.lookup_name(args[0]);

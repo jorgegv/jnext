@@ -1,12 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "debug/disasm.h"
 
-class SymbolTable;
+#include "debug/symbol_table.h"
 
 /// GH #21 — turning what the disassembly panel PAINTS into text you can paste.
 ///
@@ -46,11 +48,21 @@ struct CopyLine {
 /// looking for the literal "$0000", which is the rule the panel already used.
 uint16_t extract_immediate16(const char* mnemonic);
 
-/// `mnemonic` with its 16-bit immediate replaced by the MAP-file symbol for
-/// that address, if `symbols` holds one. Returns the mnemonic unchanged when
-/// `symbols` is null, when there is no 16-bit immediate, or when the address
-/// is not in the table. This IS the painter's rule — see the namespace note.
-std::string apply_symbols(const char* mnemonic, const SymbolTable* symbols);
+/// What names an address: the symbol of that address in the memory that
+/// supplies it now. An empty function names nothing.
+using SymbolNamer = std::function<std::optional<std::string>(uint16_t)>;
+
+/// The namer over `table`: `lookup(space_of(addr), addr)`. Null `table` names
+/// nothing; an empty `space_of` is "no memory known" (`MemSpace::cpu()`), which
+/// reaches unpaged labels only. Every consumer asks through this one rule
+/// (GH #375); the pointers must outlive the namer.
+SymbolNamer symbol_namer(const SymbolTable* table, const SymbolSpaceOf& space_of);
+
+/// `mnemonic` with its 16-bit immediate replaced by the symbol `namer` gives
+/// for that address, if it gives one. Returns the mnemonic unchanged when
+/// `namer` is empty, when there is no 16-bit immediate, or when the address
+/// has no name. This IS the painter's rule — see the namespace note.
+std::string apply_symbols(const char* mnemonic, const SymbolNamer& namer);
 
 /// Disassemble from `start` through `end`, both inclusive, reading live memory
 /// through `read_fn`.
@@ -63,7 +75,7 @@ std::string apply_symbols(const char* mnemonic, const SymbolTable* symbols);
 /// between the drag and the copy can cause); it never runs unbounded.
 std::vector<CopyLine> collect_range(uint16_t start, uint16_t end,
                                     const DisasmReadFn& read_fn,
-                                    const SymbolTable* symbols);
+                                    const SymbolNamer& namer);
 
 /// Render `lines` as clipboard text. Every line, including the last, ends in
 /// '\n'; an empty input renders as an empty string, never as a bare newline.

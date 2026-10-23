@@ -429,6 +429,14 @@ void DisasmPanel::select_all_visible()
     update();
 }
 
+// The one naming rule: a label names an address in the memory that supplies it.
+disasm_text::SymbolNamer DisasmPanel::namer() const
+{
+    return disasm_text::symbol_namer(symbol_table_, [this](uint16_t a) {
+        return dbg_ ? dbg_->source_page(a) : jnext::dbg::MemSpace::cpu();
+    });
+}
+
 QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
 {
     uint16_t low = 0, high = 0;
@@ -439,7 +447,7 @@ QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
     // full: nothing about the copy depends on what is currently on screen.
     const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
 
-    const auto lines = disasm_text::collect_range(low, high, read_fn, symbol_table_);
+    const auto lines = disasm_text::collect_range(low, high, read_fn, namer());
     return QString::fromStdString(disasm_text::format_lines(lines, fmt));
 }
 
@@ -566,7 +574,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // to carry the symbolic form, and one shared rule is what guarantees
         // the two can never drift apart.
         const QString mnemonic_str = QString::fromStdString(
-            disasm_text::apply_symbols(entry.line.mnemonic, symbol_table_));
+            disasm_text::apply_symbols(entry.line.mnemonic, namer()));
         painter.drawText(x, text_y, mnemonic_str);
 
         if (entry.is_current_pc) {
@@ -858,7 +866,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         menu.addSeparator();
 
         if (symbol_table_) {
-            auto sym = symbol_table_->lookup(addr);
+            auto sym = namer()(addr);
             if (sym) {
                 auto* watch_sym = menu.addAction(
                     QString("Watch '%1' ($%2)").arg(QString::fromStdString(*sym))
@@ -872,7 +880,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         if (has_imm) {
             QString label;
             if (symbol_table_) {
-                auto sym = symbol_table_->lookup(imm);
+                auto sym = namer()(imm);
                 if (sym) label = QString::fromStdString(*sym);
             }
             auto* watch_imm = menu.addAction(
