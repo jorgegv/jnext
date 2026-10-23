@@ -2502,6 +2502,224 @@ int main() {
                   ram_page_of(f[1].caller_space) == p80);
     }
 
+    // ── GH #340 (E23-08): the identity recorded in history and call frames ──
+    // The ZXN fixture: `page` mapped into MMU slot `nr - 0x50`, a byte string
+    // written there, then the real mapping restored by the caller.
+    auto poke_page = [](Machine& m, unsigned nr, unsigned page, uint16_t at,
+                        std::initializer_list<uint8_t> bytes) {
+        m.dbg->nextreg_write(m.a, static_cast<uint8_t>(nr), static_cast<uint8_t>(page));
+        for (const uint8_t b : bytes) m.emu.mmu().write(at++, b);
+    };
+    auto divmmc_instant_machine = [&](Machine& m) {
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);   // automap enable
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);   // instant entry at $0000
+        m.emu.divmmc().rom_data()[0] = 0x3C;      // INC A
+        m.emu.divmmc().rom_data()[1] = 0xC9;      // RET
+        m.emu.mmu().write(0x8000, 0xCD);
+        m.emu.mmu().write(0x8001, 0x00);
+        m.emu.mmu().write(0x8002, 0x00);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.PC = 0x8000;
+        r.AF = 0x0000;
+        m.emu.cpu().set_registers(r);
+        m.dbg->set_trace_enabled(true);
+    };
+    {
+        // zxnext.vhd:3084-3092 / divmmc.vhd:147 (instant entry: the M1 at $0000 is DivMMC's)
+        // and the MMU4 reset value (:4615): the entries name what the M1 recorded.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(m);
+        m.dbg->step_into(m.a);   // CALL $0000
+        m.dbg->step_into(m.a);   // INC A, fetched from the DivMMC ROM
+        const auto& t = m.emu.trace_log();
+        const bool two = t.size() == 2;
+        check("SRCDBG-ID-16", "a trace entry records the memory its instruction was fetched "
+                              "from: the CALL in RAM page 4, DivMMC's instruction at the "
+                              "instant entry point in the DivMMC ROM",
+              two && t.at(0).pc == 0x8000 && t.at(0).fetch_space() == MemSpace::page(4) &&
+                  t.at(1).pc == 0x0000 && t.at(1).fetch_space() == MemSpace::divmmc_rom(),
+              "entries=" + std::to_string(t.size()));
+        const fs::path out = dir / "trace-id-04.txt";
+        const bool exported = m.dbg->trace_export(out.string()) == Result::Ok;
+        std::string l0, l1;
+        {
+            std::ifstream f(out);
+            std::getline(f, l0);
+            std::getline(f, l1);
+        }
+        check("TRACE-ID-04", "the trace export names the fetch identity after ROM=: kind and "
+                             "index in hex, FETCH=01:04 for RAM page 4, FETCH=06:00 for the "
+                             "DivMMC ROM",
+              exported && l0.find("  $8000  ") != std::string::npos &&
+                  l0.find(" FETCH=01:04  [") != std::string::npos &&
+                  l1.find("  $0000  ") != std::string::npos &&
+                  l1.find(" FETCH=06:00  [") != std::string::npos,
+              "'" + l0 + "' / '" + l1 + "'");
+    }
+    {
+        // zxnext.vhd:4688 (the NextREG write), :2952/:2964/:3060 (slot -> page):
+        // JP $0000 into page 0x10, whose NEXTREG $50,$11 remaps slot 0 AS IT RUNS.
+        // The entry for the NEXTREG instruction is the page it was fetched from
+        // (0x10), not the page the slot holds once it has run (0x11).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        poke_page(m, 0x50, 0x11, 0x0004, {0x00});
+        poke_page(m, 0x50, 0x10, 0x0000, {0xED, 0x91, 0x50, 0x11});
+        m.emu.mmu().write(0x8000, 0xC3);
+        m.emu.mmu().write(0x8001, 0x00);
+        m.emu.mmu().write(0x8002, 0x00);
+        m.set_pc(0x8000);
+        m.dbg->set_trace_enabled(true);
+        m.dbg->step_into(m.a);   // JP $0000
+        m.dbg->step_into(m.a);   // NEXTREG $50,$11
+        const bool remapped = m.dbg->source_page(0x0000) == MemSpace::page(0x11);
+        m.dbg->step_into(m.a);   // NOP at $0004, now from page 0x11
+        const auto& t = m.emu.trace_log();
+        const bool three = t.size() == 3;
+        check("SRCDBG-ID-17", "an instruction that remaps its own slot is recorded with the "
+                              "page it was fetched from, not the page it left behind: NEXTREG "
+                              "$50,$11 run from page 0x10, then the next fetch from page 0x11",
+              three && remapped && t.at(0).fetch_space() == MemSpace::page(4) &&
+                  t.at(1).pc == 0x0000 && t.at(1).fetch_space() == MemSpace::page(0x10) &&
+                  t.at(1).mmu[0] == 0x10 && t.at(2).pc == 0x0004 &&
+                  t.at(2).fetch_space() == MemSpace::page(0x11),
+              "entries=" + std::to_string(t.size()));
+    }
+    {
+        // zxnext.vhd:2983-2984, :3052: a 48K's RST $38 lands in ROM 0. And :4688: on a Next
+        // with MMU0 = page 0x0C the same RST lands in that RAM page.
+        Machine m;
+        m.emu.mmu().write(0x8000, 0xFF);   // RST $38
+        m.set_pc(0x8000);
+        m.dbg->step_into(m.a);
+        m.dbg->step_into(m.a);             // the first instruction at $0038
+        const auto& fa = m.dbg->call_stack();
+        const bool a_ok = fa.size() == 1 && fa[0].type == CallType::RST &&
+                          fa[0].target_pc == 0x0038 && fa[0].target_space == MemSpace::rom(0) &&
+                          fa[0].caller_space == MemSpace::page(4);
+
+        Machine n(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        poke_page(n, 0x50, 0x0C, 0x0038, {0x00});
+        n.emu.mmu().write(0x8000, 0xFF);
+        n.set_pc(0x8000);
+        n.dbg->step_into(n.a);
+        n.dbg->step_into(n.a);
+        const auto& fb = n.dbg->call_stack();
+        const bool b_ok = fb.size() == 1 && fb[0].target_pc == 0x0038 &&
+                          fb[0].target_space == MemSpace::page(0x0C) &&
+                          fb[0].caller_space == MemSpace::page(4);
+        check("SRCDBG-CS-03", "a frame's target is the memory its first instruction was "
+                              "fetched from: ROM 0 on a 48K, the RAM page mapped at $0000 on "
+                              "a Next",
+              a_ok && b_ok,
+              std::string("48K ") + (a_ok ? "ok" : "BAD") + " Next " + (b_ok ? "ok" : "BAD"));
+    }
+    {
+        // zxnext.vhd:4688: CALL $C000 into page 0x12, whose first instruction remaps slot 6
+        // to page 0x13. The target stays page 0x12 (recorded once, at the first fetch there).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        poke_page(m, 0x56, 0x13, 0xC004, {0x00});
+        poke_page(m, 0x56, 0x12, 0xC000, {0xED, 0x91, 0x56, 0x13});
+        m.emu.mmu().write(0x8000, 0xCD);
+        m.emu.mmu().write(0x8001, 0x00);
+        m.emu.mmu().write(0x8002, 0xC0);
+        m.set_pc(0x8000);
+        m.dbg->step_into(m.a);   // CALL $C000
+        const bool pending = m.dbg->call_stack().size() == 1 &&
+                             m.dbg->call_stack()[0].target_space == MemSpace::cpu();
+        m.dbg->step_into(m.a);   // NEXTREG $56,$13, fetched from page 0x12
+        const bool remapped = m.dbg->source_page(0xC000) == MemSpace::page(0x13);
+        const bool after_one = m.dbg->call_stack().size() == 1 &&
+                               m.dbg->call_stack()[0].target_space == MemSpace::page(0x12);
+        m.dbg->step_into(m.a);   // NOP at $C004, fetched from page 0x13
+        const auto& f = m.dbg->call_stack();
+        check("SRCDBG-CS-04", "the target is recorded at the first fetch there and kept: "
+                              "unrecorded right after the CALL, page 0x12 after the NEXTREG "
+                              "that remaps its own slot, still page 0x12 after the next fetch "
+                              "from page 0x13",
+              pending && remapped && after_one && f.size() == 1 &&
+                  f[0].target_space == MemSpace::page(0x12) &&
+                  f[0].caller_space == MemSpace::page(4),
+              std::string("pending=") + (pending ? "1" : "0") + " remapped=" +
+                  (remapped ? "1" : "0") + " after_one=" + (after_one ? "1" : "0"));
+    }
+    // The interrupt fixture: CALL $C000 (page 0x12) from page 4, an INT taken at $C000 before
+    // that NOP runs; the IM 1 routine at $0038 (page 0x10) is EI, RET.
+    auto interrupt_machine = [&](Machine& m) {
+        poke_page(m, 0x56, 0x12, 0xC000, {0x00});
+        poke_page(m, 0x50, 0x10, 0x0038, {0xFB, 0xC9});
+        m.emu.mmu().write(0x8000, 0xCD);
+        m.emu.mmu().write(0x8001, 0x00);
+        m.emu.mmu().write(0x8002, 0xC0);
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xFF00; r.IM = 1; r.IFF1 = 1; r.IFF2 = 1;
+        m.emu.cpu().set_registers(r);
+        m.dbg->set_trace_enabled(true);
+    };
+    {
+        // t80na.vhd:278-279: the INT acknowledge cycle fetches nothing, so the interrupted
+        // instruction's source is the prediction at its PC (page 0x12, :4688), neither the
+        // last recorded M1 (the CALL's page 4) nor unknown.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        interrupt_machine(m);
+        m.dbg->step_into(m.a);                   // CALL $C000
+        m.emu.cpu().request_interrupt(0xFF);
+        m.dbg->step_into(m.a);                   // the INT, taken at $C000
+        const auto& f = m.dbg->call_stack();
+        const bool shape = f.size() == 2 && f[0].type == CallType::INT && f[1].type == CallType::CALL &&
+                           f[0].caller_pc == 0xC000 && m.pc() == 0x0038;
+        check("SRCDBG-CS-05", "an INT frame's caller is the memory the interrupted "
+                              "instruction will be fetched from (page 0x12), not the last "
+                              "recorded fetch (the CALL's page 4) and not unknown",
+              shape && f[0].caller_space == MemSpace::page(0x12),
+              shape ? "caller kind " + std::to_string(unsigned(f[0].caller_space.kind)) + "/" +
+                          std::to_string(unsigned(f[0].caller_space.index))
+                    : "fixture: " + std::to_string(f.size()) + " frames, pc " + hex(m.pc()));
+        const auto& t = m.emu.trace_log();
+        check("TRACE-ID-05", "an INT's slot has no fetch to record: its trace entry keeps "
+                             "the prediction for its PC (page 0x12), not the previous "
+                             "instruction's recorded fetch (page 4)",
+              shape && t.size() == 2 && t.at(1).pc == 0xC000 &&
+                  t.at(1).fetch_space() == MemSpace::page(0x12),
+              "entries=" + std::to_string(t.size()));
+
+        // The targets are recorded at their first fetches: both unrecorded right after the INT.
+        const bool both_pending = f.size() == 2 && f[0].target_space == MemSpace::cpu() &&
+                                  f[1].target_space == MemSpace::cpu();
+        m.dbg->step_into(m.a);                   // EI at $0038
+        const bool isr_filled = f.size() == 2 && f[0].target_space == MemSpace::page(0x10) &&
+                                f[1].target_space == MemSpace::cpu();
+        m.dbg->step_into(m.a);                   // RET: the INT frame is popped
+        m.dbg->step_into(m.a);                   // NOP at $C000
+        check("SRCDBG-CS-06", "an INT frame's target is recorded at the ISR's first fetch "
+                              "(page 0x10) while the CALL it interrupted stays unrecorded "
+                              "until its own target runs (page 0x12, after the ISR returns)",
+              both_pending && isr_filled && f.size() == 1 && f[0].type == CallType::CALL &&
+                  f[0].target_space == MemSpace::page(0x12),
+              std::string("both_pending=") + (both_pending ? "1" : "0") + " isr_filled=" +
+                  (isr_filled ? "1" : "0") + " frames=" + std::to_string(f.size()));
+    }
+    {
+        // A fetch elsewhere than at the target records nothing: the debugger moved PC after
+        // the CALL, so no instruction ran at $C000.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        poke_page(m, 0x56, 0x12, 0xC000, {0x00});
+        m.emu.mmu().write(0x8000, 0xCD);
+        m.emu.mmu().write(0x8001, 0x00);
+        m.emu.mmu().write(0x8002, 0xC0);
+        m.emu.mmu().write(0x8003, 0x00);
+        m.set_pc(0x8000);
+        m.dbg->step_into(m.a);   // CALL $C000
+        m.set_pc(0x8003);
+        m.dbg->step_into(m.a);   // NOP at $8003
+        const auto& f = m.dbg->call_stack();
+        check("SRCDBG-CS-07", "a frame's target stays unrecorded when the instruction that "
+                              "ran was not at the target",
+              f.size() == 1 && f[0].target_pc == 0xC000 && f[0].target_space == MemSpace::cpu());
+    }
+
     fs::remove_all(dir);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

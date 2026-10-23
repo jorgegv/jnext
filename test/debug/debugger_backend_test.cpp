@@ -4744,6 +4744,54 @@ static void q_wp3_trace_export_rows() {
           "got  '" + line + "'\nwant '" + want + "'");
 }
 
+/// TRACE-ID-01..03 (GH #340, E23-08) - the fetch identity lives IN the entry, so
+/// it follows the entry through a ring wrap, a resize and the no-wrap freeze.
+/// A record carries a provisional identity and the emulator patches the newest
+/// entry once the instruction has fetched (set_newest_fetch()).
+static void q_trace_fetch_identity_rows() {
+    auto rec = [](TraceLog& t, uint16_t pc, uint16_t page) {
+        TraceEntry e{};
+        e.pc = pc;
+        t.record(e);
+        t.set_newest_fetch(MemSpace::page(page));
+    };
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        for (uint16_t k = 0; k < 6; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        bool ok = t.size() == 4;
+        for (size_t i = 0; ok && i < 4; ++i)
+            ok = t.at(i).pc == 2 + i && t.at(i).fetch_space() == MemSpace::page(0x42 + i);
+        check("TRACE-ID-01", "six records patched into a ring of four: each surviving entry "
+                             "keeps its own identity across the wrap (the newest is found "
+                             "behind the write position, wrapped)",
+              ok, "size " + std::to_string(t.size()));
+    }
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        t.resize(8);
+        for (uint16_t k = 0; k < 10; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        bool ok = t.size() == 8;
+        for (size_t i = 0; ok && i < 8; ++i)
+            ok = t.at(i).pc == 2 + i && t.at(i).fetch_space() == MemSpace::page(0x42 + i);
+        check("TRACE-ID-02", "after resize(8) the patch lands on the newest entry of the NEW "
+                             "capacity: ten records leave entries 2..9, each with its own "
+                             "identity",
+              ok, "size " + std::to_string(t.size()));
+    }
+    {
+        TraceLog t(2);
+        t.set_enabled(true);
+        t.set_no_wrap(true);
+        for (uint16_t k = 0; k < 3; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        check("TRACE-ID-03", "a frozen (no-wrap) ring drops the third record, and its patch "
+                             "writes nothing: the second entry keeps the second identity",
+              t.size() == 2 && t.at(1).pc == 1 && t.at(1).fetch_space() == MemSpace::page(0x41) &&
+                  t.at(0).fetch_space() == MemSpace::page(0x40));
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // GH #278 WP4c — REQ-qt-32's non-arming OBSERVER client, the master switch's
 // legacy mirror across a cold boot, and the magic-breakpoint hold that replaced
@@ -17965,6 +18013,7 @@ int main() {
     q_wp2_host_order_rows();
     q_wp3_rewind_rows();          // GH #278 WP3
     q_wp3_trace_export_rows();    // GH #278 WP3
+    q_trace_fetch_identity_rows();   // GH #340
     q4c_observer_rows();          // GH #278 WP4c
     q4c_master_mirror_rows();     // GH #278 WP4c
     q4c_magic_hold_rows();        // GH #278 WP4c
