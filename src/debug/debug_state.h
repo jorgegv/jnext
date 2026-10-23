@@ -474,6 +474,14 @@ public:
     /// to tell the two apart.
     bool restoring_from_rewind() const { return restoring_from_rewind_; }
     void set_restoring_from_rewind(bool v) { restoring_from_rewind_ = v; }
+    /// CAP-SRC - the load generation the machine is in now (GH #342): a new one
+    /// starts at every landing that is not a rewind-ring restore and at every
+    /// program-load notification. Host-side, never serialised (the snapshot
+    /// width and the `.jns` do not change); each rewind slot keeps the value it
+    /// was taken with and `RewindBuffer::restore_nearest()` sets it back before
+    /// the load. The counter itself is the backend's (`Debugger::Impl`).
+    uint64_t load_generation() const { return load_generation_; }
+    void set_load_generation(uint64_t g) { load_generation_ = g; }
 
     /// THE MEMORY-WATCH GATE the eight `Mmu` sites read, in place of
     /// has_any_watchpoints(). One byte load, a shift and a test (§6.1); it
@@ -717,6 +725,7 @@ private:
     std::function<void(jnext::dbg::LatchEntry&, const uint64_t*)> stamp_common_;
     std::function<void()> machine_replaced_;
     bool restoring_from_rewind_ = false;
+    uint64_t load_generation_   = 0;
     bool event_boundary_work_ = false;
     bool ring_nonempty_       = false;
     bool cycle_armed_         = false;

@@ -219,6 +219,7 @@ void TraceLog::record(const TraceEntry& entry, bool fetch_not_mmu_ram)
     head_ = (head_ + 1) % capacity_;
     if (count_ < capacity_)
         ++count_;
+    ++recorded_;
 }
 
 void TraceLog::clear()

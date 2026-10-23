@@ -73,6 +73,12 @@ public:
     /// Number of entries currently stored.
     size_t size() const;
 
+    /// Entries ever stored: never reset by `clear()` or `resize()`, and a
+    /// record dropped by the no-wrap freeze is not counted. Entry `i`'s
+    /// sequence number is `recorded() - size() + i` (GH #342: a stable
+    /// identity for the Back search's generation markers).
+    uint64_t recorded() const { return recorded_; }
+
     /// Access entry by index (0 = oldest, size()-1 = newest).
     const TraceEntry& at(size_t index) const;
 
@@ -90,6 +96,7 @@ private:
     size_t capacity_;
     size_t head_ = 0;   // next write position
     size_t count_ = 0;  // entries stored
+    uint64_t recorded_ = 0;  // entries ever stored
     bool enabled_ = false;
     bool no_wrap_ = false;  // stop recording when full instead of overwriting
 };
