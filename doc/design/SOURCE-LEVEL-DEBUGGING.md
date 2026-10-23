@@ -102,8 +102,9 @@ option for it), ticks timings and the definition of the `--math48` alias (`git d
 4522364999..39421a01cd -- src/z80asm src/zcc src/sccz80 src/ticks src/80cc lib/config`), so
 the debug formats are expected to be the same. The zxn newlib did change its malloc selection
 (65eb39ec1f, 882356991b, 2026-10-14), so library code, and the addresses after it, may move.
-The addresses quoted here are therefore examples: E23-12 (#343) generates the fixtures on each
-install, and every row takes its values from them.
+The addresses quoted here are therefore examples: E23-12 (#343) generated the fixtures on each
+install (`test/fixtures/z88dk/`, README there), and every row takes its values from them; they
+supersede the planning examples where the two differ (master sccz80 equals the planning values).
 
 **What each output carries.**
 
@@ -124,8 +125,10 @@ install, and every row takes its values from them.
 - Naming traps: `+zxn` defaults to `-clib=sdcc_iy -O2 -SO2` (`lib/config/zxn.cfg`), so a bare
   `zcc +zxn` is sdcc; sccz80 needs `-clib=new` (or classic). `-clib=classic -debug` fails on
   both trees (`Unknown option2 --hardware-keyboard`: while planning, and again on
-  2026-10-18), so a classic map has no C lines; without `-debug` a classic build can link
-  (our fixture sources, both installs, 2026-10-18). E23-12 (#343) re-checks both installs.
+  2026-10-18, and again by E23-12), so a classic map has no C lines; without `-debug` a classic
+  build can link (our fixture sources, both installs). The cause: `-debug` makes zcc forward
+  ALIAS options (`lib/config/alias.inc`, here the classic `CLIB` line's `--hardware-keyboard`)
+  to the compiler, which rejects them; `zcc +zx --vt100 -debug -c util.c` fails the same way.
 
 **Findings, and what each demands of the design.** Values marked "fixture" are in the checked-in
 fixture; the others are from the planning builds.
@@ -186,8 +189,9 @@ fixture; the others are from the planning builds.
   `ORG 0x0a0000 + CRT_ORG_BANK_10`). Only a plain `BANK_n` has the prefix: `BANK_n_L`,
   `BANK_n_H`, `PAGE_n` and `DIV_n` have 16-bit ORGs on both trees, and newlib has them
   throughout. Measured on 2026-10-18 (classic build without `-debug`, one function in
-  `CODE_10`): `_banked_add` is `$AC000` on 2.4 (ORG $C000) and `$14E000` on the latest
-  install (ORG $E000, in page 21).
+  `CODE_10`; fixture `test/fixtures/z88dk`, `--codesegBANK_10`): `_banked_add` is `$AC000` on
+  2.4 (ORG $C000) and `$14C000` on master (`memory_map.asm`: `SECTION BANK_10`,
+  `ORG 0x140000 + CRT_ORG_BANK_10`, `CRT_ORG_BANK_10 = 0xc000`).
 - 80cc, a new C compiler (147d689ad7, 21148942d7, 7ac2e80b4f): `-compiler=80cc -debug` writes
   the same map format as sccz80, with function names.
 - z88dk-gdb: `monitor` passthrough, watchpoints, exit codes (0f5f252276, b11cb3f69b,
@@ -1156,8 +1160,10 @@ instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
 
-**Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), the fixture-hash row
-Z88FIX-01 (E23-12), and the functional rows `source-map-func` (a looked-up line, E23-15) and
+E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
+their manifest, and the manifest lists exactly those files).
+
+**Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
 `z88dk-source-func` (E23-15).
 
 **Oracles.**
