@@ -134,6 +134,12 @@ ROMs, the tape. None of those are *copied*: an SD image is a gigabyte of
 somebody else's firmware. They are recorded so a mismatch is **detected**
 rather than silently wrong, which is the same shape the esxDOS handles already
 used.
+The tape is recorded by the loaders' absolute path (`TapLoader::path()` and
+its two siblings, built by `jnext::absolute_host_path()`), beside the display
+name `filename()`; it is checked on load, never reattached. A host path that is
+not UTF-8 is written with U+FFFD instead of aborting the save. Tests:
+`rewind_test` S6-EMU-TAPE-*, `snapshot_test` JNSN-31 and the Linux-only
+`jns_host_path_linux_test`.
 
 The test that matters is in `rewind_test`: save a running machine to a `.jns`,
 load it into a second machine, and require the two machines' **binary** state

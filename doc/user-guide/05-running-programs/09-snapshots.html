@@ -1674,6 +1674,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-tape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The tape
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#two-flags-for-when-something-is-wrong" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4034,6 +4045,13 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
 and DivMMC ROM code paged into it. Those are not ours to redistribute and they
 are not yours either. Keep your snapshots; do not post them.</p>
 <p>If you want to hand somebody a program, hand them the <code>.nex</code>.</p>
+<h2 id="the-tape">The tape<a class="headerlink" href="#the-tape" title="Permanent link">&para;</a></h2>
+<p>The tape attached when you save is recorded by its full path, with a digest of
+the file. Loading the snapshot warns if that file is no longer there, from
+whichever folder you start JNEXT in. The snapshot does not put the tape back in
+the deck: insert it again with File &gt; Load. Snapshots written by JNEXT 1.1.80
+and earlier recorded only the file name, which is looked up in the folder JNEXT
+was started from.</p>
 <h2 id="two-flags-for-when-something-is-wrong">Two flags for when something is wrong<a class="headerlink" href="#two-flags-for-when-something-is-wrong" title="Permanent link">&para;</a></h2>
 <p><code>--snapshot-compression off</code> writes the file with nothing deflated. It is then
 an ordinary ZIP you can open with <code>unzip -p</code> and read with a text editor — the
