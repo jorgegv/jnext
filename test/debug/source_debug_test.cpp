@@ -2469,11 +2469,15 @@ int main() {
         m.dbg->step_into(m.a);
         m.dbg->step_into(m.a);
         m.dbg->step_into(m.a);   // CALL taken
+        // GH #340: the target is recorded at ITS first fetch, so one more step
+        // runs the instruction at the target (the frame stays).
+        m.dbg->step_into(m.a);
         const auto& f = m.dbg->call_stack();
         check("SRCDBG-CS-01", "a CALL's frame carries the caller's and the target's "
                               "physical pages",
-              f.size() == 1 && f[0].caller_pc == 0x8002 && f[0].caller_page == p80 &&
-                  f[0].target_pc == 0x9000 && f[0].target_page == p90);
+              f.size() == 1 && f[0].caller_pc == 0x8002 &&
+                  ram_page_of(f[0].caller_space) == p80 &&
+                  f[0].target_pc == 0x9000 && ram_page_of(f[0].target_space) == p90);
     }
     {
         // An interrupt taken in the slot right after the tracker was enabled:
