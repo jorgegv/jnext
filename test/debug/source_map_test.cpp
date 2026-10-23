@@ -819,7 +819,6 @@ int main() {
                 z + lab,                                                      // no trace at all
             };
             bool all = true;
-            std::string detail;
             int n = 0;
             for (const std::string& body : bodies) {
                 SourceMap m;
@@ -828,7 +827,6 @@ int main() {
                 const bool ok = rr.count == -1 && !rr.error.empty() && rr.labels == 1 &&
                                 l.lookup(MemSpace::cpu(), 0x4000) == name("scr") && m.empty();
                 all = all && ok;
-                if (!ok) detail += std::to_string(n) + " ";
             }
             check("SLDL-12", "a malformed record, a trace before the device, a trace with no file and no trace "
                              "at all each refuse the source half only: the labels still load",

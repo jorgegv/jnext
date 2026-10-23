@@ -1657,6 +1657,7 @@ void test_paged_symbols() {
         check("QSYM-04", "panels", false);
         check("QSYM-05", "panels", false);
         check("QSYM-10", "panels", false);
+        check("QSYM-11", "panels", false);
         return;
     }
     bp->set_symbol_table(&t);
@@ -1729,6 +1730,23 @@ void test_paged_symbols() {
           "rows=" + std::to_string(after_r.size()) +
               (after_r.empty() ? std::string() : " type=" + std::to_string(after_r[0].type) +
                                                      " page=" + std::to_string(after_r[0].page)));
+    m.clear_all();
+
+    // Edit moves a DISABLED Read breakpoint to a paged name: it stays disabled and page-less. The edit
+    // re-enables through set_enabled() with the dialog's page, which finds no row if the page leaked.
+    m.add(BreakpointModel::Read, 0x4000);
+    bp->refresh();
+    auto* table = bp->findChild<QTableWidget*>();
+    if (table && table->item(0, 0)) table->item(0, 0)->setCheckState(Qt::Unchecked);
+    if (table) table->setCurrentCell(0, 1);
+    const bool edited = table && answer_modal(QStringLiteral("banked"), [&]() { bp->on_edit(); });
+    const auto after_e = m.rows();
+    check("QSYM-11", "editing a disabled Read breakpoint to a paged name keeps it disabled and page-less",
+          edited && after_e.size() == 1 && after_e[0].type == BreakpointModel::Read &&
+              after_e[0].addr == 0xC000 && after_e[0].page == jnext::dbg::PAGE_ANY && !after_e[0].enabled,
+          "rows=" + std::to_string(after_e.size()) +
+              (after_e.empty() ? std::string() : " page=" + std::to_string(after_e[0].page) +
+                                                     " enabled=" + std::to_string(after_e[0].enabled)));
     m.clear_all();
 
     // The Call Stack names the target in the memory it was entered in, not the one mapped now.
