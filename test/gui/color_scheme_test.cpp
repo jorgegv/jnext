@@ -398,7 +398,8 @@ void test_portal() {
             QDBusConnection::sessionBus().send(sig);
             QElapsedTimer t;
             t.start();
-            while (t.elapsed() < 300) QApplication::processEvents(QEventLoop::AllEvents, 20);
+            do QApplication::processEvents(QEventLoop::AllEvents, 20);   // at least one pass (GH #399)
+            while (t.elapsed() < 300);
         };
         bool light = false, ignored = false, dark = false;
         const bool subscribed = cs && cs->subscribed();
