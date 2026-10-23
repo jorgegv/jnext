@@ -18,6 +18,7 @@
 - Debugger labels from sjasmplus --sym and --exp files (Map menu, --map); scripts name them as @module.label
 
 ### Bug Fixes
+- Rewind enabled from the debugger stays on, with its size and pause, across File > Open, Quick Load and hard reset
 - NextPi checks that QEMU is installed before offering its 6 GB download
 - Windows: NextPi's finished 6 GB download was deleted as "missing"; files over 4 GB are now recognised
 - NextPi uses an archive already in its folder, and says which file or check rejected an existing setup
