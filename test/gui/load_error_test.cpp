@@ -743,6 +743,32 @@ int main(int argc, char** argv) {
         }
     }
 
+    // LE-31 (GH #402, owner Q3) - the Tape > Fast Load toggle IS the session's one
+    // fast/real-time setting: MainWindow::tape_fast_load() (what QtApp's File >
+    // Load / --load / .jns restore read) follows it, and Tape > Open follows the
+    // same accessor.
+    {
+        Fixture f;
+        QAction* fast = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == "&Fast Load") fast = a;
+        bool off_ok = false, on_ok = false;
+        if (fast) {
+            fast->setChecked(false);
+            off_ok = !f.win.tape_fast_load();
+            f.win.handle_tape_path(QString::fromStdString(good_tap_path));
+            off_ok = off_ok && f.emu.tape().is_loaded() && !f.emu.tape().fast_load();
+            fast->setChecked(true);
+            on_ok = f.win.tape_fast_load();
+            f.win.handle_tape_path(QString::fromStdString(good_tap_path));
+            on_ok = on_ok && f.emu.tape().fast_load();
+        }
+        check("LE-31",
+              "MainWindow::tape_fast_load() is the Fast Load toggle (unchecked = real time, checked = fast) and Tape > Open "
+              "attaches in the mode it reports",
+              f.ok && fast && off_ok && on_ok);
+    }
+
     // ------------------------------------------------------------------
     // GH #392 - programs inside .zip archives, File > Load's post-picker half.
     // Oracle: the issue and the user guide 5 (an archive loads the one program
