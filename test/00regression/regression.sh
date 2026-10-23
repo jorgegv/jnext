@@ -539,6 +539,10 @@ if $PLATFORM_MODE; then
             || harness_fault "cannot initialise the wine prefix $WINEPREFIX"
         # Persistent wineserver, before any row (wine-run.sh header); stopped by regression_cleanup.
         REG_WINE_PREFIX=$WINEPREFIX
+        # Where wine-run.sh --jnext saves a stalled jnext.exe's state when a row's bound
+        # sends it TERM (GH #383). Exported here so the rows and the shim inherit it; the
+        # directory is created by the capture, and reported / removed at the end of the run.
+        export JNEXT_WINE_CAPTURE_DIR="$PROJECT_DIR/build/regression-artifacts/wine-stall/$(date +%Y%m%d-%H%M%S)-$$"
         # It also starts the desktop keeper and prints explorer.exe's pid (GH #329).
         REG_WINE_EXPLORER=$(bash "$PROJECT_DIR/test/wine-run.sh" --serve "$plat_qt_abs") \
             || harness_fault "cannot start a persistent wineserver and wine desktop"
@@ -647,6 +651,26 @@ if [[ -n "${REG_WINE_EXPLORER:-}" ]] && ! { [[ "$(cat "/proc/$REG_WINE_EXPLORER/
         && ! grep -q '^State:[[:space:]]*[ZX]' "/proc/$REG_WINE_EXPLORER/status" 2>/dev/null; }; then
     harness_fault "the wine desktop process (pid $REG_WINE_EXPLORER) was restarted during the run" \
                   "A row's jnext.exe may have started it on its own output pipe and been held to its bound (GH #329)."
+fi
+# Informational only (GH #383): never a fault, never a change of the exit status.
+if [[ -n "${REG_WINE_PREFIX:-}" ]]; then
+    wine_end=$(WINEPREFIX=$REG_WINE_PREFIX bash "$PROJECT_DIR/test/wine-run.sh" --prefix-state 2>/dev/null || true)
+    echo -e "  wine prefix at the end: ${wine_end:-no wine service process found}"
+    if [[ -d "${JNEXT_WINE_CAPTURE_DIR:-/nonexistent}" ]]; then
+        shopt -s nullglob
+        wine_caps=("$JNEXT_WINE_CAPTURE_DIR"/wine-stall-*.txt)
+        shopt -u nullglob
+        if [[ ${#wine_caps[@]} -gt 0 ]]; then
+            echo -e "  ${BOLD}wine stall captures (GH #383): ${#wine_caps[@]}${RESET}"
+            for wine_cap in "${wine_caps[@]}"; do
+                echo "    $wine_cap"
+                sed -n '/^== target threads/,/^$/p' "$wine_cap" 2>/dev/null | head -25 | sed 's/^/      /' || true
+            done
+            echo "    (the winedbg part is in each file)"
+        else
+            rmdir "$JNEXT_WINE_CAPTURE_DIR" 2>/dev/null || true
+        fi
+    fi
 fi
 
 echo ""
