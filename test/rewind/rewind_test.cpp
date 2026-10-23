@@ -927,6 +927,23 @@ static int test_snapshot_size_invariance()
                             "port-0xFF log content survives the snapshot round-trip");
     }
 
+    // RB-GEN-01 - each slot keeps the debugger's load generation it was taken
+    // with, and a restore sets it back (GH #342). Not serialised.
+    {
+        RewindBuffer rb(3, snap);
+        emu.debug_state().set_load_generation(5);
+        rb.take_snapshot(emu, 100, 1);
+        emu.debug_state().set_load_generation(9);
+        rb.take_snapshot(emu, 200, 2);
+        emu.debug_state().set_load_generation(77);
+        const bool first = rb.restore_nearest(100, emu) == 100;
+        const uint64_t g1 = emu.debug_state().load_generation();
+        const bool second = rb.restore_nearest(200, emu) == 200;
+        const uint64_t g2 = emu.debug_state().load_generation();
+        check("RB-GEN-01", first && second && g1 == 5 && g2 == 9,
+                           "a restore sets the load generation back to the slot's");
+    }
+
     // ---- auto-type queue ------------------------------------------------
     {
         Emulator emu2;

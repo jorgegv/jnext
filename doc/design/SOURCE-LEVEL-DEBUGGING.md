@@ -345,7 +345,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
-| Lifetime | `sidecar_attach_cycle`; `machine_replaced()` drops the sidecar stores at once on a reset or a state from outside the rewind ring; a rewind rechecks by the clock | 6 | E23-10 (#342) |
+| Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
 | z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
@@ -361,8 +361,8 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
 
 Done: E23-01, E23-03 and E23-04 (v1.1.64: the backend capability, the SLD and `Memory.txt`
-adapters, the Source tab, ownership, the sidecar refusal reasons, the clock-based
-lifetime); #332 (v1.1.46: the call-stack tracker follows rewind); #352 (v1.1.45). The epic closes
+adapters, the Source tab, ownership, the sidecar refusal reasons, a clock-based
+lifetime, replaced by the generation model in E23-10); #332 (v1.1.46: the call-stack tracker follows rewind); #352 (v1.1.45). The epic closes
 with E23-19 (#349). A sub-issue that lands updates its row here, not the prose.
 
 ## 4. Which memory supplied the instruction
@@ -727,7 +727,7 @@ log says so (OD-6).
 
 ### 6.5 The lifetime model (E23-10 (#342))
 
-The clock-based model of today (`sidecar_attach_cycle`) goes. Two tiers replace it.
+Two tiers. (The clock-based model, `sidecar_attach_cycle`, is gone.)
 
 1. **Load generation.** Every program load, state load (`.jns`, `.sna`, `.z80`, `.szx`, a DZRP
    or ZRCP restore), RZX playback start and reset increments a 64-bit generation. It is part
@@ -742,6 +742,40 @@ The clock-based model of today (`sidecar_attach_cycle`) goes. Two tiers replace 
    reload it or accept it. A map with no identity is detached on a generation change (sidecar)
    or marked stale (user).
 
+How it is built:
+
+- The generation counter lives in `Debugger::Impl`, not in the `Emulator` (a cold boot builds a
+  new one and a counter it owned would restart and collide with the cache keys). The current
+  value is `DebugState::load_generation()`: host-side, **not** in `save_state`, so the snapshot
+  width and the `.jns` do not change. A new generation starts at `machine_replaced()` (any
+  landing that is not a ring restore) and at `load_program_sidecars()` (the one program-load
+  notification, tapes included). A user map is carried into the latter without a second check.
+- `RewindBuffer::restore_nearest()` sets the slot's generation **before** `load_state()`, so
+  the hook that fires inside it, and the replay that follows, see the landing's generation.
+- The hook only marks the landing pending (the machine may be half-built inside `init()`). The
+  one recheck (`Impl::recheck()`) runs it, in every reader, in `pump()` and, first, in every
+  writer (`load_map`, `clear_symbols`, `load_source_map`, `clear_source_map`,
+  `load_program_sidecars`), so a pending landing cannot undo a write. It is O(1) when nothing
+  is pending, and it clears its flags before it logs, since a listener may call a reader.
+- A program's sidecars are one unit, judged by the source map's identity (`Memory.txt` has
+  none). User symbols have no identity and never change with lifetime.
+- **Stale** is one gate: `source_map()` and `source_location()` are empty while the user's map
+  is stale, so every consumer matches nothing. `Debugger::source_map_status()` says `None`
+  (with the last refusal or drop as the reason), `Attached` or `Stale` (the file and why).
+  Loading the map again by hand is how a user accepts it (it also re-reads a rebuilt file).
+- The cache holds one record per generation, at most 4, the current one included; a failed
+  identity check at the next pause erases the record of the generation the map was re-keyed
+  to, so a detached map does not come back by a rewind within that generation. A failure at
+  the landing itself erases nothing: the record belongs to the previous generation, whose
+  history a rewind still returns to.
+- The next-pause check applies to a map **carried** across a landing and verified there, once,
+  at the first recheck while paused after the clock moved. It is not set by a fresh attach.
+- Every lifetime transition is announced to the listeners as an Info line, the existing
+  wording.
+- Back: `TraceLog::recorded()` counts entries ever stored; `Impl` keeps `(first sequence
+  number, generation)` markers, noted at every new generation and at a ring landing. An entry
+  counts for Back only if its generation is the current one, and the "statement's first
+  instruction" search stops at the first entry of another generation.
 - **Reset** is a new generation. The map survives only by passing re-verification at the next
   pause, which catches the ROM clearing RAM a few frames later (the code is intact at the
   reset itself).
@@ -756,22 +790,23 @@ The clock-based model of today (`sidecar_attach_cycle`) goes. Two tiers replace 
 ### 6.6 What the backend cannot see
 
 A program the guest loads for itself (the NextZXOS browser, `LOAD ""`) is not a load to the
-backend: its predecessor's maps stay until a reset or a load. E23-10 decides whether the
-re-verification at the next pause covers it (a residual handed to it). A sibling NEX run under
+backend: its predecessor's maps stay until a reset or a load, and nothing re-verifies them (E23-10
+decided: no event marks the load, and verifying at every pause would detach a map whose program
+writes inside its own image; SRCLIFE-20 pins it). A sibling NEX run under
 `--esxdos-stub` (`.RUN`) is a load like any other: the loop owner cold-boots with it, which
 drops the old sidecars, and attaches the new program's.
 
 ### 6.7 Remote load and Reload
 
 `Debugger::load()` (the DZRP and ZRCP servers; File > Reload program, #374, is planned as a
-plain `load()` of the last path) attaches sidecars as the CLI does. Today it discards the
-`SidecarLoad`, so a refused map shows only in the log; E23-10 reports the reason (a residual
-handed to it).
+plain `load()` of the last path) attaches sidecars as the CLI does. It reports a refused
+sidecar to every listener (a Warn line, `load: ...`) and in `source_map_status().reason`
+(SRCLIFE-16).
 
-**Open, settled in E23-10:** a map loaded by hand, across a Reload of a rebuilt program. The
-model above marks it stale unless its identity verifies; the rule recorded on #342 from #374
-keeps it the user's, as today. E23-10 decides, pins the decision with a row and updates this
-paragraph. A Reload of a rebuilt program at the same path attaches the new build's map.
+A map loaded by hand, across a Reload of a rebuilt program, stays the user's (a sidecar never
+replaces it) and is checked like any landing: live if its identity matches the new build, else
+stale with the reason, and the user loads it again (SRCLIFE-18). A Reload of a rebuilt program
+at the same path attaches the new build's map (SRCLIFE-17).
 
 ### 6.8 The user annotation store
 
@@ -1196,6 +1231,12 @@ column of a logical breakpoint).
 
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).
+
+E23-10 (#342) added SRCLIFE-01 to SRCLIFE-25 (`source_debug_test`: the cache both ways, identity
+checks at a state load, a `.sna`, an RZX start and a reset, stale user maps, the readers' first
+call, `load()` reporting, Back across a landing, purity of the check), RB-GEN-01
+(`rewind_test`), TRACE-SEQ-01 (`debugger_backend_test`) and QSRC-58/59
+(`debugger_source_panel_test`).
 
 **Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
 `z88dk-source-func` (E23-15).

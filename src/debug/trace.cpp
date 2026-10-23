@@ -220,6 +220,7 @@ void TraceLog::record(const TraceEntry& entry)
     head_ = (head_ + 1) % capacity_;
     if (count_ < capacity_)
         ++count_;
+    ++recorded_;          // GH #342: entries ever stored (not a record the no-wrap freeze dropped)
     newest_stored_ = true;
 }
 

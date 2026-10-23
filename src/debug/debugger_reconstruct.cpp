@@ -182,9 +182,10 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     exactly right for an UNOWNED pause (below), and why (4) re-arms `User`
     //     only for an owned one.
     //
-    //     CAP-SRC: the hook also drops the previous program's sidecars (a
-    //     rebuilt machine is not the program they describe), so a cold boot
-    //     needs it as much as a reset does. A program loaded by this very
+    //     CAP-SRC: the hook also opens a new load generation (a rebuilt machine
+    //     is not the program the sidecars described, unless their binary
+    //     identity says it is), so a cold boot needs it as much as a reset
+    //     does. A program loaded by this very
     //     verb attaches its own afterwards (`Debugger::load()`).
     machine_replaced();
 
@@ -515,7 +516,12 @@ Result Debugger::load(ClientId by, const std::string& path) {
     if (loaded) impl_->note_mutation();
     if (reconstructed) impl_->notify_reset(ResetKind::Hard);
     // CAP-SRC — the program's own symbols and source map, if it has them.
-    if (loaded) load_program_sidecars(path);
+    if (loaded) {
+        const SidecarLoad sidecars = load_program_sidecars(path);
+        // A refused sidecar is reported to every client, not only the frontend
+        // that asked for the load (the status bar shows the same line).
+        if (!sidecars.problem.empty()) log(by, LogLevel::Warn, "load: " + sidecars.problem);
+    }
     return loaded ? Result::Ok : Result::RefusedUnavailable;
 }
 

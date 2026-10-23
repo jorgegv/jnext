@@ -1604,6 +1604,98 @@ void test_sidecar_reason_late_window() {
           s(first) + " | " + s(sp->location_text()));
 }
 
+// ── GH #342: the tab reads the backend's reason, only the source half's ──
+
+void test_source_map_lifetime() {
+    const std::string dir = g_tmp->path().toStdString();
+    {
+        // A map loaded by hand with no identity, then another landing (a
+        // reset): stale, the tab names the file and the backend's reason, and
+        // the steps are disabled.
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        fx.backend->reset(jnext::dbg::CLIENT_NONE, jnext::dbg::ResetKind::Soft);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const auto st = fx.backend->source_map_status();
+        const QString text = sp->location_text();
+        check("QSRC-58", "a map loaded by hand that went stale: the Source tab names the file "
+                         "and the backend's reason, and the steps are disabled",
+              !st.reason.empty() && text.contains(QString::fromStdString(fx.sld)) &&
+                  text.contains(QString::fromStdString(st.reason)) &&
+                  !button(sp, QStringLiteral("Into"))->isEnabled() &&
+                  !button(sp, QStringLiteral("Over"))->isEnabled(),
+              s(text));
+    }
+    {
+        // Memory.txt refused, SLD attached, then a reset drops the SLD: the tab
+        // shows why the map went, not the Memory.txt refusal.
+        Fixture fx;
+        fx.enable();
+        const std::string nex = dir + "/q59.nex";
+        write_text(nex, "");
+        write_text(dir + "/q59.Memory.txt", "8000: ._Old\n");
+        std::error_code ec;
+        std::filesystem::resize_file(dir + "/q59.Memory.txt", SOURCE_FILE_MAX_BYTES + 1, ec);
+        std::filesystem::copy_file(fx.sld, dir + "/q59.sld",
+                                   std::filesystem::copy_options::overwrite_existing);
+        const auto r = fx.backend->load_program_sidecars(nex);
+        fx.mgr->report_sidecars(r);
+        fx.backend->reset(jnext::dbg::CLIENT_NONE, jnext::dbg::ResetKind::Soft);
+        fx.mgr->refresh_panels();
+        const QString text = fx.dbg()->source_panel()->location_text();
+        check("QSRC-59", "after a reset drops the attached map the tab gives the drop's reason, "
+                         "not the Memory.txt refusal of the load",
+              !ec && r.symbols_unreadable && r.sources > 0 &&
+                  text.startsWith(QStringLiteral("No source map loaded: ")) &&
+                  !text.contains(QStringLiteral("NextBuild symbols")) &&
+                  text.contains(QStringLiteral("binary identity")),
+              s(text));
+    }
+    {
+        // The panel reads the load result's reason with no refresh of its own:
+        // report_sidecars() refreshes the open tab.
+        Fixture fx;
+        fx.enable();
+        const std::string nex = dir + "/q60.nex";
+        write_text(nex, "");
+        write_text(dir + "/q60.sld", "this is not an SLD\n");
+        fx.mgr->report_sidecars(fx.backend->load_program_sidecars(nex));
+        const QString text = fx.dbg()->source_panel()->location_text();
+        check("QSRC-60", "report_sidecars() refreshes the open Source tab: the new reason is "
+                         "shown without another refresh",
+              text.contains(QStringLiteral("rejected: missing SLD.data.version")), s(text));
+    }
+    {
+        // A panel that holds &symbols(): after a rewind to before the attach, the
+        // first refresh shows the address, not the symbol of a program not yet loaded.
+        Fixture fx(/*rewind_frames=*/8);
+        fx.emu.mmu().write(0x9000, 0x18);   // JR $ : the call never returns
+        fx.emu.mmu().write(0x9001, 0xFE);
+        fx.enable();
+        fx.backend->set_call_stack_enabled(true);
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        for (int i = 0; i < 2; ++i) fx.emu.run_frame();
+        fx.backend->pause(jnext::dbg::CLIENT_NONE);
+        const uint32_t before = fx.backend->rewind_range().newest_frame;
+        write_text(dir + "/q61.nex", "");
+        write_text(dir + "/q61.Memory.txt", "9000: ._SubFn\n");
+        fx.backend->load_program_sidecars(dir + "/q61.nex");
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        for (int i = 0; i < 2; ++i) fx.emu.run_frame();
+        fx.backend->pause(jnext::dbg::CLIENT_NONE);
+        const auto rr = fx.backend->rewind_to_frame(jnext::dbg::CLIENT_NONE, before);
+        CallStackPanel* cs = fx.dbg()->callstack_panel();
+        if (cs) cs->set_paused(true);
+        fx.mgr->refresh_panels();
+        check("QSRC-61", "a panel holding the symbol table shows no symbol of a program that has "
+                         "not been loaded at the point a rewind landed on",
+              rr == jnext::dbg::Result::Ok && cs && cell(cs, 0, 3) == QStringLiteral("9000"),
+              s(cell(cs, 0, 3)));
+    }
+}
+
 // ── QCSP-02: the caller's page, not the target's ───────────────────────
 
 void test_call_stack_pages() {
@@ -1959,6 +2051,7 @@ int main(int argc, char** argv) {
     test_source_running();
     test_sidecar_reason();
     test_sidecar_reason_late_window();
+    test_source_map_lifetime();
     test_source_buttons();
     test_source_button_states();
     test_source_reverse_refused();
