@@ -3626,6 +3626,38 @@ int main() {
                       m.emu.mmu().peek(0x8001) == 0x55 && s1.state == State::Attached &&
                       m.dbg->source_map().size() == 6);
         }
+
+        // SRCLIFE-39: Back's statement-start
+        // search STOPS at another generation's entries; it does not skip them.
+        // A loops on x.asm:1, B (a state load) runs 3 instructions, a rewind
+        // returns to A: A's replay is preceded in the trace by B's entries and,
+        // before them, A's own older x.asm:1 entries that are not this pass.
+        {
+            Machine m(/*rewind=*/true);
+            m.dbg->set_trace_enabled(true);
+            const uint8_t prog[] = {0x00, 0x18, 0xFD, 0x00, 0x00, 0x00};  // NOP; JR $8000; NOP...
+            for (size_t i = 0; i < sizeof(prog); ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            m.set_pc(0x8000);
+            attach_text(m, "pd3a", x_sld(p80, {{"1", 0x8000}, {"2", 0x8003}}));
+            run_frames(m, 4);
+            const uint32_t newest = m.dbg->rewind_range().newest_frame;
+            const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
+            state_driver(m, &b);
+            write_text(life / "pd3b.sld", b_sld);
+            const Result ld = m.dbg->load(m.a, (life / "pd3b.nex").string());
+            for (int i = 0; i < 3; ++i) m.dbg->step_into(m.a);
+            const Result rw = m.dbg->rewind_to_frame(m.a, newest);
+            const uint64_t at = m.emu.clock().get();
+            for (int i = 0; i < 4; ++i) m.dbg->step_into(m.a);
+            m.set_pc(0x8003);
+            m.dbg->step_into(m.a);
+            const Result r = m.dbg->source_step(m.a, Step::Back);
+            const uint64_t after = m.emu.clock().get();
+            check("SRCLIFE-39", "Back's statement-start search stops at another generation's entries",
+                  ld == Result::Ok && rw == Result::Ok && r == Result::Ok && after >= at,
+                  "r=" + std::to_string(int(r)) + " at=" + std::to_string(at) + " after=" +
+                      std::to_string(after) + " now=" + m.where());
+        }
     }
 
     fs::remove_all(dir);

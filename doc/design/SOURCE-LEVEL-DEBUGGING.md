@@ -1232,10 +1232,10 @@ column of a logical breakpoint).
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).
 
-E23-10 (#342) added SRCLIFE-01 to SRCLIFE-25 (`source_debug_test`: the cache both ways, identity
+E23-10 (#342) added SRCLIFE-01 to SRCLIFE-39 (`source_debug_test`: the cache both ways, identity
 checks at a state load, a `.sna`, an RZX start and a reset, stale user maps, the readers' first
 call, `load()` reporting, Back across a landing, purity of the check), RB-GEN-01
-(`rewind_test`), TRACE-SEQ-01 (`debugger_backend_test`) and QSRC-58/59
+(`rewind_test`), TRACE-SEQ-01 (`debugger_backend_test`) and QSRC-58 to QSRC-61
 (`debugger_source_panel_test`).
 
 **Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
