@@ -179,21 +179,57 @@ checkpoint count, and at least one `drained_edge=` guest-read record must be log
 digest lines cost ~410 jnext log lines (+28 KB) on a green run of that row and nothing when the
 debug level is off; `nextsync-digest.py --selftest` and a unit row pin the FNV-1a/32 vectors.
 
-### A stalled jnext.exe names its blocked call (GH #383)
+### A Qt jnext.exe stalled at startup under wine (GH #383)
 
-A Qt `jnext.exe` under wine sometimes stalls at startup and holds its row to the 60 s bound (about 4
-of 13 full runs on one branch, none seen on `main`). When a row's `timeout` sends TERM and
-`JNEXT_WINE_CAPTURE_DIR` is set (the driver sets it to
+**Cause.** A Qt `jnext.exe` under wine sometimes stalled at startup and held its row to the 60 s
+bound (about one full run in 15-30 on the development host, never in CI). `SDL_Init(AUDIO|GAMEPAD)`
+(`src/gui/qt_app.cpp`) makes wine's mmdevapi load its audio driver. Winepulse fails (the runner has
+no `XDG_RUNTIME_DIR`), so winealsa loads; ALSA's default is pipewire-alsa, whose `module-rt` makes
+SYNCHRONOUS D-Bus calls to the desktop's xdg-desktop-portal over the session bus the Windows
+process inherited. When the portal does not answer, the start waits on D-Bus timeouts past the
+bound. Captured in a real full run (the main thread in `WaitOnAddress` under `SDL_Init`, SDL's
+WASAPI thread in `mmdevapi load_driver_devices`) and reproduced on demand with a bus socket that
+never answers. CI's container has no D-Bus at all, which is why it never stalled there. None of
+this exists on Windows, so it is a test-environment problem, not a jnext one.
+
+**Fix: isolation, in `test/wine-run.sh`, every mode.** `DBUS_SESSION_BUS_ADDRESS` and
+`DBUS_SYSTEM_BUS_ADDRESS` are both set to `disabled:`, next to the `DISPLAY` / `WAYLAND_DISPLAY` /
+`XDG_RUNTIME_DIR` removal: a local run now matches CI. Both are overridden, not unset: with the
+session bus missing libdbus falls back to the system bus (RTKit). Measured: zero D-Bus connects
+and an unchanged audio outcome (it never worked through this path under the runner). HS-99a-c pin
+all four modes' environment.
+
+**Refuted.** The plugplay worker-pool leak is real (+1 worker per start, capped at 500) but the
+main thread never waits on it: a full run peaks at 116 workers and 660 starts with the pool full
+never stalled. And "ALSA contention cannot block because the PCM is `SND_PCM_NONBLOCK`" was wrong:
+NONBLOCK covers the PCM, not pipewire-alsa's context setup, which blocks in `module-rt`.
+
+**The capture, in case a stall recurs.** When `JNEXT_WINE_CAPTURE_DIR` is set (the driver sets it to
 `build/regression-artifacts/wine-stall/<run>/`, which CI uploads on a red run), `wine-run.sh --jnext`
-first saves `wine-stall-<time>-<pid>.txt`: the process's threads, state and CPU time from `/proc`; the
-prefix's processes with their thread counts; `winedbg info thread`; and `winedbg bt all` of that ONE
-Windows pid (prefix-wide `bt all` took 21.6 s at load 20). The whole capture is bounded at 3.5 s
-(+0.4 s kill) inside the rows' `--kill-after=5s`, runs after the verdict is decided, and forwards TERM
-afterwards as before. At the end of every Windows run the driver prints `wine prefix at the end:` (thread
-counts of the prefix's wine processes; `plugplay.exe` near 500 would confirm the leading hypothesis,
-see the issue) and lists any captures with their thread sections. Diagnostics only: no exit status moves.
-Under heavy load (about 18 and up on the 12-CPU development host) the winedbg sections are often cut by the
-budget; the `/proc` sections and the prefix thread counts always land.
+starts a watchdog (`--watchdog`, stdio on `/dev/null`, so it holds none of the row's pipes). It
+reads `/proc/<wine pid>/stat` once a second and fires ONCE when the process is at least 20 s old, its
+CPU time has not moved for 10 s and the total is at most 2 s (a startup stall has 0.1-0.3 s; a starved
+but runnable process keeps advancing; one that worked then idled is over the cap). It writes
+`wine-stall-<time>-<pid>.txt`: the process's threads from `/proc`; the prefix's processes with thread
+counts; the threads of the `winedevice.exe` driver hosts (`/proc` only: attaching to one would pause
+every row's device I/O); `winedbg info thread`; and one `Backtrace:` per thread of that ONE Windows pid
+from a single `winedbg --file` session (attach, `bt <tid>` each, detach). It never uses `bt all`: real
+winedbg answers "can't debug several processes at once". The runner then prints one stderr line naming
+the file. TERM is forwarded at once and captures nothing: the v1.1.79 capture fired on every
+deliberate TERM (29 per green run) and its `bt all <pid>` never finished under load. At the end of
+every Windows run the driver prints `wine prefix at the end:` and lists any captures. Diagnostics
+only: no exit status moves.
+
+**The capture is checked against a known answer, once per run.** After `--serve` and before the first
+row the driver blocks a real `jnext.exe` on purpose (`--headless`, an empty config dir and no
+`--sdcard`, so the SD prompt blocks in `std::getline(std::cin)` on a stdin pipe the driver holds
+open), with the watchdog at 3 s / 2 s (`JNEXT_WINE_STALL_AFTER_S` / `_FLAT_S`, test-only), and the
+capture must hold a `Backtrace:` naming wine's `ReadFile` or `ReadConsole` and no "can't debug several
+processes". Anything else is a HARNESS FAULT (exit 2): a capture that silently cannot capture reads as
+"no stall", which is what v1.1.79 shipped. It costs about 4 s and is not a row. Its capture lives in its
+own directory and is deleted on success, so the end-of-run captures line counts real stalls only.
+HS-99d-n pin the watchdog, the capture and the self-check; the harness-selftest stub winedbg mirrors
+real winedbg (the old stub answered `bt all <pid>`, which is how that bug passed review).
 
 ## One full run at a time, and green-run stamps (GH #295)
 

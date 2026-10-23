@@ -2678,7 +2678,7 @@ wd_procs() {   # wd_procs <capture dir>: how many --watchdog processes name it (
 }
 
 JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 STUB_ARGS_TARGET=stall wd_start "$T/cap" stall
-wd_saved || true
+wd_saved 'state saved to' 10 || true   # the thresholds are 1 s / 1 s here: the default 20 s / 10 s would miss this
 n_before=$(cap_n); h_before=$(cap_hdrs)
 sleep 2.5
 h_mid=$(cap_hdrs)
@@ -2725,7 +2725,7 @@ wd_end TERM
 check "HS-99g" "TERM at the bound with the capture dir set captures NOTHING and is forwarded at once (ms=$cap_ms < 1000, rc 9)" 9 $cap_rc "$cap_out"$'\n'"files=$n ms=$(( cap_ms < 1000 ? 1 : 0 ))" "got-term" "files=0" "ms=1"
 
 rm -rf "$T/caph"
-out=$(JNEXT_WINE_CAPTURE_DIR="$T/caph" JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 STUB_LIFE=1.5 wrun stall 2>&1); rc=$?
+out=$(JNEXT_WINE_CAPTURE_DIR="$T/caph" JNEXT_WINE_STALL_AFTER_S=30 JNEXT_WINE_STALL_FLAT_S=30 STUB_LIFE=1.5 wrun stall 2>&1); rc=$?
 check "HS-99h" "wine ending by itself: the runner returns wine's status (9) and leaves no watchdog of its own behind" 9 $rc "$out"$'\n'"watchdogs=$(wd_procs "$T/caph")" "bye" "watchdogs=0"
 
 # The row's pipes: the watchdog holds none (a row's \$(...) would wait for it), checked on its own fds and on timing.
