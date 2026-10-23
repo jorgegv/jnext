@@ -1208,6 +1208,11 @@ void MainWindow::create_menus() {
     tape_fast_action_->setCheckable(true);
     tape_fast_action_->setChecked(true);  // fast load is default
     connect(tape_fast_action_, &QAction::triggered, this, &MainWindow::on_tape_fast_load);
+    // GH #395 - the deck's automatic play/stop (default on).
+    tape_auto_action_ = tape_menu->addAction(tr("Auto Play/Stop"));
+    tape_auto_action_->setCheckable(true);
+    tape_auto_action_->setChecked(true);
+    connect(tape_auto_action_, &QAction::triggered, this, &MainWindow::on_tape_auto_play);
 
     // GH #89 — what --tape-save does, from the menu. No shortcut, like the
     // rest of this menu: a host Alt shortcut takes a key from the guest, and
@@ -1932,6 +1937,11 @@ void MainWindow::on_tape_fast_load(bool checked) {
     emulator_->tzx_tape().set_fast_load(checked);
 }
 
+void MainWindow::on_tape_auto_play(bool checked) {
+    if (!emulator_) return;
+    emulator_->set_tape_auto_play(checked);
+}
+
 void MainWindow::on_tape_save_start() {
     if (!emulator_) return;
     QString filter;
@@ -2578,6 +2588,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
         emulator_->nextreg().write(0x07, static_cast<uint8_t>(cfg.cpu_speed));
         emulator_->tape().set_fast_load(cfg.tape_fast_load);
         emulator_->tzx_tape().set_fast_load(cfg.tape_fast_load);
+        emulator_->set_tape_auto_play(cfg.tape_auto_play);
         emulator_->mixer().set_output_gain_db(cfg.audio_gain_db);
         emulator_->mixer().set_beeper_gain_db(cfg.audio_gain_beeper_db);
         for (int chip = 0; chip < 3; ++chip)
@@ -2585,6 +2596,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
         emulator_->mixer().set_dac_gain_db(cfg.audio_gain_dac_db);
     }
     if (tape_fast_action_) tape_fast_action_->setChecked(cfg.tape_fast_load);
+    if (tape_auto_action_) tape_auto_action_->setChecked(cfg.tape_auto_play);
 
     set_mouse_release_method(cfg.mouse_release);   // GH #365
     set_scale(cfg.window_scale);

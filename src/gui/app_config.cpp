@@ -155,6 +155,7 @@ void AppConfig::load() {
         }
         data_.silent         = settings_.value("silent", data_.silent).toBool();
         data_.tape_fast_load = settings_.value("tape_fast_load", data_.tape_fast_load).toBool();
+        data_.tape_auto_play = settings_.value("tape_auto_play", data_.tape_auto_play).toBool();
 
         // Issue #35 — anything other than the two known words keeps the
         // default, the same way an unknown joy_source does: a typo in a
@@ -313,6 +314,7 @@ void AppConfig::save() const {
     settings_.setValue("crt_shader_style", static_cast<int>(data_.crt_shader_style));
     settings_.setValue("silent", data_.silent);
     settings_.setValue("tape_fast_load", data_.tape_fast_load);
+    settings_.setValue("tape_auto_play", data_.tape_auto_play);
     settings_.setValue("when_slow_prefer",
                        when_slow_prefer_to_key(data_.when_slow_prefer));
     settings_.endGroup();

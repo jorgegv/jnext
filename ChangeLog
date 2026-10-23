@@ -10,6 +10,7 @@
 - Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
 - POK trainer files: Machine > POK Trainers... applies and removes pokes; --delayed-pok-frames/--pok-trainers do it headless and SDL-only
 - Soft scanlines, TV and PC monitor CRT looks drawn on the GPU, beside the Scanlines filter (View menu, Preferences)
+- Tape auto play/stop: a real-time deck pauses between blocks while nothing listens, so slow BASIC loaders load
 
 ### Developer Features
 - Debugger labels from sjasmplus --sym and --exp files (Map menu, --map); scripts name them as @module.label
@@ -26,6 +27,7 @@
 - Failed SD-card and NextPi downloads name the address that failed, say why in plain words and what was kept
 - Keys typed during a Quick Save/Load or in a fast burst are no longer dropped or saved out of order
 - Layer 2 games no longer tear the top line when they change bank or scroll during vblank
+- Tape fast load serves loaders that enter the ROM loader past LD-BYTES (Starglider 128K TAP loads); checksum and VERIFY errors are reported
 
 ### Contributors in this release
 - @pavero01, @janko-jj, @jattree, @jsmolina, @Nitrowing, @shadowphiar

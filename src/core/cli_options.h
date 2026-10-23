@@ -74,6 +74,8 @@ enum class OptId {
     BenchmarkLabel,
     Silent,
     TapeRealtime,
+    TapeAutoPlay,
+    NoTapeAutoPlay,
     TapeSave,
     Esp,
     NoEsp,
@@ -381,6 +383,15 @@ inline constexpr Option OPTIONS[] = {
     { "--tape-realtime", 0, Doc::Documented, OptId::TapeRealtime,
       "",
       "Use real-time tape loading (simulates actual loading speed)" },
+    { "--tape-auto-play", 0, Doc::Documented, OptId::TapeAutoPlay,
+      "",
+      "Automatic tape play/stop on for this run (the default):\n"
+      "real-time deck stops in a silent gap between blocks while\n"
+      "nothing reads the tape, and resumes when a program does" },
+    { "--no-tape-auto-play", 0, Doc::Documented, OptId::NoTapeAutoPlay,
+      "",
+      "Automatic tape play/stop off for this run: the deck runs\n"
+      "straight through, overriding a saved GUI preference" },
     { "--tape-save", 1, Doc::Documented, OptId::TapeSave,
       "FILE",
       "Save to tape, appending to FILE; the extension picks the\n"

@@ -2,7 +2,7 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](REGRESSION-TEST-SUITE.md) for execution details.
 
-**67 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**68 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 This document is checked against the conf by `make regression-doc-check`, which
 is a prerequisite of `make regression`: a conf row with no entry here, an entry
@@ -232,6 +232,11 @@ TAP loader in 128K MENU mode — default Tape Loader entry runs `LOAD""` + fast-
 TAP loader in +3 ENTER mode — default Loader entry drops to 48K BASIC + `LOAD""` past the disk-probe pause; beeper-driven demo.
 
 <img src="../../test/00regression/img/tap-demo-plus3-reference.png" width="384" alt="tap-demo-plus3 reference"/>
+
+### `tap-realtime-gap-48k`
+Real-time TAP whose BASIC loader is busy (`PAUSE 500`) while the next blocks go by — automatic tape play/stop holds the deck in the gap so the attribute block still loads (GH #395; synthetic tape, no game data).
+
+<img src="../../test/00regression/img/tap-realtime-gap-48k-reference.png" width="384" alt="tap-realtime-gap-48k reference"/>
 
 ### `tap-rom-charset-next`
 Next-mode `--load` TAP with ROM-1 char-set fallback — `out (0x7FFD),0x10` selects ROM 1, then plots the canonical Spectrum font 0..127 (Task 20 SRAM pages 2..7 fallback fix).
