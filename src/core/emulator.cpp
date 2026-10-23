@@ -7370,11 +7370,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Initialise rewind buffer.
     // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).
     //
-    // Hard reset only. The rewind history, its size (the debugger resizes it
-    // live) and on/off state are the host's; a soft reset (NR 0x02 bit 0,
-    // F4) is an event IN that history, not the start of a new one. Rebuilding
-    // it here discarded every snapshot at each soft reset (a NextZXOS boot
-    // performs one) and put back the command-line size (GH #263 audit).
+    // Hard init builds a new, empty ring from the config, whose size and
+    // paused state the runtime setters keep current (GH #400). A soft reset
+    // (NR 0x02 bit 0, F4) is an event IN the history, not the start of a new
+    // one, so it keeps the ring (GH #263 audit).
     if (preserve_memory) {
         // keep rewind_buffer_ / rewind_enabled_ as they are
     } else if (cfg.rewind_buffer_frames > 0) {
@@ -7383,7 +7382,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         size_t snap_bytes = measure.position();
         rewind_buffer_ = std::make_unique<RewindBuffer>(
             static_cast<size_t>(cfg.rewind_buffer_frames), snap_bytes);
-        rewind_enabled_ = true;
+        rewind_enabled_ = !cfg.rewind_paused;
         // Rewind implies the instruction trace: step_back() needs it to
         // locate the target instruction's cycle within a frame (Task 27 A2).
         trace_log_.set_enabled(true);
@@ -13876,6 +13875,8 @@ bool Emulator::load_state(StateReader& r)
 
 void Emulator::resize_rewind_buffer(int frames)
 {
+    config_.rewind_buffer_frames = frames > 0 ? frames : 0;
+    config_.rewind_paused = false;
     if (frames <= 0) {
         rewind_buffer_.reset();
         rewind_enabled_ = false;

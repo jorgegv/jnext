@@ -394,8 +394,9 @@ struct ColdBootHooks {
 ///
 /// Order is the contract:
 ///   1. the load file goes into the config;
-///   2. the LIVE per-connector joystick sources, the LIVE host output gain
-///      and the LIVE magic-breakpoint toggle are carried across — they are
+///   2. the LIVE per-connector joystick sources, the LIVE host output gain,
+///      the LIVE magic-breakpoint toggle and the LIVE rewind setting (size,
+///      paused) are carried across — they are
 ///      host-side settings, not machine state, so a source picked from the
 ///      Input menu, a gain set in Preferences or Magic Breakpoint ticked in
 ///      the Debug menu must survive the boot (carrying `base_cfg`'s startup
@@ -421,6 +422,8 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
         cfg.audio_gain_ay_db[chip] = emu.mixer().ay_gain_db(chip);
     cfg.audio_gain_dac_db = emu.mixer().dac_gain_db();
     cfg.magic_breakpoint  = emu.config().magic_breakpoint;
+    cfg.rewind_buffer_frames = emu.config().rewind_buffer_frames;   // GH #400
+    cfg.rewind_paused        = emu.config().rewind_paused;
 
     emulator_cold_boot(emu, cfg);
 

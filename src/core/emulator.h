@@ -1105,10 +1105,13 @@ public:
 
     /// True if snapshot-taking is active (can be toggled without freeing the buffer).
     bool rewind_enabled() const { return rewind_enabled_; }
-    void set_rewind_enabled(bool v) { rewind_enabled_ = v; }
+    /// The choice is recorded in config() and survives a program load and a
+    /// reset (GH #400).
+    void set_rewind_enabled(bool v) { rewind_enabled_ = v; config_.rewind_paused = !v; }
 
     /// Resize (or create/destroy) the rewind buffer at runtime.
     /// Clears all existing snapshots. frames=0 disables rewind.
+    /// The size is recorded in config() and survives a load and a reset.
     void resize_rewind_buffer(int frames);
 
     /// True if replay_mode is active (suppresses audio/video during fast-forward).
