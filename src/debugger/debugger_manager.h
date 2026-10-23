@@ -216,8 +216,6 @@ private:
     bool confirm_resume_if_corrupt();
 
     QMainWindow* main_window_;
-    /// The last refused sidecar, kept for a Source tab built after it.
-    QString sidecar_problem_;
     jnext::dbg::Debugger& dbg_;
 
     /// GH #278 WP4c — owned (a QObject child); holds the observer client.

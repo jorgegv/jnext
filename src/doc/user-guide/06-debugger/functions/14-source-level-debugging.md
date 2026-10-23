@@ -28,10 +28,15 @@ attached and logged and nothing reads it yet (a remote debugger can still look
 up the symbols).
 
 They belong to the program that was loaded with them. Loading the next program
-replaces them, or clears them if it has none. They are also dropped when the
-machine is reset, when a state is restored from a snapshot, a bookmark or a
-remote debugger, and when you rewind to a point before the program was loaded
-(rewinding to a point after it keeps them). A program the guest loads for
+replaces them, or clears them if it has none. Rewinding brings back the ones
+that belonged to the point you land on (the last four programs are remembered).
+When the machine is reset, or a state is restored from a snapshot, a bookmark or
+a remote debugger, or a replay starts, the source map stays only if it carries
+the program's SHA-256 (an SLD extension that most assemblers do not write) and
+the memory still matches it; a reset is checked again at the next pause, since
+the ROM clears memory a few frames later. Otherwise the program's symbols and
+source map are dropped. **Back** and **Reverse Continue** never go back past
+such a landing. A program the guest loads for
 itself, such as one chosen in the NextZXOS browser or started with `LOAD ""`,
 is not seen by JNEXT: load its source map by hand (below). With
 `--esxdos-stub`, a `.RUN` of a sibling NEX is a load like any other: the
@@ -40,8 +45,12 @@ are attached. A tape (`.tap`, `.tzx`, `.wav`) is not attached automatically:
 its program is not in memory until the tape has loaded, so load its source map
 by hand (below) once it has.
 
-Symbols or a source map you loaded by hand (below), or a MAP
-given with `--map`, are kept instead: they are your choice, not the program's.
+Symbols you loaded by hand (below), or a MAP given with `--map`, are kept: they
+are your choice, not the program's. A source map you loaded by hand is yours too
+(a program's map never replaces it), but at each of those landings it is checked
+the same way: if it has no SHA-256, or the memory no longer matches it, it goes
+**stale**. The Source tab then says so and why, and the steps are off; load it
+again (**Load SLD...**) to use it.
 
 **By hand.** The **Source** tab has **Load SLD...** and **Load Memory.txt...**
 buttons, also in **Debug ▸ Source ▸ Load Source Map…** and **Load Symbols

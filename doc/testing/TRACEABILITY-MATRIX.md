@@ -38,7 +38,7 @@ mentions them, so a test can no longer be absent from this document.
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
-| Rewind                                     |   308 |  308 |    0 |    0 |       0 |          0 |
+| Rewind                                     |   309 |  309 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
 | Contention                                 |   178 |  178 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    79 |   79 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5985 | 5985 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5986 | 5986 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5985**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5517**. Rows the 160 suites declared in `test/unit-tests.conf` run live: **13753**.
+Rows the sections above carry: **5986**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5518**. Rows the 160 suites declared in `test/unit-tests.conf` run live: **13814**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 113 suites (8320 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 113 suites (8380 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -141,10 +141,10 @@ These 113 suites (8320 live rows) have no VHDL-derived plan row to map, so they 
 | `resume_guard_test` | 11 | debugger resume-confirmation policy (jnext-internal) |
 | `debug_qt_free_test` | 13 | source-tree layout lint (GH #278 WP1: no Qt under src/debug/), no hardware behaviour |
 | `step_out_test` | 50 | debugger Step Out execution control (jnext-internal); the T80N core has no debugger |
-| `source_map_test` | 89 | source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger |
-| `source_debug_test` | 128 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
+| `source_map_test` | 91 | source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger |
+| `source_debug_test` | 177 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
 | `source_debug_posix_test` | 5 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1470 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1474 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
@@ -196,7 +196,7 @@ These 113 suites (8320 live rows) have no VHDL-derived plan row to map, so they 
 | `debugger_disasm_copy_test` | 41 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
 | `debugger_panels_test` | 85 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
 | `debugger_verbs_test` | 75 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
-| `debugger_source_panel_test` | 91 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_source_panel_test` | 96 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->
@@ -3611,233 +3611,234 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | RB-SIZE-01 | snapshot size unchanged by port-0xFF writes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:905 |
 | RB-SIZE-02 | snapshot taken on a port-0xFF frame is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:911 |
 | RB-SIZE-03 | port-0xFF log content survives the snapshot round-trip | (jnext-internal) | pass | test/rewind/rewind_test.cpp:925 |
-| RB-SIZE-04 | snapshot size unchanged by a queued auto-type sequence | (jnext-internal) | pass | test/rewind/rewind_test.cpp:947 |
-| RB-SIZE-05 | snapshot taken mid-auto-type is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:952 |
-| RB-SIZE-06 | over-cap auto-type sequence still yields a constant-size snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:963 |
-| RB-SIZE-06b | slot restores for the auto-type content row | (jnext-internal) | pass | test/rewind/rewind_test.cpp:994 |
-| RB-SIZE-07 | restored auto-type queue plays the correct key (row 1 col 3 = F) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1000 |
-| RB-SIZE-08 | restored auto-type queue does not press the row/col transpose (3,1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1002 |
-| RB-SIZE-09 | snapshot size unchanged by bytes in flight in the UART RX FIFO | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1024 |
-| RB-SIZE-10 | snapshot taken with a non-empty UART FIFO is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1029 |
-| RB-SIZE-10b | slot restores for the UART content row | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1039 |
-| RB-SIZE-11 | UART RX FIFO content and order survive the round-trip | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1044 |
-| SENT-CHAIN-PRE-01 | rewind buffer holds >= 2 real snapshots | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1070 |
-| SENT-CHAIN-00 | mmu sentinel corrupted in every stored slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1084 |
-| SENT-CHAIN-01 | step_back returns false on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1089 |
-| SENT-CHAIN-02 | chain failure names subsystem 'mmu' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1090 |
-| SENT-CHAIN-03 | rewind_to_frame returns false on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1095 |
-| SENT-CHAIN-04 | rewind_to_cycle returns UINT64_MAX on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1099 |
-| RWR-PRE-01 | RWR fixture: S0 is live when the frame-1 snapshot is taken | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1342 |
-| RWR-PRE-02 | RWR fixture: frame 3 left S1/S2 render history behind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1352 |
-| RWR-PRE-03 | RWR fixture: rewind_to_frame(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1358 |
-| RWR-01 | palette entry restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1365 |
-| RWR-02 | Layer 2 scroll/clip/bank/enable/NR 0x70 restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1372 |
-| RWR-03 | sprite attributes and pattern RAM restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1381 |
-| RWR-04 | tilemap NR 0x6B restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1388 |
-| RWR-05 | ULA scroll NR 0x26/0x27/0x68 b2 restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1393 |
-| RWR-06 | Ula NR 0x43 b1-3 / NR 0x6B b4 selector mirrors restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1400 |
-| RWR-07 | attribute mux shows the restored VRAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1407 |
-| RWR-08 | stencil/blend/NR 0x14/ULA-clip rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1431 |
-| RWR-09 | tilemap scroll rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1435 |
-| RWR-10 | LoRes rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1439 |
-| RWR-PRE-04 | RWR fixture: the snapshot-instant frame shows the S0 tilemap | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1453 |
-| RWR-11 | frame rendered by rewind_to_frame equals a fresh render of the snapshot instant | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1463 |
-| RWR-PRE-05 | RWR fixture: rewind_to_cycle to the frame-1 snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1496 |
-| RWR-12 | rewind_to_cycle restores the Ula selector mirrors | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1508 |
-| RWR-PRE-06 | RWR fixture: OUT to port 0x5B ran, step_back(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1529 |
-| RWR-13 | step_back over a port 0x5B write restores the pattern byte | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1536 |
-| RWR-14 | a guest soft reset keeps the rewind history and its live size | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1601 |
-| RWR-PRE-07 | RWR fixture: frame 1 is in the history | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1614 |
-| RWR-PRE-08 | RWR fixture: rewind_to_cycle into frame 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1616 |
-| RWR-15 | a guest soft reset replayed by rewind_to_cycle does not end the replay | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1623 |
-| RWR-PRE-09 | RWR fixture: +3 committed, rewind_to_frame(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1644 |
-| RWR-16 | a restore puts the /INT width gate back on the EFFECTIVE timing, in both copies | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1655 |
-| S3-DECL-CLOCK | Clock declares exactly the two fields the §17.1 golden carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1837 |
-| S3-WIDTH-CLOCK | Clock's declaration is 12 bytes wide — block 0 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1840 |
-| S3-DECL-RAM | Ram declares a u64 count prefix and the 2 MB blob — and the blob's length comes from the DECLARATION, which is what makes the prefix un-obeyable | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1856 |
-| S3-WIDTH-RAM | Ram's declaration is 2 097 160 bytes wide — block 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1860 |
-| S3-DECL-MMU | Mmu declares 45 fields in the order the golden carries them, ending with both BRAM blobs and the attribute-mux cursor | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1912 |
-| S3-WIDTH-MMU | Mmu's declaration is 24 634 bytes wide — block 2 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1916 |
-| S3-DECL-NEXTREG | NextReg declares the select latch, the 256-byte register file as a `bytes` (not a blob — under the §6.1 8 KB line) and the five appended scalars | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1937 |
-| S3-WIDTH-NEXTREG | NextReg's declaration is 262 bytes wide — block 3 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1941 |
-| S3-DECL-CPU | Z80Cpu declares the register file, MEMPTR/Q, and the three §9.5(3) values that are relative to the FUSE T-state counter | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1969 |
-| S3-WIDTH-CPU | Z80Cpu's declaration is 45 bytes wide — block 4 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1973 |
-| S3-DECL-IM2 | Im2Controller declares 14 named devices x 9 fields then the decoder / pulse / NR 0xC0 / DMA-delay scalars — 144 declarations, one per field, not 126 per device | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2028 |
-| S3-WIDTH-IM2 | Im2Controller's state declaration is 149 bytes wide — block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2033 |
-| S3-DECL-IM2-TIMING | Im2Controller's SECOND declaration (§9.5(2)) is the GH #265 timing block, which travels in `int_timing` at the end of the Emulator stream and not in block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2068 |
-| S3-WIDTH-IM2-TIMING | the IM2 timing declaration is 589 bytes wide — the first 589 of block 31's 609, the remaining 20 being the CPU's /INT pair and the CTC's chained triggers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2072 |
-| S3-KEYS-UNIQUE | no declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2103 |
-| S5-DECL-CTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2215 |
-| S5-WIDTH-CTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2218 |
-| S5-DECL-CTC-TIMING | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2237 |
-| S5-WIDTH-CTC-TIMING | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2240 |
-| S5-DECL-DMA | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2291 |
-| S5-WIDTH-DMA | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2294 |
-| S5-DECL-SPI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2312 |
-| S5-WIDTH-SPI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2315 |
-| S5-DECL-I2C | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2343 |
-| S5-WIDTH-I2C | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2346 |
-| S5-DECL-RTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2367 |
-| S5-WIDTH-RTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2370 |
-| S5-DECL-UART | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2476 |
-| S5-WIDTH-UART | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2479 |
-| S5-DECL-DIVMMC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2519 |
-| S5-WIDTH-DIVMMC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measured — which since S5b is the STANDALONE block width, the machine-level one being 17 because the window became a reference (§17.0) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2522 |
-| S5-DECL-BEEPER | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2542 |
-| S5-WIDTH-BEEPER | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2545 |
-| S5-DECL-TURBOSOUND | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2644 |
-| S5-WIDTH-TURBOSOUND | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2647 |
-| S5-DECL-DAC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2663 |
-| S5-WIDTH-DAC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2666 |
-| S5-DECL-I2S | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2683 |
-| S5-WIDTH-I2S | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2686 |
-| S5-DECL-NMI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2729 |
-| S5-WIDTH-NMI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2732 |
-| S5-DECL-MULTIFACE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2762 |
-| S5-WIDTH-MULTIFACE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2765 |
-| S5-DECL-KEYBOARD | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2867 |
-| S5-WIDTH-KEYBOARD | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2870 |
-| S5-DECL-JOYSTICK | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2890 |
-| S5-WIDTH-JOYSTICK | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2893 |
-| S5-DECL-MOUSE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2914 |
-| S5-WIDTH-MOUSE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2917 |
-| S5-DECL-MD6 | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2940 |
-| S5-WIDTH-MD6 | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2943 |
-| S5-DECL-MEMBRANE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2965 |
-| S5-WIDTH-MEMBRANE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2968 |
-| S5-DECL-IOMODE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2989 |
-| S5-WIDTH-IOMODE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2992 |
-| S5-KEYS-UNIQUE | no S5 declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3023 |
-| S5-INPUT-BLOCK | the six input declarations sum to the 450 bytes the golden's sentinel map measures for the input block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3047 |
-| S3-RAM-PREFIX | a RAM count prefix twelve times the real size neither moves the stream nor reaches past the buffer: the restore takes its length from the DECLARATION and the content is intact | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3097 |
-| S3-RAM-PREFIX-SANE | …and an honest save is still exactly the prefix plus the RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3101 |
-| S3-ENUM-OFFSET | the machine_type ordinal really is at stream offset 28 — the row below is meaningless if it corrupts some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3126 |
-| S3-ENUM-MMU | an out-of-range machine_type ordinal leaves the field at its pre-load value instead of casting garbage into it, and the stream still ends exactly where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3136 |
-| S3-MMU-TIMING-PAIR | a deferred NR 0x03 timing commit — pending != effective — survives a full Emulator save/load, which is the case the retired old-format fallback would have collapsed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3169 |
-| S3-MMU-BRAM-PTR | a byte written into the bank-7 BRAM is readable through the restored slot: the single rebuild_ptr() pass runs AFTER the blobs land, which the mid-stream call never did | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3200 |
-| S3-MMU-NR8F-OFFSET | nr_8f_mode is at stream offset 32 and machine_type at 28 — the row below is meaningless if it pokes some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3231 |
-| S3-MMU-NR8F-MASK | a restored NR 0x8F keeps only its 2 declared bits (zxnext.vhd:3787-3794), its neighbour is untouched and the stream still ends where it should | zxnext.vhd:3787-3794 | pass | test/rewind/rewind_test.cpp:3241 |
-| S3-NEXTREG-NR03-OFFSET | the two NR 0x03 sub-fields are at stream offsets 259 and 261, behind the 256-byte register file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3265 |
-| S3-NEXTREG-NR03-MASK | both restored NR 0x03 sub-fields keep only their 3 declared bits (zxnext.vhd:1099, :1103) and the select latch is intact | zxnext.vhd:1099,1103 | pass | test/rewind/rewind_test.cpp:3275 |
-| S3-CPU-INT-WINDOW | the /INT window's first boundary is restored RELATIVE to whatever the T-state counter now is (0x50 behind it), not as the absolute stamp it was saved from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3309 |
-| S4-DECL-PALETTE | PaletteManager declares the four RGB333 stores, the 14 scalars and the Layer 2 priority store in the order the golden carries them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3382 |
-| S4-WIDTH-PALETTE | PaletteManager's declaration is 4 622 bytes wide — block 6 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3386 |
-| S4-DECL-LAYER2 | Layer2 declares its 11 registers in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3409 |
-| S4-WIDTH-LAYER2 | Layer2's declaration is 12 bytes wide — block 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3411 |
-| S4-DECL-SPRITES | SpriteEngine declares the 640-byte attribute file, the 16 KB pattern blob and the 15 control bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3443 |
-| S4-WIDTH-SPRITES | SpriteEngine's declaration is 17 039 bytes wide — block 8 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3446 |
-| S4-DECL-TILEMAP | Tilemap declares its 19 fields, both decoded base addresses included, in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3476 |
-| S4-WIDTH-TILEMAP | Tilemap's declaration is 26 bytes wide — block 9 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3479 |
-| S4-DECL-BLOCK10 | Renderer's declaration nests the ULA's, then its own eight fields, then LoRes's four — the order the golden carries block 10 in | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3545 |
-| S4-WIDTH-BLOCK10 | the nested declaration is 3 688 bytes wide — block 10, of which the ULA is 3 357 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3549 |
-| S4-DECL-ULA-PREFIX | Ula::describe_state walked standalone is EXACTLY the first 25 fields / 3 357 bytes of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3565 |
-| S4-DECL-LORES-SUFFIX | Lores::describe_state walked standalone is EXACTLY the last four fields of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3576 |
-| S4-DECL-COPPER | Copper declares the 2 KB instruction RAM as one array, then the seven control fields | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3599 |
-| S4-WIDTH-COPPER | Copper's declaration is 2 057 bytes wide — block 11 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3602 |
-| S4-KEYS-UNIQUE | no video declaration names the same key twice, block 10's three-way nesting included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3631 |
-| S4-PALETTE-ARGB | the post-walk ARGB rebuild covers all FOUR palettes in BOTH banks, and the u16 entries land little-endian at 2*(bank*256 + index) — which is what makes the ten-loop collapse into five `bytes` a transcription | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3716 |
-| S4-PALETTE-TARGET-OFFSET | target_palette really is the byte at offset 4 098, between the control byte and the auto-increment flag and equal to neither — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3733 |
-| S4-PALETTE-TARGET | an out-of-range target_palette ordinal is REFUSED: the field keeps its pre-load target instead of being cast in, the plain control byte beside it IS restored, and the stream still ends exactly where it should — the byte was consumed either way | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3751 |
-| S4-ULA-MODE-OFFSET | screen_mode really is at offset 269 of a 3 357-byte ULA save, and is 6 where the raw port-0xFF register beside it is 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3774 |
-| S4-ULA-MODE | ordinal 4 is a HOLE in TimexScreenMode and is refused: the enum field keeps its pre-load mode instead of becoming a state the ULA cannot be in, the plain register byte beside it IS restored, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3789 |
-| S4-ULA-LOG-COUNT-OFFSET | the port-0xFF log count really is the u16 at offset 283, and one logged change reads as 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3814 |
-| S4-ULA-LOG-COUNT | a forged count 64x the capacity is clamped to the capacity declared IN THE CODE and the stream still ends where it should: the entry loop is bounded by the declaration, never by the file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3823 |
-| S4-LORES-NR6A-OFFSET | lores_nr6a really is the fourth and last byte of a LoRes save | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3842 |
-| S4-LORES-NR6A-MASK | NR $6A is restored masked to its six hardware bits (zxnext.vhd:5032-5034), so a stream carrying bits 7:6 cannot put the register in a state a live write could not | zxnext.vhd:5032-5034 | pass | test/rewind/rewind_test.cpp:3849 |
-| S4-BLEND-OFFSET | blend_mode really is at offset 3 363 — after the ULA's 3 357 bytes and the Renderer's first six | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3861 |
-| S4-BLEND-MASK | NR 0x68 bits 6:5 are restored masked to two bits, so a stream carrying more cannot select a blend mode the VHDL has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3870 |
-| S4-SPRITE-ATTR-ORDER | the 640-byte attribute file is sprite-major, five bytes each: sprite 37's five bytes are at offsets 185-189, exactly where the pre-migration 128-iteration loop put them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3895 |
-| S4-ULA-CURSOR-RESET | a restore restarts the port-0xFF replay cursor at the top of the RESTORED log: replaying line 7 applies the entry the stream carried, instead of finding a cursor left past the end by the log the object had before the load | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3933 |
-| S4-ULA-PERLINE-CLEARED | a restore deactivates the per-line control snapshot, so a render taken before the next frame initialises it reads the RESTORED live registers and not the pre-restore frame's rows | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3958 |
-| S4-RENDERER-NESTED-OFFSET | lores_nr6a really is the last byte of a Renderer save — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3979 |
-| S4-RENDERER-NESTED-AFTER-LOAD | a restore driven through Renderer — the path Emulator::load_state uses — runs BOTH nested subsystems' post-walk work: LoRes's NR $6A mask and the ULA's per-line deactivation, neither of which the nested walk itself performs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3990 |
-| S4-COPPER-INSTR-ORDER | the 2 048-byte instruction array is instruction-major and little-endian within each 16-bit word: instruction 10 lands at byte offsets 0x14/0x15, exactly where 1 024 write_u16 calls put it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4010 |
-| S4-COPPER-MODE-OFFSET | mode really is at offset 2 050, straight after the array and the 16-bit PC | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4017 |
-| S4-COPPER-MODE | an out-of-range NR 0x62 mode ordinal is refused: the field keeps its pre-load mode instead of taking one the two-bit register cannot hold, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4027 |
-| S5-DMA-OFFSET | byte 32 of Dma's 43-byte block is turbo_ — the field the next row pokes, proved by an honest save of a known value | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4112 |
-| S5-DMA-TURBO | an over-wide turbo_ in the stream restores masked to its two VHDL bits instead of carrying six bits the hardware has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4123 |
-| S5-DMA-TIMER | an over-wide dma_timer_s_ restores masked to the 14 bits device/dma.vhd's burst prescaler actually has | device/dma.vhd | pass | test/rewind/rewind_test.cpp:4127 |
-| S5-DMA-TIMER-OFFSET | …and the restore consumed exactly the declared 43 bytes, so the two pokes landed inside Dma's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4130 |
-| S5-MD6-OFFSET | bytes 4, 6 and 8 of Md6ConnectorX2's 16-byte block are the two latches and the select counter — the three fields the next row pokes, proved by an honest save of three known values | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4143 |
-| S5-MD6-LATCH | two over-wide latches restore masked to the 12 bits the MD 6-button word has, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4162 |
-| S5-MD6-STATE | an over-wide select counter restores masked to the 9 bits md6_connector_x2.vhd's FSM counter has | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4166 |
-| S5-MD6-POS | …and the restore consumed exactly the declared 16 bytes, so the three pokes landed inside Md6's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4169 |
-| S5-MEMBRANE-OFFSET | bytes 71-72 of MembraneStick's 73-byte block are keymap_addr_ — the field the next row pokes, at the end of a block whose length is itself the proof that nothing follows it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4179 |
-| S5-MEMBRANE-ADDR | an over-wide keymap_addr_ restores masked to the 9 bits NR 0x28 gives it, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4191 |
-| S5-MEMBRANE-ADDR-POS | …and the restore consumed exactly the declared 73 bytes, so the poke landed inside MembraneStick's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4194 |
-| S5-DIVMMC-OFFSET | byte 0 of DivMmc's 131 089-byte block is the composite `enabled_` and bytes 131 087-131 088 are the two split levers — the exact firmware-reset shape, saved honestly | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4215 |
-| S5-DIVMMC-LEVERS | the two split enable levers restore from the STREAM, not from the composite byte: a snapshot holding port_io=1 / nr_0a_4=0 with enabled=0 survives, which deriving either from the composite would lose | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4228 |
-| S5-DIVMMC-LEVERS-POS | …and the restore consumed exactly the declared 131 089 bytes, 128 KB window included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4234 |
-| S5-I2C-OFFSET | bytes 11 and 12 of I2cController's 13-byte block are the two pi_i2c1 line inputs — the fields the next row restores, proved by an honest save of a known pair | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4251 |
-| S5-I2C-PI | both pi_i2c1 line inputs restore from the stream, over the opposite live values — so a rewind replays the Pi's lines rather than keeping the ones the run had reached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4263 |
-| S5-I2C-PI-POS | …and the restore consumed exactly the declared 13 bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4268 |
-| S5-KB-COUNT-OFFSET | bytes 12-15 of Keyboard's 342-byte block are the auto-type queue count — the field the next row forges, proved by an honest save of a two-key queue | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4289 |
-| S5-KB-COUNT | a forged auto-type count of 2^30 restores clamped to the sixteen slots the stream actually carries — the rebuild loop is bounded by the DECLARED capacity, so it can neither index past the staging array nor resize the block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4305 |
-| S5-KB-COUNT-POS | …and the restore consumed exactly the declared 342 bytes, so the forged count did not move the stream either | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4310 |
-| S5-KB-SAVE-PURE | saving twice gives byte-identical buffers and the queue still holds its two keys — one declaration serves both directions, so the write path's rebuild must put back exactly what it took and never mutate the machine being saved | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4329 |
-| JNSX-S5B-LENGTHS | the stream is 2 154 296 bytes on the Next and 2 162 488 on 48K/128K/+3 — every deliberate change to the byte stream is a number in a test rather than a fact in a commit message, and the machine-dependence is exactly the Multiface array and nothing else. S5b re-baselined it to 2 153 701 / 2 161 893 by removing the duplicated RAM; S6 adds 594: mf_type (1 byte, §10.2 P13) and the SD card's SPI FSM (589 + its 4-byte sentinel, §10.2 P1); GH #290 adds 1: the tail block's cvc_offset_delta. All three deltas are machine-independent, so the 8 192-byte gap between the two numbers is unchanged | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4395 |
-| S5B-DIVMMC-BLOCK | a DivMmc the Emulator backed writes 17 bytes, not 131 089: the 128 KB window is a REFERENCE to Ram page 16, which the same stream's `ram` block carries seventeen blocks earlier | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4426 |
-| S5B-DIVMMC-STANDALONE | …while one nothing backed still writes all 131 089, because a stream with no `ram` block in it has nowhere to point and the private array is then the only copy of itself | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4430 |
-| S5B-DIVMMC-RESTORE | DivMMC RAM still arrives after a whole-machine restore, now through the `ram` block rather than its own copy — and the stream is consumed exactly, so dropping 128 KB from the write side did not leave the read side reading them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4463 |
-| S5B-MF-NEXT-ABSENT | on the Next the Multiface RAM member is ABSENT, not zero-filled: the declaration drops it and the block is 8 bytes of flip-flops plus S6's mf_type byte, because the live 8 KB is Ram page 0x0B and the private array it used to write was dead zeros | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4499 |
-| S5B-MF-STANDALONE-PRESENT | …and on 48K/128K/+3, and in a standalone round-trip, it is still all 8 201 bytes, because with no backing the private array is the real store (§4.3(2)) — the one place the stream's width depends on the machine type | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4506 |
-| S5B-MF-NEXT-RESTORE | Multiface RAM still arrives on the Next after a whole-machine restore, through Ram page 0x0B — the window the device reads and writes is the page the `ram` block carries, which is why the private array was droppable in the first place | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4536 |
-| S5B-WARMSTART-VERSION | the warm-start state-stream format version is 4: S5b changed the shape of Emulator::save_state, S6 changed it again (mf_type + the SD FSM) and GH #290 again (the tail's cvc_offset_delta), and a cache recorded by an older jnext would otherwise be read field-for-field wrong | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4553 |
-| S6-EMU-CMD18-MID | could not create a scratch SD image | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4580 |
-| S6-EMU-MF-TYPE | NR 0x0A's mf_type "10" survives a whole-machine save: the pre-S6 rebuild from the three mode booleans returned "01", so a guest could watch a bit it had written change under a save (design §10.2 P13, defect D2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4705 |
-| S6-DECL-EMULATOR | the Emulator's own scalar declaration walks exactly the fields the golden's "emulator" block carries, in that order — the two hand-written values that open the block (the frame origin and the §9.5(3) monotonic fold) are not in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4764 |
-| S6-WIDTH-EMULATOR | …and is exactly 56 bytes wide, which with the 8-byte frame origin and the 8-byte monotonic fold is the 72-byte block the pre-migration golden measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4769 |
-| S6-WIDTH-EMULATOR-BLOCKS | the four companion blocks measure 8 / 1 / 8 / 3 bytes (the tail's third is GH #290's cvc_offset_delta): one declaration per SENTINEL-DELIMITED block, because one describe_state cannot put its fields in two blocks (§9.5(2)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4779 |
-| S6-EMU-SCALARS-01 | every field of all five Emulator blocks round-trips through the declaration: a stream of all-0x01 is already normalised, so a walk that reads it into the members and writes them back must reproduce it exactly, and a field bound to a local instead of its member writes a zero where a one belongs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4847 |
-| S6-EMU-SCALARS-02 | the ULA interrupt enable is RE-DERIVED from the restored NR 0x22 bit after the walk: it is not a field, so nothing in the declaration carries it, and a restore that skipped the re-derivation would leave the machine taking frame interrupts the snapshot had switched off | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4882 |
-| S6-P7-ADVANCE-01 | a machine paused mid-frame is ADVANCED to the next frame boundary rather than refused: the save always works, and the cost — up to one frame past where the user paused — is the documented trade (design §10.2 P7, owner decision 2026-09-23) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4940 |
-| S6-P7-HISTORY-01 | …and the advance does NOT wipe the frame's per-scanline change log: the scroll written at the top of the frame is still replayed at row 0 and the one written from the paused machine at the bottom. Re-running begin_new_frame() mid-frame is the Task 40 defect that flattened beast.nex's Copper sky, and a save that quietly destroyed a frame's raster history would be worse than one that refused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4948 |
-| S6-P7-DEBUG-INTACT | …and the debugging session is left exactly as it was found: still paused, still active, with its pending one-shot breakpoint intact — which resume()+pause() would have destroyed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4958 |
-| S6-P7-ADVANCE-02 | a machine already at a frame boundary is not advanced, and the call reports that it did nothing — the running-machine case (the save queued to the next begin_new_frame()) lands here | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4969 |
-| JNS-RT-01 | save_jns writes a non-empty archive from a machine that has been running | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5063 |
-| JNS-RT-02 | a machine restored from a .jns produces a BYTE-IDENTICAL binary state stream to the machine it was saved from — the complete oracle for the assembler's field coverage | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5090 |
-| JNS-RT-02b | …and RAM REALLY TRAVELLED: bytes the destination machine never wrote are present after the restore. The stream comparison above cannot see this on its own — both fixtures are built by the same helper, so their RAM agrees before the load, and dropping the blob read left every row green until a rendered frame caught it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5102 |
-| JNS-RT-03 | --snapshot-compression off round-trips IDENTICALLY, and the archive is larger than the deflated one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5135 |
-| JNS-RT-04 | …and it really is uncompressed: the STORED archive is bigger than the DEFLATE one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5141 |
-| JNS-RT-09 | the archive declares EXACTLY the expected subsystem members (`joy_uart` is absent here and that is correct — it is written only when a cable is attached, §9.5(5)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5195 |
-| JNS-RT-10 | …and every one of them is actually in the archive: the writer cannot declare a subsystem it did not write | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5215 |
-| JNS-RT-13 | capture.frame counts the MACHINE's frames even with the rewind ring disabled — 120 were run. Built from `frame_num_` it would read 0 here, and every save made with rewind off (the default) would carry a provenance field a reader cannot tell from a real frame 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5257 |
-| JNS-RT-05 | a machine that was NEVER loaded differs from the source — without this, JNS-RT-02 would pass just as happily against a comparison that had stopped discriminating | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5277 |
-| JNS-RT-06 | could not build the forged archive — state/esxdos_hostfs.json is not in the file any more, so this row is not testing what it says (fix it, do not delete it) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5377 |
-| JNS-RT-07 | (not reached) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5381 |
-| JNS-RT-11 | a `mem/ram.bin` 1 024 bytes SHORT of what the declaration says is REFUSED even when the MANIFEST agrees with it — not truncated, not zero-padded. That is the cross-version case: a file whose archive and manifest are perfectly consistent with each other and disagree with this build's declaration | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5534 |
-| JNS-RT-12 | …and the refusal NAMES the member, so a user can tell a corrupt file from an unsupported one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5540 |
-| GH289-24 | a .jns whose auto-type row1 is 0x40000000 is REFUSED by Emulator::load_jns, and the coordinate never becomes a queued key — the count beside it was already guarded, the values were not, and this is the value that wrote past Keyboard::matrix_ | membrane.vhd:38-39 | pass | test/rewind/rewind_test.cpp:5648 |
-| GH289-25 | …and the refusal NAMES the member AND the field, so a user can tell a corrupt snapshot from an unsupported one — a message that said only "invalid snapshot" would pass a refused-or-not row and tell nobody anything | membrane.vhd:38-39 | pass | test/rewind/rewind_test.cpp:5653 |
-| GH289-30 | all four CPU-speed divisors (8, 4, 2, 1) still restore — the legal set is the image of cpu_speed_divisor() over CpuSpeed, not a literal, so this is the arm a reject-everything check fails | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5734 |
-| GH289-31 | a snapshot CPU divisor of 0 is REFUSED — it is the right-hand side of Emulator::rebase_fuse_tstates_'s division, so it was SIGFPE on the next frame boundary | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5747 |
-| GH289-32 | a CPU divisor of 3 is REFUSED — in range for an i32, and the divisor of no CPU speed the hardware has | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5751 |
-| GH289-33 | a NEGATIVE CPU divisor is REFUSED — cast to uint64_t it is 2^64-8, which does not crash: every division answers 0 and the T-state counter silently stops advancing | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5754 |
-| GH289-34 | bytes 8-11 of Clock's 12-byte block are cpu_divisor — the field the next row forges, proved by an honest save of a known speed | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5792 |
-| GH289-35 | a forged divisor in the REWIND stream leaves the divisor at its pre-load value, still consumes the declared 12 bytes, and is NAMED in the log — a rewind has no return value to refuse with, so an unlogged drop would be invisible | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5810 |
-| GH289-40 | both UART channels (0 and 1) still restore, over the opposite live value — the arm a reject-everything check fails, and the one that proves the selector really travels | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5844 |
-| GH289-41 | a snapshot UART selector of 2 is REFUSED — it indexes channels_, which has two elements, so the guest's next port 0x143B/0x153B/0x163B access read past the array | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5851 |
-| GH289-42 | a NEGATIVE UART selector is REFUSED — the other side of the same one-bit range, and nothing the guest can write reaches it (the 0x153B arm masks to bit 6) | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5855 |
-| GH289-43 | the 0x40000000 shape from the issue report is REFUSED here too — the same class of value in the same kind of field | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5859 |
-| GH289-44 | bytes 0-3 of Uart's block are the channel selector — the field the next row forges, proved by an honest save with channel 1 selected | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5895 |
-| GH289-45 | a forged selector in the REWIND stream leaves the selector at its pre-load value, still consumes the whole declared block (so the ninety per-channel fields behind it do not desync), and is NAMED in the log | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5914 |
-| GH289-60 | register pointers 0 and 63 — both ends of the DS1307 map — still restore over a different live pointer; the arm a reject-everything check fails, and the one an off-by-one `>= 63` bound would fail too | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5960 |
-| GH289-61 | a register pointer of 64 is REFUSED — one past the 64-entry regs_ array, whose extent IS the bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5968 |
-| GH289-62 | a register pointer of 200 is REFUSED — the reviewer's proof-of-concept value, which wrote 136 bytes past regs_ on the next RTC write and read past it on the next RTC read | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5971 |
-| GH289-63 | the widest value a u8 can carry is REFUSED — the type's own range is 0..255 and the array's is 0..63, which is the whole defect in one sentence | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5975 |
-| GH289-64 | byte 0 of I2cRtc's 69-byte block is the register pointer — the field the next row forges, proved by an honest save of a known pointer | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6011 |
-| GH289-65 | a forged pointer in the REWIND stream leaves it at its pre-load value, still consumes the declared 69 bytes so the 64 register bytes behind it do not desync, and is NAMED in the log | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6029 |
-| GH289-46 | Emulator::load_jns REFUSES a .jns whose state/clock.json carries a CPU divisor of 0, whose state/uart.json carries a selector of 2, or whose state/rtc.json carries a register pointer of 200 — each refusal naming its own member AND field, which proves all three subsystems are really visited; the direct-declaration rows above cannot show that | zxnext.vhd:1299-1300,5817, uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:6132 |
-| JNS-RT-16 | an esxDOS handle open INSIDE the sandbox survives a .jns round trip and is genuinely USABLE: reading one byte through the restored handle returns the byte at the offset the saved machine had reached. The file's byte at offset N is N, so that single value says which file was reopened AND where in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6243 |
-| JNS-RT-20 | the fixture really attaches a cable, really delivers bytes through the mux, and stops with a REMAINDER still to send — without all three the row below asserts nothing, which is how this path went six stages with no coverage at all | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6357 |
-| JNS-RT-21 | …and the RESTORED cable delivers the CONTINUATION byte through the mux into the UART — the file's byte at index N is N, so the value proves the cursor travelled and the source is still live. A source that silently rewound would deliver 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6399 |
-| JNS-RT-17 | a preview is DECLARED in the manifest (present, width, height) and the meta/preview.png member is really in the archive — §10.2 P5's declared-rather-than-merely-present rule, so a reader can size it without inflating it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6455 |
-| JNS-RT-18 | …and the bytes come back BYTE-FOR-BYTE on load. meta/ is an OPEN namespace, so a writer that silently dropped the preview would produce a file every reader accepts — nothing else in the tree would ever have complained | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6474 |
-| JNS-RT-19 | no preview supplied means no member and nothing declared — legal and silent. Without this the two rows above would pass against a writer that always emitted one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6503 |
-| JNS-RT-14 | a .jns that does not list a subsystem still LOADS — §12.4 says that is a deliberate omission by the writer, not a broken file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6591 |
-| JNS-RT-15 | …and it WARNS, naming the subsystem: it has been left at its power-on defaults, which is a real difference from the machine the file came from and must not be silent | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6594 |
-| JNS-RT-08a | the fixture really is paused MID-FRAME before the save — without this the row below asserts nothing | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6622 |
-| JNS-RT-08 | a .jns save ADVANCES a mid-frame machine to a frame boundary and REPORTS that it did (§10.2 P7's always-advance, never-refuse rule): no unavailable menu item, no failure mode, and the caller can tell the user once | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6632 |
+| RB-GEN-01 | a restore sets the load generation back to the slot's | (jnext-internal) | pass | test/rewind/rewind_test.cpp:943 |
+| RB-SIZE-04 | snapshot size unchanged by a queued auto-type sequence | (jnext-internal) | pass | test/rewind/rewind_test.cpp:964 |
+| RB-SIZE-05 | snapshot taken mid-auto-type is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:969 |
+| RB-SIZE-06 | over-cap auto-type sequence still yields a constant-size snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:980 |
+| RB-SIZE-06b | slot restores for the auto-type content row | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1011 |
+| RB-SIZE-07 | restored auto-type queue plays the correct key (row 1 col 3 = F) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1017 |
+| RB-SIZE-08 | restored auto-type queue does not press the row/col transpose (3,1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1019 |
+| RB-SIZE-09 | snapshot size unchanged by bytes in flight in the UART RX FIFO | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1041 |
+| RB-SIZE-10 | snapshot taken with a non-empty UART FIFO is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1046 |
+| RB-SIZE-10b | slot restores for the UART content row | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1056 |
+| RB-SIZE-11 | UART RX FIFO content and order survive the round-trip | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1061 |
+| SENT-CHAIN-PRE-01 | rewind buffer holds >= 2 real snapshots | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1087 |
+| SENT-CHAIN-00 | mmu sentinel corrupted in every stored slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1101 |
+| SENT-CHAIN-01 | step_back returns false on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1106 |
+| SENT-CHAIN-02 | chain failure names subsystem 'mmu' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1107 |
+| SENT-CHAIN-03 | rewind_to_frame returns false on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1112 |
+| SENT-CHAIN-04 | rewind_to_cycle returns UINT64_MAX on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1116 |
+| RWR-PRE-01 | RWR fixture: S0 is live when the frame-1 snapshot is taken | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1359 |
+| RWR-PRE-02 | RWR fixture: frame 3 left S1/S2 render history behind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1369 |
+| RWR-PRE-03 | RWR fixture: rewind_to_frame(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1375 |
+| RWR-01 | palette entry restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1382 |
+| RWR-02 | Layer 2 scroll/clip/bank/enable/NR 0x70 restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1389 |
+| RWR-03 | sprite attributes and pattern RAM restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1398 |
+| RWR-04 | tilemap NR 0x6B restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1405 |
+| RWR-05 | ULA scroll NR 0x26/0x27/0x68 b2 restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1410 |
+| RWR-06 | Ula NR 0x43 b1-3 / NR 0x6B b4 selector mirrors restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1417 |
+| RWR-07 | attribute mux shows the restored VRAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1424 |
+| RWR-08 | stencil/blend/NR 0x14/ULA-clip rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1448 |
+| RWR-09 | tilemap scroll rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1452 |
+| RWR-10 | LoRes rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1456 |
+| RWR-PRE-04 | RWR fixture: the snapshot-instant frame shows the S0 tilemap | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1470 |
+| RWR-11 | frame rendered by rewind_to_frame equals a fresh render of the snapshot instant | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1480 |
+| RWR-PRE-05 | RWR fixture: rewind_to_cycle to the frame-1 snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1513 |
+| RWR-12 | rewind_to_cycle restores the Ula selector mirrors | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1525 |
+| RWR-PRE-06 | RWR fixture: OUT to port 0x5B ran, step_back(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1546 |
+| RWR-13 | step_back over a port 0x5B write restores the pattern byte | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1553 |
+| RWR-14 | a guest soft reset keeps the rewind history and its live size | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1618 |
+| RWR-PRE-07 | RWR fixture: frame 1 is in the history | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1631 |
+| RWR-PRE-08 | RWR fixture: rewind_to_cycle into frame 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1633 |
+| RWR-15 | a guest soft reset replayed by rewind_to_cycle does not end the replay | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1640 |
+| RWR-PRE-09 | RWR fixture: +3 committed, rewind_to_frame(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1661 |
+| RWR-16 | a restore puts the /INT width gate back on the EFFECTIVE timing, in both copies | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1672 |
+| S3-DECL-CLOCK | Clock declares exactly the two fields the §17.1 golden carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1854 |
+| S3-WIDTH-CLOCK | Clock's declaration is 12 bytes wide — block 0 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1857 |
+| S3-DECL-RAM | Ram declares a u64 count prefix and the 2 MB blob — and the blob's length comes from the DECLARATION, which is what makes the prefix un-obeyable | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1873 |
+| S3-WIDTH-RAM | Ram's declaration is 2 097 160 bytes wide — block 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1877 |
+| S3-DECL-MMU | Mmu declares 45 fields in the order the golden carries them, ending with both BRAM blobs and the attribute-mux cursor | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1929 |
+| S3-WIDTH-MMU | Mmu's declaration is 24 634 bytes wide — block 2 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1933 |
+| S3-DECL-NEXTREG | NextReg declares the select latch, the 256-byte register file as a `bytes` (not a blob — under the §6.1 8 KB line) and the five appended scalars | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1954 |
+| S3-WIDTH-NEXTREG | NextReg's declaration is 262 bytes wide — block 3 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1958 |
+| S3-DECL-CPU | Z80Cpu declares the register file, MEMPTR/Q, and the three §9.5(3) values that are relative to the FUSE T-state counter | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1986 |
+| S3-WIDTH-CPU | Z80Cpu's declaration is 45 bytes wide — block 4 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1990 |
+| S3-DECL-IM2 | Im2Controller declares 14 named devices x 9 fields then the decoder / pulse / NR 0xC0 / DMA-delay scalars — 144 declarations, one per field, not 126 per device | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2045 |
+| S3-WIDTH-IM2 | Im2Controller's state declaration is 149 bytes wide — block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2050 |
+| S3-DECL-IM2-TIMING | Im2Controller's SECOND declaration (§9.5(2)) is the GH #265 timing block, which travels in `int_timing` at the end of the Emulator stream and not in block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2085 |
+| S3-WIDTH-IM2-TIMING | the IM2 timing declaration is 589 bytes wide — the first 589 of block 31's 609, the remaining 20 being the CPU's /INT pair and the CTC's chained triggers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2089 |
+| S3-KEYS-UNIQUE | no declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2120 |
+| S5-DECL-CTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2232 |
+| S5-WIDTH-CTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2235 |
+| S5-DECL-CTC-TIMING | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2254 |
+| S5-WIDTH-CTC-TIMING | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2257 |
+| S5-DECL-DMA | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2308 |
+| S5-WIDTH-DMA | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2311 |
+| S5-DECL-SPI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2329 |
+| S5-WIDTH-SPI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2332 |
+| S5-DECL-I2C | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2360 |
+| S5-WIDTH-I2C | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2363 |
+| S5-DECL-RTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2384 |
+| S5-WIDTH-RTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2387 |
+| S5-DECL-UART | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2493 |
+| S5-WIDTH-UART | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2496 |
+| S5-DECL-DIVMMC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2536 |
+| S5-WIDTH-DIVMMC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measured — which since S5b is the STANDALONE block width, the machine-level one being 17 because the window became a reference (§17.0) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2539 |
+| S5-DECL-BEEPER | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2559 |
+| S5-WIDTH-BEEPER | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2562 |
+| S5-DECL-TURBOSOUND | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2661 |
+| S5-WIDTH-TURBOSOUND | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2664 |
+| S5-DECL-DAC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2680 |
+| S5-WIDTH-DAC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2683 |
+| S5-DECL-I2S | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2700 |
+| S5-WIDTH-I2S | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2703 |
+| S5-DECL-NMI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2746 |
+| S5-WIDTH-NMI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2749 |
+| S5-DECL-MULTIFACE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2779 |
+| S5-WIDTH-MULTIFACE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2782 |
+| S5-DECL-KEYBOARD | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2884 |
+| S5-WIDTH-KEYBOARD | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2887 |
+| S5-DECL-JOYSTICK | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2907 |
+| S5-WIDTH-JOYSTICK | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2910 |
+| S5-DECL-MOUSE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2931 |
+| S5-WIDTH-MOUSE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2934 |
+| S5-DECL-MD6 | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2957 |
+| S5-WIDTH-MD6 | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2960 |
+| S5-DECL-MEMBRANE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2982 |
+| S5-WIDTH-MEMBRANE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2985 |
+| S5-DECL-IOMODE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3006 |
+| S5-WIDTH-IOMODE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3009 |
+| S5-KEYS-UNIQUE | no S5 declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3040 |
+| S5-INPUT-BLOCK | the six input declarations sum to the 450 bytes the golden's sentinel map measures for the input block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3064 |
+| S3-RAM-PREFIX | a RAM count prefix twelve times the real size neither moves the stream nor reaches past the buffer: the restore takes its length from the DECLARATION and the content is intact | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3114 |
+| S3-RAM-PREFIX-SANE | …and an honest save is still exactly the prefix plus the RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3118 |
+| S3-ENUM-OFFSET | the machine_type ordinal really is at stream offset 28 — the row below is meaningless if it corrupts some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3143 |
+| S3-ENUM-MMU | an out-of-range machine_type ordinal leaves the field at its pre-load value instead of casting garbage into it, and the stream still ends exactly where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3153 |
+| S3-MMU-TIMING-PAIR | a deferred NR 0x03 timing commit — pending != effective — survives a full Emulator save/load, which is the case the retired old-format fallback would have collapsed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3186 |
+| S3-MMU-BRAM-PTR | a byte written into the bank-7 BRAM is readable through the restored slot: the single rebuild_ptr() pass runs AFTER the blobs land, which the mid-stream call never did | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3217 |
+| S3-MMU-NR8F-OFFSET | nr_8f_mode is at stream offset 32 and machine_type at 28 — the row below is meaningless if it pokes some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3248 |
+| S3-MMU-NR8F-MASK | a restored NR 0x8F keeps only its 2 declared bits (zxnext.vhd:3787-3794), its neighbour is untouched and the stream still ends where it should | zxnext.vhd:3787-3794 | pass | test/rewind/rewind_test.cpp:3258 |
+| S3-NEXTREG-NR03-OFFSET | the two NR 0x03 sub-fields are at stream offsets 259 and 261, behind the 256-byte register file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3282 |
+| S3-NEXTREG-NR03-MASK | both restored NR 0x03 sub-fields keep only their 3 declared bits (zxnext.vhd:1099, :1103) and the select latch is intact | zxnext.vhd:1099,1103 | pass | test/rewind/rewind_test.cpp:3292 |
+| S3-CPU-INT-WINDOW | the /INT window's first boundary is restored RELATIVE to whatever the T-state counter now is (0x50 behind it), not as the absolute stamp it was saved from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3326 |
+| S4-DECL-PALETTE | PaletteManager declares the four RGB333 stores, the 14 scalars and the Layer 2 priority store in the order the golden carries them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3399 |
+| S4-WIDTH-PALETTE | PaletteManager's declaration is 4 622 bytes wide — block 6 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3403 |
+| S4-DECL-LAYER2 | Layer2 declares its 11 registers in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3426 |
+| S4-WIDTH-LAYER2 | Layer2's declaration is 12 bytes wide — block 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3428 |
+| S4-DECL-SPRITES | SpriteEngine declares the 640-byte attribute file, the 16 KB pattern blob and the 15 control bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3460 |
+| S4-WIDTH-SPRITES | SpriteEngine's declaration is 17 039 bytes wide — block 8 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3463 |
+| S4-DECL-TILEMAP | Tilemap declares its 19 fields, both decoded base addresses included, in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3493 |
+| S4-WIDTH-TILEMAP | Tilemap's declaration is 26 bytes wide — block 9 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3496 |
+| S4-DECL-BLOCK10 | Renderer's declaration nests the ULA's, then its own eight fields, then LoRes's four — the order the golden carries block 10 in | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3562 |
+| S4-WIDTH-BLOCK10 | the nested declaration is 3 688 bytes wide — block 10, of which the ULA is 3 357 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3566 |
+| S4-DECL-ULA-PREFIX | Ula::describe_state walked standalone is EXACTLY the first 25 fields / 3 357 bytes of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3582 |
+| S4-DECL-LORES-SUFFIX | Lores::describe_state walked standalone is EXACTLY the last four fields of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3593 |
+| S4-DECL-COPPER | Copper declares the 2 KB instruction RAM as one array, then the seven control fields | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3616 |
+| S4-WIDTH-COPPER | Copper's declaration is 2 057 bytes wide — block 11 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3619 |
+| S4-KEYS-UNIQUE | no video declaration names the same key twice, block 10's three-way nesting included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3648 |
+| S4-PALETTE-ARGB | the post-walk ARGB rebuild covers all FOUR palettes in BOTH banks, and the u16 entries land little-endian at 2*(bank*256 + index) — which is what makes the ten-loop collapse into five `bytes` a transcription | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3733 |
+| S4-PALETTE-TARGET-OFFSET | target_palette really is the byte at offset 4 098, between the control byte and the auto-increment flag and equal to neither — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3750 |
+| S4-PALETTE-TARGET | an out-of-range target_palette ordinal is REFUSED: the field keeps its pre-load target instead of being cast in, the plain control byte beside it IS restored, and the stream still ends exactly where it should — the byte was consumed either way | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3768 |
+| S4-ULA-MODE-OFFSET | screen_mode really is at offset 269 of a 3 357-byte ULA save, and is 6 where the raw port-0xFF register beside it is 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3791 |
+| S4-ULA-MODE | ordinal 4 is a HOLE in TimexScreenMode and is refused: the enum field keeps its pre-load mode instead of becoming a state the ULA cannot be in, the plain register byte beside it IS restored, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3806 |
+| S4-ULA-LOG-COUNT-OFFSET | the port-0xFF log count really is the u16 at offset 283, and one logged change reads as 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3831 |
+| S4-ULA-LOG-COUNT | a forged count 64x the capacity is clamped to the capacity declared IN THE CODE and the stream still ends where it should: the entry loop is bounded by the declaration, never by the file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3840 |
+| S4-LORES-NR6A-OFFSET | lores_nr6a really is the fourth and last byte of a LoRes save | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3859 |
+| S4-LORES-NR6A-MASK | NR $6A is restored masked to its six hardware bits (zxnext.vhd:5032-5034), so a stream carrying bits 7:6 cannot put the register in a state a live write could not | zxnext.vhd:5032-5034 | pass | test/rewind/rewind_test.cpp:3866 |
+| S4-BLEND-OFFSET | blend_mode really is at offset 3 363 — after the ULA's 3 357 bytes and the Renderer's first six | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3878 |
+| S4-BLEND-MASK | NR 0x68 bits 6:5 are restored masked to two bits, so a stream carrying more cannot select a blend mode the VHDL has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3887 |
+| S4-SPRITE-ATTR-ORDER | the 640-byte attribute file is sprite-major, five bytes each: sprite 37's five bytes are at offsets 185-189, exactly where the pre-migration 128-iteration loop put them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3912 |
+| S4-ULA-CURSOR-RESET | a restore restarts the port-0xFF replay cursor at the top of the RESTORED log: replaying line 7 applies the entry the stream carried, instead of finding a cursor left past the end by the log the object had before the load | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3950 |
+| S4-ULA-PERLINE-CLEARED | a restore deactivates the per-line control snapshot, so a render taken before the next frame initialises it reads the RESTORED live registers and not the pre-restore frame's rows | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3975 |
+| S4-RENDERER-NESTED-OFFSET | lores_nr6a really is the last byte of a Renderer save — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3996 |
+| S4-RENDERER-NESTED-AFTER-LOAD | a restore driven through Renderer — the path Emulator::load_state uses — runs BOTH nested subsystems' post-walk work: LoRes's NR $6A mask and the ULA's per-line deactivation, neither of which the nested walk itself performs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4007 |
+| S4-COPPER-INSTR-ORDER | the 2 048-byte instruction array is instruction-major and little-endian within each 16-bit word: instruction 10 lands at byte offsets 0x14/0x15, exactly where 1 024 write_u16 calls put it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4027 |
+| S4-COPPER-MODE-OFFSET | mode really is at offset 2 050, straight after the array and the 16-bit PC | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4034 |
+| S4-COPPER-MODE | an out-of-range NR 0x62 mode ordinal is refused: the field keeps its pre-load mode instead of taking one the two-bit register cannot hold, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4044 |
+| S5-DMA-OFFSET | byte 32 of Dma's 43-byte block is turbo_ — the field the next row pokes, proved by an honest save of a known value | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4129 |
+| S5-DMA-TURBO | an over-wide turbo_ in the stream restores masked to its two VHDL bits instead of carrying six bits the hardware has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4140 |
+| S5-DMA-TIMER | an over-wide dma_timer_s_ restores masked to the 14 bits device/dma.vhd's burst prescaler actually has | device/dma.vhd | pass | test/rewind/rewind_test.cpp:4144 |
+| S5-DMA-TIMER-OFFSET | …and the restore consumed exactly the declared 43 bytes, so the two pokes landed inside Dma's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4147 |
+| S5-MD6-OFFSET | bytes 4, 6 and 8 of Md6ConnectorX2's 16-byte block are the two latches and the select counter — the three fields the next row pokes, proved by an honest save of three known values | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4160 |
+| S5-MD6-LATCH | two over-wide latches restore masked to the 12 bits the MD 6-button word has, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4179 |
+| S5-MD6-STATE | an over-wide select counter restores masked to the 9 bits md6_connector_x2.vhd's FSM counter has | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4183 |
+| S5-MD6-POS | …and the restore consumed exactly the declared 16 bytes, so the three pokes landed inside Md6's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4186 |
+| S5-MEMBRANE-OFFSET | bytes 71-72 of MembraneStick's 73-byte block are keymap_addr_ — the field the next row pokes, at the end of a block whose length is itself the proof that nothing follows it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4196 |
+| S5-MEMBRANE-ADDR | an over-wide keymap_addr_ restores masked to the 9 bits NR 0x28 gives it, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4208 |
+| S5-MEMBRANE-ADDR-POS | …and the restore consumed exactly the declared 73 bytes, so the poke landed inside MembraneStick's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4211 |
+| S5-DIVMMC-OFFSET | byte 0 of DivMmc's 131 089-byte block is the composite `enabled_` and bytes 131 087-131 088 are the two split levers — the exact firmware-reset shape, saved honestly | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4232 |
+| S5-DIVMMC-LEVERS | the two split enable levers restore from the STREAM, not from the composite byte: a snapshot holding port_io=1 / nr_0a_4=0 with enabled=0 survives, which deriving either from the composite would lose | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4245 |
+| S5-DIVMMC-LEVERS-POS | …and the restore consumed exactly the declared 131 089 bytes, 128 KB window included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4251 |
+| S5-I2C-OFFSET | bytes 11 and 12 of I2cController's 13-byte block are the two pi_i2c1 line inputs — the fields the next row restores, proved by an honest save of a known pair | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4268 |
+| S5-I2C-PI | both pi_i2c1 line inputs restore from the stream, over the opposite live values — so a rewind replays the Pi's lines rather than keeping the ones the run had reached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4280 |
+| S5-I2C-PI-POS | …and the restore consumed exactly the declared 13 bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4285 |
+| S5-KB-COUNT-OFFSET | bytes 12-15 of Keyboard's 342-byte block are the auto-type queue count — the field the next row forges, proved by an honest save of a two-key queue | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4306 |
+| S5-KB-COUNT | a forged auto-type count of 2^30 restores clamped to the sixteen slots the stream actually carries — the rebuild loop is bounded by the DECLARED capacity, so it can neither index past the staging array nor resize the block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4322 |
+| S5-KB-COUNT-POS | …and the restore consumed exactly the declared 342 bytes, so the forged count did not move the stream either | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4327 |
+| S5-KB-SAVE-PURE | saving twice gives byte-identical buffers and the queue still holds its two keys — one declaration serves both directions, so the write path's rebuild must put back exactly what it took and never mutate the machine being saved | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4346 |
+| JNSX-S5B-LENGTHS | the stream is 2 154 296 bytes on the Next and 2 162 488 on 48K/128K/+3 — every deliberate change to the byte stream is a number in a test rather than a fact in a commit message, and the machine-dependence is exactly the Multiface array and nothing else. S5b re-baselined it to 2 153 701 / 2 161 893 by removing the duplicated RAM; S6 adds 594: mf_type (1 byte, §10.2 P13) and the SD card's SPI FSM (589 + its 4-byte sentinel, §10.2 P1); GH #290 adds 1: the tail block's cvc_offset_delta. All three deltas are machine-independent, so the 8 192-byte gap between the two numbers is unchanged | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4412 |
+| S5B-DIVMMC-BLOCK | a DivMmc the Emulator backed writes 17 bytes, not 131 089: the 128 KB window is a REFERENCE to Ram page 16, which the same stream's `ram` block carries seventeen blocks earlier | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4443 |
+| S5B-DIVMMC-STANDALONE | …while one nothing backed still writes all 131 089, because a stream with no `ram` block in it has nowhere to point and the private array is then the only copy of itself | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4447 |
+| S5B-DIVMMC-RESTORE | DivMMC RAM still arrives after a whole-machine restore, now through the `ram` block rather than its own copy — and the stream is consumed exactly, so dropping 128 KB from the write side did not leave the read side reading them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4480 |
+| S5B-MF-NEXT-ABSENT | on the Next the Multiface RAM member is ABSENT, not zero-filled: the declaration drops it and the block is 8 bytes of flip-flops plus S6's mf_type byte, because the live 8 KB is Ram page 0x0B and the private array it used to write was dead zeros | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4516 |
+| S5B-MF-STANDALONE-PRESENT | …and on 48K/128K/+3, and in a standalone round-trip, it is still all 8 201 bytes, because with no backing the private array is the real store (§4.3(2)) — the one place the stream's width depends on the machine type | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4523 |
+| S5B-MF-NEXT-RESTORE | Multiface RAM still arrives on the Next after a whole-machine restore, through Ram page 0x0B — the window the device reads and writes is the page the `ram` block carries, which is why the private array was droppable in the first place | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4553 |
+| S5B-WARMSTART-VERSION | the warm-start state-stream format version is 4: S5b changed the shape of Emulator::save_state, S6 changed it again (mf_type + the SD FSM) and GH #290 again (the tail's cvc_offset_delta), and a cache recorded by an older jnext would otherwise be read field-for-field wrong | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4570 |
+| S6-EMU-CMD18-MID | could not create a scratch SD image | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4597 |
+| S6-EMU-MF-TYPE | NR 0x0A's mf_type "10" survives a whole-machine save: the pre-S6 rebuild from the three mode booleans returned "01", so a guest could watch a bit it had written change under a save (design §10.2 P13, defect D2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4722 |
+| S6-DECL-EMULATOR | the Emulator's own scalar declaration walks exactly the fields the golden's "emulator" block carries, in that order — the two hand-written values that open the block (the frame origin and the §9.5(3) monotonic fold) are not in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4781 |
+| S6-WIDTH-EMULATOR | …and is exactly 56 bytes wide, which with the 8-byte frame origin and the 8-byte monotonic fold is the 72-byte block the pre-migration golden measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4786 |
+| S6-WIDTH-EMULATOR-BLOCKS | the four companion blocks measure 8 / 1 / 8 / 3 bytes (the tail's third is GH #290's cvc_offset_delta): one declaration per SENTINEL-DELIMITED block, because one describe_state cannot put its fields in two blocks (§9.5(2)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4796 |
+| S6-EMU-SCALARS-01 | every field of all five Emulator blocks round-trips through the declaration: a stream of all-0x01 is already normalised, so a walk that reads it into the members and writes them back must reproduce it exactly, and a field bound to a local instead of its member writes a zero where a one belongs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4864 |
+| S6-EMU-SCALARS-02 | the ULA interrupt enable is RE-DERIVED from the restored NR 0x22 bit after the walk: it is not a field, so nothing in the declaration carries it, and a restore that skipped the re-derivation would leave the machine taking frame interrupts the snapshot had switched off | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4899 |
+| S6-P7-ADVANCE-01 | a machine paused mid-frame is ADVANCED to the next frame boundary rather than refused: the save always works, and the cost — up to one frame past where the user paused — is the documented trade (design §10.2 P7, owner decision 2026-09-23) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4957 |
+| S6-P7-HISTORY-01 | …and the advance does NOT wipe the frame's per-scanline change log: the scroll written at the top of the frame is still replayed at row 0 and the one written from the paused machine at the bottom. Re-running begin_new_frame() mid-frame is the Task 40 defect that flattened beast.nex's Copper sky, and a save that quietly destroyed a frame's raster history would be worse than one that refused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4965 |
+| S6-P7-DEBUG-INTACT | …and the debugging session is left exactly as it was found: still paused, still active, with its pending one-shot breakpoint intact — which resume()+pause() would have destroyed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4975 |
+| S6-P7-ADVANCE-02 | a machine already at a frame boundary is not advanced, and the call reports that it did nothing — the running-machine case (the save queued to the next begin_new_frame()) lands here | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4986 |
+| JNS-RT-01 | save_jns writes a non-empty archive from a machine that has been running | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5080 |
+| JNS-RT-02 | a machine restored from a .jns produces a BYTE-IDENTICAL binary state stream to the machine it was saved from — the complete oracle for the assembler's field coverage | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5107 |
+| JNS-RT-02b | …and RAM REALLY TRAVELLED: bytes the destination machine never wrote are present after the restore. The stream comparison above cannot see this on its own — both fixtures are built by the same helper, so their RAM agrees before the load, and dropping the blob read left every row green until a rendered frame caught it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5119 |
+| JNS-RT-03 | --snapshot-compression off round-trips IDENTICALLY, and the archive is larger than the deflated one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5152 |
+| JNS-RT-04 | …and it really is uncompressed: the STORED archive is bigger than the DEFLATE one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5158 |
+| JNS-RT-09 | the archive declares EXACTLY the expected subsystem members (`joy_uart` is absent here and that is correct — it is written only when a cable is attached, §9.5(5)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5212 |
+| JNS-RT-10 | …and every one of them is actually in the archive: the writer cannot declare a subsystem it did not write | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5232 |
+| JNS-RT-13 | capture.frame counts the MACHINE's frames even with the rewind ring disabled — 120 were run. Built from `frame_num_` it would read 0 here, and every save made with rewind off (the default) would carry a provenance field a reader cannot tell from a real frame 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5274 |
+| JNS-RT-05 | a machine that was NEVER loaded differs from the source — without this, JNS-RT-02 would pass just as happily against a comparison that had stopped discriminating | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5294 |
+| JNS-RT-06 | could not build the forged archive — state/esxdos_hostfs.json is not in the file any more, so this row is not testing what it says (fix it, do not delete it) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5394 |
+| JNS-RT-07 | (not reached) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5398 |
+| JNS-RT-11 | a `mem/ram.bin` 1 024 bytes SHORT of what the declaration says is REFUSED even when the MANIFEST agrees with it — not truncated, not zero-padded. That is the cross-version case: a file whose archive and manifest are perfectly consistent with each other and disagree with this build's declaration | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5551 |
+| JNS-RT-12 | …and the refusal NAMES the member, so a user can tell a corrupt file from an unsupported one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5557 |
+| GH289-24 | a .jns whose auto-type row1 is 0x40000000 is REFUSED by Emulator::load_jns, and the coordinate never becomes a queued key — the count beside it was already guarded, the values were not, and this is the value that wrote past Keyboard::matrix_ | membrane.vhd:38-39 | pass | test/rewind/rewind_test.cpp:5665 |
+| GH289-25 | …and the refusal NAMES the member AND the field, so a user can tell a corrupt snapshot from an unsupported one — a message that said only "invalid snapshot" would pass a refused-or-not row and tell nobody anything | membrane.vhd:38-39 | pass | test/rewind/rewind_test.cpp:5670 |
+| GH289-30 | all four CPU-speed divisors (8, 4, 2, 1) still restore — the legal set is the image of cpu_speed_divisor() over CpuSpeed, not a literal, so this is the arm a reject-everything check fails | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5751 |
+| GH289-31 | a snapshot CPU divisor of 0 is REFUSED — it is the right-hand side of Emulator::rebase_fuse_tstates_'s division, so it was SIGFPE on the next frame boundary | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5764 |
+| GH289-32 | a CPU divisor of 3 is REFUSED — in range for an i32, and the divisor of no CPU speed the hardware has | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5768 |
+| GH289-33 | a NEGATIVE CPU divisor is REFUSED — cast to uint64_t it is 2^64-8, which does not crash: every division answers 0 and the T-state counter silently stops advancing | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5771 |
+| GH289-34 | bytes 8-11 of Clock's 12-byte block are cpu_divisor — the field the next row forges, proved by an honest save of a known speed | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5809 |
+| GH289-35 | a forged divisor in the REWIND stream leaves the divisor at its pre-load value, still consumes the declared 12 bytes, and is NAMED in the log — a rewind has no return value to refuse with, so an unlogged drop would be invisible | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5827 |
+| GH289-40 | both UART channels (0 and 1) still restore, over the opposite live value — the arm a reject-everything check fails, and the one that proves the selector really travels | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5861 |
+| GH289-41 | a snapshot UART selector of 2 is REFUSED — it indexes channels_, which has two elements, so the guest's next port 0x143B/0x153B/0x163B access read past the array | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5868 |
+| GH289-42 | a NEGATIVE UART selector is REFUSED — the other side of the same one-bit range, and nothing the guest can write reaches it (the 0x153B arm masks to bit 6) | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5872 |
+| GH289-43 | the 0x40000000 shape from the issue report is REFUSED here too — the same class of value in the same kind of field | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5876 |
+| GH289-44 | bytes 0-3 of Uart's block are the channel selector — the field the next row forges, proved by an honest save with channel 1 selected | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5912 |
+| GH289-45 | a forged selector in the REWIND stream leaves the selector at its pre-load value, still consumes the whole declared block (so the ninety per-channel fields behind it do not desync), and is NAMED in the log | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5931 |
+| GH289-60 | register pointers 0 and 63 — both ends of the DS1307 map — still restore over a different live pointer; the arm a reject-everything check fails, and the one an off-by-one `>= 63` bound would fail too | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5977 |
+| GH289-61 | a register pointer of 64 is REFUSED — one past the 64-entry regs_ array, whose extent IS the bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5985 |
+| GH289-62 | a register pointer of 200 is REFUSED — the reviewer's proof-of-concept value, which wrote 136 bytes past regs_ on the next RTC write and read past it on the next RTC read | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5988 |
+| GH289-63 | the widest value a u8 can carry is REFUSED — the type's own range is 0..255 and the array's is 0..63, which is the whole defect in one sentence | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5992 |
+| GH289-64 | byte 0 of I2cRtc's 69-byte block is the register pointer — the field the next row forges, proved by an honest save of a known pointer | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6028 |
+| GH289-65 | a forged pointer in the REWIND stream leaves it at its pre-load value, still consumes the declared 69 bytes so the 64 register bytes behind it do not desync, and is NAMED in the log | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6046 |
+| GH289-46 | Emulator::load_jns REFUSES a .jns whose state/clock.json carries a CPU divisor of 0, whose state/uart.json carries a selector of 2, or whose state/rtc.json carries a register pointer of 200 — each refusal naming its own member AND field, which proves all three subsystems are really visited; the direct-declaration rows above cannot show that | zxnext.vhd:1299-1300,5817, uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:6149 |
+| JNS-RT-16 | an esxDOS handle open INSIDE the sandbox survives a .jns round trip and is genuinely USABLE: reading one byte through the restored handle returns the byte at the offset the saved machine had reached. The file's byte at offset N is N, so that single value says which file was reopened AND where in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6260 |
+| JNS-RT-20 | the fixture really attaches a cable, really delivers bytes through the mux, and stops with a REMAINDER still to send — without all three the row below asserts nothing, which is how this path went six stages with no coverage at all | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6374 |
+| JNS-RT-21 | …and the RESTORED cable delivers the CONTINUATION byte through the mux into the UART — the file's byte at index N is N, so the value proves the cursor travelled and the source is still live. A source that silently rewound would deliver 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6416 |
+| JNS-RT-17 | a preview is DECLARED in the manifest (present, width, height) and the meta/preview.png member is really in the archive — §10.2 P5's declared-rather-than-merely-present rule, so a reader can size it without inflating it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6472 |
+| JNS-RT-18 | …and the bytes come back BYTE-FOR-BYTE on load. meta/ is an OPEN namespace, so a writer that silently dropped the preview would produce a file every reader accepts — nothing else in the tree would ever have complained | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6491 |
+| JNS-RT-19 | no preview supplied means no member and nothing declared — legal and silent. Without this the two rows above would pass against a writer that always emitted one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6520 |
+| JNS-RT-14 | a .jns that does not list a subsystem still LOADS — §12.4 says that is a deliberate omission by the writer, not a broken file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6608 |
+| JNS-RT-15 | …and it WARNS, naming the subsystem: it has been left at its power-on defaults, which is a real difference from the machine the file came from and must not be silent | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6611 |
+| JNS-RT-08a | the fixture really is paused MID-FRAME before the save — without this the row below asserts nothing | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6639 |
+| JNS-RT-08 | a .jns save ADVANCES a mid-frame machine to a frame boundary and REPORTS that it did (§10.2 P7's always-advance, never-refuse rule): no unavailable menu item, no failure mode, and the caller can tell the user once | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6649 |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 

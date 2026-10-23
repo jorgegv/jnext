@@ -1114,6 +1114,9 @@ target_include_directories(source_map_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # SLDL-* (GH #375) load the committed sjasmplus SLD and --sym fixtures.
 target_compile_definitions(source_map_test PRIVATE
     JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
+# Z88FIX-01/02 (GH #343) check the committed z88dk ground-truth fixtures.
+target_compile_definitions(source_map_test PRIVATE
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME source_map_tests COMMAND source_map_test)
 add_executable(source_debug_test debug/source_debug_test.cpp)
 target_link_libraries(source_debug_test PRIVATE

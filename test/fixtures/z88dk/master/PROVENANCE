@@ -1,0 +1,5 @@
+commit: 39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7
+describe: v2.4-2695-g39421a01cd
+modified tracked files: include/_DEVELOPMENT/common/string.h 
+zcc: zcc - Frontend for the z88dk Cross-C Compiler - v23856-580777436e-20251005
+zsdcc: Build: 4.6.0 #16639 (Linux) pr3093 Oct 18 2026

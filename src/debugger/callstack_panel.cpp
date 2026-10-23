@@ -86,8 +86,8 @@ void CallStackPanel::refresh() {
             // The memory the target was entered in when recorded; else the
             // one that supplies it now.
             const jnext::dbg::MemSpace space =
-                f.target_page != NOT_RAM_PAGE ? jnext::dbg::MemSpace::page(f.target_page)
-                                              : dbg_->source_page(f.target_pc);
+                f.target_space != jnext::dbg::MemSpace::cpu() ? f.target_space
+                                                              : dbg_->source_page(f.target_pc);
             auto sym = symbol_table_->lookup(space, f.target_pc);
             if (sym)
                 target_text = QString::fromStdString(*sym);
@@ -95,12 +95,10 @@ void CallStackPanel::refresh() {
         set_cell(3, target_text);
 
         QString source_text;
-        // The tracker still records a page number; E23-08 records the space.
         if (const SourceLocation* src =
-                f.caller_page == NOT_RAM_PAGE
+                f.caller_space == jnext::dbg::MemSpace::cpu()
                     ? nullptr
-                    : dbg_->source_map().lookup(jnext::dbg::MemSpace::page(f.caller_page),
-                                                f.caller_pc))
+                    : dbg_->source_map().lookup(f.caller_space, f.caller_pc))
             source_text = QString::fromStdString(src->file) + ":" + QString::number(src->line);
         set_cell(4, source_text);
 

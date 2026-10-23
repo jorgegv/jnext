@@ -292,8 +292,6 @@ void DebuggerManager::ensure_window() {
             dp->set_watch_panel(debugger_window_->watch_panel());
     }
 
-    if (auto* sp = debugger_window_->source_panel()) sp->set_load_problem(sidecar_problem_);
-
     // Wire call stack panel with symbol table.
     if (auto* cs = debugger_window_->callstack_panel()) {
         cs->set_symbol_table(&dbg_.symbols());
@@ -665,11 +663,9 @@ void DebuggerManager::on_load_sld() {
 void DebuggerManager::report_sidecars(const jnext::dbg::Debugger::SidecarLoad& result) {
     if (!result.problem.empty())
         dbg_.log(client_, jnext::dbg::LogLevel::Warn, "load: " + result.problem);
-    sidecar_problem_ = QString::fromStdString(result.problem);
-    if (!sidecar_problem_.isEmpty() && main_window_->statusBar())
-        main_window_->statusBar()->showMessage(sidecar_problem_, 10000);
-    if (debugger_window_ && debugger_window_->source_panel())
-        debugger_window_->source_panel()->set_load_problem(sidecar_problem_);
+    if (!result.problem.empty() && main_window_->statusBar())
+        main_window_->statusBar()->showMessage(QString::fromStdString(result.problem), 10000);
+    if (debugger_window_) debugger_window_->refresh_panels();
 }
 
 void DebuggerManager::run_source_step(jnext::dbg::Debugger::SourceStep kind,

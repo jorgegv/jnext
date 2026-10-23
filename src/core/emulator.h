@@ -835,9 +835,9 @@ public:
     /// It is `Mmu::route_with()` - the arbiter `read()` itself uses - asked
     /// with the two M1 answers, so the prediction and what the fetch records
     /// (`Mmu::last_m1()`) are one function evaluated before and after the
-    /// instruction. The trace, the call-stack tracker and the debugger's source
-    /// lookups and breakpoints all ask this, so they name what actually
-    /// supplies the instruction.
+    /// instruction. The debugger's source lookups and breakpoints ask this, as
+    /// do the trace's bytes and the call stack's opcode capture; what the
+    /// trace and the call frames RECORD is `Mmu::last_m1()` itself (GH #340).
     jnext::dbg::MemSpace predict_fetch(uint16_t pc) const;
     Renderer&     renderer()  { return renderer_; }
     Profiler&     profiler()  { return profiler_; }

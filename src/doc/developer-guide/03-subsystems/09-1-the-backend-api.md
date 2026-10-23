@@ -335,12 +335,19 @@ instruction up to the next distinct start in its page, never past the 8K page
 end. `resolve("file:line")` returns the line's entries (every place it compiled
 to; a later instruction of the same line is not one), or a reason ("no code at
 file:line"); the file is the exact path or the unique file whose path ends in the
-text on a component boundary. The trace and the call frames still use page
-numbers (`ram_page_of()`, `debug/ram_page.h`) until E23-08. After the instruction, `Mmu::last_m1()` is what its
+text on a component boundary. After the instruction, `Mmu::last_m1()` is what its
 fetch actually recorded: the prediction and the record are one function evaluated
-before and after, and the tests compare them for every fetch of a guest tour. The trace records the same flag beside each entry
-(`TraceLog::fetch_not_mmu_ram()`; `TraceEntry` itself stays 56 bytes), call
-frames record each side's identity, and an `Execute` filter with
+before and after, and the tests compare them for every fetch of a guest tour.
+`Emulator::step_one_instruction()` reads it once per instruction, after
+`execute()` and only if the CPU fetched, and copies it into the trace entry
+(`TraceEntry::fetch_space()`; the entry stays 56 bytes) and into the call
+frames (`CallFrame::caller_space` is the CALL's own fetch, `target_space` is
+recorded at the first fetch at the target and stays unrecorded, `cpu()`, until
+then; an INT or NMI frame's caller is the prediction at the interrupted PC). A
+slot that records no fetch (an accepted INT or NMI, the esxdos shim) keeps the
+prediction for its PC in its trace entry.
+`TraceLog::fetch_not_mmu_ram()` is a view of that identity, for the page
+qualifier below. An `Execute` filter with
 `page_ram_only` matches only a fetch from that RAM page (`Event::fetch_not_ram`);
 without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
 An SLD may carry a SHA-256 of the program's bytes (`||program.*` comment
@@ -356,19 +363,35 @@ Open, and `load()` calls it for a remote client; a tape program gets no
 automatic map. Ownership is explicit (`Impl::StoreOwner`: None, Sidecar, User)
 and changes only on a successful load: a sidecar never touches the user's
 store, and a previous program's sidecar data is replaced or cleared — also when
-the new sidecar cannot be read. The attach records the clock
-(`Impl::sidecar_attach_cycle`). The machine-replaced hook
-(`Impl::machine_replaced()`, which the cold-boot re-application runs too, since
-a rebuilt machine has no hook while it initialises) drops the sidecar-owned
-stores at once for a reset, a cold boot or any state that does not come from the
-rewind ring (`DebugState::restoring_from_rewind()` is false): another program
-may be in the machine, whatever its clock says. `RewindBuffer::restore_nearest()`
-sets that flag around its `load_state()`; such a restore stays in this program's
-history, so it only raises `sidecar_recheck`, and `recheck_sidecars()` — run by
-`pump()` and by every reader of the stores — drops the stores when the clock is
-now before the attach point. A program the guest loads for itself (the NextZXOS
-browser, `LOAD ""`) is invisible to the backend, so its predecessor's sidecars
-stay until a reset or a load. The user's stores are never touched by any of this.
+the new sidecar cannot be read.
+
+**Lifetime.** A *load generation* (`Impl::generation_counter`, published in
+`DebugState::load_generation()`; host-side, not in `save_state`) starts at the
+machine-replaced hook (`Impl::machine_replaced()`, which the cold-boot
+re-application runs too, since a rebuilt machine has no hook while it
+initialises) for any landing that is not a rewind-ring restore, and at
+`load_program_sidecars()`. The hook only marks the landing pending; `Impl::recheck()`
+judges it, and every reader (`symbols()`, `lookup()`, `lookup_name()`,
+`source_map()`, `source_location()`, `source_step()`, `source_map_status()`,
+`pump()`) and, first, every writer (`load_map()`, `clear_symbols()`,
+`load_source_map()`, `clear_source_map()`, `load_program_sidecars()`) runs it
+before touching the stores. A ring restore (`DebugState::restoring_from_rewind()`
+is true; `RewindBuffer::restore_nearest()` sets it, and sets the slot's
+generation first) puts back the attachment of the generation it lands in, from a
+cache of the last 4 (`Impl::attach_cache`, one record per generation, replaced
+in place so the panels' `&symbols()` stays valid). Any other landing keeps a
+program's sidecars only if the source map's binary identity matches memory now
+(`SourceMap::verify_program()` over `Mmu::peek()`, pure), and checks a carried
+map again at the next pause after the clock moves (a reset whose ROM clears RAM
+later). A map with no identity does not survive such a landing. The user's
+symbols never change with lifetime; the user's source map is verified the same
+way and, when it fails or has no identity, goes *stale*: `source_map()` and
+`source_location()` are empty, `source_map_status()` says `Stale` with the file
+and the reason, and loading it again by hand makes it live. A program the guest
+loads for itself (the NextZXOS browser, `LOAD ""`) is invisible to the backend,
+so its predecessor's sidecars stay until a reset or a load. Back counts a trace
+entry only if it belongs to the current generation (`TraceLog::recorded()` plus
+`(sequence, generation)` markers in `Impl`).
 
 `SidecarLoad::problem` is the one-line account of what was found and refused:
 `NextBuild symbols '<file>' rejected: <reason>` and/or `source map '<file>'
@@ -377,10 +400,11 @@ empty when nothing was refused. `load_program_sidecars()` fills it and also logs
 each refusal. The frontends show it: the headless loop at warn
 (`--load: <problem>`), the SDL loop likewise (`load: <problem>`), and the Qt
 `DebuggerManager::report_sidecars()` in the
-log, in the main window's status bar for ten seconds and in the Source tab in
-place of "No source map loaded" (kept in `sidecar_problem_`, so a window built
-later shows it too, and replaced by the next load's result, empty when clean).
-A remote `load()` fills it and nobody reads it yet.
+log and in the main window's status bar for ten seconds. The Source tab reads the
+reason of the *source map* half from the backend
+(`source_map_status().reason`, replaced by the next load or drop, so a window
+built later shows it too). A remote `load()` reports the problem to every
+listener as a Warn line.
 
 `source_step(by, kind)` steps by statement. `Into`, `Over` and `Out` run
 `Emulator::debugger_step()` in a loop, as many Steps, until the mapped position
@@ -392,8 +416,8 @@ delivers no `Execute` event, so between instructions the loop gives each next PC
 re-evaluate the boundary at the new PC without a second delivery. It also stops on any latched event stop, at a
 HALT with IFF1 clear, after `SOURCE_STEP_LIMIT` instructions or after
 `SOURCE_STEP_FRAME_LIMIT` frames. `Back` and `ReverseContinue` search the trace
-for entries before the current cycle (a Frame Back leaves newer ones), derive
-each entry's identity from `mmu[]`, `rom_slots` and the overlay flag, and hand
+for entries before the current cycle (a Frame Back leaves newer ones), look
+the source map up with each entry's recorded identity (`TraceEntry::fetch_space()`), and hand
 the count to `step_back()`, so they inherit its refusals. `Back` finds the newest
 earlier position that differs from the current one, then walks older entries
 (passing unmapped ones) while they are at that position, and lands on the
@@ -408,8 +432,10 @@ does not run it. Switched off it costs one pointer test per instruction.
 
 Each trace entry carries the registers (including I, R, IM, IFF1 and IFF2), the
 word at SP read with `peek()`, the eight MMU pages and `rom_slots`, a bit per
-slot that held ROM. `trace_export()` writes all of them; the ROM mask is the
-`ROM=` column after the pages.
+slot that held ROM, and the identity of the memory its instruction was fetched
+from (`fetch_kind`, `fetch_index`). `trace_export()` writes all of them; the ROM
+mask is the `ROM=` column after the pages and the identity the `FETCH=kk:ii`
+column after it (hex kind and index).
 
 ### Session — CAP-SES
 

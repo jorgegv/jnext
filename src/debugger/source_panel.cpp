@@ -115,12 +115,6 @@ QString SourcePanel::resolve_source_file(const std::string& source_name) const
     return {};
 }
 
-void SourcePanel::set_load_problem(const QString& problem)
-{
-    load_problem_ = problem;
-    refresh();
-}
-
 void SourcePanel::show_message(const QString& message)
 {
     location_label_->setText(message);
@@ -166,10 +160,19 @@ void SourcePanel::refresh()
         return;
     }
 
-    if (dbg_->source_map().empty()) {
-        show_message(load_problem_.isEmpty()
+    const auto status = dbg_->source_map_status();
+    if (status.state == jnext::dbg::Debugger::SourceMapStatus::State::Stale) {
+        show_message(tr("Source map '%1' does not match the program in memory: %2. "
+                        "Load it again to use it.")
+                         .arg(QString::fromStdString(status.file),
+                              QString::fromStdString(status.reason)));
+        return;
+    }
+    if (status.state == jnext::dbg::Debugger::SourceMapStatus::State::None) {
+        show_message(status.reason.empty()
                          ? tr("No source map loaded")
-                         : tr("No source map loaded: %1").arg(load_problem_));
+                         : tr("No source map loaded: %1")
+                               .arg(QString::fromStdString(status.reason)));
         return;
     }
 

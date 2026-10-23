@@ -196,7 +196,7 @@ static int instruction_length(uint16_t addr, uint8_t (*read)(void* ctx, uint16_t
 // ---------------------------------------------------------------------------
 
 TraceLog::TraceLog(size_t capacity)
-    : buffer_(capacity), not_ram_(capacity, 0), capacity_(capacity)
+    : buffer_(capacity), capacity_(capacity)
 {
 }
 
@@ -210,30 +210,41 @@ bool TraceLog::enabled() const
     return enabled_;
 }
 
-void TraceLog::record(const TraceEntry& entry, bool fetch_not_mmu_ram)
+void TraceLog::record(const TraceEntry& entry)
 {
-    if (no_wrap_ && count_ >= capacity_)
+    if (no_wrap_ && count_ >= capacity_) {
+        newest_stored_ = false;
         return;  // freeze when full — preserves earliest entries
+    }
     buffer_[head_] = entry;
-    not_ram_[head_] = fetch_not_mmu_ram ? 1 : 0;
     head_ = (head_ + 1) % capacity_;
     if (count_ < capacity_)
         ++count_;
+    ++recorded_;          // GH #342: entries ever stored (not a record the no-wrap freeze dropped)
+    newest_stored_ = true;
+}
+
+void TraceLog::set_newest_fetch(jnext::dbg::MemSpace s)
+{
+    if (!newest_stored_)
+        return;
+    buffer_[head_ == 0 ? capacity_ - 1 : head_ - 1].set_fetch_space(s);
 }
 
 void TraceLog::clear()
 {
     head_ = 0;
     count_ = 0;
+    newest_stored_ = false;
 }
 
 void TraceLog::resize(size_t new_capacity)
 {
     buffer_.assign(new_capacity, TraceEntry{});
-    not_ram_.assign(new_capacity, 0);
     capacity_ = new_capacity;
     head_ = 0;
     count_ = 0;
+    newest_stored_ = false;
 }
 
 size_t TraceLog::size() const
@@ -257,8 +268,7 @@ const TraceEntry& TraceLog::at(size_t index) const
 
 bool TraceLog::fetch_not_mmu_ram(size_t index) const
 {
-    const size_t physical = count_ < capacity_ ? index : (head_ + index) % capacity_;
-    return not_ram_[physical] != 0;
+    return at(index).fetch_space().kind != jnext::dbg::MemSpace::Kind::Page;
 }
 
 bool TraceLog::export_to_file(const std::string& path) const
@@ -305,7 +315,7 @@ bool TraceLog::export_to_file(const std::string& path) const
             "  AF'=%04X BC'=%04X DE'=%04X HL'=%04X"
             "  IX=%04X IY=%04X SP=%04X"
             "  (SP)=%04X I=%02X R=%02X IM%u IFF1=%u IFF2=%u"
-            "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=%02X  [%s]  %s\n",
+            "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=%02X FETCH=%02X:%02X  [%s]  %s\n",
             static_cast<unsigned long long>(e.cycle),
             e.pc, e.af, e.bc, e.de, e.hl,
             e.af2, e.bc2, e.de2, e.hl2,
@@ -313,7 +323,8 @@ bool TraceLog::export_to_file(const std::string& path) const
             e.sp_word, e.i, e.r, static_cast<unsigned>(e.im),
             static_cast<unsigned>(e.iff1), static_cast<unsigned>(e.iff2),
             e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3],
-            e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7], e.rom_slots, flags, bytes_str);
+            e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7], e.rom_slots,
+            e.fetch_kind, e.fetch_index, flags, bytes_str);
 
         ofs << line;
     }

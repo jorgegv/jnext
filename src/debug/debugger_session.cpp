@@ -498,7 +498,7 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
     // later in this drain must not change the `.SCR` of a frame that has ended.
     impl_->service_captures();
     // CAP-SRC — sidecars of a program the machine has been rewound past.
-    impl_->recheck_sidecars();
+    impl_->recheck();
 
     // THE DRAIN. §4.8 SES-03 and §9: "a queued command chain is drained in one
     // `pump` while paused, `pump(0)` while running services exactly one".

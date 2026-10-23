@@ -4728,18 +4728,68 @@ static void q_wp3_trace_export_rows() {
         "  AF'=1111 BC'=2222 DE'=3333 HL'=4444"
         "  IX=5555 IY=6666 SP=FF00"
         "  (SP)=ABCD I=3F R=%02X IM1 IFF1=0 IFF2=1"
-        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=03  [SZ-H-P-C]  00",
+        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=03 FETCH=01:04  [SZ-H-P-C]  00",
         static_cast<unsigned long long>(e.cycle), e.r,
         e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3], e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7]);
     // ROM= is a literal, not read back from the entry: a 48K maps ROM in
     // slots 0 and 1 only, so the mask is 03 — a column written from another
-    // field (or from the live mapping) shows up as a different line.
+    // field (or from the live mapping) shows up as a different line. FETCH=
+    // (GH #340) is a literal too: the NOP at $8000 came from RAM page 4.
     check("INS-13-14", "trace_export() writes every TraceEntry field — the word at SP, "
                        "I, R, IM, IFF1, IFF2, the eight MMU pages and the ROM-slot mask "
-                       "(ROM=03 on a 48K) included — in the documented column order",
+                       "(ROM=03 on a 48K) and the fetch identity (FETCH=01:04) included, in the "
+                       "documented column order",
           rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && e.rom_slots == 0x03 &&
               line == want,
           "got  '" + line + "'\nwant '" + want + "'");
+}
+
+/// TRACE-ID-01..03 (GH #340, E23-08) - the fetch identity lives IN the entry, so
+/// it follows the entry through a ring wrap, a resize and the no-wrap freeze.
+/// A record carries a provisional identity and the emulator patches the newest
+/// entry once the instruction has fetched (set_newest_fetch()).
+static void q_trace_fetch_identity_rows() {
+    auto rec = [](TraceLog& t, uint16_t pc, uint16_t page) {
+        TraceEntry e{};
+        e.pc = pc;
+        t.record(e);
+        t.set_newest_fetch(MemSpace::page(page));
+    };
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        for (uint16_t k = 0; k < 6; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        bool ok = t.size() == 4;
+        for (size_t i = 0; ok && i < 4; ++i)
+            ok = t.at(i).pc == 2 + i && t.at(i).fetch_space() == MemSpace::page(0x42 + i);
+        check("TRACE-ID-01", "six records patched into a ring of four: each surviving entry "
+                             "keeps its own identity across the wrap (the newest is found "
+                             "behind the write position, wrapped)",
+              ok, "size " + std::to_string(t.size()));
+    }
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        t.resize(8);
+        for (uint16_t k = 0; k < 10; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        bool ok = t.size() == 8;
+        for (size_t i = 0; ok && i < 8; ++i)
+            ok = t.at(i).pc == 2 + i && t.at(i).fetch_space() == MemSpace::page(0x42 + i);
+        check("TRACE-ID-02", "after resize(8) the patch lands on the newest entry of the NEW "
+                             "capacity: ten records leave entries 2..9, each with its own "
+                             "identity",
+              ok, "size " + std::to_string(t.size()));
+    }
+    {
+        TraceLog t(2);
+        t.set_enabled(true);
+        t.set_no_wrap(true);
+        for (uint16_t k = 0; k < 3; ++k) rec(t, k, static_cast<uint16_t>(0x40 + k));
+        check("TRACE-ID-03", "a frozen (no-wrap) ring drops the third record, and its patch "
+                             "writes nothing: the second entry keeps the second identity",
+              t.size() == 2 && t.at(1).pc == 1 && t.at(1).fetch_space() == MemSpace::page(0x41) &&
+                  t.at(0).fetch_space() == MemSpace::page(0x40));
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -10290,6 +10340,28 @@ int main() {
               all.front().seq > 1);
         t.clear_history();
         check("EVT-TBL-HIST-11", "clear_history() empties it", t.since(0).empty());
+    }
+
+    // ── TRACE-SEQ — TraceLog::recorded() (GH #342) ───────────────────────
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        TraceEntry e{};
+        for (int i = 0; i < 6; ++i) t.record(e);
+        const uint64_t wrapped = t.recorded();
+        t.clear();
+        t.record(e);
+        const uint64_t after_clear = t.recorded();
+        TraceLog f(2);
+        f.set_enabled(true);
+        f.set_no_wrap(true);
+        f.record(e);
+        f.record(e);
+        f.record(e);   // frozen: not stored, not counted
+        check("TRACE-SEQ-01", "recorded() counts every stored entry across a wrap and a clear(), "
+                              "and not a record the no-wrap freeze dropped",
+              wrapped == 6 && t.size() == 1 && after_clear == 7 && f.recorded() == 2 &&
+                  f.size() == 2);
     }
 
     // ── EVT-BP — BreakpointSet's half of the §6 mask, and the OR ─────────
@@ -17963,6 +18035,7 @@ int main() {
     q_wp2_host_order_rows();
     q_wp3_rewind_rows();          // GH #278 WP3
     q_wp3_trace_export_rows();    // GH #278 WP3
+    q_trace_fetch_identity_rows();   // GH #340
     q4c_observer_rows();          // GH #278 WP4c
     q4c_master_mirror_rows();     // GH #278 WP4c
     q4c_magic_hold_rows();        // GH #278 WP4c

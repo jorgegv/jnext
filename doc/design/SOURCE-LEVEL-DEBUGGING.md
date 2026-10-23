@@ -102,8 +102,9 @@ option for it), ticks timings and the definition of the `--math48` alias (`git d
 4522364999..39421a01cd -- src/z80asm src/zcc src/sccz80 src/ticks src/80cc lib/config`), so
 the debug formats are expected to be the same. The zxn newlib did change its malloc selection
 (65eb39ec1f, 882356991b, 2026-10-14), so library code, and the addresses after it, may move.
-The addresses quoted here are therefore examples: E23-12 (#343) generates the fixtures on each
-install, and every row takes its values from them.
+The addresses quoted here are therefore examples: E23-12 (#343) generated the fixtures on each
+install (`test/fixtures/z88dk/`, README there), and every row takes its values from them; they
+supersede the planning examples where the two differ (master sccz80 equals the planning values).
 
 **What each output carries.**
 
@@ -124,8 +125,10 @@ install, and every row takes its values from them.
 - Naming traps: `+zxn` defaults to `-clib=sdcc_iy -O2 -SO2` (`lib/config/zxn.cfg`), so a bare
   `zcc +zxn` is sdcc; sccz80 needs `-clib=new` (or classic). `-clib=classic -debug` fails on
   both trees (`Unknown option2 --hardware-keyboard`: while planning, and again on
-  2026-10-18), so a classic map has no C lines; without `-debug` a classic build can link
-  (our fixture sources, both installs, 2026-10-18). E23-12 (#343) re-checks both installs.
+  2026-10-18, and again by E23-12), so a classic map has no C lines; without `-debug` a classic
+  build can link (our fixture sources, both installs). The cause: `-debug` makes zcc forward
+  ALIAS options (`lib/config/alias.inc`, here the classic `CLIB` line's `--hardware-keyboard`)
+  to the compiler, which rejects them; `zcc +zx --vt100 -debug -c util.c` fails the same way.
 
 **Findings, and what each demands of the design.** Values marked "fixture" are in the checked-in
 fixture; the others are from the planning builds.
@@ -186,8 +189,9 @@ fixture; the others are from the planning builds.
   `ORG 0x0a0000 + CRT_ORG_BANK_10`). Only a plain `BANK_n` has the prefix: `BANK_n_L`,
   `BANK_n_H`, `PAGE_n` and `DIV_n` have 16-bit ORGs on both trees, and newlib has them
   throughout. Measured on 2026-10-18 (classic build without `-debug`, one function in
-  `CODE_10`): `_banked_add` is `$AC000` on 2.4 (ORG $C000) and `$14E000` on the latest
-  install (ORG $E000, in page 21).
+  `CODE_10`; fixture `test/fixtures/z88dk`, `--codesegBANK_10`): `_banked_add` is `$AC000` on
+  2.4 (ORG $C000) and `$14C000` on master (`memory_map.asm`: `SECTION BANK_10`,
+  `ORG 0x140000 + CRT_ORG_BANK_10`, `CRT_ORG_BANK_10 = 0xc000`).
 - 80cc, a new C compiler (147d689ad7, 21148942d7, 7ac2e80b4f): `-compiler=80cc -debug` writes
   the same map format as sccz80, with function names.
 - z88dk-gdb: `monitor` passthrough, watchpoints, exit codes (0f5f252276, b11cb3f69b,
@@ -291,17 +295,17 @@ One arbiter, `Mmu::route(addr) const`, returns a `Route`: the `FetchSource`, the
 its store, and the byte pointer. It is the only place the priority order lives (section 4.2),
 and `read()` is that route plus one side-effect tail. The CPU's opcode read goes through
 `Mmu::read_m1(pc)`, which stores the result in `last_m1_` (read back by `Mmu::last_m1()`). A
-trace entry takes it after the instruction ran; a call frame's caller identity is the CALL's
+trace entry takes it after the instruction ran (nothing is recorded for a slot that fetched nothing: an accepted
+INT, an NMI or the esxdos shim keep the prediction for their PC); a call frame's caller identity is the CALL's
 recorded fetch and its target identity the target's first M1 (E23-08). The Source tab and
 `source_location()` predict the next M1 with `route_with(addr, divmmc_active, mf_active)`, fed
 by `DivMmc::active_on_m1()` and a const `Multiface::would_latch_on_m1(pc)`
 (`Emulator::predict_fetch(pc)`); `route()` is `route_with()` with the live values, one body, so
 the prediction cannot drift from the fetch. Built: the arbiter, `read_m1` and the prediction by
-E23-07 (#339). To build: trace entries and call frames take the recorded value in E23-08
-(#340); until then the trace flag and the call frames' pages are still predicted before the
-instruction runs (section 4.3). Check (epic acceptance 1): no
+E23-07 (#339); trace entries and call frames take the recorded value (E23-08 (#340), section
+4.3). Check (epic acceptance 1): no
 prediction of the M1 overlay outside `route_with`, `active_on_m1` and `would_latch_on_m1`;
-SRCDBG-ID-17 (an instruction that remaps its own slot keeps its recorded identity; planned, E23-08 (#340)).
+SRCDBG-ID-17 (an instruction that remaps its own slot keeps its recorded identity).
 
 **D2. The source map is range-aware and many-to-many.** A record covers its start up to an
 extent the adapter gives (section 9); ranges may overlap, and an address may have several
@@ -336,12 +340,12 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The call stack still takes a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind; the trace flag and the breakpoint gate reduce the identity to "not a `Page`" | 4.1, 4.2, 4.4 | E23-07 (#339) |
-| Identity in history | `TraceLog` keeps a flag per entry beside `TraceEntry` (`not_ram_`), predicted just before the instruction runs by `Emulator::predict_instruction_()` (the bytes the CPU will fetch, so the flag and the trace bytes follow the M1 overlay); Back reads `te.mmu[slot]`, `rom_slots` and the flag. `Mmu::last_m1()` records the fetch but nothing reads it yet | 4.3 | E23-08 (#340) |
-| Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay), from the same prediction; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The panels and the breakpoint gate still reduce the identity to a RAM page through `ram_page_of()` (`debug/ram_page.h`) or "not a `Page`" until E23-09 (#341) | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is derived from the entry (the legacy page qualifier of `history_stop_at()` until E23-09). Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
+| Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
-| Lifetime | `sidecar_attach_cycle`; `machine_replaced()` drops the sidecar stores at once on a reset or a state from outside the rewind ring; a rewind rechecks by the clock | 6 | E23-10 (#342) |
+| Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
 | z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
@@ -357,8 +361,8 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
 
 Done: E23-01, E23-03 and E23-04 (v1.1.64: the backend capability, the SLD and `Memory.txt`
-adapters, the Source tab, ownership, the sidecar refusal reasons, the clock-based
-lifetime); #332 (v1.1.46: the call-stack tracker follows rewind); #352 (v1.1.45). The epic closes
+adapters, the Source tab, ownership, the sidecar refusal reasons, a clock-based
+lifetime, replaced by the generation model in E23-10); #332 (v1.1.46: the call-stack tracker follows rewind); #352 (v1.1.45). The epic closes
 with E23-19 (#349). A sub-issue that lands updates its row here, not the prose.
 
 ## 4. Which memory supplied the instruction
@@ -370,8 +374,8 @@ that the CPU's reads go through first (the boot ROM, the Multiface, DivMMC, the 
 mapping, the alternate ROM and config-mode routing) replace the MMU's page without changing
 it. One identity, used everywhere CAP-SRC matches code, answers it.
 
-Implemented by E23-07 (#339) on the epic branch: 4.1, 4.2 and 4.4 describe the tree; 4.3
-(recording), 4.5 (breakpoints) and 4.6 (presenting) are still plans.
+Implemented on the epic branch: 4.1, 4.2 and 4.4 (E23-07 (#339)) and 4.3 (E23-08 (#340))
+describe the tree; 4.5 (breakpoints) and 4.6 (presenting) are still plans.
 
 ### 4.1 `FetchSource`
 
@@ -462,14 +466,35 @@ leave the previous value, so pair it with `Z80Cpu::fetched_opcode_last_execute()
 
 ### 4.3 Recorded identity (E23-08 (#340))
 
-A trace entry stores the `FetchSource` of its own M1 as a kind plus an 8-bit index (a 4-bit
+A trace entry stores the `FetchSource` of its own M1 as a kind plus an 8-bit index
+(`TraceEntry::fetch_kind`, `fetch_index`, with `fetch_space()` / `set_fetch_space()`; a 4-bit
 index cannot name pages 16 to 223). The bytes come from narrowing `TraceEntry::opcode_len` to
-`uint8_t` (OD-4 (a)), so `TraceEntry` stays 56 bytes, which INS-13-15 pins. The parallel
-`not_ram_` vector goes, and with it its resize and ring-wrap hazards. `CallFrame` gains the
-caller's and the target's identity (`caller_space`, `target_space`): the caller's is the CALL's
-recorded fetch, the target's is filled at the target's first M1. Back and Reverse Continue
-match history by the recorded identity, and the trace export prints it. ZRCP `cpu-history` and
-DZRP history are not affected.
+`uint8_t` (OD-4 (a); its maximum is 66), so `TraceEntry` stays 56 bytes and every offset is
+unchanged (`debug_types_check.cpp`, INS-13-15). The parallel `not_ram_` vector is gone, and with
+it its resize and ring-wrap hazards.
+
+`Emulator::step_one_instruction()` records the entry before `execute()` (as before, with a
+provisional identity) and `TraceLog::set_newest_fetch()` writes the identity into that entry
+after it, from `Mmu::last_m1()`, read once per instruction and only when
+`fetched_opcode_last_execute()` says the CPU fetched. A slot that records no fetch keeps the
+prediction for its PC, the value the live Execute gate used: an accepted INT reads no memory
+(`t80na.vhd:278-279`); an NMI does an M1 read at the interrupted PC and discards the byte
+(`t80n.vhd:502`), which jnext's core does not perform, so the prediction stands for it; the
+esxdos shim is jnext-only. `TraceLog::fetch_not_mmu_ram()` is a one-line
+view of the recorded identity ("not a `Page`"), kept for `history_stop_at()`'s page qualifier
+until E23-09.
+
+`CallFrame` carries `caller_space` and `target_space` (`cpu()` = none recorded). The caller is
+the CALL's or RST's own recorded fetch. The target is pending until the first fetch AT
+`target_pc`, and then recorded once; a fetch elsewhere (the debugger moved PC, the esxdos shim
+serviced the call) leaves it unrecorded. An INT or NMI frame's caller is the prediction at the
+interrupted PC: the interrupted instruction has not been fetched, and will be only after the
+return. The per-instruction prediction of the post-instruction PC is gone.
+
+Back and Reverse Continue look the source map up with the entry's recorded identity, and the
+trace export prints it as ` FETCH=kk:ii` (hex kind and index) after `ROM=`; E23-22 (#360)
+replaces that column's text with its formatter. ZRCP `cpu-history` and DZRP history are not
+affected.
 
 ### 4.4 The current-PC prediction (E23-07 (#339))
 
@@ -489,8 +514,8 @@ decode needs (`sram_pre_override(2)`, `(0)` with config mode, the alt-ROM read e
 `sram_alt_128_n`) exist once, in `Emulator::m1_automap_gates_(pc, mf_active)`, which the
 `on_m1_prefetch` hook and the prediction both call; the hand-kept mirror of the hook is gone.
 `Debugger::source_page()` returns the predicted `FetchSource`; `Emulator::fetch_not_mmu_ram()`
-and `Mmu::read_not_mmu_ram()` are deleted (`TraceLog::fetch_not_mmu_ram()` and its `not_ram_` flag
-stay until E23-08). A prediction has no side effects: rows compare the
+and `Mmu::read_not_mmu_ram()` are deleted (`TraceLog::fetch_not_mmu_ram()` stays as a view of the
+recorded identity, section 4.3). A prediction has no side effects: rows compare the
 whole machine state before and after (SRCDBG-PURE-01, with SRCDBG-PURE-02 as the control).
 
 **Fetch view and data view.** DivMMC's `automap` is not one value across an instruction
@@ -530,9 +555,9 @@ the trace's length reader stops its recursion by returning 2 (66 bytes in all). 
 consumes any run of prefixes in one `execute()`.
 
 Two limits, stated: `predict_instruction_` predicts the first four bytes only, so an M1 chain
-past four bytes is predicted for its first four; and no production code reads `Mmu::last_m1()`
-yet (the `source_debug_test` rows compare it with the prediction for every fetched
-instruction; E23-08 records it into history).
+past four bytes is predicted for its first four; and the only production reader of
+`Mmu::last_m1()` is `Emulator::step_one_instruction()`, after `execute()` (the `source_debug_test`
+rows compare it with the prediction for every fetched instruction).
 
 ### 4.5 Canonical and legacy
 
@@ -593,7 +618,20 @@ arbiter, neither kept (one shared out-of-line body for `read`, `read_m1` and `re
 about +4% cycles; a shared `noinline` fetch body beside the inlined `read()`, +21.6%).
 `read_m1()` costs one load and one store more than `read()`. With the trace on, the identity is
 stored per M1; with the call stack on, per frame; an armed `Execute` subscription is evaluated
-only for its address (the existing per-page bitmap). E23-08 records its numbers.
+only for its address (the existing per-page bitmap). E23-08 (#340) removed a full M1 prediction per
+instruction from the call-stack post-hook and a parallel-vector store from the trace, and added one load of
+`last_m1_`, one branch and a two-byte store into the entry already in cache. Measured on the non-PGO
+build, base against branch, interleaved, 5 runs each, pinned to core 0, `--headless --benchmark`, median
+fps; the host was loaded throughout (1-min load 7 to 11 on 12 CPUs), so the spread of single runs is large
+(trace-on 48K ran 290 to 727 fps) and only a gross regression is excluded:
+
+| workload | trace off, base / branch | trace on, base / branch |
+|---|---|---|
+| `next` 500 frames (NextZXOS boot) | 219.0 / 218.2 (-0.4%) | 151.3 / 151.1 (-0.1%) |
+| `48k` 600 frames | 912.4 / 917.6 (+0.6%) | 603.4 / 585.1 (-3.0%; the 9-run repeat gave +6.4%) |
+
+No consistent difference in either direction beyond the noise; a quiet-host `make bench` is still the
+arbiter.
 
 ## 5. The source map and the backend API
 
@@ -624,7 +662,7 @@ strings are kept once per position (no interning, no function field yet). A line
 are the starts `resolve()` returns: a range that continues another range of the same line
 (`hi_excl == lo`, same space), as one instruction after another does for a multi-statement
 line, a macro or a `DUP`, is not an entry; disjoint copies are. History (`TraceLog`) and call
-frames still identify code by page number until E23-08 (#340).
+frames name the code's `FetchSource` (E23-08, section 4.3).
 
 ### 5.2 The backend verbs (CAP-SRC, `debug/debugger.h`)
 
@@ -635,7 +673,7 @@ frames still identify code by page number until E23-08 (#340).
 | `source_location(addr)`, `source_location()` | the primary position of `addr` or of the PC, by pointer into the store (done, E23-06 (#338)); every location there: `source_map().lookup_all()` | |
 | `source_page(addr)`, `effective_page(addr)` | the `FetchSource` that supplies the M1 at `addr` (done, E23-07); the MMU's page | `effective_page` stays, as the MMU's page for the legacy qualifier |
 | `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | `<stem>.map` (E23-13); lifetime (E23-10 (#342)) |
-| `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (done, E23-06); recorded identity (E23-08 (#340)) |
+| `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (done, E23-06); recorded identity (done, E23-08) |
 | `load_map(path, MapFormat::NextBuild)` | `Memory.txt` by hand (CAP-SYM gains a format) | |
 | `--source-map FILE` (command line) | a source map at startup | new (OD-15, E23-13) |
 
@@ -689,7 +727,7 @@ log says so (OD-6).
 
 ### 6.5 The lifetime model (E23-10 (#342))
 
-The clock-based model of today (`sidecar_attach_cycle`) goes. Two tiers replace it.
+Two tiers. (The clock-based model, `sidecar_attach_cycle`, is gone.)
 
 1. **Load generation.** Every program load, state load (`.jns`, `.sna`, `.z80`, `.szx`, a DZRP
    or ZRCP restore), RZX playback start and reset increments a 64-bit generation. It is part
@@ -704,6 +742,40 @@ The clock-based model of today (`sidecar_attach_cycle`) goes. Two tiers replace 
    reload it or accept it. A map with no identity is detached on a generation change (sidecar)
    or marked stale (user).
 
+How it is built:
+
+- The generation counter lives in `Debugger::Impl`, not in the `Emulator` (a cold boot builds a
+  new one and a counter it owned would restart and collide with the cache keys). The current
+  value is `DebugState::load_generation()`: host-side, **not** in `save_state`, so the snapshot
+  width and the `.jns` do not change. A new generation starts at `machine_replaced()` (any
+  landing that is not a ring restore) and at `load_program_sidecars()` (the one program-load
+  notification, tapes included). A user map is carried into the latter without a second check.
+- `RewindBuffer::restore_nearest()` sets the slot's generation **before** `load_state()`, so
+  the hook that fires inside it, and the replay that follows, see the landing's generation.
+- The hook only marks the landing pending (the machine may be half-built inside `init()`). The
+  one recheck (`Impl::recheck()`) runs it, in every reader, in `pump()` and, first, in every
+  writer (`load_map`, `clear_symbols`, `load_source_map`, `clear_source_map`,
+  `load_program_sidecars`), so a pending landing cannot undo a write. It is O(1) when nothing
+  is pending, and it clears its flags before it logs, since a listener may call a reader.
+- A program's sidecars are one unit, judged by the source map's identity (`Memory.txt` has
+  none). User symbols have no identity and never change with lifetime.
+- **Stale** is one gate: `source_map()` and `source_location()` are empty while the user's map
+  is stale, so every consumer matches nothing. `Debugger::source_map_status()` says `None`
+  (with the last refusal or drop as the reason), `Attached` or `Stale` (the file and why).
+  Loading the map again by hand is how a user accepts it (it also re-reads a rebuilt file).
+- The cache holds one record per generation, at most 4, the current one included; a failed
+  identity check at the next pause erases the record of the generation the map was re-keyed
+  to, so a detached map does not come back by a rewind within that generation. A failure at
+  the landing itself erases nothing: the record belongs to the previous generation, whose
+  history a rewind still returns to.
+- The next-pause check applies to a map **carried** across a landing and verified there, once,
+  at the first recheck while paused after the clock moved. It is not set by a fresh attach.
+- Every lifetime transition is announced to the listeners as an Info line, the existing
+  wording.
+- Back: `TraceLog::recorded()` counts entries ever stored; `Impl` keeps `(first sequence
+  number, generation)` markers, noted at every new generation and at a ring landing. An entry
+  counts for Back only if its generation is the current one, and the "statement's first
+  instruction" search stops at the first entry of another generation.
 - **Reset** is a new generation. The map survives only by passing re-verification at the next
   pause, which catches the ROM clearing RAM a few frames later (the code is intact at the
   reset itself).
@@ -718,22 +790,23 @@ The clock-based model of today (`sidecar_attach_cycle`) goes. Two tiers replace 
 ### 6.6 What the backend cannot see
 
 A program the guest loads for itself (the NextZXOS browser, `LOAD ""`) is not a load to the
-backend: its predecessor's maps stay until a reset or a load. E23-10 decides whether the
-re-verification at the next pause covers it (a residual handed to it). A sibling NEX run under
+backend: its predecessor's maps stay until a reset or a load, and nothing re-verifies them (E23-10
+decided: no event marks the load, and verifying at every pause would detach a map whose program
+writes inside its own image; SRCLIFE-20 pins it). A sibling NEX run under
 `--esxdos-stub` (`.RUN`) is a load like any other: the loop owner cold-boots with it, which
 drops the old sidecars, and attaches the new program's.
 
 ### 6.7 Remote load and Reload
 
 `Debugger::load()` (the DZRP and ZRCP servers; File > Reload program, #374, is planned as a
-plain `load()` of the last path) attaches sidecars as the CLI does. Today it discards the
-`SidecarLoad`, so a refused map shows only in the log; E23-10 reports the reason (a residual
-handed to it).
+plain `load()` of the last path) attaches sidecars as the CLI does. It reports a refused
+sidecar to every listener (a Warn line, `load: ...`) and in `source_map_status().reason`
+(SRCLIFE-16).
 
-**Open, settled in E23-10:** a map loaded by hand, across a Reload of a rebuilt program. The
-model above marks it stale unless its identity verifies; the rule recorded on #342 from #374
-keeps it the user's, as today. E23-10 decides, pins the decision with a row and updates this
-paragraph. A Reload of a rebuilt program at the same path attaches the new build's map.
+A map loaded by hand, across a Reload of a rebuilt program, stays the user's (a sidecar never
+replaces it) and is checked like any landing: live if its identity matches the new build, else
+stale with the reason, and the user loads it again (SRCLIFE-18). A Reload of a rebuilt program
+at the same path attaches the new build's map (SRCLIFE-17).
 
 ### 6.8 The user annotation store
 
@@ -1157,8 +1230,16 @@ instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
 
-**Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), the fixture-hash row
-Z88FIX-01 (E23-12), and the functional rows `source-map-func` (a looked-up line, E23-15) and
+E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
+their manifest, and the manifest lists exactly those files).
+
+E23-10 (#342) added SRCLIFE-01 to SRCLIFE-39 (`source_debug_test`: the cache both ways, identity
+checks at a state load, a `.sna`, an RZX start and a reset, stale user maps, the readers' first
+call, `load()` reporting, Back across a landing, purity of the check), RB-GEN-01
+(`rewind_test`), TRACE-SEQ-01 (`debugger_backend_test`) and QSRC-58 to QSRC-61
+(`debugger_source_panel_test`).
+
+**Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
 `z88dk-source-func` (E23-15).
 
 **Oracles.**

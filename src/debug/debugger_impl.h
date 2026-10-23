@@ -16,6 +16,8 @@
 // ---------------------------------------------------------------------------
 
 #include <cstdint>
+#include <deque>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -32,7 +34,10 @@ namespace jnext {
 namespace dbg {
 
 struct Debugger::Impl {
-    Impl(Emulator& e, Debugger& owner) : emu(e), self(&owner) {}
+    Impl(Emulator& e, Debugger& owner) : emu(e), self(&owner) {
+        generation_counter = trace_gen_initial = e.debug_state().load_generation();
+        attach_gen = user_sources_gen = generation_counter;
+    }
 
     Emulator& emu;
 
@@ -54,24 +59,76 @@ struct Debugger::Impl {
     SourceMap   source_map;
     StoreOwner  symbols_owner = StoreOwner::None;
     StoreOwner  sources_owner = StoreOwner::None;
-    /// A sidecar belongs to the program loaded at `sidecar_attach_cycle`.
-    /// A machine replacement that is not a rewind-ring restore (a reset, a
-    /// cold boot, a snapshot, bookmark or remote state: another program may
-    /// be in the machine now) drops the sidecar stores at once
-    /// (`machine_replaced()`). A ring restore returns to this program's own
-    /// history: it raises `sidecar_recheck`, and `recheck_sidecars()` (run by
-    /// `pump()` and by every reader of the two stores before it reads) drops
-    /// them when the machine now stands before that load. Deferred, not done
-    /// in the hook: a rewind restores a snapshot and THEN replays forward, so
-    /// only the landing point says where the machine is.
-    uint64_t    sidecar_attach_cycle = 0;
-    bool        sidecar_recheck      = false;
-    void recheck_sidecars();
+    // ── CAP-SRC lifetime (GH #342; design §6.5) ──────────────────────────────
+    //
+    // A LOAD GENERATION starts at every landing that is not a rewind-ring
+    // restore (`machine_replaced()`) and at every program-load notification
+    // (`load_program_sidecars()`). The counter lives here, not in the
+    // `Emulator`: a cold boot placement-news that, and a counter it owned would
+    // restart and collide with the cache keys. The current value is published
+    // in `DebugState::load_generation()`; each rewind slot keeps its own.
+    //
+    // Tier 1, a ring landing: the program's stores are whatever the attachment
+    // cache holds for the landing's generation. Tier 2, any other landing: a
+    // carried map is kept only if its binary identity verifies against the
+    // memory now; one without an identity is dropped (a program's sidecars) or
+    // goes stale (the user's source map). The hook only marks the landing
+    // pending; `recheck()` - run by every reader and writer of the stores and
+    // by `pump()` - does the work, because the machine may still be half-built
+    // when the hook fires.
+    uint64_t    generation_counter = 0;
+    /// The generation the sidecar-owned stores belong to.
+    uint64_t    attach_gen = 0;
+    /// The user's source map: the generation it was last verified in, and
+    /// whether it is stale (`source_map()` is then empty). User symbols have
+    /// no identity and never change with lifetime.
+    uint64_t    user_sources_gen   = 0;
+    bool        user_sources_stale = false;
+    /// Why there is no source map now, or why the user's is stale.
+    std::string source_reason;
+    /// Counts the source maps a landing or a verification dropped.
+    uint64_t    source_drops = 0;
+    bool        landing_pending = false;   ///< a fresh generation, not yet judged
+    bool        ring_pending    = false;   ///< a ring landing, not yet applied
+    /// A carried map with an identity is verified again at the next pause that
+    /// finds the clock moved (a reset whose ROM clears RAM afterwards).
+    bool        pause_verify_sidecar = false;
+    bool        pause_verify_user    = false;
+    uint64_t    pause_verify_clock   = 0;
+
+    /// The attachment of one generation. At most `ATTACH_CACHE_MAX` are kept.
+    struct Attachment {
+        uint64_t                         generation = 0;
+        std::shared_ptr<const SourceMap>   sources;   ///< null: none
+        std::shared_ptr<const SymbolTable> symbols;   ///< null: none
+        std::string                      source_reason;
+    };
+    static constexpr size_t ATTACH_CACHE_MAX = 4;
+    std::deque<Attachment> attach_cache;
+    void cache_push_current();
+    void cache_erase(uint64_t generation);
+    const Attachment* cache_find(uint64_t generation) const;
+
+    /// Back's markers: `(first trace sequence number, generation)`.
+    std::vector<std::pair<uint64_t, uint64_t>> trace_gens;
+    uint64_t trace_gen_initial = 0;
+    void     note_generation(uint64_t generation);
+    uint64_t generation_of_seq(uint64_t seq) const;
+
+    /// Lifetime transitions found by `recheck()`, announced to listeners once it
+    /// has finished.
+    std::vector<std::string> pending_log;
+    uint64_t begin_generation();
+    void recheck();
+    /// The source map readers see: null while the user's is stale.
+    const SourceMap* live_sources() const {
+        return user_sources_stale ? nullptr : &source_map;
+    }
     /// Drop the stores a program's sidecars filled, never the user's.
-    void drop_sidecars(const char* why);
+    void drop_sidecars(const std::string& why);
     /// The machine this backend describes was reset or replaced: both the
-    /// hook `DebugState` calls and the re-application after a cold boot end
-    /// here. Reconciles the stop evidence and the program's sidecars.
+    /// hook `DebugState` calls and the re-application after a cold boot
+    /// end here. Reconciles the stop evidence and marks the landing.
     void machine_replaced();
 
     /// SES-04 — what a `Stop` action does here. Held by the backend, set by the

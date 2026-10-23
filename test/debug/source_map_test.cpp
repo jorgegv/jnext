@@ -9,6 +9,7 @@
 //   SYMPG-*    SymbolTable keyed by (memory, address): paged and unpaged
 //              labels, name-only values, nearest(), resolve_key() (GH #375)
 //   SLDL-*     the SLD `L` records into a SymbolTable (GH #375)
+//   Z88FIX-*   the committed z88dk ground-truth fixtures match their manifest
 //
 // Pure: no machine. The looping-link row (SLD-18) needs a symlink, so it is in
 // source_debug_posix_test. Run: ./build/test/source_map_test
@@ -16,12 +17,14 @@
 #include "debug/sld_loader.h"
 #include "debug/source_file.h"
 #include "debug/source_map.h"
+#include "core/sha256.h"
 #include "debug/symbol_table.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <new>
+#include <set>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -80,6 +83,50 @@ int main() {
     // worktrees share the temp directory.
     const fs::path dir = fs::temp_directory_path() /
                          ("jnext-source-map-" + std::to_string(::getpid()));
+    // Z88FIX-01..02 (GH #343): test/fixtures/z88dk holds what the two z88dk installs
+    // produced; MANIFEST.sha256 (sha256sum format) is written by generate.sh from that
+    // real output and is the oracle for the committed bytes.
+    {
+        const fs::path root = JNEXT_Z88DK_FIXTURE_DIR;
+        std::set<std::string> listed;
+        std::string bad01;
+        std::ifstream mf(root / "MANIFEST.sha256", std::ios::binary);
+        std::string line;
+        while (std::getline(mf, line)) {
+            bool ok = line.size() > 66 && line[64] == ' ' && line[65] == ' ';
+            for (int i = 0; ok && i < 64; ++i)
+                ok = (line[i] >= '0' && line[i] <= '9') || (line[i] >= 'a' && line[i] <= 'f');
+            if (!ok) { if (bad01.empty()) bad01 = "malformed line: " + line; continue; }
+            const std::string rel = line.substr(66);
+            listed.insert(rel);
+            if (sdcard::sha256_file((root / rel).string()) != line.substr(0, 64) && bad01.empty())
+                bad01 = "hash mismatch or missing file: " + rel;
+        }
+        if (listed.empty() && bad01.empty()) bad01 = "empty or unreadable manifest";
+        if (!bad01.empty()) std::printf("  Z88FIX-01: %s\n", bad01.c_str());
+        check("Z88FIX-01", "every MANIFEST.sha256 entry names an existing fixture file whose "
+                           "SHA-256 equals the entry",
+              bad01.empty());
+
+        std::set<std::string> present;
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file()) continue;
+            const std::string rel = it->path().lexically_relative(root).generic_string();
+            if (rel != "README.md" && rel != "MANIFEST.sha256") present.insert(rel);
+        }
+        std::string bad02;
+        if (ec || present.empty()) bad02 = "fixture directory unreadable or empty";
+        for (const auto& r : present)
+            if (bad02.empty() && !listed.count(r)) bad02 = "file not in the manifest: " + r;
+        for (const auto& r : listed)
+            if (bad02.empty() && !present.count(r)) bad02 = "manifest entry without a file: " + r;
+        if (!bad02.empty()) std::printf("  Z88FIX-02: %s\n", bad02.c_str());
+        check("Z88FIX-02", "MANIFEST.sha256 lists exactly the files under test/fixtures/z88dk "
+                           "except README.md and MANIFEST.sha256",
+              bad02.empty());
+    }
+
     fs::remove_all(dir);
     fs::create_directories(dir);
 

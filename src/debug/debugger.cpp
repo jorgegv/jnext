@@ -235,6 +235,7 @@ Result Debugger::set_stop_policy(StopPolicy policy) {
 // ---------------------------------------------------------------------------
 
 Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std::string* why) {
+    impl_->recheck();   // a writer first (CAP-SRC)
     int n = -1;
     switch (format) {
         case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path); break;
@@ -255,23 +256,24 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
 }
 
 Result Debugger::clear_symbols() {
+    impl_->recheck();   // a writer first (CAP-SRC)
     impl_->symbols.clear();
     impl_->symbols_owner = Impl::StoreOwner::None;
     return Result::Ok;
 }
 
 std::optional<std::string> Debugger::lookup(uint16_t addr) const {
-    impl_->recheck_sidecars();   // CAP-SRC: a reader never sees a stale sidecar
+    impl_->recheck();   // CAP-SRC: a reader never sees a stale sidecar
     return impl_->symbols.lookup(source_page(addr), addr);
 }
 
 std::optional<uint16_t> Debugger::lookup_name(const std::string& name) const {
-    impl_->recheck_sidecars();
+    impl_->recheck();
     return impl_->symbols.lookup_name(name);
 }
 
 const SymbolTable& Debugger::symbols() const {
-    impl_->recheck_sidecars();
+    impl_->recheck();
     return impl_->symbols;
 }
 

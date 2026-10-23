@@ -963,8 +963,24 @@ public:
     /// CAP-SRC — forget the source map.
     Result clear_source_map();
 
-    /// CAP-SRC — the store itself.
+    /// CAP-SRC — the store itself. Empty while the user's map is stale.
     const SourceMap& source_map() const;
+
+    /// CAP-SRC (GH #342) — is there a source map, and if not or if it is stale,
+    /// why. A map the user loaded by hand is judged at every landing that is
+    /// not a rewind-ring restore (state load, reset, RZX, bookmark, remote
+    /// restore) against its binary identity, if it has one: it stays `Attached`
+    /// when the identity matches the memory now, and goes `Stale` otherwise
+    /// (`source_map()` is then empty). Loading it again by hand makes it live.
+    /// Only the source half: a Memory.txt refusal is in `SidecarLoad::problem`.
+    struct SourceMapStatus {
+        enum class State : uint8_t { None, Attached, Stale };
+        State state = State::None;
+        bool by_user = false;      ///< loaded by hand (only that one can go Stale)
+        std::string file;          ///< Attached / Stale: the map's file
+        std::string reason;        ///< None: the last refusal or drop; Stale: why
+    };
+    SourceMapStatus source_map_status() const;
 
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
     /// `source_page(addr)` says supplies it), or of the current PC. Null when
@@ -991,10 +1007,13 @@ public:
     /// `<stem>.sld` / `<stem>.sld.txt` for the source map — except beside a
     /// tape program (`.tap`, `.tzx`, `.wav`), which is not in memory when
     /// its load call returns: its map must be loaded by hand once it has
-    /// loaded. The sidecars belong to that load: a reset, a cold boot, or a
-    /// state restored from outside the rewind ring (a snapshot, a bookmark, a
-    /// remote client's) drops them, and so does rewinding to a point before it
-    /// (a rewind to after it keeps them). A sidecar fills a
+    /// loaded. The sidecars belong to that load, a LOAD GENERATION this call
+    /// opens (design §6.5): a reset, a cold boot, or a state restored from
+    /// outside the rewind ring (a snapshot, a bookmark, a remote client's, an
+    /// RZX start) keeps them only if the source map's binary identity matches
+    /// the memory now (checked again at the next pause after a reset); rewinding
+    /// brings back the sidecars of the point it lands on (the last 4
+    /// attachments are remembered). A sidecar fills a
     /// store that is empty or was filled by a previous program's sidecar; a
     /// store the user filled (a MAP or SLD loaded by hand, `--map`) is kept.
     /// A previous program's sidecar data is cleared when the new program has
@@ -1045,7 +1064,8 @@ public:
     /// (`set_call_stack_enabled`); with no tracked frame, Out is one
     /// instruction. Back / ReverseContinue search only the retained trace
     /// BEFORE the machine's current cycle (a Frame Back leaves newer entries
-    /// in it). `RefusedUnavailable` with no source map, and for Back /
+    /// in it) and in the machine's current load generation: Back never crosses
+    /// a landing into the history of the machine before it. `RefusedUnavailable` with no source map, and for Back /
     /// ReverseContinue with no earlier position to go to; the rewind refusals
     /// of `step_back()` otherwise.
     Result source_step(ClientId by, SourceStep kind);

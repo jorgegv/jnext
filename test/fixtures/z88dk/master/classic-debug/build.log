@@ -1,0 +1,5 @@
+# z88dk 39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7 (master)
++ zcc +zxn -clib=classic -debug  --codesegBANK_10 --list -c banked.c -o banked.o
+Unknown option2 --hardware-keyboard
+Cannot open source file: --hardware-keyboard
+rc=1

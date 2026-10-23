@@ -238,7 +238,8 @@ the Breakpoints panel creates one per place a `file:line` compiled to (its Add
 and Edit dialogs and Breakpoints > Add Execute Breakpoint share that rule, and show
 the store's reason, such as "no code at main.bas:5", when a line has none), and
 the gutter draws it only while its page is mapped (`pc_marked()`). The Call
-Stack's last column looks up each frame's caller on its recorded page.
+Stack's last column looks up each frame's caller with its recorded
+`FetchSource` (`CallFrame::caller_space`).
 
 ## Copying out of a custom-painted panel
 

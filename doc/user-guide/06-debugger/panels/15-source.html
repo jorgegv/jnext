@@ -3623,9 +3623,12 @@ again. While it is paused you can scroll the file: the view goes back to the
 current line when the machine stops again (a breakpoint, a Pause, a step, a
 rewind), even at the same line, or when the line shown changes (another map
 loaded), and not before.
-When a program's source map was found and refused, the tab says why in place of
-"No source map loaded" (<code>source map 'game.sld' rejected: …</code>), and so do the
-status bar and the log.</p>
+When a program's source map was found and refused, or was dropped by a reset or a
+state load, the tab says why in place of "No source map loaded" (<code>source map
+'game.sld' rejected: …</code>); the status bar and the log say it too. The reason shown
+is the current one: a later load replaces it. A map you loaded by hand that no
+longer matches the program says so, with its file name, and has to be loaded
+again.</p>
 <p>The source file is found from the name the map records: as it is, if absolute,
 else relative to the map's own directory or one of its parents (the map's
 location is remembered as a full path, whatever directory you loaded it from). A file that
