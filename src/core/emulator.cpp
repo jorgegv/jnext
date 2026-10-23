@@ -10583,7 +10583,7 @@ uint64_t Emulator::step_one_instruction()
     } else {
         // GH #340 (E23-08): the entry's fetch identity is patched in after
         // execute(), from what the M1 actually recorded; `no_fetch_space` is
-        // what a slot that fetches nothing (INT, NMI, esxdos shim) keeps.
+        // what a slot that records no fetch (INT, NMI, esxdos shim) keeps.
         bool traced = false;
         jnext::dbg::MemSpace no_fetch_space = jnext::dbg::MemSpace::cpu();
         // Record trace entry before execution (captures pre-execution state).
@@ -10730,9 +10730,12 @@ uint64_t Emulator::step_one_instruction()
 
         // GH #340 (E23-08): the identity of what supplied this instruction's
         // first opcode byte, as the M1 recorded it (Mmu::read_m1()), read ONCE
-        // per instruction, here. The CPU is asked whether it fetched: an INT,
-        // an NMI and the esxdos shim fetch nothing (t80na.vhd:278-279), and
-        // keep the prediction for their PC (what the live Execute gate used).
+        // per instruction, here. The CPU is asked whether it fetched an opcode:
+        // an accepted INT reads no memory (t80na.vhd:278-279); an NMI does an M1
+        // read at the interrupted PC and discards the byte (t80n.vhd:502), which
+        // jnext's core does not perform; the esxdos shim is jnext-only. Such a
+        // slot keeps the prediction for its PC (what the live Execute gate used,
+        // and the source an NMI's discarded read would have had).
         const bool fetched = cpu_.fetched_opcode_last_execute();
         if (traced)
             trace_log_.set_newest_fetch(fetched ? mmu_.last_m1() : no_fetch_space);

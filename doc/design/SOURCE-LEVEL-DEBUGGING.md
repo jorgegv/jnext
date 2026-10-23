@@ -472,9 +472,11 @@ it its resize and ring-wrap hazards.
 `Emulator::step_one_instruction()` records the entry before `execute()` (as before, with a
 provisional identity) and `TraceLog::set_newest_fetch()` writes the identity into that entry
 after it, from `Mmu::last_m1()`, read once per instruction and only when
-`fetched_opcode_last_execute()` says the CPU fetched. A slot that fetched nothing (an accepted
-INT or NMI, the esxdos shim) has no M1 to record (`t80na.vhd:278-279`); it keeps the prediction
-for its PC, the value the live Execute gate used. `TraceLog::fetch_not_mmu_ram()` is a one-line
+`fetched_opcode_last_execute()` says the CPU fetched. A slot that records no fetch keeps the
+prediction for its PC, the value the live Execute gate used: an accepted INT reads no memory
+(`t80na.vhd:278-279`); an NMI does an M1 read at the interrupted PC and discards the byte
+(`t80n.vhd:502`), which jnext's core does not perform, so the prediction stands for it; the
+esxdos shim is jnext-only. `TraceLog::fetch_not_mmu_ram()` is a one-line
 view of the recorded identity ("not a `Page`"), kept for `history_stop_at()`'s page qualifier
 until E23-09.
 

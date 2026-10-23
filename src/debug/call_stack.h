@@ -39,7 +39,7 @@ class CallStack {
 public:
     /// Call before instruction execution to capture opcode and pre-SP.
     /// `pc_space` is the PREDICTED source of PC's fetch: used only as the
-    /// caller of an INT / NMI frame taken in this slot (which fetches nothing).
+    /// caller of an INT / NMI frame taken in this slot (which records no fetch).
     /// Left out, it is cpu() = unknown.
     void on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uint8_t op2, uint8_t op3,
                             jnext::dbg::MemSpace pc_space = jnext::dbg::MemSpace::cpu());
@@ -54,14 +54,14 @@ public:
                              jnext::dbg::MemSpace fetched = jnext::dbg::MemSpace::cpu());
 
     /// Notify of an interrupt being taken (hardware push of PC), IN PLACE of
-    /// on_instruction_post() for that slot: an accepted INT or NMI fetches no
-    /// opcode, so the pre-slot capture describes an instruction that did not
+    /// on_instruction_post() for that slot: an accepted INT or NMI runs no
+    /// opcode fetch of the interrupted instruction, so the pre-slot capture describes an instruction that did not
     /// run and is discarded. `type` is CallType::INT or CallType::NMI.
     /// The frame's target is recorded at the ISR's first fetch.
     void on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp,
                       CallType type = CallType::INT);
 
-    /// Get the current call stack (most recent first).
+    /// Get the current call stack (OLDEST first: frames().back() is the newest).
     const std::vector<CallFrame>& frames() const { return frames_; }
 
     void clear() { frames_.clear(); have_pre_ = false; }

@@ -2752,6 +2752,27 @@ int main() {
                               "ran was not at the target",
               f.size() == 1 && f[0].target_pc == 0xC000 && f[0].target_space == MemSpace::cpu());
     }
+    {
+        // The esxdos shim services RST $08 without running anything at $0008: the frame it
+        // opened has no fetch at its target to record, and a record of the PREVIOUS fetch
+        // (the RST's own, RAM page 4) would name a memory that never supplied $0008.
+        Machine m;
+        m.emu.cpu().on_esxdos_call = [](uint8_t, Z80Registers&) { return true; };
+        m.emu.mmu().write(0x8000, 0xCF);   // RST $08
+        m.emu.mmu().write(0x8001, 0x85);   // DEFB $85 (esxdos call code)
+        m.emu.mmu().write(0x8002, 0x00);
+        m.set_pc(0x8000);
+        m.dbg->step_into(m.a);
+        m.dbg->step_into(m.a);
+        const auto& f = m.dbg->call_stack();
+        check("SRCDBG-CS-08", "an RST $08 serviced by the esxdos shim leaves its frame's target "
+                              "unrecorded: nothing was fetched at $0008",
+              f.size() == 1 && f[0].target_pc == 0x0008 && f[0].caller_space == MemSpace::page(4) &&
+                  f[0].target_space == MemSpace::cpu(),
+              f.empty() ? std::string("no frame")
+                        : "target " + std::to_string(unsigned(f[0].target_space.kind)) + "/" +
+                              std::to_string(unsigned(f[0].target_space.index)));
+    }
 
     fs::remove_all(dir);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

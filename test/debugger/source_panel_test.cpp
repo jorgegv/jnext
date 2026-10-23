@@ -1635,6 +1635,36 @@ void test_call_stack_pages() {
           "pages " + std::to_string(fx.p80) + "/" + std::to_string(pc0) + " " + s(cell(cs, 0, 4)));
 }
 
+// ── QCSP-03 (GH #340): a caller fetched from ROM is not RAM page 0 ─────
+//
+// The frame records WHAT supplied the CALL/RST (here Rom{0}), and "Called from"
+// looks that up in the source map. An SLD line on Page{0} at the same address
+// must not answer: the ROM's index 0 is not RAM page 0.
+
+void test_call_stack_non_page_caller() {
+    Fixture fx;
+    fx.enable();
+    const std::string path = g_tmp->path().toStdString() + "/rom0.sld";
+    write_text(path, std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
+                         "main.bas|10||0|0|0|T|\n");
+    fx.backend->load_source_map(path, false);
+    fx.backend->set_call_stack_enabled(true);
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = 0x0000;   // the bare test ROM is 0xFF: RST $38, fetched from ROM 0
+    fx.emu.cpu().set_registers(r);
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+    CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+    if (cs) { cs->set_paused(true); cs->refresh(); }
+    const auto& f = fx.backend->call_stack();
+    const bool fixture = f.size() == 1 && f[0].caller_pc == 0x0000 &&
+                         f[0].caller_space == jnext::dbg::MemSpace::rom(0) &&
+                         fx.backend->source_map().lookup(jnext::dbg::MemSpace::page(0), 0x0000);
+    check("QCSP-03", "a caller fetched from ROM 0 shows no Called from line, though the map "
+                     "has a line for RAM page 0 at the same address",
+          fixture && cell(cs, 0, 4).isEmpty(),
+          "frames " + std::to_string(f.size()) + " cell '" + s(cell(cs, 0, 4)) + "'");
+}
+
 }  // namespace
 
 // ── GH #337: Debug > Source ───────────────────────────────────────────
@@ -1934,6 +1964,7 @@ int main(int argc, char** argv) {
     test_source_reverse_refused();
     test_source_messages();
     test_call_stack_pages();
+    test_call_stack_non_page_caller();
     test_source_menu();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
