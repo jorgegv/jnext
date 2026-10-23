@@ -378,9 +378,9 @@ void Debugger::Impl::recheck() {
                     pause_verify_sidecar = true;
                     pause_verify_clock   = emu.clock().get();
                 } else {
-                    // A verification failure also forgets the cached record: a
-                    // detached map must not come back by a rewind.
-                    if (id) cache_erase(attach_gen);
+                    // attach_gen is the PREVIOUS generation here: its cached record
+                    // is still right for that history, so a rewind into it brings
+                    // the map back. (The landing's own generation has no record.)
                     drop_sidecars(id ? "its binary identity does not match the program now "
                                        "in memory"
                                      : "the machine was reset or replaced and it has no binary "
@@ -431,6 +431,7 @@ void Debugger::Impl::recheck() {
                     source_reason = rec ? rec->source_reason : (had ? before : "");
                 }
                 attach_gen = g;
+                pause_verify_sidecar = false;   // it described the generation left
             }
             if (sources_owner == StoreOwner::User && g != user_sources_gen) verify_user(false);
         }

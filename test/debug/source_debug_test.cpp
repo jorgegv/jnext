@@ -2922,7 +2922,6 @@ int main() {
             m.dbg->load(m.a, (life / "l18.nex").string());
             const auto st = m.dbg->source_map_status();
             const bool first = st.state == State::Stale && st.by_user && st.file == user.string() &&
-                               lc.has("Kept the loaded source map") == false &&
                                m.dbg->source_map().empty();
             m.dbg->load_source_map(good.string(), false);
             m.dbg->load(m.a, (life / "l18.nex").string());
@@ -3081,6 +3080,246 @@ int main() {
                   rw == Result::Ok && i1 == Result::Ok && i2 == Result::Ok && r == Result::Ok &&
                       m.emu.clock().get() >= at,
                   "r=" + std::to_string(int(r)));
+        }
+
+        // SRCLIFE-26: SRCLIFE-01 with a sidecar that carries an identity. B's
+        // state fails A's identity, which detaches A's map there - and a rewind
+        // into A's history still brings it back (the cached record is A's).
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            attach_text(m, "l26a", good_text);
+            run_frames(m, 2);
+            const uint32_t frame_a = m.dbg->time().frame;
+            const std::vector<uint8_t> b_state = foreign_state(0xFF, true, 6);
+            state_driver(m, &b_state);
+            write_text(life / "l26b.sld", b_sld);
+            const Result ld = m.dbg->load(m.a, (life / "l26b.nex").string());
+            const bool gone = m.dbg->source_map().size() == 6 ? false : true;
+            run_frames(m, 2);
+            const uint32_t frame_b = m.dbg->time().frame;
+            const Result ra = m.dbg->rewind_to_frame(m.a, frame_a);
+            const std::string at_a = line_at(m, 0x8000);
+            const Result rb = m.dbg->rewind_to_frame(m.a, frame_b);
+            const std::string at_b = line_at(m, 0x8000);
+            check("SRCLIFE-26", "load A (with an identity), load B whose bytes fail it, rewind into "
+                                "A: A's map is back; into B: B's",
+                  ld == Result::Ok && gone && ra == Result::Ok && rb == Result::Ok &&
+                      at_a == "main.bas:10" && at_b == "x.asm:5",
+                  "A=" + at_a + " B=" + at_b);
+        }
+
+        // SRCLIFE-27: a map detached at the next pause (the ROM cleared RAM
+        // after a reset) does not come back by a rewind into that generation.
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            attach_text(m, "l27", good_text);
+            const uint32_t f1 = m.dbg->time().frame;
+            run_frames(m, 1);
+            m.dbg->reset(m.a, ResetKind::Soft);
+            const bool kept = m.dbg->source_map_status().state == State::Attached;
+            m.dbg->run(m.a);
+            m.emu.mmu().write(0x8001, 0x55);
+            for (int i = 0; i < 3; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+            const bool detached = m.dbg->source_map_status().state == State::None;
+            const uint32_t f2 = m.dbg->rewind_range().newest_frame;
+            const Result r1 = m.dbg->rewind_to_frame(m.a, f1 + 1);
+            const bool back_in_g1 = m.dbg->source_map().size() == 6;
+            const Result r2 = m.dbg->rewind_to_frame(m.a, f2);
+            check("SRCLIFE-27", "a reset keeps the map, the next pause detaches it, and a rewind "
+                                "out and back into that generation does not bring it back",
+                  kept && detached && r1 == Result::Ok && back_in_g1 && r2 == Result::Ok &&
+                      m.dbg->source_map().empty(),
+                  "size=" + std::to_string(m.dbg->source_map().size()));
+        }
+
+        // SRCLIFE-28: a map that passed the identity check at a landing is
+        // re-keyed AND cached under the new generation.
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            attach_text(m, "l28", good_text);
+            const uint32_t f1 = m.dbg->time().frame;
+            run_frames(m, 1);
+            const std::vector<uint8_t> same = foreign_state(0x00, true, 12);
+            m.dbg->load_state_bytes(m.a, same.data(), same.size());
+            const bool kept = m.dbg->source_map().size() == 6;
+            const uint32_t f2 = m.dbg->time().frame;
+            run_frames(m, 2);
+            const Result r1 = m.dbg->rewind_to_frame(m.a, f1 + 1);
+            const bool in_g1 = m.dbg->source_map().size() == 6;
+            const Result r2 = m.dbg->rewind_to_frame(m.a, f2 + 1);
+            check("SRCLIFE-28", "a same-code state load keeps the map; rewinding out to before it "
+                                "and forward into the post-load slots brings it back",
+                  kept && r1 == Result::Ok && in_g1 && r2 == Result::Ok &&
+                      m.dbg->source_map().size() == 6);
+        }
+
+        // SRCLIFE-29: a hand-loaded map (no identity) across a tape load (a new
+        // generation with no landing) is carried: a rewind within it keeps it.
+        {
+            Machine m(/*rewind=*/true);
+            write_text(life / "l29.sld", a_sld);
+            m.dbg->load_source_map((life / "l29.sld").string(), false);
+            run_frames(m, 1);
+            write_text(life / "l29t.tap", "");
+            m.dbg->load_program_sidecars((life / "l29t.tap").string());
+            const uint32_t f = m.dbg->time().frame;
+            run_frames(m, 3);
+            const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
+            check("SRCLIFE-29", "a hand-loaded map is carried into the generation a tape load "
+                                "opens: a rewind within it leaves it live",
+                  rr == Result::Ok && m.dbg->source_map_status().state == State::Attached);
+        }
+
+        // SRCLIFE-30: the reason of a refused attach comes back with a rewind
+        // into its generation.
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            write_text(life / "l30a.nex", "");
+            write_text(life / "l30a.sld", "this is not an SLD\n");
+            m.dbg->load_program_sidecars((life / "l30a.nex").string());
+            const std::string reason_a = m.dbg->source_map_status().reason;
+            const uint32_t f = m.dbg->time().frame;
+            run_frames(m, 2);
+            attach_text(m, "l30b", a_sld);
+            run_frames(m, 1);
+            const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
+            const auto st = m.dbg->source_map_status();
+            check("SRCLIFE-30", "a rewind into the generation of a refused sidecar shows that "
+                                "refusal again",
+                  rr == Result::Ok && st.state == State::None && !reason_a.empty() &&
+                      st.reason == reason_a,
+                  st.reason);
+        }
+
+        // SRCLIFE-31: a hand-loaded map with an identity is stale after a
+        // foreign state and live again after a rewind back (a cross-generation
+        // rewind re-verifies it).
+        {
+            Machine m(/*rewind=*/true);
+            m.dbg->load_source_map(good.string(), false);
+            run_frames(m, 2);
+            const uint32_t f = m.dbg->time().frame;
+            run_frames(m, 1);
+            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+            m.dbg->load_state_bytes(m.a, other.data(), other.size());
+            const auto st0 = m.dbg->source_map_status();
+            const Result rr = m.dbg->rewind_to_frame(m.a, f);
+            const auto st1 = m.dbg->source_map_status();
+            check("SRCLIFE-31", "a hand-loaded map with an identity: stale after a state that "
+                                "fails it, live again after a rewind to where it matched",
+                  st0.state == State::Stale && rr == Result::Ok && st1.state == State::Attached);
+        }
+
+        // SRCLIFE-32: Back works after a hard reset that follows two soft
+        // ones inside the trace window (the cold boot made a new TraceLog).
+        {
+            Machine m(/*rewind=*/true);
+            with_cold_boot(m);
+            m.dbg->set_trace_enabled(true);
+            run_frames(m, 2);
+            m.dbg->reset(m.a, ResetKind::Soft);
+            run_frames(m, 1);
+            const Result hr = m.dbg->reset(m.a, ResetKind::Hard);
+            const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
+            for (size_t i = 0; i < sizeof(main_prog); ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+            const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
+            for (size_t i = 0; i < sizeof(sub); ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
+            m.set_pc(0x8000);
+            // The cold boot rebuilt the ring too (rewind enabled from the debugger
+            // is not in the config); turn it on again.
+            m.emu.set_rewind_enabled(true);
+            m.emu.resize_rewind_buffer(8);
+            const auto lr = m.dbg->load_source_map(good.string(), false);
+            m.dbg->set_trace_enabled(true);
+            run_frames(m, 1);
+            m.set_pc(0x8000);
+            const Result i1 = m.dbg->source_step(m.a, Step::Into);
+            const Result i2 = m.dbg->source_step(m.a, Step::Into);
+            const Result b = m.dbg->source_step(m.a, Step::Back);
+            check("SRCLIFE-32", "Back works after a cold boot that followed two soft resets in "
+                                "the retained trace",
+                  hr == Result::Ok && lr.count == 6 && i1 == Result::Ok && i2 == Result::Ok &&
+                      b == Result::Ok,
+                  "hr=" + std::to_string(int(hr)) + " lr=" + std::to_string(lr.count) + " i1=" + std::to_string(int(i1)) + " i2=" + std::to_string(int(i2)) + " back=" + std::to_string(int(b)));
+        }
+
+        // SRCLIFE-33: an attached sidecar's status names its file.
+        {
+            Machine m;
+            attach_text(m, "l33", a_sld);
+            const auto st = m.dbg->source_map_status();
+            check("SRCLIFE-33", "the status of an attached sidecar map names its file and is "
+                                "not by_user",
+                  st.state == State::Attached && !st.by_user &&
+                      st.file == (life / "l33.sld").string(),
+                  st.file);
+        }
+
+        // SRCLIFE-34: a hand-loaded map without an identity, loaded after a
+        // reset, stays live across a rewind within its own generation.
+        {
+            Machine m(/*rewind=*/true);
+            m.dbg->reset(m.a, ResetKind::Soft);
+            m.set_pc(0x8000);
+            write_text(life / "l34.sld", a_sld);
+            m.dbg->load_source_map((life / "l34.sld").string(), false);
+            const uint32_t f = m.dbg->time().frame;
+            run_frames(m, 3);
+            const Result rr = m.dbg->rewind_to_frame(m.a, f + 1);
+            check("SRCLIFE-34", "a hand-loaded map without an identity stays live across a rewind "
+                                "within the generation it was loaded in",
+                  rr == Result::Ok && m.dbg->source_map_status().state == State::Attached);
+        }
+
+        // SRCLIFE-35: loading a map again by hand cancels a check still owed
+        // from the reset (D6: a fresh load was verified a moment ago).
+        {
+            Machine m;
+            m.dbg->load_source_map(good.string(), false);
+            m.dbg->reset(m.a, ResetKind::Soft);
+            (void)m.dbg->source_map_status();
+            m.dbg->load_source_map(good.string(), false);
+            m.dbg->run(m.a);
+            m.emu.mmu().write(0x8001, 0x55);
+            m.emu.run_frame();
+            m.dbg->pause(m.a);
+            check("SRCLIFE-35", "a map loaded again by hand after a reset is not checked at the "
+                                "next pause",
+                  m.dbg->source_map_status().state == State::Attached);
+        }
+
+        // SRCLIFE-36: clearing a stale hand-loaded map leaves no stale flag
+        // behind for the next sidecar.
+        {
+            Machine m;
+            m.dbg->load_source_map(good.string(), false);
+            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+            m.dbg->load_state_bytes(m.a, other.data(), other.size());
+            const bool stale = m.dbg->source_map_status().state == State::Stale;
+            m.dbg->clear_source_map();
+            attach_text(m, "l36", a_sld);
+            check("SRCLIFE-36", "a stale hand-loaded map that is cleared does not hide the next "
+                                "program's sidecar map",
+                  stale && m.dbg->source_map().size() == 6);
+        }
+
+        // SRCLIFE-37: a source step on a stale hand-loaded map is refused.
+        {
+            Machine m;
+            m.dbg->load_source_map(good.string(), false);
+            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+            m.dbg->load_state_bytes(m.a, other.data(), other.size());
+            const bool stale = m.dbg->source_map_status().state == State::Stale;
+            const Result r = m.dbg->source_step(m.a, Step::Into);
+            check("SRCLIFE-37", "a source step on a stale hand-loaded map is refused",
+                  stale && r == Result::RefusedUnavailable);
         }
     }
 

@@ -726,8 +726,10 @@ How it is built:
   (with the last refusal or drop as the reason), `Attached` or `Stale` (the file and why).
   Loading the map again by hand is how a user accepts it (it also re-reads a rebuilt file).
 - The cache holds one record per generation, at most 4, the current one included; a failed
-  identity check erases its generation's record, so a detached map does not come back by a
-  rewind within that generation.
+  identity check at the next pause erases the record of the generation the map was re-keyed
+  to, so a detached map does not come back by a rewind within that generation. A failure at
+  the landing itself erases nothing: the record belongs to the previous generation, whose
+  history a rewind still returns to.
 - The next-pause check applies to a map **carried** across a landing and verified there, once,
   at the first recheck while paused after the clock moved. It is not set by a fresh attach.
 - Every lifetime transition is announced to the listeners as an Info line, the existing

@@ -1653,6 +1653,47 @@ void test_source_map_lifetime() {
                   text.contains(QStringLiteral("binary identity")),
               s(text));
     }
+    {
+        // The panel reads the load result's reason with no refresh of its own:
+        // report_sidecars() refreshes the open tab.
+        Fixture fx;
+        fx.enable();
+        const std::string nex = dir + "/q60.nex";
+        write_text(nex, "");
+        write_text(dir + "/q60.sld", "this is not an SLD\n");
+        fx.mgr->report_sidecars(fx.backend->load_program_sidecars(nex));
+        const QString text = fx.dbg()->source_panel()->location_text();
+        check("QSRC-60", "report_sidecars() refreshes the open Source tab: the new reason is "
+                         "shown without another refresh",
+              text.contains(QStringLiteral("rejected: missing SLD.data.version")), s(text));
+    }
+    {
+        // A panel that holds &symbols(): after a rewind to before the attach, the
+        // first refresh shows the address, not the symbol of a program not yet loaded.
+        Fixture fx(/*rewind_frames=*/8);
+        fx.emu.mmu().write(0x9000, 0x18);   // JR $ : the call never returns
+        fx.emu.mmu().write(0x9001, 0xFE);
+        fx.enable();
+        fx.backend->set_call_stack_enabled(true);
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        for (int i = 0; i < 2; ++i) fx.emu.run_frame();
+        fx.backend->pause(jnext::dbg::CLIENT_NONE);
+        const uint32_t before = fx.backend->rewind_range().newest_frame;
+        write_text(dir + "/q61.nex", "");
+        write_text(dir + "/q61.Memory.txt", "9000: ._SubFn\n");
+        fx.backend->load_program_sidecars(dir + "/q61.nex");
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        for (int i = 0; i < 2; ++i) fx.emu.run_frame();
+        fx.backend->pause(jnext::dbg::CLIENT_NONE);
+        const auto rr = fx.backend->rewind_to_frame(jnext::dbg::CLIENT_NONE, before);
+        CallStackPanel* cs = fx.dbg()->callstack_panel();
+        if (cs) cs->set_paused(true);
+        fx.mgr->refresh_panels();
+        check("QSRC-61", "a panel holding the symbol table shows no symbol of a program that has "
+                         "not been loaded at the point a rewind landed on",
+              rr == jnext::dbg::Result::Ok && cs && cell(cs, 0, 3) == QStringLiteral("9000"),
+              s(cell(cs, 0, 3)));
+    }
 }
 
 // ── QCSP-02: the caller's page, not the target's ───────────────────────
