@@ -2860,7 +2860,23 @@ reads a z88dk map (<code>MapFormat::Z88dk</code>), a plain <code>SYMBOL = $ADDR<
 <code>monitor sym</code> and <code>--map</code> all read this table, so a symbol loaded by one client
 shows in every other. A z88dk map's <code>; const</code> lines go into a separate
 name-only table: <code>lookup_name()</code> resolves them, and <code>lookup(addr)</code> never names an
-address after a constant.
+address after a constant.</p>
+<p>The table is keyed by (memory, address) (GH #375). A label is UNPAGED, naming its
+address in every memory (every map loader makes these), or PAGED, assembled for one
+<code>FetchSource</code> such as <code>Page{20}</code>, and naming the address only while that memory
+supplies it. <code>SymbolTable::lookup(space, addr)</code> has no address-only form;
+<code>lookup(addr)</code> of the backend asks it with <code>source_page(addr)</code>, the same identity
+the source map and the gutter use, so every consumer (disassembly, Call Stack,
+Breakpoints, <code>monitor sym ADDR</code>) names an address by what is mapped there now.
+<code>disasm_text::symbol_namer()</code> is that rule as a function for the panels. A name
+resolves to an address and, through <code>resolve_key()</code> and <code>find_name()</code>, to the memory
+it was assembled for; the breakpoint dialogs keep that page. A name-only value
+(<code>add_value()</code>) names no address. <code>load_sld()</code> reads an SLD's <code>L</code> records into such a
+table, as its own transaction beside the source half: a file refused as a whole
+loads neither, a bad trace refuses only the source half. The name is
+<code>module.main.local</code> as sjasmplus <code>--sym</code> spells it; <code>+struct_def</code> / <code>+sizeof</code>
+records are name-only; a value past 0xFFFF or a page the device lacks is skipped
+(rows SYMPG-<em>, SLDL-</em>).
 The <code>-debug</code> records (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or <code>__CDBINFO__</code>)
 are dropped by the loader, so they never name an address or resolve by name.
 <code>MapFormat::NextBuild</code> reads a NextBuild / Boriel ZX Basic <code>Memory.txt</code> (<code>8000: ._Main</code>): the shown name drops the <code>.</code> and the

@@ -744,7 +744,7 @@ int main() {
         {
             SourceMap m;
             SymbolTable l;
-            const auto rr = load_sld(m, sld("fd.sld", z + t + "x.asm|3||0|4|32768|F|main\nx.asm|3||0|4|32768|D|SCREEN\n"), &l);
+            const auto rr = load_sld(m, sld("fd.sld", z + t + "x.asm|3||0|4|32768|F|,main,\nx.asm|3||0|-1|16384|D|,SCREEN,\n"), &l);
             check("SLDL-06", "F and D records are not read: an SLD with only those has no labels",
                   rr.count == 1 && rr.labels == 0 && l.empty() && !l.find_name("main") && !l.find_name("SCREEN"));
         }
