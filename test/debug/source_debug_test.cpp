@@ -3323,6 +3323,29 @@ int main() {
             check("SRCLIFE-37", "a source step on a stale hand-loaded map is refused",
                   stale && r == Result::RefusedUnavailable);
         }
+
+        // SRCLIFE-38: a pause check owed by a reset does not judge the generation
+        // a rewind lands in (it described the generation left).
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            attach_text(m, "l38", good_text);
+            run_frames(m, 1);
+            m.emu.mmu().write(0x8001, 0x55);
+            run_frames(m, 2);
+            const uint32_t fmod = m.dbg->time().frame;
+            m.emu.mmu().write(0x8001, 0x00);
+            m.dbg->reset(m.a, ResetKind::Soft);
+            const auto s0 = m.dbg->source_map_status();
+            const Result rr = m.dbg->rewind_to_frame(m.a, fmod - 1);
+            const auto s1 = m.dbg->source_map_status();
+            check("SRCLIFE-38", "a reset leaves a pause check owed; a rewind into the earlier "
+                                "generation (its bytes changed there) restores that generation's "
+                                "map and the owed check does not detach it",
+                  s0.state == State::Attached && rr == Result::Ok &&
+                      m.emu.mmu().peek(0x8001) == 0x55 && s1.state == State::Attached &&
+                      m.dbg->source_map().size() == 6);
+        }
     }
 
     fs::remove_all(dir);
