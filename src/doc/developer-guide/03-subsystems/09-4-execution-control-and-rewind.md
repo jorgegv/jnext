@@ -156,6 +156,10 @@ The setting lives in `Emulator::config()` (`rewind_buffer_frames`,
 `rewind_paused`), kept current by `resize_rewind_buffer()` and
 `set_rewind_enabled()`. A hard `init()` (a program load) and a cold boot (which
 carries it) build a new, empty ring from it; a soft reset keeps the ring.
+A ring implies the instruction trace, so `Debugger::resize_rewind_buffer()` also
+records "trace on" as the client's wish, which the debugger backend re-applies
+after a machine rebuild (otherwise a trace switched off earlier would come back
+and Step Back would be refused).
 
 It is not an undo log. It is a ring of whole-machine snapshots taken at frame
 boundaries. `RewindBuffer` (`src/debug/rewind_buffer.*`) allocates one `mmap`

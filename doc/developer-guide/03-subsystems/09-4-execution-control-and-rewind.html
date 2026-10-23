@@ -2543,7 +2543,11 @@ ring's memory; <code>--rewind-buffer-size N</code> or the debugger's toggle turn
 <p>The setting lives in <code>Emulator::config()</code> (<code>rewind_buffer_frames</code>,
 <code>rewind_paused</code>), kept current by <code>resize_rewind_buffer()</code> and
 <code>set_rewind_enabled()</code>. A hard <code>init()</code> (a program load) and a cold boot (which
-carries it) build a new, empty ring from it; a soft reset keeps the ring.</p>
+carries it) build a new, empty ring from it; a soft reset keeps the ring.
+A ring implies the instruction trace, so <code>Debugger::resize_rewind_buffer()</code> also
+records "trace on" as the client's wish, which the debugger backend re-applies
+after a machine rebuild (otherwise a trace switched off earlier would come back
+and Step Back would be refused).</p>
 <p>It is not an undo log. It is a ring of whole-machine snapshots taken at frame
 boundaries. <code>RewindBuffer</code> (<code>src/debug/rewind_buffer.*</code>) allocates one <code>mmap</code>
 region of <code>max_frames × snapshot_bytes</code> up front, so pages fault in lazily, and
