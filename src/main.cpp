@@ -2183,6 +2183,9 @@ int main(int argc, char* argv[]) {
                 // the machine it names wins over `--machine` (design §7.3),
                 // which `Emulator::load_jns` handles by reconfiguring.
                 app.set_pending_load(load_file, 0);
+                // GH #402 — a `.jns` puts its tape back in this session's mode
+                // (--tape-realtime or not), as a plain .tap would be attached.
+                if (ext == ".jns") app.set_tape_realtime(tape_realtime);
             } else if (ext == ".tap") {
                 // Task 19: TAP loading uses the phantom typist
                 // (src/input/phantom_typist.h) — no boot-delay needed.
