@@ -826,7 +826,7 @@ int main() {
         const auto& f = m.dbg->call_stack();
         check("SRCDBG-ID-07", "and once it runs: the trace marks DivMMC's instruction "
                               "not-RAM, and the CALL's frame names no RAM page as target",
-              ran_divmmc && flagged && f.size() == 1 && f[0].target_page == NOT_RAM_PAGE,
+              ran_divmmc && flagged && f.size() == 1 && ram_page_of(f[0].target_space) == NOT_RAM_PAGE,
               "A=" + std::to_string(m.emu.cpu().get_registers().AF >> 8));
     }
     {
@@ -1157,15 +1157,15 @@ int main() {
         const auto& f = m.dbg->call_stack();
         check("SRCDBG-ID-20", "a CALL fetched from the DivMMC ROM records a caller that is no RAM "
                               "page, and the RST that entered it a RAM caller (MMU4 = page 4)",
-              f.size() == 2 && f[0].caller_pc == 0x8000 && f[0].caller_page == 4 &&
-                  f[0].target_pc == 0x0008 && f[0].target_page == NOT_RAM_PAGE &&
-                  f[1].caller_pc == 0x0009 && f[1].caller_page == NOT_RAM_PAGE &&
-                  f[1].target_pc == 0x0020 && f[1].target_page == NOT_RAM_PAGE,
+              f.size() == 2 && f[0].caller_pc == 0x8000 && ram_page_of(f[0].caller_space) == 4 &&
+                  f[0].target_pc == 0x0008 && ram_page_of(f[0].target_space) == NOT_RAM_PAGE &&
+                  f[1].caller_pc == 0x0009 && ram_page_of(f[1].caller_space) == NOT_RAM_PAGE &&
+                  f[1].target_pc == 0x0020 && ram_page_of(f[1].target_space) == NOT_RAM_PAGE,
               [&] {
                   std::string d = "frames=" + std::to_string(f.size());
                   for (const auto& fr : f)
                       d += " [" + hex(fr.caller_pc) + "->" + hex(fr.target_pc) + " cp=" +
-                           std::to_string(fr.caller_page) + " tp=" + std::to_string(fr.target_page) + "]";
+                           std::to_string(ram_page_of(fr.caller_space)) + " tp=" + std::to_string(ram_page_of(fr.target_space)) + "]";
                   return d;
               }());
     }
@@ -1549,12 +1549,12 @@ int main() {
             check("SRCDBG-ID-37", "a CALL in RAM at a delayed DivMMC entry: its frame has the caller page "
                                   "RAM page 10 and the target the DivMMC ROM's operands ($0030)",
                   m.pc() == 0x0030 && f.size() == 2 && f[1].caller_pc == 0x0008 &&
-                      f[1].caller_page == 10 && f[1].target_pc == 0x0030,
+                      ram_page_of(f[1].caller_space) == 10 && f[1].target_pc == 0x0030,
                   [&] {
                       std::string d = "pc=" + hex(m.pc()) + " frames=" + std::to_string(f.size());
                       if (f.size() > 1)
                           d += " [" + hex(f[1].caller_pc) + "->" + hex(f[1].target_pc) +
-                               " cp=" + std::to_string(f[1].caller_page) + "]";
+                               " cp=" + std::to_string(ram_page_of(f[1].caller_space)) + "]";
                       return d;
                   }());
         }
