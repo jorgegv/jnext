@@ -96,8 +96,8 @@ Install paths become `z88dk/` (plain) and `z88dk_2f` (z80asm's symbol encoding);
 names `tmpXX<6 chars>` become `tmpXXXXXXXX`; the `Module compile time:` date becomes
 `(normalised)`; the scratch directory is removed from logs. A map keeps a line iff its
 module is one of ours, or it is a `__C_LINE_` / `__ASM_LINE_` record of any module (every
-newlib `-debug` map has 26 in the crt0 module `zxn_crt_asm_m4`, `zxn_crt.asm.m4`: 3 at the
-program entry $8000, and 22 in data/bss sections), or it is `__<S>_head/_tail/_size` of a non-empty section, a
+newlib `-debug` map has 26 in the crt0 module `zxn_crt_asm_m4`, `zxn_crt.asm.m4`: 3 in
+`CODE` ($8000, $8009, $800C), 1 in `code_crt_main` ($8035), and 22 in data/bss sections), or it is `__<S>_head/_tail/_size` of a non-empty section, a
 `CRT_ORG_*` of the CODE / BANK_10 / PAGE_20 / PAGE_21 sections, or one of
 `l_debug_push_frame l_debug_pop_frame __debug_framepointer banked_call l_jphl`. The
 `/tmp/tmpXX....i:2` marker lines of each module are always dropped (random names sort
