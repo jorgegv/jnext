@@ -3012,10 +3012,43 @@ int main() {
             const Result rw = m.dbg->rewind_to_frame(m.a, newest);
             const uint64_t at = m.emu.clock().get();
             const Result r = m.dbg->source_step(m.a, Step::Back);
+            const uint64_t first = m.emu.clock().get();
+            // The Back replayed from an earlier slot: those instructions were
+            // recorded in A's generation, so the next Back finds them (a
+            // statement or two away, never a frame).
+            const Result r2 = m.dbg->source_step(m.a, Step::Back);
+            const uint64_t second = m.emu.clock().get();
             check("SRCLIFE-23", "A's history is 'back' within A's generation after a rewind into "
-                                "it across B's load",
-                  rw == Result::Ok && r == Result::Ok && m.emu.clock().get() < at,
-                  "rw=" + std::to_string(int(rw)) + " r=" + std::to_string(int(r)));
+                                "it across B's load, and the replay of a Back is A's too",
+                  rw == Result::Ok && r == Result::Ok && first < at && r2 == Result::Ok &&
+                      second < first && first - second < m.emu.timing().master_cycles_per_frame,
+                  "rw=" + std::to_string(int(rw)) + " r=" + std::to_string(int(r)) + " r2=" +
+                      std::to_string(int(r2)) + " d=" + std::to_string(first - second));
+        }
+
+        // SRCLIFE-25: the instructions run right after a rewind from B's
+        // generation into A's are A's (the generation is set before the load).
+        {
+            Machine m(/*rewind=*/true);
+            m.dbg->set_trace_enabled(true);
+            attach_text(m, "l25a", a_sld);
+            run_frames(m, 4);
+            const uint32_t newest = m.dbg->rewind_range().newest_frame;
+            const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
+            state_driver(m, &b);
+            write_text(life / "l25b.sld", b_sld);
+            m.dbg->load(m.a, (life / "l25b.nex").string());
+            const Result rw = m.dbg->rewind_to_frame(m.a, newest);
+            const uint64_t at = m.emu.clock().get();
+            m.emu.trace_log().clear();   // only what runs from here on
+            const Result i1 = m.dbg->source_step(m.a, Step::Into);
+            const Result i2 = m.dbg->source_step(m.a, Step::Into);
+            const Result r = m.dbg->source_step(m.a, Step::Back);
+            check("SRCLIFE-25", "Back finds the statements run since a rewind from another "
+                                "generation: they belong to the generation rewound into",
+                  rw == Result::Ok && i1 == Result::Ok && i2 == Result::Ok && r == Result::Ok &&
+                      m.emu.clock().get() >= at,
+                  "r=" + std::to_string(int(r)));
         }
     }
 
