@@ -742,7 +742,8 @@ naming the option and the value, and exits with status 1.
     by a jnext whose state model this build does not know, or one whose
     recorded ROM digests differ from the ROMs now loaded. A missing tape file
     is **not** covered — that always warns and never refuses, because a
-    machine restores perfectly well without the tape it was loading from.
+    machine restores perfectly well without the tape it was loading from. The
+    same goes for a tape that has changed or whose position cannot be restored.
 
     `force` restores even though the mounted SD card is not the one the
     snapshot was taken on, printing a warning that names both cards. This is
@@ -1362,6 +1363,15 @@ taken on a Next comes back as a Next whatever **\--machine** says. A snapshot
 is only ever taken at a frame boundary: if the debugger has stopped the machine
 part-way through a frame, that frame is completed first and the restored
 machine is up to one frame past where you stopped.
+
+The attached tape is recorded by its path, with a digest and the deck's
+position, and put back at that position on load (a tape that came out of a
+`.zip` is re-extracted from the archive). A snapshot never changes a setting: the
+tape comes back in the mode that **\--tape-realtime** (or the GUI) and
+**\--tape-auto-play** / **\--no-tape-auto-play** give this session, converted
+at a block boundary if the snapshot's tape was in the other mode. A tape that is
+missing, has changed, or was recorded by a version that did not save the
+position is not attached, with a warning.
 
 The file does **not** contain the SD card - a card image is a gigabyte, and it
 holds NextZXOS. It records the card's identity instead and checks it on load: a

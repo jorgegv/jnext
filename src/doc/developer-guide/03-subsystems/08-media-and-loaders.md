@@ -160,11 +160,22 @@ detect-loader fails the `xevious-deciload` tape.
   pure-EAR loader such as DeciLoad) would play blocks away that a later ROM load
   needs. A custom loader in fast mode behaves as it always did.
 - **State.** The detector and the hold are host-deck state, not serialised, and
-  reset on every state load (tape position is excluded from rewind and
-  snapshots by design). Off (`tape_auto_play`, `--no-tape-auto-play`) is the
+  reset on every state load (tape position is excluded from rewind by design;
+  a `.jns` does carry it, see below). Off (`tape_auto_play`, `--no-tape-auto-play`) is the
   deck as it was: no hold, stop blocks stop for good. The one exception is
   independent of the setting: a 0x2A block now stops only on a 48K machine (the
   TZX specification).
+
+**Deck position (GH #402).** Each loader can say where it is and be put back
+there, for a `.jns`: `deck_state()` returns a plain struct (TAP: block, phase,
+pulse and byte counters; TZX: the fast-load cursor and the whole ZOT player,
+file pointers as byte offsets and the next edge as a distance from "now"; WAV:
+playing and the start as a distance from "now"), and `restore_deck()` checks
+every value against the loaded bytes before it writes any (the checks are the
+read sites of `tzx.c`), returning false with a reason otherwise. `sha256()` is
+the digest of the bytes `load()` read. `handover_to_fast_at_gap()` and
+`start_realtime_from_fast()` convert a restored deck to the session's mode
+without cutting a block. See [save state and rewind](../02-architecture/05-save-state-and-rewind.md).
 
 Saving works the same way in reverse. `--tape-save` (or Tape ▸ Start Saving,
 both through `Emulator::start_tape_save()`) arms one of two savers by the
