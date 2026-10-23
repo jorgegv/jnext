@@ -165,10 +165,13 @@ naming the option and the value, and exits with status 1.
     **jnext** says so on standard error and falls back to the machine it has
     always assembled.
 
-    The recording is keyed by the SD image's contents, the machine type and
-    the state format, so it invalidates itself whenever any of those change.
-    Use this option to force the issue anyway, after replacing `TBBLUE.FW` or
-    NextZXOS on the card. It applies to `.nex` files on the Next only: the
+    The recording is keyed by the SD image's size and modification time, the
+    machine type and the state format, and it is also dropped when **jnext**
+    itself writes to the image, so it invalidates itself whenever any of those
+    change. The image's contents are not read: an image replaced or edited from
+    outside with the same size and the same modification time (`cp -p`,
+    `touch -r`) is served the old recording. Use this option to force the issue
+    in that case, and after replacing `TBBLUE.FW` or NextZXOS on the card. It applies to `.nex` files on the Next only: the
     other machine types run no firmware, and snapshots and tapes are loaded by
     mechanisms a firmware-resident machine does not have.
 
@@ -1362,9 +1365,9 @@ machine is up to one frame past where you stopped.
 
 The file does **not** contain the SD card - a card image is a gigabyte, and it
 holds NextZXOS. It records the card's identity instead and checks it on load: a
-different card is refused unless **\--snapshot-mode** `force`, while the same
-card changed since (which happens on any run that writes to it) restores with a
-warning. **\--snapshot-mode** `strict` additionally turns the state-model and
+different card is refused unless **\--snapshot-mode** `force`. The card's
+contents are not checked: changing the card between saving and loading is at
+your own risk. **\--snapshot-mode** `strict` additionally turns the state-model and
 ROM-digest warnings into refusals, and **\--snapshot-compression** `off` writes
 the members stored rather than deflated, so the file can be read with
 `unzip -p`.
@@ -2404,8 +2407,9 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 `~/.jnext/warm-start/`
 :   The recorded NextZXOS-resident machine a **\--load** of a `.nex` starts
     from, one file per machine type, around 100 KB each. Written on the first
-    such load with a given SD image and re-recorded whenever the image, the
-    machine type or the state format changes - see
+    such load with a given SD image and re-recorded whenever the image's size or
+    modification time changes, or JNEXT writes to it, or the machine type or
+    the state format changes - see
     **\--warm-start-regenerate**. Deleting it costs one cold boot, nothing
     else.
 

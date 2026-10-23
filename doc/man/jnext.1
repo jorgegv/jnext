@@ -190,10 +190,14 @@ firmware on it, a recording that will not load back \(em \f[B]jnext\f[R]
 says so on standard error and falls back to the machine it has always
 assembled.
 .PP
-The recording is keyed by the SD image\(cqs contents, the machine type
-and the state format, so it invalidates itself whenever any of those
-change.
-Use this option to force the issue anyway, after replacing
+The recording is keyed by the SD image\(cqs size and modification time,
+the machine type and the state format, and it is also dropped when
+\f[B]jnext\f[R] itself writes to the image, so it invalidates itself
+whenever any of those change.
+The image\(cqs contents are not read: an image replaced or edited from
+outside with the same size and the same modification time
+(\f[CR]cp \-p\f[R], \f[CR]touch \-r\f[R]) is served the old recording.
+Use this option to force the issue in that case, and after replacing
 \f[CR]TBBLUE.FW\f[R] or NextZXOS on the card.
 It applies to \f[CR].nex\f[R] files on the Next only: the other machine
 types run no firmware, and snapshots and tapes are loaded by mechanisms
@@ -1672,8 +1676,9 @@ The file does \f[B]not\f[R] contain the SD card \- a card image is a
 gigabyte, and it holds NextZXOS.
 It records the card\(cqs identity instead and checks it on load: a
 different card is refused unless \f[B]\-\-snapshot\-mode\f[R]
-\f[CR]force\f[R], while the same card changed since (which happens on
-any run that writes to it) restores with a warning.
+\f[CR]force\f[R].
+The card\(cqs contents are not checked: changing the card between saving
+and loading is at your own risk.
 \f[B]\-\-snapshot\-mode\f[R] \f[CR]strict\f[R] additionally turns the
 state\-model and ROM\-digest warnings into refusals, and
 \f[B]\-\-snapshot\-compression\f[R] \f[CR]off\f[R] writes the members
@@ -3191,7 +3196,8 @@ The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a
 \f[CR].nex\f[R] starts from, one file per machine type, around 100 KB
 each.
 Written on the first such load with a given SD image and re\-recorded
-whenever the image, the machine type or the state format changes \- see
+whenever the image\(cqs size or modification time changes, or JNEXT
+writes to it, or the machine type or the state format changes \- see
 \f[B]\-\-warm\-start\-regenerate\f[R].
 Deleting it costs one cold boot, nothing else.
 .TP

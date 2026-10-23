@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2830,8 +2830,8 @@ load-bearing — a firmware-less machine answers the first two exactly as a
 booted one does.</p>
 <p><strong>The cache</strong> is <code>src/core/warm_start_cache.{h,cpp}</code>: one file per machine
 type under <code>&lt;config-dir&gt;/warm-start</code>, with a 96-byte header carrying the
-identity that invalidates it — the SD image's SHA-256, the machine type, a
-state-format version, and the exact <em>uncompressed</em> stream length. Any mismatch
+identity that invalidates it — the SD image's size and mtime, the machine
+type, a state-format version, and the exact <em>uncompressed</em> stream length. Any mismatch
 discards the file and re-boots. The length is not a convenience:
 <code>Ram::load_state</code> reads a count-prefixed blob straight into the live RAM
 buffer, so refusing a stream whose length is not exactly what this build
@@ -2890,16 +2890,17 @@ bank 2 at <code>$8000</code>. Both reference loaders set them explicitly
 machine the defaults do not hold — a measured MMU3 = page 17 sent every write
 to <code>$6000-$7FFF</code> into Layer 2's bank 8. <code>apply()</code> now writes them, which is a
 no-op on the synthetic path and pinned by <code>NEXMMU-01..07</code>.</p>
-<p><strong>The cost.</strong> A miss costs a 500-frame boot, ~3.5 s headless. A hit costs the
-SD image's SHA-256 — ~0.5 s for a 1 GB image warm in the page cache, ~1.2 s
-cold — because the recording's identity is the image's <em>contents</em>. The cheap
-alternatives (a size+mtime key, a hashed prefix, a named subset of files) all
-accept a cached recording without reading the image, and any of them can serve
-a recording of a different card while reporting success; that is the worst
-failure this mechanism can have, because the machine it produces looks booted.
-Within a process the digest is paid once: the restored stream stays in
-<code>warm_start_state_</code> for the session, so a GUI <strong>File &gt; Load NEX File…</strong> after
-a CLI <code>--load</code> costs nothing.</p>
+<p><strong>The cost.</strong> A miss costs a 500-frame boot, ~3.5 s headless. A hit costs one
+<code>stat</code> of the SD image plus inflating the ~100 KB cache. The key is the image's
+(size, mtime) read after the recording, plus a process-wide write generation
+(<code>SdCardDevice::host_write_generation()</code>, bumped by every CMD24 jnext commits):
+an own write drops the in-memory state, and a memo of the last validation
+catches an own write that left the mtime unchanged. GH #396 (owner, 2026-10-22)
+replaced the whole-image SHA-256 this used to pay (0.6-1.2 s per GB on the UI
+thread at every cold boot that loads a program). <strong>Accepted residual:</strong> an
+image replaced or edited from outside with the same size and the same mtime
+(<code>cp -p</code>, <code>touch -r</code>) serves a stale recording; <code>--warm-start-regenerate</code> is the
+escape hatch. The file magic is <code>JNEXTWS3</code> (layout generation).</p>
 <p><strong>Tests.</strong> <code>test/warm_start/warm_start_test.cpp</code> (<code>WSC-*</code> for the cache file,
 its four invalidation keys and the compressed payload; <code>WSR-*</code> for the
 residency criterion, the announced fallbacks and <code>WSR-DEF-01</code>, which proves the
@@ -3585,17 +3586,11 @@ instead of acting in the key callback, so a chord takes its turn behind the keys
 typed before it, keys typed during or after it reach the loaded machine, and
 <code>SdlApp::service_quick_requests()</code> / <code>QtApp::TickEffects::post_frames()</code> call
 <code>action_done()</code> however the action ended (see the input subsystem chapter).
-The cost of the stall is the Tier-2 content stamp, a SHA-256 of the WHOLE SD
-image on the UI thread: one pass per save, two per load (the probe, then the load
-itself; the Qt Quick Load passes <code>jns_probed</code> so <code>handle_load_path()</code> does not
-repeat the probe). It scales with the card size (about 0.5-2 s for 1 GB) and every
-digest logs <code>snapshot: digested SD image '&lt;path&gt;' (&lt;MB&gt; MB) in &lt;ms&gt; ms</code>, so a
-user can see what the freeze was. The digest is eager by design (the snapshot
-format's section 11.3 and <code>sd_snapshot_identity.h</code>, "cost, stated rather than
-hidden"), and a probe without it would wrongly accept a snapshot taken
-mid-transfer (section 11.3, last row of the restore matrix). The freeze
-itself (the digest on the UI thread, which grows with the card) is kept as
-designed and tracked in GH #396.</p>
+There is no whole-card read on this path (GH #396, owner 2026-10-22): a save,
+probe or load reads the MBR and the BPB sector (the Tier-1 identity) and nothing
+else; <code>.jns</code> has no Tier-2 <code>content_stamp</code> any more (old files carry one, it is
+ignored) and no mid-transfer refusal. jnext assumes the card is as the snapshot
+left it. <code>sd_no_digest_linux_test</code> (<code>NODIG-01..04</code>) pins it by bytes read.</p>
 <p>Video recording needs <strong>FFmpeg on the host</strong>. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
 encoding cost, and shells out once at stop, trying <code>libx264</code>, <code>mpeg4</code> and

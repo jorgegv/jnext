@@ -24,7 +24,7 @@ namespace {
 // this machine's or this SD image's — i.e. doing the expensive work on
 // unvalidated input, and sizing the output buffer from a length read out of
 // that same input. Every refusal below (wrong magic, wrong machine, wrong
-// digest, wrong plain length, truncation) is answerable from 96 plain bytes,
+// SD image key, wrong plain length, truncation) is answerable from 96 plain bytes,
 // and that ordering — establish identity, then decompress — is what keeps the
 // length guard meaningful. A guard that runs after the thing it guards is not
 // one.
@@ -47,21 +47,24 @@ namespace {
 //
 //   offset  size  field
 //   ------  ----  ---------------------------------------------------------
-//        0     8  magic "JNEXTWS2"
+//        0     8  magic "JNEXTWS3"
 //        8     4  state-stream format version (u32 LE)
 //       12     4  machine type                (u32 LE)
 //       16     8  PLAIN payload length        (u64 LE)  <- identity
-//       24    64  SD image SHA-256, ASCII hex, NUL-padded
+//       24     8  SD image size in bytes      (u64 LE)  <- identity
+//       32     8  SD image mtime, file_clock ticks (i64 LE) <- identity
+//       40    48  reserved, zero
 //       88     8  STORED payload length       (u64 LE)  <- bytes on disk
 //       96   ...  zlib stream, exactly `stored` bytes
 //
-// "JNEXTWS2" — 8 bytes, no terminator. The trailing digit is a FILE-layout
+// "JNEXTWS3" — 8 bytes, no terminator. The trailing digit is a FILE-layout
 // generation, distinct from Identity::format_version (which versions the
-// state stream inside). It went 1 -> 2 here because the payload stopped being
-// the raw stream; the stream itself did not change, so kFormatVersion did
-// not. A v1 file therefore fails at the magic — the first and cheapest check
-// — rather than being inflated as though it were compressed.
-constexpr char kMagic[8] = {'J', 'N', 'E', 'X', 'T', 'W', 'S', '2'};
+// state stream inside). It went 1 -> 2 when the payload stopped being the raw
+// stream, and 2 -> 3 (GH #396) when the 64-byte SD digest field became the
+// image's size and mtime; the stream itself did not change either time, so
+// kFormatVersion did not. An older file therefore fails at the magic - the
+// first and cheapest check - rather than being read with the wrong layout.
+constexpr char kMagic[8] = {'J', 'N', 'E', 'X', 'T', 'W', 'S', '3'};
 
 // Header field offsets. Written and read from the same constants so the two
 // sides cannot drift.
@@ -69,8 +72,8 @@ constexpr size_t kOffMagic        = 0;    // 8
 constexpr size_t kOffFormatVer    = 8;    // u32
 constexpr size_t kOffMachineType  = 12;   // u32
 constexpr size_t kOffPlainBytes   = 16;   // u64 — uncompressed stream length
-constexpr size_t kOffSha256       = 24;   // 64 ASCII hex chars, NUL-padded
-constexpr size_t kShaFieldBytes   = 64;
+constexpr size_t kOffSdBytes      = 24;   // u64 — SD image size
+constexpr size_t kOffSdMtime      = 32;   // i64 — SD image mtime, raw file_clock ticks
 constexpr size_t kOffStoredBytes  = 88;   // u64 — compressed payload length
 
 void put_u32(uint8_t* p, uint32_t v) {
@@ -199,9 +202,8 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
     const uint64_t plain  = get_u64(hdr + kOffPlainBytes);
     const uint64_t stored = get_u64(hdr + kOffStoredBytes);
 
-    char sha[kShaFieldBytes + 1]{};
-    std::memcpy(sha, hdr + kOffSha256, kShaFieldBytes);
-    const std::string stored_sha(sha);
+    const uint64_t sd_bytes = get_u64(hdr + kOffSdBytes);
+    const int64_t  sd_mtime = static_cast<int64_t>(get_u64(hdr + kOffSdMtime));
 
     // Each mismatch names BOTH values: a stale cache that silently served the
     // wrong machine is the worst failure this mechanism can have, so when it
@@ -216,9 +218,11 @@ bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why)
               std::to_string(static_cast<int>(want.machine_type));
         return false;
     }
-    if (stored_sha != want.sd_image_sha256) {
-        why = "recorded from a different SD image (" + stored_sha + " != " +
-              want.sd_image_sha256 + ")";
+    if (sd_bytes != want.sd_image_bytes || sd_mtime != want.sd_image_mtime) {
+        why = "recorded from a different SD image state (size " +
+              std::to_string(sd_bytes) + ", mtime " + std::to_string(sd_mtime) +
+              " != size " + std::to_string(want.sd_image_bytes) + ", mtime " +
+              std::to_string(want.sd_image_mtime) + ")";
         return false;
     }
     // The PLAIN length is the identity check — what this build's save_state
@@ -275,10 +279,6 @@ bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& w
         why = "refusing to write a header that disagrees with its own payload";
         return false;
     }
-    if (id.sd_image_sha256.size() > kShaFieldBytes) {
-        why = "SD image digest does not fit the header field";
-        return false;
-    }
 
     const std::string dir = cache_dir();
     std::error_code ec;
@@ -299,7 +299,8 @@ bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& w
     put_u32(hdr + kOffFormatVer, id.format_version);
     put_u32(hdr + kOffMachineType, id.machine_type);
     put_u64(hdr + kOffPlainBytes, id.plain_bytes);
-    std::memcpy(hdr + kOffSha256, id.sd_image_sha256.data(), id.sd_image_sha256.size());
+    put_u64(hdr + kOffSdBytes, id.sd_image_bytes);
+    put_u64(hdr + kOffSdMtime, static_cast<uint64_t>(id.sd_image_mtime));
     put_u64(hdr + kOffStoredBytes, static_cast<uint64_t>(packed.size()));
 
     // Write to a sibling temporary and rename: a jnext killed mid-write must

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3779,13 +3779,15 @@ not have — a snapshot replaces the whole machine, and a tape is read through a
 shipped with JNEXT: it contains NextZXOS's own ROM, and JNEXT does not
 redistribute firmware — which is also why it downloads the SD card image rather
 than including one.</p>
-<p>It is one file per machine type, a little over 100 KB, keyed by the contents of
-the SD card image, the machine type and the save format. Change any of those —
-replace the image, switch machine, install a JNEXT update that changes the
-format — and it re-records itself on the next load. Checking that key means
-reading the whole card image each time a NEX file is loaded, which costs about
-half a second on a 1 GB image; it is what stops a recording of one card being
-served to another.</p>
+<p>It is one file per machine type, a little over 100 KB, keyed by the size and
+modification time of the SD card image, the machine type and the save format.
+Change any of those — replace the image, switch machine, install a JNEXT update
+that changes the format — or let JNEXT itself write to the card, and it
+re-records itself on the next load. The card's contents are not read, so
+loading stays fast on any card size. The one case this cannot see: an image
+replaced or edited outside JNEXT that ends up with the same size and the same
+modification time (for example <code>cp -p</code>, or <code>touch -r</code>) is served the old
+recording. Use <code>--warm-start-regenerate</code> when in doubt.</p>
 <p>If you update <code>TBBLUE.FW</code> or NextZXOS on the card in a way you want re-recorded
 straight away, <code>--warm-start-regenerate</code> forces it:</p>
 <pre><code>jnext --warm-start-regenerate game.nex

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3920,9 +3920,7 @@ boot, then the load. A <code>.jns</code> you save into that folder yourself coun
 <li>Only <code>.jns</code> is used: it is the one format that can hold a whole machine.</li>
 <li>Keys you type while a quick save or load is in progress are not lost: they are
   delivered afterwards, in the order you typed them, and a quick save waits for
-  the keys you typed before it. The machine freezes for a moment while it reads
-  the SD card image to identify it, which grows with the size of the image; the
-  log shows each such pass as "digested SD image".</li>
+  the keys you typed before it.</li>
 </ul>
 <h2 id="loading">Loading<a class="headerlink" href="#loading" title="Permanent link">&para;</a></h2>
 <p>Drop the file on the command line, or <strong>File ▸ Load NEX File…</strong> (Alt+O) — the
@@ -4022,9 +4020,11 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
   it, and says what it is overriding. That includes a card you put in with
   <strong>File &gt; Insert SD Card Image</strong> after saving: insert the original again to
   restore.</li>
-<li><strong>The same card, changed since</strong> — which happens constantly, because JNEXT
-  writes guest changes back to the card — <strong>restores with one warning line</strong>.
-  That is normal, and usually irrelevant.</li>
+<li><strong>The same card, changed since, is not checked.</strong> JNEXT assumes the card is as
+  you left it. If you change it between saving and loading, outside JNEXT or by
+  running other programs that write to it, loading the snapshot is at your own
+  risk: NextZXOS keeps parts of the card's file system in memory, and a restored
+  machine can write that stale picture back and corrupt files.</li>
 <li>The card's <strong>volume label</strong> is never compared. Several tools rewrite it, and
   a snapshot that refused over a renamed card would be a snapshot nobody reads
   the warnings of.</li>

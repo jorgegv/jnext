@@ -33,14 +33,14 @@
 //   WSC-RT-03     store() leaves no .tmp file behind
 //   WSC-RT-04     a second store() replaces in place — one file per machine
 //   WSC-HDR-01    file length is kHeaderBytes + the STORED (compressed) length
-//   WSC-HDR-02    the SD digest is stored as ASCII hex at its documented offset
+//   WSC-HDR-02    the SD image's size and mtime sit at their documented offsets
 //   WSC-Z-01      the stored payload is DEFLATED, and its length is the header's
 //   WSC-Z-02      a corrupted compressed payload is REFUSED as an inflate failure
 //   WSC-Z-03      a payload that inflates SHORT of its declared length is REFUSED
 //   WSC-Z-04      a previous-generation (JNEXTWS1) file is REFUSED at the magic
 //   WSC-Z-05      a header declaring an empty compressed payload is REFUSED
 //   WSC-Z-06      an over-long stored length is REFUSED before it sizes a read
-//   WSC-INV-01    a different SD image digest is REFUSED
+//   WSC-INV-01    a different SD image mtime is REFUSED
 //   WSC-INV-02    a different machine type is REFUSED
 //   WSC-INV-03    a bumped state-format version is REFUSED
 //   WSC-INV-04    a different state-stream length is REFUSED
@@ -51,7 +51,6 @@
 //   WSC-INV-09    a refused load leaves the caller's buffer untouched
 //   WSC-INV-10    all twelve refusal branches state a DISTINCT reason
 //   WSC-STORE-01  store() refuses a header that disagrees with its payload
-//   WSC-STORE-02  store() refuses a digest too long for the header field
 //   WSR-RES-01    a non-Next machine is refused, naming the machine
 //   WSR-RES-02    a Next that never booted is refused although the two
 //                 FIRMWARE-LESS checks pass — the case with no symptom
@@ -86,12 +85,13 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/warm_start_cache.h"
+#include "peripheral/sd_card.h"
 #include "core/saveable.h"
-#include "core/sdcard_provisioner.h"   // sdcard::sha256_file (WSR-SWAP-01)
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -213,10 +213,10 @@ void set_config_dir(const std::string& d) {
     jtp::set_env("JNEXT_CONFIG_DIR", d.c_str());
 }
 
-// A digest-shaped string: 64 lower-case hex characters, as sha256_file
-// returns. The rows never hash a real file — what is under test is the
-// comparison, not OpenSSL.
-std::string digest(char fill) { return std::string(64, fill); }
+// The SD-image key the cache stores is (size, mtime) (GH #396). Rows that
+// only need "a key" vary the mtime with a letter; the size is fixed.
+constexpr uint64_t kFakeSdBytes = 1073741824ull;
+int64_t mt(char fill) { return static_cast<int64_t>(fill); }
 
 /// The smallest NEX `NexLoader::load()` accepts: a 512-byte header declaring
 /// one 16 KB bank, plus that bank. Enough to reach Emulator::load_nex() ->
@@ -251,12 +251,24 @@ std::vector<uint8_t> payload(size_t n, uint8_t seed) {
     return v;
 }
 
-warm_start::Identity make_id(const std::string& sha, uint8_t mtype, size_t bytes) {
+warm_start::Identity make_id(int64_t sd_mtime, uint8_t mtype, size_t bytes) {
     warm_start::Identity id;
-    id.sd_image_sha256 = sha;
+    id.sd_image_bytes  = kFakeSdBytes;
+    id.sd_image_mtime  = sd_mtime;
     id.machine_type    = mtype;
     id.format_version  = warm_start::kFormatVersion;
     id.plain_bytes     = bytes;
+    return id;
+}
+
+/// The key `Emulator::ensure_warm_start_state` computes for a card: the
+/// image's size and its raw `file_clock` mtime ticks.
+warm_start::Identity make_card_id(const std::string& card, uint8_t mtype, size_t bytes) {
+    std::error_code e;
+    auto id = make_id(0, mtype, bytes);
+    id.sd_image_bytes = std::filesystem::file_size(card, e);
+    id.sd_image_mtime = static_cast<int64_t>(
+        std::filesystem::last_write_time(card, e).time_since_epoch().count());
     return id;
 }
 
@@ -345,7 +357,7 @@ int main()
 
     // ── Round trip ───────────────────────────────────────────────────
     const auto state = payload(4096, 0x11);
-    const auto id    = make_id(digest('a'), 0, state.size());
+    const auto id    = make_id(mt('a'), 0, state.size());
     {
         std::filesystem::remove_all(warm_start::cache_dir(), ec);
         std::string why;
@@ -376,10 +388,10 @@ int main()
                           (uintmax_t)hdr_plain, (uintmax_t)hdr_stored));
 
         const auto raw = read_file(warm_start::cache_path(0));
-        check("WSC-HDR-02", "the SD digest is ASCII hex in the header",
-              raw.size() > 88 &&
-                  std::string(reinterpret_cast<const char*>(raw.data()) + 24, 64) ==
-                      id.sd_image_sha256);
+        check("WSC-HDR-02",
+              "the header carries the image's size and mtime at offsets 24 and 32",
+              raw.size() > 88 && le64(raw, 24) == id.sd_image_bytes &&
+                  static_cast<int64_t>(le64(raw, 32)) == id.sd_image_mtime);
 
         // ── Compression (GH #234 by-default) ────────────────────────
         //
@@ -438,7 +450,7 @@ int main()
             {
                 std::string why;
                 const auto shortstate = payload(1024, 0x33);
-                warm_start::store(make_id(digest('a'), 0, shortstate.size()),
+                warm_start::store(make_id(mt('a'), 0, shortstate.size()),
                                   shortstate, why);
                 poke_u64(p0, 16, state.size());          // kOffPlainBytes
                 std::vector<uint8_t> out;
@@ -537,7 +549,7 @@ int main()
         // the first: the identity check invalidates, the filename does not,
         // so a changed SD image must not leave an orphan beside it.
         const auto state2 = payload(2048, 0x55);
-        const auto id2    = make_id(digest('b'), 0, state2.size());
+        const auto id2    = make_id(mt('b'), 0, state2.size());
         warm_start::store(id2, state2, why);
         std::vector<uint8_t> back2;
         const bool loaded2 = warm_start::load(id2, back2, why);
@@ -578,8 +590,8 @@ int main()
             return rejected && why.find(expect) != std::string::npos;
         };
 
-        check("WSC-INV-01", "a different SD image digest is refused, as such",
-              refused(make_id(digest('c'), 0, state.size()),
+        check("WSC-INV-01", "a different SD image mtime is refused, as such",
+              refused(make_id(mt('c'), 0, state.size()),
                       "recorded from a different SD image"), why);
         // The machine type is BOTH the filename and a header field, and the
         // filename alone would answer this: asking for type 1 looks at a path
@@ -595,18 +607,18 @@ int main()
             f.close();
             check("WSC-INV-02",
                   "a header recorded for another machine type is refused, as such",
-                  refused(make_id(digest('a'), 0, state.size()),
+                  refused(make_id(mt('a'), 0, state.size()),
                           "recorded for machine type"), why);
             warm_start::store(id, state, why);
         }
 
-        warm_start::Identity bumped = make_id(digest('a'), 0, state.size());
+        warm_start::Identity bumped = make_id(mt('a'), 0, state.size());
         bumped.format_version = warm_start::kFormatVersion + 1;
         check("WSC-INV-03", "a bumped state-format version is refused, as such",
               refused(bumped, "state-format version"), why);
 
         check("WSC-INV-04", "a different state-stream length is refused, as such",
-              refused(make_id(digest('a'), 0, state.size() + 1),
+              refused(make_id(mt('a'), 0, state.size() + 1),
                       "state stream is"), why);
 
         // Truncate the payload without touching the header: the length the
@@ -637,7 +649,7 @@ int main()
         {
             out.assign(8, 0xAB);
             std::vector<uint8_t> before = out;
-            warm_start::load(make_id(digest('c'), 0, state.size()), out, why);
+            warm_start::load(make_id(mt('c'), 0, state.size()), out, why);
             check("WSC-INV-09", "a refused load leaves the caller's buffer untouched",
                   out == before);
         }
@@ -688,25 +700,28 @@ int main()
                   g_refusals.size() == 12 && all_set && all_distinct,
                   det("%zu refusals", g_refusals.size()));
         }
+
+        // GH #396: the key is (size, mtime). WSC-INV-01 moves the mtime; this
+        // moves only the SIZE. Run after WSC-INV-10 so its refusal is not
+        // counted among the twelve branches (it re-enters the same branch).
+        {
+            warm_start::store(id, state, why);
+            warm_start::Identity bigger = id;
+            bigger.sd_image_bytes += 1;
+            check("WSC-INV-11", "a different SD image size is refused, as such",
+                  refused(bigger, "recorded from a different SD image"), why);
+        }
     }
 
     // ── store() refusals ─────────────────────────────────────────────
     {
         std::string why;
-        auto bad_len = make_id(digest('a'), 0, state.size() + 1);
+        auto bad_len = make_id(mt('a'), 0, state.size() + 1);
         why.clear();
         check("WSC-STORE-01",
               "store() refuses a header that disagrees with its payload, as such",
               !warm_start::store(bad_len, state, why) &&
                   why.find("disagrees with its own payload") != std::string::npos,
-              why);
-
-        auto bad_sha = make_id(std::string(80, 'a'), 0, state.size());
-        why.clear();
-        check("WSC-STORE-02",
-              "store() refuses a digest too long for the header field, as such",
-              !warm_start::store(bad_sha, state, why) &&
-                  why.find("does not fit the header field") != std::string::npos,
               why);
     }
 
@@ -964,7 +979,7 @@ int main()
     // The recording is a machine booted off ONE card and is kept for the
     // session; served after a swap, the next .nex load would restore the old
     // card's NextZXOS on top of the new card. A cache entry is planted for
-    // card A (its real digest, this machine's real stream length) so
+    // card A (its real key, this machine's real stream length) so
     // ensure_warm_start_state() HOLDS a state without booting firmware, which
     // is what makes the drop observable offline.
     {
@@ -994,7 +1009,7 @@ int main()
         emus.save_state(w);
         std::string why;
         const bool stored = warm_start::store(
-            make_id(sdcard::sha256_file(card_a),
+            make_card_id(card_a,
                     static_cast<uint8_t>(MachineType::ZXN_ISSUE2), state.size()),
             state, why);
         const bool held = emus.ensure_warm_start_state() && !emus.warm_start_state().empty();
@@ -1017,7 +1032,7 @@ int main()
     // ROM 3, so a call that reached $0008 ran the 48K ROM's error restart.
     //
     // The recording is synthesised and planted in the cache under a blob
-    // card's real digest, as WSR-SWAP-01 does. With a card mounted init()
+    // card's real key, as WSR-SWAP-01 does. With a card mounted init()
     // leaves the IPL's work undone, so the fixture does the two things the
     // residency checks look for: the NR 0x03 commit NextZXOS's firmware ends
     // on ($B3: +3 timing, +3 machine — measured at NEX entry, GH #301
@@ -1058,7 +1073,7 @@ int main()
         rec.save_state(w);
         std::string why;
         const bool stored = warm_start::store(
-            make_id(sdcard::sha256_file(card),
+            make_card_id(card,
                     static_cast<uint8_t>(MachineType::ZXN_ISSUE2), state.size()),
             state, why);
 
@@ -1098,6 +1113,215 @@ int main()
                   emu.divmmc().automap_active(),
               det("pc0=%04X pc1=%04X before=%d automap=%d", pc0, pc1,
                   before ? 1 : 0, emu.divmmc().automap_active() ? 1 : 0));
+    }
+
+    // ── GH #396: the warm-start key is (size, mtime) + own-write generation ──
+    //
+    // Oracle: plan sections 4.3-4.5 (owner decision 2026-10-22). Each row plants
+    // a cache entry keyed on a blob card's real (size, mtime) and this
+    // machine's real stream length, so a HIT restores without booting firmware.
+    // A MISS makes ensure_warm_start_state() record, which on a firmware-less
+    // card declines after a real boot (kWhyNotRecorded) - that is the
+    // observable. Each row uses its own card: the process-wide memo is keyed
+    // on the path.
+    {
+        namespace fs = std::filesystem;
+        auto blob = [](const std::string& path) {
+            std::vector<uint8_t> bytes(64 * 1024, 0x44);
+            std::ofstream f(path, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+        };
+        auto plant = [&](const std::string& card) {
+            Emulator probe;
+            EmulatorConfig pc;
+            pc.type = MachineType::ZXN_ISSUE2;
+            pc.rewind_buffer_frames = 0;
+            pc.sd_card_image = card;
+            probe.init(pc);
+            StateWriter measure;
+            probe.save_state(measure);
+            std::vector<uint8_t> st(measure.position());
+            StateWriter w(st.data(), st.size());
+            probe.save_state(w);
+            std::string pwhy;
+            return warm_start::store(
+                make_card_id(card, static_cast<uint8_t>(MachineType::ZXN_ISSUE2),
+                             st.size()),
+                st, pwhy);
+        };
+        auto make_emu = [&](Emulator& e, const std::string& card) {
+            EmulatorConfig c;
+            c.type = MachineType::ZXN_ISSUE2;
+            c.rewind_buffer_frames = 0;
+            c.sd_card_image = card;
+            e.init(c);
+        };
+        // One CMD24 of sector 0 through the emulator's own card device.
+        auto write_sector = [](Emulator& e) {
+            SdCardDevice& sd = e.sd_card();
+            sd.reset();
+            auto cmd = [&](uint8_t c, uint32_t arg) {
+                sd.receive(0x40 | c);
+                sd.receive(static_cast<uint8_t>(arg >> 24));
+                sd.receive(static_cast<uint8_t>(arg >> 16));
+                sd.receive(static_cast<uint8_t>(arg >> 8));
+                sd.receive(static_cast<uint8_t>(arg));
+                sd.receive(0x95);
+                uint8_t r = 0xFF;
+                for (int i = 0; i < 16 && r == 0xFF; ++i) r = sd.send();
+                return r;
+            };
+            cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+            const uint8_t r1 = cmd(24, 0);
+            sd.receive(0xFE);
+            for (int i = 0; i < 512; ++i) sd.receive(0x5A);
+            sd.receive(0xFF);
+            sd.receive(0xFF);
+            bool accepted = false;
+            for (int i = 0; i < 32; ++i) {
+                const uint8_t b = sd.send();
+                if (b == 0x05) { accepted = true; break; }
+            }
+            sd.deselect();
+            return r1 == 0x00 && accepted;
+        };
+        auto set_mtime = [](const std::string& card, int64_t ticks) {
+            std::error_code e;
+            fs::last_write_time(card,
+                fs::file_time_type(fs::file_time_type::duration(ticks)), e);
+            return !e;
+        };
+        auto mtime_of = [](const std::string& card) {
+            std::error_code e;
+            return static_cast<int64_t>(
+                fs::last_write_time(card, e).time_since_epoch().count());
+        };
+        constexpr const char* kRestored = "restored a recorded NextZXOS machine";
+
+        // WSR-KEY-01: an own write invalidates the in-memory state.
+        {
+            const std::string card = g_dir + "/key1.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            const bool planted = plant(card);
+            Emulator e;
+            make_emu(e, card);
+            LogTap tap(Log::emulator());
+            const bool first = e.ensure_warm_start_state() && !e.warm_start_state().empty();
+            const uint64_t gen0 = SdCardDevice::host_write_generation();
+            const bool wrote = write_sector(e);
+            const bool bumped = SdCardDevice::host_write_generation() == gen0 + 1;
+            const bool second = e.ensure_warm_start_state();
+            check("WSR-KEY-01",
+                  "an own CMD24 write bumps the write generation and drops the "
+                  "in-memory recording: the next ensure re-records instead of "
+                  "reusing it",
+                  planted && first && wrote && bumped && !second &&
+                      e.warm_start_state().empty() &&
+                      tap.count(kRestored) == 1 && tap.count(kWhyNotRecorded) == 1,
+                  det("planted=%d first=%d wrote=%d bumped=%d second=%d "
+                      "restored=%d not-recorded=%d", planted, first, wrote, bumped,
+                      second, tap.count(kRestored), tap.count(kWhyNotRecorded)));
+        }
+        // WSR-KEY-02: an own write whose mtime is put back is still caught by
+        // the process-wide memo, across a fresh Emulator.
+        {
+            const std::string card = g_dir + "/key2.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            const bool planted = plant(card);
+            const int64_t recorded = mtime_of(card);
+            LogTap tap(Log::emulator());
+            Emulator e1;
+            make_emu(e1, card);
+            const bool hit1 = e1.ensure_warm_start_state();
+            const bool wrote = write_sector(e1);
+            const bool restored_mtime = set_mtime(card, recorded) &&
+                                        mtime_of(card) == recorded;
+            Emulator e2;
+            make_emu(e2, card);
+            const bool hit2 = e2.ensure_warm_start_state();
+            check("WSR-KEY-02",
+                  "an own write with the mtime restored to the recorded one is "
+                  "still refused for a fresh Emulator (the generation memo) and "
+                  "re-recorded",
+                  planted && hit1 && wrote && restored_mtime && !hit2 &&
+                      tap.count(kRestored) == 1 && tap.count(kWhyNotRecorded) == 1,
+                  det("planted=%d hit1=%d wrote=%d mtime=%d hit2=%d restored=%d "
+                      "not-recorded=%d", planted, hit1, wrote, restored_mtime, hit2,
+                      tap.count(kRestored), tap.count(kWhyNotRecorded)));
+        }
+        // WSR-KEY-03: outside changes - mtime alone, then size alone.
+        {
+            const std::string card = g_dir + "/key3.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            const bool planted = plant(card);
+            const int64_t recorded = mtime_of(card);
+            // One hour in the clock's own ticks (ns on Linux, 100 ns on
+            // Windows), read back: a host that rounds timestamps coarsely
+            // (wine) must still show the move.
+            const int64_t hour = static_cast<int64_t>(
+                std::chrono::duration_cast<fs::file_time_type::duration>(
+                    std::chrono::hours(1)).count());
+            const bool moved = set_mtime(card, recorded + hour) &&
+                               mtime_of(card) != recorded;
+            LogTap tap(Log::emulator());
+            Emulator e1;
+            make_emu(e1, card);
+            const bool miss_mtime = !e1.ensure_warm_start_state();
+            const int diff1 = tap.count("recorded from a different SD image state");
+
+            set_mtime(card, recorded);
+            const bool replanted = plant(card);
+            {   // size only: append a sector, then put the mtime back
+                std::ofstream f(card, std::ios::binary | std::ios::app);
+                const std::vector<char> sector(512, 0);
+                f.write(sector.data(), static_cast<std::streamsize>(sector.size()));
+            }
+            const bool back = set_mtime(card, recorded);
+            Emulator e2;
+            make_emu(e2, card);
+            const bool miss_size = !e2.ensure_warm_start_state();
+            const int diff2 = tap.count("recorded from a different SD image state");
+            check("WSR-KEY-03",
+                  "an outside change is caught by the header key: a moved mtime "
+                  "alone refuses, and so does a changed size with the mtime "
+                  "unchanged; both re-record",
+                  planted && moved && miss_mtime && diff1 == 1 && replanted && back &&
+                      miss_size && diff2 == 2 && tap.count(kRestored) == 0,
+                  det("planted=%d moved=%d miss_mtime=%d diff1=%d replanted=%d "
+                      "back=%d miss_size=%d diff2=%d", planted, moved, miss_mtime,
+                      diff1, replanted, back, miss_size, diff2));
+        }
+        // WSR-KEY-04: no over-invalidation.
+        {
+            const std::string card = g_dir + "/key4.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            const bool planted = plant(card);
+            LogTap tap(Log::emulator());
+            Emulator e1;
+            make_emu(e1, card);
+            const bool hit1 = e1.ensure_warm_start_state();
+            Emulator e2;
+            make_emu(e2, card);
+            const bool hit2 = e2.ensure_warm_start_state();   // memo present
+            Emulator::reset_warm_start_memo_for_test();
+            Emulator e3;
+            make_emu(e3, card);
+            const bool hit3 = e3.ensure_warm_start_state();   // "a new process"
+            check("WSR-KEY-04",
+                  "an unchanged card is served from the cache every time - with "
+                  "the memo, and with the memo cleared as in a new process - and "
+                  "never re-recorded",
+                  planted && hit1 && hit2 && hit3 &&
+                      tap.count(kRestored) == 3 && tap.count(kWhyNotRecorded) == 0,
+                  det("planted=%d hits=%d%d%d restored=%d not-recorded=%d", planted,
+                      hit1, hit2, hit3, tap.count(kRestored),
+                      tap.count(kWhyNotRecorded)));
+        }
     }
 
     std::filesystem::remove_all(g_dir, ec);

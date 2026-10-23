@@ -326,6 +326,21 @@ hardware does". Closing it means modelling the sweep, which moves the
 
 ### 10.6 Answers to the remaining open questions (§9)
 
+> **GH #396 revision (owner, 2026-10-22).** The SD image's SHA-256 below is
+> REPLACED as the key by the image's `(size, mtime)` plus jnext's own write
+> generation (`SdCardDevice::host_write_generation()`, bumped by every CMD24
+> jnext commits, process-wide because the `Emulator` dies at every cold boot).
+> The header's 64-byte digest field became `u64 size` at 24, `i64 mtime` (raw
+> `file_clock` ticks) at 32, 48 reserved bytes; the magic went `JNEXTWS2` ->
+> `JNEXTWS3`; `kFormatVersion` stays 4. The key is read after a recording. An
+> own write drops the in-memory state; a process-wide memo of the last
+> validation catches an own write that did not move the mtime. **Accepted
+> residual:** an image replaced or edited from outside with the same size and
+> the same mtime (`cp -p`, `touch -r`) serves a stale recording;
+> `--warm-start-regenerate` is the escape hatch. Reason: the digest cost
+> 0.6-1.2 s per GB on the UI thread at every cold boot that loads a program.
+> The text below describes the superseded design.
+
 2. **Per machine type, per SD image, or both?** Both, plus two more. The
    identity is the SD image's SHA-256, the machine type, a state-format
    version AND the exact state-stream length. The length is not bookkeeping:
@@ -430,7 +445,7 @@ levels were re-chosen on that basis:
 |---|---|---|
 | Non-Next machine (`48k`/`128k`/`plus3`) | `debug` | NOT a refusal. There is no firmware to record, nothing was asked for and nothing was denied. On `warn` it would print on every legacy run forever, which is how a log stops being read. §7.4 asked for "out of scope, loudly"; with the flag gone, loud here is wrong. |
 | No SD image mounted | `error` | A Next that could have had a recording and does not. Unreachable from the CLI (`main.cpp` exits first) but reachable from the library and the GUI. |
-| SD image cannot be digested | `error` | Same. |
+| SD image cannot be digested | `error` | Same. *(GH #396: now "cannot stat SD image".)* |
 | Recording boot did not end NextZXOS-resident | `error` | Already was. |
 | Recording length disagrees with this build | `error` | Already was. |
 | Cached state will not deserialise | `error` | Already was. |
@@ -501,6 +516,7 @@ first and cheapest check — instead of being handed to the inflater.
 | warm `--load`, cache miss (records) | ~2.7-4.3 s |
 | cache file | 128 753 B (was 2 293 061 B) |
 
+*(GH #396: superseded - a hit now costs one `stat`; see the revision note in §10.6.)*
 The ~0.5 s a cache hit adds is **the SD image's SHA-256**, not the restore
 (the compressed file is 126 KB and `load_state` is milliseconds). It is ~1.2 s
 when the image is cold in the page cache. That cost is paid deliberately: the

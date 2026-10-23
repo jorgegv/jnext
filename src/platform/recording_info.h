@@ -33,8 +33,7 @@ inline jnext::script::RecordingInfo recording_info_of(const Emulator& emu) {
     if (!info.sd_image.empty()) {
         jnext::jns::SdCardInfo sd;
         std::string            why;
-        if (jnext::describe_sdcard_for_snapshot(info.sd_image, /*read_only=*/true, sd, why,
-                                                /*want_content_stamp=*/false))
+        if (jnext::describe_sdcard_for_snapshot(info.sd_image, /*read_only=*/true, sd, why))
             info.sd_id = sd.identity.describe();
     }
     return info;

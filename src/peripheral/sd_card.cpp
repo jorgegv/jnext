@@ -346,6 +346,9 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                         // also touch the same stream state.
                         file_.clear();
                     } else {
+                        // After the flush, and only on a committed write
+                        // (GH #396): the warm-start cache keys on this.
+                        write_generation_.fetch_add(1, std::memory_order_relaxed);
                         sd_log()->debug(
                             "CMD24 wrote 512 bytes at sector {} (byte={:#010x})",
                             sector, byte_addr);

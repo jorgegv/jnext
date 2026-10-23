@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2595,9 +2595,8 @@ in the machine-side class, plus a stated policy.</p>
   queued keys but keeps queued actions, so a focus loss does not cancel a save the
   user asked for. After a snapshot load wipes the matrix, <code>Router::reassert()</code>
   puts back the keys the router holds (the four windowed-frontend load sites all go through <code>emulator_apply_load_keeping_keys()</code> in <code>emulator_boot.h</code>, so none can forget it), so
-  the guest matrix is exactly what the host holds through the router. The
-  Quick Save/Load stall is the whole-card SHA-256 (see media and loaders); the
-  keys typed during it are delivered afterwards, in order.</p>
+  the guest matrix is exactly what the host holds through the router. Keys
+  typed while a Quick Save/Load is in progress are delivered afterwards, in order.</p>
 <p><code>Router::release_all()</code> is the third policy, and it answers a different
   question: <strong>what if the key-up never arrives at all?</strong> A Qt popup and a focus
   change both take the keyboard away mid-keystroke, and the key-up then goes to
