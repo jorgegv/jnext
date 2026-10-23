@@ -6860,6 +6860,21 @@ static int test_rewind_setting_survives_load()
               detail(e, ok));
     }
 
+    {   // RWLOAD-12 pause then RESUME then load: the resume clears the recorded pause
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        build_emulator(e, 10);
+        frames(e, 3);
+        e.set_rewind_enabled(false);
+        e.set_rewind_enabled(true);
+        const bool ok = emulator_apply_load(e, sna, false);
+        frames(e, 1);
+        check("RWLOAD-12", ok && e.rewind_enabled() && e.rewind_buffer() &&
+                           e.rewind_buffer()->capacity() == 10 && e.rewind_buffer()->depth() == 1 &&
+                           !e.config().rewind_paused,
+              "pause then resume then load: rewind comes back running, not paused",
+              detail(e, ok));
+    }
+
     for (const std::string* p : {&sna, &szx, &nex, &z80, &jns, &tap})
         std::remove(p->c_str());
     return 0;

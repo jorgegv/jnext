@@ -1297,6 +1297,20 @@ int main()
                   emu.rewind_buffer() == nullptr && !emu.rewind_enabled(),
                   "cap=" + std::to_string(cap(emu)));
         }
+        {   // EB-70: pause then resume, then a cold boot: running, not paused
+            auto up = std::make_unique<Emulator>(); Emulator& emu = *up;
+            emu.init(startup(10));
+            run(emu, 2);
+            emu.set_rewind_enabled(false);
+            emu.set_rewind_enabled(true);
+            FakeFrontend fe;
+            emulator_frontend_cold_boot(emu, startup(10), "", fe.hooks());
+            const bool pre = cap(emu) == 10 && emu.rewind_enabled() && !fe.rewire_cfg.rewind_paused;
+            run(emu, 2);
+            check("EB-70", "a rewind paused and resumed in the debugger is running after a cold boot",
+                  pre && depth(emu) == 2,
+                  "cap=" + std::to_string(cap(emu)) + " depth=" + std::to_string(depth(emu)));
+        }
         {   // EB-69: the Qt File > Open sequence: cold boot, then the scheduled load
             const std::string sna = (std::filesystem::temp_directory_path() / ("jnext-eb69-" + jtp::process_id_string() + ".sna")).string();
             {

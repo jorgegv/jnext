@@ -1868,6 +1868,37 @@ static void test_rewind_ui() {
         }
     }
 
+    {
+        // QRW-24 - GH #400: the trace was switched off BEFORE Enable Rewind; the
+        // ring implies the trace, and the backend must record that, or the
+        // re-application after a cold boot puts the stale "off" back and Step
+        // Back is refused while rewind shows on.
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "trace off, then Enable Rewind, then a hard reset: the trace "
+                           "stays on and Step Back is still offered";
+        if (!fx.ok) { check("QRW-24", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            const EmulatorConfig stale = fx.emu.config();
+            DebuggerWindow* dbg = fx.dbg();
+            fx.backend->set_trace_enabled(false);
+            QAction* enable = debug_sub_item(dbg, "Rewind", "Enable Rewind");
+            if (enable) enable->trigger();
+            run_frames_then_break(fx, 2);
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, stale, std::string(), ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            fx.mgr->on_run();
+            run_frames_then_break(fx, 3);
+            const bool trace = fx.emu.trace_log().enabled();
+            const bool offered = action_enabled(debug_item(dbg, "Step Back"));
+            check("QRW-24", desc, trace && offered && fx.emu.rewind_enabled(),
+                  fmt("trace=%d step_back_enabled=%d rewind=%d", trace, offered,
+                      fx.emu.rewind_enabled()));
+        }
+    }
+
     // ── Failure classes (Task 60e): refused, benign, corrupt ─────────
     {
         Fixture fx(MachineType::ZX48K, 10);
