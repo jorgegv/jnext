@@ -1604,6 +1604,57 @@ void test_sidecar_reason_late_window() {
           s(first) + " | " + s(sp->location_text()));
 }
 
+// ── GH #342: the tab reads the backend's reason, only the source half's ──
+
+void test_source_map_lifetime() {
+    const std::string dir = g_tmp->path().toStdString();
+    {
+        // A map loaded by hand with no identity, then another landing (a
+        // reset): stale, the tab names the file and the backend's reason, and
+        // the steps are disabled.
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        fx.backend->reset(jnext::dbg::CLIENT_NONE, jnext::dbg::ResetKind::Soft);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const auto st = fx.backend->source_map_status();
+        const QString text = sp->location_text();
+        check("QSRC-58", "a map loaded by hand that went stale: the Source tab names the file "
+                         "and the backend's reason, and the steps are disabled",
+              !st.reason.empty() && text.contains(QString::fromStdString(fx.sld)) &&
+                  text.contains(QString::fromStdString(st.reason)) &&
+                  !button(sp, QStringLiteral("Into"))->isEnabled() &&
+                  !button(sp, QStringLiteral("Over"))->isEnabled(),
+              s(text));
+    }
+    {
+        // Memory.txt refused, SLD attached, then a reset drops the SLD: the tab
+        // shows why the map went, not the Memory.txt refusal.
+        Fixture fx;
+        fx.enable();
+        const std::string nex = dir + "/q59.nex";
+        write_text(nex, "");
+        write_text(dir + "/q59.Memory.txt", "8000: ._Old\n");
+        std::error_code ec;
+        std::filesystem::resize_file(dir + "/q59.Memory.txt", SOURCE_FILE_MAX_BYTES + 1, ec);
+        std::filesystem::copy_file(fx.sld, dir + "/q59.sld",
+                                   std::filesystem::copy_options::overwrite_existing);
+        const auto r = fx.backend->load_program_sidecars(nex);
+        fx.mgr->report_sidecars(r);
+        fx.backend->reset(jnext::dbg::CLIENT_NONE, jnext::dbg::ResetKind::Soft);
+        fx.mgr->refresh_panels();
+        const QString text = fx.dbg()->source_panel()->location_text();
+        check("QSRC-59", "after a reset drops the attached map the tab gives the drop's reason, "
+                         "not the Memory.txt refusal of the load",
+              !ec && r.symbols_unreadable && r.sources > 0 &&
+                  text.startsWith(QStringLiteral("No source map loaded: ")) &&
+                  !text.contains(QStringLiteral("NextBuild symbols")) &&
+                  text.contains(QStringLiteral("binary identity")),
+              s(text));
+    }
+}
+
 // ── QCSP-02: the caller's page, not the target's ───────────────────────
 
 void test_call_stack_pages() {
@@ -1929,6 +1980,7 @@ int main(int argc, char** argv) {
     test_source_running();
     test_sidecar_reason();
     test_sidecar_reason_late_window();
+    test_source_map_lifetime();
     test_source_buttons();
     test_source_button_states();
     test_source_reverse_refused();

@@ -10292,6 +10292,28 @@ int main() {
         check("EVT-TBL-HIST-11", "clear_history() empties it", t.since(0).empty());
     }
 
+    // ── TRACE-SEQ — TraceLog::recorded() (GH #342) ───────────────────────
+    {
+        TraceLog t(4);
+        t.set_enabled(true);
+        TraceEntry e{};
+        for (int i = 0; i < 6; ++i) t.record(e);
+        const uint64_t wrapped = t.recorded();
+        t.clear();
+        t.record(e);
+        const uint64_t after_clear = t.recorded();
+        TraceLog f(2);
+        f.set_enabled(true);
+        f.set_no_wrap(true);
+        f.record(e);
+        f.record(e);
+        f.record(e);   // frozen: not stored, not counted
+        check("TRACE-SEQ-01", "recorded() counts every stored entry across a wrap and a clear(), "
+                              "and not a record the no-wrap freeze dropped",
+              wrapped == 6 && t.size() == 1 && after_clear == 7 && f.recorded() == 2 &&
+                  f.size() == 2);
+    }
+
     // ── EVT-BP — BreakpointSet's half of the §6 mask, and the OR ─────────
     {
         BreakpointSet bps;
