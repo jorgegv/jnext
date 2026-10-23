@@ -113,6 +113,12 @@ sub bold_ref_re {           # "SD CARD AND ROMS" -> /\*\*SD\s+CARD\s+.../
     return qr/\*\*$words\*\*/;
 }
 
+# One reference into LOADING PROGRAMS has a better target than the section's own
+# key: --load's pointer at the `.zip` entry lands on the guide's ZIP section
+# (GH #392). It is rewritten first, wrap-tolerant, so the general key (which
+# --esxdos-stub's "see LOADING PROGRAMS" still uses) never sees it.
+$body =~ s/the\s+`\.zip`\s+entry\s+of\s+\*\*LOADING\s+PROGRAMS\*\*/the [`.zip` entry](..\/05-running-programs\/index.md#programs-in-zip-archives)/g;
+
 for my $title ( sort { length($b) <=> length($a) } keys %SECTION_LINK ) {
     fail("'$title' is not a section of $MAN_SRC any more")
         unless $is_section{$title};

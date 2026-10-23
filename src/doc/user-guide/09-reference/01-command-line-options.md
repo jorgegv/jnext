@@ -47,7 +47,10 @@ with status 1.
 
 :   Load a program. The format is detected from the extension: `.nex`,
     `.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`.
-    (`.rzx` is accepted here and plays back, as **--rzx-play**.)
+    (`.rzx` is accepted here and plays back, as **--rzx-play**.) A
+    `.zip` archive holding one of them loads that program (see the
+    [`.zip`
+    entry](../05-running-programs/index.md#programs-in-zip-archives)).
 
     `.jns` is jnext’s own whole-machine snapshot (see [5.9
     Snapshots](../05-running-programs/09-snapshots.md)). Loading one

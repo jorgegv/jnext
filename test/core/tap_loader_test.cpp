@@ -791,6 +791,63 @@ int main() {
         }
     }
 
+    // TAPW-01 / TAPW-02 (GH #392) - a tape with one anomaly per 2 bytes (a 256 MiB
+    // zip of zeros was 134 million warnings, ~10 GB of stderr). Oracle: this
+    // header's own contract that anomalies are non-fatal and reported through
+    // `warn`; the cap (TapLoader::kMaxWarnings = 20) is the new rule.
+    {
+        Bytes zeros(200000, 0);   // 100000 zero-length blocks
+        std::vector<TapBlock> blocks;
+        std::vector<std::string> warns;
+        const bool ok = TapLoader::parse_blocks(zeros, blocks,
+            [&warns](const std::string& m) { warns.push_back(m); });
+        check("TAPW-01", "100000 zero-length blocks parse, and warn 20 times plus one summary counting the rest",
+              ok && warns.size() == TapLoader::kMaxWarnings + 1 &&
+                  warns.back().find("99980 more warnings suppressed") != std::string::npos,
+              "warnings=" + std::to_string(warns.size()) + (warns.empty() ? "" : " last=" + warns.back()));
+    }
+    {
+        Bytes zeros(10, 0);   // 5 zero-length blocks
+        std::vector<TapBlock> blocks;
+        std::vector<std::string> warns;
+        const bool ok = TapLoader::parse_blocks(zeros, blocks,
+            [&warns](const std::string& m) { warns.push_back(m); });
+        check("TAPW-02", "5 zero-length blocks (under the cap) are each reported and no summary is added",
+              ok && warns.size() == 5 && warns.back().find("suppressed") == std::string::npos,
+              "warnings=" + std::to_string(warns.size()));
+    }
+
+    // TAPW-03 (GH #392) - a block-count ceiling bounds the memory a
+    // degenerate tape can take (40 bytes per TapBlock for 4 bytes of file).
+    // Oracle: TapLoader::kMaxBlocks (1 Mi); real tapes hold thousands.
+    {
+        Bytes tape;
+        tape.reserve((TapLoader::kMaxBlocks + 1) * 4);
+        for (size_t i = 0; i < TapLoader::kMaxBlocks; ++i) tape.insert(tape.end(), {2, 0, 0, 0});
+        std::vector<TapBlock> blocks;
+        std::string err;
+        const bool at_cap = TapLoader::parse_blocks(tape, blocks, {}, &err);
+        const size_t n = blocks.size();
+        tape.insert(tape.end(), {2, 0, 0, 0});
+        const bool over = TapLoader::parse_blocks(tape, blocks, {}, &err);
+        check("TAPW-03", "a tape of exactly 1 Mi blocks loads; one more block is refused naming the limit",
+              at_cap && n == TapLoader::kMaxBlocks && !over && blocks.empty() &&
+                  err.find("more than 1048576 blocks") != std::string::npos, err);
+    }
+    // TAPW-04 - the checksum-mismatch warning is capped like the zero-length one.
+    {
+        Bytes bad;   // 50000 blocks "02 00 00 01": flag 0, checksum 1 (wrong)
+        for (int i = 0; i < 50000; ++i) bad.insert(bad.end(), {2, 0, 0, 1});
+        std::vector<TapBlock> blocks;
+        std::vector<std::string> warns;
+        const bool ok = TapLoader::parse_blocks(bad, blocks,
+            [&warns](const std::string& m) { warns.push_back(m); });
+        check("TAPW-04", "50000 bad-checksum blocks warn 20 times plus one summary counting the rest",
+              ok && warns.size() == TapLoader::kMaxWarnings + 1 &&
+                  warns.back().find("49980 more warnings suppressed") != std::string::npos,
+              "warnings=" + std::to_string(warns.size()));
+    }
+
     Log::emulator()->sinks().pop_back();
     std::filesystem::remove_all(g_root, ec);
 

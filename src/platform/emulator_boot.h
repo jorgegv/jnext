@@ -11,6 +11,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/program_archive.h"
 #include "core/snapshot_machine.h"
 
 #include "save/jns_container.h"
@@ -95,15 +96,16 @@ inline bool emulator_apply_load_keeping_keys(Emulator& emu, const std::string& f
 /// V1.3 probe at all. Must mirror emulator_apply_load()'s chain: every
 /// extension with its own branch there is listed here.
 inline bool emulator_load_routes_to_nex(const std::string& file) {
-    std::string ext;
+    // One extension table (program_archive::is_program_ext), shared with the
+    // archive layer (GH #392): every extension with its own branch above is in it.
     auto dot = file.rfind('.');
+    std::string ext;
     if (dot != std::string::npos) {
         ext = file.substr(dot);
         for (auto& c : ext)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
-    return ext != ".tap" && ext != ".tzx" && ext != ".sna" && ext != ".szx" &&
-           ext != ".z80" && ext != ".wav" && ext != ".rzx" && ext != ".jns";
+    return !program_archive::is_program_ext(file) || ext == ".nex";
 }
 
 /// True when emulator_apply_load() above routes `file` to Emulator::load_rzx()

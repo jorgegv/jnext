@@ -35,6 +35,8 @@
 #include "debug/debugger.h"
 
 #include <QAbstractButton>
+#include <QComboBox>
+#include <QInputDialog>
 #include <QAction>
 #include <QApplication>
 #include <QElapsedTimer>
@@ -55,6 +57,10 @@
 #include <string>
 #include <vector>
 #include "../row_id.h"
+#include "../test_portable.h"
+#include "../zip_fixture.h"
+#include "core/program_archive.h"
+#include "platform/pok_trainers.h"
 
 namespace {
 
@@ -209,6 +215,33 @@ struct Fixture {
 };
 
 std::string q(const QString& s) { return s.toStdString(); }
+
+// GH #392 - answers the "Load from Archive" QInputDialog: records its items and
+// either picks one or cancels.
+struct InputWatcher {
+    int         seen = 0;
+    QStringList items;
+    QString     pick;      // empty = Cancel
+    QTimer      timer;
+    InputWatcher() {
+        QObject::connect(&timer, &QTimer::timeout, [this]() {
+            auto* d = qobject_cast<QInputDialog*>(QApplication::activeModalWidget());
+            if (!d) return;
+            ++seen;
+            items = d->comboBoxItems();
+            if (pick.isEmpty()) { d->reject(); return; }
+            d->setTextValue(pick);
+            d->accept();
+        });
+        timer.start(1);
+    }
+    void stop() { timer.stop(); }
+};
+
+Bytes slurp(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return Bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
 
 } // namespace
 
@@ -636,6 +669,273 @@ int main(int argc, char** argv) {
               init_ok && recording && w.seen == 1 && w.text.contains("RZX") &&
                   !emu.tape_save_active(),
               fmt("recording=%d seen=%d text=%s", recording ? 1 : 0, w.seen, q(w.text).c_str()));
+    }
+
+
+    // ------------------------------------------------------------------
+    // GH #392 - programs inside .zip archives, File > Load's post-picker half.
+    // Oracle: the issue and the user guide 5 (an archive loads the one program
+    // inside it; several are asked for; every refusal names the archive and the
+    // member, never the scratch path). The load callback stands in for the cold
+    // boot and records what it was handed.
+    const std::string zfix = JNEXT_ZIP_FIXTURE_DIR;
+    const std::string zcfg = (g_root / "zipcfg").string();
+    std::filesystem::create_directories(zcfg, ec);
+    jtp::set_env("JNEXT_CONFIG_DIR", zcfg.c_str());
+    const Bytes z_beeper = slurp(zfix + "/../../00regression/tap/beeper_demo.tap");
+    const Bytes z_charset = slurp(zfix + "/../../00regression/tap/rom_charset_test.tap");
+    struct Handed { int n = 0; std::string path; Bytes bytes; };
+    auto hook = [](Fixture& f, Handed& h) {
+        f.win.set_load_file_callback([&h](const std::string& p, bool) {
+            ++h.n; h.path = p; h.bytes = slurp(p);
+        });
+    };
+    // ZIPG-01
+    {
+        Fixture f; Handed h; hook(f, h);
+        DialogWatcher w;
+        f.win.handle_load_path(QString::fromStdString(zfix + "/beeper.tap.zip"));
+        w.stop();
+        check("ZIPG-01",
+              "File > Load of beeper.tap.zip hands the load callback the extracted BEEPER.TAP, "
+              "bytes == beeper_demo.tap",
+              f.ok && h.n == 1 && std::filesystem::path(h.path).filename() == "BEEPER.TAP" &&
+                  h.bytes == z_beeper && w.seen == 0,
+              fmt("n=%d path=%s seen=%d", h.n, h.path.c_str(), w.seen));
+    }
+    // ZIPG-02
+    {
+        Fixture f; Handed h; hook(f, h);
+        InputWatcher in; in.pick = "SIDEB.TAP";
+        f.win.handle_load_path(QString::fromStdString(zfix + "/twotapes.zip"));
+        in.stop();
+        check("ZIPG-02",
+              "twotapes.zip asks which program (SIDEA.TAP, SIDEB.TAP in that order); choosing "
+              "SIDEB.TAP loads SIDEB.TAP",
+              f.ok && in.seen == 1 && in.items == QStringList({"SIDEA.TAP", "SIDEB.TAP"}) &&
+                  h.n == 1 && std::filesystem::path(h.path).filename() == "SIDEB.TAP" &&
+                  h.bytes == z_charset,
+              fmt("seen=%d items=%s n=%d path=%s", in.seen, q(in.items.join(",")).c_str(), h.n,
+                  h.path.c_str()));
+    }
+    // ZIPG-03
+    {
+        Fixture f; Handed h; hook(f, h);
+        InputWatcher in;   // Cancel
+        f.win.handle_load_path(QString::fromStdString(zfix + "/twotapes.zip"));
+        in.stop();
+        check("ZIPG-03", "Cancel on the program list loads nothing and resets nothing",
+              f.ok && in.seen == 1 && h.n == 0, fmt("seen=%d n=%d", in.seen, h.n));
+    }
+    // ZIPG-04
+    {
+        Fixture f; Handed h; hook(f, h);
+        f.win.set_unattended(true);
+        InputWatcher in; in.pick = "SIDEA.TAP";
+        f.win.handle_load_path(QString::fromStdString(zfix + "/twotapes.zip"));
+        in.stop();
+        const QString st = f.win.statusBar()->currentMessage();
+        check("ZIPG-04",
+              "twotapes.zip in an unattended window opens no dialog, loads nothing, and the "
+              "status bar lists both programs",
+              f.ok && in.seen == 0 && h.n == 0 && st.contains("SIDEA.TAP") && st.contains("SIDEB.TAP"),
+              fmt("seen=%d n=%d status=%s", in.seen, h.n, q(st).c_str()));
+    }
+    // ZIPG-05
+    {
+        Fixture f; Handed h; hook(f, h);
+        DialogWatcher w;
+        const std::string zp = zfix + "/noprog.zip";
+        f.win.handle_load_path(QString::fromStdString(zp));
+        w.stop();
+        const QString st = f.win.statusBar()->currentMessage();
+        check("ZIPG-05", "noprog.zip loads nothing; the message names the archive and `no program`",
+              f.ok && h.n == 0 && st.contains(QString::fromStdString(zp)) && st.contains("no program") &&
+                  w.seen == 1 && w.text.contains("no program"),
+              fmt("n=%d seen=%d status=%s", h.n, w.seen, q(st).c_str()));
+    }
+    // ZIPG-06
+    {
+        Fixture f; Handed h; hook(f, h);
+        DialogWatcher w;
+        const std::string zp = zfix + "/encrypted.zip";
+        f.win.handle_load_path(QString::fromStdString(zp));
+        w.stop();
+        const QString st = f.win.statusBar()->currentMessage();
+        check("ZIPG-06",
+              "encrypted.zip is refused naming `encrypted.zip (BEEPER.TAP)` and `encrypted`, "
+              "never the scratch path",
+              f.ok && h.n == 0 && w.seen == 1 && w.text.contains("encrypted.zip (BEEPER.TAP)") &&
+                  w.text.contains("encrypted") && !w.text.contains("archive-load") &&
+                  !st.contains("archive-load"),
+              fmt("n=%d seen=%d text=%s", h.n, w.seen, q(w.text).c_str()));
+    }
+    // ZIPG-07
+    {
+        Fixture f; Handed h; hook(f, h);
+        DialogWatcher w;
+        f.win.handle_load_path(QString::fromStdString(zfix + "/beeper.tap.zip"));
+        w.stop();
+        const auto* s = f.win.pok_session();
+        const QString st = f.win.statusBar()->currentMessage();
+        check("ZIPG-07",
+              "beeper.tap.zip makes its bundled POK the POK session (1 trainer, named by archive "
+              "and member) without opening the dialog, and says so in the status bar",
+              f.ok && h.n == 1 && s && s->file().trainers.size() == 1 &&
+                  QString::fromStdString(s->path()).endsWith("beeper.tap.zip (POKES/BEEPER.POK)") &&
+                  !f.win.pok_dialog_visible() && st.contains("POK Trainers"),
+              fmt("n=%d session=%d dialog=%d status=%s", h.n, s ? 1 : 0,
+                  f.win.pok_dialog_visible() ? 1 : 0, q(st).c_str()));
+    }
+    // ZIPG-08
+    {
+        Fixture f; Handed h; hook(f, h);
+        DialogWatcher w;
+        const std::string zp = (g_root / "badsna.zip").string();
+        {
+            zipfx::Member m; m.name = "BAD.SNA"; m.data = Bytes(10, 0x42);
+            const Bytes z = zipfx::build({m});
+            std::ofstream o(zp, std::ios::binary);
+            o.write(reinterpret_cast<const char*>(z.data()), static_cast<std::streamsize>(z.size()));
+        }
+        f.win.handle_load_path(QString::fromStdString(zp));
+        w.stop();
+        check("ZIPG-08",
+              "an archive holding a damaged BAD.SNA is refused before the callback, naming "
+              "`<archive> (BAD.SNA)`, not the scratch path",
+              f.ok && h.n == 0 && w.seen == 1 && w.text.contains("badsna.zip (BAD.SNA)") &&
+                  !w.text.contains("archive-load"),
+              fmt("n=%d seen=%d text=%s", h.n, w.seen, q(w.text).c_str()));
+    }
+    // ZIPG-09
+    check("ZIPG-09", "the File > Load filter offers *.zip in 'Spectrum Files' and as its own 'ZIP Archives' entry",
+          MainWindow::load_filter().contains("*.rzx *.zip);;") &&
+              MainWindow::load_filter().contains("ZIP Archives (*.zip);;"),
+          q(MainWindow::load_filter()));
+
+    // ---- GH #392 round 2 ----
+    auto write_zip = [](const char* name, const std::vector<zipfx::Member>& ms) {
+        const std::string zp = (g_root / name).string();
+        const Bytes z = zipfx::build(ms);
+        std::ofstream o(zp, std::ios::binary);
+        o.write(reinterpret_cast<const char*>(z.data()), static_cast<std::streamsize>(z.size()));
+        return zp;
+    };
+    auto zmem = [](const std::string& n, const Bytes& d) {
+        zipfx::Member m; m.name = n; m.data = d; m.method = 0; return m;
+    };
+    // ZIPG-10
+    {
+        Fixture f; Handed h; hook(f, h);
+        const std::string zp = write_zip("cp437.zip", {zmem("F\x82TBOL.TAP", Bytes(8, 1)), zmem("OTHER.TAP", Bytes(8, 2))});
+        InputWatcher in; in.pick = "F\\x82TBOL.TAP";
+        f.win.handle_load_path(QString::fromStdString(zp));
+        in.stop();
+        check("ZIPG-10",
+              "a program whose name is not UTF-8 (CP437 0x82) is listed escaped and loads when picked "
+              "(the choice is mapped by index, not by re-encoding the text)",
+              f.ok && in.seen == 1 && in.items.size() == 2 && in.items[0] == "F\\x82TBOL.TAP" && h.n == 1 &&
+                  std::filesystem::path(h.path).filename() == "F_TBOL.TAP" && h.bytes == Bytes(8, 1),
+              fmt("seen=%d items=%s n=%d path=%s", in.seen, q(in.items.join(",")).c_str(), h.n, h.path.c_str()));
+    }
+    // ZIPG-11
+    {
+        Fixture f; Handed h; hook(f, h);
+        DialogWatcher w;
+        f.win.handle_load_path(QString::fromStdString(zfix + "/beeper.tap.zip"));
+        f.win.load_finished(h.path, false);   // the cold boot reports the load failed
+        w.pump(300);
+        w.stop();
+        check("ZIPG-11",
+              "when the load of an archive's program fails, the Load Failed box names `<archive> (BEEPER.TAP)`, "
+              "not the scratch path",
+              f.ok && h.n == 1 && w.seen == 1 && w.text.contains("beeper.tap.zip (BEEPER.TAP)") &&
+                  !w.text.contains("archive-load"),
+              fmt("seen=%d text=%s", w.seen, q(w.text).c_str()));
+    }
+    const std::string trainer = "NInfinite\r\nZ   8 32768   0   0\r\nY\r\n";
+    // ZIPG-12
+    {
+        Fixture f; Handed h; hook(f, h);
+        std::string big = trainer;
+        big.append(1024 * 1024, ' ');   // over the 1 MiB limit for a trainer file
+        const std::string zp = write_zip("bigpok.zip", {zmem("G.TAP", Bytes(8, 1)),
+                                                        zmem("G.POK", Bytes(big.begin(), big.end()))});
+        f.win.handle_load_path(QString::fromStdString(zp));
+        check("ZIPG-12", "a bundled .pok over 1 MiB is not offered (no POK session) while the program still loads",
+              f.ok && h.n == 1 && !f.win.pok_session(), fmt("n=%d", h.n));
+    }
+    // ZIPG-13
+    {
+        Fixture f;
+        f.win.set_load_file_callback(nullptr);   // nothing takes the load
+        DialogWatcher w;
+        f.win.handle_load_path(QString::fromStdString(zfix + "/beeper.tap.zip"));
+        w.stop();
+        check("ZIPG-13", "the bundled .pok is not offered when the load was not handed on",
+              f.ok && !f.win.pok_session());
+    }
+    // ZIPG-14
+    {
+        Fixture f; Handed h; hook(f, h);
+        const std::string t = "this is not a trainer file\r\n";
+        const std::string zp = write_zip("nopok.zip", {zmem("G.TAP", Bytes(8, 1)), zmem("G.POK", Bytes(t.begin(), t.end()))});
+        f.win.handle_load_path(QString::fromStdString(zp));
+        check("ZIPG-14", "a bundled .pok that holds no trainer is not offered while the program still loads",
+              f.ok && h.n == 1 && !f.win.pok_session(), fmt("n=%d", h.n));
+    }
+    // ZIPG-15
+    {
+        Fixture f; Handed h; hook(f, h);
+        f.win.set_unattended(true);
+        const std::string zp = write_zip("esc.zip", {zmem("\x1b]0;PWNED\x07" "A.TAP", Bytes(8, 1)), zmem("\x1b[2J" "B.TAP", Bytes(8, 2))});
+        f.win.handle_load_path(QString::fromStdString(zp));
+        const QString st = f.win.statusBar()->currentMessage();
+        bool ctl = false;
+        for (QChar c : st) if (c.unicode() < 0x20 || c.unicode() == 0x7F) ctl = true;
+        check("ZIPG-15", "control bytes in member names never reach the status bar (escaped as \\xNN)",
+              f.ok && h.n == 0 && !st.isEmpty() && !ctl && st.contains("\\x1B"), q(st));
+    }
+
+    // ZIPG-16
+    {
+        bool all = true;
+        std::string det;
+        int i = 0;
+        for (const char* name : {"\x1b[2J\xC3\xA9.TAP", "F\x82.TAP"}) {
+            Fixture f; Handed h; hook(f, h);
+            zipfx::Member m; m.name = name; m.data = Bytes(8, 1); m.method = 0; m.flags = 1;   // encrypted: extraction fails
+            const std::string zp = write_zip(i++ ? "enc_cp437.zip" : "enc_esc.zip", {m});
+            DialogWatcher w;
+            f.win.handle_load_path(QString::fromStdString(zp));
+            w.stop();
+            const QString shown = QString::fromStdString(program_archive::display_name(name));
+            const QString st = f.win.statusBar()->currentMessage();
+            auto once = [&shown](const QString& t) { return t.count(shown) == 1; };
+            bool ctl = false;
+            for (const QString& t : {st, w.text}) for (QChar c : t) if (c.unicode() < 0x20 || c.unicode() == 0x7F) ctl = true;
+            if (!(f.ok && h.n == 0 && w.seen == 1 && once(st) && once(w.text) && !ctl &&
+                  st.contains("encrypted"))) {
+                all = false;
+                det += q(st) + " | " + q(w.text) + " || ";
+            }
+        }
+        check("ZIPG-16",
+              "an escape-named and a CP437-named program whose extraction fails are shown escaped, exactly once, "
+              "in the dialog and the status bar (the line the log also carries)", all, det);
+    }
+    // ZIPG-17
+    {
+        Fixture f; Handed h; hook(f, h);
+        const std::string pok = "\x1b[0m.POK";
+        const std::string zp = write_zip("pokname.zip", {zmem("G.TAP", Bytes(8, 1)),
+                                                         zmem(pok, Bytes(trainer.begin(), trainer.end()))});
+        f.win.handle_load_path(QString::fromStdString(zp));
+        const auto* s = f.win.pok_session();
+        check("ZIPG-17", "the POK session of an archive names the .pok member escaped",
+              f.ok && h.n == 1 && s && s->path() == zp + " (" + program_archive::display_name(pok) + ")" &&
+                  s->path().find('\x1b') == std::string::npos,
+              s ? s->path() : std::string("no session"));
     }
 
     std::filesystem::remove_all(g_root, ec);
