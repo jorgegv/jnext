@@ -2632,7 +2632,8 @@ the Breakpoints panel creates one per place a <code>file:line</code> compiled to
 and Edit dialogs and Breakpoints &gt; Add Execute Breakpoint share that rule, and show
 the store's reason, such as "no code at main.bas:5", when a line has none), and
 the gutter draws it only while its page is mapped (<code>pc_marked()</code>). The Call
-Stack's last column looks up each frame's caller on its recorded page.</p>
+Stack's last column looks up each frame's caller with its recorded
+<code>FetchSource</code> (<code>CallFrame::caller_space</code>).</p>
 <h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
 <p>The Disassembly panel paints itself, so there is no Qt text widget to inherit a
 selection from. The selection is an <strong>address range</strong> — an anchor and a cursor —

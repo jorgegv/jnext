@@ -10581,6 +10581,11 @@ uint64_t Emulator::step_one_instruction()
         // completed frame, at the end of run_frame().
         master_cycles = 4ULL * clock_.cpu_divisor();
     } else {
+        // GH #340 (E23-08): the entry's fetch identity is patched in after
+        // execute(), from what the M1 actually recorded; `no_fetch_space` is
+        // what a slot that records no fetch (INT, NMI, esxdos shim) keeps.
+        bool traced = false;
+        jnext::dbg::MemSpace no_fetch_space = jnext::dbg::MemSpace::cpu();
         // Record trace entry before execution (captures pre-execution state).
         // Enabled during replay so consecutive step-backs can look up target cycles.
         if (trace_log_.enabled()) {
@@ -10642,7 +10647,10 @@ uint64_t Emulator::step_one_instruction()
                     return r.ptr ? *r.ptr : 0xFF;
                 },
                 &fctx);
-            trace_log_.record(te, pi.first.space.kind != jnext::dbg::MemSpace::Kind::Page);
+            te.set_fetch_space(jnext::dbg::MemSpace::cpu());   // provisional, see below
+            trace_log_.record(te);
+            traced = true;
+            no_fetch_space = pi.first.space;
         }
         // P0 boot probe trap detector: when the CPU enters the
         // post-soft-reset $0000/$0001 spin, dump the trace ring while
@@ -10680,7 +10688,7 @@ uint64_t Emulator::step_one_instruction()
             const PredictedInstr pi = predict_instruction_(regs2.PC);
             call_stack_.on_instruction_pre(
                 regs2.PC, regs2.SP, pi.b[0], pi.b[1], pi.b[2],
-                ram_page_of(pi.first.space));
+                pi.first.space);
         }
 
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
@@ -10719,6 +10727,18 @@ uint64_t Emulator::step_one_instruction()
         multiface_retn_pending_ = false;
         int tstates = cpu_.execute();
         cpu_executed = true;
+
+        // GH #340 (E23-08): the identity of what supplied this instruction's
+        // first opcode byte, as the M1 recorded it (Mmu::read_m1()), read ONCE
+        // per instruction, here. The CPU is asked whether it fetched an opcode:
+        // an accepted INT reads no memory (t80na.vhd:278-279); an NMI does an M1
+        // read at the interrupted PC and discards the byte (t80n.vhd:502), which
+        // jnext's core does not perform; the esxdos shim is jnext-only. Such a
+        // slot keeps the prediction for its PC (what the live Execute gate used,
+        // and the source an NMI's discarded read would have had).
+        const bool fetched = cpu_.fetched_opcode_last_execute();
+        if (traced)
+            trace_log_.set_newest_fetch(fetched ? mmu_.last_m1() : no_fetch_space);
 
         // GH #276 B4 — INS-20 PC coverage: "the PCs executed since clear".
         //
@@ -10835,18 +10855,17 @@ uint64_t Emulator::step_one_instruction()
         // waiting at PC would otherwise be recorded as taken.
         if (call_stack_.enabled()) {
             const Z80Registers& post = cpu_.registers();
-            const uint8_t post_page = ram_page_of(predict_fetch(post.PC));
             switch (cpu_.last_slot_kind()) {
                 case Z80Cpu::SlotKind::Int:
-                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT,
-                                             post_page);
+                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT);
                     break;
                 case Z80Cpu::SlotKind::Nmi:
-                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::NMI,
-                                             post_page);
+                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::NMI);
                     break;
                 default:
-                    call_stack_.on_instruction_post(post.SP, post.PC, post_page);
+                    call_stack_.on_instruction_post(
+                        post.SP, post.PC,
+                        fetched ? mmu_.last_m1() : jnext::dbg::MemSpace::cpu());
                     break;
             }
         }

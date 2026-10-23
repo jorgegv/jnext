@@ -317,12 +317,19 @@ instruction up to the next distinct start in its page, never past the 8K page
 end. `resolve("file:line")` returns the line's entries (every place it compiled
 to; a later instruction of the same line is not one), or a reason ("no code at
 file:line"); the file is the exact path or the unique file whose path ends in the
-text on a component boundary. The trace and the call frames still use page
-numbers (`ram_page_of()`, `debug/ram_page.h`) until E23-08. After the instruction, `Mmu::last_m1()` is what its
+text on a component boundary. After the instruction, `Mmu::last_m1()` is what its
 fetch actually recorded: the prediction and the record are one function evaluated
-before and after, and the tests compare them for every fetch of a guest tour. The trace records the same flag beside each entry
-(`TraceLog::fetch_not_mmu_ram()`; `TraceEntry` itself stays 56 bytes), call
-frames record each side's identity, and an `Execute` filter with
+before and after, and the tests compare them for every fetch of a guest tour.
+`Emulator::step_one_instruction()` reads it once per instruction, after
+`execute()` and only if the CPU fetched, and copies it into the trace entry
+(`TraceEntry::fetch_space()`; the entry stays 56 bytes) and into the call
+frames (`CallFrame::caller_space` is the CALL's own fetch, `target_space` is
+recorded at the first fetch at the target and stays unrecorded, `cpu()`, until
+then; an INT or NMI frame's caller is the prediction at the interrupted PC). A
+slot that records no fetch (an accepted INT or NMI, the esxdos shim) keeps the
+prediction for its PC in its trace entry.
+`TraceLog::fetch_not_mmu_ram()` is a view of that identity, for the page
+qualifier below. An `Execute` filter with
 `page_ram_only` matches only a fetch from that RAM page (`Event::fetch_not_ram`);
 without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
 An SLD may carry a SHA-256 of the program's bytes (`||program.*` comment
@@ -374,8 +381,8 @@ delivers no `Execute` event, so between instructions the loop gives each next PC
 re-evaluate the boundary at the new PC without a second delivery. It also stops on any latched event stop, at a
 HALT with IFF1 clear, after `SOURCE_STEP_LIMIT` instructions or after
 `SOURCE_STEP_FRAME_LIMIT` frames. `Back` and `ReverseContinue` search the trace
-for entries before the current cycle (a Frame Back leaves newer ones), derive
-each entry's identity from `mmu[]`, `rom_slots` and the overlay flag, and hand
+for entries before the current cycle (a Frame Back leaves newer ones), look
+the source map up with each entry's recorded identity (`TraceEntry::fetch_space()`), and hand
 the count to `step_back()`, so they inherit its refusals. `Back` finds the newest
 earlier position that differs from the current one, then walks older entries
 (passing unmapped ones) while they are at that position, and lands on the
@@ -390,8 +397,10 @@ does not run it. Switched off it costs one pointer test per instruction.
 
 Each trace entry carries the registers (including I, R, IM, IFF1 and IFF2), the
 word at SP read with `peek()`, the eight MMU pages and `rom_slots`, a bit per
-slot that held ROM. `trace_export()` writes all of them; the ROM mask is the
-`ROM=` column after the pages.
+slot that held ROM, and the identity of the memory its instruction was fetched
+from (`fetch_kind`, `fetch_index`). `trace_export()` writes all of them; the ROM
+mask is the `ROM=` column after the pages and the identity the `FETCH=kk:ii`
+column after it (hex kind and index).
 
 ### Session — CAP-SES
 

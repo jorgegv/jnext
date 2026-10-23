@@ -2395,7 +2395,10 @@ READ watchpoint. <code>read_m1()</code> is the opcode fetch of <code>Z80Cpu::exe
 records what supplied the first opcode byte, readable as <code>last_m1()</code>. That record
 is <code>MemSpace::cpu()</code>, "none recorded", after <code>reset()</code> and <code>load_state()</code> until
 the next fetch, and an accepted INT or NMI, which fetch nothing
-(<code>Z80Cpu::fetched_opcode_last_execute()</code> is false), leave it as it was.</p>
+(<code>Z80Cpu::fetched_opcode_last_execute()</code> is false), leave it as it was. The one
+production reader is <code>Emulator::step_one_instruction()</code>, once per instruction
+after <code>execute()</code> and only when the CPU fetched; it copies the value into the
+trace entry and the call frames.</p>
 <p>A DivMMC entry point makes the fetch and the bus cycles after it see different
 memory (<code>divmmc.vhd:128-148</code>): <code>automap_held</code> takes <code>automap_hold</code> on the first
 MREQ-high after the opcode byte, so a delayed-on entry's own operands already

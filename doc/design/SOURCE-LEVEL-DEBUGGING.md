@@ -295,17 +295,17 @@ One arbiter, `Mmu::route(addr) const`, returns a `Route`: the `FetchSource`, the
 its store, and the byte pointer. It is the only place the priority order lives (section 4.2),
 and `read()` is that route plus one side-effect tail. The CPU's opcode read goes through
 `Mmu::read_m1(pc)`, which stores the result in `last_m1_` (read back by `Mmu::last_m1()`). A
-trace entry takes it after the instruction ran; a call frame's caller identity is the CALL's
+trace entry takes it after the instruction ran (nothing is recorded for a slot that fetched nothing: an accepted
+INT, an NMI or the esxdos shim keep the prediction for their PC); a call frame's caller identity is the CALL's
 recorded fetch and its target identity the target's first M1 (E23-08). The Source tab and
 `source_location()` predict the next M1 with `route_with(addr, divmmc_active, mf_active)`, fed
 by `DivMmc::active_on_m1()` and a const `Multiface::would_latch_on_m1(pc)`
 (`Emulator::predict_fetch(pc)`); `route()` is `route_with()` with the live values, one body, so
 the prediction cannot drift from the fetch. Built: the arbiter, `read_m1` and the prediction by
-E23-07 (#339). To build: trace entries and call frames take the recorded value in E23-08
-(#340); until then the trace flag and the call frames' pages are still predicted before the
-instruction runs (section 4.3). Check (epic acceptance 1): no
+E23-07 (#339); trace entries and call frames take the recorded value (E23-08 (#340), section
+4.3). Check (epic acceptance 1): no
 prediction of the M1 overlay outside `route_with`, `active_on_m1` and `would_latch_on_m1`;
-SRCDBG-ID-17 (an instruction that remaps its own slot keeps its recorded identity; planned, E23-08 (#340)).
+SRCDBG-ID-17 (an instruction that remaps its own slot keeps its recorded identity).
 
 **D2. The source map is range-aware and many-to-many.** A record covers its start up to an
 extent the adapter gives (section 9); ranges may overlap, and an address may have several
@@ -340,9 +340,9 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The call stack still takes a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind; the trace flag and the breakpoint gate reduce the identity to "not a `Page`" | 4.1, 4.2, 4.4 | E23-07 (#339) |
-| Identity in history | `TraceLog` keeps a flag per entry beside `TraceEntry` (`not_ram_`), predicted just before the instruction runs by `Emulator::predict_instruction_()` (the bytes the CPU will fetch, so the flag and the trace bytes follow the M1 overlay); Back reads `te.mmu[slot]`, `rom_slots` and the flag. `Mmu::last_m1()` records the fetch but nothing reads it yet | 4.3 | E23-08 (#340) |
-| Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay), from the same prediction; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The panels and the breakpoint gate still reduce the identity to a RAM page through `ram_page_of()` (`debug/ram_page.h`) or "not a `Page`" until E23-09 (#341) | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is derived from the entry (the legacy page qualifier of `history_stop_at()` until E23-09). Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
+| Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | `sidecar_attach_cycle`; `machine_replaced()` drops the sidecar stores at once on a reset or a state from outside the rewind ring; a rewind rechecks by the clock | 6 | E23-10 (#342) |
@@ -374,8 +374,8 @@ that the CPU's reads go through first (the boot ROM, the Multiface, DivMMC, the 
 mapping, the alternate ROM and config-mode routing) replace the MMU's page without changing
 it. One identity, used everywhere CAP-SRC matches code, answers it.
 
-Implemented by E23-07 (#339) on the epic branch: 4.1, 4.2 and 4.4 describe the tree; 4.3
-(recording), 4.5 (breakpoints) and 4.6 (presenting) are still plans.
+Implemented on the epic branch: 4.1, 4.2 and 4.4 (E23-07 (#339)) and 4.3 (E23-08 (#340))
+describe the tree; 4.5 (breakpoints) and 4.6 (presenting) are still plans.
 
 ### 4.1 `FetchSource`
 
@@ -466,14 +466,35 @@ leave the previous value, so pair it with `Z80Cpu::fetched_opcode_last_execute()
 
 ### 4.3 Recorded identity (E23-08 (#340))
 
-A trace entry stores the `FetchSource` of its own M1 as a kind plus an 8-bit index (a 4-bit
+A trace entry stores the `FetchSource` of its own M1 as a kind plus an 8-bit index
+(`TraceEntry::fetch_kind`, `fetch_index`, with `fetch_space()` / `set_fetch_space()`; a 4-bit
 index cannot name pages 16 to 223). The bytes come from narrowing `TraceEntry::opcode_len` to
-`uint8_t` (OD-4 (a)), so `TraceEntry` stays 56 bytes, which INS-13-15 pins. The parallel
-`not_ram_` vector goes, and with it its resize and ring-wrap hazards. `CallFrame` gains the
-caller's and the target's identity (`caller_space`, `target_space`): the caller's is the CALL's
-recorded fetch, the target's is filled at the target's first M1. Back and Reverse Continue
-match history by the recorded identity, and the trace export prints it. ZRCP `cpu-history` and
-DZRP history are not affected.
+`uint8_t` (OD-4 (a); its maximum is 66), so `TraceEntry` stays 56 bytes and every offset is
+unchanged (`debug_types_check.cpp`, INS-13-15). The parallel `not_ram_` vector is gone, and with
+it its resize and ring-wrap hazards.
+
+`Emulator::step_one_instruction()` records the entry before `execute()` (as before, with a
+provisional identity) and `TraceLog::set_newest_fetch()` writes the identity into that entry
+after it, from `Mmu::last_m1()`, read once per instruction and only when
+`fetched_opcode_last_execute()` says the CPU fetched. A slot that records no fetch keeps the
+prediction for its PC, the value the live Execute gate used: an accepted INT reads no memory
+(`t80na.vhd:278-279`); an NMI does an M1 read at the interrupted PC and discards the byte
+(`t80n.vhd:502`), which jnext's core does not perform, so the prediction stands for it; the
+esxdos shim is jnext-only. `TraceLog::fetch_not_mmu_ram()` is a one-line
+view of the recorded identity ("not a `Page`"), kept for `history_stop_at()`'s page qualifier
+until E23-09.
+
+`CallFrame` carries `caller_space` and `target_space` (`cpu()` = none recorded). The caller is
+the CALL's or RST's own recorded fetch. The target is pending until the first fetch AT
+`target_pc`, and then recorded once; a fetch elsewhere (the debugger moved PC, the esxdos shim
+serviced the call) leaves it unrecorded. An INT or NMI frame's caller is the prediction at the
+interrupted PC: the interrupted instruction has not been fetched, and will be only after the
+return. The per-instruction prediction of the post-instruction PC is gone.
+
+Back and Reverse Continue look the source map up with the entry's recorded identity, and the
+trace export prints it as ` FETCH=kk:ii` (hex kind and index) after `ROM=`; E23-22 (#360)
+replaces that column's text with its formatter. ZRCP `cpu-history` and DZRP history are not
+affected.
 
 ### 4.4 The current-PC prediction (E23-07 (#339))
 
@@ -493,8 +514,8 @@ decode needs (`sram_pre_override(2)`, `(0)` with config mode, the alt-ROM read e
 `sram_alt_128_n`) exist once, in `Emulator::m1_automap_gates_(pc, mf_active)`, which the
 `on_m1_prefetch` hook and the prediction both call; the hand-kept mirror of the hook is gone.
 `Debugger::source_page()` returns the predicted `FetchSource`; `Emulator::fetch_not_mmu_ram()`
-and `Mmu::read_not_mmu_ram()` are deleted (`TraceLog::fetch_not_mmu_ram()` and its `not_ram_` flag
-stay until E23-08). A prediction has no side effects: rows compare the
+and `Mmu::read_not_mmu_ram()` are deleted (`TraceLog::fetch_not_mmu_ram()` stays as a view of the
+recorded identity, section 4.3). A prediction has no side effects: rows compare the
 whole machine state before and after (SRCDBG-PURE-01, with SRCDBG-PURE-02 as the control).
 
 **Fetch view and data view.** DivMMC's `automap` is not one value across an instruction
@@ -534,9 +555,9 @@ the trace's length reader stops its recursion by returning 2 (66 bytes in all). 
 consumes any run of prefixes in one `execute()`.
 
 Two limits, stated: `predict_instruction_` predicts the first four bytes only, so an M1 chain
-past four bytes is predicted for its first four; and no production code reads `Mmu::last_m1()`
-yet (the `source_debug_test` rows compare it with the prediction for every fetched
-instruction; E23-08 records it into history).
+past four bytes is predicted for its first four; and the only production reader of
+`Mmu::last_m1()` is `Emulator::step_one_instruction()`, after `execute()` (the `source_debug_test`
+rows compare it with the prediction for every fetched instruction).
 
 ### 4.5 Canonical and legacy
 
@@ -597,7 +618,20 @@ arbiter, neither kept (one shared out-of-line body for `read`, `read_m1` and `re
 about +4% cycles; a shared `noinline` fetch body beside the inlined `read()`, +21.6%).
 `read_m1()` costs one load and one store more than `read()`. With the trace on, the identity is
 stored per M1; with the call stack on, per frame; an armed `Execute` subscription is evaluated
-only for its address (the existing per-page bitmap). E23-08 records its numbers.
+only for its address (the existing per-page bitmap). E23-08 (#340) removed a full M1 prediction per
+instruction from the call-stack post-hook and a parallel-vector store from the trace, and added one load of
+`last_m1_`, one branch and a two-byte store into the entry already in cache. Measured on the non-PGO
+build, base against branch, interleaved, 5 runs each, pinned to core 0, `--headless --benchmark`, median
+fps; the host was loaded throughout (1-min load 7 to 11 on 12 CPUs), so the spread of single runs is large
+(trace-on 48K ran 290 to 727 fps) and only a gross regression is excluded:
+
+| workload | trace off, base / branch | trace on, base / branch |
+|---|---|---|
+| `next` 500 frames (NextZXOS boot) | 219.0 / 218.2 (-0.4%) | 151.3 / 151.1 (-0.1%) |
+| `48k` 600 frames | 912.4 / 917.6 (+0.6%) | 603.4 / 585.1 (-3.0%; the 9-run repeat gave +6.4%) |
+
+No consistent difference in either direction beyond the noise; a quiet-host `make bench` is still the
+arbiter.
 
 ## 5. The source map and the backend API
 
@@ -628,7 +662,7 @@ strings are kept once per position (no interning, no function field yet). A line
 are the starts `resolve()` returns: a range that continues another range of the same line
 (`hi_excl == lo`, same space), as one instruction after another does for a multi-statement
 line, a macro or a `DUP`, is not an entry; disjoint copies are. History (`TraceLog`) and call
-frames still identify code by page number until E23-08 (#340).
+frames name the code's `FetchSource` (E23-08, section 4.3).
 
 ### 5.2 The backend verbs (CAP-SRC, `debug/debugger.h`)
 
@@ -639,7 +673,7 @@ frames still identify code by page number until E23-08 (#340).
 | `source_location(addr)`, `source_location()` | the primary position of `addr` or of the PC, by pointer into the store (done, E23-06 (#338)); every location there: `source_map().lookup_all()` | |
 | `source_page(addr)`, `effective_page(addr)` | the `FetchSource` that supplies the M1 at `addr` (done, E23-07); the MMU's page | `effective_page` stays, as the MMU's page for the legacy qualifier |
 | `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | `<stem>.map` (E23-13); lifetime (E23-10 (#342)) |
-| `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (done, E23-06); recorded identity (E23-08 (#340)) |
+| `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (done, E23-06); recorded identity (done, E23-08) |
 | `load_map(path, MapFormat::NextBuild)` | `Memory.txt` by hand (CAP-SYM gains a format) | |
 | `--source-map FILE` (command line) | a source map at startup | new (OD-15, E23-13) |
 

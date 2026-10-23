@@ -28,6 +28,7 @@
 #include "debug/inspect.h"
 #include "debug/result.h"
 
+#include <cstddef>
 #include <type_traits>
 
 // The things the published types mirror. None of these may ever be included by
@@ -345,6 +346,12 @@ static_assert(std::is_trivially_copyable<Z80Registers>::value, "");
 // INS-13's `TraceEntry` is reused as-is and lives in a ring buffer the design
 // sizes in bytes per entry.
 static_assert(std::is_trivially_copyable<TraceEntry>::value, "");
+// GH #340 (E23-08): the fetch identity took two bytes of the old `int
+// opcode_len` and nothing else moved: the entry is still 56 bytes and the
+// fields published after it keep their offsets (INS-13-15).
+static_assert(sizeof(TraceEntry) == 56, "TraceEntry stays 56 bytes (INS-13-15)");
+static_assert(offsetof(TraceEntry, sp_word) == 40, "sp_word keeps its offset");
+static_assert(offsetof(TraceEntry, rom_slots) == 55, "rom_slots keeps its offset");
 
 // `RunState` and `PauseReason` deliberately are NOT trivially copyable:
 // `PauseReason::Script` carries the script's message as a `std::string`, which
