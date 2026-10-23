@@ -976,6 +976,7 @@ int main() {
             std::string why;
 
             TapLoader::DeckState d = before;
+            d.phase = "pause";                             // no phase check can refuse it for another reason
             d.block = 4;                                   // the tape has 3 blocks
             const bool r3 = t.restore_deck(d, why);
             check("TAPD-03", "restore_deck refuses a block past the tape (3 blocks, block 4) and leaves the deck unchanged",

@@ -811,6 +811,8 @@ int main(int argc, char** argv) {
             a.start_playback(t0);
             uint64_t now = t0;
             for (int i = 0; ok && i < 3000000 && !until(a); ++i) { now += 13; a.update(now); }
+            // The state this row means to save must have been reached, or the row proves nothing.
+            if (ok && !until(a)) { why = "the wanted state was never reached"; return false; }
             const uint64_t shift = 777777;     // B's clock is re-based
             restored = ok && b.restore_deck(a.deck_state(now), now + shift, why);
             same = true;
@@ -849,12 +851,13 @@ int main(int argc, char** argv) {
         }
         {   // TZXD-03: direct recording
             Bytes smp = {0xA5, 0x3C, 0xF0, 0x0F, 0x99, 0x66};
-            const Bytes d15 = concat({{0x15}, le16(80), le16(0), {8}, le24(static_cast<uint32_t>(smp.size())), smp});
+            const Bytes d15 = concat({{0x15}, le16(80), le16(20), {8}, le24(static_cast<uint32_t>(smp.size())), smp});
             const std::string p = write_file("d03.tzx", concat({kHeader, d15, b10(data_body())}));
             bool r, s, e; std::string why;
-            const bool ok = round_trip(p, [](TzxLoader& l) { const auto d = l.deck_state(0); return d.phase == "direct" && d.data_pos == 2 && d.bit_pos == 3; },
+            const bool ok = round_trip(p, [](TzxLoader& l) { const auto d = l.deck_state(0); return d.phase == "pause" && d.direct_level == 1; },
                                        false, r, s, e, why);
-            check("TZXD-03", "a deck restored mid direct recording (0x15) keeps the sample level and continues like the original",
+            check("TZXD-03", "a deck restored right after the last sample of a direct recording (0x15) keeps the direct-level flag, so the pause "
+                  "holds the true final sample level, and continues like the original",
                   ok && r && s && e, why);
         }
         {   // TZXD-04: second of three iterations of a loop
