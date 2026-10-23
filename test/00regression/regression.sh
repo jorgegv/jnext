@@ -547,9 +547,9 @@ wine_capture_selfcheck() {   # $1 = the Qt build dir
     shopt -u nullglob
     f=${caps[0]:-}
     if ((${#caps[@]} != 1)); then why="${#caps[@]} capture files, expected exactly one"
+    elif grep -q "can't debug several processes" "$f"; then why="winedbg refused: can't debug several processes"
     elif ! grep -q '^Backtrace:' "$f"; then why="the capture holds no Backtrace:"
     elif ! grep -qE 'ReadFile|ReadConsole' "$f"; then why="no Backtrace: names ReadFile or ReadConsole"
-    elif grep -q "can't debug several processes" "$f"; then why="winedbg refused: can't debug several processes"
     fi
     if [[ -n $why ]]; then
         keep="$PROJECT_DIR/build/regression-artifacts/wine-stall/selfcheck-fault-$$"
@@ -561,7 +561,7 @@ wine_capture_selfcheck() {   # $1 = the Qt build dir
                       "A capture that cannot capture reads as 'no stall'; see doc/testing/REGRESSION-TEST-SUITE.md."
     fi
     rm -rf "$dir"
-    echo -e "  wine stall capture self-check: ${GREEN}passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383)"
+    echo -e "  ${GREEN}wine stall capture self-check passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383)"
 }
 
 # --- Platform run: the binaries under test (GH #319) ---

@@ -146,16 +146,18 @@ if [[ "${1:-}" == --serve ]]; then
     # stdio on /dev/null: the daemon must hold none of our callers' pipes.
     # A server left over from --init's wineboot would make -p fail (status 2):
     # stop it first, and wait until it is gone.
-    /usr/bin/wineserver -k >/dev/null 2>&1 || true
-    /usr/bin/wineserver -w >/dev/null 2>&1 || true
-    ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wineserver -p </dev/null >/dev/null 2>&1 \
+    WS_BIN=${JNEXT_WINESERVER_BIN:-/usr/bin/wineserver}   # (with JNEXT_WINE_BIN: the harness self-test's stubs)
+    WINE_BIN=${JNEXT_WINE_BIN:-/usr/bin/wine}
+    "$WS_BIN" -k >/dev/null 2>&1 || true
+    "$WS_BIN" -w >/dev/null 2>&1 || true
+    ${PRIV[@]+"${PRIV[@]}"} "$WS_BIN" -p </dev/null >/dev/null 2>&1 \
         || { echo "wine-run: cannot start wineserver" >&2; exit 2; }
     # Start wine's own services (services.exe, winedevice.exe ...) NOW, with stdio
     # on /dev/null: the first wine client otherwise starts them, they inherit ITS
     # stdout/stderr -- the CRLF filters' pipes -- and never let the filters see EOF
     # (measured: a row hung to its bound). `wineboot -u` is not enough: it leaves
     # no services running; a cmd.exe client does.
-    timeout --kill-after=5s 300s ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wine cmd /c exit </dev/null >/dev/null 2>&1 \
+    timeout --kill-after=5s 300s ${PRIV[@]+"${PRIV[@]}"} "$WINE_BIN" cmd /c exit </dev/null >/dev/null 2>&1 \
         || { echo "wine-run: the services warm-up after wineserver -p failed" >&2; exit 2; }
     # Desktop keeper (GH #329). wine's desktop process, `explorer.exe /desktop`, is
     # started by whichever wine client first needs the desktop and inherits THAT
@@ -167,7 +169,7 @@ if [[ "${1:-}" == --serve ]]; then
     # (measured); `timeout`, `cmd /c ping` and `notepad` do not (ping also needs
     # ICMP, which a CI container may lack). Its pid is the only stdout output; the
     # driver faults if that pid is not the one running at the end of the run.
-    setsid ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wine start /wait cmd /c pause </dev/null >/dev/null 2>&1 &
+    setsid ${PRIV[@]+"${PRIV[@]}"} "$WINE_BIN" start /wait cmd /c pause </dev/null >/dev/null 2>&1 &
     # Exactly one explorer.exe of this prefix, all of fds 0-2 on /dev/null. Scans
     # /proc, not pgrep: the CI container has no procps-ng (GH #295, 716cff6a9).
     find_explorer() {
