@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.77</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.78</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.77</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.78</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1165,6 +1165,17 @@
     <span class="md-ellipsis">
       
         POK trainers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zip-archives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZIP archives
       
     </span>
   </a>
@@ -2473,6 +2484,13 @@ the guest's own driver talks to. Both are called out below.</p>
 <td>Input recording, not state</td>
 </tr>
 <tr>
+<td><code>.zip</code></td>
+<td>yes</td>
+<td>—</td>
+<td><code>core/program_archive.*</code>, <code>save/zip_interchange.*</code></td>
+<td>Not a format: a container resolved to one program file at the two entry points (see ZIP archives)</td>
+</tr>
+<tr>
 <td>raw binary</td>
 <td>yes</td>
 <td>—</td>
@@ -2490,9 +2508,10 @@ the guest's own driver talks to. Both are called out below.</p>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
 around line 890, and again in the GUI's file dialogs and in the headless
-snapshot writer. There is no content sniffing, and an extension jnext does not
+snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
-the file might be.</p>
+the file might be. The one exception is an archive (below), which is recognised
+by <code>.zip</code> or by its <code>PK</code> magic and resolved to a program file first.</p>
 <p>The snapshot and program loaders all follow the same two-phase shape.
 <code>load(path)</code> parses and validates into member state; <code>apply(emu)</code> writes that
 state into the machine. Splitting the two means a malformed file fails before
@@ -2666,7 +2685,12 @@ file exactly — a block whose declared length runs past the end, or one stray
 byte where a length field should start — the two cases FUSE's libspectrum TAP
 reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
-when it reads that block. <code>TzxLoader::validate()</code> does the same for a <code>.tzx</code>
+when it reads that block. Those anomalies are warnings, and <code>parse_blocks()</code> reports
+only the first <code>kMaxWarnings</code> (20) plus one count of the rest: a 256 MiB tape of
+zeros is 134 million zero-length blocks (TAPC-13). A tape is also refused above
+<code>kMaxBlocks</code> (1 Mi) blocks: a <code>TapBlock</code> costs 40 bytes before its payload, so a
+file of 4-byte blocks took ~12x its size in memory (TAPC-15).
+<code>TzxLoader::validate()</code> does the same for a <code>.tzx</code>
 against libspectrum's TZX reader: the <code>ZXTape!</code> signature, then every block
 walked with that reader's length rules, so a block that runs past the end or a
 header with no block after it refuses the whole tape. ZOT's own <code>tzx_load()</code>
@@ -3403,6 +3427,61 @@ indexing and asserting bytes the test placed itself; the rows that sweep a
 trainer's locations one at a time, POK-50..52, are there so that a rule meant for
 every location cannot pass by checking the first) and <code>pok_dialog_test</code>
 (PKD-01..16); File &gt; Load's refusal is <code>preferences_apply_test</code> PA-24e/f/g.</p>
+<h2 id="zip-archives">ZIP archives<a class="headerlink" href="#zip-archives" title="Permanent link">&para;</a></h2>
+<p><code>game.tap.zip</code> loads (GH #392) by being turned into <strong>an extracted file with the
+member's own extension at the two places a user names a program</strong>: the
+command-line fold in <code>main.cpp</code> (right after the bare filename becomes
+<code>load_file</code>, before the RZX checks) and <code>MainWindow::handle_load_path()</code>. Every
+decision below that, from the extension tables to the warm start, the RZX and
+snapshot rules, the V1.3 gate, <code>Debugger::load_program_sidecars</code> and the NEX
+loader that keeps its file open (<code>ExtendedNexHost::reopen()</code>, <code>run X.nex</code>
+siblings resolved beside it), then sees an ordinary path and is unchanged.
+Loading from memory per format was rejected: nine loader APIs, and a NEX needs a
+path anyway.</p>
+<p><strong>Two readers, on purpose.</strong> <code>save/zip_archive.*</code> is the <code>.jns</code> container: it
+accepts only the subset its own writer emits (flag 0, no extra field, no data
+descriptor, lower-case grammar paths) and must stay that strict, because two
+readers disagreeing about the bytes is the failure it exists to avoid.
+Real archives break every one of those rules (Info-ZIP: flag 0x0002, a 24-byte
+extra field on every entry, directory entries; streaming writers: flag 0x0008
+and zero sizes in the local header), so <code>save/zip_interchange.*</code> is a separate
+read-only reader: sizes and CRC from the CENTRAL directory, the data offset from
+the LOCAL header's own name and extra lengths, stored and deflate only, and a
+refusal naming each of: not an archive, ZIP64, multi-disk, a damaged directory
+(archive level), encryption, another method, a declared size over 256 MiB
+(checked before anything is allocated), a CRC mismatch (member level). The only
+code the two share is <code>zip::inflate_exact()</code>; the EOCD and central-directory
+walks are not shared, because a shared walk has to be the weaker of the two.
+<code>ZIPI-25</code> pins that the strict reader still refuses an Info-ZIP archive.</p>
+<p><code>core/program_archive.*</code> is the layer on top. <code>is_program_ext()</code> is the ONE table
+of loadable extensions and <code>emulator_load_routes_to_nex()</code> is defined over it, so
+they cannot drift. <code>is_archive_path()</code> is false for a program extension or
+<code>.pok</code> (a <code>.jns</code> IS a zip), true for any <code>.zip</code>, and for anything else true when
+the file starts <code>PK\3\4</code> or <code>PK\5\6</code>. <code>ProgramArchive</code> lists the members that
+are programs (not directories, <code>__MACOSX/</code> or <code>._</code> AppleDouble junk), refuses two
+with one name, and extracts to <code>&lt;config-dir&gt;/archive-load/&lt;process&gt;/&lt;n&gt;/&lt;basename&gt;</code>
+after refusing an absolute, drive-lettered or <code>..</code> name (splitting on both <code>/</code> and
+<code>\</code>, APPNOTE 4.4.17) and sanitising the basename. Several programs are refused
+on the command line (listed) and asked for in the window (<code>QInputDialog</code>;
+refused with the list when unattended, and the choice mapped back by INDEX, never
+by re-encoding the text). Duplicate names are found with a hash set (a <code>find()</code> per
+member was quadratic: 12 s for 65534 entries). A member name is untrusted bytes:
+every message that carries one goes through <code>display_name()</code>, which escapes C0, DEL,
+C1 and anything outside well-formed UTF-8 as <code>\xNN</code>, so no consumer can print an
+escape sequence. An archive file over 256 MiB is refused too, before it is read. <code>extraction_name()</code> also prefixes <code>_</code> to a Windows device name (<code>CON.TAP</code>, <code>NUL.Z80</code>, <code>COM1.NEX</code>), on every OS, because Windows 10 refuses to create those files.</p>
+<p><strong>Lifetime.</strong> One <code>ScratchDir</code> per process (<code>process_scratch()</code>, a function-local
+static, so it is destroyed on any return from <code>main()</code>, after the app objects and
+their open NEX handle, which matters on Windows): a random directory per process,
+one numbered slot per extraction (two archives both holding <code>GAME.TAP</code> never
+collide, and a refused second load never removes the file the running program has
+open). Process directories older than 7 days are swept on first use: leftovers
+of a crash, never another instance's live session. In the window, a bundled
+<code>.pok</code> (<code>matching_pok()</code>: same stem, else the only one) becomes the POK session
+without showing the dialog (<code>start_pok_session(.., show=false)</code>).</p>
+<p>The suites: <code>program_archive_test</code> (ZIPI-01..25 the reader, ZIPL-01..22 the layer;
+fixtures from foreign writers in <code>test/fixtures/zip</code> plus archives built in code
+with <code>test/zip_fixture.h</code>), <code>load_error_test</code> ZIPG-01..09 (the window) and the
+<code>zip-load-func</code> regression row.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

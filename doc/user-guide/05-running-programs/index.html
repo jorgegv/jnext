@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.77</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.78</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.77</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.78</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3636,6 +3636,32 @@ it, from either menu and from <strong>File &gt; Play RZX Recording…</strong>; 
 what was wrong with it. A file whose extension JNEXT does not know and that is
 not a NEX file is refused in the same way, before anything is reset, so the
 game you were playing is still there.</p>
+<h2 id="programs-in-zip-archives">Programs in ZIP archives<a class="headerlink" href="#programs-in-zip-archives" title="Permanent link">&para;</a></h2>
+<p>A program downloaded as <code>game.tap.zip</code> or <code>game.nex.zip</code> loads without
+unzipping it, from the command line (<code>jnext game.tap.zip</code>) and from <strong>File &gt;
+Load NEX File…</strong>. JNEXT loads the one program inside the archive (a file with
+one of the extensions above) exactly as if you had given it on its own, and
+ignores the screenshots, <code>.scr</code> files and text files that usually travel with
+it. A name ending in <code>.zip</code> is always taken as an archive; a file with any other
+extension, or none, is taken as one when it starts like a ZIP file.</p>
+<ul>
+<li><strong>Several programs</strong> (side A and side B of a tape, say): the command line
+  refuses and lists them, so you can unzip it and name the one you want; the
+  window asks which one to load, and Cancel leaves the running game alone.</li>
+<li><strong>Refused, with the reason:</strong> an archive with no program in it, one that is
+  not a ZIP file, a password-protected one, one compressed with a method other
+  than the usual deflate (bzip2, LZMA and the like), a ZIP64 or multi-disk one,
+  an archive file or a member over 256 MiB, and a member whose name is an absolute path or climbs
+  out with <code>..</code>.</li>
+<li><strong>A bundled <code>.pok</code></strong> (a cheat list for the game; see
+  <a href="11-pok-trainers.html">5.11 POK trainers</a>): when the archive holds one named
+  like the program, or the only one, File &gt; Load makes it the open trainer list
+  without showing it, and says so in the status bar. Open it with <strong>Machine ▸
+  POK Trainers…</strong>.</li>
+</ul>
+<p>The program is unpacked to a temporary file in JNEXT's configuration directory
+(<code>~/.jnext/archive-load/</code>) that is deleted when JNEXT exits; leftovers of a
+crashed run are swept after a week.</p>
 <p>A program loaded either way brings its debugging files with it when they sit
 beside it: <code>game.sld</code> (an sjasmplus source map) and, for a <code>.nex</code>,
 <code>game.Memory.txt</code> (NextBuild / Boriel ZX Basic symbols). See

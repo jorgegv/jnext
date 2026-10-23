@@ -962,6 +962,7 @@ my %NO_MATRIX_SECTION = (
     'nex_loader_test'         => 'NEX file-format spec (host loader), no core counterpart',
     'nex_v13_test'            => 'NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart',
     'tap_loader_test'         => 'TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart',
+    'program_archive_test'    => 'ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart',
     'tzx_loader_test'         => 'TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart',
     'tape_save_test'          => 'TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source',
     'snapshot_im_test'        => 'snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0)',

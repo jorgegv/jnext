@@ -50,6 +50,8 @@ The format is detected from the extension: \f[CR].nex\f[R],
 \f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R], \f[CR].rzx\f[R].
 (\f[CR].rzx\f[R] is accepted here and plays back, as
 \f[B]\-\-rzx\-play\f[R].)
+A \f[CR].zip\f[R] archive holding one of them loads that program (see
+the \f[CR].zip\f[R] entry of \f[B]LOADING PROGRAMS\f[R]).
 .RS
 .PP
 \f[CR].jns\f[R] is jnext\(cqs own whole\-machine snapshot (see
@@ -1412,6 +1414,27 @@ RIFF/PCM EAR\-bit playback (8/16\-bit, mono/stereo).
 .TP
 \f[CR].rzx\f[R]
 Played back as if \f[B]\-\-rzx\-play\f[R] had been given.
+.TP
+\f[CR].zip\f[R]
+An archive holding one program (\f[CR]game.tap.zip\f[R],
+\f[CR]game.nex.zip\f[R]): the one file inside it with one of the
+extensions above is loaded, exactly as if it had been given on its own;
+screenshots, \f[CR].scr\f[R] and other files in the archive are ignored.
+An archive is recognised by its \f[CR].zip\f[R] extension, or, for a
+name with any other extension (or none), by its contents.
+When it holds several programs the command line refuses, listing them
+(unzip it and name the one you want); the window\(cqs \f[B]File >
+Load\f[R] asks which one.
+An archive that is encrypted, uses a method other than stored or
+deflate, is ZIP64 or multi\-disk, is itself over 256 MiB, has a member
+over 256 MiB, or names a member with an absolute path or \f[CR]..\f[R]
+is refused with the reason.
+The program is extracted to a temporary file under
+\f[CR]\(ti/.jnext/archive\-load/\f[R] (or the \f[B]JNEXT_CONFIG_DIR\f[R]
+directory) that is removed when \f[B]jnext\f[R] exits.
+In the window, a \f[CR].pok\f[R] file in the archive (the one named like
+the program, else the only one) is offered under \f[B]Machine > POK
+Trainers\&...\f[R].
 .PP
 \f[CR].tap\f[R] and \f[CR].tzx\f[R] load in real time instead with
 \f[B]\-\-tape\-realtime\f[R].

@@ -64,11 +64,28 @@ public:
     /// the whole tape. A bad checksum or flag byte inside a complete block is
     /// NOT a container error — libspectrum loads such a tape, and the ROM
     /// reports "R Tape loading error" when it reads that block.
+    /// Most anomaly warnings parse_blocks() reports before it only counts them.
+    static constexpr size_t kMaxWarnings = 20;
+
+    /// Most blocks a tape may hold. A TapBlock costs 40 bytes before its payload,
+    /// so a file of 4-byte blocks takes ~10x its size in memory (64 MiB -> 751 MB,
+    /// and a 256 MiB zip member 3 GB). Real tapes hold a few thousand blocks;
+    /// 1 Mi blocks bounds the structures at ~40 MB and is refused above that.
+    static constexpr size_t kMaxBlocks = 1024 * 1024;
+
     static bool parse_blocks(const std::vector<uint8_t>& file_data,
                              std::vector<TapBlock>& blocks,
                              const std::function<void(const std::string&)>& warn = {},
                              std::string* error = nullptr) {
         char msg[128];
+        // A hostile or damaged tape can have one anomaly per 2 bytes (a 256 MiB
+        // file of zeros is 134 million zero-length blocks): report the first
+        // kMaxWarnings and a count of the rest, not every one.
+        size_t suppressed = 0, reported = 0;
+        auto note = [&](const char* text) {
+            if (reported < kMaxWarnings) { ++reported; warn(text); }
+            else ++suppressed;
+        };
         // Parse TAP blocks: each block is [2-byte LE length][length bytes of data]
         // The data bytes are: [flag][payload...][checksum]
         size_t pos = 0;
@@ -82,7 +99,7 @@ public:
             if (block_len == 0) {
                 if (warn) {
                     snprintf(msg, sizeof(msg), "TAP: zero-length block at offset %zu", pos - 2);
-                    warn(msg);
+                    note(msg);
                 }
                 continue;
             }
@@ -91,6 +108,13 @@ public:
                 snprintf(msg, sizeof(msg),
                          "block %zu at offset %zu declares %u bytes but only %zu remain",
                          blocks.size(), pos - 2, block_len, file_data.size() - pos);
+                if (error) *error = msg;
+                blocks.clear();
+                return false;
+            }
+
+            if (blocks.size() >= kMaxBlocks) {
+                snprintf(msg, sizeof(msg), "the tape has more than %zu blocks", kMaxBlocks);
                 if (error) *error = msg;
                 blocks.clear();
                 return false;
@@ -111,11 +135,16 @@ public:
             if (!block.verify_checksum() && warn) {
                 snprintf(msg, sizeof(msg), "TAP: checksum mismatch in block %zu (flag=0x%02x)",
                          blocks.size(), block.flag);
-                warn(msg);
+                note(msg);
             }
 
             blocks.push_back(std::move(block));
             pos += block_len;
+        }
+        if (suppressed && warn) {
+            snprintf(msg, sizeof(msg), "TAP: %zu more warnings suppressed (first %zu shown)",
+                     suppressed, static_cast<size_t>(kMaxWarnings));
+            warn(msg);
         }
 
         if (pos != file_data.size()) {
