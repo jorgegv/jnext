@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.75</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.75</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.79</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3746,7 +3746,10 @@ that is not the one given here.</dd>
 <dd>
 <p>Load a program. The format is detected from the extension: <code>.nex</code>,
 <code>.jns</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, <code>.rzx</code>.
-(<code>.rzx</code> is accepted here and plays back, as <strong>--rzx-play</strong>.)</p>
+(<code>.rzx</code> is accepted here and plays back, as <strong>--rzx-play</strong>.) A
+<code>.zip</code> archive holding one of them loads that program (see the
+<a href="../05-running-programs/index.html#programs-in-zip-archives"><code>.zip</code>
+entry</a>).</p>
 <p><code>.jns</code> is jnext’s own whole-machine snapshot (see <a href="../05-running-programs/09-snapshots.html">5.9
 Snapshots</a>). Loading one
 restores the machine it was taken on, including the machine <em>type</em>:
@@ -4057,6 +4060,15 @@ enables it.</dd>
 <dt><strong>--tape-realtime</strong></dt>
 <dd>Real-time tape loading, at the speed of an actual tape, instead of
 fast load.</dd>
+<dt><strong>--tape-auto-play</strong>, <strong>--no-tape-auto-play</strong></dt>
+<dd>Turn automatic tape play/stop on (the default) or off for this run,
+overriding the saved GUI preference. While on, the tape deck stops
+in the silent gap between two blocks when no program is reading the
+tape, and resumes when one does, so tapes whose BASIC loader is slow
+between blocks load in real time. It does nothing in fast load mode.
+Off, the deck runs straight through, as a real one does (a TZX “stop
+the tape if in 48K mode” block now stops only on a 48K machine, as
+the TZX specification says, whatever this setting is).</dd>
 <dt><strong>--tape-save</strong> <em>FILE</em></dt>
 <dd>Save to tape, appending to <em>FILE</em>; its extension picks the format. A
 <code>.tzx</code> or <code>.wav</code> records the machine’s tape output (the MIC jack),

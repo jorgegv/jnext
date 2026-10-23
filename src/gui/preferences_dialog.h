@@ -87,6 +87,7 @@ private:
     QComboBox* crt_combo_ = nullptr;
     QCheckBox* silent_check_     = nullptr;
     QCheckBox* tape_fast_check_  = nullptr;
+    QCheckBox* tape_auto_check_  = nullptr;
 
     QComboBox* joy1_source_combo_ = nullptr;   // Task 79
     QComboBox* joy2_source_combo_ = nullptr;

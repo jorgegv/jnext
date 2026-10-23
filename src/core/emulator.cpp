@@ -109,6 +109,10 @@ Emulator::~Emulator()
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    // GH #395 - automatic tape play/stop is a host deck setting; a polling run
+    // never outlives the machine it was counted on.
+    tape_auto_play_ = cfg.tape_auto_play;
+    tape_poll_.reset();
     // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
     // latch loaded only at video_frame_sync, with no reset clause
     // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
@@ -4929,12 +4933,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // brought up to it, TZX/WAV evaluated at it. It used to be the
             // level at the instruction's start (TAP) or one T-state before
             // the I/O cycle's data latch (TZX/WAV, the live FUSE counter).
+            // GH #395 - automatic tape play/stop: count the CPU's read.
+            if (tape_auto_play_ && cpu_.executing() && !rzx_player_.is_playing())
+                tape_auto_on_read_();
             bool playing = true;
             uint8_t tape_level = 0;
             if (tape_.is_playing()) {
                 tape_level = tap_ear_for_port_read();
             } else if (tzx_tape_.is_playing()) {
                 // Monotonic T-state clock (never resets across frames — G36).
+                tzx_tape_.set_auto_policy(
+                    tape_gap_hold_(tape_sample_tstates()),
+                    tape_auto_play_, config_.type == MachineType::ZX48K);
                 tape_level = tzx_tape_.update(tape_sample_tstates());
             } else if (wav_tape_.is_playing()) {
                 tape_level = wav_tape_.get_ear_bit(tape_sample_tstates());
@@ -6630,7 +6640,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // cpu_speed="11" (ContentionModel's committed NR 0x07), and during
     // dma_holds_bus the DMA drives the very bus signals the wait
     // expression reads (zxnext.vhd:1828-1835); per-target qualification
-    // (bank-7 BRAM / bootrom / inactive pages exempt) is
+    // (bank-7 BRAM and inactive pages do not wait; overlays resolve in
+    // arbiter order; no boot-ROM exemption, GH #391) is
     // Mmu::sram_read_wait28().
     dma_.read_mem_wait_tstates = [this](uint16_t addr) -> uint8_t {
         return (contention_.cpu_speed() == 3) ? mmu_.sram_read_wait28(addr)
@@ -8352,6 +8363,7 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     resume_from_park("a TAP tape was attached");
 
     loader.set_fast_load(fast_load);
+    tape_poll_.reset();
     tape_ = std::move(loader);
     Log::emulator()->info("TAP: tape attached - {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
@@ -8458,6 +8470,7 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     resume_from_park("a TZX tape was attached");
 
     loader.set_fast_load(fast_load);
+    tape_poll_.reset();
     tzx_tape_ = std::move(loader);
     Log::emulator()->info("TZX: tape attached, mode: {}",
                            tzx_tape_.fast_load() ? "fast" : "realtime");
@@ -10075,17 +10088,28 @@ void Emulator::run_frame()
             !rzx_player_.is_playing()) {
             uint16_t pc = cpu_.pc();
 
-            // Fast-load: intercept LD-BYTES when tape is loaded and in fast mode.
-            if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
-                pc == TapLoader::LD_BYTES_ADDR) {
+            // Fast-load: intercept LD-BYTES at LD-BREAK (0x056B), where every
+            // entry of the routine converges, when the tape is loaded and in
+            // fast mode. Z set: the ROM's `RET NZ` is not about to return (the
+            // BREAK exit). ROM identity: other ROMs run code at 0x056B too.
+            // The tape conditions come first, and the identity check peeks: a
+            // pass through LD-BREAK with no fast tape must not touch memory
+            // the debugger watches.
+            const bool tap_fast = tape_.is_loaded() && tape_.fast_load() && !tape_.at_end();
+            const bool tzx_fast = tzx_tape_.is_loaded() && tzx_tape_.fast_load() &&
+                                  !tzx_tape_.at_end();
+            const bool ld_break = pc == tape_trap::LD_BREAK_ADDR &&
+                                  (tap_fast || tzx_fast) &&
+                                  (cpu_.get_registers().AF & 0x40) &&
+                                  tape_trap::ld_bytes_rom_present(mmu_);
+            if (ld_break && tap_fast) {
                 tape_.handle_ld_bytes_trap(*this);
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
             // TZX fast-load: same ROM trap, different loader.
-            if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end() &&
-                pc == TzxLoader::LD_BYTES_ADDR) {
+            if (ld_break && tzx_fast) {
                 tzx_tape_.handle_ld_bytes_trap(*this);
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
@@ -10960,6 +10984,7 @@ uint64_t Emulator::step_one_instruction()
             const uint32_t done =
                 (tap_sync_valid_ && tap_sync_serial_ == cpu_.execute_serial())
                     ? tap_sync_ts_ : 0u;
+            tape_.set_gap_hold(tape_gap_hold_(monotonic_tstates()));
             tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
             beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
             // GH #89 — a playing tape is echoed to tape-out (zxnext.vhd:6503):
@@ -10971,6 +10996,9 @@ uint64_t Emulator::step_one_instruction()
             // TZX real-time: ZOT models an absolute tape timeline, so
             // it must see the monotonic clock, not the frame-relative
             // FUSE counter (G36).
+            tzx_tape_.set_auto_policy(
+                tape_gap_hold_(monotonic_tstates()),
+                tape_auto_play_, config_.type == MachineType::ZX48K);
             beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
@@ -12309,8 +12337,49 @@ uint64_t Emulator::tape_sample_tstates() const
          + tape_sample_offset();
 }
 
+bool Emulator::tape_gap_hold_(uint64_t now) const
+{
+    // Hold at a gap boundary unless the CPU is listening.
+    return tape_auto_play_ && !tape_poll_.polling(now);
+}
+
+void Emulator::set_tape_auto_play(bool on)
+{
+    config_.tape_auto_play = on;
+    if (tape_auto_play_ == on) return;
+    tape_auto_play_ = on;
+    tape_poll_.reset();
+    if (!on) {
+        // Off is today's deck: a held tape must not stay stopped for ever.
+        const uint64_t now = monotonic_tstates();
+        if (tape_.is_loaded() && tape_.is_held()) tape_.resume();
+        if (tzx_tape_.is_loaded() && tzx_tape_.is_held()) tzx_tape_.resume(now);
+    }
+}
+
+void Emulator::tape_auto_on_read_()
+{
+    const uint64_t now = tape_sample_tstates();
+    tape_poll_.on_read(now);
+    if (!tape_poll_.polling(now)) return;
+
+    // Only a deck that auto play itself stopped is resumed. A tape that is
+    // not playing is never started by a polling program: in fast mode the
+    // ROM trap serves the loads, and a key-wait must not play blocks away.
+    if (tape_.is_loaded() && tape_.is_held()) {
+        tape_.resume();
+        // The rest of this instruction runs from the sample point.
+        tap_sync_valid_  = true;
+        tap_sync_serial_ = cpu_.execute_serial();
+        tap_sync_ts_     = tape_sample_offset();
+        Log::emulator()->info("TAP: deck playing again at block {}", tape_.current_block());
+    }
+    if (tzx_tape_.is_loaded() && tzx_tape_.is_held()) tzx_tape_.resume(now);
+}
+
 uint8_t Emulator::tap_ear_for_port_read()
 {
+    tape_.set_gap_hold(tape_gap_hold_(tape_sample_tstates()));
     if (!cpu_.executing()) return tape_.tick_realtime(0);
     if (!tap_sync_valid_ || tap_sync_serial_ != cpu_.execute_serial()) {
         tap_sync_valid_  = true;
@@ -13348,6 +13417,7 @@ void Emulator::save_state(StateWriter& w) const
 
 bool Emulator::load_state(StateReader& r)
 {
+    tape_poll_.reset();   // GH #395: time may have moved backwards
     // GH #276 B2 — THE RECONCILIATION RUNS ON EVERY EXIT, not just the
     // successful one, and this is the exit that needs it most.
     //

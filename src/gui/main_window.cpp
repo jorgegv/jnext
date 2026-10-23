@@ -13,6 +13,7 @@
 #include "core/szx_saver.h"
 #include "core/nex_saver.h"
 #include "core/nex_loader.h"          // GH #228 — probe_version + policy
+#include "core/program_archive.h"
 #include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
 #include "platform/pok_trainers.h"    // GH #381
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
@@ -1208,6 +1209,11 @@ void MainWindow::create_menus() {
     tape_fast_action_->setCheckable(true);
     tape_fast_action_->setChecked(true);  // fast load is default
     connect(tape_fast_action_, &QAction::triggered, this, &MainWindow::on_tape_fast_load);
+    // GH #395 - the deck's automatic play/stop (default on).
+    tape_auto_action_ = tape_menu->addAction(tr("Auto Play/Stop"));
+    tape_auto_action_->setCheckable(true);
+    tape_auto_action_->setChecked(true);
+    connect(tape_auto_action_, &QAction::triggered, this, &MainWindow::on_tape_auto_play);
 
     // GH #89 — what --tape-save does, from the menu. No shortcut, like the
     // rest of this menu: a host Alt shortcut takes a key from the guest, and
@@ -1570,25 +1576,128 @@ bool MainWindow::open_pok_file(const QString& path) {
         if (!unattended_) QMessageBox::warning(this, tr("POK Trainers"), msg);
         return false;
     }
-    pok_ = std::make_unique<jnext::pok::Session>(*debugger_, std::move(file), path.toStdString());
+    start_pok_session(std::move(file), path.toStdString(), true);
+    return true;
+}
+
+// Make `file` the window's POK session; `show` opens the trainers dialog on it.
+void MainWindow::start_pok_session(jnext::pok::PokFile file, const std::string& display,
+                                   bool show) {
+    pok_ = std::make_unique<jnext::pok::Session>(*debugger_, std::move(file), display);
     if (!pok_dialog_) {
         pok_dialog_ = std::make_unique<PokDialog>(this);
         connect(pok_dialog_.get(), &PokDialog::open_file_requested, this, &MainWindow::on_pok_open);
     }
     pok_dialog_->set_session(pok_.get());   // straight away: the old session is gone
+    if (!show) return;
     if (pok_dialog_->isVisible()) {
         pok_dialog_->raise();
         pok_dialog_->activateWindow();
     } else {
         pok_dialog_->open();
     }
-    return true;
+}
+
+bool MainWindow::pok_dialog_visible() const {
+    return pok_dialog_ && pok_dialog_->isVisible();
+}
+
+// GH #392 - the trainers bundled in a loaded archive: made the POK session
+// WITHOUT opening the dialog (the program has only just been handed to the cold
+// boot) and said once in the status bar. A .pok that does not parse to a
+// trainer is logged and not offered.
+void MainWindow::offer_archive_pok(const program_archive::ProgramArchive& archive,
+                                   const std::string& program, const std::string& archive_path) {
+    if (!emulator_ || !debugger_) return;
+    const std::string pok = archive.matching_pok(program);
+    if (pok.empty()) return;
+    constexpr uint64_t kMaxPok = 1024 * 1024;
+    std::vector<uint8_t> bytes;
+    std::string why;
+    if (archive.member_size(pok) > kMaxPok || !archive.read_member(pok, bytes, why)) {
+        Log::platform()->info("archive {}: trainers not offered: {}", archive_path,
+                              why.empty() ? program_archive::display_name(pok) + " is larger than 1 MiB" : why);
+        return;
+    }
+    jnext::pok::PokFile file = jnext::pok::parse_pok(
+        std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+    if (file.trainers.empty()) {
+        Log::platform()->info("archive {}: {} holds no trainers, not offered", archive_path,
+                              program_archive::display_name(pok));
+        return;
+    }
+    start_pok_session(std::move(file),
+                      archive_path + " (" + program_archive::display_name(pok) + ")", false);
+    const QString msg = tr("Trainers for this program: Machine > POK Trainers...");
+    statusBar()->showMessage(msg, 8000);
+    Log::platform()->info("status bar: {}", msg.toStdString());
 }
 
 // GH #228 — the post-picker half of a menu file-load, split out so
 // nex_v13_dialog_test can drive the REAL dialog-to-decision wiring (the
 // picker is modal and untestable; this is not).
 void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
+    const std::string file = path.toStdString();
+
+    // GH #392 - a program inside a .zip: pick the member, extract it to a file of
+    // its own extension, and run the ordinary route on that file. Every message
+    // names "<archive> (<member>)", never the scratch path.
+    if (program_archive::is_archive_path(file)) {
+        program_archive::ProgramArchive archive;
+        std::string why;
+        if (!archive.open(file, why)) {
+            refuse_jns(path, QString::fromStdString(why));
+            return;
+        }
+        if (archive.programs().empty()) {
+            refuse_jns(path, QString::fromStdString(archive.no_program_why()));
+            return;
+        }
+        size_t chosen = 0;
+        if (archive.programs().size() > 1) {
+            if (unattended_) {   // no dialog, as every other dialog here
+                refuse_jns(path, QString::fromStdString(archive.several_why()));
+                return;
+            }
+            // Shown names are display_name()s (escaped, so valid UTF-8 and distinct);
+            // the choice is mapped back by INDEX, never by re-encoding the text (a
+            // CP437 name does not survive a QString round trip).
+            QStringList items;
+            for (const auto& m : archive.programs())
+                items << QString::fromStdString(program_archive::display_name(m));
+            bool ok = false;
+            const QString pick = QInputDialog::getItem(
+                this, tr("Load from Archive"),
+                tr("%1 holds several programs. Load which one?").arg(QFileInfo(path).fileName()),
+                items, 0, false, &ok);
+            const int idx = items.indexOf(pick);
+            if (!ok || idx < 0) return;   // Cancel: nothing loaded, nothing reset
+            chosen = static_cast<size_t>(idx);
+        }
+        const std::string member = archive.programs()[chosen];
+        const QString shown = path + QStringLiteral(" (") +
+                              QString::fromStdString(program_archive::display_name(member)) +
+                              QStringLiteral(")");
+        std::string extracted;
+        if (!archive.extract(member, extracted, why)) {
+            // extract() prefixes the member; the archive is named by `shown` here.
+            const std::string shown_member = program_archive::display_name(member);
+            const std::string tail = why.rfind(shown_member + " ", 0) == 0 ? why.substr(shown_member.size() + 1) : why;
+            refuse_jns(shown, QString::fromStdString(tail));
+            return;
+        }
+        if (handle_program_path(QString::fromStdString(extracted), shown, jns_probed))
+            offer_archive_pok(archive, member, file);
+        return;
+    }
+    handle_program_path(path, QString(), jns_probed);
+}
+
+bool MainWindow::handle_program_path(const QString& path, const QString& shown,
+                                     bool jns_probed) {
+    const std::string file = path.toStdString();
+    // What the user is told the file is called: the archive member, not the scratch path.
+    const QString name = shown.isEmpty() ? path : shown;
     // GH #228 — NEX V1.3 is an experimental format jnext does not
     // officially support: warn, and only proceed on an explicit
     // confirmation, Cancel being the default. The decision itself is the
@@ -1597,7 +1706,6 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // NEXGATE-*); this dialog is only its consumer — and even a skipped
     // dialog cannot load V1.3 silently, because Emulator::load_nex()
     // enforces the same policy and fails the load.
-    const std::string file = path.toStdString();
 
     // GH #381 - a .pok is a list of trainers for the machine that is running,
     // not a program: it opens the trainers dialog and nothing is reset. Before
@@ -1605,7 +1713,7 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // and only then failed to load it.
     if (jnext::pok::is_pok_path(file)) {
         open_pok_file(path);
-        return;
+        return false;
     }
 
     // An .rzx is checked BEFORE the cold boot below, so a file that cannot
@@ -1614,13 +1722,13 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     if (emulator_load_routes_to_rzx(file)) {
         if (emulator_ && emulator_->tape_save_active()) {
             QMessageBox::warning(this, tr("Play RZX Recording"), rzx_tape_save_refusal());
-            return;
+            return false;
         }
         std::string why;
         if (!rzx::playable(file, why)) {
             QMessageBox::warning(this, tr("Play RZX Recording"),
-                tr("Cannot play %1: %2.").arg(path, QString::fromStdString(why)));
-            return;
+                tr("Cannot play %1: %2.").arg(name, QString::fromStdString(why)));
+            return false;
         }
     }
 
@@ -1629,8 +1737,8 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     if (emulator_ && !jns_probed && jnext::is_jns_path(file)) {
         std::string why;
         if (!emulator_->probe_jns_file(file, why)) {
-            refuse_jns(path, QString::fromStdString(why));
-            return;
+            refuse_jns(name, QString::fromStdString(why));
+            return false;
         }
     }
 
@@ -1640,8 +1748,8 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     if (emulator_load_routes_to_snapshot(file)) {
         std::string why;
         if (!snapshot_file_loadable(file, why)) {
-            refuse_jns(path, QString::fromStdString(why));   // status bar, and a dialog unless unattended
-            return;
+            refuse_jns(name, QString::fromStdString(why));   // status bar, and a dialog unless unattended
+            return false;
         }
     }
 
@@ -1657,12 +1765,12 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
         // page, say), and "its extension is not one JNEXT loads" or a hint about
         // .pok would contradict its name; only the other extensions get those.
         if (!NexLoader::probe_version(file, ver_bcd, ver)) {
-            refuse_jns(path, snapshot_file_ext(file) == "nex"
+            refuse_jns(name, snapshot_file_ext(file) == "nex"
                 ? tr("it is not a NEX file (it does not start with the \"Next\" header)")
                 : tr("it is not a NEX file and its extension is not one JNEXT loads "
-                     "(.nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx); a .pok "
+                     "(.nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx, .zip); a .pok "
                      "trainer file opens from Machine > POK Trainers"));
-            return;
+            return false;
         }
         if (nex_version_needs_v13_optin(ver_bcd)) {
             QMessageBox box(QMessageBox::Warning, tr("Experimental NEX V1.3"),
@@ -1672,7 +1780,7 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
                                "misbehave, or not work at all, and no support "
                                "is provided for it.\n\n"
                                "Load it anyway?")
-                                .arg(QFileInfo(path).fileName(),
+                                .arg(shown.isEmpty() ? QFileInfo(path).fileName() : shown,
                                      QString::fromLatin1(ver)),
                             QMessageBox::NoButton, this);
             QPushButton* proceed =
@@ -1681,7 +1789,7 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
             box.setDefaultButton(QMessageBox::Cancel);  // Cancel is the default
             box.exec();
             if (box.clickedButton() != proceed) {
-                return;  // Cancel aborts: nothing is loaded, nothing reset
+                return false;  // Cancel aborts: nothing is loaded, nothing reset
             }
             allow_experimental_nex_v13 = true;
         }
@@ -1691,16 +1799,22 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // been passed with --load at startup (reset the Next to a known state,
     // then load and run). QtApp performs the reconstruct+init+load; the
     // per-format loader dispatch lives in the shared startup path.
+    bool handed = false;
     if (load_file_callback_) {
         menu_load_pending_ = file;
+        menu_load_shown_ = shown.toStdString();
         load_file_callback_(file, allow_experimental_nex_v13);
+        handed = true;
     }
     emit load_nex_requested(path);
+    return handed;
 }
 
 void MainWindow::load_finished(const std::string& file, bool ok) {
     const bool from_menu = !menu_load_pending_.empty() && file == menu_load_pending_;
+    const std::string shown = menu_load_shown_.empty() ? file : menu_load_shown_;
     menu_load_pending_.clear();
+    menu_load_shown_.clear();
     update_tape_status();
 
     // GH #27 S8 (§15.2) — the restore-time PROVENANCE line. A `.jns` can load
@@ -1733,7 +1847,7 @@ void MainWindow::load_finished(const std::string& file, bool ok) {
     }
 
     if (ok || !from_menu) return;
-    const QString path = QString::fromStdString(file);
+    const QString path = QString::fromStdString(shown);
     QTimer::singleShot(0, this, [this, path]() { report_load_failure(path); });
 }
 
@@ -1930,6 +2044,11 @@ void MainWindow::on_tape_fast_load(bool checked) {
     if (!emulator_) return;
     emulator_->tape().set_fast_load(checked);
     emulator_->tzx_tape().set_fast_load(checked);
+}
+
+void MainWindow::on_tape_auto_play(bool checked) {
+    if (!emulator_) return;
+    emulator_->set_tape_auto_play(checked);
 }
 
 void MainWindow::on_tape_save_start() {
@@ -2361,11 +2480,11 @@ void MainWindow::on_quick_screenshot() {
 // closes BOOT-SNAPSAVE-01/02/03/04 in mmu_test. Format is chosen by the
 // extension the user picks (or types); defaults to .sna if none/unknown.
 QString MainWindow::load_filter() {
-    return tr("Spectrum Files (*.nex *.jns *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx);;"
+    return tr("Spectrum Files (*.nex *.jns *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx *.zip);;"
               "NEX Files (*.nex);;jnext Snapshots (*.jns);;SNA Snapshots (*.sna);;"
               "SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;"
               "TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;"
-              "POK Trainers (*.pok);;All Files (*)");
+              "ZIP Archives (*.zip);;POK Trainers (*.pok);;All Files (*)");
 }
 
 QString MainWindow::save_filter(bool next_machine) {
@@ -2578,6 +2697,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
         emulator_->nextreg().write(0x07, static_cast<uint8_t>(cfg.cpu_speed));
         emulator_->tape().set_fast_load(cfg.tape_fast_load);
         emulator_->tzx_tape().set_fast_load(cfg.tape_fast_load);
+        emulator_->set_tape_auto_play(cfg.tape_auto_play);
         emulator_->mixer().set_output_gain_db(cfg.audio_gain_db);
         emulator_->mixer().set_beeper_gain_db(cfg.audio_gain_beeper_db);
         for (int chip = 0; chip < 3; ++chip)
@@ -2585,6 +2705,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
         emulator_->mixer().set_dac_gain_db(cfg.audio_gain_dac_db);
     }
     if (tape_fast_action_) tape_fast_action_->setChecked(cfg.tape_fast_load);
+    if (tape_auto_action_) tape_auto_action_->setChecked(cfg.tape_auto_play);
 
     set_mouse_release_method(cfg.mouse_release);   // GH #365
     set_scale(cfg.window_scale);

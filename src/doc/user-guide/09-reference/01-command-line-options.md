@@ -47,7 +47,10 @@ with status 1.
 
 :   Load a program. The format is detected from the extension: `.nex`,
     `.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`.
-    (`.rzx` is accepted here and plays back, as **--rzx-play**.)
+    (`.rzx` is accepted here and plays back, as **--rzx-play**.) A
+    `.zip` archive holding one of them loads that program (see the
+    [`.zip`
+    entry](../05-running-programs/index.md#programs-in-zip-archives)).
 
     `.jns` is jnext’s own whole-machine snapshot (see [5.9
     Snapshots](../05-running-programs/09-snapshots.md)). Loading one
@@ -397,6 +400,16 @@ with status 1.
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of
     fast load.
+
+**--tape-auto-play**, **--no-tape-auto-play**
+:   Turn automatic tape play/stop on (the default) or off for this run,
+    overriding the saved GUI preference. While on, the tape deck stops
+    in the silent gap between two blocks when no program is reading the
+    tape, and resumes when one does, so tapes whose BASIC loader is slow
+    between blocks load in real time. It does nothing in fast load mode.
+    Off, the deck runs straight through, as a real one does (a TZX “stop
+    the tape if in 48K mode” block now stops only on a 48K machine, as
+    the TZX specification says, whatever this setting is).
 
 **--tape-save** *FILE*
 :   Save to tape, appending to *FILE*; its extension picks the format. A

@@ -50,6 +50,8 @@ The format is detected from the extension: \f[CR].nex\f[R],
 \f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R], \f[CR].rzx\f[R].
 (\f[CR].rzx\f[R] is accepted here and plays back, as
 \f[B]\-\-rzx\-play\f[R].)
+A \f[CR].zip\f[R] archive holding one of them loads that program (see
+the \f[CR].zip\f[R] entry of \f[B]LOADING PROGRAMS\f[R]).
 .RS
 .PP
 \f[CR].jns\f[R] is jnext\(cqs own whole\-machine snapshot (see
@@ -457,6 +459,17 @@ it.
 \f[B]\-\-tape\-realtime\f[R]
 Real\-time tape loading, at the speed of an actual tape, instead of fast
 load.
+.TP
+\f[B]\-\-tape\-auto\-play\f[R], \f[B]\-\-no\-tape\-auto\-play\f[R]
+Turn automatic tape play/stop on (the default) or off for this run,
+overriding the saved GUI preference.
+While on, the tape deck stops in the silent gap between two blocks when
+no program is reading the tape, and resumes when one does, so tapes
+whose BASIC loader is slow between blocks load in real time.
+It does nothing in fast load mode.
+Off, the deck runs straight through, as a real one does (a TZX \(lqstop
+the tape if in 48K mode\(rq block now stops only on a 48K machine, as
+the TZX specification says, whatever this setting is).
 .TP
 \f[B]\-\-tape\-save\f[R] \f[I]FILE\f[R]
 Save to tape, appending to \f[I]FILE\f[R]; its extension picks the
@@ -1405,6 +1418,27 @@ RIFF/PCM EAR\-bit playback (8/16\-bit, mono/stereo).
 .TP
 \f[CR].rzx\f[R]
 Played back as if \f[B]\-\-rzx\-play\f[R] had been given.
+.TP
+\f[CR].zip\f[R]
+An archive holding one program (\f[CR]game.tap.zip\f[R],
+\f[CR]game.nex.zip\f[R]): the one file inside it with one of the
+extensions above is loaded, exactly as if it had been given on its own;
+screenshots, \f[CR].scr\f[R] and other files in the archive are ignored.
+An archive is recognised by its \f[CR].zip\f[R] extension, or, for a
+name with any other extension (or none), by its contents.
+When it holds several programs the command line refuses, listing them
+(unzip it and name the one you want); the window\(cqs \f[B]File >
+Load\f[R] asks which one.
+An archive that is encrypted, uses a method other than stored or
+deflate, is ZIP64 or multi\-disk, is itself over 256 MiB, has a member
+over 256 MiB, or names a member with an absolute path or \f[CR]..\f[R]
+is refused with the reason.
+The program is extracted to a temporary file under
+\f[CR]\(ti/.jnext/archive\-load/\f[R] (or the \f[B]JNEXT_CONFIG_DIR\f[R]
+directory) that is removed when \f[B]jnext\f[R] exits.
+In the window, a \f[CR].pok\f[R] file in the archive (the one named like
+the program, else the only one) is offered under \f[B]Machine > POK
+Trainers\&...\f[R].
 .PP
 \f[CR].tap\f[R] and \f[CR].tzx\f[R] load in real time instead with
 \f[B]\-\-tape\-realtime\f[R].
@@ -2190,9 +2224,9 @@ freely (by default Ctrl+Alt releases it, Alt+Cmd on macOS; see
 \f[B]\-\-mouse\-release\f[R]).
 .TP
 \f[B]Tape\f[R]
-Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start
-Saving\&..., which saves to a TAP, TZX or WAV file as
-\f[B]\-\-tape\-save\f[R] does, and Stop Saving.
+Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle), Auto
+Play/Stop (toggle); Start Saving\&..., which saves to a TAP, TZX or WAV
+file as \f[B]\-\-tape\-save\f[R] does, and Stop Saving.
 .TP
 \f[B]Debug\f[R]
 Magic Breakpoint (toggle), Debugger (Alt+D \- the same entry as in

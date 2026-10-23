@@ -134,7 +134,9 @@ not the one given here.
 **--load** *FILE*  
 Load a program. The format is detected from the extension: `.nex`,
 `.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx`
-is accepted here and plays back, as **--rzx-play**.)
+is accepted here and plays back, as **--rzx-play**.) A `.zip` archive
+holding one of them loads that program (see the `.zip` entry of
+**LOADING PROGRAMS**).
 
 `.jns` is jnext’s own whole-machine snapshot (see **JNEXT SNAPSHOTS**
 below). Loading one restores the machine it was taken on, including the
@@ -460,6 +462,16 @@ it.
 **--tape-realtime**  
 Real-time tape loading, at the speed of an actual tape, instead of fast
 load.
+
+**--tape-auto-play**, **--no-tape-auto-play**  
+Turn automatic tape play/stop on (the default) or off for this run,
+overriding the saved GUI preference. While on, the tape deck stops in
+the silent gap between two blocks when no program is reading the tape,
+and resumes when one does, so tapes whose BASIC loader is slow between
+blocks load in real time. It does nothing in fast load mode. Off, the
+deck runs straight through, as a real one does (a TZX “stop the tape if
+in 48K mode” block now stops only on a 48K machine, as the TZX
+specification says, whatever this setting is).
 
 **--tape-save** *FILE*  
 Save to tape, appending to *FILE*; its extension picks the format. A
@@ -1264,6 +1276,23 @@ RIFF/PCM EAR-bit playback (8/16-bit, mono/stereo).
 `.rzx`  
 Played back as if **--rzx-play** had been given.
 
+`.zip`  
+An archive holding one program (`game.tap.zip`, `game.nex.zip`): the one
+file inside it with one of the extensions above is loaded, exactly as if
+it had been given on its own; screenshots, `.scr` and other files in the
+archive are ignored. An archive is recognised by its `.zip` extension,
+or, for a name with any other extension (or none), by its contents. When
+it holds several programs the command line refuses, listing them (unzip
+it and name the one you want); the window’s **File \> Load** asks which
+one. An archive that is encrypted, uses a method other than stored or
+deflate, is ZIP64 or multi-disk, is itself over 256 MiB, has a member
+over 256 MiB, or names a member with an absolute path or `..` is refused
+with the reason. The program is extracted to a temporary file under
+`~/.jnext/archive-load/` (or the **JNEXT_CONFIG_DIR** directory) that is
+removed when **jnext** exits. In the window, a `.pok` file in the
+archive (the one named like the program, else the only one) is offered
+under **Machine \> POK Trainers…**.
+
 `.tap` and `.tzx` load in real time instead with **--tape-realtime**.
 
 RZX recording uses **--rzx-record** *FILE*. The GUI’s **File \> Load NEX
@@ -1897,9 +1926,9 @@ freely (by default Ctrl+Alt releases it, Alt+Cmd on macOS; see
 **--mouse-release**).
 
 **Tape**  
-Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start
-Saving…, which saves to a TAP, TZX or WAV file as **--tape-save** does,
-and Stop Saving.
+Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle), Auto
+Play/Stop (toggle); Start Saving…, which saves to a TAP, TZX or WAV file
+as **--tape-save** does, and Stop Saving.
 
 **Debug**  
 Magic Breakpoint (toggle), Debugger (Alt+D - the same entry as in

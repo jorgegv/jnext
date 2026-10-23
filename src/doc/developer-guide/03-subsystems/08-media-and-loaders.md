@@ -27,14 +27,16 @@ the guest's own driver talks to. Both are called out below.
 | `.tzx` | yes | yes | `tzx_loader.*`, `tape_recorder.*` | Read: wraps ZOT (`third_party/zot`). Write: tape-out capture decoded into 0x10/0x11/0x13/0x20 |
 | `.wav` | yes | yes | `wav_loader.*`, `tape_recorder.*` | Read: real-time only, no fast path. Write: the tape-out signal, 8-bit mono 44100 Hz |
 | `.rzx` | yes | yes | `rzx_player.*`, `rzx_recorder.*` | Input recording, not state |
+| `.zip` | yes | — | `core/program_archive.*`, `save/zip_interchange.*` | Not a format: a container resolved to one program file at the two entry points (see ZIP archives) |
 | raw binary | yes | — | `Emulator::inject_binary` | `--inject` + `--inject-org`/`--inject-pc` |
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
 around line 890, and again in the GUI's file dialogs and in the headless
-snapshot writer. There is no content sniffing, and an extension jnext does not
+snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
-the file might be.
+the file might be. The one exception is an archive (below), which is recognised
+by `.zip` or by its `PK` magic and resolved to a program file first.
 
 The snapshot and program loaders all follow the same two-phase shape.
 `load(path)` parses and validates into member state; `apply(emu)` writes that
@@ -107,14 +109,62 @@ as it goes, and the loader chatters through the speaker. jnext can reproduce
 all of that, or it can skip it entirely and have the program in memory almost
 instantly. Those are two independent code paths that share nothing.
 
-**Fast load is a ROM trap.** When ROM is paged into slot 0 and PC reaches the
-48K ROM's `LD-BYTES` entry at `0x0556`, the run loop hands the next block
-straight to memory and skips the routine altogether — no tape signal is ever
-generated. `.tap` and `.tzx` both support this. `.wav` cannot, because a WAV is
-just audio samples with no block structure to extract. The gate is a PC match,
-which has one consequence worth knowing: a custom or turbo loader that never
-enters the ROM routine is never intercepted, and real time is then the only way
-it will load.
+**Fast load is a ROM trap.** The trap sits at `LD-BREAK`, `0x056B`, the `RET NZ`
+of the 48K ROM's `LD-BYTES` routine, not at the routine's entry `0x0556`: every
+entry converges there, including the `0x0562` one a custom block loader uses after
+doing the routine's prologue itself (FUSE traps the same spot). It fires only
+with ROM paged into slot 0, the Z flag set (the ROM's `RET NZ` is then not about
+to return) and a **ROM identity check** on the bytes at `0x056B` and `0x05DF`
+(`tape_trap::ld_bytes_rom_present`, like the save trap's). It then hands the next
+block to memory without generating any tape signal. `.tap` and `.tzx` both
+support this; `.wav` cannot, because a WAV is just audio samples with no block
+structure to extract.
+
+Both loaders call one helper, `tape_trap::rom_ld_bytes` (`src/core/tape_trap.*`),
+which does what the ROM does from `LD-START` to its return: the flag comes from
+A' and LOAD/VERIFY from the carry of F' (the entry's `EX AF,AF'` has run); a flag
+mismatch consumes the block and returns carry clear; LOAD stores bytes, VERIFY
+compares them; the carry reports the parity of flag, bytes and the byte after the
+last one (the checksum), and a DE longer than the block times out as the ROM does.
+The CPU is left at the routine's own `RET` (`0x05E2`), so the ROM pops whatever the
+caller pushed: `SA/LD-RET` for a `0x0556` entry (border restored, `EI`), the
+caller's return address for a `0x0562` one. The registers it leaves are those of
+the ROM run against jnext's own real-time player, except the ROM's edge-tracking
+byte C, whose value after the sync depends on the pilot phase the ROM caught and
+which the trap pins to `0x21`. A custom or turbo loader that never enters the ROM
+routine is never intercepted, and real time is then the only way it will load.
+
+**Automatic play/stop (GH #395)** is a host deck feature with no hardware
+counterpart (no Spectrum has tape motor control). The signal is
+`TapePollDetector` (`src/core/tape_poll_detector.h`): every CPU `IN` of the ULA
+port while `cpu_.executing()` (the debugger's port reads are not counted),
+stamped with `tape_sample_tstates()`. 32 reads in a row, each at most 1000
+T-states after the previous, with the last no more than 1000 T-states old, is
+"polling". 1000 T-states is over the shortest standard pulse (855), and 32 is
+over the ROM's keyboard scan (bursts of 8 reads 59 T apart, then about 69000
+T-states of nothing). There is no PC range (it would serve only ROM loaders
+and differ by ROM) and no register rule: FUSE's "B changes by one" start rule
+cannot see DeciLoad, which polls one address with B constant, and FUSE's own
+detect-loader fails the `xevious-deciload` tape.
+
+- **Real time.** The deck starts at attach as ever. It holds only at a gap
+  boundary, the instant a block and its non-zero pause have finished, and only
+  when nobody polls. It never stops mid-block and never at a zero-pause join. It
+  resumes at the first counted read once polling: the next block from its first
+  pulse. TAP: `TapLoader::set_gap_hold` / `resume`. TZX: ZOT's `hold_request`,
+  `held`, `tzx_resume()`; a stop block (0x20 pause 0, 0x2A) holds instead of
+  ending the tape, and 0x2A stops only on a 48K machine. WAV has no gaps.
+- **Fast mode.** Nothing happens: a polling program never starts a tape that
+  is not playing, because in fast mode the `0x056B` trap serves the loads and a
+  "press any key" wait (a tight `IN` loop, indistinguishable at the port from a
+  pure-EAR loader such as DeciLoad) would play blocks away that a later ROM load
+  needs. A custom loader in fast mode behaves as it always did.
+- **State.** The detector and the hold are host-deck state, not serialised, and
+  reset on every state load (tape position is excluded from rewind and
+  snapshots by design). Off (`tape_auto_play`, `--no-tape-auto-play`) is the
+  deck as it was: no hold, stop blocks stop for good. The one exception is
+  independent of the setting: a 0x2A block now stops only on a 48K machine (the
+  TZX specification).
 
 Saving works the same way in reverse. `--tape-save` (or Tape ▸ Start Saving,
 both through `Emulator::start_tape_save()`) arms one of two savers by the
@@ -172,7 +222,12 @@ file exactly — a block whose declared length runs past the end, or one stray
 byte where a length field should start — the two cases FUSE's libspectrum TAP
 reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
-when it reads that block. `TzxLoader::validate()` does the same for a `.tzx`
+when it reads that block. Those anomalies are warnings, and `parse_blocks()` reports
+only the first `kMaxWarnings` (20) plus one count of the rest: a 256 MiB tape of
+zeros is 134 million zero-length blocks (TAPC-13). A tape is also refused above
+`kMaxBlocks` (1 Mi) blocks: a `TapBlock` costs 40 bytes before its payload, so a
+file of 4-byte blocks took ~12x its size in memory (TAPC-15).
+`TzxLoader::validate()` does the same for a `.tzx`
 against libspectrum's TZX reader: the `ZXTape!` signature, then every block
 walked with that reader's length rules, so a block that runs past the end or a
 header with no block after it refuses the whole tape. ZOT's own `tzx_load()`
@@ -921,6 +976,67 @@ indexing and asserting bytes the test placed itself; the rows that sweep a
 trainer's locations one at a time, POK-50..52, are there so that a rule meant for
 every location cannot pass by checking the first) and `pok_dialog_test`
 (PKD-01..16); File > Load's refusal is `preferences_apply_test` PA-24e/f/g.
+
+## ZIP archives
+
+`game.tap.zip` loads (GH #392) by being turned into **an extracted file with the
+member's own extension at the two places a user names a program**: the
+command-line fold in `main.cpp` (right after the bare filename becomes
+`load_file`, before the RZX checks) and `MainWindow::handle_load_path()`. Every
+decision below that, from the extension tables to the warm start, the RZX and
+snapshot rules, the V1.3 gate, `Debugger::load_program_sidecars` and the NEX
+loader that keeps its file open (`ExtendedNexHost::reopen()`, `run X.nex`
+siblings resolved beside it), then sees an ordinary path and is unchanged.
+Loading from memory per format was rejected: nine loader APIs, and a NEX needs a
+path anyway.
+
+**Two readers, on purpose.** `save/zip_archive.*` is the `.jns` container: it
+accepts only the subset its own writer emits (flag 0, no extra field, no data
+descriptor, lower-case grammar paths) and must stay that strict, because two
+readers disagreeing about the bytes is the failure it exists to avoid.
+Real archives break every one of those rules (Info-ZIP: flag 0x0002, a 24-byte
+extra field on every entry, directory entries; streaming writers: flag 0x0008
+and zero sizes in the local header), so `save/zip_interchange.*` is a separate
+read-only reader: sizes and CRC from the CENTRAL directory, the data offset from
+the LOCAL header's own name and extra lengths, stored and deflate only, and a
+refusal naming each of: not an archive, ZIP64, multi-disk, a damaged directory
+(archive level), encryption, another method, a declared size over 256 MiB
+(checked before anything is allocated), a CRC mismatch (member level). The only
+code the two share is `zip::inflate_exact()`; the EOCD and central-directory
+walks are not shared, because a shared walk has to be the weaker of the two.
+`ZIPI-25` pins that the strict reader still refuses an Info-ZIP archive.
+
+`core/program_archive.*` is the layer on top. `is_program_ext()` is the ONE table
+of loadable extensions and `emulator_load_routes_to_nex()` is defined over it, so
+they cannot drift. `is_archive_path()` is false for a program extension or
+`.pok` (a `.jns` IS a zip), true for any `.zip`, and for anything else true when
+the file starts `PK\3\4` or `PK\5\6`. `ProgramArchive` lists the members that
+are programs (not directories, `__MACOSX/` or `._` AppleDouble junk), refuses two
+with one name, and extracts to `<config-dir>/archive-load/<process>/<n>/<basename>`
+after refusing an absolute, drive-lettered or `..` name (splitting on both `/` and
+`\`, APPNOTE 4.4.17) and sanitising the basename. Several programs are refused
+on the command line (listed) and asked for in the window (`QInputDialog`;
+refused with the list when unattended, and the choice mapped back by INDEX, never
+by re-encoding the text). Duplicate names are found with a hash set (a `find()` per
+member was quadratic: 12 s for 65534 entries). A member name is untrusted bytes:
+every message that carries one goes through `display_name()`, which escapes C0, DEL,
+C1 and anything outside well-formed UTF-8 as `\xNN`, so no consumer can print an
+escape sequence. An archive file over 256 MiB is refused too, before it is read. `extraction_name()` also prefixes `_` to a Windows device name (`CON.TAP`, `NUL.Z80`, `COM1.NEX`), on every OS, because Windows 10 refuses to create those files.
+
+**Lifetime.** One `ScratchDir` per process (`process_scratch()`, a function-local
+static, so it is destroyed on any return from `main()`, after the app objects and
+their open NEX handle, which matters on Windows): a random directory per process,
+one numbered slot per extraction (two archives both holding `GAME.TAP` never
+collide, and a refused second load never removes the file the running program has
+open). Process directories older than 7 days are swept on first use: leftovers
+of a crash, never another instance's live session. In the window, a bundled
+`.pok` (`matching_pok()`: same stem, else the only one) becomes the POK session
+without showing the dialog (`start_pok_session(.., show=false)`).
+
+The suites: `program_archive_test` (ZIPI-01..25 the reader, ZIPL-01..22 the layer;
+fixtures from foreign writers in `test/fixtures/zip` plus archives built in code
+with `test/zip_fixture.h`), `load_error_test` ZIPG-01..09 (the window) and the
+`zip-load-func` regression row.
 
 ## Media out
 
