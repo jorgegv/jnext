@@ -2591,12 +2591,12 @@ int main() {
         // zxnext.vhd:2983-2984, :3052: a 48K's RST $38 lands in ROM 0. And :4688: on a Next
         // with MMU0 = page 0x0C the same RST lands in that RAM page.
         Machine m;
-        m.emu.mmu().write(0x8000, 0xFF);   // RST $38
+        m.emu.mmu().write(0x8000, 0xFF);   // RST $38 (the bare test ROM is 0xFF too: more RSTs follow)
         m.set_pc(0x8000);
         m.dbg->step_into(m.a);
         m.dbg->step_into(m.a);             // the first instruction at $0038
         const auto& fa = m.dbg->call_stack();
-        const bool a_ok = fa.size() == 1 && fa[0].type == CallType::RST &&
+        const bool a_ok = !fa.empty() && fa[0].type == CallType::RST &&
                           fa[0].target_pc == 0x0038 && fa[0].target_space == MemSpace::rom(0) &&
                           fa[0].caller_space == MemSpace::page(4);
 
@@ -2614,7 +2614,17 @@ int main() {
                               "fetched from: ROM 0 on a 48K, the RAM page mapped at $0000 on "
                               "a Next",
               a_ok && b_ok,
-              std::string("48K ") + (a_ok ? "ok" : "BAD") + " Next " + (b_ok ? "ok" : "BAD"));
+              std::string("48K ") + (a_ok ? "ok" : "BAD") + " frames=" + std::to_string(fa.size()) +
+                  (fa.empty() ? std::string() :
+                       " target=" + std::to_string(unsigned(fa[0].target_space.kind)) + "/" +
+                       std::to_string(unsigned(fa[0].target_space.index)) + " caller=" +
+                       std::to_string(unsigned(fa[0].caller_space.kind)) + "/" +
+                       std::to_string(unsigned(fa[0].caller_space.index)) + " type " +
+                       std::to_string(int(fa[0].type)) + " tpc " + hex(fa[0].target_pc) +
+                       (fa.size() > 1 ? " f1 type " + std::to_string(int(fa[1].type)) + " cpc " +
+                                            hex(fa[1].caller_pc) + " tpc " + hex(fa[1].target_pc)
+                                      : std::string())) +
+                  " Next " + (b_ok ? "ok" : "BAD"));
     }
     {
         // zxnext.vhd:4688: CALL $C000 into page 0x12, whose first instruction remaps slot 6
@@ -2668,14 +2678,15 @@ int main() {
         m.emu.cpu().request_interrupt(0xFF);
         m.dbg->step_into(m.a);                   // the INT, taken at $C000
         const auto& f = m.dbg->call_stack();
-        const bool shape = f.size() == 2 && f[0].type == CallType::INT && f[1].type == CallType::CALL &&
-                           f[0].caller_pc == 0xC000 && m.pc() == 0x0038;
+        // frames() is oldest first: the CALL, then the INT on top of it.
+        const bool shape = f.size() == 2 && f[1].type == CallType::INT && f[0].type == CallType::CALL &&
+                           f[1].caller_pc == 0xC000 && m.pc() == 0x0038;
         check("SRCDBG-CS-05", "an INT frame's caller is the memory the interrupted "
                               "instruction will be fetched from (page 0x12), not the last "
                               "recorded fetch (the CALL's page 4) and not unknown",
-              shape && f[0].caller_space == MemSpace::page(0x12),
-              shape ? "caller kind " + std::to_string(unsigned(f[0].caller_space.kind)) + "/" +
-                          std::to_string(unsigned(f[0].caller_space.index))
+              shape && f[1].caller_space == MemSpace::page(0x12),
+              shape ? "caller kind " + std::to_string(unsigned(f[1].caller_space.kind)) + "/" +
+                          std::to_string(unsigned(f[1].caller_space.index))
                     : "fixture: " + std::to_string(f.size()) + " frames, pc " + hex(m.pc()));
         const auto& t = m.emu.trace_log();
         check("TRACE-ID-05", "an INT's slot has no fetch to record: its trace entry keeps "
@@ -2686,11 +2697,11 @@ int main() {
               "entries=" + std::to_string(t.size()));
 
         // The targets are recorded at their first fetches: both unrecorded right after the INT.
-        const bool both_pending = f.size() == 2 && f[0].target_space == MemSpace::cpu() &&
+        const bool both_pending = shape && f[0].target_space == MemSpace::cpu() &&
                                   f[1].target_space == MemSpace::cpu();
         m.dbg->step_into(m.a);                   // EI at $0038
-        const bool isr_filled = f.size() == 2 && f[0].target_space == MemSpace::page(0x10) &&
-                                f[1].target_space == MemSpace::cpu();
+        const bool isr_filled = f.size() == 2 && f[1].target_space == MemSpace::page(0x10) &&
+                                f[0].target_space == MemSpace::cpu();
         m.dbg->step_into(m.a);                   // RET: the INT frame is popped
         m.dbg->step_into(m.a);                   // NOP at $C000
         check("SRCDBG-CS-06", "an INT frame's target is recorded at the ISR's first fetch "
