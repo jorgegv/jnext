@@ -353,6 +353,10 @@ public:
     /// `this` is measure its state-stream length.
     bool ensure_warm_start_state();
 
+    /// Forget the process-wide record of the last warm-start validation, as a
+    /// new process would have it (tests only).
+    static void reset_warm_start_memo_for_test();
+
     /// The recorded state, empty until ensure_warm_start_state() succeeds.
     const std::vector<uint8_t>& warm_start_state() const { return warm_start_state_; }
 
@@ -2022,6 +2026,10 @@ private:
     /// Kept for the whole session so a second `--load` (GUI File > Open, an
     /// esxDOS chain-load) costs neither a boot nor a re-read.
     std::vector<uint8_t> warm_start_state_;
+
+    /// `SdCardDevice::host_write_generation()` when `warm_start_state_` was
+    /// recorded or validated (GH #396); a later write by jnext invalidates it.
+    uint64_t warm_start_gen_ = 0;
 
     /// The SD image a recording attempt FAILED on, or empty.
     ///

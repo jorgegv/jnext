@@ -357,7 +357,6 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "content_stamp",
                 "identity",
                 "informational",
                 "mounted_path",
@@ -415,13 +414,9 @@
                   }
                 },
                 "content_stamp": {
-                  "_why": "Tier 2 — 'has it changed since?'. A mismatch warns; it refuses only when the SD FSM was mid-transfer at capture.",
+                  "_why": "retired (GH #396): written by jnext 1.1.0-1.1.75, ignored by readers and never written now.",
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "mtime_utc",
-                    "sha256"
-                  ],
                   "properties": {
                     "sha256": {
                       "type": "string",

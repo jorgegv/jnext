@@ -61,7 +61,7 @@
 //   JNSN-*        the `manifest.json` grammar (§6, §8)
 //   JNSV-*        `format_version` and `state_model_revision` (§7)
 //   JNSR-*        the reader-rule table, one row per line of §12.4
-//   JNSI-*        the two-tier SD identity (§11.3)
+//   JNSI-*        the SD identity (§11.3; Tier 2 retired by GH #396)
 //   JNSM-*        refusal-message properties — G9 is a testable property, not
 //                 a slogan (§16.1)
 //
@@ -1976,8 +1976,6 @@ int main(int argc, char** argv) {
         m.sdcard.read_only      = false;
         m.sdcard.identity       = make_identity();
         m.sdcard.vollab         = "NEXT       ";
-        m.sdcard.content_sha256 = "00112233";
-        m.sdcard.content_mtime_utc = "2026-09-23T09:58:41Z";
         m.members["mem/ram.bin"] = BlobDecl{2097152, 0x8f3a21bdu};
         m.subsystems             = {"cpu", "mmu"};
         m.producer.git_describe  = "v1.0.18-0-gabcdef12";
@@ -2005,8 +2003,6 @@ int main(int argc, char** argv) {
             back.sdcard.read_only == m.sdcard.read_only &&
             back.sdcard.identity == m.sdcard.identity &&
             back.sdcard.vollab == m.sdcard.vollab &&
-            back.sdcard.content_sha256 == m.sdcard.content_sha256 &&
-            back.sdcard.content_mtime_utc == m.sdcard.content_mtime_utc &&
             back.members == m.members && back.subsystems == m.subsystems;
         check("JNSN-01",
               "a fully populated manifest round-trips through JSON with every "
@@ -2885,7 +2881,6 @@ int main(int argc, char** argv) {
         m.sdcard.mounted_path   = "/home/user/.jnext/sdcard/card.img";
         m.sdcard.identity       = make_identity();
         m.sdcard.vollab         = "NEXT       ";
-        m.sdcard.content_sha256 = "deadbeef";
         w.set_manifest(m);
         w.add_subsystem("cpu", kJson, why);
         std::vector<uint8_t> z;
@@ -2932,7 +2927,6 @@ int main(int argc, char** argv) {
         m.sdcard.mounted_path   = "/card.img";
         m.sdcard.read_only      = true;
         m.sdcard.identity       = make_identity();
-        m.sdcard.content_sha256 = "cafe";
         w.set_manifest(m);
         w.add_subsystem("cpu", kJson, why);
         std::vector<uint8_t> z;
@@ -2943,7 +2937,6 @@ int main(int argc, char** argv) {
         e.card.mounted_path   = "/card.img";
         e.card.read_only      = false;          // the only difference
         e.card.identity       = make_identity();
-        e.card.content_sha256 = "cafe";
 
         jnext::zip::Reader r;
         Manifest got;
@@ -3102,7 +3095,7 @@ int main(int argc, char** argv) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // JNSI — the two-tier SD identity (§11.3)
+    // JNSI — the SD identity (§11.3)
     // ─────────────────────────────────────────────────────────────────────
     //
     // The whole point of the tiering: jnext opens the image READ-WRITE and
@@ -3111,15 +3104,13 @@ int main(int argc, char** argv) {
     // the very card the snapshot was taken on. An identity that cries wolf
     // gets ignored, and an ignored identity is worse than none (§11.1).
     {
-        auto build_with_card = [&](const SdIdentity& id, const char* vollab,
-                                   const char* content) {
+        auto build_with_card = [&](const SdIdentity& id, const char* vollab) {
             SnapshotWriter w(false);
             Manifest m = make_manifest();
             m.sdcard.present        = true;
             m.sdcard.mounted_path   = "/card.img";
             m.sdcard.identity       = id;
             m.sdcard.vollab         = vollab;
-            m.sdcard.content_sha256 = content;
             w.set_manifest(m);
             std::string w2;
             w.add_subsystem("cpu", kJson, w2);
@@ -3127,31 +3118,29 @@ int main(int argc, char** argv) {
             w.finish(z, w2);
             return z;
         };
-        auto env_with_card = [&](const SdIdentity& id, const char* vollab,
-                                 const char* content) {
+        auto env_with_card = [&](const SdIdentity& id, const char* vollab) {
             ReaderEnv e = make_env();
             e.card.present        = true;
             e.card.mounted_path   = "/card.img";
             e.card.identity       = id;
             e.card.vollab         = vollab;
-            e.card.content_sha256 = content;
             return e;
         };
 
         const SdIdentity base = make_identity();
         const std::vector<uint8_t> z =
-            build_with_card(base, "NEXT       ", "aabbccdd");
+            build_with_card(base, "NEXT       ");
         record_corpus("jnsi-card", z);
 
         {
-            ReaderEnv e = env_with_card(base, "NEXT       ", "aabbccdd");
+            ReaderEnv e = env_with_card(base, "NEXT       ");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
             const bool ok = jnext::jns::open_snapshot(z.data(), z.size(), e, r,
                                                       m, v);
             check("JNSI-01",
-                  "both tiers matching is SILENT — no warning at all (§11.3)",
+                  "Tier 1 matching is SILENT — no warning at all (§11.3)",
                   ok && v.warnings.empty(), det("ok=%d w=%zu", ok,
                                                 v.warnings.size()));
         }
@@ -3179,7 +3168,7 @@ int main(int argc, char** argv) {
             if (std::strcmp(c.field, "mbr") == 0)   other.mbr_partition_table_sha256 = "ff00";
             if (std::strcmp(c.field, "lba") == 0)   other.partition_lba = 63;
 
-            ReaderEnv e = env_with_card(other, "NEXT       ", "aabbccdd");
+            ReaderEnv e = env_with_card(other, "NEXT       ");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
@@ -3190,7 +3179,7 @@ int main(int argc, char** argv) {
         {
             SdIdentity other = base;
             other.fat32_volume_id = "99887766";
-            ReaderEnv e = env_with_card(other, "NEXT       ", "aabbccdd");
+            ReaderEnv e = env_with_card(other, "NEXT       ");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
@@ -3220,44 +3209,13 @@ int main(int argc, char** argv) {
                   det("ok=%d warnings=%zu", ok, v2.warnings.size()));
         }
         {
-            ReaderEnv e = env_with_card(base, "NEXT       ", "11223344");
-            jnext::zip::Reader r;
-            Manifest m;
-            Verdict v;
-            const bool ok = jnext::jns::open_snapshot(z.data(), z.size(), e, r,
-                                                      m, v);
-            check("JNSI-08",
-                  "Tier-2 drift alone RESTORES with one warning — the card "
-                  "drifting is legitimate and common, because jnext persists "
-                  "guest writes to it (§11.1)",
-                  ok && v.warnings.size() == 1,
-                  det("ok=%d warnings=%zu", ok, v.warnings.size()));
-            check("JNSI-09",
-                  "…and that warning names both digests",
-                  ok && !v.warnings.empty() &&
-                      v.warnings[0].find("aabbccdd") != std::string::npos &&
-                      v.warnings[0].find("11223344") != std::string::npos,
-                  v.warnings.empty() ? "no warning" : v.warnings[0]);
-
-            e.sd_transfer_in_flight = true;
-            jnext::zip::Reader r2;
-            Verdict v2;
-            jnext::jns::open_snapshot(z.data(), z.size(), e, r2, m, v2);
-            check("JNSI-10",
-                  "…but the SAME drift with the SD FSM MID-TRANSFER refuses: a "
-                  "half-finished sector read against changed bytes is exactly "
-                  "the 'streams garbage' failure, and this is where strictness "
-                  "is earned (§11.3)",
-                  refused_naming("JNSI-10", v2, "mid-transfer"), v2.refusal);
-        }
-        {
             // The row this whole tier exists for. `BS_VolLab` is a STALE COPY:
             // the authoritative FAT32 label is the root-directory entry with
             // ATTR_VOLUME_ID, which jnext's own FAT walk skips
             // (sd_rom_extractor.cpp:292). A tool that rewrites `BS_VolLab`
             // would otherwise produce a FALSE REFUSAL on the same physical
             // card.
-            ReaderEnv e = env_with_card(base, "RENAMED    ", "aabbccdd");
+            ReaderEnv e = env_with_card(base, "RENAMED    ");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
@@ -3283,8 +3241,8 @@ int main(int argc, char** argv) {
             // not compare equal-and-fine: they are two absences, not one card.
             SdIdentity none;
             const std::vector<uint8_t> zn =
-                build_with_card(none, "", "aabbccdd");
-            ReaderEnv e = env_with_card(none, "", "aabbccdd");
+                build_with_card(none, "");
+            ReaderEnv e = env_with_card(none, "");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
@@ -3297,85 +3255,92 @@ int main(int argc, char** argv) {
                   refused_naming("JNSI-13", v, "not the one"), v.refusal);
         }
         {
-            // ── AN UNKNOWN TIER-2 STAMP IS NOT A CHANGED ONE (GH #27 S7) ──
-            //
-            // The defect S7 found by wiring the producer: the stamps were
-            // compared with a plain `==`, so an ABSENT digest on either side
-            // read as a change, and the warning then quoted an empty string as
-            // the new digest. That message is not true and not actionable, and
-            // on the mid-transfer path the same `==` produced a REFUSAL whose
-            // stated reason ("changed from X to '' ") was a fabrication.
-            //
-            // Absence is real: a snapshot written before the stamp existed, or
-            // a live card whose digest failed part-way through a gigabyte of
-            // I/O (`describe_sdcard_for_snapshot` keeps Tier 1 and drops Tier 2
-            // in exactly that case). Tier 1 already distinguished the two
-            // (`identity_known`); this is the same rule one tier down.
-            struct Unknown {
-                const char* row;
-                const char* snap;     // digest IN the snapshot
-                const char* live;     // digest of the card mounted now
-                const char* names;    // what the message must say
-                const char* desc;
+            // GH #396 (owner, 2026-10-22): Tier 2 is retired. Oracle: plan
+            // sections 3.1 / 3.2 (format doc 11.3). A file from jnext
+            // 1.1.0-1.1.75 carries `content_stamp`; it is ignored, whatever
+            // its shape, and never reported as unknown.
+            const std::string good = jnext::jns::manifest_to_json([&] {
+                Manifest m = make_manifest();
+                m.sdcard.present      = true;
+                m.sdcard.mounted_path = "/card.img";
+                m.sdcard.identity     = base;
+                m.sdcard.vollab       = "NEXT       ";
+                return m;
+            }());
+            auto with_stamp = [&](const char* stamp_json) {
+                std::string t = good;
+                const size_t at = t.find("\"identity\"");
+                t.insert(at, std::string("\"content_stamp\":") + stamp_json + ",");
+                return t;
             };
-            const Unknown unknowns[] = {
-                {"JNSI-14", "", "aabbccdd", "the snapshot has none",
-                 "a snapshot with NO Tier-2 stamp warns that the contents "
-                 "COULD NOT BE COMPARED — it does not claim they changed, and "
-                 "it does not quote an empty string as a digest"},
-                {"JNSI-15", "aabbccdd", "", "the mounted card has none",
-                 "…and so does a mounted card whose digest could not be "
-                 "computed: a failed hash of the live image is not evidence "
-                 "that the image changed"},
-                {"JNSI-16", "", "", "neither the snapshot nor the mounted card",
-                 "…and when NEITHER side has one, the message says so rather "
-                 "than reporting '' -> '' as a match"},
-            };
-            for (const Unknown& u : unknowns) {
-                const std::vector<uint8_t> zu =
-                    build_with_card(base, "NEXT       ", u.snap);
-                ReaderEnv e = env_with_card(base, "NEXT       ", u.live);
+            auto open_text = [&](const std::string& text, Verdict& v) {
+                std::string w2;
+                const std::vector<uint8_t> zt = build_with_manifest_text(text, w2);
+                ReaderEnv e = env_with_card(base, "NEXT       ");
                 jnext::zip::Reader r;
                 Manifest m;
+                return jnext::jns::open_snapshot(zt.data(), zt.size(), e, r, m, v);
+            };
+            {
                 Verdict v;
-                const bool ok = jnext::jns::open_snapshot(zu.data(), zu.size(),
-                                                          e, r, m, v);
-                const bool one_warning = ok && v.warnings.size() == 1;
-                const bool says_uncompared =
-                    one_warning &&
-                    v.warnings[0].find("could not be compared") !=
-                        std::string::npos &&
-                    v.warnings[0].find(u.names) != std::string::npos;
-                const bool no_false_change =
-                    one_warning &&
-                    v.warnings[0].find("changed since") == std::string::npos;
-                check(u.row, u.desc,
-                      says_uncompared && no_false_change,
-                      det("ok=%d n=%zu '%s'", ok, v.warnings.size(),
+                const bool ok = open_text(
+                    with_stamp(R"({"sha256":"00ff","mtime_utc":"2026-01-01T00:00:00Z"})"), v);
+                check("JNSI-18",
+                      "a legacy `content_stamp` whose digest matches nothing "
+                      "opens with NO warning and no refusal, and the retired "
+                      "key is not reported as unknown",
+                      ok && v.warnings.empty() && v.refusal.empty(),
+                      det("ok=%d warnings=%zu '%s'", ok, v.warnings.size(),
                           v.warnings.empty() ? "" : v.warnings[0].c_str()));
             }
             {
-                // §11.3's last row REQUIRES the stamp to match when the FSM was
-                // mid-transfer, and an unknown stamp is not a match — so this
-                // still refuses. What changed is the REASON: it says the
-                // contents could not be VERIFIED, not that they changed to an
-                // empty digest.
-                const std::vector<uint8_t> zu =
-                    build_with_card(base, "NEXT       ", "");
-                ReaderEnv e = env_with_card(base, "NEXT       ", "aabbccdd");
-                e.sd_transfer_in_flight = true;
+                Verdict v1, v2;
+                const bool ok1 = open_text(with_stamp(R"({"sha256":99})"), v1);
+                const bool ok2 = open_text(with_stamp("\"not an object\""), v2);
+                check("JNSI-19",
+                      "a MALFORMED legacy `content_stamp` (a number where the "
+                      "digest string was, or a non-object) still opens: the "
+                      "retired key is never parsed",
+                      ok1 && ok2 && v1.refusal.empty() && v2.refusal.empty(),
+                      det("ok1=%d ok2=%d '%s' '%s'", ok1, ok2,
+                          v1.refusal.c_str(), v2.refusal.c_str()));
+            }
+            {
+                Manifest m = make_manifest();
+                m.sdcard.present      = true;
+                m.sdcard.mounted_path = "/card.img";
+                m.sdcard.identity     = base;
+                m.sdcard.vollab       = "NEXT       ";
+                const std::string text = jnext::jns::manifest_to_json(m);
+                check("JNSI-20",
+                      "the writer emits `media.sdcard` with identity and "
+                      "informational and NO `content_stamp`",
+                      text.find("content_stamp") == std::string::npos &&
+                          text.find("\"identity\"") != std::string::npos &&
+                          text.find("\"informational\"") != std::string::npos &&
+                          text.find("\"mounted_path\"") != std::string::npos &&
+                          text.find("\"read_only\"") != std::string::npos,
+                      "manifest text");
+            }
+            {
+                // The one SD row whose fixture has no Tier-2 data at all.
+                SdIdentity other = base;
+                other.fat32_volume_id = "99887766";
+                const std::vector<uint8_t> z2 = build_with_card(base, "NEXT       ");
+                ReaderEnv e = env_with_card(other, "NEXT       ");
                 jnext::zip::Reader r;
                 Manifest m;
                 Verdict v;
-                jnext::jns::open_snapshot(zu.data(), zu.size(), e, r, m, v);
-                check("JNSI-17",
-                      "an UNKNOWN Tier-2 stamp with the SD FSM mid-transfer "
-                      "still REFUSES — §11.3 requires a match there — but the "
-                      "refusal says the contents could not be VERIFIED rather "
-                      "than inventing a change to an empty digest",
-                      refused_naming("JNSI-17", v, "could not be verified") &&
-                          v.refusal.find("mid-transfer") != std::string::npos &&
-                          v.refusal.find("changed since") == std::string::npos,
+                jnext::jns::open_snapshot(z2.data(), z2.size(), e, r, m, v);
+                e.force_sdcard = true;
+                jnext::zip::Reader r2;
+                Verdict v2;
+                const bool okf = jnext::jns::open_snapshot(z2.data(), z2.size(),
+                                                           e, r2, m, v2);
+                check("JNSI-21",
+                      "Tier 1 is unchanged without Tier 2: a differing "
+                      "BS_VolID still refuses, and force still downgrades it",
+                      refused_naming("JNSI-21", v, "not the one") && okf,
                       v.refusal);
             }
         }
