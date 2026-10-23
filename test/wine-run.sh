@@ -390,6 +390,9 @@ if [[ -n "${JNEXT_MODE:-}" ]]; then
     wait "$wpid" || rc=$?
     # A trapped signal interrupts `wait`: keep waiting for wine's own end.
     while kill -0 "$wpid" 2>/dev/null; do rc=0; wait "$wpid" || rc=$?; done
+    # wine may have exited (and been reaped by a trap handler's own forks) before the loop ran:
+    # bash keeps a reaped child's status, so collect the real one, not the interrupted wait's 128+sig.
+    rc=0; wait "$wpid" 2>/dev/null || rc=$?
     for p in "${fpids[@]}"; do wait "$p" 2>/dev/null || true; done
     exit "$rc"
 fi

@@ -192,6 +192,8 @@ Windows pid (prefix-wide `bt all` took 21.6 s at load 20). The whole capture is 
 afterwards as before. At the end of every Windows run the driver prints `wine prefix at the end:` (thread
 counts of the prefix's wine processes; `plugplay.exe` near 500 would confirm the leading hypothesis,
 see the issue) and lists any captures with their thread sections. Diagnostics only: no exit status moves.
+Under heavy load (about 18 and up on the 12-CPU development host) the winedbg sections are often cut by the
+budget; the `/proc` sections and the prefix thread counts always land.
 
 ## One full run at a time, and green-run stamps (GH #295)
 

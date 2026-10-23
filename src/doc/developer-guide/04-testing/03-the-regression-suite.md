@@ -358,6 +358,8 @@ screenshots + the admitted rows (no lints, no stamp).
     the verdict is decided, and then forwards TERM as before, so it never changes
     a result. The driver ends every Windows run with a `wine prefix at the end:`
     line (thread counts of the prefix's wine processes) and lists any captures.
+    Under heavy load (about 18 and up on the 12-CPU development host) the winedbg
+    sections are often cut by the budget; the `/proc` sections always land.
 
 **On macOS** the SD image comes from `make sdcard-image`, the per-run clone falls
 back to a plain copy where `cp --reflink=always` does not exist (reported as

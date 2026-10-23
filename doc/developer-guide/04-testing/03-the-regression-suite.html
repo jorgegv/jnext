@@ -2734,7 +2734,9 @@ screenshots + the admitted rows (no lints, no stamp).</p>
     another row's <code>jnext.exe</code>), runs after
     the verdict is decided, and then forwards TERM as before, so it never changes
     a result. The driver ends every Windows run with a <code>wine prefix at the end:</code>
-    line (thread counts of the prefix's wine processes) and lists any captures.</li>
+    line (thread counts of the prefix's wine processes) and lists any captures.
+    Under heavy load (about 18 and up on the 12-CPU development host) the winedbg
+    sections are often cut by the budget; the <code>/proc</code> sections always land.</li>
 </ol>
 <p><strong>On macOS</strong> the SD image comes from <code>make sdcard-image</code>, the per-run clone falls
 back to a plain copy where <code>cp --reflink=always</code> does not exist (reported as
