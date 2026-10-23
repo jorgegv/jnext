@@ -1206,10 +1206,10 @@ void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
         return;
     }
 
-    // Every check has passed: from here the deck is replaced. The auto play
-    // setting goes FIRST, while the old deck is still in, so turning it off
-    // (which resumes a held deck) cannot touch the restored one.
-    set_tape_auto_play(t.auto_play);
+    // Every check has passed: from here the deck is replaced. No jnext
+    // setting is written (owner, GH #402 revision): the position travels, the
+    // session's settings stay. TODO(revision): fast/real-time handling pending
+    // the revised plan.
     if (t.loader == "tap") {
         tap.set_fast_load(!ti.realtime);
         tape_ = std::move(tap);
