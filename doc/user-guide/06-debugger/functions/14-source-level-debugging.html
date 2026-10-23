@@ -3711,10 +3711,15 @@ shows the source map: with <code>--headless</code>, and in the SDL-only build, i
 attached and logged and nothing reads it yet (a remote debugger can still look
 up the symbols).</p>
 <p>They belong to the program that was loaded with them. Loading the next program
-replaces them, or clears them if it has none. They are also dropped when the
-machine is reset, when a state is restored from a snapshot, a bookmark or a
-remote debugger, and when you rewind to a point before the program was loaded
-(rewinding to a point after it keeps them). A program the guest loads for
+replaces them, or clears them if it has none. Rewinding brings back the ones
+that belonged to the point you land on (the last four programs are remembered).
+When the machine is reset, or a state is restored from a snapshot, a bookmark or
+a remote debugger, or a replay starts, the source map stays only if it carries
+the program's SHA-256 (an SLD extension that most assemblers do not write) and
+the memory still matches it; a reset is checked again at the next pause, since
+the ROM clears memory a few frames later. Otherwise the program's symbols and
+source map are dropped. <strong>Back</strong> and <strong>Reverse Continue</strong> never go back past
+such a landing. A program the guest loads for
 itself, such as one chosen in the NextZXOS browser or started with <code>LOAD ""</code>,
 is not seen by JNEXT: load its source map by hand (below). With
 <code>--esxdos-stub</code>, a <code>.RUN</code> of a sibling NEX is a load like any other: the
@@ -3722,8 +3727,12 @@ machine cold-boots with it, which drops the old ones, and the new program's
 are attached. A tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) is not attached automatically:
 its program is not in memory until the tape has loaded, so load its source map
 by hand (below) once it has.</p>
-<p>Symbols or a source map you loaded by hand (below), or a MAP
-given with <code>--map</code>, are kept instead: they are your choice, not the program's.</p>
+<p>Symbols you loaded by hand (below), or a MAP given with <code>--map</code>, are kept: they
+are your choice, not the program's. A source map you loaded by hand is yours too
+(a program's map never replaces it), but at each of those landings it is checked
+the same way: if it has no SHA-256, or the memory no longer matches it, it goes
+<strong>stale</strong>. The Source tab then says so and why, and the steps are off; load it
+again (<strong>Load SLD...</strong>) to use it.</p>
 <p><strong>By hand.</strong> The <strong>Source</strong> tab has <strong>Load SLD...</strong> and <strong>Load Memory.txt...</strong>
 buttons, also in <strong>Debug ▸ Source ▸ Load Source Map…</strong> and <strong>Load Symbols
 (Memory.txt)…</strong>. The symbols replace whatever was loaded before, as the

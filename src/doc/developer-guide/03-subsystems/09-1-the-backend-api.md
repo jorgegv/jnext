@@ -338,19 +338,35 @@ Open, and `load()` calls it for a remote client; a tape program gets no
 automatic map. Ownership is explicit (`Impl::StoreOwner`: None, Sidecar, User)
 and changes only on a successful load: a sidecar never touches the user's
 store, and a previous program's sidecar data is replaced or cleared — also when
-the new sidecar cannot be read. The attach records the clock
-(`Impl::sidecar_attach_cycle`). The machine-replaced hook
-(`Impl::machine_replaced()`, which the cold-boot re-application runs too, since
-a rebuilt machine has no hook while it initialises) drops the sidecar-owned
-stores at once for a reset, a cold boot or any state that does not come from the
-rewind ring (`DebugState::restoring_from_rewind()` is false): another program
-may be in the machine, whatever its clock says. `RewindBuffer::restore_nearest()`
-sets that flag around its `load_state()`; such a restore stays in this program's
-history, so it only raises `sidecar_recheck`, and `recheck_sidecars()` — run by
-`pump()` and by every reader of the stores — drops the stores when the clock is
-now before the attach point. A program the guest loads for itself (the NextZXOS
-browser, `LOAD ""`) is invisible to the backend, so its predecessor's sidecars
-stay until a reset or a load. The user's stores are never touched by any of this.
+the new sidecar cannot be read.
+
+**Lifetime.** A *load generation* (`Impl::generation_counter`, published in
+`DebugState::load_generation()`; host-side, not in `save_state`) starts at the
+machine-replaced hook (`Impl::machine_replaced()`, which the cold-boot
+re-application runs too, since a rebuilt machine has no hook while it
+initialises) for any landing that is not a rewind-ring restore, and at
+`load_program_sidecars()`. The hook only marks the landing pending; `Impl::recheck()`
+judges it, and every reader (`symbols()`, `lookup()`, `lookup_name()`,
+`source_map()`, `source_location()`, `source_step()`, `source_map_status()`,
+`pump()`) and, first, every writer (`load_map()`, `clear_symbols()`,
+`load_source_map()`, `clear_source_map()`, `load_program_sidecars()`) runs it
+before touching the stores. A ring restore (`DebugState::restoring_from_rewind()`
+is true; `RewindBuffer::restore_nearest()` sets it, and sets the slot's
+generation first) puts back the attachment of the generation it lands in, from a
+cache of the last 4 (`Impl::attach_cache`, one record per generation, replaced
+in place so the panels' `&symbols()` stays valid). Any other landing keeps a
+program's sidecars only if the source map's binary identity matches memory now
+(`SourceMap::verify_program()` over `Mmu::peek()`, pure), and checks a carried
+map again at the next pause after the clock moves (a reset whose ROM clears RAM
+later). A map with no identity does not survive such a landing. The user's
+symbols never change with lifetime; the user's source map is verified the same
+way and, when it fails or has no identity, goes *stale*: `source_map()` and
+`source_location()` are empty, `source_map_status()` says `Stale` with the file
+and the reason, and loading it again by hand makes it live. A program the guest
+loads for itself (the NextZXOS browser, `LOAD ""`) is invisible to the backend,
+so its predecessor's sidecars stay until a reset or a load. Back counts a trace
+entry only if it belongs to the current generation (`TraceLog::recorded()` plus
+`(sequence, generation)` markers in `Impl`).
 
 `SidecarLoad::problem` is the one-line account of what was found and refused:
 `NextBuild symbols '<file>' rejected: <reason>` and/or `source map '<file>'
@@ -359,10 +375,11 @@ empty when nothing was refused. `load_program_sidecars()` fills it and also logs
 each refusal. The frontends show it: the headless loop at warn
 (`--load: <problem>`), the SDL loop likewise (`load: <problem>`), and the Qt
 `DebuggerManager::report_sidecars()` in the
-log, in the main window's status bar for ten seconds and in the Source tab in
-place of "No source map loaded" (kept in `sidecar_problem_`, so a window built
-later shows it too, and replaced by the next load's result, empty when clean).
-A remote `load()` fills it and nobody reads it yet.
+log and in the main window's status bar for ten seconds. The Source tab reads the
+reason of the *source map* half from the backend
+(`source_map_status().reason`, replaced by the next load or drop, so a window
+built later shows it too). A remote `load()` reports the problem to every
+listener as a Warn line.
 
 `source_step(by, kind)` steps by statement. `Into`, `Over` and `Out` run
 `Emulator::debugger_step()` in a loop, as many Steps, until the mapped position
