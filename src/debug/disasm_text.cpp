@@ -35,17 +35,25 @@ uint16_t extract_immediate16(const char* mnemonic)
     return 0;
 }
 
-std::string apply_symbols(const char* mnemonic, const SymbolTable* symbols)
+SymbolNamer symbol_namer(const SymbolTable* table, const SymbolSpaceOf& space_of)
+{
+    if (!table) return {};
+    return [table, space_of](uint16_t addr) {
+        return table->lookup(space_of ? space_of(addr) : jnext::dbg::MemSpace::cpu(), addr);
+    };
+}
+
+std::string apply_symbols(const char* mnemonic, const SymbolNamer& namer)
 {
     std::string out(mnemonic);
-    if (!symbols) return out;
+    if (!namer) return out;
 
     const uint16_t imm = extract_immediate16(mnemonic);
     // extract_immediate16() returns 0 both for "no immediate" and for a real
     // $0000, so an explicit "$0000" in the text is what tells the two apart.
     if (imm == 0 && !std::strstr(mnemonic, "$0000")) return out;
 
-    const auto sym = symbols->lookup(imm);
+    const auto sym = namer(imm);
     if (!sym) return out;
 
     char target[8];
@@ -64,7 +72,7 @@ std::string apply_symbols(const char* mnemonic, const SymbolTable* symbols)
 
 std::vector<CopyLine> collect_range(uint16_t start, uint16_t end,
                                     const DisasmReadFn& read_fn,
-                                    const SymbolTable* symbols)
+                                    const SymbolNamer& namer)
 {
     std::vector<CopyLine> out;
     if (end < start) return out;
@@ -82,7 +90,7 @@ std::vector<CopyLine> collect_range(uint16_t start, uint16_t end,
         cl.byte_count = line.byte_count;
         for (int b = 0; b < line.byte_count && b < 4; ++b)
             cl.bytes[b] = line.bytes[b];
-        cl.mnemonic = apply_symbols(line.mnemonic, symbols);
+        cl.mnemonic = apply_symbols(line.mnemonic, namer);
         out.push_back(std::move(cl));
 
         const int len = (line.byte_count > 0) ? line.byte_count : 1;

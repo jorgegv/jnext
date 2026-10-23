@@ -3,12 +3,38 @@
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
+#include <functional>
 #include <string>
 #include <map>
 #include <optional>
 #include <string_view>
+#include <utility>
 
-/// Symbol table loaded from a MAP file (e.g. Z88DK linker output).
+#include "debug/mem_space.h"
+
+/// WHICH memory supplies an address NOW: what `Debugger::source_page()` answers.
+using SymbolSpaceOf = std::function<jnext::dbg::FetchSource(uint16_t)>;
+
+/// One named address. A PAGED label (`space` set) names its address only while
+/// that memory supplies it (a sjasmplus SLD label assembled for page 20); an
+/// UNPAGED one (`space` nullopt) names it in every memory (GH #375).
+struct SymbolLabel {
+    std::string name;
+    std::optional<jnext::dbg::FetchSource> space;
+    bool operator==(const SymbolLabel& o) const { return name == o.name && space == o.space; }
+};
+
+/// The address a name resolves to, and the memory it was assembled for (nullopt:
+/// any).
+struct SymbolNameKey {
+    uint16_t addr = 0;
+    std::optional<jnext::dbg::FetchSource> space;
+    bool operator==(const SymbolNameKey& o) const { return addr == o.addr && space == o.space; }
+};
+
+/// Symbol table loaded from a MAP file (e.g. Z88DK linker output), a
+/// Memory.txt, an sjasmplus --sym/--exp file or the labels of an SLD.
+/// Labels are keyed by (memory, address); there is no address-only lookup.
 /// Pure C++ — no GUI dependency.
 class SymbolTable {
 public:
@@ -71,24 +97,53 @@ public:
     /// `@name` always means the symbol, so that variable is still reachable.
     std::optional<uint16_t> resolve(std::string_view text) const;
 
-    /// Look up a symbol name by its address. Returns nullopt if not found.
-    std::optional<std::string> lookup(uint16_t addr) const;
+    /// Resolve like `resolve()`, keeping the memory a symbol name was assembled
+    /// for. A number, and an unpaged name, carry no memory.
+    std::optional<SymbolNameKey> resolve_key(std::string_view text) const;
 
-    /// Look up an address by symbol name — an "; addr" symbol first, else a
-    /// Z88DK "; const" one. Returns nullopt if not found.
+    /// Add a label. A paged label (`space` set) keys on (space, addr), an
+    /// unpaged one on addr; the first label of a key wins and, apart, the
+    /// first of a name. Returns whether the key was free (the entry stored).
+    bool add_label(const std::string& name, uint16_t addr,
+                   std::optional<jnext::dbg::FetchSource> space);
+
+    /// Add a NAME-ONLY value (a size, an offset, a section bound): `find_name()`
+    /// resolves it, no address is ever named by it. The first of a name wins.
+    void add_value(const std::string& name, uint16_t value);
+
+    /// Record the file the table was loaded from (a loader that fills the table
+    /// through `add_label()`).
+    void set_loaded_file(std::string path) { loaded_file_ = std::move(path); }
+
+    /// The name of `addr` in the memory `space`: the paged label with exactly
+    /// that key, else the unpaged label at `addr`. `MemSpace::cpu()` is "no
+    /// memory known": it reaches unpaged labels only.
+    std::optional<std::string> lookup(jnext::dbg::FetchSource space, uint16_t addr) const;
+
+    /// The visible label with the greatest address <= `addr` (address and name):
+    /// an unpaged one, or a paged one whose space is what `space_of` says
+    /// supplies its address.
+    std::optional<std::pair<uint16_t, std::string>>
+    nearest(uint16_t addr, const SymbolSpaceOf& space_of) const;
+
+    /// The address, and memory, of a name — a label first, else a name-only
+    /// value (no memory). Returns nullopt if not found.
+    std::optional<SymbolNameKey> find_name(const std::string& name) const;
+
+    /// Look up an address by symbol name (`find_name()`'s address).
     std::optional<uint16_t> lookup_name(const std::string& name) const;
 
-    /// Get all symbols (address -> name).
-    const std::map<uint16_t, std::string>& symbols() const { return addr_to_name_; }
+    /// Every label, by address (equal addresses in the order they were added).
+    const std::multimap<uint16_t, SymbolLabel>& symbols() const { return labels_; }
 
     /// Clear all loaded symbols.
     void clear();
 
     /// Returns true if no symbols are loaded.
-    bool empty() const { return addr_to_name_.empty(); }
+    bool empty() const { return labels_.empty(); }
 
-    /// Number of symbols loaded.
-    size_t size() const { return addr_to_name_.size(); }
+    /// Number of labels loaded: distinct (memory, address) keys.
+    size_t size() const { return labels_.size(); }
 
     /// Get the loaded file path (empty if none loaded).
     const std::string& loaded_file() const { return loaded_file_; }
@@ -100,9 +155,14 @@ private:
     int read_z88dk_map(std::istream& file);
     int read_sjasmplus_equ(std::istream& file);
 
-    std::map<uint16_t, std::string> addr_to_name_;
-    std::map<std::string, uint16_t> name_to_addr_;
-    /// Z88DK "; const" values, consulted by `lookup_name()` only.
+    /// Name `name` (first wins) without storing a label: the aliases a
+    /// Memory.txt label also answers to.
+    void add_name(const std::string& name, uint16_t addr,
+                  std::optional<jnext::dbg::FetchSource> space);
+
+    std::multimap<uint16_t, SymbolLabel> labels_;
+    std::map<std::string, SymbolNameKey> name_to_key_;
+    /// Name-only values, consulted by `find_name()` after the labels.
     std::map<std::string, uint16_t> const_by_name_;
     std::string loaded_file_;
 };

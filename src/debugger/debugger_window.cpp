@@ -1425,9 +1425,14 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr,
         const std::string text = addr_edit->text().trimmed().toStdString();
         // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
         // `@name` forces the symbol (OD-12).
-        if (const auto resolved = dbg_.symbols().resolve(text)) {
-            addr = *resolved;
-            if (targets) *targets = {{addr, jnext::dbg::PAGE_ANY}};
+        if (const auto resolved = dbg_.symbols().resolve_key(text)) {
+            addr = resolved->addr;
+            // A name assembled for a RAM page keeps it (see the Breakpoints
+            // panel's Add dialog).
+            const bool paged = resolved->space &&
+                               resolved->space->kind == jnext::dbg::MemSpace::Kind::Page;
+            if (targets)
+                *targets = {{addr, paged ? resolved->space->index : jnext::dbg::PAGE_ANY}};
             return true;
         }
         // CAP-SRC: a source line is one breakpoint per place it compiled to,

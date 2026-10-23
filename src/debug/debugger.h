@@ -923,7 +923,10 @@ public:
     /// CAP-SYM — forget them all.
     Result clear_symbols();
 
-    /// CAP-SYM — name for an address, address for a name.
+    /// CAP-SYM — name for an address, address for a name. The name is that of
+    /// `addr` in the memory that supplies it NOW (`source_page`): a label
+    /// assembled for a page names it only while that page is mapped there; an
+    /// unpaged label names it whatever is mapped.
     std::optional<std::string> lookup(uint16_t addr) const;
     std::optional<uint16_t>    lookup_name(const std::string& name) const;
 

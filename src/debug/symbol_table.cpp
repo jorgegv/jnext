@@ -108,17 +108,11 @@ int SymbolTable::read_z88dk_map(std::istream& file)
         auto addr = static_cast<uint16_t>(addr_val);
 
         if (is_const) {
-            const_by_name_.emplace(name, addr);   // first occurrence wins
+            add_value(name, addr);   // first occurrence wins
             continue;
         }
 
-        // First occurrence wins for both maps
-        if (addr_to_name_.find(addr) == addr_to_name_.end())
-            addr_to_name_[addr] = name;
-
-        if (name_to_addr_.find(name) == name_to_addr_.end())
-            name_to_addr_[name] = addr;
-
+        add_label(name, addr, std::nullopt);   // first occurrence wins
         ++count;
     }
 
@@ -181,11 +175,7 @@ int SymbolTable::load_simple_map(const std::string& path)
 
         auto addr = static_cast<uint16_t>(addr_val);
 
-        if (addr_to_name_.find(addr) == addr_to_name_.end())
-            addr_to_name_[addr] = name;
-        if (name_to_addr_.find(name) == name_to_addr_.end())
-            name_to_addr_[name] = addr;
-
+        add_label(name, addr, std::nullopt);
         ++count;
     }
 
@@ -282,8 +272,7 @@ int SymbolTable::read_sjasmplus_equ(std::istream& file)
 
         // First occurrence wins, as in the MAP loaders: an address keeps its
         // first name, a name its first address, each independently.
-        addr_to_name_.emplace(addr, equ->name);
-        name_to_addr_.emplace(equ->name, addr);
+        add_label(equ->name, addr, std::nullopt);
         ++count;
     }
 
@@ -348,11 +337,9 @@ int SymbolTable::load_nextbuild_memory(const std::string& path, std::string* why
             continue;
 
         // First occurrence wins, as in the MAP loaders.
-        if (addr_to_name_.find(*addr) == addr_to_name_.end())
-            addr_to_name_[*addr] = display;
-        for (const std::string& name :
-             {display, raw, raw.front() == '.' ? raw.substr(1) : raw})
-            name_to_addr_.emplace(name, *addr);
+        add_label(display, *addr, std::nullopt);
+        for (const std::string& name : {raw, raw.front() == '.' ? raw.substr(1) : raw})
+            add_name(name, *addr, std::nullopt);
         ++count;
     }
 
@@ -360,45 +347,115 @@ int SymbolTable::load_nextbuild_memory(const std::string& path, std::string* why
     return count;
 }
 
-std::optional<uint16_t> SymbolTable::resolve(std::string_view text) const
+std::optional<SymbolNameKey> SymbolTable::resolve_key(std::string_view text) const
 {
     text = trim_view(text);
     if (text.empty())
         return std::nullopt;
     if (text.front() == '@')
-        return lookup_name(std::string(trim_view(text.substr(1))));
+        return find_name(std::string(trim_view(text.substr(1))));
+    std::optional<uint16_t> number;
     if (text.front() == '$')
-        return parse_hex16(text.substr(1));
-    if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
-        return parse_hex16(text.substr(2));
-    if (const auto number = parse_hex16(text))
-        return number;
-    return lookup_name(std::string(text));
+        number = parse_hex16(text.substr(1));
+    else if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
+        number = parse_hex16(text.substr(2));
+    else if (const auto n = parse_hex16(text))
+        number = n;
+    else
+        return find_name(std::string(text));
+    // A '$' or '0x' prefix that is not a number is not a name either.
+    if (!number)
+        return std::nullopt;
+    return SymbolNameKey{*number, std::nullopt};
 }
 
-std::optional<std::string> SymbolTable::lookup(uint16_t addr) const
+std::optional<uint16_t> SymbolTable::resolve(std::string_view text) const
 {
-    auto it = addr_to_name_.find(addr);
-    if (it != addr_to_name_.end())
+    const auto key = resolve_key(text);
+    if (!key)
+        return std::nullopt;
+    return key->addr;
+}
+
+void SymbolTable::add_name(const std::string& name, uint16_t addr,
+                           std::optional<jnext::dbg::FetchSource> space)
+{
+    name_to_key_.emplace(name, SymbolNameKey{addr, space});
+}
+
+bool SymbolTable::add_label(const std::string& name, uint16_t addr,
+                            std::optional<jnext::dbg::FetchSource> space)
+{
+    add_name(name, addr, space);
+    const auto range = labels_.equal_range(addr);
+    for (auto it = range.first; it != range.second; ++it)
+        if (it->second.space == space)
+            return false;
+    labels_.emplace(addr, SymbolLabel{name, space});
+    return true;
+}
+
+void SymbolTable::add_value(const std::string& name, uint16_t value)
+{
+    const_by_name_.emplace(name, value);
+}
+
+std::optional<std::string> SymbolTable::lookup(jnext::dbg::FetchSource space,
+                                               uint16_t addr) const
+{
+    const auto range = labels_.equal_range(addr);
+    const SymbolLabel* unpaged = nullptr;
+    for (auto it = range.first; it != range.second; ++it) {
+        if (!it->second.space)
+            unpaged = &it->second;
+        else if (space.kind != jnext::dbg::MemSpace::Kind::Cpu && *it->second.space == space)
+            return it->second.name;
+    }
+    if (unpaged)
+        return unpaged->name;
+    return std::nullopt;
+}
+
+std::optional<std::pair<uint16_t, std::string>>
+SymbolTable::nearest(uint16_t addr, const SymbolSpaceOf& space_of) const
+{
+    auto it = labels_.upper_bound(addr);
+    while (it != labels_.begin()) {
+        --it;
+        const SymbolLabel& label = it->second;
+        if (!label.space || (space_of && *label.space == space_of(it->first))) {
+            // The name `lookup()` gives that address, so the two cannot disagree.
+            const auto name = lookup(space_of ? space_of(it->first) : jnext::dbg::MemSpace::cpu(),
+                                     it->first);
+            return std::make_pair(it->first, name ? *name : label.name);
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<SymbolNameKey> SymbolTable::find_name(const std::string& name) const
+{
+    auto it = name_to_key_.find(name);
+    if (it != name_to_key_.end())
         return it->second;
+    auto c = const_by_name_.find(name);
+    if (c != const_by_name_.end())
+        return SymbolNameKey{c->second, std::nullopt};
     return std::nullopt;
 }
 
 std::optional<uint16_t> SymbolTable::lookup_name(const std::string& name) const
 {
-    auto it = name_to_addr_.find(name);
-    if (it != name_to_addr_.end())
-        return it->second;
-    auto c = const_by_name_.find(name);
-    if (c != const_by_name_.end())
-        return c->second;
-    return std::nullopt;
+    const auto key = find_name(name);
+    if (!key)
+        return std::nullopt;
+    return key->addr;
 }
 
 void SymbolTable::clear()
 {
-    addr_to_name_.clear();
-    name_to_addr_.clear();
+    labels_.clear();
+    name_to_key_.clear();
     const_by_name_.clear();
     loaded_file_.clear();
 }
