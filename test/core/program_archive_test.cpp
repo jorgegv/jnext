@@ -818,10 +818,10 @@ int main() {
                   extraction_name("GAME.TAP") == "GAME.TAP" && extraction_name("a\\COM1.NEX") == "_COM1.NEX");
     }
     {
-        spit(files + "/con.zip", zipfx::build({mem("CON.TAP", pattern(9))}));
+        spit(files + "/devname.zip", zipfx::build({mem("CON.TAP", pattern(9))}));
         pa::ProgramArchive a;
         std::string why, path;
-        const bool ok = a.open(files + "/con.zip", why) && a.extract("CON.TAP", scratch, path, why);
+        const bool ok = a.open(files + "/devname.zip", why) && a.extract("CON.TAP", scratch, path, why);
         check("ZIPL-34", "a member named CON.TAP extracts (as _CON.TAP) with its bytes on every OS",
               ok && fs::path(path).filename() == "_CON.TAP" && slurp(path) == pattern(9), path + " " + why);
     }
