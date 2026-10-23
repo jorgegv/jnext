@@ -33,6 +33,7 @@ trim_map() {  # $1 = raw map; stdout = kept lines, original order
     { n = nm($0); split($0, p, " ; "); split(p[2], f, ", ")
       if (n ~ /_2ftmp_2ftmpXX/) next                     # zcc temp-file markers: random names
       if (f[4] ~ MODS) { print; next }
+      if (n ~ /^__(C|ASM)_LINE_/) { print; next }        # library (crt0) line records too
       if (n ~ /^__.*_(head|tail|size)$/) { s = n; sub(/^__/, "", s); sub(/_(head|tail|size)$/, "", s); if (s in keep) print; next }
       if (n ~ /^CRT_ORG_(CODE|BANK_10|BANK_10_L|BANK_10_H|PAGE_20|PAGE_21)$/) { print; next }
       if (n ~ /^(l_debug_push_frame|l_debug_pop_frame|__debug_framepointer|banked_call|l_jphl)$/) { print; next } }
