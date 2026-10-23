@@ -1,0 +1,5 @@
+# z88dk 4d530b6eb779ad0f2a1d13c0bb670cf717477501 (v2.4)
++ zcc +zxn -clib=new -debug  --codesegPAGE_20 --list -c banked.c -o banked.o
++ zcc +zxn -clib=new -debug -m --list -subtype=nex -o prog -create-app bmain.c bankin.asm banked.o
+Bank 10, 16348 tail bytes free
+rc=0

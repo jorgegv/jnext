@@ -1,0 +1,5 @@
+commit: 4d530b6eb779ad0f2a1d13c0bb670cf717477501
+describe: v2.4
+modified tracked files: libsrc/_DEVELOPMENT/target/yaz180/config_yaz180_private.inc libsrc/_DEVELOPMENT/target/yaz180/config_yaz180_public.inc 
+zcc: zcc - Frontend for the z88dk Cross-C Compiler - v23854-4d530b6eb7-20251005
+zsdcc: Build: 4.5.0 #15242 (Linux) May 30 2026
