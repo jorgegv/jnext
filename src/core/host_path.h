@@ -12,9 +12,10 @@ namespace jnext {
 /// chose is kept) and the file need not exist. Native separators.
 /// Never throws: on any error returns `path` unchanged.
 ///
-/// Explicit u8path/u8string, because jnext's narrow strings are UTF-8 on every
-/// platform and fs::path(std::string) / .string() use the narrow code page on
-/// Windows (GH #401).
+/// Explicit u8path/u8string: jnext's narrow strings are UTF-8. libstdc++ (Linux,
+/// MinGW) already treats narrow paths as UTF-8, so here the explicit forms are
+/// equivalent to the narrow ones; MSVC's STL uses the ANSI code page, where they
+/// are the portable spelling (GH #401).
 inline std::string absolute_host_path(const std::string& path)
 {
     try {

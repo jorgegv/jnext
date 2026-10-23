@@ -6837,7 +6837,7 @@ static int test_gh401_tape_path()
         jnext::JnsLoadReport rep;
         const bool ok = lw && load_from(legacy, A, false, rep);
         check("S6-EMU-TAPE-06", ok && gh401_tape_warnings(rep).empty(),
-              "a file from jnext 1.1.80 and older (a bare name) loaded with the tape in the "
+              "a file from a version that recorded only the file name (a bare name) loaded with the tape in the "
               "working directory raises no tape warning: old files keep loading as today");
     }
     {

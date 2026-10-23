@@ -13,6 +13,7 @@
 //   JNSP-01  a tape under a non-UTF-8 directory: save succeeds, strict parse, U+FFFD, real digest
 //   JNSP-02  an esxDOS root + open handle under a non-UTF-8 directory: save succeeds, both JSON members parse
 //   JNSP-03  the JNSP-01 archive loads, with one tape warning and no refusal
+//   JNSP-04  a tape loaded through a symlink is recorded under the link name (symlinks kept, D2)
 //
 // Output follows the project-wide line:
 //   Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d
@@ -21,7 +22,9 @@
 #include "core/emulator_config.h"
 #include "core/esxdos_hostfs.h"
 #include "core/jns_snapshot.h"
+#include "core/host_path.h"
 #include "core/sha256.h"
+#include "core/tap_loader.h"
 #include "save/jns_container.h"
 #include "save/zip_archive.h"
 #include "third_party/nlohmann-json/nlohmann/json.hpp"
@@ -173,8 +176,36 @@ int main() {
         check("JNSP-02",
               "an esxDOS root and an open handle under a non-UTF-8 directory: the save succeeds and "
               "manifest.json and state/esxdos_hostfs.json both strict-parse",
-              both && strict_parses(man) && strict_parses(esx),
+              both && strict_parses(man) && strict_parses(esx) &&
+                  esx.find(std::string("r") + kFFFD + "ot") != std::string::npos &&
+                  man.find(std::string("r") + kFFFD + "ot") != std::string::npos &&
+                  esx.find('\xE4') == std::string::npos && man.find('\xE4') == std::string::npos,
               both ? std::string() : "opened=" + std::to_string(opened) + " saved=" + std::to_string(saved));
+    }
+
+    // JNSP-04
+    {
+        const fs::path dir = base / "lnk";
+        fs::create_directories(dir);
+        {
+            std::ofstream f(dir / "v2.tap", std::ios::binary);
+            const auto b = tap_bytes();
+            f.write(reinterpret_cast<const char*>(b.data()), static_cast<std::streamsize>(b.size()));
+        }
+        fs::create_symlink("v2.tap", dir / "current.tap");
+        const fs::path cwd0 = fs::current_path();
+        fs::current_path(dir);
+        TapLoader t;
+        const bool ok = t.load("current.tap");
+        const std::string h = jnext::absolute_host_path("current.tap");
+        fs::current_path(cwd0);
+        const std::string tail = "/lnk/current.tap";
+        auto ends = [&](const std::string& s) {
+            return s.size() >= tail.size() && s.compare(s.size() - tail.size(), tail.size(), tail) == 0;
+        };
+        check("JNSP-04",
+              "a tape loaded through a symlink is recorded under the LINK name, not its target",
+              ok && ends(t.path()) && ends(h), t.path());
     }
 
     fs::remove_all(base, ec);

@@ -208,9 +208,8 @@ If you want to hand somebody a program, hand them the `.nex`.
 The tape attached when you save is recorded by its full path, with a digest of
 the file. Loading the snapshot warns if that file is no longer there, from
 whichever folder you start JNEXT in. The snapshot does not put the tape back in
-the deck: insert it again with File > Load. Snapshots written by JNEXT 1.1.80
-and earlier recorded only the file name, which is looked up in the folder JNEXT
-was started from.
+the deck: insert it again with File > Load. Snapshots written by versions that
+recorded only the file name look it up in the folder JNEXT was started from.
 
 ## Two flags for when something is wrong
 

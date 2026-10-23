@@ -464,7 +464,7 @@
               ],
               "properties": {
                 "path": {
-                  "_why": "Absolute host path of the attached tape, UTF-8, native separators (GH #401). Files from jnext 1.1.80 and earlier hold a bare file name, which resolves against the working directory.",
+                  "_why": "Absolute host path of the attached tape, UTF-8, native separators (GH #401). Files from versions that recorded only the file name hold a bare file name, which resolves against the working directory.",
                   "type": "string"
                 },
                 "sha256": {

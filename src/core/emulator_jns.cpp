@@ -651,7 +651,7 @@ bool Emulator::check_jns(const uint8_t* data, std::size_t len,
             probe_zip.read_text(jnext::jns::kManifestMember, text, probe_why) &&
             jnext::jns::manifest_from_json(text, probe, unknown, probe_why) &&
             probe.tape.present && !probe.tape.path.empty()) {
-            // Opened exactly as recorded: an absolute path (jnext 1.1.81+) is the
+            // Opened exactly as recorded: an absolute path is the
             // tape; a bare name (older files) resolves against the CWD, as it
             // always did (GH #401).
             std::ifstream probe_f(probe.tape.path, std::ios::binary);
