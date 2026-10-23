@@ -2578,10 +2578,26 @@ int main() {
         m.dbg->step_into(m.a);   // NOP at $0004, now from page 0x11
         const auto& t = m.emu.trace_log();
         const bool three = t.size() == 3;
+
+        // The same through a port write, which takes effect INSIDE the instruction (a NEXTREG
+        // is applied after the slot): OUT (C),A to $7FFD from page 0x12 at $C000 puts bank 3
+        // (pages 6 and 7) in slot 6 before the slot ends. A prediction made after the
+        // instruction would name page 6.
+        Machine n(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        poke_page(n, 0x56, 0x12, 0xC000, {0xED, 0x79});
+        Z80Registers r = n.emu.cpu().get_registers();
+        r.PC = 0xC000; r.BC = 0x7FFD; r.AF = 0x0300;
+        n.emu.cpu().set_registers(r);
+        n.dbg->set_trace_enabled(true);
+        n.dbg->step_into(n.a);   // OUT (C),A
+        const auto& u = n.emu.trace_log();
+        const bool port_ok = u.size() == 1 && n.dbg->source_page(0xC000) == MemSpace::page(6) &&
+                             u.at(0).fetch_space() == MemSpace::page(0x12);
         check("SRCDBG-ID-17", "an instruction that remaps its own slot is recorded with the "
                               "page it was fetched from, not the page it left behind: NEXTREG "
-                              "$50,$11 run from page 0x10, then the next fetch from page 0x11",
-              three && remapped && t.at(0).fetch_space() == MemSpace::page(4) &&
+                              "$50,$11 run from page 0x10, then the next fetch from page 0x11; "
+                              "and OUT to $7FFD from page 0x12 that puts pages 6 and 7 in its slot",
+              port_ok && three && remapped && t.at(0).fetch_space() == MemSpace::page(4) &&
                   t.at(1).pc == 0x0000 && t.at(1).fetch_space() == MemSpace::page(0x10) &&
                   t.at(1).mmu[0] == 0x10 && t.at(2).pc == 0x0004 &&
                   t.at(2).fetch_space() == MemSpace::page(0x11),
