@@ -898,7 +898,8 @@ void test_edge_cases() {
             return (a < sizeof(mem)) ? mem[a] : 0x00;
         };
 
-        const auto lines = disasm_text::collect_range(0x0000, 0x0003, read_fn, &syms);
+        const auto lines = disasm_text::collect_range(0x0000, 0x0003, read_fn,
+                                                      disasm_text::symbol_namer(&syms, {}));
         const std::string text =
             disasm_text::format_lines(lines, disasm_text::CopyFormat::AsmOnly);
 
@@ -920,7 +921,7 @@ void test_edge_cases() {
             return 0x00;
         };
 
-        const auto lines = disasm_text::collect_range(0xFFFD, 0xFFFF, read_fn, nullptr);
+        const auto lines = disasm_text::collect_range(0xFFFD, 0xFFFF, read_fn, {});
         const std::string text =
             disasm_text::format_lines(lines, disasm_text::CopyFormat::WithAddresses);
 

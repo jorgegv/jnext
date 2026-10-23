@@ -528,11 +528,11 @@ int main() {
         check("NBSYM-01", "five labels load; out-of-range, non-hex and malformed lines do not",
               st.load_nextbuild_memory(mem.string()) == 5);
         check("NBSYM-02", "one name per address: the first label there",
-              st.size() == 4 && st.lookup(0xACB5) == std::optional<std::string>("FillScreen"));
+              st.size() == 4 && st.lookup(jnext::dbg::MemSpace::cpu(), 0xACB5) == std::optional<std::string>("FillScreen"));
         check("NBSYM-03", "a Boriel user label shows without '.' and the compiler's '_'",
-              st.lookup(0x7335) == std::optional<std::string>("factoryFxDirty"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0x7335) == std::optional<std::string>("factoryFxDirty"));
         check("NBSYM-04", "a runtime label keeps its double underscore",
-              st.lookup(0x7320) == std::optional<std::string>("core.__START_PROGRAM"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0x7320) == std::optional<std::string>("core.__START_PROGRAM"));
         check("NBSYM-05", "the shown name, the raw label and the label without '.' all "
                           "resolve by name",
               st.lookup_name("FillScreen") == 0xACB5 && st.lookup_name("._FillScreen") == 0xACB5 &&
@@ -540,7 +540,7 @@ int main() {
         check("NBSYM-06", "a second label at an address still resolves by name",
               st.lookup_name("core.alias_at_same_address") == 0xACB5);
         check("NBSYM-07", "a CRLF line loads",
-              st.lookup(0xC735) == std::optional<std::string>("RespawnPlayer"));
+              st.lookup(jnext::dbg::MemSpace::cpu(), 0xC735) == std::optional<std::string>("RespawnPlayer"));
         std::string why08;
         check("NBSYM-08", "an unreadable file is -1, and the reason is \"could not open "
                           "Memory.txt file\"",
