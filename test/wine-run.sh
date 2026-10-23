@@ -46,6 +46,9 @@
 #     BUDGET: the rows wrap $JNEXT in `timeout --foreground --kill-after=5s`, so KILL
 #     reaches this script 5 s after TERM; if it dies before forwarding, wine keeps the
 #     row's pipes and the row hangs. CAPTURE_BUDGET plus its 0.4 s kill leaves >= 1.1 s.
+#     winedbg runs only while the target is alive, and the name fallback only if /proc shows
+#     it as the only process of its name in the prefix: a winedbg killed by its bound kills
+#     its debuggee under wine 11, so it may only ever be pointed at the stalled process.
 #     The /proc sections come first and are never cut. `bt all` is per pid on purpose:
 #     prefix-wide it took 21.6 s at load 20 and pauses other rows' processes. wine does
 #     not catch SIGTERM (measured), so the forward always lands. INT is forwarded at once.
@@ -62,7 +65,8 @@ set -euo pipefail
 SELF=${BASH_SOURCE[0]}
 [[ $SELF == /* ]] || SELF=$PWD/$SELF
 # What the TERM handler may spend on the stall capture (see the header: BUDGET).
-CAPTURE_BUDGET=3.5s
+CAPTURE_BUDGET_MS=3500
+CAPTURE_BUDGET=$((CAPTURE_BUDGET_MS / 1000)).$((CAPTURE_BUDGET_MS % 1000 / 100))s
 
 if [[ "${1:-}" == --jnext ]]; then
     EXE=${2:?usage: wine-run.sh --jnext <jnext.exe> [args...]}
@@ -221,6 +225,7 @@ fi
 if [[ "${1:-}" == --capture ]]; then
     # --capture <wpid> <outfile> <exe> [args...]  (see the header). Appends section by
     # section: a KILL at the bound loses only the section in progress.
+    cap_start_us=${EPOCHREALTIME/./}
     cap_pid=${2:?}; cap_out=${3:?}; cap_exe=${4:?}; shift 4
     cap_args=("$@")
     WINE_BIN=${JNEXT_WINE_BIN:-/usr/bin/wine}
@@ -258,23 +263,45 @@ if [[ "${1:-}" == --capture ]]; then
         echo
     } >> "$cap_out" 2>&1 || true
 
-    # winedbg, bounded, its output only ever to the capture file (never the row's pipes).
-    dbg_run() {   # dbg_run <seconds> <tmpfile> <winedbg args...>
-        local secs=$1 tmp=$2 rc=0
+    # A DEADLINE, not fixed bounds (GH #383 review): the outer timeout kills this mode at
+    # CAPTURE_BUDGET_MS, so winedbg gets what is left of it. `info thread` is capped (it only
+    # finds the pid); `bt all` gets all the rest less a margin for its own 0.2 s kill.
+    deadline_us=$((cap_start_us + CAPTURE_BUDGET_MS * 1000))
+    left_ms() { echo $(((deadline_us - ${EPOCHREALTIME/./}) / 1000)); }
+    secs() { printf '%d.%03ds' $(($1 / 1000)) $(($1 % 1000)); }   # secs <ms>
+
+    # winedbg, its output only ever to the capture file (never the row's pipes). A winedbg
+    # killed by its bound kills its debuggee under wine 11 (measured), so it is only ever
+    # pointed at the stalled process itself, and only while that is alive.
+    dbg_run() {   # dbg_run <ms> <tmpfile> <winedbg args...>
+        local ms=$1 tmp=$2 rc=0
         shift 2
-        /usr/bin/timeout --kill-after=0.2s "$secs" ${PRIV[@]+"${PRIV[@]}"} "$WINE_BIN" winedbg "$@" \
+        /usr/bin/timeout --kill-after=0.2s "$(secs "$ms")" ${PRIV[@]+"${PRIV[@]}"} "$WINE_BIN" winedbg "$@" \
             </dev/null >"$tmp" 2>&1 || rc=$?
-        if [[ $rc -eq 124 || $rc -eq 137 ]]; then echo "winedbg $*: no answer within $secs (rc $rc)" >> "$cap_out"; fi
+        if [[ $rc -eq 124 || $rc -eq 137 ]]; then echo "winedbg $*: no answer within $(secs "$ms") (rc $rc)" >> "$cap_out"; fi
         /usr/bin/tr -d '\r' < "$tmp" >> "$cap_out" 2>/dev/null || true
         return 0
     }
+    target_alive() {   # the stalled process still exists (not gone, not a zombie)
+        local s
+        { read -r s < "/proc/$cap_pid/stat"; } 2>/dev/null || return 1
+        s=${s##*) }
+        [[ ${s%% *} != Z && ${s%% *} != X ]]
+    }
+    if ! target_alive; then
+        { echo "== winedbg"; echo "pid $cap_pid is gone: no debugger is started (it could only reach another process)"; } >> "$cap_out"
+        exit 0
+    fi
     info_tmp=$cap_out.info
+    info_ms=$(($(left_ms) - 500)); ((info_ms <= 1500)) || info_ms=1500
     echo "== winedbg info thread" >> "$cap_out"
-    dbg_run 1.2s "$info_tmp" --command "info thread"
+    if ((info_ms >= 200)); then dbg_run "$info_ms" "$info_tmp" --command "info thread"; else echo "no time left for it" >> "$cap_out"; fi
     echo >> "$cap_out"
 
     # The Windows pid of the target: the one process block whose command line is exactly
-    # "Z:<exe, / -> \>" <args as CreateProcess quotes them>; else the one process of that name.
+    # "Z:<exe, / -> \>" <args as CreateProcess quotes them>; else (name only) the one
+    # process of that name, but only if /proc shows the target as the ONLY process of
+    # that name in the prefix: otherwise "the one jnext.exe" may be another row's.
     want="\"Z:${cap_exe//\//\\}\""
     for a in ${cap_args[@]+"${cap_args[@]}"}; do
         a=${a//\"/\\\"}
@@ -282,26 +309,39 @@ if [[ "${1:-}" == --capture ]]; then
     done
     base=${cap_exe##*/}
     exact=(); byname=(); hdr=
-    while IFS= read -r line; do
-        line=${line%$'\r'}
-        if [[ $line =~ ^([0-9a-fA-F]{8})[[:space:]]+([^[:space:]].*)$ ]]; then
-            hdr=${BASH_REMATCH[1]}
-            [[ ${BASH_REMATCH[2]} == "$base" ]] && byname+=("$hdr")
-        elif [[ -n $hdr && $line == $'\t['*']' ]]; then
-            cl=${line#*[}; cl=${cl%]}
-            [[ $cl == "$want" ]] && exact+=("$hdr")
-        fi
-    done < "$info_tmp" 2>/dev/null || true
+    if [[ -r $info_tmp ]]; then
+        while IFS= read -r line; do
+            line=${line%$'\r'}
+            if [[ $line =~ ^([0-9a-fA-F]{8})[[:space:]]+([^[:space:]].*)$ ]]; then
+                hdr=${BASH_REMATCH[1]}
+                [[ ${BASH_REMATCH[2]} == "$base" ]] && byname+=("$hdr")
+            elif [[ -n $hdr && $line == $'\t['*']' ]]; then
+                cl=${line#*[}; cl=${cl%]}
+                [[ $cl == "$want" ]] && exact+=("$hdr")
+            fi
+        done < "$info_tmp" 2>/dev/null || true
+    fi
     /usr/bin/rm -f "$info_tmp"
     pid=; how=
     if ((${#exact[@]} == 1)); then pid=${exact[0]}; how="exact command-line match"
-    elif ((${#exact[@]} == 0 && ${#byname[@]} == 1)); then pid=${byname[0]}; how="matched by name only"
+    elif ((${#exact[@]} == 0 && ${#byname[@]} == 1)); then
+        same=0; me=0
+        while read -r pp pc _; do
+            [[ $pc == "${base:0:15}" ]] || continue
+            same=$((same + 1)); [[ $pp == "$cap_pid" ]] && me=1
+        done < <(prefix_procs)
+        if ((same == 1 && me == 1)); then pid=${byname[0]}; how="matched by name only; the only $base in the prefix"; fi
     fi
+    bt_ms=$(($(left_ms) - 300))
     if [[ -z $pid ]]; then
         { echo "== winedbg bt all"; echo "no unique match (${#exact[@]} exact, ${#byname[@]} by name); no backtrace"; } >> "$cap_out"
+    elif ! target_alive; then
+        { echo "== winedbg bt all"; echo "pid $cap_pid is gone: no backtrace"; } >> "$cap_out"
+    elif ((bt_ms < 300)); then
+        { echo "== winedbg bt all 0x$pid ($how)"; echo "no time left for it"; } >> "$cap_out"
     else
         echo "== winedbg bt all 0x$pid ($how)" >> "$cap_out"
-        dbg_run 1.8s "$cap_out.bt" --command "bt all" "0x$pid"
+        dbg_run "$bt_ms" "$cap_out.bt" --command "bt all" "0x$pid"
         /usr/bin/rm -f "$cap_out.bt"
     fi
     exit 0
@@ -325,20 +365,24 @@ if [[ -n "${JNEXT_MODE:-}" ]]; then
     ${PRIV[@]+"${PRIV[@]}"} "${JNEXT_WINE_BIN:-/usr/bin/wine}" "$@" <&3 >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- 3<&- &
     wpid=$!
     exec {out_fd}>&- {err_fd}>&- 3<&-
-    cap_done=
+    cap_done=; cap_file=; cap_msg=
     on_term() {   # $1 = the exe, the rest its arguments
         # GH #383: save the stalled process's state BEFORE forwarding (it is gone after).
         if [[ -z $cap_done && -n "${JNEXT_WINE_CAPTURE_DIR:-}" ]]; then
             cap_done=1
-            local cap_file
+            cap_file=
             cap_file=$JNEXT_WINE_CAPTURE_DIR/wine-stall-$(/usr/bin/date +%Y%m%d-%H%M%S)-$wpid.txt
             if /usr/bin/mkdir -p "$JNEXT_WINE_CAPTURE_DIR" 2>/dev/null; then
                 /usr/bin/timeout --kill-after=0.4s "$CAPTURE_BUDGET" /bin/bash "$SELF" --capture \
                     "$wpid" "$cap_file" "$@" </dev/null >/dev/null 2>&1 || true
-                echo "wine-run: TERM at the bound; state of ${1##*/} (pid $wpid) saved to $cap_file" >&2
+                cap_msg="wine-run: TERM at the bound; state of ${1##*/} (pid $wpid) saved to $cap_file"
             fi
         fi
         kill -TERM "$wpid" 2>/dev/null || true
+        # After the forward: an echo into a dead pipe must not kill this shell first. A cut
+        # capture can leave its temp files behind.
+        if [[ -n ${cap_file:-} ]]; then /usr/bin/rm -f "$cap_file.info" "$cap_file.bt"; fi
+        if [[ -n ${cap_msg:-} ]]; then ( trap '' PIPE; echo "$cap_msg" >&2 ) || true; cap_msg=; fi
     }
     trap 'on_term "$@"' TERM
     trap 'kill -INT "$wpid" 2>/dev/null' INT

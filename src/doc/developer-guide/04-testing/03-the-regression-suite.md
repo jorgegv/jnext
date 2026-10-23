@@ -351,7 +351,10 @@ screenshots + the admitted rows (no lints, no stamp).
     `wine-stall-<time>-<pid>.txt`: the process's threads from `/proc`, the
     prefix's processes with thread counts, `winedbg info thread`, and `winedbg
     bt all` of that one Windows pid, found by its exact command line. It is
-    bounded at 3.5 s (+0.4 s kill) inside the rows' `--kill-after=5s`, runs after
+    bounded at 3.5 s (+0.4 s kill) inside the rows' `--kill-after=5s` (winedbg gets
+    what is left of that deadline), runs only while that process is alive (a
+    winedbg killed by its bound kills its debuggee, so it never attaches to
+    another row's `jnext.exe`), runs after
     the verdict is decided, and then forwards TERM as before, so it never changes
     a result. The driver ends every Windows run with a `wine prefix at the end:`
     line (thread counts of the prefix's wine processes) and lists any captures.

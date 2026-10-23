@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=218  # HS-98a..i (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=230  # HS-98a..u (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2438,13 +2438,19 @@ if [[ "${1:-}" == winedbg ]]; then   # the stall capture's debugger (GH #383), i
     case "${3:-}" in
         "info thread")
             [[ -z "${STUB_DBG_HANG:-}" ]] || exec sleep 30
+            [[ -z "${STUB_INFO_SLEEP:-}" ]] || sleep "$STUB_INFO_SLEEP"
             w=${STUB_EXE//\//\\}
             printf 'process  tid      prio    name (all IDs are in hex)\r\nSTUB-INFO-THREAD\r\n'
-            printf '00000100 fake.exe\r\n\t["Z:%s" hang-other]\r\n\t00000104    0     \r\n' "$w"
-            printf '00000200 fake.exe\r\n\t["Z:%s" hang]\r\n\t00000204    0     \r\n' "$w"
-            [[ -z "${STUB_DBG_DUP:-}" ]] || printf '00000300 fake.exe\r\n\t["Z:%s" hang]\r\n\t00000304    0     \r\n' "$w"
+            printf '00000100 fake.exe\r\n\t["Z:%s" %s]\r\n\t00000104    0     \r\n' "$w" "${STUB_ARGS_DECOY-hang-other}"
+            [[ -z "${STUB_DBG_ONE:-}" ]] || exit 0
+            printf '00000200 fake.exe\r\n\t["Z:%s" %s]\r\n\t00000204    0     \r\n' "$w" "${STUB_ARGS_TARGET-hang}"
+            [[ -z "${STUB_DBG_DUP:-}" ]] || printf '00000300 fake.exe\r\n\t["Z:%s" %s]\r\n\t00000304    0     \r\n' "$w" "${STUB_ARGS_TARGET-hang}"
+            [[ -z "${STUB_DBG_BIG:-}" ]] || seq 1 300000 | sed 's/^/\t0000/'
             ;;
-        "bt all") echo "STUB-BT for ${4:-}" ;;
+        "bt all")
+            [[ -z "${STUB_BT_HANG:-}" ]] || exec sleep 30
+            [[ -z "${STUB_BT_SLEEP:-}" ]] || sleep "$STUB_BT_SLEEP"
+            echo "STUB-BT for ${4:-}" ;;
     esac
     exit 0
 fi
@@ -2455,6 +2461,7 @@ case "${2:-}" in
     stdin) echo "stdin=$(cat)" ;;
     disp) echo "D=${DISPLAY:-unset} W=${WAYLAND_DISPLAY:-unset} X=${XDG_RUNTIME_DIR:-unset}" ;;
     hang) trap 'echo got-term; exit 9' TERM; echo ready; while :; do sleep 0.1; done ;;
+    hangint) exec perl -e '$| = 1; $SIG{INT} = sub { print "got-int\n"; exit 8 }; print "ready\n"; sleep 30' ;;
 esac
 WEOF
 chmod +x "$wstub"
@@ -2587,24 +2594,40 @@ check "HS-95i" "wine-run.sh needs no procps-ng (no pgrep / pkill call; the CI co
 # The stub's `hang` mode is the deliberately blocked process; its own /proc/<pid>/task is
 # what the capture must save. The oracle is the runner's contract (wine-run.sh header).
 export STUB_EXE="$T/fake.exe"
-cap_hang() {   # cap_hang <capture dir | ->: sets cap_rc cap_ms cap_out (env: STUB_DBG_DUP / STUB_DBG_HANG)
-    local d=$1 pid dog t0 t1
+cap_hang() {   # cap_hang <capture dir | ->: sets cap_rc cap_ms cap_out (env: STUB_*, CAP_MODE, CAP_SIG, CAP_TWICE, CAP_DEADERR)
+    local d=$1 pid dog t0 t1 mode=${CAP_MODE:-hang} sig=${CAP_SIG:-TERM}
     rm -rf "$T/cap"
-    ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
-      JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" hang ) \
-        > "$T/caphang.out" 2>&1 &
+    # perl resets a SIGINT disposition a background job inherits as "ignored", so INT can be tested
+    if [[ -n ${CAP_DEADERR:-} ]]; then   # stderr into a pipe whose reader has already exited
+        ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
+          JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" "$mode" ) \
+            > "$T/caphang.out" 2> >(exec head -c0) &
+    else
+        ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
+          JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" "$mode" ) \
+            > "$T/caphang.out" 2>&1 &
+    fi
     pid=$!
     ( sleep 40; kill -KILL "$pid" 2>/dev/null ) &
     dog=$!
     for _ in $(seq 1 50); do grep -q ready "$T/caphang.out" 2>/dev/null && break; sleep 0.1; done
+    [[ -z ${CAP_DEADERR:-} ]] || sleep 0.3
     t0=$EPOCHREALTIME
-    kill -TERM "$pid" 2>/dev/null
+    kill -"$sig" "$pid" 2>/dev/null
+    if [[ -n ${CAP_TWICE:-} ]]; then sleep 0.3; kill -TERM "$pid" 2>/dev/null; fi
     cap_rc=0; wait "$pid" || cap_rc=$?
     t1=$EPOCHREALTIME
     kill "$dog" 2>/dev/null; wait "$dog" 2>/dev/null || true
     pkill -KILL -f -- "$wstub" 2>/dev/null || true
     cap_ms=$(( (${t1/./} - ${t0/./}) / 1000 ))
     cap_out=$(cat "$T/caphang.out")
+}
+cap_direct() {   # cap_direct <live pid> <exe> [args...]: the --capture mode alone, under its outer bound; sets capd_txt
+    local pid=$1; shift
+    rm -f "$T"/capd.txt*
+    WINEPREFIX="$T/wp" JNEXT_WINE_BIN="$wstub" timeout --kill-after=0.4s 3.5s \
+        bash "$PROJECT_DIR/test/wine-run.sh" --capture "$pid" "$T/capd.txt" "$@" </dev/null >/dev/null 2>&1
+    capd_txt=$(cat "$T/capd.txt" 2>/dev/null || true)
 }
 cap_file() { local f; for f in "$T"/cap/wine-stall-*.txt; do [[ -e $f ]] && echo "$f"; done; return 0; }
 cap_n() { cap_file | wc -l; }
@@ -2631,6 +2654,59 @@ check "HS-98f" "winedbg's output never reaches the row (only the capture file), 
 cap_hang -
 n=$(find "$T" -name 'wine-stall-*' 2>/dev/null | wc -l)
 check "HS-98g" "with JNEXT_WINE_CAPTURE_DIR unset TERM is forwarded at once (ms=$cap_ms < 1000, rc 9) and no capture is written anywhere" 9 $cap_rc "$cap_out"$'\n'"files=$n ms=$(( cap_ms < 1000 ? 1 : 0 ))" "got-term" "files=0" "ms=1"
+
+# GH #383 review round 1: the capture must never touch another row's process (a winedbg killed by
+# its bound kills its debuggee under wine 11), and its pieces are pinned one by one.
+mkdir -p "$T/pp" "$T/pp2"
+cp "$(command -v sleep)" "$T/pp/plugplay.exe"; cp "$(command -v sleep)" "$T/pp/fake.exe"; cp "$(command -v sleep)" "$T/pp2/fake.exe"
+WINEPREFIX="$T/wp" "$T/pp/plugplay.exe" 300 </dev/null >/dev/null 2>&1 &
+pid_pp=$!
+WINEPREFIX="$T/wp" "$T/pp/fake.exe" 300 </dev/null >/dev/null 2>&1 &
+pid_a=$!
+sleep 0.3
+STUB_ARGS_TARGET='"a b" "" q\"z' STUB_ARGS_DECOY='"a b" "" q"z' cap_direct "$pid_a" "$T/fake.exe" 'a b' '' 'q"z'
+check "HS-98j" "the exact command-line match quotes an argument with a space, an empty one and a \" as CreateProcess does, and tells it from a decoy that differs only in quoting" 0 0 "$capd_txt" \
+    "STUB-BT for 0x00000200" "exact command-line match"
+STUB_DBG_ONE=1 cap_direct "$pid_a" "$T/fake.exe" other-args
+check "HS-98k" "a name-only match is taken when /proc shows the target as the only process of that name in the prefix" 0 0 "$capd_txt" \
+    "STUB-BT for 0x00000100" "matched by name only"
+dead=$(sleep 0 & echo $!); sleep 0.3
+STUB_DBG_ONE=1 cap_direct "$dead" "$T/fake.exe" other-args
+n=$(grep -c 'STUB-BT\|STUB-INFO-THREAD' <<<"$capd_txt" || true)
+kill -0 "$pid_a" 2>/dev/null && alive=alive || alive=dead
+check "HS-98l" "a target that is gone starts NO winedbg (the only fake.exe left is another row's, which stays untouched)" 0 $((n == 0 ? 0 : 1)) "$capd_txt"$'\n'"other=$alive" "is gone" "other=alive"
+WINEPREFIX="$T/wp" "$T/pp2/fake.exe" 300 </dev/null >/dev/null 2>&1 &
+pid_b=$!
+sleep 0.3
+STUB_DBG_ONE=1 cap_direct "$pid_a" "$T/fake.exe" other-args
+n=$(grep -c 'STUB-BT' <<<"$capd_txt" || true)
+check "HS-98m" "...and a name-only match is refused when a second process of that name runs in the prefix" 0 $((n == 0 ? 0 : 1)) "$capd_txt" "no unique match"
+kill "$pid_b" 2>/dev/null; wait "$pid_b" 2>/dev/null || true
+out=$(WINEPREFIX="$T/wp" bash "$PROJECT_DIR/test/wine-run.sh" --prefix-state 2>&1); rc=$?
+check "HS-98n" "--prefix-state prints the prefix's processes with their thread counts (the line the plugplay hypothesis needs)" 0 $rc "$out" "plugplay.exe=1" "(threads)"
+cap_direct "$pid_pp" "$T/pp/plugplay.exe"
+cap_sec=$(sed -n '/^== prefix processes/,/^$/p' <<<"$capd_txt")
+check "HS-98o" "the capture lists the prefix's processes with pid, thread count and state (plugplay.exe 1 S)" 0 0 "$cap_sec" "plugplay.exe 1 "
+kill "$pid_pp" "$pid_a" 2>/dev/null; wait "$pid_pp" "$pid_a" 2>/dev/null || true
+
+STUB_DBG_BIG=1 cap_hang "$T/cap"
+n=$(find "$T/cap" -name '*.info' -o -name '*.bt' 2>/dev/null | wc -l)
+check "HS-98p" "a listing the shell takes seconds to read cannot hold the forward (ms=$cap_ms < 5000: the outer bound) and leaves no temp files in the capture dir" 9 $cap_rc \
+    "$cap_out"$'\n'"ms=$(( cap_ms < 5000 ? 1 : 0 )) tmp=$n" "got-term" "ms=1" "tmp=0"
+STUB_BT_HANG=1 cap_hang "$T/cap"
+cap_txt=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+check "HS-98q" "a backtrace that never answers is cut by its own bound (the file says so) and cannot hold the forward" 9 $cap_rc "$cap_txt"$'\n'"ms=$(( cap_ms < 5000 ? 1 : 0 ))" "no answer within" "bt all" "ms=1"
+STUB_DBG_HANG=1 CAP_TWICE=1 cap_hang "$T/cap"
+cap_txt=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+n=$(grep -c '^== header' <<<"$cap_txt" || true)
+check "HS-98r" "a second TERM forwards but does not capture again (one header, one file, inside the bound)" 9 $cap_rc "$cap_out"$'\n'"headers=$n files=$(cap_n) ms=$(( cap_ms < 5000 ? 1 : 0 ))" "headers=1 files=1 ms=1"
+CAP_MODE=hangint CAP_SIG=INT cap_hang "$T/cap"
+check "HS-98s" "INT is forwarded at once and takes no capture" 8 $cap_rc "$cap_out"$'\n'"files=$(cap_n) ms=$(( cap_ms < 1000 ? 1 : 0 ))" "got-int" "files=0 ms=1"
+STUB_INFO_SLEEP=0.5 STUB_BT_SLEEP=1.9 cap_hang "$T/cap"
+cap_txt=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+check "HS-98t" "winedbg gets a deadline, not fixed bounds: a backtrace needing 1.9 s completes after a 0.5 s listing" 9 $cap_rc "$cap_txt" "STUB-BT for 0x00000200"
+CAP_DEADERR=1 cap_hang "$T/cap"
+check "HS-98u" "the forward does not depend on the row's stderr: a dead stderr pipe cannot kill the runner before wine gets TERM" 9 $cap_rc "$cap_out" "got-term"
 unset STUB_EXE
 
 # the driver: exports the capture dir, reports captures and the prefix line, never changes a verdict
