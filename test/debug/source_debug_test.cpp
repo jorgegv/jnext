@@ -3224,6 +3224,8 @@ int main() {
             run_frames(m, 2);
             m.dbg->reset(m.a, ResetKind::Soft);
             run_frames(m, 1);
+            m.dbg->reset(m.a, ResetKind::Soft);
+            run_frames(m, 1);
             const Result hr = m.dbg->reset(m.a, ResetKind::Hard);
             const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
             for (size_t i = 0; i < sizeof(main_prog); ++i)
