@@ -167,10 +167,13 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     // now), then the new generation: the sidecars about to be attached belong
     // to the program loaded now. The user's source map is carried into it
     // without a second verification - the machine has not changed since.
+    const uint64_t drops = impl_->source_drops;
     impl_->recheck();
     const uint64_t gen = impl_->begin_generation();
     if (impl_->sources_owner == Owner::User) impl_->user_sources_gen = gen;
-    else impl_->source_reason.clear();
+    // The reason the previous program's map went (just now) outlives the load
+    // of a program with no map of its own; anything older does not.
+    else if (impl_->source_drops == drops) impl_->source_reason.clear();
     struct Attached {
         Impl* impl;
         uint64_t gen;
@@ -329,6 +332,7 @@ void Debugger::Impl::drop_sidecars(const std::string& why) {
         source_map.clear();
         sources_owner = StoreOwner::None;
         source_reason = why;
+        ++source_drops;
         pending_log.push_back("Dropped the program's SLD source map: " + why);
     }
 }
@@ -392,30 +396,41 @@ void Debugger::Impl::recheck() {
             // Tier 1: a ring landing, back into a recorded history.
             if (g != attach_gen) {
                 const Attachment* rec = cache_find(g);
+                const char* before = "this point of the history is before the program was loaded";
                 if (symbols_owner != StoreOwner::User) {
+                    const bool had = symbols_owner == StoreOwner::Sidecar;
                     if (rec && rec->symbols) {
                         symbols = *rec->symbols;
                         symbols_owner = StoreOwner::Sidecar;
+                        pending_log.push_back("Restored the program's NextBuild symbols of this "
+                                              "point in the history");
                     } else {
                         symbols.clear();
                         symbols_owner = StoreOwner::None;
+                        if (had)
+                            pending_log.push_back("Dropped the program's NextBuild symbols: " +
+                                                  std::string(before));
                     }
                 }
                 if (sources_owner != StoreOwner::User) {
+                    const bool had = sources_owner == StoreOwner::Sidecar;
                     if (rec && rec->sources) {
                         source_map    = *rec->sources;
                         sources_owner = StoreOwner::Sidecar;
+                        pending_log.push_back("Restored the program's SLD source map of this "
+                                              "point in the history");
                     } else {
                         source_map.clear();
                         sources_owner = StoreOwner::None;
+                        if (had) {
+                            ++source_drops;
+                            pending_log.push_back("Dropped the program's SLD source map: " +
+                                                  std::string(before));
+                        }
                     }
-                    source_reason = rec ? rec->source_reason : std::string();
+                    source_reason = rec ? rec->source_reason : (had ? before : "");
                 }
                 attach_gen = g;
-                pending_log.push_back(rec ? "Restored the program's sidecars of this point in "
-                                            "the history"
-                                          : "No program sidecars belong to this point in the "
-                                            "history");
             }
             if (sources_owner == StoreOwner::User && g != user_sources_gen) verify_user(false);
         }

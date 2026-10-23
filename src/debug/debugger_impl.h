@@ -86,6 +86,8 @@ struct Debugger::Impl {
     bool        user_sources_stale = false;
     /// Why there is no source map now, or why the user's is stale.
     std::string source_reason;
+    /// Counts the source maps a landing or a verification dropped.
+    uint64_t    source_drops = 0;
     bool        landing_pending = false;   ///< a fresh generation, not yet judged
     bool        ring_pending    = false;   ///< a ring landing, not yet applied
     /// A carried map with an identity is verified again at the next pause that

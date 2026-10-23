@@ -35,6 +35,8 @@
 //                    the load they came with
 //   SRCDBG-PATH-*    a relative map path is made absolute
 //   SRCDBG-FB-*      Back after a Frame Back goes back in time
+//   SRCLIFE-*        the source map's lifetime: load generations, the attachment
+//                    cache, stale user maps, Back stops at a landing (GH #342)
 //
 // Rows that need POSIX file types as sidecars (a symlink, a FIFO) are in
 // source_debug_posix_test.
@@ -2492,6 +2494,519 @@ int main() {
               f.size() == 2 && f[0].caller_pc == 0x8000 && f[0].caller_page == NOT_RAM_PAGE &&
                   f[0].target_page == p90 && f[1].caller_pc == 0x8002 &&
                   f[1].caller_page == p80);
+    }
+
+    // ── GH #342: the source map's lifetime (design §6.5-6.7) ────────────
+    // A LOAD GENERATION starts at every landing that is not a rewind-ring
+    // restore and at every program-load notification; a rewind brings back
+    // the sidecars of the point it lands on (the last 4 attachments are
+    // kept); any other landing keeps a carried map only if its binary
+    // identity verifies; Back never crosses a landing.
+    {
+        const fs::path life = dir / "life";
+        fs::create_directories(life);
+        const fs::path good = dir / "ident-good.sld";
+        // A state of another machine whose $8000 holds `first` (and, when
+        // `program`, the fixture program), run for `frames` frames.
+        const auto foreign_state = [](uint8_t first, bool program, int frames) {
+            Emulator o;
+            EmulatorConfig c;
+            c.type = MachineType::ZX48K;
+            o.init(c);
+            if (program) {
+                const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
+                for (size_t i = 0; i < sizeof(main_prog); ++i)
+                    o.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+            }
+            o.mmu().write(0x8000, first);
+            Z80Registers r = o.cpu().get_registers();
+            r.PC = 0x8000;
+            r.SP = 0xFF00;
+            r.IFF1 = r.IFF2 = 0;
+            o.cpu().set_registers(r);
+            for (int i = 0; i < frames; ++i) o.run_frame();
+            StateWriter measure;
+            o.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position(), 0);
+            StateWriter w(bytes.data(), bytes.size());
+            o.save_state(w);
+            return bytes;
+        };
+        const auto own_state = [](Machine& m) {
+            StateWriter measure;
+            m.emu.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position(), 0);
+            StateWriter w(bytes.data(), bytes.size());
+            m.emu.save_state(w);
+            return bytes;
+        };
+        const auto run_frames = [](Machine& m, int n) {
+            m.dbg->run(m.a);
+            for (int i = 0; i < n; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+        };
+        // The driver's `load` lands `*bytes` as a state (the ring is kept).
+        const auto state_driver = [](Machine& m, const std::vector<uint8_t>* bytes) {
+            jnext::dbg::LoopDriver d;
+            d.load = [&m, bytes](const std::string&) {
+                StateReader r(bytes->data(), bytes->size());
+                return m.emu.load_state(r);
+            };
+            m.dbg->set_loop_driver(d);
+        };
+        const auto attach_text = [&](Machine& m, const std::string& stem, const std::string& sld,
+                                     const std::string& memory = {}) {
+            write_text(life / (stem + ".nex"), "");
+            write_text(life / (stem + ".sld"), sld);
+            if (!memory.empty()) write_text(life / (stem + ".Memory.txt"), memory);
+            return m.dbg->load_program_sidecars((life / (stem + ".nex")).string());
+        };
+        struct LogCatcher : jnext::dbg::Listener {
+            std::vector<std::string> lines;
+            std::vector<jnext::dbg::LogLevel> levels;
+            void on_paused(const jnext::dbg::PausedInfo&) override {}
+            void on_resumed(ClientId) override {}
+            void on_reset(ResetKind) override {}
+            void on_frame_ended(uint32_t) override {}
+            void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+            void on_exit_requested(int) override {}
+            void on_log(jnext::dbg::LogLevel l, const std::string& t) override {
+                levels.push_back(l);
+                lines.push_back(t);
+            }
+            bool has(const std::string& s) const {
+                for (const auto& l : lines)
+                    if (l.find(s) != std::string::npos) return true;
+                return false;
+            }
+        };
+        using State = Debugger::SourceMapStatus::State;
+        const std::string a_sld = program_sld(p80, p90);
+        const std::string b_sld = x_sld(p80, {{"5", 0x8000}});
+        const std::string good_text = [&] {
+            std::ifstream in(good, std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), {});
+        }();
+        const auto line_at = [](Machine& m, uint16_t addr) -> std::string {
+            const auto* l = m.dbg->source_location(addr);
+            return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
+        };
+
+        // SRCLIFE-01: A, then B's state landing that keeps A's slots, then a
+        // rewind into A's history and into B's: each point's own map comes back.
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            attach_text(m, "l1a", a_sld);
+            run_frames(m, 2);
+            const uint32_t frame_a = m.dbg->time().frame;
+            const std::vector<uint8_t> b_state = foreign_state(0x00, true, 6);
+            state_driver(m, &b_state);
+            write_text(life / "l1b.sld", b_sld);
+            const Result ld = m.dbg->load(m.a, (life / "l1b.nex").string());
+            run_frames(m, 2);
+            const uint32_t frame_b = m.dbg->time().frame;
+            const Result ra = m.dbg->rewind_to_frame(m.a, frame_a);
+            const std::string at_a = line_at(m, 0x8000);
+            const Result rb = m.dbg->rewind_to_frame(m.a, frame_b);
+            const std::string at_b = line_at(m, 0x8000);
+            check("SRCLIFE-01", "load A, load B (a state landing that keeps A's slots), rewind "
+                                "into A: A's map is back; rewind into B: B's",
+                  ld == Result::Ok && ra == Result::Ok && rb == Result::Ok &&
+                      at_a == "main.bas:10" && at_b == "x.asm:5",
+                  "A=" + at_a + " B=" + at_b);
+        }
+
+        // SRCLIFE-02: a real .sna of other bytes: the identity fails.
+        {
+            Machine m;
+            const auto r = attach_text(m, "l2", good_text, "8000: ._Main\n");
+            Machine other;
+            other.emu.mmu().write(0x8000, 0xFF);
+            const std::string sna = (life / "l2b.sna").string();
+            const Result sv = other.dbg->save_snapshot(other.a, sna);
+            jnext::dbg::LoopDriver d;
+            d.load = [&m](const std::string& p) { return emulator_apply_load(m.emu, p, false); };
+            m.dbg->set_loop_driver(d);
+            const bool attached = r.sources == 6 && r.symbols == 1;
+            const Result ld = m.dbg->load(m.a, sna);
+            const auto st = m.dbg->source_map_status();
+            check("SRCLIFE-02", "a sidecar with identity and a real .sna of other bytes: map and "
+                                "symbols detached, status None with a reason",
+                  attached && sv == Result::Ok && ld == Result::Ok &&
+                      m.dbg->source_map().empty() && m.dbg->symbols().empty() &&
+                      st.state == State::None && !st.reason.empty(),
+                  "ld=" + std::to_string(int(ld)) + " reason=" + st.reason);
+        }
+
+        // SRCLIFE-03: a state whose $8000.. differ (B3c).
+        {
+            Machine m;
+            const auto r = attach_text(m, "l3", good_text, "8000: ._Main\n");
+            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+            const Result ld = m.dbg->load_state_bytes(m.a, other.data(), other.size());
+            check("SRCLIFE-03", "a state restored with other bytes at $8000: the identity fails, "
+                                "map and symbols detached",
+                  r.sources == 6 && ld == Result::Ok && m.dbg->source_map().empty() &&
+                      m.dbg->symbols().empty());
+        }
+
+        // SRCLIFE-04: identical code: kept, re-keyed, and a rewind into the
+        // post-load slots keeps it too.
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            const auto r = attach_text(m, "l4", good_text, "8000: ._Main\n");
+            const std::vector<uint8_t> same = foreign_state(0x00, true, 4);
+            const Result ld = m.dbg->load_state_bytes(m.a, same.data(), same.size());
+            const bool kept_load = m.dbg->source_map().size() == 6;
+            const uint32_t f0 = m.dbg->time().frame;
+            run_frames(m, 2);
+            const Result rr = m.dbg->rewind_to_frame(m.a, f0 + 1);
+            check("SRCLIFE-04", "a state of the same code keeps the sidecars after the load and "
+                                "after a rewind into the post-load slots",
+                  r.sources == 6 && ld == Result::Ok && kept_load && rr == Result::Ok &&
+                      m.dbg->source_map().size() == 6 && m.dbg->lookup_name("Main") == 0x8000);
+        }
+
+        // SRCLIFE-05: the user's map, a foreign state: stale, not replaced.
+        {
+            Machine m;
+            m.dbg->load_source_map(good.string(), false);
+            const std::vector<uint8_t> other = foreign_state(0xFF, true, 1);
+            const Result ld = m.dbg->load_state_bytes(m.a, other.data(), other.size());
+            const auto st = m.dbg->source_map_status();
+            const bool stale = st.state == State::Stale && st.by_user && st.file == good.string() &&
+                               !st.reason.empty() && m.dbg->source_map().empty() &&
+                               !m.dbg->source_location(0x8000);
+            attach_text(m, "l5", a_sld);
+            const auto st2 = m.dbg->source_map_status();
+            const bool kept = st2.state == State::Stale && st2.file == good.string();
+            const auto again = m.dbg->load_source_map(good.string(), true);
+            const auto st3 = m.dbg->source_map_status();
+            check("SRCLIFE-05", "the user's map after another program's state: stale (no lookup), "
+                                "a later sidecar does not replace it, loading it again makes it live",
+                  ld == Result::Ok && stale && kept && again.count == 6 &&
+                      st3.state == State::Attached && m.dbg->source_map().size() == 6,
+                  st.reason);
+        }
+
+        // SRCLIFE-06 / -24: a reset whose ROM clears RAM afterwards (poked
+        // here: the fixture has no ROM). Intact at the reset, gone later.
+        for (int by_user = 0; by_user < 2; ++by_user) {
+            Machine m;
+            if (by_user) {
+                m.dbg->load_source_map(good.string(), false);
+            } else {
+                attach_text(m, "l6", good_text);
+            }
+            const Result rs = m.dbg->reset(m.a, ResetKind::Soft);
+            const auto s0 = m.dbg->source_map_status();
+            m.dbg->run(m.a);
+            m.emu.mmu().write(0x8001, 0x55);
+            for (int i = 0; i < 5; ++i) m.emu.run_frame();
+            const auto s1 = m.dbg->source_map_status();
+            m.dbg->pause(m.a);
+            const auto s2 = m.dbg->source_map_status();
+            const bool gone = m.emu.mmu().peek(0x8001) != 0x00;
+            const bool ok = rs == Result::Ok && gone && s0.state == State::Attached &&
+                            s1.state == State::Attached;
+            if (by_user)
+                check("SRCLIFE-24", "the same with a map loaded by hand: Stale (by_user, file kept) "
+                                    "after the pause",
+                      ok && s2.state == State::Stale && s2.by_user && s2.file == good.string() &&
+                          m.dbg->source_map().empty());
+            else
+                check("SRCLIFE-06", "a soft reset keeps a verified sidecar map while it is still "
+                                    "intact and while running; the next pause finds RAM changed "
+                                    "and detaches it with a reason",
+                      ok && s2.state == State::None && !s2.reason.empty());
+        }
+
+        // SRCLIFE-07: an RZX started from other bytes.
+        {
+            Machine m;
+            attach_text(m, "l7", good_text);
+            const std::string rzx = (life / "l7b.rzx").string();
+            {
+                Machine rec;
+                rec.emu.mmu().write(0x8000, 0xFF);
+                rec.emu.start_rzx_recording(rzx);
+                rec.emu.run_frame();
+                rec.emu.stop_rzx_recording();
+            }
+            jnext::dbg::LoopDriver d;
+            d.load = [&m](const std::string& p) { return m.emu.load_rzx(p); };
+            m.dbg->set_loop_driver(d);
+            const Result ld = m.dbg->load(m.a, rzx);
+            check("SRCLIFE-07", "an RZX playback start is a landing: the sidecar with an identity "
+                                "that does not match is detached",
+                  ld == Result::Ok && m.dbg->source_map().empty(),
+                  "ld=" + std::to_string(int(ld)));
+        }
+
+        // SRCLIFE-08: Back does not cross a state load.
+        {
+            Machine m(/*rewind=*/true);
+            LogCatcher lc;
+            m.dbg->set_listener(m.a, &lc);
+            m.dbg->load_source_map(good.string(), false);
+            m.dbg->set_trace_enabled(true);
+            run_frames(m, 2);
+            const std::vector<uint8_t> s = own_state(m);
+            run_frames(m, 2);
+            const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
+            const uint64_t load_clock = m.emu.clock().get();
+            const Result first = m.dbg->source_step(m.a, Step::Back);
+            run_frames(m, 2);
+            m.dbg->source_step(m.a, Step::Into);
+            m.dbg->source_step(m.a, Step::Into);
+            const Result second = m.dbg->source_step(m.a, Step::Back);
+            check("SRCLIFE-08", "Back right after a state load refuses (the history before it is "
+                                "another machine's); after more frames it lands on a post-load "
+                                "entry",
+                  ld == Result::Ok && first == Result::RefusedUnavailable &&
+                      lc.has("no earlier mapped source position") && second == Result::Ok &&
+                      m.emu.clock().get() >= load_clock,
+                  "first=" + std::to_string(int(first)) + " second=" +
+                      std::to_string(int(second)));
+        }
+
+        // SRCLIFE-09: load() attaches the program's sidecars.
+        {
+            Machine m;
+            write_text(life / "l9.nex", "");
+            write_text(life / "l9.sld", a_sld);
+            write_text(life / "l9.Memory.txt", "8000: ._Main\n");
+            jnext::dbg::LoopDriver d;
+            d.load = [&m](const std::string&) { m.emu.mmu().write(0xC000, 0x99); return true; };
+            m.dbg->set_loop_driver(d);
+            const Result ld = m.dbg->load(m.a, (life / "l9.nex").string());
+            check("SRCLIFE-09", "load() attaches the program's source map and symbols",
+                  ld == Result::Ok && m.dbg->source_map().size() == 6 &&
+                      m.dbg->lookup_name("Main") == 0x8000);
+        }
+
+        // SRCLIFE-10..14: a ring landing before the attach; the FIRST reader
+        // (or pump) must see the processed state, and pump announces it.
+        {
+            const auto setup = [&](LogCatcher& lc) {
+                auto m = std::make_unique<Machine>(/*rewind=*/true);
+                m->dbg->set_listener(m->a, &lc);
+                run_frames(*m, 3);
+                attach_text(*m, "l10", a_sld, "8000: ._Main\n");
+                const uint32_t f = m->dbg->time().frame;
+                run_frames(*m, 3);
+                m->dbg->rewind_to_frame(m->a, f - 1);
+                return m;
+            };
+            LogCatcher l10, l11, l12, l13, l14;
+            check("SRCLIFE-10", "after a rewind to before the attach the first reader "
+                                "symbols() is already empty",
+                  setup(l10)->dbg->symbols().empty());
+            check("SRCLIFE-11", "... the first reader lookup() finds nothing",
+                  !setup(l11)->dbg->lookup(0x8000).has_value());
+            check("SRCLIFE-12", "... the first reader lookup_name() finds nothing",
+                  !setup(l12)->dbg->lookup_name("Main").has_value());
+            check("SRCLIFE-13", "... the first reader source_map() is empty",
+                  setup(l13)->dbg->source_map().empty());
+            {
+                auto m = setup(l14);
+                const bool before = l14.has("Dropped the program's");
+                m->dbg->pump(jnext::dbg::PumpBudget{});
+                                check("SRCLIFE-14", "... and pump() alone announces the drop to the listeners",
+                      !before && l14.has("Dropped the program's SLD source map"));
+            }
+        }
+
+        // SRCLIFE-15: a writer rechecks first, so the pending landing cannot
+        // undo it afterwards.
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            attach_text(m, "l15a", a_sld, "8000: ._S1sym\n");
+            const uint32_t f1 = m.dbg->time().frame;
+            run_frames(m, 3);
+            attach_text(m, "l15b", a_sld, "8000: ._S2sym\n");
+            run_frames(m, 3);
+            m.dbg->rewind_to_frame(m.a, f1 + 1);
+            m.dbg->clear_symbols();
+            const bool gone = !m.dbg->lookup_name("S1sym").has_value();
+            attach_text(m, "l15c", a_sld, "8000: ._S3sym\n");
+            check("SRCLIFE-15", "clear_symbols() right after a rewind: the old symbol does not "
+                                "come back, and the next program's fill the store",
+                  gone && !m.dbg->lookup_name("S1sym").has_value() &&
+                      m.dbg->lookup_name("S3sym") == 0x8000);
+        }
+
+        // SRCLIFE-16: load() reports a refused sidecar.
+        {
+            Machine m;
+            LogCatcher lc;
+            m.dbg->set_listener(m.a, &lc);
+            write_text(life / "bad.nex", "");
+            write_text(life / "bad.sld", "this is not an SLD\n");
+            jnext::dbg::LoopDriver d;
+            d.load = [](const std::string&) { return true; };
+            m.dbg->set_loop_driver(d);
+            const Result ld = m.dbg->load(m.a, (life / "bad.nex").string());
+            const auto st = m.dbg->source_map_status();
+            bool warn = false;
+            for (size_t i = 0; i < lc.lines.size(); ++i)
+                if (lc.levels[i] == jnext::dbg::LogLevel::Warn &&
+                    lc.lines[i].find("rejected") != std::string::npos)
+                    warn = true;
+            check("SRCLIFE-16", "load() of a program with a refused sidecar tells every listener "
+                                "(Warn) and the status names the file",
+                  ld == Result::Ok && warn && st.state == State::None &&
+                      st.reason.find("bad.sld") != std::string::npos,
+                  st.reason);
+        }
+
+        // SRCLIFE-17: a rebuilt program's Reload attaches the new map.
+        {
+            Machine m;
+            write_text(life / "l17.nex", "");
+            jnext::dbg::LoopDriver d;
+            d.load = [](const std::string&) { return true; };
+            m.dbg->set_loop_driver(d);
+            write_text(life / "l17.sld", a_sld);
+            m.dbg->load(m.a, (life / "l17.nex").string());
+            const std::string first = line_at(m, 0x8000);
+            write_text(life / "l17.sld", x_sld(p80, {{"77", 0x8000}}));
+            m.dbg->load(m.a, (life / "l17.nex").string());
+            check("SRCLIFE-17", "a Reload of a rebuilt program attaches the new build's map",
+                  first == "main.bas:10" && line_at(m, 0x8000) == "x.asm:77", line_at(m, 0x8000));
+        }
+
+        // SRCLIFE-18: a map loaded by hand across a Reload (decision D7).
+        {
+            Machine m;
+            LogCatcher lc;
+            m.dbg->set_listener(m.a, &lc);
+            const fs::path user = life / "user.sld";
+            write_text(user, a_sld);
+            m.dbg->load_source_map(user.string(), false);
+            write_text(life / "l18.nex", "");
+            write_text(life / "l18.sld", b_sld);
+            jnext::dbg::LoopDriver d;
+            d.load = [](const std::string&) { return true; };
+            m.dbg->set_loop_driver(d);
+            m.dbg->load(m.a, (life / "l18.nex").string());
+            const auto st = m.dbg->source_map_status();
+            const bool first = st.state == State::Stale && st.by_user && st.file == user.string() &&
+                               lc.has("Kept the loaded source map") == false &&
+                               m.dbg->source_map().empty();
+            m.dbg->load_source_map(good.string(), false);
+            m.dbg->load(m.a, (life / "l18.nex").string());
+            const auto st2 = m.dbg->source_map_status();
+            check("SRCLIFE-18", "a map loaded by hand across a Reload stays the user's: stale "
+                                "without an identity, live when the new build matches it",
+                  first && st2.state == State::Attached && st2.by_user &&
+                      m.dbg->source_map().size() == 6,
+                  st.reason);
+        }
+
+        // SRCLIFE-19: the cache keeps the last 4 attachments.
+        {
+            Machine m(/*rewind=*/true);
+            run_frames(m, 1);
+            std::vector<uint32_t> frames;
+            for (int k = 1; k <= 5; ++k) {
+                attach_text(m, "l19_" + std::to_string(k),
+                            x_sld(p80, {{std::to_string(k).c_str(), 0x8000}}));
+                frames.push_back(m.dbg->time().frame);
+                run_frames(m, 1);
+            }
+            const Result r1 = m.dbg->rewind_to_frame(m.a, frames[0] + 1);
+            const bool g1_none = m.dbg->source_map().empty();
+            const Result r2 = m.dbg->rewind_to_frame(m.a, frames[1] + 1);
+            check("SRCLIFE-19", "five attachments: a rewind into the first finds none (evicted), "
+                                "into the second finds the second's",
+                  r1 == Result::Ok && r2 == Result::Ok && g1_none && line_at(m, 0x8000) == "x.asm:2",
+                  line_at(m, 0x8000));
+        }
+
+        // SRCLIFE-20: a guest write is no landing: nothing is verified.
+        {
+            Machine m;
+            attach_text(m, "l20", good_text);
+            m.emu.mmu().write(0x8001, 0x01);
+            run_frames(m, 1);
+            check("SRCLIFE-20", "a guest write with no landing in between leaves the attached "
+                                "map alone (design §6.6)",
+                  m.dbg->source_map().size() == 6);
+        }
+
+        // SRCLIFE-21: Back's "first instruction of the statement" search does
+        // not run on into the history before a state load.
+        {
+            Machine m(/*rewind=*/true);
+            m.dbg->load_source_map(good.string(), false);
+            m.dbg->set_trace_enabled(true);
+            run_frames(m, 2);
+            m.dbg->step_into(m.a);                 // $8000 NOP -> PC=$8001
+            const std::vector<uint8_t> s = own_state(m);
+            const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
+            const uint64_t load_clock = m.emu.clock().get();
+            m.dbg->source_step(m.a, Step::Into);    // $8001 -> $8002 (main.bas:11)
+            const auto& t = m.emu.trace_log();
+            const bool pre = t.size() >= 2 && t.at(t.size() - 1).pc == 0x8001 &&
+                             t.at(t.size() - 2).pc == 0x8000;
+            const Result r = m.dbg->source_step(m.a, Step::Back);
+            check("SRCLIFE-21", "Back after Into past a state load does not land before the load",
+                  ld == Result::Ok && pre && (r != Result::Ok || m.emu.clock().get() >= load_clock),
+                  "r=" + std::to_string(int(r)) + " clock=" + std::to_string(m.emu.clock().get()) +
+                      " load=" + std::to_string(load_clock));
+        }
+
+        // SRCLIFE-22: verification is pure (no watch, no latch).
+        {
+            Machine m;
+            m.dbg->load_source_map(good.string(), false);
+            int hits = 0;
+            Subscription sub;
+            sub.kind = EventKind::Mem;
+            sub.access = Access::Read;
+            sub.filter.lo = 0x8000;
+            sub.filter.hi = 0x8003;
+            sub.action = Action::Continue;
+            sub.handler = [&hits](const jnext::dbg::Event&, Debugger&) {
+                ++hits;
+                return Action::Continue;
+            };
+            m.dbg->subscribe(m.a, sub);
+            const std::vector<uint8_t> s = own_state(m);
+            m.dbg->load_state_bytes(m.a, s.data(), s.size());
+            const std::vector<uint8_t> before = own_state(m);
+            (void)m.dbg->source_map_status();
+            m.dbg->pump(jnext::dbg::PumpBudget{});
+            const std::vector<uint8_t> after = own_state(m);
+            check("SRCLIFE-22", "verifying a map's identity runs no Mem Read handler and changes "
+                                "no byte of the state",
+                  hits == 0 && before == after && m.dbg->source_map().size() == 6);
+        }
+
+        // SRCLIFE-23: after a Frame Back into A's history across B's load,
+        // Back still goes back within A's generation.
+        {
+            Machine m(/*rewind=*/true);
+            m.dbg->set_trace_enabled(true);
+            attach_text(m, "l23a", a_sld);
+            run_frames(m, 4);
+            const uint32_t newest = m.dbg->rewind_range().newest_frame;
+            const std::vector<uint8_t> b = foreign_state(0x00, true, 8);
+            state_driver(m, &b);
+            write_text(life / "l23b.sld", b_sld);
+            m.dbg->load(m.a, (life / "l23b.nex").string());
+            const Result rw = m.dbg->rewind_to_frame(m.a, newest);
+            const uint64_t at = m.emu.clock().get();
+            const Result r = m.dbg->source_step(m.a, Step::Back);
+            check("SRCLIFE-23", "A's history is 'back' within A's generation after a rewind into "
+                                "it across B's load",
+                  rw == Result::Ok && r == Result::Ok && m.emu.clock().get() < at,
+                  "rw=" + std::to_string(int(rw)) + " r=" + std::to_string(int(r)));
+        }
     }
 
     fs::remove_all(dir);
