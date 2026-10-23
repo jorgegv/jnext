@@ -225,6 +225,10 @@ public:
     /// Get the tape filename (for UI display).
     const std::string& filename() const { return filename_; }
 
+    /// The absolute UTF-8 host path the tape was loaded from (GH #401);
+    /// empty when nothing is loaded. filename() stays the display name.
+    const std::string& path() const { return path_; }
+
 private:
     std::vector<TapBlock> blocks_;
     size_t current_block_ = 0;
@@ -233,6 +237,7 @@ private:
     bool gap_hold_ = false;
     bool held_ = false;
     std::string filename_;
+    std::string path_;
 
     // Real-time playback state
     bool     playing_ = false;

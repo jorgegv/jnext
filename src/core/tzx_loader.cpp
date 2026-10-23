@@ -1,6 +1,7 @@
 #include "core/tzx_loader.h"
 #include "core/emulator.h"
 #include "core/log.h"
+#include "core/host_path.h"
 #include "core/tape_trap.h"
 
 extern "C" {
@@ -41,6 +42,7 @@ TzxLoader::TzxLoader(TzxLoader&& other) noexcept
     , loaded_(other.loaded_)
     , fast_load_(other.fast_load_)
     , filename_(std::move(other.filename_))
+    , path_(std::move(other.path_))
     , fast_load_offset_(other.fast_load_offset_)
     , is_tzx_(other.is_tzx_)
 {
@@ -62,6 +64,7 @@ TzxLoader& TzxLoader::operator=(TzxLoader&& other) noexcept {
         loaded_ = other.loaded_;
         fast_load_ = other.fast_load_;
         filename_ = std::move(other.filename_);
+        path_ = std::move(other.path_);
         fast_load_offset_ = other.fast_load_offset_;
         is_tzx_ = other.is_tzx_;
 
@@ -420,6 +423,7 @@ bool TzxLoader::load(const std::string& path) {
     // separators: a Windows path from `--load C:\...` or a native dialog has
     // backslashes, which rfind('/') never saw).
     filename_ = std::filesystem::path(path).filename().string();
+    path_ = jnext::absolute_host_path(path);
 
     Log::emulator()->info("TZX: loaded '{}' - {} format, {} bytes",
                            filename_, is_tzx_ ? "TZX" : "TAP",
@@ -434,6 +438,7 @@ void TzxLoader::eject() {
     loaded_ = false;
     fast_load_offset_ = 0;
     filename_.clear();
+    path_.clear();
     Log::emulator()->info("TZX: tape ejected");
 }
 

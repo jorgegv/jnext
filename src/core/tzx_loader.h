@@ -113,6 +113,10 @@ public:
     /// Get the tape filename (for UI display).
     const std::string& filename() const { return filename_; }
 
+    /// The absolute UTF-8 host path the tape was loaded from (GH #401);
+    /// empty when nothing is loaded. filename() stays the display name.
+    const std::string& path() const { return path_; }
+
     /// True if all blocks have been consumed (for fast-load mode).
     bool at_end() const { return fast_load_offset_ >= static_cast<int>(file_data_.size()); }
 
@@ -128,6 +132,7 @@ private:
     bool loaded_ = false;
     bool fast_load_ = true;
     std::string filename_;
+    std::string path_;
 
     // Fast-load scanning position (separate from ZOT's playback offset).
     int fast_load_offset_ = 0;

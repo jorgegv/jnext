@@ -392,9 +392,9 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
     // load restores a machine waiting for a tape that is not playing.
     {
         const std::string tape_path =
-            tape_.is_loaded()     ? tape_.filename()     :
-            tzx_tape_.is_loaded() ? tzx_tape_.filename() :
-            wav_tape_.is_loaded() ? wav_tape_.filename() : std::string();
+            tape_.is_loaded()     ? tape_.path()     :
+            tzx_tape_.is_loaded() ? tzx_tape_.path() :
+            wav_tape_.is_loaded() ? wav_tape_.path() : std::string();
         if (!tape_path.empty()) {
             m.tape.present          = true;
             m.tape.path             = tape_path;
@@ -448,7 +448,7 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
         }
         j["handles"] = handles;
         j["cwd"]     = esxdos_hostfs_.cwd_for_snapshot();
-        if (!w.add_subsystem("esxdos_hostfs", j.dump(2) + "\n", why)) return false;
+        if (!w.add_subsystem("esxdos_hostfs", j.dump(2, ' ', false, nlohmann::json::error_handler_t::replace) + "\n", why)) return false;
     }
 
     // ── §9.5(5): the joystick cable, present only when attached ─────────
@@ -651,6 +651,9 @@ bool Emulator::check_jns(const uint8_t* data, std::size_t len,
             probe_zip.read_text(jnext::jns::kManifestMember, text, probe_why) &&
             jnext::jns::manifest_from_json(text, probe, unknown, probe_why) &&
             probe.tape.present && !probe.tape.path.empty()) {
+            // Opened exactly as recorded: an absolute path (jnext 1.1.81+) is the
+            // tape; a bare name (older files) resolves against the CWD, as it
+            // always did (GH #401).
             std::ifstream probe_f(probe.tape.path, std::ios::binary);
             env.tape_file_available = static_cast<bool>(probe_f);
         }

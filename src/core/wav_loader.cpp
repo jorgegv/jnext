@@ -1,5 +1,6 @@
 #include "core/wav_loader.h"
 #include "core/log.h"
+#include "core/host_path.h"
 
 #include <cstring>
 #include <fstream>
@@ -19,6 +20,7 @@ static uint32_t read_u32(const uint8_t* p) {
 bool WavLoader::load(const std::string& path)
 {
     filename_.clear();
+    path_.clear();
     loaded_ = false;
     playing_ = false;
     raw_data_.clear();
@@ -115,6 +117,7 @@ bool WavLoader::load(const std::string& path)
     loaded_ = true;
     const auto slash = path.find_last_of("/\\");
     filename_ = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+    path_ = jnext::absolute_host_path(path);
     uint32_t frames = total_frames();
     double duration = (sample_rate_ > 0) ? static_cast<double>(frames) / sample_rate_ : 0.0;
     Log::emulator()->info("WAV: loaded '{}' - {}ch {}Hz {}bit, {} samples ({:.1f}s)",
@@ -145,6 +148,7 @@ void WavLoader::stop_playback()
 void WavLoader::eject()
 {
     filename_.clear();
+    path_.clear();
     loaded_ = false;
     playing_ = false;
     raw_data_.clear();

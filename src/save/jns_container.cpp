@@ -247,7 +247,9 @@ std::string manifest_to_json(const Manifest& m) {
     // Two-space indent, and `\n` endings. A manifest is meant to be read with
     // `unzip -p snap.jns manifest.json | jq` or a text editor (G5), and it is
     // a few kilobytes — the whitespace costs nothing after deflate.
-    return j.dump(2) + "\n";
+    // A host path that is not UTF-8 (a Latin-1 folder name) becomes U+FFFD
+    // per invalid byte instead of aborting the save (GH #401).
+    return j.dump(2, ' ', false, nlohmann::json::error_handler_t::replace) + "\n";
 }
 
 namespace {
