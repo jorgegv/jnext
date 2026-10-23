@@ -2380,22 +2380,32 @@ int main() {
               attached && ring_kept && lr == Result::Ok && sidecars_gone(m));
     }
     {
-        // What the user loaded is not the program's: a reset leaves it.
+        // What the user loaded is not the program's: a reset leaves the
+        // symbols. The source map stays the user's too, but with no binary
+        // identity it cannot be told to describe the program after the reset
+        // (design §6.5): it goes stale, and loading it again makes it live.
         Machine m;
         with_cold_boot(m);
         const fs::path user_map = dir / "keep.map";
         write_text(user_map, "UserSym = $8005 ; addr, local\n");
         m.dbg->load_map(user_map.string(), jnext::dbg::MapFormat::Z88dk);
         m.dbg->load_source_map(sld.string(), false);
+        using State = Debugger::SourceMapStatus::State;
         const Result soft = m.dbg->reset(m.a, ResetKind::Soft);
+        const auto st_soft = m.dbg->source_map_status();
         const bool soft_kept = m.dbg->lookup_name("UserSym") == 0x8005 &&
-                               m.dbg->source_map().loaded_file() == sld.string();
+                               st_soft.state == State::Stale && st_soft.by_user &&
+                               st_soft.file == sld.string() && m.dbg->source_map().empty();
+        m.dbg->load_source_map(sld.string(), false);
         const Result hard = m.dbg->reset(m.a, ResetKind::Hard);
-        check("SRCDBG-HIST-09", "a source map and symbols the user loaded survive a soft "
-                                "and a hard reset",
+        const auto st_hard = m.dbg->source_map_status();
+        check("SRCDBG-HIST-09", "symbols the user loaded survive a soft and a hard reset; a "
+                                "source map loaded by hand stays the user's but goes stale "
+                                "(it has no binary identity to check)",
               soft == Result::Ok && hard == Result::Ok && soft_kept &&
-                  m.dbg->lookup_name("UserSym") == 0x8005 &&
-                  m.dbg->source_map().loaded_file() == sld.string());
+                  m.dbg->lookup_name("UserSym") == 0x8005 && st_hard.state == State::Stale &&
+                  st_hard.by_user && st_hard.file == sld.string() &&
+                  m.dbg->source_map().empty());
     }
 
     // ── loops, links and relative paths ─────────────────────────────────
