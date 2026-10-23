@@ -2493,8 +2493,10 @@ installing it. Any failure is ONE warning and the deck stays as it was. A file
 without the member (older jnext) is not reattached either, since attaching at
 the start would hand block 0 to a program waiting for a later one.</p>
 <p>A snapshot changes no setting (owner, GH #402). The session's mode reaches
-the core as <code>JnsLoadOptions::tape_realtime</code> (the same value <code>--load</code> of a
-<code>.tap</code> uses) and <code>tape_auto_play_</code>; a deck recorded in the other mode is
+the core as <code>JnsLoadOptions::tape_realtime</code> (the one fast/real-time setting:
+the Tape &gt; Fast Load toggle, which <code>--tape-realtime</code> overrides for the run in
+<code>main.cpp</code>; <code>QtApp::tape_realtime()</code> reads the toggle, SDL and headless take the
+flag) and <code>tape_auto_play_</code>; a deck recorded in the other mode is
 converted at a block boundary: <code>handover_to_fast_at_gap()</code> (finish the block in
 real time, then fast at the next gap), <code>start_realtime_from_fast()</code> /
 <code>start_playback_from_fast_position()</code> (real time from the fast cursor, held

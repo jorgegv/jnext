@@ -459,6 +459,13 @@ it.
 \f[B]\-\-tape\-realtime\f[R]
 Real\-time tape loading, at the speed of an actual tape, instead of fast
 load.
+It sets the one fast/real\-time setting (the GUI\(cqs \f[B]Tape > Fast
+Load\f[R] toggle) for this run only, overriding the saved preference
+without changing it; \f[B]Tape > Open\f[R], \f[B]File > Load\f[R],
+\f[B]\-\-load\f[R] of a \f[CR].tap\f[R] or \f[CR].tzx\f[R], and the tape
+restored by a \f[CR].jns\f[R] all follow that setting.
+The SDL\-only build, which has no menu and no saved preference, is
+controlled by this option alone.
 .TP
 \f[B]\-\-tape\-auto\-play\f[R], \f[B]\-\-no\-tape\-auto\-play\f[R]
 Turn automatic tape play/stop on (the default) or off for this run,
@@ -1443,7 +1450,8 @@ the program, else the only one) is offered under \f[B]Machine > POK
 Trainers\&...\f[R].
 .PP
 \f[CR].tap\f[R] and \f[CR].tzx\f[R] load in real time instead with
-\f[B]\-\-tape\-realtime\f[R].
+\f[B]\-\-tape\-realtime\f[R] (or by unchecking \f[B]Tape > Fast
+Load\f[R] in the GUI).
 .PP
 RZX recording uses \f[B]\-\-rzx\-record\f[R] \f[I]FILE\f[R].
 The GUI\(cqs \f[B]File > Load NEX File\&...\f[R] dialog accepts all of

@@ -157,8 +157,10 @@ without the member (older jnext) is not reattached either, since attaching at
 the start would hand block 0 to a program waiting for a later one.
 
 A snapshot changes no setting (owner, GH #402). The session's mode reaches
-the core as `JnsLoadOptions::tape_realtime` (the same value `--load` of a
-`.tap` uses) and `tape_auto_play_`; a deck recorded in the other mode is
+the core as `JnsLoadOptions::tape_realtime` (the one fast/real-time setting:
+the Tape > Fast Load toggle, which `--tape-realtime` overrides for the run in
+`main.cpp`; `QtApp::tape_realtime()` reads the toggle, SDL and headless take the
+flag) and `tape_auto_play_`; a deck recorded in the other mode is
 converted at a block boundary: `handover_to_fast_at_gap()` (finish the block in
 real time, then fast at the next gap), `start_realtime_from_fast()` /
 `start_playback_from_fast_position()` (real time from the fast cursor, held

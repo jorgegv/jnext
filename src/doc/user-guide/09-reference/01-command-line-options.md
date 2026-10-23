@@ -399,7 +399,12 @@ with status 1.
 
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of
-    fast load.
+    fast load. It sets the one fast/real-time setting (the GUI’s **Tape
+    \> Fast Load** toggle) for this run only, overriding the saved
+    preference without changing it; **Tape \> Open**, **File \> Load**,
+    **--load** of a `.tap` or `.tzx`, and the tape restored by a `.jns`
+    all follow that setting. The SDL-only build, which has no menu and
+    no saved preference, is controlled by this option alone.
 
 **--tape-auto-play**, **--no-tape-auto-play**
 :   Turn automatic tape play/stop on (the default) or off for this run,

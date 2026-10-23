@@ -461,7 +461,12 @@ it.
 
 **--tape-realtime**  
 Real-time tape loading, at the speed of an actual tape, instead of fast
-load.
+load. It sets the one fast/real-time setting (the GUI’s **Tape \> Fast
+Load** toggle) for this run only, overriding the saved preference
+without changing it; **Tape \> Open**, **File \> Load**, **--load** of a
+`.tap` or `.tzx`, and the tape restored by a `.jns` all follow that
+setting. The SDL-only build, which has no menu and no saved preference,
+is controlled by this option alone.
 
 **--tape-auto-play**, **--no-tape-auto-play**  
 Turn automatic tape play/stop on (the default) or off for this run,
@@ -1294,7 +1299,8 @@ removed when **jnext** exits. In the window, a `.pok` file in the
 archive (the one named like the program, else the only one) is offered
 under **Machine \> POK Trainers…**.
 
-`.tap` and `.tzx` load in real time instead with **--tape-realtime**.
+`.tap` and `.tzx` load in real time instead with **--tape-realtime** (or
+by unchecking **Tape \> Fast Load** in the GUI).
 
 RZX recording uses **--rzx-record** *FILE*. The GUI’s **File \> Load NEX
 File…** dialog accepts all of the above.
