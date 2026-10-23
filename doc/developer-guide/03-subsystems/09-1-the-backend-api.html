@@ -2907,12 +2907,19 @@ instruction up to the next distinct start in its page, never past the 8K page
 end. <code>resolve("file:line")</code> returns the line's entries (every place it compiled
 to; a later instruction of the same line is not one), or a reason ("no code at
 file:line"); the file is the exact path or the unique file whose path ends in the
-text on a component boundary. The trace and the call frames still use page
-numbers (<code>ram_page_of()</code>, <code>debug/ram_page.h</code>) until E23-08. After the instruction, <code>Mmu::last_m1()</code> is what its
+text on a component boundary. After the instruction, <code>Mmu::last_m1()</code> is what its
 fetch actually recorded: the prediction and the record are one function evaluated
-before and after, and the tests compare them for every fetch of a guest tour. The trace records the same flag beside each entry
-(<code>TraceLog::fetch_not_mmu_ram()</code>; <code>TraceEntry</code> itself stays 56 bytes), call
-frames record each side's identity, and an <code>Execute</code> filter with
+before and after, and the tests compare them for every fetch of a guest tour.
+<code>Emulator::step_one_instruction()</code> reads it once per instruction, after
+<code>execute()</code> and only if the CPU fetched, and copies it into the trace entry
+(<code>TraceEntry::fetch_space()</code>; the entry stays 56 bytes) and into the call
+frames (<code>CallFrame::caller_space</code> is the CALL's own fetch, <code>target_space</code> is
+recorded at the first fetch at the target and stays unrecorded, <code>cpu()</code>, until
+then; an INT or NMI frame's caller is the prediction at the interrupted PC). A
+slot that fetched nothing (an accepted INT or NMI, the esxdos shim) keeps the
+prediction for its PC in its trace entry.
+<code>TraceLog::fetch_not_mmu_ram()</code> is a view of that identity, for the page
+qualifier below. An <code>Execute</code> filter with
 <code>page_ram_only</code> matches only a fetch from that RAM page (<code>Event::fetch_not_ram</code>);
 without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
 An SLD may carry a SHA-256 of the program's bytes (<code>||program.*</code> comment
@@ -2961,8 +2968,8 @@ delivers no <code>Execute</code> event, so between instructions the loop gives e
 re-evaluate the boundary at the new PC without a second delivery. It also stops on any latched event stop, at a
 HALT with IFF1 clear, after <code>SOURCE_STEP_LIMIT</code> instructions or after
 <code>SOURCE_STEP_FRAME_LIMIT</code> frames. <code>Back</code> and <code>ReverseContinue</code> search the trace
-for entries before the current cycle (a Frame Back leaves newer ones), derive
-each entry's identity from <code>mmu[]</code>, <code>rom_slots</code> and the overlay flag, and hand
+for entries before the current cycle (a Frame Back leaves newer ones), look
+the source map up with each entry's recorded identity (<code>TraceEntry::fetch_space()</code>), and hand
 the count to <code>step_back()</code>, so they inherit its refusals. <code>Back</code> finds the newest
 earlier position that differs from the current one, then walks older entries
 (passing unmapped ones) while they are at that position, and lands on the
@@ -2974,8 +2981,10 @@ and only for a slot that fetched the opcode at PC. An NMI or INT acknowledge
 does not run it. Switched off it costs one pointer test per instruction.</p>
 <p>Each trace entry carries the registers (including I, R, IM, IFF1 and IFF2), the
 word at SP read with <code>peek()</code>, the eight MMU pages and <code>rom_slots</code>, a bit per
-slot that held ROM. <code>trace_export()</code> writes all of them; the ROM mask is the
-<code>ROM=</code> column after the pages.</p>
+slot that held ROM, and the identity of the memory its instruction was fetched
+from (<code>fetch_kind</code>, <code>fetch_index</code>). <code>trace_export()</code> writes all of them; the ROM
+mask is the <code>ROM=</code> column after the pages and the identity the <code>FETCH=kk:ii</code>
+column after it (hex kind and index).</p>
 <h3 id="session-cap-ses">Session — CAP-SES<a class="headerlink" href="#session-cap-ses" title="Permanent link">&para;</a></h3>
 <p><code>attach</code>, <code>detach</code>, <code>set_listener</code>, <code>add_service</code>, <code>remove_service</code>, <code>pump</code>,
 <code>stop_policy</code>, <code>set_stop_policy</code>, <code>set_live_raster</code>, <code>live_raster</code>, <code>attached</code>,
