@@ -8759,7 +8759,10 @@ void Emulator::rzx_suspend_tape_traps()
     }
     if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) {
         tzx_tape_.set_fast_load(false);
-        tzx_tape_.start_playback(monotonic_tstates());
+        // From the fast-load cursor, like the TAP deck above: tzx_play() alone
+        // restarts the tape, and every block already served would play again
+        // (GH #402).
+        tzx_tape_.start_playback_from_fast_position(monotonic_tstates());
         Log::emulator()->info("TZX: switched to real-time loading: an RZX recording "
                               "cannot capture a fast (trapped) load");
     }

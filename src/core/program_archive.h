@@ -118,10 +118,19 @@ public:
 private:
     const jnext::zip::InterchangeEntry* find(const std::string& member) const;
 
+    std::string                           path_;     ///< absolute, as opened
     std::vector<uint8_t>                  data_;
     jnext::zip::InterchangeReader         reader_;
     std::vector<std::string>              programs_;
 };
+
+/// Where an extracted file came from (GH #402): the archive's absolute path and
+/// the member name. Every extract() that succeeds registers its output, so a
+/// `.jns` saved with an extracted tape attached can name the archive, whichever
+/// route (command line, File > Load, drag and drop) did the extracting. False
+/// for a path no extract() produced. The scratch directory dies with the
+/// process, so a later session can only reopen the tape through the archive.
+bool extracted_from(const std::string& path, std::string& archive, std::string& member);
 
 /// The command-line rule: exactly one program in `archive`, extracted to the
 /// process scratch directory. `member` (optional) receives its name.

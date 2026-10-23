@@ -1741,6 +1741,14 @@ private:
                    const jnext::JnsLoadOptions& opt, jnext::zip::Reader& zip,
                    jnext::jns::Manifest& m, jnext::jns::Verdict& v);
 
+    /// GH #402 — the last step of `load_jns`: put the recorded tape back in
+    /// the deck at its recorded position and mode, from `media.tape` (identity)
+    /// and `state/tape.json` (the deck). Every failure adds ONE warning to
+    /// `report` and leaves the deck exactly as it was; none refuses the load.
+    void reattach_jns_tape_(const jnext::zip::Reader& zip,
+                            const jnext::jns::Manifest& m,
+                            jnext::JnsLoadReport& report);
+
     jnext::JnsLoadReport jns_report_;
     std::string          jns_error_;
     Mixer           mixer_;

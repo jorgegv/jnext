@@ -87,6 +87,11 @@ struct JnsLoadReport {
     /// boundary first (§10.2 P7 — this is the SAVE side's report, reused here
     /// so both paths have one shape).
     bool advanced_to_frame_boundary = false;
+
+    /// GH #402: true when the load put the recorded tape back in the deck at
+    /// its recorded position and mode. The GUI then follows the deck's mode
+    /// in its Tape menu; a load that did not reattach leaves the menu alone.
+    bool tape_reattached = false;
 };
 
 /// Does this path look like a `.jns`? Extension only — the dispatch sites all

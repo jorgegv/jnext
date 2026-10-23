@@ -22,6 +22,12 @@ public:
 
     void reset() { valid_ = false; run_ = 0; last_ = 0; }
 
+    /// The detector's whole state, for a `.jns` (GH #402): a restored deck
+    /// that was held must resume on the same read the original would.
+    struct Snapshot { bool valid = false; uint32_t run = 0; uint64_t last = 0; };
+    Snapshot snapshot() const { return {valid_, run_, last_}; }
+    void restore(const Snapshot& s) { valid_ = s.valid; run_ = s.run; last_ = s.last; }
+
     /// One CPU read of the ULA port, sampling the tape at `ts`. A `ts` before
     /// the previous read (a state load moved time backwards) starts a new run.
     void on_read(uint64_t ts) {

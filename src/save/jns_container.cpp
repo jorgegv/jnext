@@ -214,6 +214,10 @@ std::string manifest_to_json(const Manifest& m) {
         tape["sha256"]           = m.tape.sha256;
         tape["position_tstates"] = m.tape.position_tstates;
         tape["realtime"]         = m.tape.realtime;
+        if (!m.tape.archive.empty()) {
+            tape["archive"] = m.tape.archive;
+            tape["member"]  = m.tape.member;
+        }
         media["tape"] = tape;
     }
 
@@ -546,7 +550,8 @@ bool manifest_parse(const std::string& text, Manifest& out,
                 return false;
             }
             note_unknown(unknown_keys, "media.tape.", t,
-                         {"path", "sha256", "position_tstates", "realtime"});
+                         {"path", "sha256", "position_tstates", "realtime",
+                          "archive", "member"});
             out.tape.present = true;
             const std::string where = "manifest.media.tape";
             if (!get_str_key(t, "path", out.tape.path, where, why) ||
@@ -558,6 +563,10 @@ bool manifest_parse(const std::string& text, Manifest& out,
             bool present = false;
             if (!get_bool_key(t, "realtime", out.tape.realtime, present, where,
                               why)) {
+                return false;
+            }
+            if (!get_str_key(t, "archive", out.tape.archive, where, why) ||
+                !get_str_key(t, "member", out.tape.member, where, why)) {
                 return false;
             }
         }
@@ -1098,10 +1107,15 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
     // it because the .tzx has been moved would be the format getting in the
     // way.
     if (manifest.tape.present && !env.tape_file_available) {
+        // A tape that came out of a .zip is named by its archive (GH #402): the
+        // extracted copy lived in a scratch directory that no longer exists.
+        const std::string named =
+            !manifest.tape.archive.empty()
+                ? quote(manifest.tape.archive) + " (" + manifest.tape.member + ")"
+                : quote(manifest.tape.path.empty() ? std::string("(unnamed)")
+                                                   : manifest.tape.path);
         v.warnings.push_back(
-            "the tape " +
-            quote(manifest.tape.path.empty() ? std::string("(unnamed)")
-                                             : manifest.tape.path) +
+            "the tape " + named +
             " is not available; restoring without it, so a load in progress "
             "will not continue");
     }

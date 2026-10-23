@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 class Emulator;
@@ -229,6 +230,43 @@ public:
     /// empty when nothing is loaded. filename() stays the display name.
     const std::string& path() const { return path_; }
 
+    /// SHA-256 of the exact bytes load() parsed (GH #402); empty when nothing
+    /// is loaded. The `.jns` records THIS digest, so it describes the deck's
+    /// content and not a file edited after it was attached.
+    const std::string& sha256() const { return sha256_; }
+
+    // -----------------------------------------------------------------------
+    // The deck's position, for a `.jns` (GH #402)
+    // -----------------------------------------------------------------------
+
+    /// Everything the real-time player and the fast-load cursor hold. Host
+    /// policy (gap_hold) and the unused play_tstates_ are not part of it.
+    /// `phase`: leader sync1 sync2 data pause done.
+    struct DeckState {
+        uint32_t    block = 0;           ///< current_block_
+        bool        playing = false;
+        bool        held = false;
+        std::string phase = "done";
+        uint32_t    pulse_left = 0;      ///< T-states left in the current pulse
+        uint32_t    leader_left = 0;     ///< pilot pulses left
+        uint32_t    byte = 0;            ///< index in flag + data + checksum
+        uint32_t    bit = 0;             ///< 7..0
+        uint32_t    half = 0;            ///< 0 or 1: which half of the bit
+        uint32_t    ear = 0;
+        bool operator==(const DeckState& o) const {
+            return std::tie(block, playing, held, phase, pulse_left, leader_left,
+                            byte, bit, half, ear) ==
+                   std::tie(o.block, o.playing, o.held, o.phase, o.pulse_left,
+                            o.leader_left, o.byte, o.bit, o.half, o.ear);
+        }
+    };
+    DeckState deck_state() const;
+
+    /// Put the deck back where `d` says. False, with the reason in `why` and
+    /// the loader untouched, when `d` is not a position this tape can be in
+    /// (no tape loaded, a block or byte past the tape, an unknown phase...).
+    bool restore_deck(const DeckState& d, std::string& why);
+
 private:
     std::vector<TapBlock> blocks_;
     size_t current_block_ = 0;
@@ -238,6 +276,7 @@ private:
     bool held_ = false;
     std::string filename_;
     std::string path_;
+    std::string sha256_;
 
     // Real-time playback state
     bool     playing_ = false;

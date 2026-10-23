@@ -203,6 +203,14 @@ struct TapeInfo {
     /// `--tape-realtime`: a fast (trapped) load and a real-time load are
     /// different machines, so the flag travels with the position.
     bool        realtime = false;
+
+    /// GH #402: a tape that was extracted from a `.zip` (GH #392) sits in a
+    /// scratch directory that dies with the process, so `path` cannot be
+    /// reopened by a later session. These name where it came from: the
+    /// archive's absolute UTF-8 path and the member inside it. Both empty for
+    /// a tape loaded from a plain file; `member` is set only with `archive`.
+    std::string archive;
+    std::string member;
 };
 
 /// §10.2 P5 — the preview image, `meta/preview.png`.
@@ -304,7 +312,8 @@ struct ReaderEnv {
     /// comparison. Only names present in BOTH are compared.
     RomDigests roms;
 
-    /// §10.2 P4 — whether `media.tape.path` can be reopened right now.
+    /// §10.2 P4 — whether the tape can be reopened right now: `media.tape.path`,
+    /// or, for a tape that came out of a `.zip`, `media.tape.archive` (GH #402).
     /// The container does NO filesystem I/O (that is what keeps its rows
     /// cheap and its dependencies none), so the caller stats and answers.
     bool tape_file_available = false;

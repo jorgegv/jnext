@@ -1846,6 +1846,21 @@ void MainWindow::load_finished(const std::string& file, bool ok) {
                                  10000);
     }
 
+    // GH #402 - a `.jns` that put its tape back in the deck brought the deck's
+    // mode with it (fast or real time, auto play/stop); the Tape menu's toggles
+    // are that mode, so they follow. Session state only: nothing is saved to
+    // the preferences. A WAV is always real time and leaves Fast Load alone.
+    if (ok && emulator_ && jnext::is_jns_path(file) &&
+        emulator_->last_jns_report().tape_reattached) {
+        if (tape_fast_action_) {
+            if (emulator_->tape().is_loaded())
+                tape_fast_action_->setChecked(emulator_->tape().fast_load());
+            else if (emulator_->tzx_tape().is_loaded())
+                tape_fast_action_->setChecked(emulator_->tzx_tape().fast_load());
+        }
+        if (tape_auto_action_) tape_auto_action_->setChecked(emulator_->tape_auto_play());
+    }
+
     if (ok || !from_menu) return;
     const QString path = QString::fromStdString(shown);
     QTimer::singleShot(0, this, [this, path]() { report_load_failure(path); });
