@@ -2628,9 +2628,14 @@ int main() {
     }
     {
         // zxnext.vhd:4688: CALL $C000 into page 0x12, whose first instruction remaps slot 6
-        // to page 0x13. The target stays page 0x12 (recorded once, at the first fetch there).
+        // to page 0x13. The target stays page 0x12 (recorded once, at the first fetch there):
+        // page 0x13 jumps back to $C000, and the fetch AT the target from page 0x13 must not
+        // overwrite the recorded one.
         Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
-        poke_page(m, 0x56, 0x13, 0xC004, {0x00});
+        poke_page(m, 0x56, 0x13, 0xC000, {0x00});
+        m.emu.mmu().write(0xC004, 0xC3);   // JP $C000
+        m.emu.mmu().write(0xC005, 0x00);
+        m.emu.mmu().write(0xC006, 0xC0);
         poke_page(m, 0x56, 0x12, 0xC000, {0xED, 0x91, 0x56, 0x13});
         m.emu.mmu().write(0x8000, 0xCD);
         m.emu.mmu().write(0x8001, 0x00);
@@ -2643,12 +2648,13 @@ int main() {
         const bool remapped = m.dbg->source_page(0xC000) == MemSpace::page(0x13);
         const bool after_one = m.dbg->call_stack().size() == 1 &&
                                m.dbg->call_stack()[0].target_space == MemSpace::page(0x12);
-        m.dbg->step_into(m.a);   // NOP at $C004, fetched from page 0x13
+        m.dbg->step_into(m.a);   // JP $C000 at $C004, fetched from page 0x13
+        m.dbg->step_into(m.a);   // NOP at $C000 again, now fetched from page 0x13
         const auto& f = m.dbg->call_stack();
         check("SRCDBG-CS-04", "the target is recorded at the first fetch there and kept: "
                               "unrecorded right after the CALL, page 0x12 after the NEXTREG "
-                              "that remaps its own slot, still page 0x12 after the next fetch "
-                              "from page 0x13",
+                              "that remaps its own slot, still page 0x12 after a later fetch "
+                              "at the target from page 0x13",
               pending && remapped && after_one && f.size() == 1 &&
                   f[0].target_space == MemSpace::page(0x12) &&
                   f[0].caller_space == MemSpace::page(4),
