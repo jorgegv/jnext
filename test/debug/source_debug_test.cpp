@@ -2486,16 +2486,20 @@ int main() {
         // line as the caller). With a capture, the frame has its page.
         CallStack cs;
         cs.set_enabled(true);
-        cs.on_interrupt(0x8000, 0x0038, 0xFF00, CallType::INT, p90);
-        cs.on_instruction_pre(0x8002, 0xFF00, 0x00, 0x00, 0x00, p80);
-        cs.on_interrupt(0x8002, 0x0038, 0xFEFE, CallType::INT, p90);
+        cs.on_interrupt(0x8000, 0x0038, 0xFF00, CallType::INT);
+        // GH #340: the target is recorded at the ISR's first fetch, fed here.
+        cs.on_instruction_pre(0x0038, 0xFF00, 0x00, 0x00, 0x00);
+        cs.on_instruction_post(0xFF00, 0x0039, MemSpace::page(p90));
+        cs.on_instruction_pre(0x8002, 0xFF00, 0x00, 0x00, 0x00, MemSpace::page(p80));
+        cs.on_interrupt(0x8002, 0x0038, 0xFEFE, CallType::INT);
         const auto& f = cs.frames();
         check("SRCDBG-CS-02", "an interrupt in the slot right after the tracker is enabled "
                               "records no RAM page for its caller; one after a capture "
                               "records the captured page",
-              f.size() == 2 && f[0].caller_pc == 0x8000 && f[0].caller_page == NOT_RAM_PAGE &&
-                  f[0].target_page == p90 && f[1].caller_pc == 0x8002 &&
-                  f[1].caller_page == p80);
+              f.size() == 2 && f[0].caller_pc == 0x8000 &&
+                  ram_page_of(f[0].caller_space) == NOT_RAM_PAGE &&
+                  ram_page_of(f[0].target_space) == p90 && f[1].caller_pc == 0x8002 &&
+                  ram_page_of(f[1].caller_space) == p80);
     }
 
     fs::remove_all(dir);
