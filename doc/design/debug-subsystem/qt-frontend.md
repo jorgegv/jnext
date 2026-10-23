@@ -1278,6 +1278,7 @@ the debugger's breakpoints and the window's arm — through the backend now).
 | QWP-08 | `debugger_panels_test` | a watch is a peek: it does not move the +3 floating-bus latch (control: `Mmu::read()` does) |
 | QSO-07 | `debugger_verbs_test` | a breakpoint stop inside a stepped-over CALL drops the stale Step Over target, so the next Run runs on |
 | QRW-22 | `debugger_verbs_test` | a breakpoint on the replayed span no longer cuts a Step Back short |
+| QRW-23 | `debugger_verbs_test` | Enable Rewind survives a hard reset / File > Open: the menu stays checked and the ring is rebuilt at the chosen size (GH #400) |
 
 **Defects fixed, each with its row and a measured before:**
 - a GUI breakpoint inside a rewind's replayed span stopped the replay there, so

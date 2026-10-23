@@ -1832,6 +1832,42 @@ static void test_rewind_ui() {
         }
     }
 
+    {
+        // QRW-23 — GH #400: Enable Rewind survives a hard reset / File > Open.
+        // QtApp cold-boots from its STARTUP config (QtApp::config_), not the
+        // live one, so the stale copy is taken BEFORE rewind is enabled; passing
+        // fx.emu.config() (as QEN-03 does) would hide the defect. No VHDL
+        // counterpart: the oracle is the host-setting rule in
+        // emulator_frontend_cold_boot's contract.
+        Fixture fx(MachineType::ZX48K, 0);
+        const char* desc = "Enable Rewind survives a hard reset: the menu stays checked "
+                           "and the ring is rebuilt at the chosen size, recording again";
+        if (!fx.ok) { check("QRW-23", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            const EmulatorConfig stale = fx.emu.config();
+            DebuggerWindow* dbg = fx.dbg();
+            QAction* enable = debug_sub_item(dbg, "Rewind", "Enable Rewind");
+            if (enable) enable->trigger();
+            run_frames_then_break(fx, 2);
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, stale, std::string(), ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            fx.tick();
+            RewindBuffer* rb = fx.emu.rewind_buffer();
+            const bool kept = enable && enable->isChecked() && rb && rb->capacity() == 500 &&
+                              fx.emu.rewind_enabled();
+            fx.mgr->on_run();
+            for (int i = 0; i < 3; ++i) fx.tick();
+            check("QRW-23", desc, kept && fx.emu.rewind_buffer() &&
+                                      fx.emu.rewind_buffer()->depth() >= 1,
+                  fmt("checked=%d cap=%zu enabled=%d depth=%zu", enable && enable->isChecked(),
+                      rb ? rb->capacity() : 0, fx.emu.rewind_enabled(),
+                      fx.emu.rewind_buffer() ? fx.emu.rewind_buffer()->depth() : 0));
+        }
+    }
+
     // ── Failure classes (Task 60e): refused, benign, corrupt ─────────
     {
         Fixture fx(MachineType::ZX48K, 10);

@@ -45,6 +45,8 @@
 #include "core/szx_saver.h"
 #include "core/rzx.h"
 #include "core/quick_snapshot.h"
+#include "core/snapshot_file.h"
+#include "debug/rewind_buffer.h"
 #include "core/sdcard_provisioner.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
@@ -1223,6 +1225,101 @@ int main()
                   " config=" + (emu.config().magic_breakpoint ? "1" : "0"));
         check("EB-25b", "...and the booted machine's ED FF really pauses the debugger",
               emu.debug_state().paused());
+    }
+
+    // --- EB-65..69: the LIVE rewind setting is carried across (GH #400) ----
+    // Debug > Rewind (Enable Rewind, Buffer Size) is a debugger setting, a
+    // host-side one like EB-25's magic breakpoint. The runtime setters record
+    // it in config(); the frontends cold-boot from their STARTUP config
+    // (QtApp::config_), which still says "rewind off" / the command-line
+    // size. No VHDL counterpart: the oracle is the host-setting rule in
+    // emulator_frontend_cold_boot's own contract comment.
+    {
+        auto startup = [](int frames) {
+            EmulatorConfig c = base_config();
+            c.rewind_buffer_frames = frames;     // the stale startup value
+            return c;
+        };
+        auto run = [](Emulator& e, int n) { for (int i = 0; i < n; ++i) e.run_frame(); };
+        auto cap = [](const Emulator& e) {
+            return e.rewind_buffer() ? e.rewind_buffer()->capacity() : size_t(0);
+        };
+        auto depth = [](const Emulator& e) {
+            return e.rewind_buffer() ? e.rewind_buffer()->depth() : size_t(0);
+        };
+
+        {   // EB-65: enabled in the debugger on a machine that started with rewind off
+            auto up = std::make_unique<Emulator>(); Emulator& emu = *up;
+            emu.init(startup(0));
+            emu.resize_rewind_buffer(8);
+            run(emu, 3);
+            FakeFrontend fe;
+            emulator_frontend_cold_boot(emu, startup(0), "", fe.hooks());
+            const bool pre = fe.rewire_seen && fe.rewire_cfg.rewind_buffer_frames == 8 &&
+                             emu.rewind_enabled() && cap(emu) == 8 && depth(emu) == 0 &&
+                             emu.trace_log().enabled();
+            run(emu, 2);
+            check("EB-65", "a rewind enabled in the debugger survives the cold boot: ring rebuilt "
+                  "empty at the live size, recording and tracing again",
+                  pre && depth(emu) == 2,
+                  "rewire=" + std::to_string(fe.rewire_cfg.rewind_buffer_frames) +
+                  " cap=" + std::to_string(cap(emu)) + " depth=" + std::to_string(depth(emu)));
+        }
+        {   // EB-66: resized in the debugger, the startup size is stale
+            auto up = std::make_unique<Emulator>(); Emulator& emu = *up;
+            emu.init(startup(10));
+            emu.resize_rewind_buffer(3);
+            FakeFrontend fe;
+            emulator_frontend_cold_boot(emu, startup(10), "", fe.hooks());
+            check("EB-66", "the size set in the debugger beats the startup size across a cold boot",
+                  cap(emu) == 3 && emu.rewind_enabled(), "cap=" + std::to_string(cap(emu)));
+        }
+        {   // EB-67: paused in the debugger
+            auto up = std::make_unique<Emulator>(); Emulator& emu = *up;
+            emu.init(startup(10));
+            run(emu, 2);
+            emu.set_rewind_enabled(false);
+            FakeFrontend fe;
+            emulator_frontend_cold_boot(emu, startup(10), "", fe.hooks());
+            const bool pre = cap(emu) == 10 && !emu.rewind_enabled();
+            run(emu, 2);
+            check("EB-67", "a rewind paused in the debugger stays paused across a cold boot",
+                  pre && depth(emu) == 0 && fe.rewire_cfg.rewind_paused,
+                  "cap=" + std::to_string(cap(emu)) + " depth=" + std::to_string(depth(emu)));
+        }
+        {   // EB-68: switched off in the debugger
+            auto up = std::make_unique<Emulator>(); Emulator& emu = *up;
+            emu.init(startup(10));
+            emu.resize_rewind_buffer(0);
+            FakeFrontend fe;
+            emulator_frontend_cold_boot(emu, startup(10), "", fe.hooks());
+            check("EB-68", "a rewind switched off in the debugger stays off across a cold boot",
+                  emu.rewind_buffer() == nullptr && !emu.rewind_enabled(),
+                  "cap=" + std::to_string(cap(emu)));
+        }
+        {   // EB-69: the Qt File > Open sequence: cold boot, then the scheduled load
+            const std::string sna = (std::filesystem::temp_directory_path() / ("jnext-eb69-" + jtp::process_id_string() + ".sna")).string();
+            {
+                Emulator src;
+                src.init(base_config());
+                src.run_frame();
+                std::string err; size_t n = 0;
+                save_snapshot_file(src, sna, err, n);
+            }
+            auto up = std::make_unique<Emulator>(); Emulator& emu = *up;
+            emu.init(startup(0));
+            emu.resize_rewind_buffer(8);
+            FakeFrontend fe;
+            emulator_frontend_cold_boot(emu, startup(0), sna, fe.hooks());
+            const bool ok = emulator_apply_load(emu, fe.scheduled_file, false);
+            run(emu, 2);
+            check("EB-69", "File > Open (cold boot, then the scheduled snapshot load) keeps the "
+                  "debugger-enabled rewind",
+                  ok && fe.scheduled_file == sna && emu.rewind_enabled() && cap(emu) == 8 &&
+                      depth(emu) == 2,
+                  "cap=" + std::to_string(cap(emu)) + " depth=" + std::to_string(depth(emu)));
+            std::remove(sna.c_str());
+        }
     }
 
     // --- EB-18: a LIVE emulated ESP survives the cold boot ------------------
