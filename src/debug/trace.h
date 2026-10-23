@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "debug/mem_space.h"
+
 struct TraceEntry {
     uint64_t cycle;           // master cycle count
     uint16_t pc;              // PC at start of instruction
@@ -12,8 +14,23 @@ struct TraceEntry {
     uint16_t af2, bc2, de2, hl2; // alternate register set
     uint16_t ix, iy, sp;
     uint8_t  opcode_bytes[4]; // raw bytes
-    int      opcode_len;      // the instruction's true length: 1-4, more for a DD/FD prefix
-                              // chain (opcode_bytes holds the first 4)
+    uint8_t  opcode_len;      // the instruction's true length: 1-4, more for a DD/FD prefix
+                              // chain (opcode_bytes holds the first 4; the longest is 66)
+    // GH #340 (E23-08): WHAT supplied the instruction's first opcode byte, as
+    // the read arbiter named it at the M1 (`Mmu::last_m1()`): a
+    // `MemSpace::Kind` and its index. kind 0 (Cpu) = none recorded. Taken from
+    // the old `int opcode_len`'s upper bytes, so every offset below is unchanged.
+    uint8_t  fetch_kind;
+    uint8_t  fetch_index;
+
+    /// The fetch identity as a MemSpace (design 4.3).
+    jnext::dbg::MemSpace fetch_space() const {
+        return jnext::dbg::MemSpace{static_cast<jnext::dbg::MemSpace::Kind>(fetch_kind), fetch_index};
+    }
+    void set_fetch_space(jnext::dbg::MemSpace s) {
+        fetch_kind = static_cast<uint8_t>(s.kind);
+        fetch_index = static_cast<uint8_t>(s.index);
+    }
 
     // GH #276 B4 — §4.2 INS-13 / REQ-zrcp-08: what DeZog's ZRCP reverse-step
     // parser reads from a `cpu-history` entry and asserts on when absent
@@ -51,13 +68,15 @@ public:
     void set_enabled(bool e);
     bool enabled() const;
 
-    /// Record one instruction execution. `fetch_not_mmu_ram`: the opcode came
-    /// from an overlay or a ROM-mapped slot rather than the RAM page in
-    /// `entry.mmu[pc >> 13]` (`Emulator::predict_fetch()` is not a
-    /// `MemSpace::Kind::Page`, predicted for this instruction's M1 just before
-    /// it runs; E23-08 records the fetch itself instead). Kept beside the
-    /// entry, not in it: `TraceEntry`'s layout is published (56 bytes).
-    void record(const TraceEntry& entry, bool fetch_not_mmu_ram = false);
+    /// Record one instruction execution (before it runs: the entry holds the
+    /// pre-execution state). Its fetch identity is provisional (`entry`'s own)
+    /// until set_newest_fetch().
+    void record(const TraceEntry& entry);
+
+    /// GH #340: write the fetch identity of the entry the LAST record() stored,
+    /// once the instruction has fetched. A no-op when that record() dropped its
+    /// entry (no-wrap freeze), or after clear() / resize() emptied the ring.
+    void set_newest_fetch(jnext::dbg::MemSpace s);
 
     /// Clear all recorded entries.
     void clear();
@@ -76,20 +95,23 @@ public:
     /// Access entry by index (0 = oldest, size()-1 = newest).
     const TraceEntry& at(size_t index) const;
 
-    /// The `fetch_not_mmu_ram` flag recorded with entry `index`.
+    /// True when entry `index` was NOT fetched from a RAM page (an overlay, a
+    /// ROM, nothing recorded): derived from its recorded fetch identity, kept
+    /// for the legacy page-qualified breakpoint test until E23-09.
     bool fetch_not_mmu_ram(size_t index) const;
 
     /// Export all entries to a text file, one line per instruction:
     /// CYCLE  $PC  AF= BC= DE= HL=  AF'= BC'= DE'= HL'=  IX= IY= SP=
-    /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7 ROM=mask  [FLAGS]  BYTES
+    /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7 ROM=mask FETCH=kind:index
+    /// [FLAGS]  BYTES
     bool export_to_file(const std::string& path) const;
 
 private:
     std::vector<TraceEntry> buffer_;
-    std::vector<uint8_t>    not_ram_;   // parallel to buffer_
     size_t capacity_;
     size_t head_ = 0;   // next write position
     size_t count_ = 0;  // entries stored
     bool enabled_ = false;
     bool no_wrap_ = false;  // stop recording when full instead of overwriting
+    bool newest_stored_ = false;  // the last record() stored its entry (set_newest_fetch target)
 };

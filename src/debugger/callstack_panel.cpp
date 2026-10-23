@@ -90,12 +90,10 @@ void CallStackPanel::refresh() {
         set_cell(3, target_text);
 
         QString source_text;
-        // The tracker still records a page number; E23-08 records the space.
         if (const SourceLocation* src =
-                f.caller_page == NOT_RAM_PAGE
+                f.caller_space == jnext::dbg::MemSpace::cpu()
                     ? nullptr
-                    : dbg_->source_map().lookup(jnext::dbg::MemSpace::page(f.caller_page),
-                                                f.caller_pc))
+                    : dbg_->source_map().lookup(f.caller_space, f.caller_pc))
             source_text = QString::fromStdString(src->file) + ":" + QString::number(src->line);
         set_cell(4, source_text);
 

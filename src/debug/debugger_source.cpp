@@ -294,22 +294,18 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         // history the machine left: only what ran BEFORE now is "back".
         const uint64_t now = impl_->emu.clock().get();
         const size_t size = trace.size();
-        // History identity is still page-based; E23-08 (trace entries carry
-        // the FetchSource) replaces this.
+        // GH #340 (E23-08): an entry names the memory it was fetched from
+        // (kind and index, recorded at its M1), so the source map is asked
+        // with that identity; cpu() = none recorded, no location.
         auto at_entry = [&](size_t index) -> const SourceLocation* {
             const TraceEntry& te = trace.at(index);
-            const int slot = te.pc >> 13;
-            const bool not_ram = ((te.rom_slots >> slot) & 1) != 0 ||
-                                 trace.fetch_not_mmu_ram(index);
-            return not_ram ? nullptr
-                           : impl_->source_map.lookup(MemSpace::page(te.mmu[slot]), te.pc);
+            const MemSpace s = te.fetch_space();
+            return s == MemSpace::cpu() ? nullptr : impl_->source_map.lookup(s, te.pc);
         };
         for (size_t i = size; i > 0; --i) {
             const TraceEntry& te = trace.at(i - 1);
             if (te.cycle >= now) continue;
             const int slot = te.pc >> 13;
-            const bool not_ram = ((te.rom_slots >> slot) & 1) != 0 ||
-                                 trace.fetch_not_mmu_ram(i - 1);
             const SourceLocation* at = at_entry(i - 1);
             if (!at) continue;
             size_t target = i - 1;
@@ -327,7 +323,8 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
                     if (!SourceMap::same_position(pos, *older)) break;
                     target = k - 1;
                 }
-            } else if (!history_stop_at(impl_->events, te.pc, te.mmu[slot], not_ram) &&
+            } else if (!history_stop_at(impl_->events, te.pc, te.mmu[slot],
+                                        trace.fetch_not_mmu_ram(i - 1)) &&
                        !impl_->ds().breakpoints().has_pc(te.pc)) {
                 continue;
             }
