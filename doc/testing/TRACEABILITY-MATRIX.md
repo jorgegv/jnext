@@ -38,7 +38,7 @@ mentions them, so a test can no longer be absent from this document.
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
-| Rewind                                     |   316 |  316 |    0 |    0 |       0 |          0 |
+| Rewind                                     |   322 |  322 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
 | Contention                                 |   173 |  173 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    79 |   79 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5967 | 5967 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5973 | 5973 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5967**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5502**. Rows the 163 suites declared in `test/unit-tests.conf` run live: **13765**.
+Rows the sections above carry: **5973**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5508**. Rows the 162 suites declared in `test/unit-tests.conf` run live: **13776**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 116 suites (8347 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 115 suites (8352 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -100,10 +100,9 @@ These 116 suites (8347 live rows) have no VHDL-derived plan row to map, so they 
 | `sdcard_provisioner_test` | 139 | jnext SD-image download/patch policy (host side) |
 | `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
 | `warm_start_test` | 47 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
-| `snapshot_test` | 297 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
+| `snapshot_test` | 296 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `sd_identity_test` | 31 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sd_no_digest_linux_test` | 5 | GH #396: no whole-card read on .jns save/probe/load or a warm-start hit, measured by Linux /proc/self/io rchar; jnext-internal host behaviour (a UI-thread stall), the FPGA core has no counterpart |
-| `jns_host_path_linux_test` | 3 | GH #401: a non-UTF-8 host path is written with U+FFFD and never aborts a .jns save; jnext-internal host behaviour, the FPGA core has no counterpart |
 | `audio_pacing_test` | 58 | host SDL audio pacing/underrun policy, downstream of the mixer |
 | `audio_fill_test` | 39 | host SDL device-boundary fill/hold policy (GH #208), downstream of the mixer |
 | `audio_capture_test` | 22 | host WAV capture of the mixer output |
@@ -112,7 +111,7 @@ These 116 suites (8347 live rows) have no VHDL-derived plan row to map, so they 
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 117 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 123 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 94 | host mouse-capture policy (window-manager behaviour) |
@@ -133,7 +132,7 @@ These 116 suites (8347 live rows) have no VHDL-derived plan row to map, so they 
 | `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
 | `tap_loader_test` | 47 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
 | `program_archive_test` | 71 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
-| `tzx_loader_test` | 102 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
+| `tzx_loader_test` | 101 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
 | `tape_save_test` | 59 | TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source |
 | `snapshot_im_test` | 4 | snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0) |
 | `snapshot_machine_test` | 26 | which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / NTSC state they restore; its hardware rows (SNM-27, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source |
@@ -198,7 +197,7 @@ These 116 suites (8347 live rows) have no VHDL-derived plan row to map, so they 
 | `debugger_menu_test` | 53 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 39 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
 | `debugger_panels_test` | 85 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
-| `debugger_verbs_test` | 75 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_verbs_test` | 79 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
 | `debugger_source_panel_test` | 68 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
@@ -3823,14 +3822,20 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | JNS-RT-15 | …and it WARNS, naming the subsystem: it has been left at its power-on defaults, which is a real difference from the machine the file came from and must not be silent | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6598 |
 | JNS-RT-08a | the fixture really is paused MID-FRAME before the save — without this the row below asserts nothing | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6626 |
 | JNS-RT-08 | a .jns save ADVANCES a mid-frame machine to a frame boundary and REPORTS that it did (§10.2 P7's always-advance, never-refuse rule): no unavailable menu item, no failure mode, and the caller can tell the user once | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6636 |
-| S6-EMU-TAPE-01 | a .tap attached by a relative name records an ABSOLUTE path and the digest of THAT file, whatever the working directory is at save time (GH #401) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6790 |
-| S6-EMU-TAPE-02 | the same through load_tzx, which installs the tape by move assignment | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6795 |
-| S6-EMU-TAPE-03 | the same through load_wav | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6799 |
-| S6-EMU-TAPE-04 | the archive loaded with a working directory that does NOT hold the tape (the tape still at its recorded path) raises no tape warning | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6818 |
-| S6-EMU-TAPE-05 | with the tape gone, a STRICT load still succeeds (§10.2 P4) and raises exactly one tape warning that names the full recorded path | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6828 |
-| S6-EMU-TAPE-06 | a file from jnext 1.1.80 and older (a bare name) loaded with the tape in the working directory raises no tape warning: old files keep loading as today | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6839 |
-| S6-EMU-TAPE-07 | the same legacy file loaded from a directory WITHOUT the tape warns, naming 'game.tap' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6847 |
-| S6-EMU-TAPE-08 | absolute_host_path keeps non-ASCII UTF-8 bytes exact: absolute, starting with the working directory, ending with the original name in native separators | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6861 |
+| RWLOAD-PRE-01 | RWLOAD fixtures: .sna/.szx/.nex written | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6692 |
+| RWLOAD-PRE-02 | RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6721 |
+| RWLOAD-01 | a .sna load keeps the debugger-enabled rewind: ring rebuilt empty at size 8, recording again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6751 |
+| RWLOAD-02 | a .szx load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6761 |
+| RWLOAD-03 | a .z80 load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6770 |
+| RWLOAD-04 | a .nex load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6779 |
+| RWLOAD-05 | a machine-switching .jns keeps the rewind setting and re-measures the slot for the new machine | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6788 |
+| RWLOAD-06 | an in-memory snapshot load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6802 |
+| RWLOAD-07 | a load keeps the size chosen in the debugger, not the command-line one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6811 |
+| RWLOAD-08 | a load keeps a paused rewind paused; resuming records again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6829 |
+| RWLOAD-09 | a load keeps a rewind freed in the debugger freed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6837 |
+| RWLOAD-10 | a resize after a pause is recorded as running: the load keeps it enabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6848 |
+| RWLOAD-11 | control: a tape load re-inits nothing, so ring and history are kept | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6857 |
+| RWLOAD-12 | pause then resume then load: rewind comes back running, not paused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6871 |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 

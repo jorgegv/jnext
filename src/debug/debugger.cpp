@@ -566,6 +566,10 @@ std::optional<Result> Debugger::rewind_blocked() const {
 // creates a fresh one (ST-03-09).
 Result Debugger::resize_rewind_buffer(size_t frames) {
     impl_->emu.resize_rewind_buffer(static_cast<int>(frames));
+    // GH #400: a ring implies the trace (Emulator::resize_rewind_buffer turns it
+    // on); record that wish so the re-application after a machine rebuild does
+    // not put back a stale "off" the client set before enabling rewind.
+    if (frames > 0) impl_->want_trace = true;
     return Result::Ok;
 }
 

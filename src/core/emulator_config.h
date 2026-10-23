@@ -219,7 +219,16 @@ struct EmulatorConfig {
     // Rewind buffer: number of frame snapshots to keep (0 = disabled).
     // Opt-in: rewind costs a full-machine save_state every frame plus the
     // ring-buffer memory, so it is off unless --rewind-buffer-size is given.
+    // The CLI sets the startup value; Emulator::resize_rewind_buffer() (the
+    // debugger's Enable Rewind / Rewind Buffer Size) keeps it current, so a
+    // program load or a reset rebuilds the ring at the size the user chose
+    // (GH #400).
     int rewind_buffer_frames = 0;
+
+    // Debug > Rewind > Enable Rewind unchecked while a ring exists
+    // (keep-but-pause). Recorded by Emulator::set_rewind_enabled(), read by
+    // init() when it builds a ring. Runtime only: no CLI flag, not persisted.
+    bool rewind_paused = false;
 
     // Instruction trace log (Task 27 A2): per-instruction recorder into the
     // TraceLog ring. Own control (--trace CLI flag / debugger Enable Trace

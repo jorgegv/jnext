@@ -66,6 +66,10 @@
 #include <cassert>
 #include <unistd.h>   // mkstemp/write/close/unlink — TZX fixture for the G36 tape-clock row
 #include "../row_id.h"
+#include "core/snapshot_file.h"
+#include "platform/emulator_boot.h"
+#include <filesystem>
+#include <fstream>
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -6867,6 +6871,240 @@ static int test_gh401_tape_path()
     return 0;
 }
 
+// ── GH #400: the rewind setting survives a program load ────────────────────
+//
+// No VHDL counterpart (rewind is a host debugger facility). Oracle: the
+// project's rule for host-side settings across a machine rebuild
+// (emulator_boot.h "host-side settings, not machine state", EB-25) and the
+// comment in Emulator::init(): setting = on/off, size, paused; history = the
+// ring, rebuilt empty by a load that replaces the machine, kept by one that
+// does not re-init (a tape).
+
+static std::string rwload_path(const char* leaf)
+{
+    return (std::filesystem::temp_directory_path() /
+            (std::string("jnext-rwload-") + std::to_string(getpid()) + "-" + leaf)).string();
+}
+
+static bool rwload_write(const std::string& path, const std::vector<uint8_t>& d)
+{
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(d.data()), static_cast<std::streamsize>(d.size()));
+    return static_cast<bool>(f);
+}
+
+static int test_rewind_setting_survives_load()
+{
+    printf("\n--- Test GH400: rewind setting survives a program load ---\n");
+
+    // Fixtures: a 48K machine saved as .sna/.szx/.nex, a Next one as .jns,
+    // a hand-built .z80 v1 (48K, uncompressed), a one-block .tap.
+    const std::string sna = rwload_path("a.sna");
+    const std::string szx = rwload_path("a.szx");
+    const std::string nex = rwload_path("a.nex");
+    const std::string z80 = rwload_path("a.z80");
+    const std::string jns = rwload_path("a.jns");
+    const std::string tap = rwload_path("a.tap");
+    size_t fresh_next_bytes = 0;
+    {
+        auto src = std::make_unique<Emulator>();
+        build_emulator(*src, 0);
+        src->run_frame();
+        std::string err; size_t n = 0;
+        const bool ok = save_snapshot_file(*src, sna, err, n) &&
+                        save_snapshot_file(*src, szx, err, n) &&
+                        save_snapshot_file(*src, nex, err, n);
+        if (!require("RWLOAD-PRE-01", ok, "RWLOAD fixtures: .sna/.szx/.nex written")) return 1;
+    }
+    {
+        std::vector<uint8_t> f(30 + 49152, 0x00);
+        f[6] = 0x00; f[7] = 0x80;       // PC = $8000 (non-zero: version 1)
+        f[8] = 0x00; f[9] = 0xFF;       // SP
+        f[12] = 0x00;                   // uncompressed
+        rwload_write(z80, f);
+        std::vector<uint8_t> t(2 + 19, 0);
+        t[0] = 19;                      // one header block, flag 0, type 3
+        t[2 + 0] = 0x00; t[2 + 1] = 0x03;
+        for (int i = 0; i < 10; ++i) t[2 + 2 + i] = 'A';
+        uint8_t x = 0;
+        for (int i = 2; i < 2 + 18; ++i) x ^= t[i];
+        t[2 + 18] = x;
+        rwload_write(tap, t);
+    }
+    {
+        auto src = std::make_unique<Emulator>();
+        EmulatorConfig c;
+        c.type = MachineType::ZXN_ISSUE2;
+        c.rewind_buffer_frames = 8;
+        src->init(c);
+        fresh_next_bytes = src->rewind_buffer()->snapshot_bytes();
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        std::vector<uint8_t> out;
+        const bool ok = src->save_jns(opt, out, rep, why) && rwload_write(jns, out);
+        if (!require("RWLOAD-PRE-02", ok, "RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one)")) return 1;
+    }
+
+    auto frames = [](Emulator& e, int n) { for (int i = 0; i < n; ++i) e.run_frame(); };
+    // The debugger-enabled machine: built with rewind off, switched on live.
+    auto dbg_on = [&](Emulator& e) {
+        build_emulator(e, 0);
+        e.resize_rewind_buffer(8);
+        frames(e, 3);
+    };
+    auto detail = [](Emulator& e, bool ok) {
+        return std::string("load=") + (ok ? "ok" : "FAILED") +
+               " enabled=" + (e.rewind_enabled() ? "1" : "0") +
+               " cap=" + std::to_string(e.rewind_buffer() ? e.rewind_buffer()->capacity() : 0) +
+               " depth=" + std::to_string(e.rewind_buffer() ? e.rewind_buffer()->depth() : 0) +
+               " cfg=" + std::to_string(e.config().rewind_buffer_frames);
+    };
+    // The common expectation of a debugger-enabled ring after a machine-replacing load.
+    auto kept8 = [&](Emulator& e, bool ok) {
+        return ok && e.rewind_buffer() && e.rewind_enabled() &&
+               e.rewind_buffer()->capacity() == 8 && e.rewind_buffer()->depth() == 0 &&
+               e.config().rewind_buffer_frames == 8;
+    };
+
+    {   // RWLOAD-01 .sna
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        dbg_on(e);
+        const bool ok = emulator_apply_load(e, sna, false);
+        const bool pre = kept8(e, ok);
+        frames(e, 2);
+        check("RWLOAD-01", pre && e.rewind_buffer()->depth() == 2,
+              "a .sna load keeps the debugger-enabled rewind: ring rebuilt empty at size 8, "
+              "recording again", detail(e, ok));
+    }
+    {   // RWLOAD-02 .szx
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        dbg_on(e);
+        const bool ok = emulator_apply_load(e, szx, false);
+        const bool pre = kept8(e, ok);
+        frames(e, 2);
+        check("RWLOAD-02", pre && e.rewind_buffer()->depth() == 2,
+              "a .szx load keeps the debugger-enabled rewind", detail(e, ok));
+    }
+    {   // RWLOAD-03 .z80
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        dbg_on(e);
+        const bool ok = emulator_apply_load(e, z80, false);
+        const bool pre = kept8(e, ok);
+        frames(e, 2);
+        check("RWLOAD-03", pre && e.rewind_buffer()->depth() == 2,
+              "a .z80 load keeps the debugger-enabled rewind", detail(e, ok));
+    }
+    {   // RWLOAD-04 .nex
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        dbg_on(e);
+        const bool ok = emulator_apply_load(e, nex, false);
+        const bool pre = kept8(e, ok);
+        frames(e, 2);
+        check("RWLOAD-04", pre && e.rewind_buffer()->depth() == 2,
+              "a .nex load keeps the debugger-enabled rewind", detail(e, ok));
+    }
+    {   // RWLOAD-05 .jns that switches the machine 48K -> Next (slot size differs)
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        dbg_on(e);
+        const bool ok = emulator_apply_load(e, jns, false);
+        const bool pre = kept8(e, ok) && e.config().type == MachineType::ZXN_ISSUE2;
+        frames(e, 2);
+        check("RWLOAD-05", pre && e.rewind_buffer()->depth() == 2 &&
+                           e.rewind_buffer()->snapshot_bytes() == fresh_next_bytes,
+              "a machine-switching .jns keeps the rewind setting and re-measures the slot "
+              "for the new machine", detail(e, ok) + " slot=" +
+              std::to_string(e.rewind_buffer() ? e.rewind_buffer()->snapshot_bytes() : 0) +
+              " want=" + std::to_string(fresh_next_bytes));
+    }
+    {   // RWLOAD-06 in-memory snapshot (RZX playback path)
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        dbg_on(e);
+        std::ifstream f(sna, std::ios::binary);
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                                   std::istreambuf_iterator<char>());
+        const bool ok = e.load_snapshot_from_memory(bytes, "sna", "rwload");
+        check("RWLOAD-06", kept8(e, ok),
+              "an in-memory snapshot load keeps the debugger-enabled rewind", detail(e, ok));
+    }
+    {   // RWLOAD-07 size set from the debugger beats the CLI size
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        build_emulator(e, 10);
+        e.resize_rewind_buffer(3);
+        frames(e, 3);
+        const bool ok = emulator_apply_load(e, sna, false);
+        check("RWLOAD-07", ok && e.rewind_buffer() && e.rewind_enabled() &&
+                           e.rewind_buffer()->capacity() == 3 && e.rewind_buffer()->depth() == 0 &&
+                           e.config().rewind_buffer_frames == 3,
+              "a load keeps the size chosen in the debugger, not the command-line one",
+              detail(e, ok));
+    }
+    {   // RWLOAD-08 pause survives
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        build_emulator(e, 10);
+        frames(e, 3);
+        e.set_rewind_enabled(false);
+        const bool ok = emulator_apply_load(e, sna, false);
+        const bool paused = ok && !e.rewind_enabled() && e.rewind_buffer() &&
+                            e.rewind_buffer()->capacity() == 10 && e.rewind_buffer()->depth() == 0;
+        frames(e, 2);
+        const bool still0 = e.rewind_buffer() && e.rewind_buffer()->depth() == 0;
+        e.set_rewind_enabled(true);
+        frames(e, 1);
+        check("RWLOAD-08", paused && still0 && e.rewind_buffer()->depth() == 1,
+              "a load keeps a paused rewind paused; resuming records again", detail(e, ok));
+    }
+    {   // RWLOAD-09 freed ring stays freed
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        dbg_on(e);
+        e.resize_rewind_buffer(0);
+        const bool ok = emulator_apply_load(e, sna, false);
+        check("RWLOAD-09", ok && e.rewind_buffer() == nullptr && !e.rewind_enabled() &&
+                           e.config().rewind_buffer_frames == 0,
+              "a load keeps a rewind freed in the debugger freed", detail(e, ok));
+    }
+    {   // RWLOAD-10 resize un-pauses
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        build_emulator(e, 10);
+        e.set_rewind_enabled(false);
+        e.resize_rewind_buffer(5);
+        const bool ok = emulator_apply_load(e, sna, false);
+        frames(e, 1);
+        check("RWLOAD-10", ok && e.rewind_enabled() && e.rewind_buffer() &&
+                           e.rewind_buffer()->capacity() == 5 && e.rewind_buffer()->depth() == 1,
+              "a resize after a pause is recorded as running: the load keeps it enabled",
+              detail(e, ok));
+    }
+    {   // RWLOAD-11 control: a tape load does not re-init, ring AND history stay
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        dbg_on(e);
+        const bool ok = emulator_apply_load(e, tap, false);
+        check("RWLOAD-11", ok && e.rewind_buffer() && e.rewind_enabled() &&
+                           e.rewind_buffer()->capacity() == 8 && e.rewind_buffer()->depth() == 3,
+              "control: a tape load re-inits nothing, so ring and history are kept",
+              detail(e, ok));
+    }
+
+    {   // RWLOAD-12 pause then RESUME then load: the resume clears the recorded pause
+        auto up = std::make_unique<Emulator>(); Emulator& e = *up;
+        build_emulator(e, 10);
+        frames(e, 3);
+        e.set_rewind_enabled(false);
+        e.set_rewind_enabled(true);
+        const bool ok = emulator_apply_load(e, sna, false);
+        frames(e, 1);
+        check("RWLOAD-12", ok && e.rewind_enabled() && e.rewind_buffer() &&
+                           e.rewind_buffer()->capacity() == 10 && e.rewind_buffer()->depth() == 1 &&
+                           !e.config().rewind_paused,
+              "pause then resume then load: rewind comes back running, not paused",
+              detail(e, ok));
+    }
+
+    for (const std::string* p : {&sna, &szx, &nex, &z80, &jns, &tap})
+        std::remove(p->c_str());
+    return 0;
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -6897,6 +7135,7 @@ int main()
     test_s6_gaps();
     test_s8_jns_roundtrip();
     test_gh401_tape_path();
+    test_rewind_setting_survives_load();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

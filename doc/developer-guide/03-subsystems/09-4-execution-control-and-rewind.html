@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.81</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.80</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.81</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2540,6 +2540,14 @@ The backend mirrors its own master switch into this one.</p>
 or go back to any earlier point the ring still covers and carry on from there.
 It is off by default, because it costs a full machine save every frame plus the
 ring's memory; <code>--rewind-buffer-size N</code> or the debugger's toggle turns it on.</p>
+<p>The setting lives in <code>Emulator::config()</code> (<code>rewind_buffer_frames</code>,
+<code>rewind_paused</code>), kept current by <code>resize_rewind_buffer()</code> and
+<code>set_rewind_enabled()</code>. A hard <code>init()</code> (a program load) and a cold boot (which
+carries it) build a new, empty ring from it; a soft reset keeps the ring.
+A ring implies the instruction trace, so <code>Debugger::resize_rewind_buffer()</code> also
+records "trace on" as the client's wish, which the debugger backend re-applies
+after a machine rebuild (otherwise a trace switched off earlier would come back
+and Step Back would be refused).</p>
 <p>It is not an undo log. It is a ring of whole-machine snapshots taken at frame
 boundaries. <code>RewindBuffer</code> (<code>src/debug/rewind_buffer.*</code>) allocates one <code>mmap</code>
 region of <code>max_frames × snapshot_bytes</code> up front, so pages fault in lazily, and
