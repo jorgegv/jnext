@@ -969,6 +969,31 @@ int main() {
             check("CLI-BIN-03", "a usage error stays on stderr, stdout stays clean",
                   errbad.empty(), join(errbad));
 
+            // --- CLI-TAP-01: --tape-auto-play / --no-tape-auto-play (GH #395) -----
+            // Through the real binary: the start-up line reports the setting the
+            // run got, so the negation, the default and "last one wins" are each
+            // observable. Table-vs-man-page parity is the CLI-TBL / DOC rows' job.
+            // The SD image is checked before the setting is reported, so the run
+            // is given one (the harness's clone, JNEXT_TEST_SD_IMAGE; a dev
+            // host's own otherwise).
+            std::string sd_arg;
+            if (const char* sd = std::getenv("JNEXT_TEST_SD_IMAGE")) sd_arg = std::string(" --sdcard \"") + sd + "\"";
+            auto auto_play_line = [&](const std::string& flags) {
+                run_split("--headless --machine 48k" + sd_arg + " " + flags + " --delayed-automatic-exit-frames 1");
+                const std::string all = slurp(out_path) + slurp(err_path);
+                if (all.find("Tape automatic play/stop: off") != std::string::npos) return std::string("off");
+                if (all.find("Tape automatic play/stop: on") != std::string::npos) return std::string("on");
+                return std::string("none");
+            };
+            const std::string t_def = auto_play_line("");
+            const std::string t_off = auto_play_line("--no-tape-auto-play");
+            const std::string t_on  = auto_play_line("--tape-auto-play");
+            const std::string t_last = auto_play_line("--no-tape-auto-play --tape-auto-play");
+            check("CLI-TAP-01", "--no-tape-auto-play turns automatic tape play/stop off for the run; "
+                                "the default and --tape-auto-play leave it on; the last flag wins",
+                  t_def == "on" && t_off == "off" && t_on == "on" && t_last == "on",
+                  "default=" + t_def + " off=" + t_off + " on=" + t_on + " last=" + t_last);
+
             // --- CLI-BIN-04: `--help` really lists every documented flag -----
             //
             // print_usage() is now GENERATED from the table, so in a correct

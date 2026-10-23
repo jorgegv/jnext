@@ -31,7 +31,7 @@ struct TapBlock {
 /// TAP file loader for the ZX Spectrum emulator.
 ///
 /// Parses a standard .TAP file into a sequence of blocks and provides
-/// fast-load support via ROM trap interception at LD-BYTES (0x0556).
+/// fast-load support via ROM trap interception at LD-BREAK (0x056B, see tape_trap.h).
 ///
 /// Usage:
 ///   TapLoader loader;
@@ -188,11 +188,10 @@ public:
     bool fast_load() const { return fast_load_; }
     void set_fast_load(bool enabled) { fast_load_ = enabled; }
 
-    /// ROM trap addresses (48K/128K ROM).
-    static constexpr uint16_t LD_BYTES_ADDR = 0x0556;
-    /// Handle a ROM trap at LD-BYTES.
-    /// Reads CPU registers (A=flag, IX=dest, DE=length, carry=LOAD/VERIFY),
-    /// feeds the next TAP block, and sets up the return state.
+    /// Handle the ROM trap at LD-BREAK (0x056B).
+    /// Reads CPU registers (A'=flag, F' carry=LOAD/VERIFY, IX=dest, DE=length),
+    /// feeds the next TAP block through tape_trap::rom_ld_bytes and leaves
+    /// the CPU at the routine's RET (0x05E2).
     /// Returns true if the trap was handled (block available), false if tape ended.
     bool handle_ld_bytes_trap(Emulator& emu);
 
@@ -210,6 +209,19 @@ public:
     /// True if real-time playback is in progress.
     bool is_playing() const { return playing_; }
 
+    // -----------------------------------------------------------------------
+    // Automatic play/stop (GH #395)
+    // -----------------------------------------------------------------------
+
+    /// The host's policy, set before each tick: stop at the next gap boundary
+    /// (a block and its pause done, the next block about to start).
+    void set_gap_hold(bool hold) { gap_hold_ = hold; }
+
+    /// True when the deck is stopped at a gap boundary; resume() continues it
+    /// at the next block, from its first pilot pulse.
+    bool is_held() const { return held_; }
+    void resume() { start_realtime_playback(); }
+
     /// Get the tape filename (for UI display).
     const std::string& filename() const { return filename_; }
 
@@ -218,6 +230,8 @@ private:
     size_t current_block_ = 0;
     bool loaded_ = false;
     bool fast_load_ = true;
+    bool gap_hold_ = false;
+    bool held_ = false;
     std::string filename_;
 
     // Real-time playback state

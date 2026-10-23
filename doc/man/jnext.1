@@ -456,6 +456,17 @@ it.
 Real\-time tape loading, at the speed of an actual tape, instead of fast
 load.
 .TP
+\f[B]\-\-tape\-auto\-play\f[R], \f[B]\-\-no\-tape\-auto\-play\f[R]
+Turn automatic tape play/stop on (the default) or off for this run,
+overriding the saved GUI preference.
+While on, the tape deck stops in the silent gap between two blocks when
+no program is reading the tape, and resumes when one does, so tapes
+whose BASIC loader is slow between blocks load in real time.
+It does nothing in fast load mode.
+Off, the deck runs straight through, as a real one does (a TZX \(lqstop
+the tape if in 48K mode\(rq block now stops only on a 48K machine, as
+the TZX specification says, whatever this setting is).
+.TP
 \f[B]\-\-tape\-save\f[R] \f[I]FILE\f[R]
 Save to tape, appending to \f[I]FILE\f[R]; its extension picks the
 format.
@@ -2208,9 +2219,9 @@ freely (by default Ctrl+Alt releases it, Alt+Cmd on macOS; see
 \f[B]\-\-mouse\-release\f[R]).
 .TP
 \f[B]Tape\f[R]
-Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start
-Saving\&..., which saves to a TAP, TZX or WAV file as
-\f[B]\-\-tape\-save\f[R] does, and Stop Saving.
+Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle), Auto
+Play/Stop (toggle); Start Saving\&..., which saves to a TAP, TZX or WAV
+file as \f[B]\-\-tape\-save\f[R] does, and Stop Saving.
 .TP
 \f[B]Debug\f[R]
 Magic Breakpoint (toggle), Debugger (Alt+D \- the same entry as in

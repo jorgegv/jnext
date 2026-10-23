@@ -109,14 +109,62 @@ as it goes, and the loader chatters through the speaker. jnext can reproduce
 all of that, or it can skip it entirely and have the program in memory almost
 instantly. Those are two independent code paths that share nothing.
 
-**Fast load is a ROM trap.** When ROM is paged into slot 0 and PC reaches the
-48K ROM's `LD-BYTES` entry at `0x0556`, the run loop hands the next block
-straight to memory and skips the routine altogether — no tape signal is ever
-generated. `.tap` and `.tzx` both support this. `.wav` cannot, because a WAV is
-just audio samples with no block structure to extract. The gate is a PC match,
-which has one consequence worth knowing: a custom or turbo loader that never
-enters the ROM routine is never intercepted, and real time is then the only way
-it will load.
+**Fast load is a ROM trap.** The trap sits at `LD-BREAK`, `0x056B`, the `RET NZ`
+of the 48K ROM's `LD-BYTES` routine, not at the routine's entry `0x0556`: every
+entry converges there, including the `0x0562` one a custom block loader uses after
+doing the routine's prologue itself (FUSE traps the same spot). It fires only
+with ROM paged into slot 0, the Z flag set (the ROM's `RET NZ` is then not about
+to return) and a **ROM identity check** on the bytes at `0x056B` and `0x05DF`
+(`tape_trap::ld_bytes_rom_present`, like the save trap's). It then hands the next
+block to memory without generating any tape signal. `.tap` and `.tzx` both
+support this; `.wav` cannot, because a WAV is just audio samples with no block
+structure to extract.
+
+Both loaders call one helper, `tape_trap::rom_ld_bytes` (`src/core/tape_trap.*`),
+which does what the ROM does from `LD-START` to its return: the flag comes from
+A' and LOAD/VERIFY from the carry of F' (the entry's `EX AF,AF'` has run); a flag
+mismatch consumes the block and returns carry clear; LOAD stores bytes, VERIFY
+compares them; the carry reports the parity of flag, bytes and the byte after the
+last one (the checksum), and a DE longer than the block times out as the ROM does.
+The CPU is left at the routine's own `RET` (`0x05E2`), so the ROM pops whatever the
+caller pushed: `SA/LD-RET` for a `0x0556` entry (border restored, `EI`), the
+caller's return address for a `0x0562` one. The registers it leaves are those of
+the ROM run against jnext's own real-time player, except the ROM's edge-tracking
+byte C, whose value after the sync depends on the pilot phase the ROM caught and
+which the trap pins to `0x21`. A custom or turbo loader that never enters the ROM
+routine is never intercepted, and real time is then the only way it will load.
+
+**Automatic play/stop (GH #395)** is a host deck feature with no hardware
+counterpart (no Spectrum has tape motor control). The signal is
+`TapePollDetector` (`src/core/tape_poll_detector.h`): every CPU `IN` of the ULA
+port while `cpu_.executing()` (the debugger's port reads are not counted),
+stamped with `tape_sample_tstates()`. 32 reads in a row, each at most 1000
+T-states after the previous, with the last no more than 1000 T-states old, is
+"polling". 1000 T-states is over the shortest standard pulse (855), and 32 is
+over the ROM's keyboard scan (bursts of 8 reads 59 T apart, then about 69000
+T-states of nothing). There is no PC range (it would serve only ROM loaders
+and differ by ROM) and no register rule: FUSE's "B changes by one" start rule
+cannot see DeciLoad, which polls one address with B constant, and FUSE's own
+detect-loader fails the `xevious-deciload` tape.
+
+- **Real time.** The deck starts at attach as ever. It holds only at a gap
+  boundary, the instant a block and its non-zero pause have finished, and only
+  when nobody polls. It never stops mid-block and never at a zero-pause join. It
+  resumes at the first counted read once polling: the next block from its first
+  pulse. TAP: `TapLoader::set_gap_hold` / `resume`. TZX: ZOT's `hold_request`,
+  `held`, `tzx_resume()`; a stop block (0x20 pause 0, 0x2A) holds instead of
+  ending the tape, and 0x2A stops only on a 48K machine. WAV has no gaps.
+- **Fast mode.** Nothing happens: a polling program never starts a tape that
+  is not playing, because in fast mode the `0x056B` trap serves the loads and a
+  "press any key" wait (a tight `IN` loop, indistinguishable at the port from a
+  pure-EAR loader such as DeciLoad) would play blocks away that a later ROM load
+  needs. A custom loader in fast mode behaves as it always did.
+- **State.** The detector and the hold are host-deck state, not serialised, and
+  reset on every state load (tape position is excluded from rewind and
+  snapshots by design). Off (`tape_auto_play`, `--no-tape-auto-play`) is the
+  deck as it was: no hold, stop blocks stop for good. The one exception is
+  independent of the setting: a 0x2A block now stops only on a 48K machine (the
+  TZX specification).
 
 Saving works the same way in reverse. `--tape-save` (or Tape ▸ Start Saving,
 both through `Emulator::start_tape_save()`) arms one of two savers by the

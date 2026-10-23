@@ -1370,6 +1370,20 @@ void test_debug_keymap_passthrough()
           render_combo(passthrough.debug_keys.combo(jnext::dbgkeys::Action::Run)));
 }
 
+/// PA-26 - GH #395: the Preferences "automatic play/stop" setting reaches the
+/// machine (and Apply with it on leaves it on).
+void test_tape_auto_play_preference()
+{
+    Fixture f(MachineType::ZX48K);
+    const bool on_before = f.emu.tape_auto_play();
+    AppConfigData c = live_prefs(MachineType::ZX48K);
+    c.tape_auto_play = false;
+    f.win.apply_preferences(c);
+    check("PA-26", "Preferences automatic tape play/stop OFF reaches the machine",
+          on_before && !f.emu.tape_auto_play(),
+          "before=" + std::to_string(on_before) + " after=" + std::to_string(f.emu.tape_auto_play()));
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1400,6 +1414,7 @@ int main(int argc, char** argv)
     test_quick_save_prunes();
     test_quick_keep_control();
     test_debug_keymap_passthrough();
+    test_tape_auto_play_preference();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
