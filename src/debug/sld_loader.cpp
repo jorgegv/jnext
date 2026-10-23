@@ -158,8 +158,10 @@ struct PendingLabel {
 // The label half of one `L` record (design 10.1): `module,main,local[,traits]`
 // named `module.main.local` as sjasmplus --sym spells it. Returns false when the
 // record names nothing (a module marker, a bad number, a value that does not fit
-// 16 bits or a page the device does not have); a `+struct_def` / `+sizeof` value
-// goes to `values` (name only: an offset or a size names no address).
+// 16 bits or a page the device does not have); a `+struct_def` value (a struct's
+// offsets and size) goes to `values` (name only: it names no address). `+sizeof`
+// only says SIZEOF(label) was used somewhere (sjasm/tables.h LABEL_HAS_SIZE): the
+// record is an ordinary label.
 bool parse_label(const std::vector<std::string_view>& fields, int page_count,
                  std::vector<PendingLabel>& labels,
                  std::vector<std::pair<std::string, uint16_t>>& values)
@@ -175,7 +177,7 @@ bool parse_label(const std::vector<std::string_view>& fields, int page_count,
     const auto value = decimal<int>(fields[5]);
     if (!page || !value || *value < 0 || *value > 0xFFFF) return false;
     for (size_t i = 3; i < data.size(); ++i) {
-        if (data[i] == "+struct_def" || data[i] == "+sizeof") {
+        if (data[i] == "+struct_def") {
             values.emplace_back(std::move(name), static_cast<uint16_t>(*value));
             return false;
         }

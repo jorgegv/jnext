@@ -627,12 +627,15 @@ int main() {
             SymbolTable t;
             t.add_label("banked", 0xC000, p20);
             t.add_label("scr", 0x4000, std::nullopt);
+            t.add_label("$zz", 0x1111, std::nullopt);
+            t.add_label("0xzz", 0x2222, std::nullopt);
             const auto key = std::optional<SymbolNameKey>(SymbolNameKey{0xC000, p20});
             check("SYMPG-06", "find_name and resolve_key give the space; a number or unpaged name has none; resolve is the address",
                   t.find_name("banked") == key && t.resolve_key("@banked") == key && t.resolve_key("banked") == key &&
                       t.resolve_key("C000") == std::optional<SymbolNameKey>(SymbolNameKey{0xC000, std::nullopt}) &&
                       t.resolve_key("scr") == std::optional<SymbolNameKey>(SymbolNameKey{0x4000, std::nullopt}) &&
-                      !t.resolve_key("nope") && t.resolve("banked") == std::optional<uint16_t>(0xC000));
+                      !t.resolve_key("nope") && !t.resolve_key("$zz") && !t.resolve_key("0xzz") &&
+                      t.resolve("banked") == std::optional<uint16_t>(0xC000));
         }
         {
             SymbolTable t;
@@ -657,6 +660,23 @@ int main() {
             t.add_label("other_bank", 0xC000, p30);
             check("SYMPG-08", "symbols() lists every label (two at $C000); size() counts the keys",
                   t.symbols().count(0xC000) == 2 && t.symbols().size() == 3 && t.size() == 3);
+        }
+        {
+            SymbolTable t;
+            t.add_label("p", 0xC000, p20);
+            t.add_label("u", 0xC000, std::nullopt);   // added AFTER the paged one
+            const auto in20 = [](uint16_t) { return MemSpace::page(20); };
+            check("SYMPG-10", "nearest() gives the name lookup() gives: the paged label in its space, even when an "
+                              "unpaged one was added later at the same address",
+                  t.nearest(0xC004, in20) == std::optional<std::pair<uint16_t, std::string>>(
+                                                 std::make_pair<uint16_t, std::string>(0xC000, "p")) &&
+                      t.lookup(p20, 0xC000) == name("p"));
+        }
+        {
+            SymbolTable t;
+            t.add_value("v", 1);
+            t.add_value("v", 2);
+            check("SYMPG-11", "the first value of a name wins", t.lookup_name("v") == std::optional<uint16_t>(1));
         }
         {
             SymbolTable t;
@@ -758,6 +778,61 @@ int main() {
                              "the rest and the source half load",
                   rr.count == 1 && rr.labels == 1 && !l.find_name("high") && !l.find_name("wide") &&
                       l.lookup(p4, 0x8000) == name("ok"));
+        }
+        {
+            // sjasmplus v1.23.1 (46aae3fa7) on sizeof.asm: `msg` is used in SIZEOF(), so its record
+            // carries +sizeof - and still the label's own address.
+            SourceMap m;
+            SymbolTable l;
+            const auto rr = load_sld(m, JNEXT_SJASMEQU_DIR "/sizeof.sld", &l);
+            std::map<std::string, uint16_t> sym;
+            std::ifstream in(JNEXT_SJASMEQU_DIR "/sizeof.sym");
+            std::string line;
+            while (std::getline(in, line)) {
+                const auto at = line.find(": EQU 0x");
+                if (at != std::string::npos)
+                    sym[line.substr(0, at)] = static_cast<uint16_t>(std::stoul(line.substr(at + 8), nullptr, 16));
+            }
+            check("SLDL-10", "a +sizeof record is an ordinary label: msg names its Page 4 address, with the value "
+                             "sjasmplus's own --sym gives",
+                  rr.labels == 2 && sym.size() == 2 && sym["msg"] == 0x8004 &&
+                      l.lookup(p4, 0x8004) == name("msg") &&
+                      l.find_name("msg") == std::optional<SymbolNameKey>(SymbolNameKey{0x8004, p4}));
+        }
+        {
+            SourceMap m;
+            SymbolTable l;
+            l.add_label("old", 0x1234, std::nullopt);
+            l.add_value("oldv", 7);
+            load_sld(m, sld("clr.sld", z + t + "x.asm|3||0|4|32768|L|,new,\n"), &l);
+            check("SLDL-11", "a load replaces the label table: what it held before is gone",
+                  !l.find_name("old") && !l.find_name("oldv") && !l.lookup(MemSpace::cpu(), 0x1234) &&
+                      l.lookup(p4, 0x8000) == name("new") && l.size() == 1);
+        }
+        {
+            // Each source-half problem refuses the source half only: count -1, an error naming it, labels loaded.
+            const std::string lab = "x.asm|9||0|-1|16384|L|,scr,\n";
+            const std::string bodies[] = {
+                z + t + "x.asm|3||0|4|32768|T\n" + lab,                       // a record of 7 fields
+                "x.asm|2||0|4|32768|T|\n" + z + lab,                          // a trace before the device
+                z + "|3||0|4|32768|T|\n" + lab,                               // a trace with no file
+                z + lab,                                                      // no trace at all
+            };
+            bool all = true;
+            std::string detail;
+            int n = 0;
+            for (const std::string& body : bodies) {
+                SourceMap m;
+                SymbolTable l;
+                const auto rr = load_sld(m, sld(("src" + std::to_string(n++) + ".sld").c_str(), body), &l);
+                const bool ok = rr.count == -1 && !rr.error.empty() && rr.labels == 1 &&
+                                l.lookup(MemSpace::cpu(), 0x4000) == name("scr") && m.empty();
+                all = all && ok;
+                if (!ok) detail += std::to_string(n) + " ";
+            }
+            check("SLDL-12", "a malformed record, a trace before the device, a trace with no file and no trace "
+                             "at all each refuse the source half only: the labels still load",
+                  all);
         }
         {
             SourceMap m;

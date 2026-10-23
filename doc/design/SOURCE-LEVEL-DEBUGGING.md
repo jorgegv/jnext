@@ -1001,7 +1001,8 @@ ranges use. There are three kinds of entry:
 - an unpaged label: address to a name, for a format that names no page. It matches that address
   in any space, as every label does today;
 - a name-only value: name to value, which never names an address (z88dk `; const`, #279; an SLD
-  `L` value above 0xFFFF).
+  `+struct_def` offset or size). An SLD `L` value above 0xFFFF, or negative, fits no
+  16-bit name and is skipped (GH #375, as for an EQU file).
 
 A page mapped into a slot other than the one its labels were made for shows no labels there,
 as with source records (section 12).

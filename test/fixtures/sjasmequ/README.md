@@ -70,3 +70,17 @@ The SLD sjasmplus v1.23.1 (same commit as above) writes for the same source:
 `--exp` are byte-identical to the committed ones, which is why `equlabels.sym` is the oracle for
 the SLD's names and values.
 Rows: `SLDL-01`..`SLDL-09` in `test/debug/source_map_test.cpp`.
+
+## `sizeof.asm` (GH #375 review)
+
+A label used in `SIZEOF()` gets the trait `+sizeof` (sjasm/tables.h `LABEL_HAS_SIZE`), a USAGE
+trait like `+used`: its record keeps the label's own address. Built with the same sjasmplus commit:
+
+    sjasmplus --sld=sizeof.sld --sym=sizeof.sym sizeof.asm
+
+    sha256
+    fd4d3fe24b420070029e0f50e8584dfb72f2608b317fe602b69c63377462a30e  sizeof.asm
+    09a899e189f29a66f27c01d744ca6bf6498bfeecf9e63282b4ebb3e4084e3eec  sizeof.sld
+    d7f8cc12ca9035f19acc1e82e90cfedea642e6eb1bde0a36f05303ea45e8e586  sizeof.sym
+
+Row: `SLDL-10` (the `.sym` is its oracle).

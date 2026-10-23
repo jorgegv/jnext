@@ -1656,6 +1656,7 @@ void test_paged_symbols() {
         check("QSYM-03", "panels", false);
         check("QSYM-04", "panels", false);
         check("QSYM-05", "panels", false);
+        check("QSYM-10", "panels", false);
         return;
     }
     bp->set_symbol_table(&t);
@@ -1703,6 +1704,32 @@ void test_paged_symbols() {
           paged && unpaged && number,
           "paged=" + std::to_string(paged) + " unpaged=" + std::to_string(unpaged) +
               " number=" + std::to_string(number));
+
+    // The page qualifier is an Execute breakpoint's: a Read breakpoint by a paged name has none.
+    bool seen_r = false;
+    drive_modals(
+        [&](QWidget* w, int n) {
+            auto* dlg = qobject_cast<QDialog*>(w);
+            if (!dlg) return;
+            if (n == 0) {
+                seen_r = true;
+                if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText("banked");
+                if (auto* c = dlg->findChild<QComboBox*>()) c->setCurrentIndex(BreakpointModel::Read);
+                dlg->accept();
+                return;
+            }
+            dlg->reject();
+        },
+        [&]() { bp->on_add(); });
+    const auto after_r = m.rows();
+    check("QSYM-10", "the Add dialog gives a Read breakpoint on a paged name no page: only an Execute "
+                     "breakpoint is page-qualified",
+          seen_r && after_r.size() == 1 && after_r[0].type == BreakpointModel::Read &&
+              after_r[0].addr == 0xC000 && after_r[0].page == jnext::dbg::PAGE_ANY,
+          "rows=" + std::to_string(after_r.size()) +
+              (after_r.empty() ? std::string() : " type=" + std::to_string(after_r[0].type) +
+                                                     " page=" + std::to_string(after_r[0].page)));
+    m.clear_all();
 
     // The Call Stack names the target in the memory it was entered in, not the one mapped now.
     SymbolTable ct;

@@ -2874,8 +2874,9 @@ it was assembled for; the breakpoint dialogs keep that page. A name-only value
 (<code>add_value()</code>) names no address. <code>load_sld()</code> reads an SLD's <code>L</code> records into such a
 table, as its own transaction beside the source half: a file refused as a whole
 loads neither, a bad trace refuses only the source half. The name is
-<code>module.main.local</code> as sjasmplus <code>--sym</code> spells it; <code>+struct_def</code> / <code>+sizeof</code>
-records are name-only; a value past 0xFFFF or a page the device lacks is skipped
+<code>module.main.local</code> as sjasmplus <code>--sym</code> spells it; <code>+struct_def</code>
+records (a struct's offsets and size) are name-only, while a <code>+sizeof</code> record only
+says SIZEOF(label) was used, and is an ordinary label; a value past 0xFFFF or a page the device lacks is skipped
 (rows SYMPG-<em>, SLDL-</em>).
 The <code>-debug</code> records (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or <code>__CDBINFO__</code>)
 are dropped by the loader, so they never name an address or resolve by name.
