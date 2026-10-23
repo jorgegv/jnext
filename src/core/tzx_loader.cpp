@@ -46,6 +46,7 @@ TzxLoader::TzxLoader(TzxLoader&& other) noexcept
     , path_(std::move(other.path_))
     , sha256_(std::move(other.sha256_))
     , fast_load_offset_(other.fast_load_offset_)
+    , handover_pending_(other.handover_pending_)
     , is_tzx_(other.is_tzx_)
 {
     other.player_ = new TZXPlayer;
@@ -69,6 +70,7 @@ TzxLoader& TzxLoader::operator=(TzxLoader&& other) noexcept {
         path_ = std::move(other.path_);
         sha256_ = std::move(other.sha256_);
         fast_load_offset_ = other.fast_load_offset_;
+        handover_pending_ = other.handover_pending_;
         is_tzx_ = other.is_tzx_;
 
         other.loaded_ = false;
@@ -442,6 +444,7 @@ void TzxLoader::eject() {
     file_data_.clear();
     loaded_ = false;
     fast_load_offset_ = 0;
+    handover_pending_ = false;
     filename_.clear();
     path_.clear();
     sha256_.clear();
@@ -467,11 +470,36 @@ void TzxLoader::start_playback(uint64_t cpu_clocks) {
     Log::emulator()->debug("TZX: playback started");
 }
 
-void TzxLoader::start_playback_from_fast_position(uint64_t cpu_clocks) {
+void TzxLoader::start_playback_from_fast_position(uint64_t cpu_clocks, bool held) {
     if (!loaded_) return;
     tzx_play(P(), cpu_clocks);
     P()->offset = fast_load_offset_;
+    handover_pending_ = false;
+    if (held && fast_load_offset_ < static_cast<int>(file_data_.size())) {
+        P()->playing = 0;
+        P()->held = 1;
+        P()->phase = TZX_PHASE_IDLE;
+    }
     Log::emulator()->debug("TZX: playback started at offset {}", fast_load_offset_);
+}
+
+bool TzxLoader::handover_to_fast_at_gap() {
+    if (!loaded_) return false;
+    if (!is_playing()) {
+        P()->held = 0;
+        fast_load_offset_ = P()->offset;
+        fast_load_ = true;
+        handover_pending_ = false;
+        return true;
+    }
+    handover_pending_ = true;
+    return false;
+}
+
+void TzxLoader::hold_if_stopped() {
+    if (loaded_ && !P()->playing && !P()->held &&
+        P()->offset < static_cast<int>(file_data_.size()))
+        P()->held = 1;
 }
 
 void TzxLoader::stop_playback() {
@@ -488,6 +516,15 @@ uint8_t TzxLoader::update(uint64_t cpu_clocks) {
     const uint8_t level = tzx_update(P(), cpu_clocks);
     if (P()->held && !was_held)
         Log::emulator()->info("TZX: deck held before offset {}", P()->offset);
+    if (handover_pending_ && !P()->playing) {
+        // The gap boundary (or the end of the tape, or a stop block): the player
+        // stands at the next block. GH #402.
+        P()->held = 0;
+        fast_load_offset_ = P()->offset;
+        fast_load_ = true;
+        handover_pending_ = false;
+        Log::emulator()->info("TZX: handed over to fast loading at offset {}", fast_load_offset_);
+    }
     return level;
 }
 
@@ -496,7 +533,8 @@ uint8_t TzxLoader::update(uint64_t cpu_clocks) {
 // ---------------------------------------------------------------------------
 
 void TzxLoader::set_auto_policy(bool hold_at_gap, bool auto_play, bool is_48k) {
-    P()->hold_request = hold_at_gap ? 1 : 0;
+    // A pending handover to fast loading wants the player to stop at the next gap.
+    P()->hold_request = (hold_at_gap || handover_pending_) ? 1 : 0;
     P()->stop_holds = auto_play ? 1 : 0;
     P()->is_48k = is_48k ? 1 : 0;
 }

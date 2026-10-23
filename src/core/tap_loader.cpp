@@ -115,6 +115,7 @@ void TapLoader::eject() {
     loaded_ = false;
     playing_ = false;
     held_ = false;
+    handover_pending_ = false;
     filename_.clear();
     path_.clear();
     sha256_.clear();
@@ -257,7 +258,17 @@ uint8_t TapLoader::tick_realtime(uint64_t tstates) {
             if (at_end()) {
                 play_phase_ = PlayPhase::DONE;
                 playing_ = false;
+                if (handover_pending_) { handover_pending_ = false; fast_load_ = true; }
                 Log::emulator()->info("TAP realtime: tape ended");
+            } else if (handover_pending_) {
+                // GH #402: the gap boundary a restored real-time deck hands over to
+                // fast loading at; the next LD-BYTES call is served by the trap.
+                handover_pending_ = false;
+                fast_load_ = true;
+                playing_ = false;
+                play_phase_ = PlayPhase::DONE;
+                Log::emulator()->info("TAP: handed over to fast loading before block {}", current_block_);
+                return ear_bit_;
             } else if (gap_hold_) {
                 // Gap boundary with nobody listening: hold the deck here.
                 playing_ = false;
@@ -346,4 +357,28 @@ bool TapLoader::restore_deck(const DeckState& d, std::string& why) {
     play_pulse_count_ = static_cast<int>(d.half);
     ear_bit_          = static_cast<uint8_t>(d.ear);
     return true;
+}
+
+bool TapLoader::handover_to_fast_at_gap() {
+    if (!playing_) {
+        held_ = false;
+        handover_pending_ = false;
+        fast_load_ = true;
+        return true;
+    }
+    handover_pending_ = true;
+    return false;
+}
+
+void TapLoader::start_realtime_from_fast(bool held) {
+    fast_load_ = false;
+    handover_pending_ = false;
+    if (!loaded_ || at_end()) return;
+    if (held) {
+        playing_ = false;
+        held_ = true;
+        play_phase_ = PlayPhase::DONE;
+    } else {
+        start_realtime_playback();
+    }
 }

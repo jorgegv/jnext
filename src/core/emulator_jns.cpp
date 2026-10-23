@@ -1124,12 +1124,13 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     // LAST, because the round trip above resets the poll detector and the
     // deck's times are relative to the clock it re-seated. A tape that cannot
     // be put back warns and leaves the deck as it was; it never refuses.
-    reattach_jns_tape_(zip, m, report);
+    reattach_jns_tape_(zip, m, opt, report);
     return true;
 }
 
 void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
                                   const jnext::jns::Manifest& m,
+                                  const jnext::JnsLoadOptions& opt,
                                   jnext::JnsLoadReport& report)
 {
     const jnext::jns::TapeInfo& ti = m.tape;
@@ -1206,17 +1207,48 @@ void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
         return;
     }
 
-    // Every check has passed: from here the deck is replaced. No jnext
-    // setting is written (owner, GH #402 revision): the position travels, the
-    // session's settings stay. TODO(revision): fast/real-time handling pending
-    // the revised plan.
+    // Every check has passed: from here the deck is replaced. No jnext setting
+    // is written (owner, GH #402): the session's fast/real-time mode
+    // (`opt.tape_realtime`) and auto play (`tape_auto_play_`) apply, and a deck
+    // saved in another mode is converted at a block boundary (plan section 3.1).
+    // The loader holds the SAVED mode first, so the deck is exactly the saved one.
+    std::string converted;
+    const bool saved_rt = ti.realtime;
+    const bool want_rt = opt.tape_realtime;
+    const bool auto_differs = t.auto_play != tape_auto_play_;
     if (t.loader == "tap") {
-        tap.set_fast_load(!ti.realtime);
+        tap.set_fast_load(!saved_rt);
+        if (saved_rt && !want_rt) {
+            converted = tap.handover_to_fast_at_gap()
+                ? "at a block boundary: fast loading now"
+                : "finishing the current block in real time, then fast loading";
+        } else if (!saved_rt && want_rt) {
+            tap.start_realtime_from_fast(tape_auto_play_);
+            converted = tape_auto_play_ ? "real time, held before the next block"
+                                        : "real time, playing the next block";
+        } else if (saved_rt && tap.is_held() && !tape_auto_play_) {
+            tap.resume();
+            converted = "auto play is off: the held deck plays on";
+        }
         tape_ = std::move(tap);
         if (tzx_tape_.is_loaded()) tzx_tape_.eject();
         if (wav_tape_.is_loaded()) wav_tape_.eject();
     } else if (t.loader == "tzx") {
-        tzx.set_fast_load(!ti.realtime);
+        tzx.set_fast_load(!saved_rt);
+        if (saved_rt && !want_rt) {
+            converted = tzx.handover_to_fast_at_gap()
+                ? "at a block boundary: fast loading now"
+                : "finishing the current block in real time, then fast loading";
+        } else if (!saved_rt && want_rt) {
+            tzx.start_playback_from_fast_position(now, tape_auto_play_);
+            converted = tape_auto_play_ ? "real time, held before the next block"
+                                        : "real time, playing the next block";
+        } else if (saved_rt && tzx.is_held() && !tape_auto_play_) {
+            tzx.resume(now);
+            converted = "auto play is off: the held deck plays on";
+        } else if (saved_rt && !t.auto_play && tape_auto_play_) {
+            tzx.hold_if_stopped();   // a stop block holds under auto play
+        }
         tzx_tape_ = std::move(tzx);
         if (tape_.is_loaded()) tape_.eject();
         if (wav_tape_.is_loaded()) wav_tape_.eject();
@@ -1227,16 +1259,19 @@ void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
     }
     // Parking is restored machine state and a restore types nothing: no
     // resume_from_park(), no typist arm(), no LOAD "" (D8).
-    tape_poll_.restore(t.poll);
+    // The poll run was counted under the recorded auto play setting; under a
+    // different one it means nothing, which is what toggling auto play does.
+    if (auto_differs) tape_poll_.reset(); else tape_poll_.restore(t.poll);
     phantom_typist_.restore(t.typist);
     tap_sync_valid_ = false;
     if (rzx_recorder_.is_recording()) rzx_suspend_tape_traps();
 
-    report.tape_reattached = true;
     Log::emulator()->info("load_jns: tape {} reattached ({}, {}, block/offset {})", label, kind,
                           ti.realtime ? "realtime" : "fast",
                           t.loader == "tap" ? static_cast<long>(t.tap.block)
                           : t.loader == "tzx" ? static_cast<long>(t.tzx.offset) : 0L);
+    if (!converted.empty())
+        Log::emulator()->info("load_jns: the session's tape settings differ from the snapshot's: {}", converted);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1279,7 +1314,7 @@ bool Emulator::save_jns_file(const std::string& path)
     return true;
 }
 
-bool Emulator::load_jns_file(const std::string& path)
+bool Emulator::load_jns_file(const std::string& path, bool tape_realtime)
 {
     jns_report_ = jnext::JnsLoadReport{};
     jns_error_.clear();
@@ -1301,6 +1336,7 @@ bool Emulator::load_jns_file(const std::string& path)
     jnext::JnsLoadOptions opt;
     opt.strict       = config_.jns_strict;
     opt.force_sdcard = config_.jns_force_sdcard;
+    opt.tape_realtime = tape_realtime;
 
     if (!load_jns(bytes.data(), bytes.size(), opt, jns_report_, jns_error_)) {
         Log::emulator()->error("load_jns: {}: {}", path, jns_error_);

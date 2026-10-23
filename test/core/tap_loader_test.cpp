@@ -939,7 +939,7 @@ int main() {
             check("TAPD-01", "a deck restored mid-DATA of block 1 puts the same EAR level as the original at every step "
                   "through the pause and the next block's pilot, and ends in the same state",
                   ok && restored && equal_at_restore && same && a.deck_state() == b.deck_state() &&
-                  a.deck_state().block == 2, why);
+                  a.deck_state().block == 3, why);
         }
         {   // TAPD-02: the pause after the last block, and a deck held at a gap
             TapLoader a, b;
@@ -1059,6 +1059,64 @@ int main() {
             check("WAVD-02", "WavLoader::sha256() is the SHA-256 of the bytes load() read, empty after a FAILED reload "
                   "and after eject()",
                   ok && got == want && failed && a.sha256().empty() && (b.eject(), b.sha256().empty()), got);
+        }
+        {   // TAPD-08 (case 1 and 1b): hand over to fast loading without cutting a block
+            TapLoader a, b;
+            bool ok = a.load(tap3_path) && b.load(tap3_path);
+            a.start_realtime_playback();
+            while (ok && !(a.deck_state().phase == "data" && a.current_block() == 1 &&
+                           a.deck_state().byte >= 2))
+                a.tick_realtime(997);
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(), why);
+            b.set_fast_load(false);
+            const bool immediate = b.handover_to_fast_at_gap();      // mid-block: must wait
+            bool same = true, switched = false;
+            uint64_t guard = 0;
+            size_t i = 0;
+            while (guard < 14000000 && !switched) {
+                const uint64_t st = steps[i++ % (sizeof(steps) / sizeof(steps[0]))];
+                if (a.tick_realtime(st) != b.tick_realtime(st)) same = false;
+                guard += st;
+                switched = b.fast_load();
+            }
+            // The gap boundary: A starts block 2's pilot, B stands before block 2, fast, stopped.
+            const bool at_gap = switched && !b.is_playing() && b.current_block() == 2 &&
+                                a.is_playing() && a.current_block() == 2 &&
+                                a.deck_state().phase == "leader" && !b.handover_pending();
+
+            // 1b: a deck at a boundary (held) turns fast at once.
+            TapLoader c, d;
+            ok = c.load(tap3_path) && d.load(tap3_path);
+            c.set_gap_hold(true);
+            c.start_realtime_playback();
+            while (ok && !c.is_held()) c.tick_realtime(997);
+            const bool r2 = ok && d.restore_deck(c.deck_state(), why);
+            d.set_fast_load(false);
+            const bool now_fast = d.handover_to_fast_at_gap();
+            check("TAPD-08", "a real-time deck handed over to fast loading mid-block plays the original's EAR levels to the "
+                  "end of the block and its pause, then stands before the next block, fast and stopped, while the original "
+                  "starts that block's pilot; a deck already at a boundary (held) turns fast at once at the same block",
+                  ok && restored && !immediate && same && at_gap && r2 && now_fast && d.fast_load() &&
+                  !d.is_held() && !d.is_playing() && d.current_block() == 1, why);
+        }
+        {   // TAPD-09 (case 2)
+            TapLoader t;
+            const bool ok = t.load(tap3_path);
+            t.next_block();                                   // the fast cursor stands before block 1
+            t.start_realtime_from_fast(true);
+            const bool held = t.is_held() && !t.is_playing() && !t.fast_load() && t.current_block() == 1;
+            t.resume();
+            const bool resumed = t.is_playing() && t.deck_state().phase == "leader" && t.current_block() == 1;
+            TapLoader u;
+            u.load(tap3_path);
+            u.next_block();
+            u.start_realtime_from_fast(false);
+            const bool playing = u.is_playing() && !u.is_held() && u.deck_state().phase == "leader" &&
+                                 u.current_block() == 1 && !u.fast_load();
+            check("TAPD-09", "starting real time from the fast position at block 1: held, it waits at block 1 and resume() plays that "
+                  "block's pilot; not held, it plays that block's pilot at once",
+                  ok && held && resumed && playing, {});
         }
         {   // TPOL-01
             TapePollDetector d;

@@ -5254,6 +5254,49 @@ int main(int argc, char** argv) {
                   v.warnings.empty() ? "" : v.warnings[0]);
         }
 
+        // ── GH #402: a tape extracted from a .zip names its archive ───────
+        {
+            Manifest m = with_media();
+            m.tape.archive = "/home/user/games/jetpac.tap.zip";
+            m.tape.member  = "JETPAC/jetpac.tap";
+            Manifest got, plain;
+            std::vector<std::string> unknown, unknown2;
+            const bool ok = manifest_from_json(manifest_to_json(m), got, unknown, why);
+            const std::string text = manifest_to_json(with_media());
+            const bool ok2 = manifest_from_json(text, plain, unknown2, why);
+            check("S6-MEDIA-02",
+                  "media.tape.archive and media.tape.member survive a round trip through the manifest TEXT "
+                  "with no unknown-key report; a tape without them emits neither key and reads back empty",
+                  ok && ok2 && got.tape.archive == m.tape.archive && got.tape.member == m.tape.member &&
+                      unknown.empty() && unknown2.empty() &&
+                      text.find("\"archive\"") == std::string::npos &&
+                      text.find("\"member\"") == std::string::npos &&
+                      plain.tape.archive.empty() && plain.tape.member.empty(),
+                  why);
+        }
+        {
+            Manifest m = with_media();
+            m.tape.archive = "/home/user/games/jetpac.tap.zip";
+            m.tape.member  = "JETPAC/jetpac.tap";
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.tape_file_available = false;
+            e.strict = true;
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            const std::string w0 = v.warnings.empty() ? std::string() : v.warnings[0];
+            check("S6-TAPE-03",
+                  "a tape that came out of a .zip and cannot be reopened WARNS exactly once, naming the archive and "
+                  "the member and not the scratch path, and is not a refusal even under strict",
+                  v.ok && v.warnings.size() == 1 &&
+                      w0.find("/home/user/games/jetpac.tap.zip") != std::string::npos &&
+                      w0.find("JETPAC/jetpac.tap") != std::string::npos &&
+                      w0.find("game.tzx") == std::string::npos,
+                  w0);
+        }
+
         // ── P5: the preview travels as a declared meta member ─────────────
         {
             // A 1-pixel PNG is not needed: the row is about the DECLARATION

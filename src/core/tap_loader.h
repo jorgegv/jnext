@@ -267,12 +267,26 @@ public:
     /// (no tape loaded, a block or byte past the tape, an unknown phase...).
     bool restore_deck(const DeckState& d, std::string& why);
 
+    /// Convert a real-time deck to fast loading without cutting a block (GH
+    /// #402): a deck at a block boundary (not playing: held, ended) turns fast
+    /// at once and returns true; a deck mid-block keeps playing and turns fast,
+    /// stopped, at the next gap boundary (the block, its pause done), the
+    /// way auto play holds there. `current_block()` is then the next block.
+    bool handover_to_fast_at_gap();
+    bool handover_pending() const { return handover_pending_; }
+
+    /// Convert a fast deck (always at a block boundary) to real time at
+    /// `current_block()`: held there when `held` (auto play resumes it when the
+    /// program polls the tape), else playing its pilot at once.
+    void start_realtime_from_fast(bool held);
+
 private:
     std::vector<TapBlock> blocks_;
     size_t current_block_ = 0;
     bool loaded_ = false;
     bool fast_load_ = true;
     bool gap_hold_ = false;
+    bool handover_pending_ = false;   ///< not serialised: re-derived on restore
     bool held_ = false;
     std::string filename_;
     std::string path_;

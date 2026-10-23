@@ -122,7 +122,21 @@ public:
     /// the tape: the blocks a trapped load already served are not played again
     /// (GH #402; an RZX recording switches a fast tape to real time "from
     /// where it is").
-    void start_playback_from_fast_position(uint64_t cpu_clocks);
+    /// With `held` the deck waits at that block instead (auto play resumes it
+    /// when the program polls the tape).
+    void start_playback_from_fast_position(uint64_t cpu_clocks, bool held = false);
+
+    /// Convert a real-time deck to fast loading without cutting a block (GH
+    /// #402): a deck at a block boundary (not playing: held, stopped, ended)
+    /// turns fast at once and returns true, its fast cursor on the next block;
+    /// a deck mid-block keeps playing and turns fast, stopped, at the next gap
+    /// boundary. Not serialised: re-derived on restore.
+    bool handover_to_fast_at_gap();
+    bool handover_pending() const { return handover_pending_; }
+
+    /// A deck stopped at a stop block (playing 0, held 0, tape not at its end)
+    /// becomes held there, the state auto play would have left it in (GH #402).
+    void hold_if_stopped();
 
     /// SHA-256 of the exact bytes load() read (GH #402); empty when nothing is
     /// loaded.
@@ -201,5 +215,6 @@ private:
 
     // Fast-load scanning position (separate from ZOT's playback offset).
     int fast_load_offset_ = 0;
+    bool handover_pending_ = false;
     bool is_tzx_ = false;  // true for TZX, false for TAP
 };

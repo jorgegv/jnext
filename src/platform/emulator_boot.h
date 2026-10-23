@@ -52,7 +52,7 @@ inline bool emulator_apply_load(Emulator& emu, const std::string& file,
     if (ext == ".z80") return snapshot(emu.load_z80(file));
     if (ext == ".wav") return emu.load_wav(file);
     if (ext == ".rzx") return emu.load_rzx(file);
-    if (ext == ".jns") return snapshot(emu.load_jns_file(file));   // GH #27 S8
+    if (ext == ".jns") return snapshot(emu.load_jns_file(file, tape_realtime));   // GH #27 S8; GH #402
     return emu.load_nex(file);   // .nex + unknown extensions
 }
 
