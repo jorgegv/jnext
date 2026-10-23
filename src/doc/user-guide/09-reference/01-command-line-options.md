@@ -48,9 +48,9 @@ with status 1.
 :   Load a program. The format is detected from the extension: `.nex`,
     `.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`.
     (`.rzx` is accepted here and plays back, as **--rzx-play**.) A
-    `.zip` archive holding one of them loads that program (see [Programs
-    in ZIP
-    archives](../05-running-programs/index.md#programs-in-zip-archives)).
+    `.zip` archive holding one of them loads that program (see the
+    [`.zip`
+    entry](../05-running-programs/index.md#programs-in-zip-archives)).
 
     `.jns` is jnext’s own whole-machine snapshot (see [5.9
     Snapshots](../05-running-programs/09-snapshots.md)). Loading one
@@ -416,8 +416,8 @@ with status 1.
     session: the version query, one in-memory file and `run sibling.nex`
     chaining. Every other call goes to the code at `$0008`. For programs
     run without NextZXOS; a directly loaded NEX gets a fuller set
-    automatically (see [Programs in ZIP
-    archives](../05-running-programs/index.md#programs-in-zip-archives)).
+    automatically (see [Programs that need
+    NextZXOS](../05-running-programs/index.md#programs-that-need-nextzxos)).
     With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
     for those calls, and NextZXOS’s file commands stop working.
 

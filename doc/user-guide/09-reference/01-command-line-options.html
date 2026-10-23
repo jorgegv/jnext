@@ -3747,9 +3747,9 @@ that is not the one given here.</dd>
 <p>Load a program. The format is detected from the extension: <code>.nex</code>,
 <code>.jns</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, <code>.rzx</code>.
 (<code>.rzx</code> is accepted here and plays back, as <strong>--rzx-play</strong>.) A
-<code>.zip</code> archive holding one of them loads that program (see <a href="../05-running-programs/index.html#programs-in-zip-archives">Programs
-in ZIP
-archives</a>).</p>
+<code>.zip</code> archive holding one of them loads that program (see the
+<a href="../05-running-programs/index.html#programs-in-zip-archives"><code>.zip</code>
+entry</a>).</p>
 <p><code>.jns</code> is jnext’s own whole-machine snapshot (see <a href="../05-running-programs/09-snapshots.html">5.9
 Snapshots</a>). Loading one
 restores the machine it was taken on, including the machine <em>type</em>:
@@ -4074,8 +4074,8 @@ replay.</dd>
 session: the version query, one in-memory file and <code>run sibling.nex</code>
 chaining. Every other call goes to the code at <code>$0008</code>. For programs
 run without NextZXOS; a directly loaded NEX gets a fuller set
-automatically (see <a href="../05-running-programs/index.html#programs-in-zip-archives">Programs in ZIP
-archives</a>).
+automatically (see <a href="../05-running-programs/index.html#programs-that-need-nextzxos">Programs that need
+NextZXOS</a>).
 With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
 for those calls, and NextZXOS’s file commands stop working.</dd>
 <dt><strong>--esxdos-stub-root</strong> <em>DIR</em></dt>

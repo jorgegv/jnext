@@ -176,7 +176,9 @@ reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
 when it reads that block. Those anomalies are warnings, and `parse_blocks()` reports
 only the first `kMaxWarnings` (20) plus one count of the rest: a 256 MiB tape of
-zeros is 134 million zero-length blocks (TAPC-13).
+zeros is 134 million zero-length blocks (TAPC-13). A tape is also refused above
+`kMaxBlocks` (1 Mi) blocks: a `TapBlock` costs 40 bytes before its payload, so a
+file of 4-byte blocks took ~12x its size in memory (TAPC-15).
 `TzxLoader::validate()` does the same for a `.tzx`
 against libspectrum's TZX reader: the `ZXTape!` signature, then every block
 walked with that reader's length rules, so a block that runs past the end or a
@@ -970,7 +972,7 @@ by re-encoding the text). Duplicate names are found with a hash set (a `find()` 
 member was quadratic: 12 s for 65534 entries). A member name is untrusted bytes:
 every message that carries one goes through `display_name()`, which escapes C0, DEL,
 C1 and anything outside well-formed UTF-8 as `\xNN`, so no consumer can print an
-escape sequence. An archive file over 256 MiB is refused too, before it is read.
+escape sequence. An archive file over 256 MiB is refused too, before it is read. `extraction_name()` also prefixes `_` to a Windows device name (`CON.TAP`, `NUL.Z80`, `COM1.NEX`), on every OS, because Windows 10 refuses to create those files.
 
 **Lifetime.** One `ScratchDir` per process (`process_scratch()`, a function-local
 static, so it is destroyed on any return from `main()`, after the app objects and

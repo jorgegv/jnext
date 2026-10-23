@@ -2640,7 +2640,9 @@ reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
 when it reads that block. Those anomalies are warnings, and <code>parse_blocks()</code> reports
 only the first <code>kMaxWarnings</code> (20) plus one count of the rest: a 256 MiB tape of
-zeros is 134 million zero-length blocks (TAPC-13).
+zeros is 134 million zero-length blocks (TAPC-13). A tape is also refused above
+<code>kMaxBlocks</code> (1 Mi) blocks: a <code>TapBlock</code> costs 40 bytes before its payload, so a
+file of 4-byte blocks took ~12x its size in memory (TAPC-15).
 <code>TzxLoader::validate()</code> does the same for a <code>.tzx</code>
 against libspectrum's TZX reader: the <code>ZXTape!</code> signature, then every block
 walked with that reader's length rules, so a block that runs past the end or a
@@ -3419,7 +3421,7 @@ by re-encoding the text). Duplicate names are found with a hash set (a <code>fin
 member was quadratic: 12 s for 65534 entries). A member name is untrusted bytes:
 every message that carries one goes through <code>display_name()</code>, which escapes C0, DEL,
 C1 and anything outside well-formed UTF-8 as <code>\xNN</code>, so no consumer can print an
-escape sequence. An archive file over 256 MiB is refused too, before it is read.</p>
+escape sequence. An archive file over 256 MiB is refused too, before it is read. <code>extraction_name()</code> also prefixes <code>_</code> to a Windows device name (<code>CON.TAP</code>, <code>NUL.Z80</code>, <code>COM1.NEX</code>), on every OS, because Windows 10 refuses to create those files.</p>
 <p><strong>Lifetime.</strong> One <code>ScratchDir</code> per process (<code>process_scratch()</code>, a function-local
 static, so it is destroyed on any return from <code>main()</code>, after the app objects and
 their open NEX handle, which matters on Windows): a random directory per process,

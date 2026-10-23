@@ -135,7 +135,8 @@ not the one given here.
 Load a program. The format is detected from the extension: `.nex`,
 `.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx`
 is accepted here and plays back, as **--rzx-play**.) A `.zip` archive
-holding one of them loads that program (see **LOADING PROGRAMS**).
+holding one of them loads that program (see the `.zip` entry of
+**LOADING PROGRAMS**).
 
 `.jns` is jnext’s own whole-machine snapshot (see **JNEXT SNAPSHOTS**
 below). Loading one restores the machine it was taken on, including the
