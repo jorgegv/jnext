@@ -1,0 +1,13 @@
+/tmp/tmpXXXXXXXX.asm:
+     1                          MODULE bankin_asm
+     2                          LINE 0, "bankin.asm"
+bankin.asm:
+                                
+     1                              SECTION code_user
+     2                              PUBLIC _bank_in
+     3                          ; void bank_in(void): MMU6/MMU7 = 8K pages 20/21 (NextREG 0x56/0x57)
+     4                          _bank_in:
+     5  0000  ed915614              nextreg 0x56,20
+     6  0004  ed915715              nextreg 0x57,21
+     7  0008  c9                    ret
+     8                          

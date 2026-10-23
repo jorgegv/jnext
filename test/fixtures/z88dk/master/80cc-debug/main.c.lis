@@ -1,0 +1,723 @@
+/tmp/tmpXXXXXXXX.asm:
+     1                          MODULE main_c
+     2                          LINE 0, "main.c"
+main.c:
+                                
+     1                          ;* * * * *  80cc z88dk * * * * *
+     2                          ;  Version: 23856-580777436e-20251005
+     3                          ;
+     4                          ;	Reconstructed for z80 Module Assembler
+     5                          ;
+     6                          ;	Module compile time: (normalised)
+     7                          
+     8                          
+     9                          	C_LINE	0,"main.c"
+                                
+                                	MODULE	main_c
+                                
+                                
+                                	INCLUDE "z80_crt0.hdr"
+z88dk/lib/z80_crt0.hdr:
+     1                          ;
+     2                          ;	Header file which contains all required variables from the
+     3                          ;	startup that need to be exposed to individual C files
+     4                          ;
+     5                          ;	Stick in this file any routines which are needed or implicitly
+     6                          ;	implied by sccz80.
+     7                          ;
+     8                          ;	This file is included by every module
+     9                          ;	To handle multi module programs which use floating point
+    10                          ;	routines in different modules, we have got rid of
+    11                          ;	the conditional assembly around the float routines
+    12                          
+    13                          
+    14                          	EXTERN	base_graphics	; Address of graphics screen
+    15                          
+    16                          	EXTERN	_cpfar2near	; Far->near conversion (z88)
+    17                          	EXTERN	packintrout	; Process interrupt (z88 apps)
+    18                          
+    19                          	EXTERN	l_dcal		; jp(hl)
+    20                          	EXTERN	cleanup		; cleanup before program exit
+    21                          
+    22                          	EXTERN	l_jphl		; another jp(hl)
+    23                          	EXTERN	l_jpix		; jp(ix)
+    24                          	EXTERN	l_jpiy		; jp(iy)
+    25                          
+    26                          	EXTERN	l_setix		; set non-z80 jp(ix) smc
+    27                          	EXTERN	l_setiy		; set non-z80 jp(iy) smc
+    28                          
+    29                          	EXTERN	l_ldi
+    30                          	EXTERN	l_ldi_128
+    31                          	EXTERN	l_ldi_256
+    32                          
+    33                          	EXTERN	l_outi
+    34                          	EXTERN	l_outi_128
+    35                          	EXTERN	l_outi_256
+    36                          
+    37                          	EXTERN	l_ini
+    38                          	EXTERN	l_ini_128
+    39                          	EXTERN	l_ini_256
+    40                          	EXTERN	l_ini_512
+    41                          
+    42                          	; Used for banked calls for __banked for sccz80 + sdcc
+    43                          	EXTERN	banked_call
+    44                          
+    45                          ;------------------------------------
+    46                          ; Scopes for integer library routines
+    47                          ;------------------------------------
+    48                          
+    49                          	EXTERN	l_getptr	;Get 3 byte pointer
+    50                          	EXTERN	l_putptr	;Put 3 byte pointer
+    51                          	EXTERN	l_gchar		;Get signed char
+    52                          	EXTERN	l_gchar1
+    53                          	EXTERN	l_gchar2
+    54                          	EXTERN	l_gchar3
+    55                          	EXTERN	l_gchar4
+    56                          	EXTERN	l_gchar5
+    57                          	EXTERN	l_gchar6
+    58                          	EXTERN	l_gchar7
+    59                          	EXTERN	l_gchar8
+    60                          	EXTERN	l_gcharsp	;Get signed char  (peephole opt)
+    61                          	EXTERN	l_gcharspsp	;Get signed char and push  (peephole opt)
+    62                          	EXTERN	l_g2charspsp	;Get 2 signed char and push  (peephole opt)
+    63                          	EXTERN	l_sxt		;Sign extend char
+    64                          	EXTERN	l_gint		;Get int ld hl,(hl)
+    65                          	EXTERN	l_gint1sp	;Optimized variants ld hl,x add hl,sp ld hl,(hl)
+    66                          	EXTERN	l_gint2sp
+    67                          	EXTERN	l_gint3sp
+    68                          	EXTERN	l_gint4sp
+    69                          	EXTERN	l_gint5sp
+    70                          	EXTERN	l_gint6sp
+    71                          	EXTERN	l_gint7sp
+    72                          	EXTERN	l_gint8sp
+    73                          	EXTERN	l_gint1		;Optimized variants inc hl,x ld hl,(hl)
+    74                          	EXTERN	l_gint2
+    75                          	EXTERN	l_gint3
+    76                          	EXTERN	l_gint4
+    77                          	EXTERN	l_gint5
+    78                          	EXTERN	l_gint6
+    79                          	EXTERN	l_gint7
+    80                          	EXTERN	l_gint8
+    81                          	EXTERN	l_gintsp	;Get int (peephole opt)
+    82                          	EXTERN	l_gintspchar	;Get int,char (peephole opt)
+    83                          	EXTERN	l_gintspsp	;Get int and push (peephole opt)
+    84                          	EXTERN	l_g2intspsp	;Get 2 int and push (peephole opt)
+    85                          	EXTERN	l_gintsp2de	;Get int, multiply by 2 and add from SP by de
+    86                          	EXTERN	l_gint7de	;Get int, multiply by 7 and add from SP by de
+    87                          	EXTERN	l_gint_eq	;Get int and test == 0
+    88                          	EXTERN	l_ghtonsint	;Get reverse order int
+    89                          	EXTERN	l_pint		;Put int: ld (de),hl
+    90                          	EXTERN	l_pint_eq	;Put int and test == 0
+    91                          	EXTERN	l_pint_pop	;Put int and pop place address
+    92                          	EXTERN	l_or		;Int logical or
+    93                          	EXTERN	l_xor		;Int logical xor
+    94                          	EXTERN	l_and		;Int logical and
+    95                          	EXTERN	l_eq		;Int equality de == hl
+    96                          	EXTERN	l_eq_hlbc	;Int equality bc == hl
+    97                          	EXTERN	l_ne		;Int inequality de != hl
+    98                          	EXTERN	l_ne_hlbc	;Int inequality bc != hl
+    99                          	EXTERN	l_gt		;Int signed de > hl
+   100                          	EXTERN	l_gt_hlbc	;Int signed bc > hl
+   101                          	EXTERN	l_le		;Int signed de <= hl
+   102                          	EXTERN	l_le_hlbc	;Int signed bc <= hl
+   103                          	EXTERN	l_ge		;Int signed de >= hl
+   104                          	EXTERN	l_ge_hlbc	;Int signed bc >= hl
+   105                          	EXTERN	l_lt		;Int signed de < hl
+   106                          	EXTERN	l_lt_hlbc	;Int signed bc < hl
+   107                          	EXTERN	l_uge		;Int unsigned de >= hl
+   108                          	EXTERN	l_uge_hlbc	;Int unsigned bc >= hl
+   109                          	EXTERN	l_ult		;Int unsigned de < hl
+   110                          	EXTERN	l_ult_hlbc	;Int unsigned bc < hl
+   111                          	EXTERN	l_ugt		;Int unsigned de > hl
+   112                          	EXTERN	l_ugt_hlbc	;Int unsigned bc > hl
+   113                          	EXTERN	l_ule		;Int unsigned de <= hl
+   114                          	EXTERN	l_ule_hlbc	;Int unsigned bc <= hl
+   115                          	EXTERN	l_cmp		;Int signed compare
+   116                          	EXTERN	l_ucmp		;Int unsigned compare
+   117                          	EXTERN	l_asr		;Int signed de >> hl
+   118                          	EXTERN	l_asr_hl_by_e	;Int signed hl >> e
+   119                          	EXTERN	l_asr_u		;Int unsigned de >> hl
+   120                          	EXTERN	l_asr_u_hl_by_e	;Int unsigned hl >> e
+   121                          	EXTERN	l_asl		;Int de << hl
+   122                          	EXTERN	l_sub		;Int subtract hl = de - hl
+   123                          	EXTERN	l_neg		;Int negate
+   124                          	EXTERN	l_com		;Int ~
+   125                          	EXTERN	l_lneg		;Int logical negate
+   126                          	EXTERN	l_bool		;Int boolean test
+   127                          	EXTERN	l_cm_de
+   128                          	EXTERN	l_cm_bc
+   129                          	EXTERN	l_deneg
+   130                          	EXTERN	l_bcneg
+   131                          	EXTERN	l_case		;Integer case
+   132                          	EXTERN	l_mult		;Integer hl = hl * de
+   133                          	EXTERN	l_mult_u	;Integer unsigned *
+   134                          	EXTERN	l_div		;Integer signed / hl=de/hl, de=de%hl
+   135                          	EXTERN	l_div_u		;Integer unsigned /
+   136                          	EXTERN	l_mod		;Integer % (for gbz80) hl=de%hl
+   137                          	EXTERN	l_mod_u		;Integer unsigned % (for gbz80)
+   138                          
+   139                          
+   140                              EXTERN  l_lsr_dehl  ;Shift dehl by a
+   141                              EXTERN  l_asr_dehl  ;Arithmetic (signed) shift dehl by a
+   142                              EXTERN  l_lsl_dehl  ;Shift dehl by a
+   143                          
+   144                          ;------------------
+   145                          ;Long functions now
+   146                          ;------------------
+   147                          
+   148                          	EXTERN	lpush2		;Push a long under the stack
+   149                          	EXTERN	l_int2long_s	;Int->long signed conversion
+   150                          	EXTERN	l_int2long_s_float	;Int->long->float signed conversion (optimizer: use -O3)
+   151                          	EXTERN	l_int2long_u_float	;uInt->ulong->float signed conversion
+   152                          	EXTERN	l_glong		;Get long
+   153                          	EXTERN	l_glongsp	;Get long (peephole opt)
+   154                          	EXTERN	l_glonghlp	;Get pointer, then get long
+   155                          	EXTERN	l_glong2sp	;Get long and copy on stack (peephole opt)
+   156                          	EXTERN	l_glong2sp_hlp
+   157                          	EXTERN	l_long_add
+   158                          	EXTERN	l_long_and
+   159                          	EXTERN	l_long_asl
+   160                          	EXTERN	l_long_asr
+   161                          	EXTERN	l_long_aslo	;Long << shift in c
+   162                          	EXTERN	l_long_asro	;Long >> shift in c (signed)
+   163                          	EXTERN	l_long_bool
+   164                          	EXTERN	l_long_cmp
+   165                          	EXTERN	l_long_com
+   166                          	EXTERN	l_long_eq
+   167                          	EXTERN	l_long_ge
+   168                          	EXTERN	l_long_gt
+   169                          	EXTERN	l_long_le
+   170                          	EXTERN	l_long_lneg
+   171                          	EXTERN	l_long_lt
+   172                          	EXTERN	l_long_ne
+   173                          	EXTERN	l_long_neg
+   174                          	EXTERN	l_long_or
+   175                          	EXTERN	l_long_sub
+   176                          	EXTERN	l_long_ucmp
+   177                          	EXTERN	l_long_uge
+   178                          	EXTERN	l_long_ugt
+   179                          	EXTERN	l_long_ule
+   180                          	EXTERN	l_long_ult
+   181                          	EXTERN	l_long_xor
+   182                          	EXTERN	l_plong
+   183                          	EXTERN	l_inclong	;Increment long
+   184                          	EXTERN	l_declong	;Decrement long
+   185                          	EXTERN	l_inc_dehl	;Increment dehl
+   186                          	EXTERN	l_dec_dehl	;Decrement dehl
+   187                          	EXTERN	l_long_div
+   188                          	EXTERN	l_long_div_u
+   189                          	EXTERN	l_long_mod
+   190                          	EXTERN	l_long_mod_u
+   191                          	EXTERN	l_long_mult
+   192                          	EXTERN	l_long_mult_u
+   193                          	EXTERN	l_mulu_32_16x16	;Unsigned 16x16->32 (dehl = hl * de)
+   194                          	EXTERN	l_long_asr_u	;Long unsigned >>
+   195                          	EXTERN	l_long_asr_uo	;Long unsigned >> shift in c
+   196                          	EXTERN	l_long_case
+   197                          	EXTERN	l_long_inc_mhl
+   198                          	EXTERN	l_long_dec_mhl
+   199                          
+   200                          ;--------------------------------------------------------------
+   201                          ; Floating point support routines, mostly in library
+   202                          ;--------------------------------------------------------------
+   203                          
+   204                          	EXTERN	dadd
+   205                          	EXTERN	ddiv
+   206                          	EXTERN	dsub
+   207                          	EXTERN	dmul
+   208                          
+   209                          	EXTERN	dge
+   210                          	EXTERN	dgt
+   211                          	EXTERN	dleq
+   212                          	EXTERN	dlt
+   213                          	EXTERN	deq
+   214                          	EXTERN	dne
+   215                          
+   216                          	EXTERN	minusfa		;FA=-FA
+   217                          
+   218                          	EXTERN	dswap		;Exchange FA with top of stack
+   219                          	EXTERN	float		;Convert int to float
+   220                          	EXTERN	ufloat		;unsigned int to float
+   221                          	EXTERN	ifix		;Convert float to int
+   222                          
+   223                          	EXTERN	dstore		;FA->(de)
+   224                          	EXTERN	dload		;FA<-(hl)
+   225                          	EXTERN	dldpsh		;(hl)->(stack)
+   226                          	EXTERN	dpush		;FA->(stack)
+   227                          	EXTERN	dpush2		;FA->(stack under)
+   228                          	EXTERN	dpush3		;FA->(stack under,long)
+   229                          
+   230                          	EXTERN	fa		;may not be needed in this file
+   231                          	EXTERN	extra		;ditto
+   232                          	EXTERN	__atof2		;string->fa conversion
+   233                          	EXTERN	l_f48_ldexp	;FA * pow2(N)
+   234                          	EXTERN	l_f48_f16tof	;Convert _Float16 to float
+   235                          	EXTERN	l_f48_ftof16	;Convert float to _Float16
+   236                              EXTERN  l_f48_sllong2f
+   237                              EXTERN  l_f48_ullong2f
+   238                              EXTERN  l_f48_f2sllong
+   239                              EXTERN  l_f48_f2ullong
+   240                          
+   241                          	; 16 bit float ABI
+   242                          	EXTERN	l_f16_add
+   243                          	EXTERN	l_f16_sub
+   244                          	EXTERN	l_f16_mul
+   245                          	EXTERN	l_f16_div
+   246                          	EXTERN	l_f16_le
+   247                          	EXTERN	l_f16_lt
+   248                          	EXTERN	l_f16_ge
+   249                          	EXTERN	l_f16_gt
+   250                          	EXTERN	l_f16_eq
+   251                          	EXTERN	l_f16_ne
+   252                          	EXTERN	l_f16_swap
+   253                          	EXTERN	l_f16_schar2f
+   254                          	EXTERN	l_f16_uchar2f
+   255                          	EXTERN	l_f16_sint2f
+   256                          	EXTERN	l_f16_uint2f
+   257                          	EXTERN	l_f16_slong2f
+   258                          	EXTERN	l_f16_ulong2f
+   259                          	EXTERN	l_f16_f2sint
+   260                          	EXTERN	l_f16_f2uint
+   261                          	EXTERN	l_f16_f2slong
+   262                          	EXTERN	l_f16_f2ulong
+   263                          	EXTERN	l_f16_ldexp
+   264                          	EXTERN	l_f16_invf	;Only for ieee16
+   265                          	EXTERN	l_f16_f16tof	;A noop
+   266                          	EXTERN	l_f16_ftof16	;A noop
+   267                          
+   268                          	; 32 bit float ABI
+   269                          	EXTERN	l_f32_add
+   270                          	EXTERN	l_f32_sub
+   271                          	EXTERN	l_f32_mul
+   272                          	EXTERN	l_f32_div
+   273                          	EXTERN	l_f32_le
+   274                          	EXTERN	l_f32_lt
+   275                          	EXTERN	l_f32_ge
+   276                          	EXTERN	l_f32_gt
+   277                          	EXTERN	l_f32_eq
+   278                          	EXTERN	l_f32_ne
+   279                          	EXTERN	l_f32_swap
+   280                          	EXTERN	l_f32_negate
+   281                          	EXTERN	l_f32_schar2f
+   282                          	EXTERN	l_f32_uchar2f
+   283                          	EXTERN	l_f32_sint2f
+   284                          	EXTERN	l_f32_uint2f
+   285                          	EXTERN	l_f32_slong2f
+   286                          	EXTERN	l_f32_ulong2f
+   287                          	EXTERN	l_f32_f2sint
+   288                          	EXTERN	l_f32_f2uint
+   289                          	EXTERN	l_f32_f2slong
+   290                          	EXTERN	l_f32_f2ulong
+   291                          	EXTERN	l_f32_ldexp
+   292                          	EXTERN	l_f32_invf	;Only for math32
+   293                          	EXTERN	l_f32_f16tof	;Convert _Float16 to float
+   294                          	EXTERN	l_f32_ftof16	;Convert float to _Float16
+   295                          
+   296                          	; 64 bit float ABI
+   297                          	EXTERN	l_f64_load
+   298                          	EXTERN	l_f64_add
+   299                          	EXTERN	l_f64_sub
+   300                          	EXTERN	l_f64_mul
+   301                          	EXTERN	l_f64_div
+   302                          	EXTERN	l_f64_le
+   303                          	EXTERN	l_f64_lt
+   304                          	EXTERN	l_f64_ge
+   305                          	EXTERN	l_f64_gt
+   306                          	EXTERN	l_f64_eq
+   307                          	EXTERN	l_f64_ne
+   308                          	EXTERN	l_f64_negate
+   309                          	EXTERN	l_f64_swap
+   310                          	EXTERN	l_f64_store
+   311                          	EXTERN	l_f64_dpush
+   312                          	EXTERN	l_f64_dldpsh
+   313                          	EXTERN	l_f64_dpush2
+   314                          	EXTERN	l_f64_dpush3
+   315                          	EXTERN	l_f64_schar2f
+   316                          	EXTERN	l_f64_uchar2f
+   317                          	EXTERN	l_f64_sint2f
+   318                          	EXTERN	l_f64_uint2f
+   319                          	EXTERN	l_f64_slong2f
+   320                          	EXTERN	l_f64_ulong2f
+   321                          	EXTERN	l_f64_f2sint
+   322                          	EXTERN	l_f64_f2uint
+   323                          	EXTERN	l_f64_f2slong
+   324                          	EXTERN	l_f64_f2ulong
+   325                          	EXTERN	l_f64_ldexp
+   326                          	EXTERN	l_f64_f16tof	;Convert _Float16 to float
+   327                          	EXTERN	l_f64_ftof16	;Convert float to _Float16
+   328                          
+   329                          
+   330                          ;--------------------------------------------------
+   331                          ; Routines for picking up variables from far memory
+   332                          ;--------------------------------------------------
+   333                          
+   334                          	EXTERN	lp_gchar
+   335                          	EXTERN	lp_guchar
+   336                          	EXTERN	lp_gdoub
+   337                          	EXTERN	lp_gint
+   338                          	EXTERN	lp_glong
+   339                          	EXTERN	lp_gptr
+   340                          	EXTERN	lp_pchar
+   341                          	EXTERN	lp_pdoub
+   342                          	EXTERN	lp_pint
+   343                          	EXTERN	lp_plong
+   344                          	EXTERN	lp_pptr
+   345                          
+   346                          	EXTERN	l_farcall	; Long call
+   347                          	EXTERN  l_far_mapaddr	; Map __banked to __far
+   348                          
+   349                          ;--------------------------------------------------
+   350                          ; Routines for handling 16 bit fixed point for sccz80
+   351                          ;--------------------------------------------------
+   352                          
+   353                          	EXTERN	l_f16_fix16tof
+   354                          	EXTERN	l_f16_ftofix16
+   355                          	EXTERN	l_f32_fix16tof
+   356                          	EXTERN	l_f32_ftofix16
+   357                          	EXTERN	l_f48_fix16tof
+   358                              EXTERN  l_f48_ftofix16s
+   359                          	EXTERN	l_f48_ftofix16
+   360                          	EXTERN	l_f64_fix16tof
+   361                          	EXTERN	l_f64_ftofix16
+   362                          	EXTERN	l_fix16_divu
+   363                          	EXTERN	l_fix16_divs
+   364                          	EXTERN	l_fix16_f2sint
+   365                          	EXTERN	l_fix16_f2slong
+   366                          	EXTERN	l_fix16_f2uint
+   367                          	EXTERN	l_fix16_f2ulong
+   368                              EXTERN  l_fix16_uchar2f
+   369                              EXTERN  l_fix16_uint2f
+   370                              EXTERN  l_fix16_ulong2f
+   371                              EXTERN  l_fix16_schar2f
+   372                              EXTERN  l_fix16_sint2f
+   373                              EXTERN  l_fix16_slong2f
+   374                          	EXTERN	l_fix16_inv
+   375                          	EXTERN	l_fix16_mul
+   376                          	EXTERN	l_fix16_mulu
+   377                          	EXTERN	l_fix16_muls
+   378                          	EXTERN	l_fix16_negate
+   379                          
+   380                          ;--------------------------------------------------
+   381                          ; Routines for handling 64 bit integers for sccz80
+   382                          ;--------------------------------------------------
+   383                          
+   384                          	EXTERN	__i64_acc
+   385                          	EXTERN	l_i64_load
+   386                          	EXTERN	l_i64_store
+   387                          	EXTERN	l_i64_push
+   388                          	EXTERN	l_i64_add
+   389                          	EXTERN	l_i64_sub
+   390                          	EXTERN	l_i64_mult
+   391                          	EXTERN	l_i64_mult_u
+   392                          	EXTERN	l_i64_mod
+   393                          	EXTERN	l_i64_mod_u
+   394                          	EXTERN	l_i64_div
+   395                          	EXTERN	l_i64_div_u
+   396                          	EXTERN	l_i64_or
+   397                          	EXTERN	l_i64_xor
+   398                          	EXTERN	l_i64_and
+   399                          	EXTERN	l_i64_asr_u
+   400                          	EXTERN	l_i64_asr_uo
+   401                          	EXTERN	l_i64_asr
+   402                          	EXTERN	l_i64_asro
+   403                          	EXTERN	l_i64_asl
+   404                          	EXTERN	l_i64_aslo
+   405                          	EXTERN	l_i64_inc
+   406                          	EXTERN	l_i64_dec
+   407                          	EXTERN	l_i64_eq0
+   408                          	EXTERN	l_i64_eq
+   409                          	EXTERN	l_i64_ne
+   410                          	EXTERN	l_i64_ge
+   411                          	EXTERN	l_i64_gt
+   412                          	EXTERN	l_i64_uge
+   413                          	EXTERN	l_i64_ugt
+   414                          	EXTERN	l_i64_le
+   415                          	EXTERN	l_i64_lt
+   416                          	EXTERN	l_i64_ule
+   417                          	EXTERN	l_i64_ult
+   418                          	EXTERN	l_i64_lneg
+   419                          	EXTERN	l_i64_neg
+   420                          	EXTERN	l_i64_com
+   421                          	EXTERN	l_i64_case
+   422                          	EXTERN	l_i64_push_under_int
+   423                          	EXTERN	l_i64_push_under_int_mhl
+   424                          	EXTERN	l_i64_copy
+   425                          	EXTERN	l_i64_slong2i64
+   426                          	EXTERN	l_i64_ulong2i64
+   427                          	EXTERN	l_i64_sint2i64
+   428                          	EXTERN	l_i64_uint2i64
+   429                          	EXTERN	l_i64_u64_toi32
+   430                          	EXTERN	l_i64_s64_toi32
+   431                          
+   432                          
+   433                          ;-------------------
+   434                          ; Routines for SDCC
+   435                          ;-------------------
+   436                          
+   437                          	EXTERN	__divsint_rrx_s
+   438                          	EXTERN	__divsint_rrx_hds
+   439                          	EXTERN	__divuint_rrx_s
+   440                          	EXTERN	__divuint_rrx_hds
+   441                          	EXTERN	__divsuchar_rrx_s
+   442                          	EXTERN	__divuschar_rrx_s
+   443                          	EXTERN	__divuchar_rrx_s
+   444                          	EXTERN	__divuchar_rrx_hds
+   445                          	EXTERN	__moduchar_rrx_s
+   446                          	EXTERN	__moduchar_rrx_hds
+   447                          	EXTERN	__moduschar_rrx_s
+   448                          	EXTERN	__modsuchar_rrx_s
+   449                          	EXTERN	__modschar_rrx_s
+   450                          	EXTERN	__modschar_rrx_hds
+   451                          	EXTERN	__modsint_rrx_s
+   452                          	EXTERN	__modsint_rrx_hds
+   453                          	EXTERN	__moduint_rrx_s
+   454                          	EXTERN	__moduint_rrx_hds
+   455                          	EXTERN	__get_remainder
+   456                          	EXTERN	__divunsigned
+   457                          	EXTERN	__div_signexte
+   458                          	EXTERN	__divu16
+   459                          	EXTERN	__div16
+   460                          	EXTERN	__div8
+   461                          	EXTERN	__muluchar_rrx_s
+   462                          	EXTERN	__muluchar_rrx_hds
+   463                          	EXTERN	__mulsuchar_rrx_s
+   464                          	EXTERN	__muluschar_rrx_s
+   465                          	EXTERN	__mulschar_rrx_s
+   466                          	EXTERN	__mulschar_rrx_hds
+   467                          	EXTERN	__mulint_rrx_s
+   468                          	EXTERN	__mulint_rrx_hds
+   469                          	EXTERN	__mul16
+   470                          	EXTERN	__rrulong_rrx_s
+   471                          	EXTERN	__rrslong_rrx_s
+   472                          	EXTERN	__rlslong_rrx_s
+   473                          	EXTERN	__rlulong_rrx_s
+   474                          	EXTERN	__muluchar
+   475                          	EXTERN	__mulschar
+   476                          
+   477                          	EXTERN	l_push_di
+   478                          	EXTERN	l_pop_ei
+   479                          
+   480                          	EXTERN	l_debug_push_frame
+   481                          	EXTERN	l_debug_pop_frame
+   482                          
+main.c:
+                                
+                                
+                                	C_LINE	0,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h:
+                                	C_LINE	0,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/sys/compiler.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/sys/compiler.h:
+                                	C_LINE	8,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h:
+     8                          	C_LINE	10,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    10                          	C_LINE	11,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    11                          	C_LINE	12,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    12                          	C_LINE	14,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    14                          	C_LINE	15,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    15                          	C_LINE	16,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    16                          	C_LINE	18,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    18                          	C_LINE	19,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    19                          	C_LINE	20,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    20                          	C_LINE	22,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    22                          	C_LINE	23,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    23                          	C_LINE	24,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    24                          	C_LINE	26,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    26                          	C_LINE	27,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    27                          	C_LINE	28,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    28                          	C_LINE	30,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    30                          	C_LINE	31,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    31                          	C_LINE	32,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    32                          	C_LINE	62,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    62                          	C_LINE	63,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    63                          	C_LINE	65,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    65                          	C_LINE	66,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    66                          	C_LINE	68,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    68                          	C_LINE	69,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    69                          	C_LINE	75,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    75                          	C_LINE	78,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    78                          	C_LINE	96,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    96                          	C_LINE	97,"z88dk/lib/config/../..//include/_DEVELOPMENT/common/stdint.h"
+    97                          	C_LINE	1,"main.c"
+main.c:
+     1                          	C_LINE	0,"util.h"
+util.h:
+                                	C_LINE	5,"util.h"
+     5                          	C_LINE	2,"main.c"
+main.c:
+     2                          	C_LINE	4,"main.c"
+     4                          	C_LINE	6,"main.c"
+     6                          	C_LINE	7,"main.c"
+     7                          	C_LINE	9,"main.c"
+     9                          	SECTION	code_compiler
+     9                          
+     9                          ; Function square flags 0x00000200 __smallc
+     9                          ; unsigned char uint8_tsquare(unsigned char x)
+     9                          ; parameter 'unsigned char x' at sp+4 size(1)
+     9                          	C_LINE	10,"main.c::square::0::0"
+main.c::square::0::0:
+    10                          ._square
+    10  0000  cd0000            	call	l_debug_push_frame
+    10                          	C_LINE	11,"main.c::square::0::1"
+main.c::square::0::1:
+    11  0003  210400            	ld	hl,4
+    11  0006  39                	add	hl,sp
+    11  0007  7e                	ld	a,(hl)
+    11  0008  6f                	ld	l,a
+    11  0009  2600              	ld	h,0
+    11  000b  67                	ld	h,a
+    11  000c  eb                	ex	de,hl
+    11  000d  ed30              	mul	de
+    11  000f  eb                	ex	de,hl
+    11  0010  cd0000            	call	l_debug_pop_frame
+    11  0013  c9                	ret
+    11                          	C_LINE	14,"main.c::square::0::1"
+    14                          
+    14                          ; Function main flags 0x00000000 __stdc
+    14                          ; int main()
+    14                          	C_LINE	15,"main.c::main::0::2"
+main.c::main::0::2:
+    15                          ._main
+    15  0014  dde5              	push	ix
+    15  0016  dd210000          	ld	ix,0
+    15  001a  dd39              	add	ix,sp
+    15  001c  3b                	dec	sp
+    15                          	C_LINE	17,"main.c::main::0::5"
+main.c::main::0::5:
+    17  001d  210000            	ld	hl,_counter
+    17  0020  3600              	ld	(hl),0
+    17                          	C_LINE	18,"main.c::main::0::5"
+    18  0022  af                	xor	a
+    18  0023  dd77ff            	ld	(ix-1),a
+    18                          	C_LINE	19,"main.c::main::0::5"
+    19                          	C_LINE	20,"main.c::main::0::5"
+    20                          L_f3_bb_1:
+    20                          	C_LINE	18,"main.c::main::0::5"
+    18  0026  dd7eff            	ld	a,(ix-1)
+    18  0029  fe08              	cp	8
+    18  002b  3032              	jr	nc,L_f3_bb_5
+    18                          L_f3_bb_3:
+    18                          	C_LINE	19,"main.c::main::0::5"
+    19  002d  dd7eff            	ld	a,(ix-1)
+    19  0030  5f                	ld	e,a
+    19  0031  1600              	ld	d,0
+    19  0033  210100            	ld	hl,_table
+    19  0036  19                	add	hl,de
+    19  0037  444d              	ld	bc,hl
+    19  0039  c5                	push	bc
+    19  003a  dd7eff            	ld	a,(ix-1)
+    19  003d  6f                	ld	l,a
+    19  003e  2600              	ld	h,0
+    19  0040  e5                	push	hl
+    19  0041  cd0000            	call	_square
+    19  0044  c1                	pop	bc
+    19  0045  c1                	pop	bc
+    19  0046  7d                	ld	a,l
+    19  0047  02                	ld	(bc),a
+    19                          	C_LINE	20,"main.c::main::0::5"
+    20  0048  3a0000            	ld	a,(_counter)
+    20  004b  47                	ld	b,a
+    20  004c  dd7eff            	ld	a,(ix-1)
+    20  004f  210100            	ld	hl,_table
+    20  0052  ed31              	add	hl,a
+    20  0054  7e                	ld	a,(hl)
+    20  0055  80                	add	a,b
+    20  0056  320000            	ld	(_counter),a
+    20                          	C_LINE	18,"main.c::main::0::5"
+    18  0059  dd34ff            	inc	(ix-1)
+    18                          	C_LINE	21,"main.c::main::0::5"
+    21  005c  c32600            	jp	L_f3_bb_1
+    21                          L_f3_bb_5:
+    21                          	C_LINE	22,"main.c::main::0::5"
+    22  005f  3a0000            	ld	a,(_counter)
+    22  0062  fe65              	cp	101
+    22  0064  380c              	jr	c,L_f3_bb_7
+    22  0066  3a0000            	ld	a,(_counter)
+    22  0069  fe65              	cp	101
+    22  006b  381e              	jr	c,L_f3_bb_9
+    22                          L_f3_bb_8:
+    22                          	C_LINE	22,"main.c::main::0::5"
+    22  006d  3e64              	ld	a,100
+    22  006f  c38e00            	jp	L_f3_bb_10
+    22                          L_f3_bb_7:
+    22                          	C_LINE	23,"main.c::main::0::5"
+    23  0072  cd0000            	call	_asm_bump
+    23                          	C_LINE	24,"main.c::main::0::5"
+    24  0075  3a0000            	ld	a,(_counter)
+    24  0078  6f                	ld	l,a
+    24  0079  2600              	ld	h,0
+    24  007b  e5                	push	hl
+    24  007c  cd0000            	call	_util_twice
+    24  007f  c1                	pop	bc
+    24  0080  7d                	ld	a,l
+    24                          L_f3_tm_1:
+    24  0081  320000            	ld	(_counter),a
+    24                          	C_LINE	27,"main.c::main::0::5"
+    27                          L_f3_bb_11:
+    27                          	C_LINE	26,"main.c::main::0::5"
+    26  0084  3a0000            	ld	a,(_counter)
+    26  0087  3c                	inc	a
+    26  0088  c38100            	jp	L_f3_tm_1
+    26                          L_f3_bb_9:
+    26  008b  3a0000            	ld	a,(_counter)
+    26                          L_f3_bb_10:
+    26  008e  320000            	ld	(_counter),a
+    26  0091  c37200            	jp	L_f3_bb_7
+    26                          	SECTION	bss_compiler
+    26                          	SECTION	code_compiler
+    26                          ; --- Start of Optimiser additions ---
+    26                          
+    26                          
+    26                          ; --- Start of Static Variables ---
+    26                          
+    26                          	SECTION	bss_compiler
+    26  0000  00                ._counter	defs	1
+    26  0001  0000000000000000  ._table	defs	8
+    26                          	SECTION	code_compiler
+    26                          
+    26                          
+    26                          ; --- Start of Scope Defns ---
+    26                          
+    26                          	GLOBAL	_util_twice
+    26                          	GLOBAL	_asm_bump
+    26                          	GLOBAL	_counter
+    26                          	GLOBAL	_main
+    26                          
+    26                          
+    26                          ; --- End of Scope Defns ---
+    26                          
+    26                          ; M:main.c
+    26                          	PUBLIC	__CDBINFO__M_3amain_2ec
+    26                          	defc	__CDBINFO__M_3amain_2ec = 1
+    26                          ; F:G$util_twice$0_0$0({0}DF,SC:U),C,0,0,0,0,0
+    26                          	PUBLIC	__CDBINFO__F_3aG_24util_5ftwice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSC_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    26                          	defc	__CDBINFO__F_3aG_24util_5ftwice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSC_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    26                          ; S:G$counter$0_0$0({1}SC:U),E,0,0
+    26                          	PUBLIC	__CDBINFO__S_3aG_24counter_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
+    26                          	defc	__CDBINFO__S_3aG_24counter_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30 = 1
+    26                          ; S:Fmain.c$table$0_0$0({8}DA8x,SC:U),E,0,0
+    26                          	PUBLIC	__CDBINFO__S_3aFmain_2ec_24table_24_30_5f_30_24_30_28_7b_38_7dDA_38x_2cSC_3aU_29_2cE_2c_30_2c_30
+    26                          	defc	__CDBINFO__S_3aFmain_2ec_24table_24_30_5f_30_24_30_28_7b_38_7dDA_38x_2cSC_3aU_29_2cE_2c_30_2c_30 = 1
+    26                          ; F:Fmain.c$square$0_0$0({0}DF,SC:U),C,0,0
+    26                          	PUBLIC	__CDBINFO__F_3aFmain_2ec_24square_24_30_5f_30_24_30_28_7b_30_7dDF_2cSC_3aU_29_2cC_2c_30_2c_30
+    26                          	defc	__CDBINFO__F_3aFmain_2ec_24square_24_30_5f_30_24_30_28_7b_30_7dDF_2cSC_3aU_29_2cC_2c_30_2c_30 = 1
+    26                          ; S:Lmain.c.square$x$0_0$0({1}SC:U),B,1,4
+    26                          	PUBLIC	__CDBINFO__S_3aLmain_2ec_2esquare_24x_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_34
+    26                          	defc	__CDBINFO__S_3aLmain_2ec_2esquare_24x_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_34 = 1
+    26                          ; F:G$main$0_0$1({0}DF,SI:S),C,0,0,0,0,0
+    26                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    26                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    26                          ; S:Lmain.c.main$i$1_0$3({1}SC:U),B,1,-1
+    26                          	PUBLIC	__CDBINFO__S_3aLmain_2ec_2emain_24i_24_31_5f_30_24_33_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31
+    26                          	defc	__CDBINFO__S_3aLmain_2ec_2emain_24i_24_31_5f_30_24_33_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31 = 1
+    26                          ; F:G$util_twice$0_0$0({0}DF,SC:U),C,0,0,0,0,0
+    26                          	PUBLIC	__CDBINFO__F_3aG_24util_5ftwice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSC_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    26                          	defc	__CDBINFO__F_3aG_24util_5ftwice_24_30_5f_30_24_30_28_7b_30_7dDF_2cSC_3aU_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    26                          ; S:G$counter$0_0$0({1}SC:U),E,0,0
+    26                          	PUBLIC	__CDBINFO__S_3aG_24counter_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30
+    26                          	defc	__CDBINFO__S_3aG_24counter_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cE_2c_30_2c_30 = 1
+    26                          ; F:G$main$0_0$1({0}DF,SI:S),C,0,0,0,0,0
+    26                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
+    26                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
+    26                          
+    26                          ; --- End of Compilation ---
+    26                          
