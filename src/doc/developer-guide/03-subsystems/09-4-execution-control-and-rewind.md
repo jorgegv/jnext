@@ -152,6 +152,11 @@ or go back to any earlier point the ring still covers and carry on from there.
 It is off by default, because it costs a full machine save every frame plus the
 ring's memory; `--rewind-buffer-size N` or the debugger's toggle turns it on.
 
+The setting lives in `Emulator::config()` (`rewind_buffer_frames`,
+`rewind_paused`), kept current by `resize_rewind_buffer()` and
+`set_rewind_enabled()`. A hard `init()` (a program load) and a cold boot (which
+carries it) build a new, empty ring from it; a soft reset keeps the ring.
+
 It is not an undo log. It is a ring of whole-machine snapshots taken at frame
 boundaries. `RewindBuffer` (`src/debug/rewind_buffer.*`) allocates one `mmap`
 region of `max_frames × snapshot_bytes` up front, so pages fault in lazily, and

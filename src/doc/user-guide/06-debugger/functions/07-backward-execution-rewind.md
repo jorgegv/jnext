@@ -14,6 +14,11 @@ Turn it on either way:
   **Debug ▸ Rewind ▸ Rewind Buffer Size…** to set the depth. Resizing clears
   the snapshots already recorded.
 
+The setting (on, the size, and unchecked meaning paused) stays as you set it
+when you load a program or reset the machine. The history recorded before a
+load or a hard reset is cleared, because that starts a new machine (in the GUI
+every **File ▸ Open** and Quick Load does); a soft reset (**F4**) keeps it.
+
 Once there is history, a rewind toolbar appears at the bottom of the window:
 
 | Action | Key | Effect |

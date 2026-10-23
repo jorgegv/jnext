@@ -2140,7 +2140,9 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   the debugger’s Debug \> Rewind \> Enable Rewind menu, with no restart
   needed - that allocates 500 frames, or the last size set via Rewind
   Buffer Size… Unchecking the toggle pauses snapshotting but keeps the
-  recorded history; set the buffer size to 0 to free the memory
+  recorded history; set the buffer size to 0 to free the memory. The
+  setting survives program loads and resets; the recorded history does
+  not
 
 | Key      | Action             |
 |----------|--------------------|
