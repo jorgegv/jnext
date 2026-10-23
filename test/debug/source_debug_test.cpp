@@ -2518,7 +2518,7 @@ int main() {
         const fs::path good = dir / "ident-good.sld";
         // A state of another machine whose $8000 holds `first` (and, when
         // `program`, the fixture program), run for `frames` frames.
-        const auto foreign_state = [](uint8_t first, bool program, int frames) {
+        const auto foreign_state = [](uint8_t first, bool program, int frames, uint16_t pc = 0x8000) {
             Emulator o;
             EmulatorConfig c;
             c.type = MachineType::ZX48K;
@@ -2527,14 +2527,21 @@ int main() {
                 const uint8_t main_prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
                 for (size_t i = 0; i < sizeof(main_prog); ++i)
                     o.mmu().write(static_cast<uint16_t>(0x8000 + i), main_prog[i]);
+                const uint8_t sub[] = {0x32, 0x00, 0xA0, 0x00, 0xC9};
+                for (size_t i = 0; i < sizeof(sub); ++i)
+                    o.mmu().write(static_cast<uint16_t>(0x9000 + i), sub[i]);
             }
             o.mmu().write(0x8000, first);
             Z80Registers r = o.cpu().get_registers();
-            r.PC = 0x8000;
+            r.PC = pc;
             r.SP = 0xFF00;
             r.IFF1 = r.IFF2 = 0;
             o.cpu().set_registers(r);
             for (int i = 0; i < frames; ++i) o.run_frame();
+            // The frames moved the PC along the program; the state is taken at `pc`.
+            r = o.cpu().get_registers();
+            r.PC = pc;
+            o.cpu().set_registers(r);
             StateWriter measure;
             o.save_state(measure);
             std::vector<uint8_t> bytes(measure.position(), 0);
@@ -2769,9 +2776,12 @@ int main() {
             m.dbg->set_listener(m.a, &lc);
             m.dbg->load_source_map(good.string(), false);
             m.dbg->set_trace_enabled(true);
-            run_frames(m, 2);
+            // The trace (10000 entries) holds the last frame and a bit: after
+            // the state of frame 5 is taken and one more frame run, the entries
+            // from before it have clocks below the load's, as a Frame Back leaves.
+            run_frames(m, 5);
             const std::vector<uint8_t> s = own_state(m);
-            run_frames(m, 2);
+            run_frames(m, 1);
             const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
             const uint64_t load_clock = m.emu.clock().get();
             const Result first = m.dbg->source_step(m.a, Step::Back);
@@ -2956,25 +2966,31 @@ int main() {
         }
 
         // SRCLIFE-21: Back's "first instruction of the statement" search does
-        // not run on into the history before a state load.
+        // not run on into the history before a state load. The state is another
+        // machine's, at a later clock, at PC $8001: the post-load $8001 is the
+        // second instruction of main.bas:10, and the instruction before it in
+        // the trace ($8000) belongs to the machine before the load.
         {
             Machine m(/*rewind=*/true);
             m.dbg->load_source_map(good.string(), false);
             m.dbg->set_trace_enabled(true);
             run_frames(m, 2);
+            m.set_pc(0x8000);
             m.dbg->step_into(m.a);                 // $8000 NOP -> PC=$8001
-            const std::vector<uint8_t> s = own_state(m);
+            const std::vector<uint8_t> s = foreign_state(0x00, true, 6, 0x8001);
             const Result ld = m.dbg->load_state_bytes(m.a, s.data(), s.size());
             const uint64_t load_clock = m.emu.clock().get();
-            m.dbg->source_step(m.a, Step::Into);    // $8001 -> $8002 (main.bas:11)
+            const Result into = m.dbg->source_step(m.a, Step::Into);    // $8001 -> $8002 (main.bas:11)
             const auto& t = m.emu.trace_log();
             const bool pre = t.size() >= 2 && t.at(t.size() - 1).pc == 0x8001 &&
-                             t.at(t.size() - 2).pc == 0x8000;
+                             t.at(t.size() - 2).pc == 0x8000 &&
+                             t.at(t.size() - 2).cycle < load_clock;
             const Result r = m.dbg->source_step(m.a, Step::Back);
             check("SRCLIFE-21", "Back after Into past a state load does not land before the load",
                   ld == Result::Ok && pre && (r != Result::Ok || m.emu.clock().get() >= load_clock),
                   "r=" + std::to_string(int(r)) + " clock=" + std::to_string(m.emu.clock().get()) +
-                      " load=" + std::to_string(load_clock));
+                      " load=" + std::to_string(load_clock) + " ld=" + std::to_string(int(ld)) +
+                      " pre=" + std::to_string(int(pre)) + " n=" + std::to_string(t.size()));
         }
 
         // SRCLIFE-22: verification is pure (no watch, no latch).
