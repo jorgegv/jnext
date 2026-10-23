@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |      330 |      330 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |      355 |      355 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind call stack     |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -48,7 +48,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card Provisioner   |      139 |      139 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Snapshot container + descriptor (.jns, GH #27) |      297 |      297 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot/warm start: no whole-card read (GH #396) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot: non-UTF-8 host path does not abort a save (GH #401) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -92,9 +92,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NEX loader (screen ingest) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TAP loader (container) |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TAP loader (container) |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZIP program archives  |       71 |       71 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TZX loader (container) |      102 |      102 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TZX loader (container) |      115 |      115 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tape SAVE TZX/WAV (GH #89) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | snapshot_machine_test |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "snapshot_machine_test" to the label map in refresh-subsystem-status.sh. |
@@ -140,7 +140,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | POK Trainers GUI dialog (GH #381) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | RZX Menus             |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI load-failure dialogs |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI load-failure dialogs |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host hotkeys on Alt (Ctrl to guest) |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -169,6 +169,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **13793**| **13793**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **13849**| **13849**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
