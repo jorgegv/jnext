@@ -612,7 +612,20 @@ arbiter, neither kept (one shared out-of-line body for `read`, `read_m1` and `re
 about +4% cycles; a shared `noinline` fetch body beside the inlined `read()`, +21.6%).
 `read_m1()` costs one load and one store more than `read()`. With the trace on, the identity is
 stored per M1; with the call stack on, per frame; an armed `Execute` subscription is evaluated
-only for its address (the existing per-page bitmap). E23-08 records its numbers.
+only for its address (the existing per-page bitmap). E23-08 (#340) removed a full M1 prediction per
+instruction from the call-stack post-hook and a parallel-vector store from the trace, and added one load of
+`last_m1_`, one branch and a two-byte store into the entry already in cache. Measured on the non-PGO
+build, base against branch, interleaved, 5 runs each, pinned to core 0, `--headless --benchmark`, median
+fps; the host was loaded throughout (1-min load 7 to 11 on 12 CPUs), so the spread of single runs is large
+(trace-on 48K ran 290 to 727 fps) and only a gross regression is excluded:
+
+| workload | trace off, base / branch | trace on, base / branch |
+|---|---|---|
+| `next` 500 frames (NextZXOS boot) | 219.0 / 218.2 (-0.4%) | 151.3 / 151.1 (-0.1%) |
+| `48k` 600 frames | 912.4 / 917.6 (+0.6%) | 603.4 / 585.1 (-3.0%; the 9-run repeat gave +6.4%) |
+
+No consistent difference in either direction beyond the noise; a quiet-host `make bench` is still the
+arbiter.
 
 ## 5. The source map and the backend API
 
