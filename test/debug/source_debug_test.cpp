@@ -2630,6 +2630,8 @@ int main() {
         // SRCLIFE-02: a real .sna of other bytes: the identity fails.
         {
             Machine m;
+            LogCatcher lc;
+            m.dbg->set_listener(m.a, &lc);
             const auto r = attach_text(m, "l2", good_text, "8000: ._Main\n");
             Machine other;
             other.emu.mmu().write(0x8000, 0xFF);
@@ -2645,7 +2647,8 @@ int main() {
                                 "symbols detached, status None with a reason",
                   attached && sv == Result::Ok && ld == Result::Ok &&
                       m.dbg->source_map().empty() && m.dbg->symbols().empty() &&
-                      st.state == State::None && !st.reason.empty(),
+                      st.state == State::None && !st.reason.empty() &&
+                      lc.has("Dropped the program's SLD source map: its binary identity"),
                   "ld=" + std::to_string(int(ld)) + " reason=" + st.reason);
         }
 
@@ -2736,6 +2739,8 @@ int main() {
         // SRCLIFE-07: an RZX started from other bytes.
         {
             Machine m;
+            LogCatcher lc;
+            m.dbg->set_listener(m.a, &lc);
             attach_text(m, "l7", good_text);
             const std::string rzx = (life / "l7b.rzx").string();
             {
@@ -2751,7 +2756,9 @@ int main() {
             const Result ld = m.dbg->load(m.a, rzx);
             check("SRCLIFE-07", "an RZX playback start is a landing: the sidecar with an identity "
                                 "that does not match is detached",
-                  ld == Result::Ok && m.dbg->source_map().empty(),
+                  ld == Result::Ok && m.emu.mmu().peek(0x8000) == 0xFF &&
+                      m.dbg->source_map().empty() &&
+                      lc.has("Dropped the program's SLD source map: its binary identity"),
                   "ld=" + std::to_string(int(ld)));
         }
 
