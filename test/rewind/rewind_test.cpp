@@ -7463,7 +7463,9 @@ static int test_gh402_tape_reattach()
         const bool loaded = names && load(*b, j, true, rep);
         const std::string np = b->tape().path();
         check("S6-EMU-TAPE-21", loaded && b->tape().is_loaded() && b->tape().sha256() == man.tape.sha256 && tape_warnings(rep).empty() &&
-              np != extracted && np.find(program_archive::process_scratch().process_dir()) != std::string::npos &&
+              fs::u8path(np).lexically_normal() != fs::u8path(extracted).lexically_normal() &&
+              fs::u8path(np).lexically_normal().string().find(
+                  fs::u8path(program_archive::process_scratch().process_dir()).lexically_normal().string()) == 0 &&
               b->tape().deck_state() == a->tape().deck_state(),
               "a tape extracted from a .zip is recorded by its archive and member: with the extracted copy deleted, a "
               "fresh load re-extracts it from the archive (a different scratch path), verifies the digest, attaches at "
