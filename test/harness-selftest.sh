@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=237  # 235 -> 237: HS-99a..n added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w: they pinned the TERM-time capture budget, which the watchdog removed). HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=242  # 235 -> 242: HS-99a..s added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2436,6 +2436,7 @@ cat > "$wstub" <<'WEOF'
 # stub wine: report what a Windows process would see, per the first argument
 if [[ "${1:-}" == winedbg ]]; then   # the stall capture's debugger (GH #383), mirroring REAL winedbg (measured, wine 11)
     if [[ "${2:-}" == --file ]]; then   # a script: `attach 0x<pid>`, `bt 0x<tid>`..., detach, quit
+        [[ -z "${STUB_FILE_HANG:-}" ]] || exec sleep 30
         [[ -z "${STUB_CMDS_COPY:-}" ]] || cp "$3" "$STUB_CMDS_COPY"
         spid=
         while IFS= read -r l; do
@@ -2448,6 +2449,7 @@ if [[ "${1:-}" == winedbg ]]; then   # the stall capture's debugger (GH #383), m
     fi
     case "${3:-}" in
         "info thread")
+            [[ -z "${STUB_DBG_HANG:-}" ]] || exec sleep 30
             [[ -z "${STUB_KILL_PID:-}" ]] || { kill -9 "$STUB_KILL_PID"; sleep 0.3; }
             w=${STUB_EXE//\//\\}
             printf 'process  tid      prio    name (all IDs are in hex)\r\nSTUB-INFO-THREAD\r\n'
@@ -2472,7 +2474,7 @@ case "${2:-}" in
     hangq) trap 'exit 9' TERM; echo ready; while :; do :; done ;;
     dbus) echo "S=${DBUS_SESSION_BUS_ADDRESS-unset} Y=${DBUS_SYSTEM_BUS_ADDRESS-unset}" ;;
     stall) exec perl -e '$| = 1; $SIG{TERM} = sub { print "got-term\n"; exit 9 }; print "ready\n"; $end = time + ($ENV{STUB_LIFE} || 1e6); select(undef, undef, undef, 0.1) while time < $end; print "bye\n"; exit 9' ;;
-    burn) exec perl -e '$| = 1; $SIG{TERM} = sub { print "got-term\n"; exit 9 }; print "ready\n"; 1 while ((times)[0] < 2.6); print "burned\n"; select(undef, undef, undef, 0.1) while 1' ;;
+    burn) exec perl -e '$| = 1; $SIG{TERM} = sub { print "got-term\n"; exit 9 }; print "ready\n"; 1 while ((times)[0] + (times)[1] < ($ENV{STUB_BURN} || 2.6)); print "burned\n"; select(undef, undef, undef, 0.1) while 1' ;;
     hangint) exec perl -e '$| = 1; $SIG{INT} = sub { print "got-int\n"; exit 8 }; print "ready\n"; sleep 30' ;;
 esac
 WEOF
@@ -2634,9 +2636,17 @@ check "HS-99c" "--serve: the services warm-up (cmd) and the desktop keeper (star
 wd_start() {   # wd_start <capture dir | -> <mode>: sets wd_pid wd_dog (env: JNEXT_WINE_STALL_*, STUB_*)
     local d=$1 mode=$2 _
     rm -rf "$T/cap"; : > "$T/wd.out"
-    ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
-      JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" "$mode" ) \
-        > "$T/wd.out" 2>&1 &
+    if [[ -n ${WD_DEADERR:-} ]]; then   # stderr into a pipe whose reader has already exited
+        ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
+          export STUB_LIFE=${STUB_LIFE:-60}
+          JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" "$mode" ) \
+            > "$T/wd.out" 2> >(exec head -c0) &
+    else
+        ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
+          export STUB_LIFE=${STUB_LIFE:-60}   # an orphaned stub (a mutant that kills its runner) ends by itself
+          JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" "$mode" ) \
+            > "$T/wd.out" 2>&1 &
+    fi
     wd_pid=$!
     ( sleep 90; kill -KILL "$wd_pid" 2>/dev/null ) &
     wd_dog=$!
@@ -2668,13 +2678,19 @@ cap_direct() {   # cap_direct <live pid> <exe> [args...]: the --capture mode alo
 cap_file() { local f; for f in "$T"/cap/wine-stall-*.txt; do [[ -e $f ]] && echo "$f"; done; return 0; }
 cap_n() { cap_file | wc -l; }
 cap_hdrs() { cat "$T"/cap/wine-stall-*.txt 2>/dev/null | grep -c '^== header' || true; }
-wd_procs() {   # wd_procs <capture dir>: how many --watchdog processes name it (a /proc scan; no pgrep)
-    local d c n=0
-    for d in /proc/[0-9]*; do
-        c=$(tr '\0' ' ' 2>/dev/null < "$d/cmdline") || continue
-        [[ $c == *--watchdog*"$1"* ]] && n=$((n + 1))
+wd_find() {   # wd_find <capture dir>: pids of the --watchdog processes naming it (one grep over /proc, not a fork per process)
+    local f p
+    for f in $(grep -laF -- "$1" /proc/[0-9]*/cmdline 2>/dev/null); do
+        p=${f#/proc/}; p=${p%/cmdline}
+        [[ "$(tr '\0' ' ' 2>/dev/null < "$f")" == *--watchdog* ]] && echo "$p"
     done
-    echo "$n"
+    return 0
+}
+wd_poll() {   # wd_poll <capture dir>: wait (<= 10 s) for the watchdog to exist; sets wd_wpid
+    local _
+    wd_wpid=
+    for _ in $(seq 1 100); do wd_wpid=$(wd_find "$1" | head -1); [[ -n $wd_wpid ]] && return 0; sleep 0.1; done
+    return 1
 }
 
 JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 STUB_ARGS_TARGET=stall wd_start "$T/cap" stall
@@ -2720,33 +2736,69 @@ check "HS-99f" "a process that worked (2.6 s of CPU, over the 2 s cap) and then 
 
 wd_start "$T/cap" stall
 sleep 0.5
-n=$(cap_n)
 wd_end TERM
+n=$(cap_n)   # AFTER the runner has returned: a capture taken in the TERM handler is on disk by then
 check "HS-99g" "TERM at the bound with the capture dir set captures NOTHING and is forwarded at once (ms=$cap_ms < 1000, rc 9)" 9 $cap_rc "$cap_out"$'\n'"files=$n ms=$(( cap_ms < 1000 ? 1 : 0 ))" "got-term" "files=0" "ms=1"
 
+# The watchdog ends with wine. Its sampling interval is stretched to 20 s (test-only), so a watchdog
+# the runner failed to stop is still there when the runner returns: no race against its own exit.
 rm -rf "$T/caph"
-out=$(JNEXT_WINE_CAPTURE_DIR="$T/caph" JNEXT_WINE_STALL_AFTER_S=30 JNEXT_WINE_STALL_FLAT_S=30 STUB_LIFE=1.5 wrun stall 2>&1); rc=$?
-check "HS-99h" "wine ending by itself: the runner returns wine's status (9) and leaves no watchdog of its own behind" 9 $rc "$out"$'\n'"watchdogs=$(wd_procs "$T/caph")" "bye" "watchdogs=0"
+( JNEXT_WINE_CAPTURE_DIR="$T/caph" JNEXT_WINE_STALL_AFTER_S=30 JNEXT_WINE_STALL_FLAT_S=30 JNEXT_WINE_STALL_POLL_S=20 STUB_LIFE=2.5 wrun stall > "$T/h.out" 2>&1; echo $? > "$T/h.rc" ) &
+h_bg=$!
+wd_poll "$T/caph" && h_found=1 || h_found=0
+h_pid=$wd_wpid
+wait "$h_bg" 2>/dev/null || true
+h_left=0
+if [[ -n $h_pid && -e /proc/$h_pid/cmdline ]] && grep -qa -- '--watchdog' /proc/$h_pid/cmdline 2>/dev/null; then h_left=1; kill "$h_pid" 2>/dev/null || true; fi
+check "HS-99h" "wine ending by itself: the runner returns wine's status (9), and the watchdog it started is gone when it does" 9 "$(cat "$T/h.rc")" "$(cat "$T/h.out")"$'\n'"watchdog-seen=$h_found left=$h_left" "bye" "watchdog-seen=1 left=0"
 
 # The row's pipes: the watchdog holds none (a row's \$(...) would wait for it), checked on its own fds and on timing.
 rm -rf "$T/capi"
-( JNEXT_WINE_CAPTURE_DIR="$T/capi" JNEXT_WINE_STALL_AFTER_S=30 JNEXT_WINE_STALL_FLAT_S=30 STUB_LIFE=4 wrun stall 2>&1 | cat > "$T/pi.out" ) &
+( JNEXT_WINE_CAPTURE_DIR="$T/capi" JNEXT_WINE_STALL_AFTER_S=30 JNEXT_WINE_STALL_FLAT_S=30 STUB_LIFE=5 wrun stall 2>&1 | cat > "$T/pi.out" ) &
 pi_bg=$!
-sleep 1.5
 wd_found=0; wd_pipes=0
-for d in /proc/[0-9]*; do
-    c=$(tr '\0' ' ' 2>/dev/null < "$d/cmdline") || continue
-    [[ $c == *--watchdog*"$T/capi"* ]] || continue
-    wd_found=$((wd_found + 1))
-    for fdl in "$d"/fd/*; do [[ "$(readlink "$fdl" 2>/dev/null)" == pipe:* ]] && wd_pipes=$((wd_pipes + 1)); done
-done
+if wd_poll "$T/capi"; then
+    wd_found=1
+    for fdl in /proc/$wd_wpid/fd/*; do [[ "$(readlink "$fdl" 2>/dev/null)" == pipe:* ]] && wd_pipes=$((wd_pipes + 1)); done
+fi
 wait "$pi_bg" 2>/dev/null || true
 t0=$EPOCHREALTIME
 out=$(JNEXT_WINE_CAPTURE_DIR="$T/capi" JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 STUB_LIFE=2 wrun stall 2>&1); rc=$?
 t1=$EPOCHREALTIME
 ms=$(( (${t1/./} - ${t0/./}) / 1000 ))
-check "HS-99i" "the watchdog holds none of the row's pipes (no pipe among its fds), and a row-style \$(...) returns when wine does (ms=$ms < 3500)" 9 $rc \
-    "$out"$'\n'"watchdog=$wd_found pipes=$wd_pipes ms=$(( ms < 3500 ? 1 : 0 ))" "watchdog=1 pipes=0 ms=1"
+check "HS-99i" "the watchdog holds none of the row's pipes (no pipe among its fds, polled for), and a row-style \$(...) returns when wine does (ms=$ms < 5000)" 9 $rc \
+    "$out"$'\n'"watchdog=$wd_found pipes=$wd_pipes ms=$(( ms < 5000 ? 1 : 0 ))" "watchdog=1 pipes=0 ms=1"
+
+# INT is forwarded at once and the status is wine's (the watchdog is running: it must not get in the way)
+wd_start "$T/cap" hangint
+wd_end INT
+check "HS-99o" "INT reaches wine at once (the stub saw it; status 8, ms=$cap_ms < 1000) with the watchdog running" 8 $cap_rc "$cap_out"$'\n'"ms=$(( cap_ms < 1000 ? 1 : 0 ))" "got-int" "ms=1"
+
+# The capture is announced on the runner's stderr from the USR1 handler: a dead stderr must neither kill the
+# runner (SIGPIPE, rc 141) nor keep a later TERM from reaching wine.
+WD_DEADERR=1 STUB_LIFE=25 JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 STUB_ARGS_TARGET=stall wd_start "$T/cap" stall
+for _ in $(seq 1 150); do grep -qs 'Backtrace:' "$T"/cap/wine-stall-*.txt && break; sleep 0.1; done
+sleep 1.5   # the announcement follows the finished capture
+kill -0 "$wd_pid" 2>/dev/null && runner=alive || runner=dead
+wd_end TERM
+check "HS-99p" "the capture's announcement into a dead stderr leaves the runner alive, and TERM then still reaches wine (rc 9)" 9 $cap_rc "$(cat "$T/wd.out")"$'\n'"runner=$runner" "got-term" "runner=alive"
+
+# The age gate: flat CPU alone is not a stall. Young (<6 s) and flat for 1 s: nothing; at 6 s: the capture.
+JNEXT_WINE_STALL_AFTER_S=6 JNEXT_WINE_STALL_FLAT_S=1 wd_start "$T/cap" stall
+sleep 3
+young=$(cap_n)
+wd_saved 'state saved to' 15 || true
+later=$(cap_n)
+wd_end TERM
+check "HS-99q" "a process that is flat but younger than the age threshold is not captured (3 s into a 6 s threshold), and is once it reaches it" 9 $cap_rc "young=$young later=$later" "young=0 later=1"
+
+# The CPU cap: a process that spent 1.5 s (under the 2 s cap) and went idle IS captured.
+JNEXT_WINE_STALL_AFTER_S=1 JNEXT_WINE_STALL_FLAT_S=1 STUB_BURN=1.5 STUB_ARGS_TARGET=stall wd_start "$T/cap" burn
+wd_saved burned 60 || true
+wd_saved 'state saved to' 15 || true
+n=$(cap_n)
+wd_end TERM
+check "HS-99r" "a process under the 2 s CPU cap (1.5 s of work, then idle) is captured" 9 $cap_rc "$cap_out"$'\n'"files=$n" "burned" "files=1"
 
 # F2: the capture's pieces, one by one.
 mkdir -p "$T/pp" "$T/pp2" "$T/wdv1" "$T/wdv2"
@@ -2772,6 +2824,13 @@ n=$(grep -c '^Backtrace:' <<<"$capd_txt" || true)
 ball=$(grep -c 'bt all' <<<"$cmds" || true)
 check "HS-99j" "the backtraces are ONE winedbg session: attach, a bt per thread of the matched pid (and no other pid's), detach, quit; never bt all" 0 $([[ $cmds == "$want_cmds" ]] && echo 0 || echo 1) \
     "$capd_txt"$'\n'"cmds: $cmds"$'\n'"backtraces=$n ball=$ball" "backtraces=2 ball=0" "STUB-BT 0x00000200/0x00000208"
+JNEXT_WINE_DBG_BOUND_S=1 STUB_DBG_HANG=1 cap_direct "$pid_a" "$T/fake.exe" hang
+bound_txt=$capd_txt
+JNEXT_WINE_DBG_BOUND_S=1 STUB_FILE_HANG=1 cap_direct "$pid_a" "$T/fake.exe" hang
+bound_txt+=$'\n'$capd_txt
+n=$(grep -c 'no answer within 1s' <<<"$bound_txt" || true)
+check "HS-99s" "a winedbg that never answers is cut by its own bound, in the listing and in the backtrace session (the file says so)" 0 0 "$bound_txt"$'\n'"answers=$n" \
+    "winedbg --command info thread: no answer within 1s" "winedbg --file" "answers=2"
 cap_direct "$pid_pp" "$T/pp/plugplay.exe"
 wd_sec=$(sed -n '/^== winedevice processes/,/^$/p' <<<"$capd_txt")
 check "HS-99k" "the capture lists the threads of every winedevice.exe of the prefix from /proc (both stand-ins, pid and tid)" 0 0 "$wd_sec" \
@@ -2856,12 +2915,17 @@ sc_l="'== header' 'Backtrace:' '=>0 0x1 in ntdll'"
 plw_serve "$sc_serve" "${sc_cap/@@/$sc_l}"
 out3=$(plw_run); rc3=$?
 kill "$(cat "$T/expl.pid")" 2>/dev/null || true
+sc_pat='> "$f";'; sc_rep='> "$f"; cp "$f" "$d/wine-stall-sc2.txt";'
+sc_l="'== header' 'Backtrace:' '  1 0x2 ReadFile+0x110 in kernelbase'"
+plw_serve "$sc_serve" "$(sc_x=${sc_cap/@@/$sc_l}; echo "${sc_x/"$sc_pat"/"$sc_rep"}")"
+out5=$(plw_run); rc5=$?
+kill "$(cat "$T/expl.pid")" 2>/dev/null || true
 plw_serve "$sc_serve" 'exit 0'
 out4=$(plw_run); rc4=$?
 kill "$(cat "$T/expl.pid")" 2>/dev/null || true
-check "HS-99m" "a self-check capture with no backtrace, with only winedbg's refusal, with a backtrace that names no read, or no capture at all is a harness fault (exit 2) naming GH #383" 2 $(( rc1 == 2 && rc2 == 2 && rc3 == 2 && rc4 == 2 ? 2 : 1 )) \
-    "$out1"$'\n'"$out2"$'\n'"$out3"$'\n'"$out4" "HARNESS FAULT" "cannot name a blocked call (GH #383)" "the capture holds no Backtrace:" \
-    "winedbg refused" "no Backtrace: names ReadFile or ReadConsole" "0 capture files" "selfcheck-fault"
+check "HS-99m" "a self-check capture with no backtrace, with only winedbg's refusal, with a backtrace that names no read, no capture at all, or two captures is a harness fault (exit 2) naming GH #383" 2 $(( rc1 == 2 && rc2 == 2 && rc3 == 2 && rc4 == 2 && rc5 == 2 ? 2 : 1 )) \
+    "$out1"$'\n'"$out2"$'\n'"$out3"$'\n'"$out4"$'\n'"$out5" "HARNESS FAULT" "cannot name a blocked call (GH #383)" "the capture holds no Backtrace:" \
+    "winedbg refused" "no Backtrace: names ReadFile or ReadConsole" "0 capture files" "2 capture files" "selfcheck-fault"
 cp "$T/adm-a.good" "$PLT/scripts/adm-a-func.sh"
 
 echo ""

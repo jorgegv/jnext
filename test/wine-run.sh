@@ -13,10 +13,11 @@
 # The environment is the one tools/pgo-build.sh trains the Windows PGO build
 # in: a private WINEPREFIX under the build tree, no wine debug noise, no Mono /
 # Gecko prompt, and NO DISPLAY / WAYLAND_DISPLAY / XDG_RUNTIME_DIR, so nothing
-# can ever open a window on the developer's desktop, and BOTH D-Bus addresses
-# pointed at nothing (DBUS_SESSION_BUS_ADDRESS, DBUS_SYSTEM_BUS_ADDRESS: GH #383, see
-# the line that sets them), so nothing a Windows process loads can call the
-# developer's desktop session. The DLLs the executables
+# can ever open a window on the developer's desktop. In ADDITION to that (pgo-build.sh
+# sets none of it; its training uses dummy audio) BOTH D-Bus addresses are pointed at
+# nothing (DBUS_SESSION_BUS_ADDRESS, DBUS_SYSTEM_BUS_ADDRESS: GH #383, see the line that
+# sets them), so nothing a Windows process loads can call the developer's desktop
+# session. The DLLs the executables
 # link (SDL3, libpng, zlib, winpthreads, libstdc++ ...) are found through
 # WINEPATH -- the MinGW sys-root and the build's own spdlog DLL -- rather than
 # copied beside ninety executables.
@@ -59,8 +60,10 @@
 #     its debuggee under wine 11, so it may only ever be pointed at the stalled process.
 #     The /proc sections come first and are never cut. wine does not catch SIGTERM
 #     (measured), so the forward always lands. INT is forwarded at once.
-#     JNEXT_WINE_STALL_AFTER_S and JNEXT_WINE_STALL_FLAT_S replace the 20 s and the 10 s:
-#     TEST-ONLY, for the harness self-test and the driver's once-per-run self-check.
+#     JNEXT_WINE_STALL_AFTER_S and JNEXT_WINE_STALL_FLAT_S replace the 20 s and the 10 s;
+#     JNEXT_WINE_STALL_POLL_S the 1 s between samples and JNEXT_WINE_DBG_BOUND_S the 20 s
+#     bound of each winedbg call: TEST-ONLY, for the harness self-test and the driver's
+#     once-per-run self-check.
 # A persistent wineserver (--serve, started once before the rows, stopped with
 # `wineserver -k`) must exist first: the first wine process otherwise spawns one
 # that inherits the filters' pipes, never lets them see EOF, and the row hangs.
@@ -307,7 +310,7 @@ if [[ "${1:-}" == --capture ]]; then
 
     # The watchdog calls this while the target is stalled and alive, with nothing racing a
     # kill, so winedbg gets a generous bound per call (still with --kill-after).
-    DBG_BOUND=20
+    DBG_BOUND=${JNEXT_WINE_DBG_BOUND_S:-20}
 
     # winedbg, its output only ever to the capture file (never the row's pipes). A winedbg
     # killed by its bound kills its debuggee under wine 11 (measured), so it is only ever
@@ -420,7 +423,7 @@ if [[ "${1:-}" == --watchdog ]]; then
             fi
             exit 0
         fi
-        /usr/bin/sleep 1
+        /usr/bin/sleep "${JNEXT_WINE_STALL_POLL_S:-1}"
     done
 fi
 
