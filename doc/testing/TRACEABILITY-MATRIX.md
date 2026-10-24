@@ -3856,30 +3856,30 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | S6-EMU-TAPE-31 | a deck saved held, loaded by a session with auto play OFF, is resumed at once (a held deck must not stay stopped for ever), auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7645 |
 | S6-EMU-TAPE-32 | a TZX stopped at a stop block (saved with auto play off), loaded by a session with auto play ON, is held there and resumes when the program polls: the next block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7656 |
 | S6-EMU-TAPE-33 | the poll run is restored when the snapshot's auto play setting equals the session's (the control, saved ON, loaded ON: polling) and reset when it differs (saved OFF, loaded ON: not polling) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7671 |
-| S6-EMU-TAPE-34 | a real-time snapshot loaded in a FAST session and then recorded to RZX keeps playing in real time (the pending switch to fast loading is cancelled, the traps being off): every block lands in RAM and the deck never turns fast | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7711 |
-| S6-EMU-TAPE-35 | the same when the recording is already running at the load (--load x.jns --rzx-record): the restore suspends the traps itself and the deck stays real time to the end | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7723 |
-| S6-EMU-TAPE-36 | a TZX deck saved held at a gap and loaded in a fast session is fast at once with the fast cursor on the NEXT block (offset 217, not the recorded 10): the trap serves that block, never block 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7736 |
-| S6-EMU-TAPE-37 | a real-time TZX saved mid-block and loaded in a FAST session finishes that block in real time, hands over to fast loading at the gap (the pending switch survives the loader's move into the machine) and the trap serves the third block: every block is whole in RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7748 |
-| S6-EMU-TAPE-38 | a TZX deck saved held, loaded by a session with auto play OFF, is resumed at once, auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7761 |
-| S6-EMU-TAPE-39 | a tape file edited after it was attached but BEFORE the save is recorded by the digest of what the deck holds, so the load refuses to reattach it (one 'changed' warning), instead of attaching it at offsets that index other bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7782 |
-| S6-EMU-TAPE-40 | a manifest with an EMPTY digest is not reattached: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7799 |
-| S6-EMU-TAPE-41 | a state/tape.json present but not listed in the manifest's subsystems is the older-file case, not a reattach: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7801 |
-| S6-EMU-JNSFID-01 | a machine that never ran the binary save_state() writes state/ram.json size_bytes = the real RAM size, and the snapshot of the restored machine has the same state/ram.json and state/cpu.json as the file it was restored from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7830 |
-| S6-EMU-JNSFID-02 | a machine saved right after EI (the interrupt grace pending at the boundary) writes ei_grace 0 into state/cpu.json (not a stale -1) and restores it: the restored machine's own snapshot says 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7864 |
-| RWLOAD-PRE-01 | RWLOAD fixtures: .sna/.szx/.nex written | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7918 |
-| RWLOAD-PRE-02 | RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7947 |
-| RWLOAD-01 | a .sna load keeps the debugger-enabled rewind: ring rebuilt empty at size 8, recording again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7977 |
-| RWLOAD-02 | a .szx load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7987 |
-| RWLOAD-03 | a .z80 load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7996 |
-| RWLOAD-04 | a .nex load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8005 |
-| RWLOAD-05 | a machine-switching .jns keeps the rewind setting and re-measures the slot for the new machine | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8014 |
-| RWLOAD-06 | an in-memory snapshot load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8028 |
-| RWLOAD-07 | a load keeps the size chosen in the debugger, not the command-line one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8037 |
-| RWLOAD-08 | a load keeps a paused rewind paused; resuming records again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8055 |
-| RWLOAD-09 | a load keeps a rewind freed in the debugger freed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8063 |
-| RWLOAD-10 | a resize after a pause is recorded as running: the load keeps it enabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8074 |
-| RWLOAD-11 | control: a tape load re-inits nothing, so ring and history are kept | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8083 |
-| RWLOAD-12 | pause then resume then load: rewind comes back running, not paused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8097 |
+| S6-EMU-TAPE-34 | a real-time snapshot loaded in a FAST session and then recorded to RZX keeps playing in real time (the pending switch to fast loading is cancelled, the traps being off): every block lands in RAM and the deck never turns fast, and the log says so (one line when the recording cancels the switch) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7717 |
+| S6-EMU-TAPE-35 | the same when the recording is already running at the load (--load x.jns --rzx-record): the restore suspends the traps itself and the deck stays real time to the end | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7729 |
+| S6-EMU-TAPE-36 | a TZX deck saved held at a gap and loaded in a fast session is fast at once with the fast cursor on the NEXT block (offset 217, not the recorded 10): the trap serves that block, never block 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7742 |
+| S6-EMU-TAPE-37 | a real-time TZX saved mid-block and loaded in a FAST session finishes that block in real time, hands over to fast loading at the gap (the pending switch survives the loader's move into the machine) and the trap serves the third block: every block is whole in RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7754 |
+| S6-EMU-TAPE-38 | a TZX deck saved held, loaded by a session with auto play OFF, is resumed at once, auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7767 |
+| S6-EMU-TAPE-39 | a tape file edited after it was attached but BEFORE the save is recorded by the digest of what the deck holds, so the load refuses to reattach it (one 'changed' warning), instead of attaching it at offsets that index other bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7788 |
+| S6-EMU-TAPE-40 | a manifest with an EMPTY digest is not reattached: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7805 |
+| S6-EMU-TAPE-41 | a state/tape.json present but not listed in the manifest's subsystems is the older-file case, not a reattach: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7807 |
+| S6-EMU-JNSFID-01 | a machine that never ran the binary save_state() writes state/ram.json size_bytes = the real RAM size, and the snapshot of the restored machine has the same state/ram.json and state/cpu.json as the file it was restored from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7836 |
+| S6-EMU-JNSFID-02 | a machine saved right after EI (the interrupt grace pending at the boundary) writes ei_grace 0 into state/cpu.json (not a stale -1) and restores it: the restored machine's own snapshot says 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7870 |
+| RWLOAD-PRE-01 | RWLOAD fixtures: .sna/.szx/.nex written | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7924 |
+| RWLOAD-PRE-02 | RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7953 |
+| RWLOAD-01 | a .sna load keeps the debugger-enabled rewind: ring rebuilt empty at size 8, recording again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7983 |
+| RWLOAD-02 | a .szx load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7993 |
+| RWLOAD-03 | a .z80 load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8002 |
+| RWLOAD-04 | a .nex load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8011 |
+| RWLOAD-05 | a machine-switching .jns keeps the rewind setting and re-measures the slot for the new machine | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8020 |
+| RWLOAD-06 | an in-memory snapshot load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8034 |
+| RWLOAD-07 | a load keeps the size chosen in the debugger, not the command-line one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8043 |
+| RWLOAD-08 | a load keeps a paused rewind paused; resuming records again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8061 |
+| RWLOAD-09 | a load keeps a rewind freed in the debugger freed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8069 |
+| RWLOAD-10 | a resize after a pause is recorded as running: the load keeps it enabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8080 |
+| RWLOAD-11 | control: a tape load re-inits nothing, so ring and history are kept | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8089 |
+| RWLOAD-12 | pause then resume then load: rewind comes back running, not paused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8103 |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 
