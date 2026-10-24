@@ -16,6 +16,7 @@
 | CRT effect | Off / Scanlines / Soft scanlines / TV / PC monitor | A pop-up; one choice, see [5.3](../05-running-programs/03-display.md). Soft scanlines, TV and PC monitor are drawn by the GPU and are absent from builds without GPU support |
 | Start muted | on / off | Takes effect on next launch only |
 | Tape fast-load by default | on / off | See [5.5](../05-running-programs/05-recording-and-playback.md) |
+| Tape: automatic play/stop | on / off | The deck stops between blocks while no program listens; see [5.5](../05-running-programs/05-recording-and-playback.md) |
 
 **Input** picks what drives each of the Next's two joystick connectors — the
 first free USB gamepad, a particular connected gamepad by name, the host cursor

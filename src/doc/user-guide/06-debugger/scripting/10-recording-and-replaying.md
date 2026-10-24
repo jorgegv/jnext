@@ -40,7 +40,7 @@ input edges and the captures so far.
 
 A **cold boot** — a hard reset, or loading a program from the File menu —
 **restarts** the recording at frame 0, because a replay starts at power-on too.
-So *Record*, then *File ▸ Load*, records the program from its load.
+So *Record*, then *File ▸ Load NEX File…*, records the program from its load.
 
 ### What is not recorded
 
