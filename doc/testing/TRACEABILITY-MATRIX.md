@@ -38,7 +38,7 @@ mentions them, so a test can no longer be absent from this document.
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
-| Rewind                                     |   355 |  355 |    0 |    0 |       0 |          0 |
+| Rewind                                     |   365 |  365 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
 | Contention                                 |   173 |  173 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    79 |   79 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6006 | 6006 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6016 | 6016 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6006**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5541**. Rows the 163 suites declared in `test/unit-tests.conf` run live: **13849**.
+Rows the sections above carry: **6016**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5551**. Rows the 163 suites declared in `test/unit-tests.conf` run live: **13862**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 116 suites (8392 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 116 suites (8395 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -112,7 +112,7 @@ These 116 suites (8392 live rows) have no VHDL-derived plan row to map, so they 
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 123 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 125 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 94 | host mouse-capture policy (window-manager behaviour) |
@@ -133,7 +133,7 @@ These 116 suites (8392 live rows) have no VHDL-derived plan row to map, so they 
 | `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
 | `tap_loader_test` | 62 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
 | `program_archive_test` | 71 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
-| `tzx_loader_test` | 115 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
+| `tzx_loader_test` | 116 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
 | `tape_save_test` | 59 | TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source |
 | `snapshot_im_test` | 4 | snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0) |
 | `snapshot_machine_test` | 26 | which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / NTSC state they restore; its hardware rows (SNM-27, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source |
@@ -3856,20 +3856,30 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | S6-EMU-TAPE-31 | a deck saved held, loaded by a session with auto play OFF, is resumed at once (a held deck must not stay stopped for ever), auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7645 |
 | S6-EMU-TAPE-32 | a TZX stopped at a stop block (saved with auto play off), loaded by a session with auto play ON, is held there and resumes when the program polls: the next block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7656 |
 | S6-EMU-TAPE-33 | the poll run is restored when the snapshot's auto play setting equals the session's (the control, saved ON, loaded ON: polling) and reset when it differs (saved OFF, loaded ON: not polling) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7671 |
-| RWLOAD-PRE-01 | RWLOAD fixtures: .sna/.szx/.nex written | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7725 |
-| RWLOAD-PRE-02 | RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7754 |
-| RWLOAD-01 | a .sna load keeps the debugger-enabled rewind: ring rebuilt empty at size 8, recording again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7784 |
-| RWLOAD-02 | a .szx load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7794 |
-| RWLOAD-03 | a .z80 load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7803 |
-| RWLOAD-04 | a .nex load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7812 |
-| RWLOAD-05 | a machine-switching .jns keeps the rewind setting and re-measures the slot for the new machine | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7821 |
-| RWLOAD-06 | an in-memory snapshot load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7835 |
-| RWLOAD-07 | a load keeps the size chosen in the debugger, not the command-line one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7844 |
-| RWLOAD-08 | a load keeps a paused rewind paused; resuming records again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7862 |
-| RWLOAD-09 | a load keeps a rewind freed in the debugger freed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7870 |
-| RWLOAD-10 | a resize after a pause is recorded as running: the load keeps it enabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7881 |
-| RWLOAD-11 | control: a tape load re-inits nothing, so ring and history are kept | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7890 |
-| RWLOAD-12 | pause then resume then load: rewind comes back running, not paused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7904 |
+| S6-EMU-TAPE-34 | a real-time snapshot loaded in a FAST session and then recorded to RZX keeps playing in real time (the pending switch to fast loading is cancelled, the traps being off): every block lands in RAM and the deck never turns fast | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7711 |
+| S6-EMU-TAPE-35 | the same when the recording is already running at the load (--load x.jns --rzx-record): the restore suspends the traps itself and the deck stays real time to the end | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7723 |
+| S6-EMU-TAPE-36 | a TZX deck saved held at a gap and loaded in a fast session is fast at once with the fast cursor on the NEXT block (offset 217, not the recorded 10): the trap serves that block, never block 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7736 |
+| S6-EMU-TAPE-37 | a real-time TZX saved mid-block and loaded in a FAST session finishes that block in real time, hands over to fast loading at the gap (the pending switch survives the loader's move into the machine) and the trap serves the third block: every block is whole in RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7748 |
+| S6-EMU-TAPE-38 | a TZX deck saved held, loaded by a session with auto play OFF, is resumed at once, auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7761 |
+| S6-EMU-TAPE-39 | a tape file edited after it was attached but BEFORE the save is recorded by the digest of what the deck holds, so the load refuses to reattach it (one 'changed' warning), instead of attaching it at offsets that index other bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7782 |
+| S6-EMU-TAPE-40 | a manifest with an EMPTY digest is not reattached: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7799 |
+| S6-EMU-TAPE-41 | a state/tape.json present but not listed in the manifest's subsystems is the older-file case, not a reattach: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7801 |
+| S6-EMU-JNSFID-01 | a machine that never ran the binary save_state() writes state/ram.json size_bytes = the real RAM size, and the snapshot of the restored machine has the same state/ram.json and state/cpu.json as the file it was restored from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7830 |
+| S6-EMU-JNSFID-02 | a machine saved right after EI (the interrupt grace pending at the boundary) writes ei_grace 0 into state/cpu.json (not a stale -1) and restores it: the restored machine's own snapshot says 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7860 |
+| RWLOAD-PRE-01 | RWLOAD fixtures: .sna/.szx/.nex written | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7914 |
+| RWLOAD-PRE-02 | RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7943 |
+| RWLOAD-01 | a .sna load keeps the debugger-enabled rewind: ring rebuilt empty at size 8, recording again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7973 |
+| RWLOAD-02 | a .szx load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7983 |
+| RWLOAD-03 | a .z80 load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7992 |
+| RWLOAD-04 | a .nex load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8001 |
+| RWLOAD-05 | a machine-switching .jns keeps the rewind setting and re-measures the slot for the new machine | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8010 |
+| RWLOAD-06 | an in-memory snapshot load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8024 |
+| RWLOAD-07 | a load keeps the size chosen in the debugger, not the command-line one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8033 |
+| RWLOAD-08 | a load keeps a paused rewind paused; resuming records again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8051 |
+| RWLOAD-09 | a load keeps a rewind freed in the debugger freed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8059 |
+| RWLOAD-10 | a resize after a pause is recorded as running: the load keeps it enabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8070 |
+| RWLOAD-11 | control: a tape load re-inits nothing, so ring and history are kept | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8079 |
+| RWLOAD-12 | pause then resume then load: rewind comes back running, not paused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8093 |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 
