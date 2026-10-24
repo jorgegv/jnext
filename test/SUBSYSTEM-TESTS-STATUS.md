@@ -138,7 +138,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | frame_timer_test      |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "frame_timer_test" to the label map in refresh-subsystem-status.sh. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
-| POK Trainers GUI dialog (GH #381) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
+| POK Trainers GUI dialog (GH #381) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | RZX Menus             |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI load-failure dialogs |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -169,6 +169,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **13793**| **13793**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **13794**| **13794**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

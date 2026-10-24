@@ -80,7 +80,8 @@ void spin_ms(int ms)
 {
     QElapsedTimer t;
     t.start();
-    while (t.elapsed() < ms) QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+    do QCoreApplication::processEvents(QEventLoop::AllEvents, 5);   // at least one pass (GH #399)
+    while (t.elapsed() < ms);
 }
 
 /// Run the event loop until `done()` holds or `bound_ms` passes.
@@ -89,8 +90,8 @@ void spin_until(Pred done, int bound_ms = 2000)
 {
     QElapsedTimer t;
     t.start();
-    while (!done() && t.elapsed() < bound_ms)
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+    do QCoreApplication::processEvents(QEventLoop::AllEvents, 5);   // at least one pass (GH #399)
+    while (!done() && t.elapsed() < bound_ms);
 }
 
 }  // namespace

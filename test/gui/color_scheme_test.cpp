@@ -398,7 +398,8 @@ void test_portal() {
             QDBusConnection::sessionBus().send(sig);
             QElapsedTimer t;
             t.start();
-            while (t.elapsed() < 300) QApplication::processEvents(QEventLoop::AllEvents, 20);
+            do QApplication::processEvents(QEventLoop::AllEvents, 20);   // at least one pass (GH #399)
+            while (t.elapsed() < 300);
         };
         bool light = false, ignored = false, dark = false;
         const bool subscribed = cs && cs->subscribed();
@@ -569,11 +570,11 @@ struct PrivateBus {
         if (!guard.waitForStarted(5000)) { g_bus_error = "the bus guard did not start"; return; }
         QElapsedTimer t;
         t.start();
-        while (!(guard.canReadLine() && daemon_pid > 0) && t.elapsed() < 5000) {
+        do {   // at least one poll, however late this thread is first scheduled (GH #399)
             guard.waitForReadyRead(100);
             const QByteArray err = guard.readAllStandardError();
             if (const int i = err.indexOf("pid="); i >= 0) daemon_pid = err.mid(i + 4).trimmed().toLongLong();
-        }
+        } while (!(guard.canReadLine() && daemon_pid > 0) && t.elapsed() < 5000);
         g_bus_address = guard.readLine().trimmed();
         if (g_bus_address.isEmpty()) g_bus_error = "dbus-daemon did not start (is it installed?)";
     }
@@ -634,11 +635,12 @@ void test_bus_cleanup() {
     qint64 daemon = 0;
     QElapsedTimer t;
     t.start();
-    while (dir.isValid() && child.waitForStarted(5000) && t.elapsed() < 10000 && daemon <= 0) {
+    do {   // at least one poll, however late this thread is first scheduled (GH #399)
+        if (!dir.isValid() || !child.waitForStarted(5000)) break;
         QFile f(pidfile);
         if (f.open(QIODevice::ReadOnly)) daemon = f.readAll().trimmed().toLongLong();
         if (daemon <= 0) QThread::msleep(20);
-    }
+    } while (t.elapsed() < 10000 && daemon <= 0);
     const bool alive_before = daemon > 0 && !process_gone(daemon);
     child.kill();                                   // SIGKILL: no destructor runs
     child.waitForFinished(5000);
