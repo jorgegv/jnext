@@ -215,7 +215,7 @@ counts; the threads of the `winedevice.exe` driver hosts (`/proc` only: attachin
 every row's device I/O); `winedbg info thread`; and one `Backtrace:` per thread of that ONE Windows pid
 from a single `winedbg --file` session (attach, `bt <tid>` each, detach). It never uses `bt all`: real
 winedbg answers "can't debug several processes at once". The runner then prints one stderr line naming
-the file (JNEXT_WINE_STALL_POLL_S and JNEXT_WINE_DBG_BOUND_S are further test-only overrides). TERM is forwarded at once and captures nothing: the v1.1.79 capture fired on every
+the file. TERM is forwarded at once and captures nothing: the v1.1.79 capture fired on every
 deliberate TERM (29 per green run) and its `bt all <pid>` never finished under load. At the end of
 every Windows run the driver prints `wine prefix at the end:` and lists any captures. Diagnostics
 only: no exit status moves.
@@ -228,7 +228,7 @@ capture must hold a `Backtrace:` naming wine's `ReadFile` or `ReadConsole` and n
 processes". Anything else is a HARNESS FAULT (exit 2): a capture that silently cannot capture reads as
 "no stall", which is what v1.1.79 shipped. It costs about 4 s and is not a row. Its capture lives in its
 own directory and is deleted on success, so the end-of-run captures line counts real stalls only.
-HS-99d-s pin the watchdog, the capture and the self-check; the harness-selftest stub winedbg mirrors
+`JNEXT_WINE_STALL_AFTER_S`, `_FLAT_S`, `_POLL_S` and `JNEXT_WINE_DBG_BOUND_S` are test-only overrides (the driver unsets them before the rows). HS-99d-t pin the watchdog, the capture and the self-check; the harness-selftest stub winedbg mirrors
 real winedbg (the old stub answered `bt all <pid>`, which is how that bug passed review).
 
 ## One full run at a time, and green-run stamps (GH #295)

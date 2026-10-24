@@ -593,6 +593,9 @@ if $PLATFORM_MODE; then
         # here so the rows and the shim inherit it; the directory is created by the capture, and
         # reported / removed at the end of the run.
         export JNEXT_WINE_CAPTURE_DIR="$PROJECT_DIR/build/regression-artifacts/wine-stall/$(date +%Y%m%d-%H%M%S)-$$"
+        # The watchdog's thresholds and the winedbg bound are TEST-ONLY overrides (wine-run.sh header): a
+        # developer's exported copy must not reach the rows. Only the self-check below sets any, inline.
+        unset JNEXT_WINE_STALL_AFTER_S JNEXT_WINE_STALL_FLAT_S JNEXT_WINE_STALL_POLL_S JNEXT_WINE_DBG_BOUND_S
         # It also starts the desktop keeper and prints explorer.exe's pid (GH #329).
         REG_WINE_EXPLORER=$(bash "$PROJECT_DIR/test/wine-run.sh" --serve "$plat_qt_abs") \
             || harness_fault "cannot start a persistent wineserver and wine desktop"
