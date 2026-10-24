@@ -591,6 +591,7 @@ snapshot.jns
 ├── state/membrane_stick.json
 ├── state/iomode.json
 ├── state/joy_uart.json         present only when a cable is attached
+├── state/tape.json            present only when a tape is attached: the deck's position (GH #402)
 ├── state/esxdos_hostfs.json    handles + cwd + root
 ├── state/emulator.json         Emulator's own scalars, §10
 ├── state/ram.json              Ram's own scalars; the bytes are the blob below
@@ -1166,7 +1167,8 @@ Three consequences, all now in §6.2:
     "roms":   { "source": "sdcard", "sha256": { "48.rom": "…", "128.rom": "…" } },
     "boot_rom_sha256": "…",
     "tape":   { "path": "…/game.tzx", "sha256": "…", "position_tstates": 0,
-                "realtime": false },
+                "realtime": false,
+                "archive": "…/game.tzx.zip", "member": "game.tzx" },
     "esxdos_root": "/home/user/nextdev"
   },
 
@@ -1202,7 +1204,12 @@ Notes on the parts that carry weight:
   describe a file that does not exist.
 - **`media.tape.path`** is the attached tape's ABSOLUTE host path (GH #401):
   UTF-8, lexically normalised, symlinks kept, native separators. The digest is
-  of that file. A file from a version that recorded only the file name holds a bare file name, which
+  of the bytes the tape loader READ when it attached the file (GH #402), which is
+  the file unless it was edited after it was attached. `archive` and `member`
+  (both optional, written together) appear only for a tape extracted from a
+  `.zip`: the extracted copy lives in a scratch directory that dies with the
+  process, so a later session re-extracts `member` from `archive` and checks the
+  digest. The deck's position is `state/tape.json`, not the manifest. A file from a version that recorded only the file name holds a bare file name, which
   is opened as written and so resolves against the working directory; a reader
   does not guess otherwise. The key, its type and `format_version` are
   unchanged, since the old writer only under-filled a field this section always
@@ -1451,12 +1458,21 @@ An earlier draft named three of these. All eight, from the classification:
    where they belong logically.
 3. **Values written relative to something the stream does not carry** — the
    CPU's `/INT` window, a delta against the FUSE T-state counter that
-   `load_state` re-seeds at the next frame start (§7.4).
+   `load_state` re-seeds at the next frame start (§7.4). The tape deck's edge,
+   start and poll times (`state/tape.json`, GH #402) are the same shape: signed
+   distances from the save instant, re-based by `load_jns`. The CPU's three
+   scratch values (`ei_grace`, `iff2_read`, `int_first_ts_rel`) are marshalled
+   from the FUSE struct before a `.jns` write and applied back after a read
+   (`Z80Cpu::marshal_for_describe` / `apply_after_describe`, GH #402), as the
+   binary stream does inside `save_state`/`load_state`.
 4. **Variable-length lists** — the esxDOS host-FS handle table (path, offset,
-   mode per open handle) and the joystick-cable cursor.
+   mode per open handle), the joystick-cable cursor, and the tape deck
+   (`state/tape.json`, GH #402: the three loaders' own player state, which no
+   declaration can express because the TZX player holds pointers into the file).
 5. **Presence-flag-gated optional blocks** — `joy_uart` writes a `bool` and then
-   a whole subsystem only when a cable is attached. In JSON this is simply an
-   absent member, so the flag itself does not travel.
+   a whole subsystem only when a cable is attached; `tape` (GH #402) only when a
+   tape is attached. In JSON this is simply an absent member, so the flag itself
+   does not travel.
 6. **Reconstructed-on-load fields** — `Multiface::mf_type_`, today rebuilt from
    three booleans and knowingly lossy (§4.3(3)). JNS serialises the 2-bit value
    directly, which makes this a *fix* rather than an exception, and the three
@@ -1877,6 +1893,12 @@ not listed here is a gap in this document, not a licence to improvise.
 | Snapshot had **no** card, one is mounted now | **Restore, with a warning.** The machine did not depend on it; a card that appeared is not a reason to refuse, but it is a reason the run may diverge. |
 | `media.sdcard.read_only` differs from the current mount | **Warn.** A snapshot taken read-only restoring onto a writable mount is legal and common; the reverse means writes the snapshot's program made were never persisted. Named in the warning, not refused. |
 | `model.ram_kb` is a size this build cannot construct | **Refuse** (§8 — never assume 2048). |
+| `media.tape` present and its file (or, with `archive`, the archive) cannot be opened | **Warn once** (the container's), restore without the tape. Never a refusal, not under `strict` (§10.2 P4). |
+| `media.tape` present, no `state/tape.json` (a file from before GH #402) | **Warn once** that the position is not recorded; the tape is **not** attached (attaching at the start would hand block 0 to a program waiting for a later one). |
+| `state/tape.json` unreadable, not JSON, or a field missing/mistyped | **Warn once**, not attached, never a refusal. |
+| The tape's digest differs from `media.tape.sha256` (or either is empty) | **Warn once** ("changed"), not attached: the recorded offsets would index other bytes. |
+| A position the tape file cannot be in (block past the end, pointer outside the file, an unknown phase...) | **Warn once** ("not valid"), not attached, the deck untouched. Every value is checked against the loaded bytes before any is written. |
+| Any tape warning above | The deck already in the machine is **left as it was**. A snapshot never changes a setting: the session's fast/real-time mode and auto play apply, and a deck saved in the other mode is converted at a block boundary. |
 | *(no row)* A save attempted while paused mid-frame | **Not a refusal condition.** The writer advances to the next frame boundary (§10.2 P7), so no file and no reader ever sees this state. Listed as absent so the omission is deliberate rather than overlooked. |
 | `format_version` unknown / `state_model_revision` mismatch / machine mismatch | §7.3. |
 
