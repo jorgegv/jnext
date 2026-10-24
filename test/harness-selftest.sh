@@ -2384,13 +2384,17 @@ out=$(run_preflight "$REG_CONF" "$T/fx-b.conf"); rc=$?
 check "HS-90d" "a malformed os= list (empty element) is a refusal that says so" 2 $rc "$out" "HARNESS FAULT" "carries a malformed"
 # retagged rows change the per-OS counts, so the pins refuse them: the tags themselves are valid.
 retag "$T/os-ok.conf" magic-bp-func "os=linux,macos,windows"
-out=$(run_preflight "$REG_CONF" "$T/os-ok.conf"); rc=$?
-check "HS-90e" "the control: an explicit full os= list on one row is accepted (counts unchanged)" 0 $rc "$out" "preflight OK"
+if ! grep -q '^magic-bp-func\([[:space:]]\|$\)' "$REG_FUNC"; then   # a renamed fixture row would make this control vacuous
+    check "HS-90e" "the control: an explicit full os= list on one row is accepted (counts unchanged)" 0 1 "fixture row magic-bp-func is missing from $REG_FUNC"
+else
+    out=$(run_preflight "$REG_CONF" "$T/os-ok.conf"); rc=$?
+    check "HS-90e" "the control: an explicit full os= list on one row is accepted (counts unchanged)" 0 $rc "$out" "preflight OK"
+fi
 
 # the live conf's own pins, read at run time: a row addition moves them, never this file
-fn_total=$(grep -oP '^#\s*expect:\s*\K[0-9]+' "$REG_FUNC")
-fn_win=$(grep -oP '^#\s*expect-windows:\s*\K[0-9]+' "$REG_FUNC")
-fn_mac=$(grep -oP '^#\s*expect-macos:\s*\K[0-9]+' "$REG_FUNC")
+fn_total=$(grep -oP '^#\s*expect:\s*\K[0-9]+' "$REG_FUNC" | head -1)
+fn_win=$(grep -oP '^#\s*expect-windows:\s*\K[0-9]+' "$REG_FUNC" | head -1)
+fn_mac=$(grep -oP '^#\s*expect-macos:\s*\K[0-9]+' "$REG_FUNC" | head -1)
 [[ -n "$fn_total" && -n "$fn_win" && -n "$fn_mac" ]] || { echo "  FAIL HS-91-pins: $REG_FUNC lacks an expect / expect-windows / expect-macos pin"; exit 1; }
 
 plat_tree "$T/pt-ok" windows windows
@@ -2423,13 +2427,19 @@ check "HS-92b" "...and a named admitted row is accepted" 0 $rc "$out" "preflight
 
 # per-OS pins, both directions
 sed "s/^# expect-windows: $fn_win\$/# expect-windows: $(( fn_win - 1 ))/" "$REG_FUNC" > "$T/pin-lo.conf"
-cmp -s "$REG_FUNC" "$T/pin-lo.conf" && { echo "  FAIL HS-93a-mutation: the pin edit changed nothing (no '# expect-windows: $fn_win' line)"; exit 1; }
-out=$(run_preflight "$REG_CONF" "$T/pin-lo.conf"); rc=$?
-check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: $(( fn_win - 1 ))"
+if cmp -s "$REG_FUNC" "$T/pin-lo.conf"; then   # a no-op edit would test the unmodified conf
+    check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 0 "the pin edit changed nothing (no '# expect-windows: $fn_win' line)"
+else
+    out=$(run_preflight "$REG_CONF" "$T/pin-lo.conf"); rc=$?
+    check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: $(( fn_win - 1 ))"
+fi
 sed "s/^# expect-macos: $fn_mac\$/# expect-macos: $(( fn_mac + 1 ))/" "$REG_FUNC" > "$T/pin-hi.conf"
-cmp -s "$REG_FUNC" "$T/pin-hi.conf" && { echo "  FAIL HS-93b-mutation: the pin edit changed nothing (no '# expect-macos: $fn_mac' line)"; exit 1; }
-out=$(run_preflight "$REG_CONF" "$T/pin-hi.conf"); rc=$?
-check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: $(( fn_mac + 1 ))"
+if cmp -s "$REG_FUNC" "$T/pin-hi.conf"; then
+    check "HS-93b" "a macOS pin one too high is a refusal" 2 0 "the pin edit changed nothing (no '# expect-macos: $fn_mac' line)"
+else
+    out=$(run_preflight "$REG_CONF" "$T/pin-hi.conf"); rc=$?
+    check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: $(( fn_mac + 1 ))"
+fi
 grep -v '^# expect-macos:' "$REG_FUNC" > "$T/pin-none.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-none.conf"); rc=$?
 check "HS-93c" "os= tags without the per-OS pin are a refusal" 2 $rc "$out" "HARNESS FAULT" "No '# expect-macos: N' pin"
