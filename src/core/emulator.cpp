@@ -8752,6 +8752,9 @@ void Emulator::rzx_suspend_tape_traps()
     // run_frame). A real-time deck with a pending switch to fast loading (a
     // restored .jns, GH #402) stays real time: the switch would fire with the
     // traps off and the next block would never arrive.
+    if (tape_.handover_pending() || tzx_tape_.handover_pending())
+        Log::emulator()->info("RZX: the pending switch to fast loading is cancelled, the tape stays "
+                              "in real time for the recording");
     tape_.cancel_handover();
     tzx_tape_.cancel_handover();
     // A fast-load tape would then never load — nothing drives its

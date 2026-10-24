@@ -7704,14 +7704,20 @@ static int test_gh402_tape_reattach()
         auto b = make();
         jnext::JnsLoadReport rep;
         const bool l = load(*b, base_jns, false, rep);                  // real-time mid-block, FAST session
+        std::ostringstream cap34;
+        auto sink34 = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap34);
+        sink34->set_pattern("%l %v");
+        Log::emulator()->sinks().push_back(sink34);
         const bool rec = l && b->start_rzx_recording(rzx);              // GUI route: record after the load
+        Log::emulator()->sinks().pop_back();
+        const bool logged34 = cap34.str().find("pending switch to fast loading is cancelled") != std::string::npos;
         const bool done = rec && finished(*b, three, 2500);
         const bool still_rt = !b->tape().fast_load();
         b->stop_rzx_recording();
-        check("S6-EMU-TAPE-34", done && still_rt && block_in_ram(*b, 0) && block_in_ram(*b, 1) && block_in_ram(*b, 2),
+        check("S6-EMU-TAPE-34", done && still_rt && logged34 && block_in_ram(*b, 0) && block_in_ram(*b, 1) && block_in_ram(*b, 2),
               "a real-time snapshot loaded in a FAST session and then recorded to RZX keeps playing in real time (the "
               "pending switch to fast loading is cancelled, the traps being off): every block lands in RAM and the deck "
-              "never turns fast", std::string("rec=") + (rec ? "1" : "0"));
+              "never turns fast, and the log says so (one line when the recording cancels the switch)", std::string("rec=") + (rec ? "1" : "0"));
         fs::remove(rzx, ec);
         auto c = make();
         jnext::JnsLoadReport rep2;
