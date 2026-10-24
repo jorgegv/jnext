@@ -463,10 +463,10 @@ it.
 Real-time tape loading, at the speed of an actual tape, instead of fast
 load. It sets the one fast/real-time setting (the GUI’s **Tape \> Fast
 Load** toggle) for this run only, overriding the saved preference
-without changing it; **Tape \> Open**, **File \> Load**, **--load** of a
-`.tap` or `.tzx`, and the tape restored by a `.jns` all follow that
-setting. The SDL-only build, which has no menu and no saved preference,
-is controlled by this option alone.
+without changing it; **Tape \> Open Tape File**, **File \> Load NEX
+File**, **--load** of a `.tap` or `.tzx`, and the tape restored by a
+`.jns` all follow that setting. The SDL-only build, which has no menu
+and no saved preference, is controlled by this option alone.
 
 **--tape-auto-play**, **--no-tape-auto-play**  
 Turn automatic tape play/stop on (the default) or off for this run,
@@ -1289,15 +1289,15 @@ it had been given on its own; screenshots, `.scr` and other files in the
 archive are ignored. An archive is recognised by its `.zip` extension,
 or, for a name with any other extension (or none), by its contents. When
 it holds several programs the command line refuses, listing them (unzip
-it and name the one you want); the window’s **File \> Load** asks which
-one. An archive that is encrypted, uses a method other than stored or
-deflate, is ZIP64 or multi-disk, is itself over 256 MiB, has a member
-over 256 MiB, or names a member with an absolute path or `..` is refused
-with the reason. The program is extracted to a temporary file under
-`~/.jnext/archive-load/` (or the **JNEXT_CONFIG_DIR** directory) that is
-removed when **jnext** exits. In the window, a `.pok` file in the
-archive (the one named like the program, else the only one) is offered
-under **Machine \> POK Trainers…**.
+it and name the one you want); the window’s **File \> Load NEX File**
+asks which one. An archive that is encrypted, uses a method other than
+stored or deflate, is ZIP64 or multi-disk, is itself over 256 MiB, has a
+member over 256 MiB, or names a member with an absolute path or `..` is
+refused with the reason. The program is extracted to a temporary file
+under `~/.jnext/archive-load/` (or the **JNEXT_CONFIG_DIR** directory)
+that is removed when **jnext** exits. In the window, a `.pok` file in
+the archive (the one named like the program, else the only one) is
+offered under **Machine \> POK Trainers…**.
 
 `.tap` and `.tzx` load in real time instead with **--tape-realtime** (or
 by unchecking **Tape \> Fast Load** in the GUI).
@@ -1422,8 +1422,8 @@ of NextZXOS’s own esxDOS, and NextZXOS’s file commands stop working.
 A `.pok` file (the World of Spectrum trainer format: named cheats, each
 a few bytes to write) is not a program: it changes the one that is
 running, so **--load** refuses it. The Qt window opens it from **Machine
-\> POK Trainers…** or **File \> Load**, lists its trainers, applies and
-removes them. In **--headless** and in the SDL-only window
+\> POK Trainers…** or **File \> Load NEX File**, lists its trainers,
+applies and removes them. In **--headless** and in the SDL-only window
 **--delayed-pok-frames** *N* *FILE* with **--pok-trainers** *LIST*
 applies the chosen ones *N* frames in.
 

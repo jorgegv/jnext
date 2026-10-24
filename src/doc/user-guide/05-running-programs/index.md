@@ -73,7 +73,7 @@ extension, or none, is taken as one when it starts like a ZIP file.
   out with `..`.
 - **A bundled `.pok`** (a cheat list for the game; see
   [5.11 POK trainers](11-pok-trainers.md)): when the archive holds one named
-  like the program, or the only one, File > Load makes it the open trainer list
+  like the program, or the only one, File > Load NEX File… makes it the open trainer list
   without showing it, and says so in the status bar. Open it with **Machine ▸
   POK Trainers…**.
 

@@ -225,7 +225,7 @@ The tape is **not** put back, and the load says so in the status bar, when
 the file is no longer where it was recorded (or the archive is gone), when the
 file has changed since the snapshot was saved, or when the snapshot was written
 by a version that did not record the position. The machine still restores; open
-the tape again with Tape > Open. Snapshots written by versions that recorded
+the tape again with Tape > Open Tape File. Snapshots written by versions that recorded
 only the file name look the tape up in the folder JNEXT was started from.
 
 ## Two flags for when something is wrong

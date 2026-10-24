@@ -13,8 +13,9 @@ several minutes, loading stripes, screeching and all. Use it for authenticity,
 or for the occasional program with a custom loader that fast-load cannot
 follow. Turn it on with **Tape > Fast Load** (uncheck it) or `--tape-realtime`.
 
-There is **one** fast/real-time setting, the **Tape > Fast Load** toggle (its
-state is saved in Preferences > Tape). **Tape > Open**, **File > Load**, a `.tap`
+There is **one** fast/real-time setting, the **Tape > Fast Load** toggle, which
+changes it for the session; the setting it starts from is **Tape fast-load by default** in
+**Settings > Preferences > Startup**. **Tape > Open Tape File…**, **File > Load NEX File…**, a `.tap`
 or `.tzx` given with `--load` and a tape restored from a snapshot all follow it.
 `--tape-realtime` switches it to real time for that run only, winning over the
 saved choice, and is never saved. The SDL build has no menu or saved choice, so

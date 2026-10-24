@@ -461,9 +461,10 @@ Real\-time tape loading, at the speed of an actual tape, instead of fast
 load.
 It sets the one fast/real\-time setting (the GUI\(cqs \f[B]Tape > Fast
 Load\f[R] toggle) for this run only, overriding the saved preference
-without changing it; \f[B]Tape > Open\f[R], \f[B]File > Load\f[R],
-\f[B]\-\-load\f[R] of a \f[CR].tap\f[R] or \f[CR].tzx\f[R], and the tape
-restored by a \f[CR].jns\f[R] all follow that setting.
+without changing it; \f[B]Tape > Open Tape File\f[R], \f[B]File > Load
+NEX File\f[R], \f[B]\-\-load\f[R] of a \f[CR].tap\f[R] or
+\f[CR].tzx\f[R], and the tape restored by a \f[CR].jns\f[R] all follow
+that setting.
 The SDL\-only build, which has no menu and no saved preference, is
 controlled by this option alone.
 .TP
@@ -1436,8 +1437,8 @@ screenshots, \f[CR].scr\f[R] and other files in the archive are ignored.
 An archive is recognised by its \f[CR].zip\f[R] extension, or, for a
 name with any other extension (or none), by its contents.
 When it holds several programs the command line refuses, listing them
-(unzip it and name the one you want); the window\(cqs \f[B]File >
-Load\f[R] asks which one.
+(unzip it and name the one you want); the window\(cqs \f[B]File > Load
+NEX File\f[R] asks which one.
 An archive that is encrypted, uses a method other than stored or
 deflate, is ZIP64 or multi\-disk, is itself over 256 MiB, has a member
 over 256 MiB, or names a member with an absolute path or \f[CR]..\f[R]
@@ -1596,7 +1597,8 @@ A \f[CR].pok\f[R] file (the World of Spectrum trainer format: named
 cheats, each a few bytes to write) is not a program: it changes the one
 that is running, so \f[B]\-\-load\f[R] refuses it.
 The Qt window opens it from \f[B]Machine > POK Trainers\&...\f[R] or
-\f[B]File > Load\f[R], lists its trainers, applies and removes them.
+\f[B]File > Load NEX File\f[R], lists its trainers, applies and removes
+them.
 In \f[B]\-\-headless\f[R] and in the SDL\-only window
 \f[B]\-\-delayed\-pok\-frames\f[R] \f[I]N\f[R] \f[I]FILE\f[R] with
 \f[B]\-\-pok\-trainers\f[R] \f[I]LIST\f[R] applies the chosen ones
