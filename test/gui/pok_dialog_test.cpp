@@ -37,10 +37,12 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QString>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QTimer>
 #include <QTreeWidget>
 
@@ -148,24 +150,44 @@ struct Fixture {
 /// Closes a dialog no row is waiting for. Nothing in this suite leaves one up on
 /// purpose: if a defect raises one outside a drive_modals() window, its nested
 /// event loop would hang the whole suite. Closing it lets the row fail instead,
-/// and says so. The interval is long on purpose: a row that answers its own
-/// dialog does so within milliseconds, so a dialog still up after seconds is stuck.
+/// and says so.
+///
+/// It closes a dialog only on its SECOND consecutive sighting of the same widget
+/// (GH #399). A fixed interval measured from the guard's own phase says nothing
+/// about how long a dialog has been up: the guard can come due microseconds after
+/// a row's dialog appeared, before the row's 1 ms answerer has run, and close the
+/// dialog the row was about to answer. On a loaded host that window grows. After
+/// a first sighting the guard waits a whole interval, so the answerer has had
+/// passes in which it was due: a dialog still up then is stuck.
 class ModalGuard {
 public:
-    ModalGuard() {
-        QObject::connect(&timer_, &QTimer::timeout, [] {
+    explicit ModalGuard(int interval_ms = 3000, bool quiet = false) {
+        QObject::connect(&timer_, &QTimer::timeout, [this, quiet] {
             QWidget* w = QApplication::activeModalWidget();
-            if (qobject_cast<QMessageBox*>(w) || qobject_cast<QInputDialog*>(w) ||
-                qobject_cast<QFileDialog*>(w)) {
-                std::printf("  NOTE: closed a %s nobody was waiting for\n", w->metaObject()->className());
-                w->close();
+            if (!(qobject_cast<QMessageBox*>(w) || qobject_cast<QInputDialog*>(w) ||
+                  qobject_cast<QFileDialog*>(w))) {
+                seen_ = nullptr;
+                return;
             }
+            if (seen_ != w) {
+                seen_ = w;   // first sighting: leave it to its row
+                return;
+            }
+            if (!quiet)
+                std::printf("  NOTE: closed a %s nobody was waiting for\n", w->metaObject()->className());
+            ++closed_;
+            seen_ = nullptr;
+            w->close();
         });
-        timer_.start(3000);
+        timer_.setTimerType(Qt::PreciseTimer);
+        timer_.start(interval_ms);
     }
+    int closed() const { return closed_; }
 
 private:
     QTimer timer_;
+    QPointer<QWidget> seen_;
+    int closed_ = 0;
 };
 
 /// Answer each modal dialog that opens while `open` runs: `act(widget)` is called
@@ -560,6 +582,40 @@ void test_unplaceable_value() {
           shown.toStdString());
 }
 
+void test_guard_yields() {
+    // PKD-17
+    Fixture f;
+    f.ok = f.ok && f.win.open_pok_file(QString::fromStdString(value_pok()));
+    f.select(0);
+    QPushButton* apply = f.button("apply");
+    ModalGuard fast(5, true);
+    QApplication::processEvents();
+    QThread::msleep(30);   // the guard comes due before the answerer is armed, as on a stalled host
+    int offered = -1;
+    drive_modals(
+        [&](QWidget* w) {
+            if (auto* in = qobject_cast<QInputDialog*>(w)) {
+                offered = in->intValue();
+                in->reject();
+            }
+        },
+        [&]() { if (apply) apply->click(); });
+    const bool answered = offered == 0x11 && fast.closed() == 0;
+    int polls = 0;
+    drive_modals(
+        [&](QWidget* w) {
+            if (auto* in = qobject_cast<QInputDialog*>(w))
+                if (++polls > 1000) in->reject();   // only a guard that never closes gets here
+        },
+        [&]() { if (apply) apply->click(); });
+    const bool rescued = fast.closed() == 1 && polls <= 1000 && f.rd(36864) == 0x11;
+    check("PKD-17", "the suite's modal guard leaves a dialog that has just appeared to the row answering it, "
+                    "however late that row's answerer was armed, and still closes one nobody answers",
+          f.ok && apply && answered && rescued,
+          "offered=" + std::to_string(offered) + " closed=" + std::to_string(fast.closed()) + " polls=" +
+              std::to_string(polls));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -590,6 +646,7 @@ int main(int argc, char** argv) {
     test_no_machine();
     test_unattended();
     test_unplaceable_value();
+    test_guard_yields();
 
     std::error_code ec;
     std::filesystem::remove_all(g_dir, ec);

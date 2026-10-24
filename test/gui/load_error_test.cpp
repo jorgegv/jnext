@@ -178,7 +178,9 @@ struct DialogWatcher {
     void pump(int ms) {
         QElapsedTimer t;
         t.start();
-        while (t.elapsed() < ms) QApplication::processEvents(QEventLoop::AllEvents, 10);
+        // do-while: at least one pass even if the thread was descheduled for >= ms (GH #399)
+        do QApplication::processEvents(QEventLoop::AllEvents, 10);
+        while (t.elapsed() < ms);
     }
     void stop() { timer.stop(); }
 };

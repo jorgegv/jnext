@@ -986,7 +986,7 @@ request, each bank-to-page row citing `zxnext.vhd` or the other emulators'
 indexing and asserting bytes the test placed itself; the rows that sweep a
 trainer's locations one at a time, POK-50..52, are there so that a rule meant for
 every location cannot pass by checking the first) and `pok_dialog_test`
-(PKD-01..16); File > Load's refusal is `preferences_apply_test` PA-24e/f/g.
+(PKD-01..17); File > Load's refusal is `preferences_apply_test` PA-24e/f/g.
 
 ## ZIP archives
 
