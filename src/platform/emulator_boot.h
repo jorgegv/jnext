@@ -424,6 +424,11 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
     cfg.magic_breakpoint  = emu.config().magic_breakpoint;
     cfg.rewind_buffer_frames = emu.config().rewind_buffer_frames;   // GH #400
     cfg.rewind_paused        = emu.config().rewind_paused;
+    // GH #402 - Tape > Auto Play/Stop writes only the running machine; the frontends
+    // boot from their STARTUP config, so without this every File > Load (a cold
+    // boot) put auto play back to its startup value while the menu showed the
+    // user's choice, and a .jns restored with the wrong one.
+    cfg.tape_auto_play       = emu.tape_auto_play();
 
     emulator_cold_boot(emu, cfg);
 

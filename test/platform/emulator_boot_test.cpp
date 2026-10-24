@@ -1227,6 +1227,27 @@ int main()
               emu.debug_state().paused());
     }
 
+    // --- EB-71: the LIVE Tape > Auto Play/Stop setting is carried across (GH #402) ---
+    // A host-side setting like EB-25's magic breakpoint: the menu toggle writes the
+    // RUNNING machine only, and the frontends boot from their STARTUP config. Every
+    // File > Load is a cold boot, so a stale startup value put auto play back ON
+    // after the user turned it off.
+    {
+        for (int on = 0; on < 2; ++on) {
+            Emulator emu;
+            EmulatorConfig startup = base_config();
+            startup.tape_auto_play = (on == 1);          // the startup value
+            emu.init(startup);
+            emu.set_tape_auto_play(on == 0);             // the user's live choice, the opposite
+            FakeFrontend fe;
+            emulator_frontend_cold_boot(emu, startup, "", fe.hooks());
+            check(on == 0 ? "EB-71a" : "EB-71b",
+                  on == 0 ? "a live auto play OFF (startup ON) survives a cold boot"
+                          : "a live auto play ON (startup OFF) survives a cold boot",
+                  emu.tape_auto_play() == (on == 0) && emu.config().tape_auto_play == (on == 0));
+        }
+    }
+
     // --- EB-65..69: the LIVE rewind setting is carried across (GH #400) ----
     // Debug > Rewind (Enable Rewind, Buffer Size) is a debugger setting, a
     // host-side one like EB-25's magic breakpoint. The runtime setters record

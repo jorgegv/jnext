@@ -133,6 +133,9 @@ public:
     /// boundary. Not serialised: re-derived on restore.
     bool handover_to_fast_at_gap();
     bool handover_pending() const { return handover_pending_; }
+    /// Drop a pending handover: the deck stays real time (an RZX recording runs
+    /// with the tape traps off, so a deck that turned fast would never load).
+    void cancel_handover() { handover_pending_ = false; }
 
     /// A deck stopped at a stop block (playing 0, held 0, tape not at its end)
     /// becomes held there, the state auto play would have left it in (GH #402).

@@ -979,6 +979,31 @@ int main(int argc, char** argv) {
                   "and is empty after eject()",
                   ok && got == want && refused && kept && moved && m.sha256().empty(), got);
         }
+        {   // TZXD-14: a negative bit_pos in a data phase would be a negative shift in tzx.c
+            const std::string p = write_file("d14.tzx", concat({kHeader, b10(hdr_body()), b10(data_body())}));
+            TzxLoader t;
+            t.load(p);
+            t.start_playback(5000);
+            uint64_t now = 5000;
+            for (int i = 0; i < 3000000 && !(t.deck_state(now).phase == "data" && t.deck_state(now).data_pos >= 2); ++i) {
+                now += 7; t.update(now);
+            }
+            const auto before = t.deck_state(now);
+            std::string why;
+            TzxLoader::DeckState d = before;
+            d.bit_pos = -1;
+            const bool refused = before.phase == "data" && !t.restore_deck(d, now, why);
+            d = before;
+            d.bit_pos = -1;
+            d.phase = "pause";
+            TzxLoader u;
+            u.load(p);
+            const bool pause_neg_ok = u.restore_deck(d, now, why);
+            check("TZXD-14",
+                  "restore_deck refuses bit_pos -1 in the data phase (a negative shift in tzx.c) and changes nothing, but "
+                  "accepts it in a pause, where the player leaves it after the last bit",
+                  refused && pause_neg_ok && t.deck_state(now) == before, why);
+        }
         {   // TZXD-13 (case 1): hand over to fast loading at the gap, the cursor on the next block
             const std::string p = write_file("d13.tzx", concat({kHeader, b10(data_body()), b10(data_body()), b10(data_body())}));
             TzxLoader a, b;

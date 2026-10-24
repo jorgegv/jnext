@@ -274,6 +274,9 @@ public:
     /// way auto play holds there. `current_block()` is then the next block.
     bool handover_to_fast_at_gap();
     bool handover_pending() const { return handover_pending_; }
+    /// Drop a pending handover: the deck stays real time (an RZX recording runs
+    /// with the tape traps off, so a deck that turned fast would never load).
+    void cancel_handover() { handover_pending_ = false; }
 
     /// Convert a fast deck (always at a block boundary) to real time at
     /// `current_block()`: held there when `held` (auto play resumes it when the

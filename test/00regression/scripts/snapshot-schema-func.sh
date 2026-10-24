@@ -41,8 +41,8 @@ if want snapshot-schema-func; then
     elif [[ ! -f "$SCHEMA" ]]; then
         fail_row " (doc/formats/jns-snapshot.schema.json missing)"
     else
-    nx="$TMP_DIR/schema-next.jns"; k48="$TMP_DIR/schema-48k.jns"
-    rm -f "$nx" "$k48"
+    nx="$TMP_DIR/schema-next.jns"; k48="$TMP_DIR/schema-48k.jns"; zt="$TMP_DIR/schema-ziptape.jns"
+    rm -f "$nx" "$k48" "$zt"
 
     nx_rc=1
     timeout --foreground --kill-after=5s 90s "$JNEXT" --headless --machine next \
@@ -54,6 +54,24 @@ if want snapshot-schema-func; then
         "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
         --delayed-snapshot "$k48" --delayed-snapshot-frames 60 \
         --delayed-automatic-exit 20 >/dev/null 2>&1 && k48_rc=0
+
+    # GH #402 — a tape extracted from a .zip records `archive` and `member` in
+    # media.tape, which the schema must allow (additionalProperties false there):
+    # a third archive, with the zipped tape attached, goes through the same validator.
+    zt_rc=1
+    timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine 48k \
+        "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+        --load "$PROJECT_DIR/test/fixtures/zip/beeper.tap.zip" \
+        --delayed-snapshot "$zt" --delayed-snapshot-frames 30 \
+        --delayed-automatic-exit 20 >/dev/null 2>&1 && zt_rc=0
+    zt_keys=0
+    if [[ -s "$zt" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 - "$zt" >/dev/null 2>&1 <<'PY' && zt_keys=1
+import json, sys, zipfile
+m = json.loads(zipfile.ZipFile(sys.argv[1]).read("manifest.json"))["media"]["tape"]
+assert m["archive"].endswith("beeper.tap.zip") and m["member"] == "BEEPER.TAP", m
+PY
+    fi
 
     # §13.2(2) — an independent ZIP reader, on every written file.
     unzip_ok=0
@@ -76,14 +94,14 @@ PY
     # §13.2(3)+(4) — the real manifests against the committed schema, and the
     # overlay's invariant proved to BITE.
     schema_out=$(python3 "$PROJECT_DIR/test/snapshot/verify_written.py" \
-                     "$SCHEMA" "$nx" "$k48" 2>&1 || true)
+                     "$SCHEMA" "$nx" "$k48" "$zt" 2>&1 || true)
     schema_ok=0
     grep -q '^ALL-OK' <<<"$schema_out" && schema_ok=1
 
-    if [[ "$nx_rc" -eq 0 && "$k48_rc" -eq 0 && "$unzip_ok" -eq 1 && "$schema_ok" -eq 1 ]]; then
-        pass_row " (real Next + 48K archives pass an independent ZIP integrity check and validate against the committed schema + overlay; the §4.3(2) multiface invariant rejects a relabelled manifest)"
+    if [[ "$nx_rc" -eq 0 && "$k48_rc" -eq 0 && "$zt_rc" -eq 0 && "$zt_keys" -eq 1 && "$unzip_ok" -eq 1 && "$schema_ok" -eq 1 ]]; then
+        pass_row " (real Next + 48K archives, and one with a zipped tape (media.tape.archive/member), pass an independent ZIP integrity check and validate against the committed schema + overlay; the §4.3(2) multiface invariant rejects a relabelled manifest)"
     else
-        fail_row " (nx_rc=$nx_rc k48_rc=$k48_rc unzip=$unzip_ok schema=$schema_ok out='$schema_out')"
+        fail_row " (nx_rc=$nx_rc k48_rc=$k48_rc zt_rc=$zt_rc zt_keys=$zt_keys unzip=$unzip_ok schema=$schema_ok out='$schema_out')"
     fi
     fi
 fi

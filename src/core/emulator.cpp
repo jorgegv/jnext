@@ -8749,7 +8749,12 @@ bool Emulator::stop_rzx_recording()
 void Emulator::rzx_suspend_tape_traps()
 {
     // The tape traps stand down while a recording runs (see the trap block in
-    // run_frame). A fast-load tape would then never load — nothing drives its
+    // run_frame). A real-time deck with a pending switch to fast loading (a
+    // restored .jns, GH #402) stays real time: the switch would fire with the
+    // traps off and the next block would never arrive.
+    tape_.cancel_handover();
+    tzx_tape_.cancel_handover();
+    // A fast-load tape would then never load — nothing drives its
     // EAR edges — so it is switched to real-time loading from where it is.
     if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end()) {
         tape_.set_fast_load(false);
