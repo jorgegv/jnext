@@ -7851,6 +7851,10 @@ static int test_gh402_tape_reattach()
         const bool saved = at_boundary && save(*a, j1);
         a.reset();
         auto b = make();
+        // An IN-PLACE load into a machine that has already run (debugger, ZRCP, DZRP):
+        // its T-state counter is not 0, so the grace stamp is only right if it is applied
+        // AFTER the counter is re-seated.
+        for (int k = 0; k < 3; ++k) b->run_frame();
         jnext::JnsLoadReport rep;
         const bool l = saved && load(*b, j1, true, rep) && save(*b, j2);
         auto grace = [&](const Bytes& j) {

@@ -1273,6 +1273,9 @@ void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
                               ? "fast" : "realtime",   // the mode it continues in
                           t.loader == "tap" ? static_cast<long>(t.tap.block)
                           : t.loader == "tzx" ? static_cast<long>(t.tzx.offset) : 0L);
+    // The recording cancelled a pending switch to fast loading (rzx_suspend_tape_traps()).
+    if (rzx_recorder_.is_recording() && converted.find("then fast loading") != std::string::npos)
+        converted = "an RZX recording is running, so the deck stays in real time";
     if (!converted.empty())
         Log::emulator()->info("load_jns: the session's tape settings differ from the snapshot's: {}", converted);
 }
