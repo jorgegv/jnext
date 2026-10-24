@@ -1,11 +1,14 @@
 #include "core/program_archive.h"
 
+#include "core/host_path.h"
 #include "core/sdcard_provisioner.h"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <mutex>
 #include <random>
 #include <unordered_set>
 
@@ -175,9 +178,31 @@ ScratchDir& process_scratch() {
 
 // ------------------------------------------------------------- ProgramArchive
 
+namespace {
+
+struct Provenance { std::string archive, member; };
+std::mutex                         g_prov_mutex;
+std::map<std::string, Provenance>& provenance() {
+    static std::map<std::string, Provenance> m;   // function-local: destroyed after use
+    return m;
+}
+
+}  // namespace
+
+bool extracted_from(const std::string& path, std::string& archive, std::string& member) {
+    const std::string key = jnext::absolute_host_path(path);
+    std::lock_guard<std::mutex> lock(g_prov_mutex);
+    const auto it = provenance().find(key);
+    if (it == provenance().end()) return false;
+    archive = it->second.archive;
+    member = it->second.member;
+    return true;
+}
+
 bool ProgramArchive::open(const std::string& path, std::string& why, uint64_t max_archive) {
     programs_.clear();
     data_.clear();
+    path_.clear();
     std::error_code ec;
     const uintmax_t sz = fs::file_size(path, ec);
     if (ec) { why = "cannot be read (" + ec.message() + ")"; return false; }
@@ -194,6 +219,7 @@ bool ProgramArchive::open(const std::string& path, std::string& why, uint64_t ma
         return false;
     }
     if (!reader_.open(data_.data(), data_.size(), why)) { data_.clear(); return false; }
+    path_ = jnext::absolute_host_path(path);
 
     std::unordered_set<std::string> seen;   // linear, not a find() per member
     for (const auto& e : reader_.entries()) {
@@ -276,6 +302,10 @@ bool ProgramArchive::extract(const std::string& member, ScratchDir& scratch,
     fs::rename(part, dest, ec);
     if (ec) { why = display_name(member) + " could not be written to " + slot + ": " + ec.message(); return false; }
     out_path = fs::absolute(dest, ec).string();
+    if (!path_.empty()) {
+        std::lock_guard<std::mutex> lock(g_prov_mutex);
+        provenance()[jnext::absolute_host_path(out_path)] = {path_, member};
+    }
     return true;
 }
 

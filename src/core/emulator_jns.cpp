@@ -29,6 +29,7 @@
 
 #include "core/jns_snapshot.h"
 #include "core/log.h"
+#include "core/program_archive.h"
 #include "core/saveable.h"
 #include "core/embedded_nextboot_rom.h"
 #include "core/sd_snapshot_identity.h"
@@ -41,6 +42,7 @@
 #include "third_party/nlohmann-json/nlohmann/json.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <cstdlib>
 #include <ctime>
@@ -91,6 +93,244 @@ std::string iso8601_now_utc() {
     char buf[32];
     if (std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm) == 0) return {};
     return buf;
+}
+
+
+// ── state/tape.json (GH #402) ──────────────────────────────────────────────
+//
+// The deck's position. Identity (path, digest, mode, the archive a .zip tape
+// came from) stays in the manifest; this member holds what only the loaders
+// know. Hand-written like esxdos_hostfs (§9.5(4)) and presence-gated like
+// joy_uart (§9.5(5)): written only when a tape is attached. Every 64-bit value
+// is a decimal string (§7.4); times that are relative to the save instant are
+// signed distances from `now` (§9.5(3)), because load_jns re-bases the clock.
+
+const char* const kTypistStates[] = {"inactive", "waiting", "post_delay"};
+const char* const kTypistModes[]  = {"jpp", "enter"};
+
+/// Everything state/tape.json holds, in memory.
+struct TapeMember {
+    std::string                 loader;       ///< "tap" | "tzx" | "wav"
+    bool                        auto_play = true;
+    TapePollDetector::Snapshot  poll;
+    PhantomTypist::Snapshot     typist;
+    TapLoader::DeckState        tap;
+    TzxLoader::DeckState        tzx;
+    WavLoader::DeckState        wav;
+};
+
+json tape_member_to_json(const TapeMember& t, uint64_t now)
+{
+    json j;
+    j["loader"]    = t.loader;
+    j["auto_play"] = t.auto_play;
+    j["poll"] = {{"valid", t.poll.valid}, {"run", t.poll.run},
+                 {"last_in", std::to_string(static_cast<int64_t>(t.poll.last - now))}};
+    j["typist"] = {{"state", kTypistStates[t.typist.state]},
+                   {"mode", kTypistModes[t.typist.mode]},
+                   {"ports_read", t.typist.ports_read},
+                   {"post_delay", t.typist.post_delay}};
+    if (t.loader == "tap") {
+        const auto& d = t.tap;
+        j["tap"] = {{"block", d.block}, {"playing", d.playing}, {"held", d.held},
+                    {"phase", d.phase}, {"pulse_left", d.pulse_left},
+                    {"leader_left", d.leader_left}, {"byte", d.byte}, {"bit", d.bit},
+                    {"half", d.half}, {"ear", d.ear}};
+    } else if (t.loader == "tzx") {
+        const auto& d = t.tzx;
+        j["tzx"] = {{"fast_offset", d.fast_offset}, {"offset", d.offset},
+                    {"playing", d.playing}, {"held", d.held}, {"level", d.level},
+                    {"edge_in", std::to_string(d.edge_in)}, {"phase", d.phase},
+                    {"pilot_pulse", d.pilot_pulse}, {"sync1", d.sync1}, {"sync2", d.sync2},
+                    {"zero_pulse", d.zero_pulse}, {"one_pulse", d.one_pulse},
+                    {"pilot_left", d.pilot_left}, {"block_data", d.block_data},
+                    {"data_len", d.data_len}, {"data_pos", d.data_pos},
+                    {"bit_pos", d.bit_pos}, {"pulse_half", d.pulse_half},
+                    {"used_bits_last", d.used_bits_last},
+                    {"pause_tstates", d.pause_tstates}, {"tone_pulse", d.tone_pulse},
+                    {"tone_left", d.tone_left}, {"pulse_lengths", d.pulse_lengths},
+                    {"pulse_count", d.pulse_count}, {"pulse_idx", d.pulse_idx},
+                    {"sample_tstates", d.sample_tstates},
+                    {"direct_level", d.direct_level}, {"loop_start", d.loop_start},
+                    {"loop_count", d.loop_count}, {"gap_done", d.gap_done}};
+    } else {
+        j["wav"] = {{"playing", t.wav.playing},
+                    {"start_in", std::to_string(t.wav.start_in)}};
+    }
+    return j;
+}
+
+/// Typed reads from the member. Each names the offending key and returns false
+/// on a missing key, a wrong type or a value outside [lo, hi]: a hand-edited or
+/// damaged member must never reach a loader.
+struct TapeJsonReader {
+    std::string why;
+
+    bool fail(const std::string& where, const char* key, const char* what) {
+        why = where + "." + key + " " + what;
+        return false;
+    }
+    bool num(const json& o, const std::string& where, const char* key,
+             int64_t lo, int64_t hi, int64_t& out) {
+        if (!o.is_object() || !o.contains(key)) return fail(where, key, "is missing");
+        const json& v = o.at(key);
+        if (!v.is_number_integer()) return fail(where, key, "is not an integer");
+        if (v.is_number_unsigned()) {
+            const uint64_t u = v.get<uint64_t>();
+            if (u > static_cast<uint64_t>(hi)) return fail(where, key, "is out of range");
+            out = static_cast<int64_t>(u);
+        } else {
+            out = v.get<int64_t>();
+            if (out < lo || out > hi) return fail(where, key, "is out of range");
+        }
+        return true;
+    }
+    bool flag(const json& o, const std::string& where, const char* key, bool& out) {
+        if (!o.is_object() || !o.contains(key)) return fail(where, key, "is missing");
+        if (!o.at(key).is_boolean()) return fail(where, key, "is not a boolean");
+        out = o.at(key).get<bool>();
+        return true;
+    }
+    bool str(const json& o, const std::string& where, const char* key, std::string& out) {
+        if (!o.is_object() || !o.contains(key)) return fail(where, key, "is missing");
+        if (!o.at(key).is_string()) return fail(where, key, "is not a string");
+        out = o.at(key).get<std::string>();
+        return true;
+    }
+    /// A signed 64-bit value written as decimal text (§7.4).
+    bool i64s(const json& o, const std::string& where, const char* key, int64_t& out) {
+        std::string t;
+        if (!str(o, where, key, t)) return false;
+        errno = 0;
+        char* end = nullptr;
+        const long long v = std::strtoll(t.c_str(), &end, 10);
+        if (t.empty() || *end != '\0' || errno == ERANGE)
+            return fail(where, key, "is not a decimal integer");
+        out = v;
+        return true;
+    }
+    bool obj(const json& o, const char* key, const json*& out) {
+        if (!o.is_object() || !o.contains(key) || !o.at(key).is_object()) {
+            why = std::string(key) + " is missing or not an object";
+            return false;
+        }
+        out = &o.at(key);
+        return true;
+    }
+};
+
+template <size_t N>
+int name_index(const char* const (&names)[N], const std::string& s)
+{
+    for (size_t i = 0; i < N; ++i) if (s == names[i]) return static_cast<int>(i);
+    return -1;
+}
+
+bool tape_member_from_json(const std::string& text, uint64_t now, TapeMember& t,
+                           std::string& why)
+{
+    json j = json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) {
+        why = "state/tape.json is not a JSON object";
+        return false;
+    }
+    TapeJsonReader r;
+    auto done = [&](bool ok) { if (!ok) why = r.why; return ok; };
+    int64_t v = 0;
+
+    if (!r.str(j, "tape", "loader", t.loader)) return done(false);
+    if (t.loader != "tap" && t.loader != "tzx" && t.loader != "wav")
+        return done(r.fail("tape", "loader", "is not tap, tzx or wav"));
+    if (!r.flag(j, "tape", "auto_play", t.auto_play)) return done(false);
+
+    const json* o = nullptr;
+    if (!r.obj(j, "poll", o)) return done(false);
+    if (!r.flag(*o, "poll", "valid", t.poll.valid) ||
+        !r.num(*o, "poll", "run", 0, UINT32_MAX, v)) return done(false);
+    t.poll.run = static_cast<uint32_t>(v);
+    if (!r.i64s(*o, "poll", "last_in", v)) return done(false);
+    t.poll.last = now + static_cast<uint64_t>(v);
+
+    if (!r.obj(j, "typist", o)) return done(false);
+    std::string name;
+    if (!r.str(*o, "typist", "state", name)) return done(false);
+    int idx = name_index(kTypistStates, name);
+    if (idx < 0) return done(r.fail("typist", "state", "is unknown"));
+    t.typist.state = static_cast<uint8_t>(idx);
+    if (!r.str(*o, "typist", "mode", name)) return done(false);
+    idx = name_index(kTypistModes, name);
+    if (idx < 0) return done(r.fail("typist", "mode", "is unknown"));
+    t.typist.mode = static_cast<uint8_t>(idx);
+    if (!r.num(*o, "typist", "ports_read", 0, 255, v)) return done(false);
+    t.typist.ports_read = static_cast<uint8_t>(v);
+    if (!r.num(*o, "typist", "post_delay", 0, 255, v)) return done(false);
+    t.typist.post_delay = static_cast<uint8_t>(v);
+    { PhantomTypist probe; if (!probe.restore(t.typist)) return done(r.fail("typist", "post_delay", "is out of range")); }
+
+    auto u32 = [&](const char* where, const char* key, uint32_t& out) {
+        if (!r.num(*o, where, key, 0, UINT32_MAX, v)) return false;
+        out = static_cast<uint32_t>(v);
+        return true;
+    };
+    auto i32 = [&](const char* where, const char* key, int32_t& out) {
+        if (!r.num(*o, where, key, INT32_MIN, INT32_MAX, v)) return false;
+        out = static_cast<int32_t>(v);
+        return true;
+    };
+
+    if (t.loader == "tap") {
+        if (!r.obj(j, "tap", o)) return done(false);
+        auto& d = t.tap;
+        return done(u32("tap", "block", d.block) && r.flag(*o, "tap", "playing", d.playing) &&
+                    r.flag(*o, "tap", "held", d.held) && r.str(*o, "tap", "phase", d.phase) &&
+                    u32("tap", "pulse_left", d.pulse_left) &&
+                    u32("tap", "leader_left", d.leader_left) && u32("tap", "byte", d.byte) &&
+                    u32("tap", "bit", d.bit) && u32("tap", "half", d.half) &&
+                    u32("tap", "ear", d.ear));
+    }
+    if (t.loader == "tzx") {
+        if (!r.obj(j, "tzx", o)) return done(false);
+        auto& d = t.tzx;
+        return done(i32("tzx", "fast_offset", d.fast_offset) && i32("tzx", "offset", d.offset) &&
+                    r.flag(*o, "tzx", "playing", d.playing) && r.flag(*o, "tzx", "held", d.held) &&
+                    u32("tzx", "level", d.level) && r.i64s(*o, "tzx", "edge_in", d.edge_in) &&
+                    r.str(*o, "tzx", "phase", d.phase) && u32("tzx", "pilot_pulse", d.pilot_pulse) &&
+                    u32("tzx", "sync1", d.sync1) && u32("tzx", "sync2", d.sync2) &&
+                    u32("tzx", "zero_pulse", d.zero_pulse) && u32("tzx", "one_pulse", d.one_pulse) &&
+                    i32("tzx", "pilot_left", d.pilot_left) && i32("tzx", "block_data", d.block_data) &&
+                    i32("tzx", "data_len", d.data_len) && i32("tzx", "data_pos", d.data_pos) &&
+                    i32("tzx", "bit_pos", d.bit_pos) && i32("tzx", "pulse_half", d.pulse_half) &&
+                    i32("tzx", "used_bits_last", d.used_bits_last) &&
+                    u32("tzx", "pause_tstates", d.pause_tstates) &&
+                    u32("tzx", "tone_pulse", d.tone_pulse) && i32("tzx", "tone_left", d.tone_left) &&
+                    i32("tzx", "pulse_lengths", d.pulse_lengths) &&
+                    i32("tzx", "pulse_count", d.pulse_count) && i32("tzx", "pulse_idx", d.pulse_idx) &&
+                    u32("tzx", "sample_tstates", d.sample_tstates) &&
+                    u32("tzx", "direct_level", d.direct_level) && i32("tzx", "loop_start", d.loop_start) &&
+                    i32("tzx", "loop_count", d.loop_count) && u32("tzx", "gap_done", d.gap_done));
+    }
+    if (!r.obj(j, "wav", o)) return done(false);
+    return done(r.flag(*o, "wav", "playing", t.wav.playing) &&
+                r.i64s(*o, "wav", "start_in", t.wav.start_in));
+}
+
+/// Can the tape a manifest names be reopened right now? From the archive when
+/// it came out of a .zip (GH #402), else from `path` exactly as recorded: an
+/// absolute path is the tape; a bare name (older files) resolves against the
+/// CWD, as it always did (GH #401). No filesystem work beyond one open.
+bool tape_source_available(const jnext::jns::TapeInfo& t)
+{
+    const std::string& src = t.archive.empty() ? t.path : t.archive;
+    if (src.empty()) return false;
+    std::ifstream f(src, std::ios::binary);
+    return static_cast<bool>(f);
+}
+
+/// How the tape is named in a warning: '<path>', or '<archive>' (<member>).
+std::string tape_label(const jnext::jns::TapeInfo& t)
+{
+    if (!t.archive.empty()) return "'" + t.archive + "' (" + t.member + ")";
+    return "'" + (t.path.empty() ? std::string("(unnamed)") : t.path) + "'";
 }
 
 }  // namespace
@@ -398,7 +638,12 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
         if (!tape_path.empty()) {
             m.tape.present          = true;
             m.tape.path             = tape_path;
-            m.tape.sha256           = sdcard::sha256_file(tape_path);
+            // The digest of the bytes the LOADER read (GH #402), so it
+            // describes the deck's content even if the file was edited after
+            // it was attached; load_jns compares it with a fresh read.
+            m.tape.sha256 =
+                tape_.is_loaded()     ? tape_.sha256()     :
+                tzx_tape_.is_loaded() ? tzx_tape_.sha256() : wav_tape_.sha256();
             m.tape.position_tstates = tape_sample_tstates();
             // `--tape-realtime` lives in the FRONTEND, not in EmulatorConfig,
             // so the emulator-side truth is the loader's own flag: real-time
@@ -406,6 +651,9 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
             m.tape.realtime =
                 tape_.is_loaded()     ? !tape_.fast_load()     :
                 tzx_tape_.is_loaded() ? !tzx_tape_.fast_load() : true;
+            // A tape extracted from a .zip lives in a scratch directory that
+            // dies with this process: name the archive too (GH #402).
+            program_archive::extracted_from(tape_path, m.tape.archive, m.tape.member);
         }
     }
 
@@ -424,6 +672,7 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
     SaveVisitor v;
     v.w   = &w;
     v.why = &why;
+    cpu_.marshal_for_describe();   // the FUSE-only EI grace / iff2 quirk flag (GH #402 review)
     visit_jns_subsystems(v);
     if (!v.ok) return false;
 
@@ -461,6 +710,19 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
         j["frames"]    = s.frames;
         j["timer"]     = s.timer;
         if (!w.add_subsystem("joy_uart", j.dump(2) + "\n", why)) return false;
+    }
+
+    // ── GH #402: the tape deck's position, present only when a tape is attached ──
+    if (m.tape.present) {
+        TapeMember t;
+        t.auto_play = tape_auto_play_;
+        t.poll      = tape_poll_.snapshot();
+        t.typist    = phantom_typist_.snapshot();
+        if (tape_.is_loaded())          { t.loader = "tap"; t.tap = tape_.deck_state(); }
+        else if (tzx_tape_.is_loaded()) { t.loader = "tzx"; t.tzx = tzx_tape_.deck_state(jns_monotonic_tstates_); }
+        else                            { t.loader = "wav"; t.wav = wav_tape_.deck_state(jns_monotonic_tstates_); }
+        const json j = tape_member_to_json(t, jns_monotonic_tstates_);
+        if (!w.add_subsystem("tape", j.dump(2, ' ', false, nlohmann::json::error_handler_t::replace) + "\n", why)) return false;
     }
 
     if (!opt.preview_png.empty()) {
@@ -651,11 +913,7 @@ bool Emulator::check_jns(const uint8_t* data, std::size_t len,
             probe_zip.read_text(jnext::jns::kManifestMember, text, probe_why) &&
             jnext::jns::manifest_from_json(text, probe, unknown, probe_why) &&
             probe.tape.present && !probe.tape.path.empty()) {
-            // Opened exactly as recorded: an absolute path is the
-            // tape; a bare name (older files) resolves against the CWD, as it
-            // always did (GH #401).
-            std::ifstream probe_f(probe.tape.path, std::ios::binary);
-            env.tape_file_available = static_cast<bool>(probe_f);
+            env.tape_file_available = tape_source_available(probe.tape);
         }
     }
 
@@ -792,6 +1050,7 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     tstates_frame_base_ = jns_monotonic_tstates_;
     cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
     *fuse_z80_tstates_ptr() = 0;
+    cpu_.apply_after_describe();   // EI grace and iff2_read, which only live in the FUSE struct
     {
         const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
         const int64_t first  = jns_int_first_ts_ + now_ts;
@@ -861,7 +1120,164 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
 
     // `load_state` has now fired `on_input_state_restored` and re-synced the
     // ESP association itself, so neither is repeated here.
+
+    // ── GH #402: the tape, back where it was ─────────────────────────────
+    //
+    // LAST, because the round trip above resets the poll detector and the
+    // deck's times are relative to the clock it re-seated. A tape that cannot
+    // be put back warns and leaves the deck as it was; it never refuses.
+    reattach_jns_tape_(zip, m, opt, report);
     return true;
+}
+
+void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
+                                  const jnext::jns::Manifest& m,
+                                  const jnext::JnsLoadOptions& opt,
+                                  jnext::JnsLoadReport& report)
+{
+    const jnext::jns::TapeInfo& ti = m.tape;
+    if (!ti.present) return;
+    // The container has already warned once that the tape is not available.
+    if (!tape_source_available(ti)) return;
+
+    const std::string label = tape_label(ti);
+    auto warn = [&](const std::string& what) {
+        report.warnings.push_back(what);
+    };
+
+    // An older file records no position: attaching the tape at its start would
+    // hand block 0 to a program waiting for a later one, with nothing to say it
+    // was a guess. Not attaching is what those files always did.
+    const std::string member = state_member("tape");
+    const bool listed = std::find(m.subsystems.begin(), m.subsystems.end(), "tape") !=
+                        m.subsystems.end();
+    if (!listed || !zip.has(member)) {
+        warn("the snapshot does not record where the tape " + label +
+             " was (it was written by an older jnext); the tape was not reattached");
+        return;
+    }
+
+    std::string text, why;
+    TapeMember t;
+    const uint64_t now = monotonic_tstates();
+    if (!zip.read_text(member, text, why) || !tape_member_from_json(text, now, t, why)) {
+        warn("the recorded tape position could not be read (" + why + "); the tape " +
+             label + " was not reattached");
+        return;
+    }
+
+    // The bytes: from the archive for a .zip tape, else the recorded path.
+    std::string file = ti.path;
+    if (!ti.archive.empty()) {
+        program_archive::ProgramArchive archive;
+        if (!archive.open(ti.archive, why) ||
+            !archive.extract(ti.member, file, why)) {
+            warn("the tape " + label + " could not be extracted (" + why +
+                 "); it was not reattached");
+            return;
+        }
+    }
+
+    TapLoader tap;
+    TzxLoader tzx;
+    WavLoader wav;
+    std::string digest;
+    bool loaded = false;
+    const char* kind = "";
+    if (t.loader == "tap")      { loaded = tap.load(file); digest = tap.sha256(); kind = "TAP"; }
+    else if (t.loader == "tzx") { loaded = tzx.load(file); digest = tzx.sha256(); kind = "TZX"; }
+    else                        { loaded = wav.load(file); digest = wav.sha256(); kind = "WAV"; }
+    if (!loaded) {
+        warn(std::string("the tape ") + label + " could not be read as a " + kind +
+             " file; it was not reattached");
+        return;
+    }
+    if (digest.empty() || digest != ti.sha256) {
+        warn("the tape " + label + " has changed since the snapshot was saved; "
+             "it was not reattached");
+        return;
+    }
+
+    bool ok;
+    if (t.loader == "tap")      ok = tap.restore_deck(t.tap, why);
+    else if (t.loader == "tzx") ok = tzx.restore_deck(t.tzx, now, why);
+    else                        ok = ti.realtime ? wav.restore_deck(t.wav, now, why)
+                                                 : (why = "a WAV tape is always real time", false);
+    if (!ok) {
+        warn("the recorded position of the tape " + label + " is not valid for that file (" +
+             why + "); it was not reattached");
+        return;
+    }
+
+    // Every check has passed: from here the deck is replaced. No jnext setting
+    // is written (owner, GH #402): the session's fast/real-time mode
+    // (`opt.tape_realtime`) and auto play (`tape_auto_play_`) apply, and a deck
+    // saved in another mode is converted at a block boundary (plan section 3.1).
+    // The loader holds the SAVED mode first, so the deck is exactly the saved one.
+    std::string converted;
+    const bool saved_rt = ti.realtime;
+    const bool want_rt = opt.tape_realtime;
+    const bool auto_differs = t.auto_play != tape_auto_play_;
+    if (t.loader == "tap") {
+        tap.set_fast_load(!saved_rt);
+        if (saved_rt && !want_rt) {
+            converted = tap.handover_to_fast_at_gap()
+                ? "at a block boundary: fast loading now"
+                : "finishing the current block in real time, then fast loading";
+        } else if (!saved_rt && want_rt) {
+            tap.start_realtime_from_fast(tape_auto_play_);
+            converted = tape_auto_play_ ? "real time, held before the next block"
+                                        : "real time, playing the next block";
+        } else if (saved_rt && tap.is_held() && !tape_auto_play_) {
+            tap.resume();
+            converted = "auto play is off: the held deck plays on";
+        }
+        tape_ = std::move(tap);
+        if (tzx_tape_.is_loaded()) tzx_tape_.eject();
+        if (wav_tape_.is_loaded()) wav_tape_.eject();
+    } else if (t.loader == "tzx") {
+        tzx.set_fast_load(!saved_rt);
+        if (saved_rt && !want_rt) {
+            converted = tzx.handover_to_fast_at_gap()
+                ? "at a block boundary: fast loading now"
+                : "finishing the current block in real time, then fast loading";
+        } else if (!saved_rt && want_rt) {
+            tzx.start_playback_from_fast_position(now, tape_auto_play_);
+            converted = tape_auto_play_ ? "real time, held before the next block"
+                                        : "real time, playing the next block";
+        } else if (saved_rt && tzx.is_held() && !tape_auto_play_) {
+            tzx.resume(now);
+            converted = "auto play is off: the held deck plays on";
+        } else if (saved_rt && !t.auto_play && tape_auto_play_) {
+            tzx.hold_if_stopped();   // a stop block holds under auto play
+        }
+        tzx_tape_ = std::move(tzx);
+        if (tape_.is_loaded()) tape_.eject();
+        if (wav_tape_.is_loaded()) wav_tape_.eject();
+    } else {
+        wav_tape_ = std::move(wav);
+        if (tape_.is_loaded()) tape_.eject();
+        if (tzx_tape_.is_loaded()) tzx_tape_.eject();
+    }
+    // Parking is restored machine state and a restore types nothing: no
+    // resume_from_park(), no typist arm(), no LOAD "" (D8).
+    // The poll run was counted under the recorded auto play setting; under a
+    // different one it means nothing, which is what toggling auto play does.
+    if (auto_differs) tape_poll_.reset(); else tape_poll_.restore(t.poll);
+    phantom_typist_.restore(t.typist);
+    tap_sync_valid_ = false;
+    if (rzx_recorder_.is_recording()) rzx_suspend_tape_traps();
+
+    Log::emulator()->info("load_jns: tape {} reattached ({}, {}, block/offset {})", label, kind,
+                          (t.loader == "tap" ? tape_.fast_load() : t.loader == "tzx" ? tzx_tape_.fast_load() : false)
+                              ? "fast" : "realtime",   // the mode it continues in
+                          t.loader == "tap" ? static_cast<long>(t.tap.block)
+                          : t.loader == "tzx" ? static_cast<long>(t.tzx.offset) : 0L);
+    // The recording cancelled a pending switch to fast loading (rzx_suspend_tape_traps()).
+    if (rzx_recorder_.is_recording() && converted.find("then fast loading") != std::string::npos)
+        converted = "an RZX recording is running, so the deck stays in real time";
+    if (!converted.empty())
+        Log::emulator()->info("load_jns: the session's tape settings differ from the snapshot's: {}", converted);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -904,7 +1320,7 @@ bool Emulator::save_jns_file(const std::string& path)
     return true;
 }
 
-bool Emulator::load_jns_file(const std::string& path)
+bool Emulator::load_jns_file(const std::string& path, bool tape_realtime)
 {
     jns_report_ = jnext::JnsLoadReport{};
     jns_error_.clear();
@@ -926,6 +1342,7 @@ bool Emulator::load_jns_file(const std::string& path)
     jnext::JnsLoadOptions opt;
     opt.strict       = config_.jns_strict;
     opt.force_sdcard = config_.jns_force_sdcard;
+    opt.tape_realtime = tape_realtime;
 
     if (!load_jns(bytes.data(), bytes.size(), opt, jns_report_, jns_error_)) {
         Log::emulator()->error("load_jns: {}: {}", path, jns_error_);

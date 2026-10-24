@@ -4059,7 +4059,12 @@ QEMU listens on.</p>
 enables it.</dd>
 <dt><strong>--tape-realtime</strong></dt>
 <dd>Real-time tape loading, at the speed of an actual tape, instead of
-fast load.</dd>
+fast load. It sets the one fast/real-time setting (the GUI’s <strong>Tape
+&gt; Fast Load</strong> toggle) for this run only, overriding the saved
+preference without changing it; <strong>Tape &gt; Open</strong>, <strong>File &gt; Load</strong>,
+<strong>--load</strong> of a <code>.tap</code> or <code>.tzx</code>, and the tape restored by a <code>.jns</code>
+all follow that setting. The SDL-only build, which has no menu and
+no saved preference, is controlled by this option alone.</dd>
 <dt><strong>--tape-auto-play</strong>, <strong>--no-tape-auto-play</strong></dt>
 <dd>Turn automatic tape play/stop on (the default) or off for this run,
 overriding the saved GUI preference. While on, the tape deck stops
@@ -4408,7 +4413,8 @@ written by a jnext whose state model this build does not know, or
 one whose recorded ROM digests differ from the ROMs now loaded. A
 missing tape file is <strong>not</strong> covered — that always warns and never
 refuses, because a machine restores perfectly well without the tape
-it was loading from.</p>
+it was loading from. The same goes for a tape that has changed or
+whose position cannot be restored.</p>
 <p><code>force</code> restores even though the mounted SD card is not the one the
 snapshot was taken on, printing a warning that names both cards.
 This is the setting that lets you create exactly the silently-wrong

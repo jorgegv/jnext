@@ -591,6 +591,7 @@ snapshot.jns
 ├── state/membrane_stick.json
 ├── state/iomode.json
 ├── state/joy_uart.json         present only when a cable is attached
+├── state/tape.json            present only when a tape is attached: the deck's position (GH #402)
 ├── state/esxdos_hostfs.json    handles + cwd + root
 ├── state/emulator.json         Emulator's own scalars, §10
 ├── state/ram.json              Ram's own scalars; the bytes are the blob below
@@ -1166,7 +1167,8 @@ Three consequences, all now in §6.2:
     "roms":   { "source": "sdcard", "sha256": { "48.rom": "…", "128.rom": "…" } },
     "boot_rom_sha256": "…",
     "tape":   { "path": "…/game.tzx", "sha256": "…", "position_tstates": 0,
-                "realtime": false },
+                "realtime": false,
+                "archive": "…/game.tzx.zip", "member": "game.tzx" },
     "esxdos_root": "/home/user/nextdev"
   },
 
@@ -1202,7 +1204,12 @@ Notes on the parts that carry weight:
   describe a file that does not exist.
 - **`media.tape.path`** is the attached tape's ABSOLUTE host path (GH #401):
   UTF-8, lexically normalised, symlinks kept, native separators. The digest is
-  of that file. A file from a version that recorded only the file name holds a bare file name, which
+  of the bytes the tape loader READ when it attached the file (GH #402), which is
+  the file unless it was edited after it was attached. `archive` and `member`
+  (both optional, written together) appear only for a tape extracted from a
+  `.zip`: the extracted copy lives in a scratch directory that dies with the
+  process, so a later session re-extracts `member` from `archive` and checks the
+  digest. The deck's position is `state/tape.json`, not the manifest. A file from a version that recorded only the file name holds a bare file name, which
   is opened as written and so resolves against the working directory; a reader
   does not guess otherwise. The key, its type and `format_version` are
   unchanged, since the old writer only under-filled a field this section always
@@ -1451,12 +1458,21 @@ An earlier draft named three of these. All eight, from the classification:
    where they belong logically.
 3. **Values written relative to something the stream does not carry** — the
    CPU's `/INT` window, a delta against the FUSE T-state counter that
-   `load_state` re-seeds at the next frame start (§7.4).
+   `load_state` re-seeds at the next frame start (§7.4). The tape deck's edge,
+   start and poll times (`state/tape.json`, GH #402) are the same shape: signed
+   distances from the save instant, re-based by `load_jns`. The CPU's three
+   scratch values (`ei_grace`, `iff2_read`, `int_first_ts_rel`) are marshalled
+   from the FUSE struct before a `.jns` write and applied back after a read
+   (`Z80Cpu::marshal_for_describe` / `apply_after_describe`, GH #402), as the
+   binary stream does inside `save_state`/`load_state`.
 4. **Variable-length lists** — the esxDOS host-FS handle table (path, offset,
-   mode per open handle) and the joystick-cable cursor.
+   mode per open handle), the joystick-cable cursor, and the tape deck
+   (`state/tape.json`, GH #402: the three loaders' own player state, which no
+   declaration can express because the TZX player holds pointers into the file).
 5. **Presence-flag-gated optional blocks** — `joy_uart` writes a `bool` and then
-   a whole subsystem only when a cable is attached. In JSON this is simply an
-   absent member, so the flag itself does not travel.
+   a whole subsystem only when a cable is attached; `tape` (GH #402) only when a
+   tape is attached. In JSON this is simply an absent member, so the flag itself
+   does not travel.
 6. **Reconstructed-on-load fields** — `Multiface::mf_type_`, today rebuilt from
    three booleans and knowingly lossy (§4.3(3)). JNS serialises the 2-bit value
    directly, which makes this a *fix* rather than an exception, and the three
@@ -1518,7 +1534,7 @@ JNS re-expresses it through the descriptor and does not add state.
 | **P1** ✓ **DONE (S6)** | **`SdCardDevice` has no `save_state` at all.** Its own header says so and enumerates what would be needed: `multi_block_`, `multi_block_sector_`, `state_`, `resp_buf_`, `resp_idx_`, `data_idx_`, `data_crc_count_`, `data_block_`. A snapshot taken mid-CMD18 stream restores a card that is not streaming. | **High** — this is the one that silently corrupts a running loader | **Serialise the FSM** into `state/sdcard.json`, plus the mounted path, the read-only flag and the read-overlay window. The field list is already written down in the header comment. |
 | **P2** | **SD image contents.** §11. | High | §11. |
 | **P3** ✓ **DONE (S6)** | **`rom_` is not serialised** — for 48K/128K/+3, ROM content comes from the SD image at load time and never travels. | Medium | Record `media.roms` digests (§8) and refuse on mismatch under `--snapshot-mode strict`, warn otherwise. Do **not** embed 64 KB of ROM: it is firmware, and N3 applies. |
-| **P4** ✓ **DONE (S6)** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and check it on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. **As shipped, the tape is recorded and checked, NOT reattached:** `load_jns` puts no tape back in the deck, so a load in progress does not continue (corrected GH #401; reattaching is a separate feature). |
+| **P4** ✓ **DONE (S6)** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and check it on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. **Reattached since GH #402:** `media.tape` is the identity (path, digest of the bytes the loader read, realtime flag, and for a tape extracted from a `.zip` the optional `archive` and `member`, since the scratch copy dies with the process); the deck's position is the hand-written `state/tape.json` (§9.5(4)/(5) shape: presence-gated, listed in `subsystems`, outside the generated schema): the recorded loader, the TAP/TZX/WAV player state (times as signed distances from the save instant, §9.5(3); file pointers as byte offsets), the poll detector, the phantom typist and the recorded auto play. `load_jns` ends by re-opening the tape, checking the digest and having the loader validate every value against the file. Any failure is ONE warning and leaves the deck as it was, never a refusal: the file missing (the container's warning), changed since the save, the member damaged or its position not valid for the file, or an older file with no member (attaching at the start would hand block 0 to a program waiting for a later one). **A snapshot changes no setting** (owner, 2026-10-23): the session's fast/real-time mode (`JnsLoadOptions::tape_realtime`) and auto play apply, and a deck recorded in the other mode is converted at a block boundary (finish the block in real time then hand over to fast at the next gap; fast to real time held under auto play; a held deck resumed when auto play is off; a stopped TZX held when it is on). `format_version` and `state_model_revision` stay 1. |
 | **P5** ✓ **DONE (S6)** | **Framebuffer.** Regenerated by the next render, so a snapshot restored *paused* shows the previous frame until the user steps. | Low | `meta/preview.png` doubles as the restore-time paused image. Free — jnext already writes PNG. |
 | **P6** | **Mixer integration accumulator.** Deliberately not snapshotted; the first sample after a restore averages a short window. | Negligible | Keep the existing decision; document it. |
 | **P7** ✓ **DONE (S6)** | **Scheduler queue — and the mid-frame pause it forbids.** `emulator.cpp:11871` states snapshots "are only ever taken at a frame boundary (`begin_new_frame()`), so a restored machine has no frame in flight". The queue is empty exactly there and nowhere else. **But the debugger breaks MID-frame**, so a paused machine is normally not at a boundary — and that is precisely when a developer reaches for File ▸ Save Snapshot. The bug that proves the stakes is on record at `emulator.cpp:9144` (Task 40, `beast.nex`): stepping a machine past a mid-frame point cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. | **High** — it is the *debugging* save that is most likely to hit it | **One rule — always advance to the next frame boundary; never refuse** (owner decision, 2026-09-23). A **running** machine's save is queued to the next `begin_new_frame()`, which is required anyway because the GUI cannot serialise from inside `run_frame()`. A machine **paused mid-frame is advanced** to the next `begin_new_frame()` and saved there. There is no refusal path, no unavailable menu item and no failure mode. **The consequence, stated plainly: the restored machine is up to one frame past the moment the user paused at.** That is the accepted trade — a save that always works beats one that is sometimes unavailable, and a developer who needs the exact mid-frame instant has the rewind buffer, which exists for precisely that. §15.2 carries the implementation note that makes the advance safe. |
@@ -1877,6 +1893,12 @@ not listed here is a gap in this document, not a licence to improvise.
 | Snapshot had **no** card, one is mounted now | **Restore, with a warning.** The machine did not depend on it; a card that appeared is not a reason to refuse, but it is a reason the run may diverge. |
 | `media.sdcard.read_only` differs from the current mount | **Warn.** A snapshot taken read-only restoring onto a writable mount is legal and common; the reverse means writes the snapshot's program made were never persisted. Named in the warning, not refused. |
 | `model.ram_kb` is a size this build cannot construct | **Refuse** (§8 — never assume 2048). |
+| `media.tape` present and its file (or, with `archive`, the archive) cannot be opened | **Warn once** (the container's), restore without the tape. Never a refusal, not under `strict` (§10.2 P4). |
+| `media.tape` present, no `state/tape.json` (a file from before GH #402) | **Warn once** that the position is not recorded; the tape is **not** attached (attaching at the start would hand block 0 to a program waiting for a later one). |
+| `state/tape.json` unreadable, not JSON, or a field missing/mistyped | **Warn once**, not attached, never a refusal. |
+| The tape's digest differs from `media.tape.sha256` (or either is empty) | **Warn once** ("changed"), not attached: the recorded offsets would index other bytes. |
+| A position the tape file cannot be in (block past the end, pointer outside the file, an unknown phase...) | **Warn once** ("not valid"), not attached, the deck untouched. Every value is checked against the loaded bytes before any is written. |
+| Any tape warning above | The deck already in the machine is **left as it was**. A snapshot never changes a setting: the session's fast/real-time mode and auto play apply, and a deck saved in the other mode is converted at a block boundary. |
 | *(no row)* A save attempted while paused mid-frame | **Not a refusal condition.** The writer advances to the next frame boundary (§10.2 P7), so no file and no reader ever sees this state. Listed as absent so the omission is deliberate rather than overlooked. |
 | `format_version` unknown / `state_model_revision` mismatch / machine mismatch | §7.3. |
 
@@ -2282,7 +2304,7 @@ none of these either, because it was written before the gaps were closed:
 | **SD FSM** | `S6-SD-*`, `S6-EMU-CMD18-MID` | §10.2 P1. A save taken mid-block, mid-stream of a CMD18 restores a card that is STILL streaming — asserted against a second card driven identically and never interrupted, because a hand-written expectation would only pin what the row's author believed the stream to be. Plus the negotiated capacity class surviving (GH #94's two fields decide how every later address is read), the transfer-in-flight predicate §11.3's last row needs, and the write path's purity. |
 | **Multiface type** | `S6-MF-TYPE-01`, `S6-EMU-MF-TYPE` | §10.2 P13, all four NR 0x0A encodings. `MF-CORE-12` is built with `mf_type=10` and did NOT catch this, because it asserts `mode_128()` and the VHDL decodes both `"01"` and `"10"` to that. |
 | **Declared defaults** | `S6-DEF-*`, `S6-SD-DEFAULTS-*`, `S6-MF-DEFAULTS-01` | §12.2's gate, and the rows that make it more than a tautology: one drifts a default and requires the failure to name the field with both numbers, one covers every scalar primitive rather than the `u8` the first one drifts, one asserts the aggregates contribute nothing in either direction, and two assert the defaulted/undefaulted SPLIT so "the gate passed" cannot mean "the gate saw nothing". |
-| **Media identity** | `S6-MEDIA-01`, `S6-ROMS-*`, `S6-TAPE-*`, `S6-PREVIEW-*` | §10.2 P3/P4/P5: the round trip through the manifest TEXT, the ROM-digest warn/refuse matrix (including that a name only one side has is not a mismatch, and that the boot ROM is named separately), the absent-tape warning that is never a refusal even under `--snapshot-mode strict`, and the preview's declaration versus its mere presence. `S6-EMU-TAPE-01…08` (GH #401) pin what the emulator itself writes: the absolute path and its digest whatever the working directory, through all three loaders, the load-time check from another directory, the legacy bare-name file, and the UTF-8 path helper; `TAPP-01…03` pin `path()` on the TAP and WAV loaders and the lexical normalisation; `JNSN-31` and `JNSP-01…04` (Linux-only suite) pin that a non-UTF-8 host path never aborts the save and that a symlinked tape is recorded under its link name. |
+| **Media identity** | `S6-MEDIA-01`, `S6-ROMS-*`, `S6-TAPE-*`, `S6-PREVIEW-*` | §10.2 P3/P4/P5: the round trip through the manifest TEXT, the ROM-digest warn/refuse matrix (including that a name only one side has is not a mismatch, and that the boot ROM is named separately), the absent-tape warning that is never a refusal even under `--snapshot-mode strict`, and the preview's declaration versus its mere presence. `S6-EMU-TAPE-01…08` (GH #401) pin what the emulator itself writes: the absolute path and its digest whatever the working directory, through all three loaders, the load-time check from another directory, the legacy bare-name file, and the UTF-8 path helper; `TAPP-01…03` pin `path()` on the TAP and WAV loaders and the lexical normalisation; `S6-MEDIA-02`/`S6-TAPE-03` pin the `archive`/`member` keys and the archive-naming warning; `S6-EMU-TAPE-09…33` (GH #402) pin the reattach (continuation equivalence against the uninterrupted machine for TAP, TZX, WAV, fast, held and the phantom typist; the changed, damaged, older and missing-tape and zip cases; that no setting changes; the mode conversions); `TAPD`/`TZXD`/`WAVD`/`TPOL` pin the loaders' deck state and its validation; `LE-28…30` pin the GUI toggles and preferences; `JNSN-31` and `JNSP-01…04` (Linux-only suite) pin that a non-UTF-8 host path never aborts the save and that a symlinked tape is recorded under its link name. |
 | **Mid-frame save** | `S6-P7-*` | §10.2 P7. The advance happens, the debugging session survives it intact, a machine already at a boundary is not advanced — and, the row that matters, the frame's per-scanline change log is NOT wiped. Mutation-tested: re-running `begin_new_frame()` in the advance kills `S6-P7-HISTORY-01` and nothing else. |
 | **Emulator declaration** | `S6-DECL-EMULATOR`, `S6-WIDTH-EMULATOR*` | The field list and the width of each of the five blocks §10.1's last row became. |
 

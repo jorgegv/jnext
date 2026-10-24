@@ -2003,7 +2003,7 @@ void MainWindow::handle_tape_path(const QString& path) {
     if (!emulator_) return;
     // The Tape menu's own toggle decides the mode: "Turn [real time] on with
     // Tape > Fast Load (uncheck it)" (user guide 5.5). WAV is always real time.
-    const bool fast = !tape_fast_action_ || tape_fast_action_->isChecked();
+    const bool fast = tape_fast_load();
     const std::string file = path.toStdString();
     bool ok = false;
     if (path.toLower().endsWith(".tzx")) {

@@ -2625,12 +2625,22 @@ detect-loader fails the <code>xevious-deciload</code> tape.</p>
   pure-EAR loader such as DeciLoad) would play blocks away that a later ROM load
   needs. A custom loader in fast mode behaves as it always did.</li>
 <li><strong>State.</strong> The detector and the hold are host-deck state, not serialised, and
-  reset on every state load (tape position is excluded from rewind and
-  snapshots by design). Off (<code>tape_auto_play</code>, <code>--no-tape-auto-play</code>) is the
+  reset on every state load (tape position is excluded from rewind by design;
+  a <code>.jns</code> does carry it, see below). Off (<code>tape_auto_play</code>, <code>--no-tape-auto-play</code>) is the
   deck as it was: no hold, stop blocks stop for good. The one exception is
   independent of the setting: a 0x2A block now stops only on a 48K machine (the
   TZX specification).</li>
 </ul>
+<p><strong>Deck position (GH #402).</strong> Each loader can say where it is and be put back
+there, for a <code>.jns</code>: <code>deck_state()</code> returns a plain struct (TAP: block, phase,
+pulse and byte counters; TZX: the fast-load cursor and the whole ZOT player,
+file pointers as byte offsets and the next edge as a distance from "now"; WAV:
+playing and the start as a distance from "now"), and <code>restore_deck()</code> checks
+every value against the loaded bytes before it writes any (the checks are the
+read sites of <code>tzx.c</code>), returning false with a reason otherwise. <code>sha256()</code> is
+the digest of the bytes <code>load()</code> read. <code>handover_to_fast_at_gap()</code> and
+<code>start_realtime_from_fast()</code> convert a restored deck to the session's mode
+without cutting a block. See <a href="../02-architecture/05-save-state-and-rewind.html">save state and rewind</a>.</p>
 <p>Saving works the same way in reverse. <code>--tape-save</code> (or Tape ▸ Start Saving,
 both through <code>Emulator::start_tape_save()</code>) arms one of two savers by the
 file's extension, and in both the ROM's <code>SA-BYTES</code> at <code>0x04C2</code> is trapped. That

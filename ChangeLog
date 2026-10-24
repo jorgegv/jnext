@@ -13,6 +13,8 @@
 - Soft scanlines, TV and PC monitor CRT looks drawn on the GPU, beside the Scanlines filter (View menu, Preferences)
 - Snapshots no longer check whether the SD card's contents changed; only a different card is refused
 - Tape auto play/stop: a real-time deck pauses between blocks while nothing listens, so slow BASIC loaders load
+- Loading a .jns snapshot puts its tape back at the saved position, zipped tapes included; your settings stay
+- One fast/real-time tape setting: Tape > Fast Load now governs File > Load and --load too; --tape-realtime overrides it per run
 
 ### Developer Features
 - Debugger labels from sjasmplus --sym and --exp files (Map menu, --map); scripts name them as @module.label

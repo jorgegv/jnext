@@ -675,6 +675,103 @@ int main(int argc, char** argv) {
 
 
     // ------------------------------------------------------------------
+    // GH #402 - a .jns puts the tape back and changes no setting. Oracle: the
+    // owner (2026-10-23): "the snapshot should only restore the emulated machine
+    // state, not the whole JNext state"; "leave the toggle alone". The Tape menu
+    // toggles, the session's auto play and the saved preferences are what the
+    // user set, whatever the file recorded.
+    {
+        auto toggles = [](Fixture& f, QAction*& fast, QAction*& autop) {
+            fast = autop = nullptr;
+            for (QAction* a : f.win.findChildren<QAction*>()) {
+                if (a->text() == "&Fast Load") fast = a;
+                if (a->text() == "Auto Play/Stop") autop = a;
+            }
+        };
+        // LE-28: saved real time with auto play OFF; the session has both toggles checked.
+        {
+            Fixture f;
+            QAction *fast, *autop;
+            toggles(f, fast, autop);
+            const std::string jns = (g_root / "le28.jns").string();
+            bool saved = false;
+            if (f.ok) {
+                f.emu.load_tap(good_tap_path, false);
+                f.emu.set_tape_auto_play(false);
+                saved = f.emu.save_jns_file(jns);
+                f.emu.tape().eject();
+                f.emu.set_tape_auto_play(true);
+            }
+            if (fast) fast->setChecked(true);
+            if (autop) autop->setChecked(true);
+            const bool pf = f.win.app_config().data().tape_fast_load, pa = f.win.app_config().data().tape_auto_play;
+            const bool loaded = saved && f.emu.load_jns_file(jns, false);
+            f.win.load_finished(jns, true);
+            check("LE-28",
+                  "a .jns saved with a real-time tape and auto play off, loaded into a session whose Tape > Fast Load and "
+                  "Auto Play/Stop are both checked, leaves both CHECKED and the session's auto play on; the tape is back "
+                  "and the status bar names it",
+                  f.ok && fast && autop && loaded && fast->isChecked() && autop->isChecked() &&
+                      f.emu.tape_auto_play() && f.emu.tape().is_loaded() && f.status().contains("good.tap"),
+                  fmt("loaded=%d fast=%d auto=%d emu_auto=%d status=%s", loaded, fast && fast->isChecked(),
+                      autop && autop->isChecked(), f.emu.tape_auto_play(), q(f.status()).c_str()));
+            check("LE-29",
+                  "the same load leaves the saved preferences (tape_fast_load, tape_auto_play) unchanged",
+                  f.ok && f.win.app_config().data().tape_fast_load == pf &&
+                      f.win.app_config().data().tape_auto_play == pa);
+        }
+        // LE-29's mirror: saved fast with auto play on; both toggles unchecked in the session.
+        {
+            Fixture f;
+            QAction *fast, *autop;
+            toggles(f, fast, autop);
+            const std::string jns = (g_root / "le29.jns").string();
+            bool saved = false;
+            if (f.ok) {
+                f.emu.load_tap(good_tap_path, true);
+                saved = f.emu.save_jns_file(jns);
+                f.emu.tape().eject();
+                f.emu.set_tape_auto_play(false);
+            }
+            if (fast) fast->setChecked(false);
+            if (autop) autop->setChecked(false);
+            const bool loaded = saved && f.emu.load_jns_file(jns, true);
+            f.win.load_finished(jns, true);
+            check("LE-30",
+                  "the mirror: a .jns saved fast with auto play on, loaded into a session whose toggles are both UNCHECKED, "
+                  "leaves both unchecked and auto play off",
+                  f.ok && fast && autop && loaded && !fast->isChecked() && !autop->isChecked() &&
+                      !f.emu.tape_auto_play() && f.emu.tape().is_loaded());
+        }
+    }
+
+    // LE-31 (GH #402, owner Q3) - the Tape > Fast Load toggle IS the session's one
+    // fast/real-time setting: MainWindow::tape_fast_load() (what QtApp's File >
+    // Load / --load / .jns restore read) follows it, and Tape > Open follows the
+    // same accessor.
+    {
+        Fixture f;
+        QAction* fast = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == "&Fast Load") fast = a;
+        bool off_ok = false, on_ok = false;
+        if (fast) {
+            fast->setChecked(false);
+            off_ok = !f.win.tape_fast_load();
+            f.win.handle_tape_path(QString::fromStdString(good_tap_path));
+            off_ok = off_ok && f.emu.tape().is_loaded() && !f.emu.tape().fast_load();
+            fast->setChecked(true);
+            on_ok = f.win.tape_fast_load();
+            f.win.handle_tape_path(QString::fromStdString(good_tap_path));
+            on_ok = on_ok && f.emu.tape().fast_load();
+        }
+        check("LE-31",
+              "MainWindow::tape_fast_load() is the Fast Load toggle (unchecked = real time, checked = fast) and Tape > Open "
+              "attaches in the mode it reports",
+              f.ok && fast && off_ok && on_ok);
+    }
+
+    // ------------------------------------------------------------------
     // GH #392 - programs inside .zip archives, File > Load's post-picker half.
     // Oracle: the issue and the user guide 5 (an archive loads the one program
     // inside it; several are asked for; every refusal names the archive and the

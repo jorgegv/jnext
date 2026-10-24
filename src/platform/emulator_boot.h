@@ -52,7 +52,7 @@ inline bool emulator_apply_load(Emulator& emu, const std::string& file,
     if (ext == ".z80") return snapshot(emu.load_z80(file));
     if (ext == ".wav") return emu.load_wav(file);
     if (ext == ".rzx") return emu.load_rzx(file);
-    if (ext == ".jns") return snapshot(emu.load_jns_file(file));   // GH #27 S8
+    if (ext == ".jns") return snapshot(emu.load_jns_file(file, tape_realtime));   // GH #27 S8; GH #402
     return emu.load_nex(file);   // .nex + unknown extensions
 }
 
@@ -424,6 +424,11 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
     cfg.magic_breakpoint  = emu.config().magic_breakpoint;
     cfg.rewind_buffer_frames = emu.config().rewind_buffer_frames;   // GH #400
     cfg.rewind_paused        = emu.config().rewind_paused;
+    // GH #402 - Tape > Auto Play/Stop writes only the running machine; the frontends
+    // boot from their STARTUP config, so without this every File > Load (a cold
+    // boot) put auto play back to its startup value while the menu showed the
+    // user's choice, and a .jns restored with the wrong one.
+    cfg.tape_auto_play       = emu.tape_auto_play();
 
     emulator_cold_boot(emu, cfg);
 

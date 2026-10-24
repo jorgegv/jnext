@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "core/host_path.h"
 #include "core/tape_trap.h"
+#include "core/sha256.h"
 
 #include <cstring>
 #include <filesystem>
@@ -61,6 +62,7 @@ bool TapLoader::load(const std::string& path) {
 
     loaded_ = true;
     current_block_ = 0;
+    sha256_ = sdcard::sha256_hex(file_data);
 
     // Extract just the filename for UI display (std::filesystem splits on the host's own
     // separators: a Windows path from `--load C:\...` or a native dialog has
@@ -113,8 +115,10 @@ void TapLoader::eject() {
     loaded_ = false;
     playing_ = false;
     held_ = false;
+    handover_pending_ = false;
     filename_.clear();
     path_.clear();
+    sha256_.clear();
     Log::emulator()->info("TAP: tape ejected");
 }
 
@@ -254,7 +258,17 @@ uint8_t TapLoader::tick_realtime(uint64_t tstates) {
             if (at_end()) {
                 play_phase_ = PlayPhase::DONE;
                 playing_ = false;
+                if (handover_pending_) { handover_pending_ = false; fast_load_ = true; }
                 Log::emulator()->info("TAP realtime: tape ended");
+            } else if (handover_pending_) {
+                // GH #402: the gap boundary a restored real-time deck hands over to
+                // fast loading at; the next LD-BYTES call is served by the trap.
+                handover_pending_ = false;
+                fast_load_ = true;
+                playing_ = false;
+                play_phase_ = PlayPhase::DONE;
+                Log::emulator()->info("TAP: handed over to fast loading before block {}", current_block_);
+                return ear_bit_;
             } else if (gap_hold_) {
                 // Gap boundary with nobody listening: hold the deck here.
                 playing_ = false;
@@ -275,4 +289,96 @@ uint8_t TapLoader::tick_realtime(uint64_t tstates) {
     }
 
     return ear_bit_;
+}
+
+// ---------------------------------------------------------------------------
+// The deck's position, for a `.jns` (GH #402)
+// ---------------------------------------------------------------------------
+
+static const char* const names[] = {"leader", "sync1", "sync2", "data", "pause", "done"};
+
+TapLoader::DeckState TapLoader::deck_state() const {
+    DeckState d;
+    d.block       = static_cast<uint32_t>(current_block_);
+    d.playing     = playing_;
+    d.held        = held_;
+    d.phase       = names[static_cast<int>(play_phase_)];
+    d.pulse_left  = static_cast<uint32_t>(phase_tstates_);
+    d.leader_left = static_cast<uint32_t>(leader_pulses_ > 0 ? leader_pulses_ : 0);
+    d.byte        = static_cast<uint32_t>(play_byte_idx_);
+    d.bit         = static_cast<uint32_t>(play_bit_idx_ > 0 ? play_bit_idx_ : 0);
+    d.half        = static_cast<uint32_t>(play_pulse_count_ > 0 ? play_pulse_count_ : 0);
+    d.ear         = ear_bit_;
+    return d;
+}
+
+bool TapLoader::restore_deck(const DeckState& d, std::string& why) {
+    if (!loaded_) { why = "no tape is loaded"; return false; }
+    int phase = -1;
+    for (int i = 0; i < 6; ++i) if (d.phase == names[i]) phase = i;
+    if (phase < 0) { why = "unknown phase '" + d.phase + "'"; return false; }
+    if (d.block > blocks_.size()) {
+        why = "block " + std::to_string(d.block) + " is past the tape's " +
+              std::to_string(blocks_.size()) + " blocks";
+        return false;
+    }
+    const auto ph = static_cast<PlayPhase>(phase);
+    if (ph == PlayPhase::LEADER || ph == PlayPhase::SYNC1 || ph == PlayPhase::SYNC2 ||
+        ph == PlayPhase::DATA) {
+        if (d.block >= blocks_.size()) {
+            why = "phase '" + d.phase + "' with no block to play";
+            return false;
+        }
+    }
+    if (ph == PlayPhase::DATA &&
+        d.byte >= 1 + blocks_[d.block].data.size() + 1) {
+        why = "byte " + std::to_string(d.byte) + " is past the block's data";
+        return false;
+    }
+    if (d.bit > 7 || d.half > 1 || d.ear > 1) {
+        why = "bit, half or ear out of range";
+        return false;
+    }
+    if (d.pulse_left > static_cast<uint32_t>(PAUSE_TSTATES) ||
+        d.leader_left > static_cast<uint32_t>(HEADER_LEADER)) {
+        why = "pulse or leader count out of range";
+        return false;
+    }
+    if (d.playing && d.held) { why = "the deck is both playing and held"; return false; }
+
+    current_block_    = d.block;
+    playing_          = d.playing;
+    held_             = d.held;
+    play_phase_       = ph;
+    phase_tstates_    = d.pulse_left;
+    leader_pulses_    = static_cast<int>(d.leader_left);
+    play_byte_idx_    = d.byte;
+    play_bit_idx_     = static_cast<int>(d.bit);
+    play_pulse_count_ = static_cast<int>(d.half);
+    ear_bit_          = static_cast<uint8_t>(d.ear);
+    return true;
+}
+
+bool TapLoader::handover_to_fast_at_gap() {
+    if (!playing_) {
+        held_ = false;
+        handover_pending_ = false;
+        fast_load_ = true;
+        return true;
+    }
+    handover_pending_ = true;
+    return false;
+}
+
+void TapLoader::start_realtime_from_fast(bool held) {
+    fast_load_ = false;
+    handover_pending_ = false;
+    if (!loaded_ || at_end()) return;
+    if (held) {
+        playing_ = false;
+        held_ = true;
+        play_phase_ = PlayPhase::DONE;
+    } else {
+        start_realtime_playback();
+    }
 }

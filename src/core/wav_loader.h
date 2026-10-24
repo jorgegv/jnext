@@ -53,9 +53,30 @@ public:
     /// empty when nothing is loaded. filename() stays the display name.
     const std::string& path() const { return path_; }
 
+    /// SHA-256 of the exact bytes load() read (GH #402); empty when nothing is
+    /// loaded.
+    const std::string& sha256() const { return sha256_; }
+
+    /// The deck's position, for a `.jns` (GH #402): whether it plays, and
+    /// where playback began as a signed distance from `now` (the monotonic
+    /// T-state clock), so a restore onto a re-based clock lands on the same
+    /// sample.
+    struct DeckState {
+        bool    playing = false;
+        int64_t start_in = 0;
+        bool operator==(const DeckState& o) const {
+            return playing == o.playing && start_in == o.start_in;
+        }
+    };
+    DeckState deck_state(uint64_t now) const;
+    /// False, with `why` and the loader untouched, when nothing is loaded or
+    /// the start would fall before T-state 0.
+    bool restore_deck(const DeckState& d, uint64_t now, std::string& why);
+
 private:
     std::string filename_;
     std::string path_;
+    std::string sha256_;
     bool loaded_ = false;
     bool playing_ = false;
     uint64_t start_tstates_ = 0;

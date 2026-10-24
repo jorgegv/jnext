@@ -8749,7 +8749,15 @@ bool Emulator::stop_rzx_recording()
 void Emulator::rzx_suspend_tape_traps()
 {
     // The tape traps stand down while a recording runs (see the trap block in
-    // run_frame). A fast-load tape would then never load — nothing drives its
+    // run_frame). A real-time deck with a pending switch to fast loading (a
+    // restored .jns, GH #402) stays real time: the switch would fire with the
+    // traps off and the next block would never arrive.
+    if (tape_.handover_pending() || tzx_tape_.handover_pending())
+        Log::emulator()->info("RZX: the pending switch to fast loading is cancelled, the tape stays "
+                              "in real time for the recording");
+    tape_.cancel_handover();
+    tzx_tape_.cancel_handover();
+    // A fast-load tape would then never load — nothing drives its
     // EAR edges — so it is switched to real-time loading from where it is.
     if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end()) {
         tape_.set_fast_load(false);
@@ -8759,7 +8767,10 @@ void Emulator::rzx_suspend_tape_traps()
     }
     if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) {
         tzx_tape_.set_fast_load(false);
-        tzx_tape_.start_playback(monotonic_tstates());
+        // From the fast-load cursor, like the TAP deck above: tzx_play() alone
+        // restarts the tape, and every block already served would play again
+        // (GH #402).
+        tzx_tape_.start_playback_from_fast_position(monotonic_tstates());
         Log::emulator()->info("TZX: switched to real-time loading: an RZX recording "
                               "cannot capture a fast (trapped) load");
     }

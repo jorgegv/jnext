@@ -1,6 +1,7 @@
 #include "core/wav_loader.h"
 #include "core/log.h"
 #include "core/host_path.h"
+#include "core/sha256.h"
 
 #include <cstring>
 #include <fstream>
@@ -21,6 +22,7 @@ bool WavLoader::load(const std::string& path)
 {
     filename_.clear();
     path_.clear();
+    sha256_.clear();
     loaded_ = false;
     playing_ = false;
     raw_data_.clear();
@@ -115,6 +117,7 @@ bool WavLoader::load(const std::string& path)
     }
 
     loaded_ = true;
+    sha256_ = sdcard::sha256_hex(buf);
     const auto slash = path.find_last_of("/\\");
     filename_ = (slash != std::string::npos) ? path.substr(slash + 1) : path;
     path_ = jnext::absolute_host_path(path);
@@ -149,6 +152,7 @@ void WavLoader::eject()
 {
     filename_.clear();
     path_.clear();
+    sha256_.clear();
     loaded_ = false;
     playing_ = false;
     raw_data_.clear();
@@ -205,4 +209,25 @@ int32_t WavLoader::sample_amplitude(uint32_t frame_index) const
         // 16-bit signed little-endian: centre at 0.
         return static_cast<int16_t>(read_u16(raw_data_.data() + byte_offset));
     }
+}
+
+WavLoader::DeckState WavLoader::deck_state(uint64_t now) const
+{
+    DeckState d;
+    d.playing = playing_;
+    d.start_in = static_cast<int64_t>(start_tstates_ - now);
+    return d;
+}
+
+bool WavLoader::restore_deck(const DeckState& d, uint64_t now, std::string& why)
+{
+    if (!loaded_) { why = "no tape is loaded"; return false; }
+    // start = now + start_in must be a T-state the clock can have had.
+    const bool below_zero = d.start_in < 0 && static_cast<uint64_t>(-(d.start_in + 1)) + 1 > now;
+    const bool overflow = d.start_in > 0 &&
+                          static_cast<uint64_t>(d.start_in) > UINT64_MAX - now;
+    if (below_zero || overflow) { why = "the playback start is outside the clock"; return false; }
+    playing_ = d.playing;
+    start_tstates_ = now + static_cast<uint64_t>(d.start_in);   // modular: exact for either sign
+    return true;
 }

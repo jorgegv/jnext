@@ -28,6 +28,7 @@
 #include "core/wav_loader.h"
 #include "ld_trap_rig.h"
 #include "core/tape_poll_detector.h"
+#include "core/sha256.h"
 
 #include <spdlog/sinks/ostream_sink.h>
 
@@ -900,6 +901,252 @@ int main() {
                   fs::u8path(ah) == fs::u8path(ah).lexically_normal() &&
                   fs::equivalent(fs::u8path(ah), g_root / "p1.tap"), ah);
         fs::current_path(cwd0);
+    }
+
+
+    // ---- The deck's position, for a .jns (GH #402) ------------------------
+    // No hardware counterpart (a host deck). Oracle for every behaviour row:
+    // the UNINTERRUPTED deck. A restored deck, ticked as the original is, must
+    // put the same level on the EAR line at every step and end in the same
+    // state. The validation rows' oracle is the bounds rule in the plan
+    // (restore_deck refuses what the player could not reach, and changes nothing).
+    {
+        const Bytes tap3 = concat({header_block(), data_block(), tap_block(0xFF, {9, 8, 7})});
+        const std::string tap3_path = write_file("deck3.tap", tap3);
+        const uint64_t steps[] = {1, 3, 7, 59, 853, 1710, 2168, 5, 400, 64};
+        auto lockstep = [&](TapLoader& a, TapLoader& b, uint64_t total, bool& same) {
+            uint64_t done = 0;
+            size_t i = 0;
+            while (done < total) {
+                const uint64_t st = steps[i++ % (sizeof(steps) / sizeof(steps[0]))];
+                if (a.tick_realtime(st) != b.tick_realtime(st)) { same = false; return; }
+                done += st;
+            }
+        };
+
+        {   // TAPD-01: mid-DATA of block 1, across the pause and the next block's pilot
+            TapLoader a, b;
+            bool ok = a.load(tap3_path) && b.load(tap3_path);
+            a.start_realtime_playback();
+            while (ok && !(a.deck_state().phase == "data" && a.current_block() == 1 &&
+                           a.deck_state().byte >= 2))
+                a.tick_realtime(997);
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(), why);
+            const bool equal_at_restore = a.deck_state() == b.deck_state();
+            bool same = true;
+            lockstep(a, b, 14000000, same);
+            check("TAPD-01", "a deck restored mid-DATA of block 1 puts the same EAR level as the original at every step "
+                  "through the pause and the next block's pilot, and ends in the same state",
+                  ok && restored && equal_at_restore && same && a.deck_state() == b.deck_state() &&
+                  a.deck_state().block == 3, why);
+        }
+        {   // TAPD-02: the pause after the last block, and a deck held at a gap
+            TapLoader a, b;
+            bool ok = a.load(tap3_path) && b.load(tap3_path);
+            a.start_realtime_playback();
+            while (ok && !(a.current_block() == 3 && a.deck_state().phase == "pause")) a.tick_realtime(997);
+            std::string why;
+            const bool r1 = ok && b.restore_deck(a.deck_state(), why);
+            bool same1 = true;
+            lockstep(a, b, 4000000, same1);
+            const bool ended = !a.is_playing() && !b.is_playing() && a.deck_state() == b.deck_state();
+
+            TapLoader c, d;
+            ok = c.load(tap3_path) && d.load(tap3_path);
+            c.set_gap_hold(true);
+            c.start_realtime_playback();
+            while (ok && !c.is_held()) c.tick_realtime(997);
+            const bool r2 = ok && d.restore_deck(c.deck_state(), why);
+            const bool held_both = c.is_held() && d.is_held() && !d.is_playing() && d.current_block() == 1;
+            c.resume();
+            d.resume();
+            bool same2 = true;
+            lockstep(c, d, 3000000, same2);
+            check("TAPD-02", "a deck restored in the pause after the last block ends like the original, and a deck "
+                  "restored held at a gap is held and, resumed, plays the same EAR timeline",
+                  ok && r1 && same1 && ended && r2 && held_both && same2 && c.deck_state() == d.deck_state(), why);
+        }
+        {   // TAPD-03..06: positions the player cannot reach are refused and change nothing
+            TapLoader t;
+            t.load(tap3_path);
+            t.start_realtime_playback();
+            for (int i = 0; i < 100; ++i) t.tick_realtime(1000);
+            const TapLoader::DeckState before = t.deck_state();
+            std::string why;
+
+            TapLoader::DeckState d = before;
+            d.phase = "pause";                             // no phase check can refuse it for another reason
+            d.block = 4;                                   // the tape has 3 blocks
+            const bool r3 = t.restore_deck(d, why);
+            check("TAPD-03", "restore_deck refuses a block past the tape (3 blocks, block 4) and leaves the deck unchanged",
+                  !r3 && t.deck_state() == before, why);
+
+            d = before;
+            d.phase = "data";
+            d.block = 3;                                   // == block_count: nothing to play
+            const bool r4 = t.restore_deck(d, why);
+            check("TAPD-04", "restore_deck refuses phase 'data' with no block left to play (block == block_count)",
+                  !r4 && t.deck_state() == before, why);
+
+            d = before;
+            d.phase = "data";
+            d.block = 1;
+            d.byte = 1 + 5 + 1;                            // flag + 5 data bytes + checksum: indices 0..6
+            const bool r5 = t.restore_deck(d, why);
+            d.byte = 6;
+            const bool r5ok = t.restore_deck(d, why);      // the last valid index is accepted
+            t.restore_deck(before, why);
+            check("TAPD-05", "restore_deck refuses a byte index past flag + data + checksum and accepts the last one",
+                  !r5 && r5ok && t.deck_state() == before, why);
+
+            d = before;
+            d.phase = "warp";
+            const bool r6a = t.restore_deck(d, why);
+            d = before;
+            d.playing = true;
+            d.held = true;
+            const bool r6b = t.restore_deck(d, why);
+            d = before;
+            d.bit = 8;
+            const bool r6c = t.restore_deck(d, why);
+            TapLoader empty;
+            const bool r6d = empty.restore_deck(before, why);
+            check("TAPD-06", "restore_deck refuses an unknown phase, a deck both playing and held, a bit past 7, "
+                  "and any state when no tape is loaded; none changes the deck",
+                  !r6a && !r6b && !r6c && !r6d && t.deck_state() == before, why);
+        }
+        {   // TAPD-07
+            TapLoader t;
+            const bool ok = t.load(tap3_path);
+            const std::string want = sdcard::sha256_hex(tap3);
+            const std::string got = t.sha256();
+            t.eject();
+            check("TAPD-07", "TapLoader::sha256() is the SHA-256 of the bytes load() parsed, and empty after eject()",
+                  ok && !want.empty() && got == want && t.sha256().empty(), got);
+        }
+        {   // WAVD-01 / WAVD-02: a WAV of 4000 samples toggling every 5 samples
+            Bytes wav = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E',
+                         'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                         0x44, 0xAC, 0, 0, 0x44, 0xAC, 0, 0, 1, 0, 8, 0,
+                         'd', 'a', 't', 'a', 0xA0, 0x0F, 0, 0};
+            for (int i = 0; i < 4000; ++i) wav.push_back(((i / 5) & 1) ? 0xC0 : 0x40);
+            const std::string wpath = write_file("deck.wav", wav);
+            WavLoader a, b;
+            const bool ok = a.load(wpath) && b.load(wpath);
+            const uint64_t t0 = 100000;
+            a.start_playback(t0 + 33);
+            const uint64_t now = t0 + 10000;                  // ~126 samples in
+            const uint64_t shift = 123457;                    // B's clock is re-based
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(now), now + shift, why);
+            bool same = true;
+            int edges = 0;
+            uint8_t prev = a.get_ear_bit(now);
+            for (int i = 0; i < 200; ++i) {
+                const uint64_t t = now + 37u * static_cast<uint64_t>(i);
+                const uint8_t ea = a.get_ear_bit(t), eb = b.get_ear_bit(t + shift);
+                if (ea != eb) same = false;
+                if (ea != prev) ++edges;
+                prev = ea;
+            }
+            check("WAVD-01", "a WAV deck restored onto a clock re-based by 123457 T returns the original's EAR level for 200 "
+                  "sample times after the restore (the playing flag and the start travel as a distance from now)",
+                  ok && restored && b.is_playing() && same && edges >= 4 && a.deck_state(now) == b.deck_state(now + shift), why);
+
+            const std::string want = sdcard::sha256_hex(wav);
+            const std::string got = a.sha256();
+            const bool failed = !a.load("no-such-deck.wav");
+            check("WAVD-02", "WavLoader::sha256() is the SHA-256 of the bytes load() read, empty after a FAILED reload "
+                  "and after eject()",
+                  ok && got == want && failed && a.sha256().empty() && (b.eject(), b.sha256().empty()), got);
+        }
+        {   // TAPD-08 (case 1 and 1b): hand over to fast loading without cutting a block
+            TapLoader a, b;
+            bool ok = a.load(tap3_path) && b.load(tap3_path);
+            a.start_realtime_playback();
+            while (ok && !(a.deck_state().phase == "data" && a.current_block() == 1 &&
+                           a.deck_state().byte >= 2))
+                a.tick_realtime(997);
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(), why);
+            b.set_fast_load(false);
+            const bool immediate = b.handover_to_fast_at_gap();      // mid-block: must wait
+            bool same = true, switched = false;
+            uint64_t guard = 0;
+            size_t i = 0;
+            while (guard < 14000000 && !switched) {
+                const uint64_t st = steps[i++ % (sizeof(steps) / sizeof(steps[0]))];
+                if (a.tick_realtime(st) != b.tick_realtime(st)) same = false;
+                guard += st;
+                switched = b.fast_load();
+            }
+            // The gap boundary: A starts block 2's pilot, B stands before block 2, fast, stopped.
+            const bool at_gap = switched && !b.is_playing() && b.current_block() == 2 &&
+                                a.is_playing() && a.current_block() == 2 &&
+                                a.deck_state().phase == "leader" && !b.handover_pending();
+
+            // 1b: a deck at a boundary (held) turns fast at once.
+            TapLoader c, d;
+            ok = c.load(tap3_path) && d.load(tap3_path);
+            c.set_gap_hold(true);
+            c.start_realtime_playback();
+            while (ok && !c.is_held()) c.tick_realtime(997);
+            const bool r2 = ok && d.restore_deck(c.deck_state(), why);
+            d.set_fast_load(false);
+            const bool now_fast = d.handover_to_fast_at_gap();
+            check("TAPD-08", "a real-time deck handed over to fast loading mid-block plays the original's EAR levels to the "
+                  "end of the block and its pause, then stands before the next block, fast and stopped, while the original "
+                  "starts that block's pilot; a deck already at a boundary (held) turns fast at once at the same block",
+                  ok && restored && !immediate && same && at_gap && r2 && now_fast && d.fast_load() &&
+                  !d.is_held() && !d.is_playing() && d.current_block() == 1, why);
+        }
+        {   // TAPD-09 (case 2)
+            TapLoader t;
+            const bool ok = t.load(tap3_path);
+            t.next_block();                                   // the fast cursor stands before block 1
+            t.start_realtime_from_fast(true);
+            const bool held = t.is_held() && !t.is_playing() && !t.fast_load() && t.current_block() == 1;
+            t.resume();
+            const bool resumed = t.is_playing() && t.deck_state().phase == "leader" && t.current_block() == 1;
+            TapLoader u;
+            u.load(tap3_path);
+            u.next_block();
+            u.start_realtime_from_fast(false);
+            const bool playing = u.is_playing() && !u.is_held() && u.deck_state().phase == "leader" &&
+                                 u.current_block() == 1 && !u.fast_load();
+            check("TAPD-09", "starting real time from the fast position at block 1: held, it waits at block 1 and resume() plays that "
+                  "block's pilot; not held, it plays that block's pilot at once",
+                  ok && held && resumed && playing, {});
+        }
+        {   // TPOL-01
+            TapePollDetector d;
+            uint64_t t = 5000;
+            for (int i = 0; i < 40; ++i) { d.on_read(t); t += 59; }
+            TapePollDetector e;
+            e.restore(d.snapshot());
+            bool same = true;
+            for (uint64_t at = t - 59; at <= t + 1200; at += 120)
+                if (d.polling(at) != e.polling(at)) same = false;
+            const bool polling_before = d.polling(t - 59) && e.polling(t - 59);
+            // The same next reads give the same answers on both.
+            uint64_t u = t + 400;
+            for (int i = 0; i < 5; ++i) {
+                d.on_read(u);
+                e.on_read(u);
+                if (d.polling(u) != e.polling(u)) same = false;
+                u += 59;
+            }
+            // A far read starts a new run on both.
+            d.on_read(u + 5000);
+            e.on_read(u + 5000);
+            const bool fresh = !d.polling(u + 5000) && !e.polling(u + 5000);
+            TapePollDetector z;
+            z.restore(TapePollDetector{}.snapshot());
+            check("TPOL-01", "a poll detector restored from a snapshot answers polling() like the original at 11 times "
+                  "and through the same next reads; a fresh snapshot restores to the idle detector",
+                  polling_before && same && fresh && !z.polling(0), {});
+        }
     }
 
     Log::emulator()->sinks().pop_back();

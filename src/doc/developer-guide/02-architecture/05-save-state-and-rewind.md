@@ -136,10 +136,39 @@ rather than silently wrong, which is the same shape the esxDOS handles already
 used.
 The tape is recorded by the loaders' absolute path (`TapLoader::path()` and
 its two siblings, built by `jnext::absolute_host_path()`), beside the display
-name `filename()`; it is checked on load, never reattached. A host path that is
-not UTF-8 is written with U+FFFD instead of aborting the save. Tests:
-`rewind_test` S6-EMU-TAPE-*, `snapshot_test` JNSN-31 and the Linux-only
-`jns_host_path_linux_test`.
+name `filename()`, with the digest of the bytes the loader read (`sha256()`).
+A host path that is not UTF-8 is written with U+FFFD instead of aborting the
+save. A tape extracted from a `.zip` also records `media.tape.archive` and
+`media.tape.member`: `ProgramArchive::extract()` registers every file it writes
+(`program_archive::extracted_from()`), so all load routes are covered, and the
+scratch copy dies with the process.
+
+The deck's position is the hand-written member `state/tape.json` (outside the
+generated schema, like `esxdos_hostfs`), written and listed in `subsystems` only
+when a tape is attached. `TapLoader`, `TzxLoader` and `WavLoader` each expose a
+`DeckState` (`deck_state()` / `restore_deck()`); times are signed distances from
+the save instant and file pointers are byte offsets. The member also carries
+the poll detector, the phantom typist and the recorded auto play. On load,
+`Emulator::reattach_jns_tape_()` runs last (the state round trip resets the
+detector): it re-opens the tape (from the archive when there is one), checks
+the digest, and has the loader validate every value against the file before
+installing it. Any failure is ONE warning and the deck stays as it was. A file
+without the member (older jnext) is not reattached either, since attaching at
+the start would hand block 0 to a program waiting for a later one.
+
+A snapshot changes no setting (owner, GH #402). The session's mode reaches
+the core as `JnsLoadOptions::tape_realtime` (the one fast/real-time setting:
+the Tape > Fast Load toggle, which `--tape-realtime` overrides for the run in
+`main.cpp`; `QtApp::tape_realtime()` reads the toggle, SDL and headless take the
+flag) and `tape_auto_play_`; a deck recorded in the other mode is
+converted at a block boundary: `handover_to_fast_at_gap()` (finish the block in
+real time, then fast at the next gap), `start_realtime_from_fast()` /
+`start_playback_from_fast_position()` (real time from the fast cursor, held
+under auto play), and the auto play rules of `set_tape_auto_play`. Tests:
+`rewind_test` S6-EMU-TAPE-*, the loaders' `TAPD`/`TZXD`/`WAVD` rows,
+`snapshot_test` JNSN-31, S6-MEDIA-02 and S6-TAPE-03, and the Linux-only
+`jns_host_path_linux_test`. All the machines in one process share one live
+T-state counter, so a test runs A to its end before it builds B.
 
 The test that matters is in `rewind_test`: save a running machine to a `.jns`,
 load it into a second machine, and require the two machines' **binary** state

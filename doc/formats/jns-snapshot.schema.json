@@ -149,6 +149,12 @@
             "tape": {
               "additionalProperties": false,
               "properties": {
+                "archive": {
+                  "type": "string"
+                },
+                "member": {
+                  "type": "string"
+                },
                 "path": {
                   "type": "string"
                 },

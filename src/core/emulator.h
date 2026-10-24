@@ -1049,7 +1049,7 @@ public:
     /// loading (`src/platform/emulator_boot.h:25` and six others), and giving
     /// them a path-taking entry point is what keeps `.jns` a one-line addition
     /// at each rather than a buffer dance repeated seven times.
-    bool load_jns_file(const std::string& path);
+    bool load_jns_file(const std::string& path, bool tape_realtime = false);
     bool save_jns_file(const std::string& path);
 
     /// GH #321 — run ONLY the checks `load_jns` does before it touches the
@@ -1740,6 +1740,15 @@ private:
     bool check_jns(const uint8_t* data, std::size_t len,
                    const jnext::JnsLoadOptions& opt, jnext::zip::Reader& zip,
                    jnext::jns::Manifest& m, jnext::jns::Verdict& v);
+
+    /// GH #402 — the last step of `load_jns`: put the recorded tape back in
+    /// the deck at its recorded position and mode, from `media.tape` (identity)
+    /// and `state/tape.json` (the deck). Every failure adds ONE warning to
+    /// `report` and leaves the deck exactly as it was; none refuses the load.
+    void reattach_jns_tape_(const jnext::zip::Reader& zip,
+                            const jnext::jns::Manifest& m,
+                            const jnext::JnsLoadOptions& opt,
+                            jnext::JnsLoadReport& report);
 
     jnext::JnsLoadReport jns_report_;
     std::string          jns_error_;

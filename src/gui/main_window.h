@@ -248,6 +248,8 @@ public:
     // reason (load_error_test drives it): attaches the tape in the mode the
     // Fast Load toggle shows, and reports a file the loader refuses.
     void handle_tape_path(const QString& path);
+    // GH #402 - the one fast/real-time setting: Tape > Fast Load checked = fast.
+    bool tape_fast_load() const { return !tape_fast_action_ || tape_fast_action_->isChecked(); }
 
     // GH #89 — the post-picker half of Tape > Start Saving..., split out like
     // handle_tape_path(): arms saving to `path` as --tape-save would, and

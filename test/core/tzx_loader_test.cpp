@@ -29,6 +29,7 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/tzx_loader.h"
+#include "core/sha256.h"
 #include "ld_trap_rig.h"
 
 #include <spdlog/sinks/ostream_sink.h>
@@ -781,6 +782,281 @@ int main(int argc, char** argv) {
                   "survives a move construction and a move assignment, and eject() clears it",
                   abs_ok && ctor_ok && assign_ok && c.path().empty(),
                   "path=" + want);
+        }
+    }
+
+
+    // ---- The deck's position, for a .jns (GH #402) ------------------------
+    // No hardware counterpart (a host deck). Oracle for the behaviour rows: the
+    // UNINTERRUPTED deck. A restored deck, updated at the same times as the
+    // original, puts the same level on the EAR line each time and ends in the
+    // same state. The validation rows' oracle is the read sites of
+    // third_party/zot/tzx.c (restore_deck refuses what the player would read
+    // out of bounds, and changes nothing).
+    {
+        auto run_same = [](TzxLoader& a, TzxLoader& b, uint64_t from, uint64_t shift,
+                           int n, uint64_t dt, bool& same) {
+            for (int i = 1; i <= n; ++i) {
+                const uint64_t t = from + dt * static_cast<uint64_t>(i);
+                if (a.update(t) != b.update(t + shift)) { same = false; return; }
+            }
+        };
+        const uint64_t t0 = 1000;
+        // One restore-and-compare. `until` says when A has reached the state to save.
+        auto round_trip = [&](const std::string& path, auto until, bool realtime_only_check,
+                              bool& restored, bool& same, bool& end_equal, std::string& why) {
+            (void)realtime_only_check;
+            TzxLoader a, b;
+            const bool ok = a.load(path) && b.load(path);
+            a.start_playback(t0);
+            uint64_t now = t0;
+            for (int i = 0; ok && i < 3000000 && !until(a); ++i) { now += 13; a.update(now); }
+            // The state this row means to save must have been reached, or the row proves nothing.
+            if (ok && !until(a)) { why = "the wanted state was never reached"; return false; }
+            const uint64_t shift = 777777;     // B's clock is re-based
+            restored = ok && b.restore_deck(a.deck_state(now), now + shift, why);
+            same = true;
+            run_same(a, b, now, shift, 6000, 97, same);
+            end_equal = ok && a.deck_state(now + 6000 * 97) == b.deck_state(now + 6000 * 97 + shift);
+            return ok;
+        };
+        auto phase_is = [](const char* ph, int min_pos = 0) {
+            return [ph, min_pos](TzxLoader& l) {
+                const auto d = l.deck_state(0);
+                return d.phase == ph && d.data_pos >= min_pos;
+            };
+        };
+
+        {   // TZXD-01: mid-DATA of a 0x10 block
+            const std::string p = write_file("d01.tzx", concat({kHeader, b10(hdr_body()), b10(data_body())}));
+            bool r, s, e; std::string why;
+            const bool ok = round_trip(p, phase_is("data", 8), false, r, s, e, why);
+            check("TZXD-01", "a TZX deck restored mid-DATA of a 0x10 block (onto a clock re-based by 777777 T) puts the original's "
+                  "EAR level at 6000 later updates and ends in the same state",
+                  ok && r && s && e, why);
+        }
+        {   // TZXD-02: mid-0x13 pulse sequence, and mid-0x12 tone
+            Bytes seq = {0x13, 20};
+            for (int i = 0; i < 20; ++i) { Bytes l = le16(300 + 37 * i); seq.insert(seq.end(), l.begin(), l.end()); }
+            const Bytes tone = concat({{0x12}, le16(1000), le16(400)});
+            const std::string p = write_file("d02.tzx", concat({kHeader, b10(data_body()), seq, tone, b10(data_body())}));
+            bool r1, s1, e1, r2, s2, e2; std::string why;
+            const bool ok1 = round_trip(p, [](TzxLoader& l) { const auto d = l.deck_state(0); return d.phase == "pulses" && d.pulse_idx == 7; },
+                                        false, r1, s1, e1, why);
+            const bool ok2 = round_trip(p, [](TzxLoader& l) { const auto d = l.deck_state(0); return d.phase == "tone" && d.tone_left == 250; },
+                                        false, r2, s2, e2, why);
+            check("TZXD-02", "a deck restored mid pulse sequence (0x13, pointer rebased into the file) and mid pure tone (0x12) "
+                  "continues exactly like the original",
+                  ok1 && ok2 && r1 && s1 && e1 && r2 && s2 && e2, why);
+        }
+        {   // TZXD-03: direct recording
+            Bytes smp = {0xA5, 0x3C, 0xF0, 0x0F, 0x99, 0x66};
+            const Bytes d15 = concat({{0x15}, le16(80), le16(20), {8}, le24(static_cast<uint32_t>(smp.size())), smp});
+            const std::string p = write_file("d03.tzx", concat({kHeader, d15, b10(data_body())}));
+            bool r, s, e; std::string why;
+            const bool ok = round_trip(p, [](TzxLoader& l) { const auto d = l.deck_state(0); return d.phase == "pause" && d.direct_level == 1; },
+                                       false, r, s, e, why);
+            check("TZXD-03", "a deck restored right after the last sample of a direct recording (0x15) keeps the direct-level flag, so the pause "
+                  "holds the true final sample level, and continues like the original",
+                  ok && r && s && e, why);
+        }
+        {   // TZXD-04: second of three iterations of a loop
+            const Bytes loop = concat({{0x24}, le16(3), b10(data_body()), {0x25}, b10(hdr_body())});
+            const std::string p = write_file("d04.tzx", concat({kHeader, loop}));
+            bool r, s, e; std::string why;
+            const bool ok = round_trip(p, [](TzxLoader& l) { const auto d = l.deck_state(0); return d.loop_count == 2 && d.phase == "data" && d.data_pos >= 2; },
+                                       false, r, s, e, why);
+            check("TZXD-04", "a deck restored inside a 0x24/0x25 loop on its second of three iterations plays the remaining iterations "
+                  "and the block after the loop like the original",
+                  ok && r && s && e, why);
+        }
+        {   // TZXD-05: held at a gap
+            const std::string p = write_file("d05.tzx", concat({kHeader, b10(data_body()), b10(data_body())}));
+            TzxLoader a, b;
+            const bool ok = a.load(p) && b.load(p);
+            a.set_auto_policy(true, true, true);
+            a.start_playback(t0);
+            uint64_t now = t0;
+            for (int i = 0; ok && i < 20000000 && !a.is_held(); ++i) { now += 13; a.update(now); }
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(now), now, why);
+            const bool held = a.is_held() && b.is_held() && !b.is_playing();
+            a.resume(now);
+            b.resume(now);
+            bool same = true;
+            run_same(a, b, now, 0, 6000, 97, same);
+            check("TZXD-05", "a deck restored while held at a gap is held, and resumed at the same instant plays the original's EAR timeline",
+                  ok && restored && held && same && a.deck_state(now + 6000 * 97) == b.deck_state(now + 6000 * 97), why);
+        }
+        {   // TZXD-06: fast mode, the cursor travels
+            const Bytes b1 = tap_body(0xFF, {1, 2, 3, 4, 5}), b2 = tap_body(0xFF, {6, 7, 8, 9, 10});
+            const std::string p = write_file("d06.tzx", concat({kHeader, b10(b1), b10(b2)}));
+            auto make = [&](std::unique_ptr<Emulator>& e) {
+                e = std::make_unique<Emulator>();
+                EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+                cfg.sd_card_image = ldrig::sd_image(); cfg.sd_card_readonly = true;
+                return e->init(cfg) && e->load_tzx(p, true);
+            };
+            auto trap = [](Emulator& e, uint16_t dest) {   // one LD-BYTES call: flag 0xFF, LOAD, 5 bytes
+                auto r = e.cpu().get_registers();
+                r.AF2 = 0xFF01; r.IX = dest; r.DE = 5; r.AF = 0;
+                e.cpu().set_registers(r);
+                e.tzx_tape().handle_ld_bytes_trap(e);
+            };
+            auto got = [](Emulator& e, uint16_t at) {
+                Bytes v;
+                for (int i = 0; i < 5; ++i) v.push_back(e.mmu().peek(static_cast<uint16_t>(at + i)));
+                return v;
+            };
+            std::unique_ptr<Emulator> a, b, c;
+            const bool ok = make(a) && make(b) && make(c);
+            trap(*a, 0xA000);                                   // A serves block 1
+            std::string why;
+            const bool restored = ok && b.get()->tzx_tape().restore_deck(a->tzx_tape().deck_state(0), 0, why);
+            trap(*a, 0xB000);
+            trap(*b, 0xB000);
+            trap(*c, 0xB000);                                   // control: never restored, serves block 1
+            const Bytes want2 = {6, 7, 8, 9, 10}, want1 = {1, 2, 3, 4, 5};
+            check("TZXD-06", "a fast TZX deck restored after one trapped block serves the NEXT block to the next trap, "
+                  "like the original; a deck that was not restored serves the first (the control)",
+                  ok && restored && got(*a, 0xA000) == want1 && got(*a, 0xB000) == want2 &&
+                  got(*b, 0xB000) == want2 && got(*c, 0xB000) == want1, why);
+        }
+        {   // TZXD-07..10: positions the player cannot reach are refused and change nothing
+            const std::string p = write_file("d07.tzx", concat({kHeader, b10(hdr_body()), b10(data_body())}));
+            TzxLoader t;
+            t.load(p);
+            t.start_playback(5000);
+            uint64_t now = 5000;
+            for (int i = 0; i < 40000; ++i) { now += 7; t.update(now); }
+            const auto before = t.deck_state(now);
+            std::string why;
+            TzxLoader::DeckState d = before;
+            d.block_data = 20; d.data_len = 100000;
+            const bool r7 = t.restore_deck(d, now, why);
+            check("TZXD-07", "restore_deck refuses a data block that runs past the end of the file and changes nothing",
+                  !r7 && t.deck_state(now) == before, why);
+            d = before;
+            d.pulse_lengths = 12; d.pulse_count = 200;
+            const bool r8 = t.restore_deck(d, now, why);
+            check("TZXD-08", "restore_deck refuses a pulse sequence that runs past the end of the file and changes nothing",
+                  !r8 && t.deck_state(now) == before, why);
+            d = before;
+            d.offset = 100000;
+            const bool r9a = t.restore_deck(d, now, why);
+            d = before;
+            d.fast_offset = 3;
+            const bool r9b = t.restore_deck(d, now, why);
+            d = before;
+            d.loop_start = -1;
+            const bool r9c = t.restore_deck(d, now, why);
+            check("TZXD-09", "restore_deck refuses an offset past the file, a fast-load offset inside the 10-byte header, and a negative loop start",
+                  !r9a && !r9b && !r9c && t.deck_state(now) == before, why);
+            d = before;
+            d.phase = "warp";
+            const bool r10a = t.restore_deck(d, now, why);
+            d = before;
+            d.phase = "data"; d.block_data = -1; d.data_len = 5; d.data_pos = 0;
+            const bool r10b = t.restore_deck(d, now, why);
+            TzxLoader none;
+            const bool r10c = none.restore_deck(before, now, why);
+            check("TZXD-10", "restore_deck refuses an unknown phase, a data phase with no data block, and any state when nothing is loaded",
+                  !r10a && !r10b && !r10c && t.deck_state(now) == before, why);
+        }
+        {   // TZXD-11
+            const Bytes tzx = concat({kHeader, b10(hdr_body()), b10(data_body())});
+            const std::string p = write_file("d11.tzx", tzx);
+            TzxLoader t;
+            const bool ok = t.load(p);
+            const std::string got = t.sha256();
+            const std::string want = sdcard::sha256_hex(tzx);
+            const bool refused = !t.load(write_file("d11-bad.tzx", Bytes(5, 1)));
+            const bool kept = t.sha256() == got;
+            TzxLoader m(std::move(t));
+            const bool moved = m.sha256() == got;
+            m.eject();
+            check("TZXD-11", "TzxLoader::sha256() is the SHA-256 of the bytes load() read, survives a refused load and a move, "
+                  "and is empty after eject()",
+                  ok && got == want && refused && kept && moved && m.sha256().empty(), got);
+        }
+        {   // TZXD-14: a negative bit_pos in a data phase would be a negative shift in tzx.c
+            const std::string p = write_file("d14.tzx", concat({kHeader, b10(hdr_body()), b10(data_body())}));
+            TzxLoader t;
+            t.load(p);
+            t.start_playback(5000);
+            uint64_t now = 5000;
+            for (int i = 0; i < 3000000 && !(t.deck_state(now).phase == "data" && t.deck_state(now).data_pos >= 2); ++i) {
+                now += 7; t.update(now);
+            }
+            const auto before = t.deck_state(now);
+            std::string why;
+            TzxLoader::DeckState d = before;
+            d.bit_pos = -1;
+            const bool refused = before.phase == "data" && !t.restore_deck(d, now, why);
+            d = before;
+            d.bit_pos = -1;
+            d.phase = "pause";
+            TzxLoader u;
+            u.load(p);
+            const bool pause_neg_ok = u.restore_deck(d, now, why);
+            check("TZXD-14",
+                  "restore_deck refuses bit_pos -1 in the data phase (a negative shift in tzx.c) and changes nothing, but "
+                  "accepts it in a pause, where the player leaves it after the last bit",
+                  refused && pause_neg_ok && t.deck_state(now) == before, why);
+        }
+        {   // TZXD-13 (case 1): hand over to fast loading at the gap, the cursor on the next block
+            const std::string p = write_file("d13.tzx", concat({kHeader, b10(data_body()), b10(data_body()), b10(data_body())}));
+            TzxLoader a, b;
+            const bool ok = a.load(p) && b.load(p);
+            a.set_auto_policy(false, false, true);
+            a.start_playback(t0);
+            uint64_t now = t0;
+            for (int i = 0; ok && i < 3000000 && !(a.deck_state(0).phase == "data" && a.deck_state(0).data_pos >= 3); ++i) {
+                now += 13; a.update(now);
+            }
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(now), now, why);
+            b.set_fast_load(false);
+            const bool immediate = b.handover_to_fast_at_gap();      // mid-block: must wait
+            bool same = true;
+            for (int i = 0; i < 4000000 && !b.fast_load(); ++i) {
+                now += 13;
+                a.set_auto_policy(false, false, true);
+                b.set_auto_policy(false, false, true);
+                const uint8_t la = a.update(now), lb = b.update(now);
+                // The step that hands over is the gap: B stops there while A starts the next pilot.
+                if (!b.fast_load() && la != lb) { same = false; break; }
+            }
+            const auto bd = b.deck_state(now);
+            const int block2 = 10 + 12;                              // header + one 0x10 block of 12 bytes
+            check("TZXD-13", "a real-time TZX deck handed over to fast loading mid-block plays the original's EAR levels through the "
+                  "terminating edge and the pause, then stands stopped with the fast cursor on the NEXT block",
+                  ok && restored && !immediate && same && b.fast_load() && !b.is_playing() && !b.is_held() &&
+                  bd.fast_offset == block2 && bd.offset == block2 && !b.handover_pending() && a.is_playing(), 
+                  "fast_offset=" + std::to_string(bd.fast_offset) + " offset=" + std::to_string(bd.offset) +
+                  " same=" + std::to_string(same) + " restored=" + std::to_string(restored) + " imm=" + std::to_string(immediate) +
+                  " fast=" + std::to_string(b.fast_load()) + " play=" + std::to_string(b.is_playing()) + " held=" + std::to_string(b.is_held()) +
+                  " pend=" + std::to_string(b.handover_pending()) + " a_play=" + std::to_string(a.is_playing()) + " " + why);
+        }
+        {   // TZXD-12 (F2): an RZX recording switches a fast TZX to real time from where it is
+            const Bytes b1 = tap_body(0xFF, {1, 2, 3, 4, 5}), b2 = tap_body(0xFF, {6, 7, 8, 9, 10});
+            const std::string p = write_file("d12.tzx", concat({kHeader, b10(b1), b10(b2)}));
+            auto e = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = ldrig::sd_image(); cfg.sd_card_readonly = true;
+            const bool ok = e->init(cfg) && e->load_tzx(p, true);
+            auto r = e->cpu().get_registers();
+            r.AF2 = 0xFF01; r.IX = 0xA000; r.DE = 5; r.AF = 0;
+            e->cpu().set_registers(r);
+            e->tzx_tape().handle_ld_bytes_trap(*e);                       // block 1 served
+            const int cursor = e->tzx_tape().deck_state(0).fast_offset;   // start of block 2
+            e->rzx_suspend_tape_traps();
+            const auto d = e->tzx_tape().deck_state(e->monotonic_tstates());
+            check("TZXD-12", "switching a fast TZX deck to real time (RZX recording) after one served block plays from the "
+                  "second block, not from the start of the tape",
+                  ok && cursor > 10 && !e->tzx_tape().fast_load() && e->tzx_tape().is_playing() &&
+                  d.offset == cursor && d.phase == "idle", "offset=" + std::to_string(d.offset) +
+                  " cursor=" + std::to_string(cursor));
         }
     }
 

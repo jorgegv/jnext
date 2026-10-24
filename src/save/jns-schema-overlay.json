@@ -477,6 +477,14 @@
                 },
                 "realtime": {
                   "type": "boolean"
+                },
+                "archive": {
+                  "_why": "GH #402 - absolute UTF-8 path of the .zip the tape was extracted from. An extracted tape sits in a scratch directory that dies with the process, so `path` cannot be reopened by a later session; the load re-extracts `member` from here and checks `sha256`. Absent for a tape loaded from a plain file.",
+                  "type": "string"
+                },
+                "member": {
+                  "_why": "GH #402 - the member name inside `archive`. Present only with `archive`.",
+                  "type": "string"
                 }
               }
             },

@@ -13,6 +13,13 @@ several minutes, loading stripes, screeching and all. Use it for authenticity,
 or for the occasional program with a custom loader that fast-load cannot
 follow. Turn it on with **Tape > Fast Load** (uncheck it) or `--tape-realtime`.
 
+There is **one** fast/real-time setting, the **Tape > Fast Load** toggle (its
+state is saved in Preferences > Tape). **Tape > Open**, **File > Load**, a `.tap`
+or `.tzx` given with `--load` and a tape restored from a snapshot all follow it.
+`--tape-realtime` switches it to real time for that run only, winning over the
+saved choice, and is never saved. The SDL build has no menu or saved choice, so
+the option is its whole setting.
+
 `.wav` files are always real time; there is no ROM routine to short-circuit.
 
 **Automatic play/stop** is on by default. A real tape deck needs a finger on

@@ -206,10 +206,27 @@ If you want to hand somebody a program, hand them the `.nex`.
 ## The tape
 
 The tape attached when you save is recorded by its full path, with a digest of
-the file. Loading the snapshot warns if that file is no longer there, from
-whichever folder you start JNEXT in. The snapshot does not put the tape back in
-the deck: insert it again with File > Load. Snapshots written by versions that
-recorded only the file name look it up in the folder JNEXT was started from.
+the file, and the deck's position in it: which block, and how far through it. Loading
+the snapshot opens that tape again and puts it back **at the same place**, so
+a program that was part-way through loading carries on loading. A tape that
+came out of a `.zip` is taken from the archive again (JNEXT remembers which
+archive and which member), even in a later session.
+
+A snapshot never changes a setting. The tape comes back in whatever fast or
+real-time mode and automatic play/stop setting **this session** has: the
+`--tape-realtime`, `--tape-auto-play` and `--no-tape-auto-play` options, or the
+Tape menu. The Tape menu and your saved preferences are left exactly as they
+were. When the snapshot's tape was playing in the other mode, JNEXT converts it
+at a block boundary, so that no block is cut or repeated: a real-time tape
+saved part-way through a block and loaded in a fast session finishes that block
+in real time and loads the rest fast.
+
+The tape is **not** put back, and the load says so in the status bar, when
+the file is no longer where it was recorded (or the archive is gone), when the
+file has changed since the snapshot was saved, or when the snapshot was written
+by a version that did not record the position. The machine still restores; open
+the tape again with Tape > Open. Snapshots written by versions that recorded
+only the file name look the tape up in the folder JNEXT was started from.
 
 ## Two flags for when something is wrong
 

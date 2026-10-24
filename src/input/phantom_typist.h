@@ -109,6 +109,31 @@ public:
     /// Useful for UI status display.
     bool is_active() const { return state_ != State::INACTIVE; }
 
+    /// The typist's whole state, for a `.jns` (GH #402): a snapshot taken
+    /// between `load_tap` and the typed `LOAD ""` must carry on typing.
+    /// `state`: 0 inactive, 1 waiting, 2 post_delay. `mode`: 0 jpp, 1 enter.
+    struct Snapshot {
+        uint8_t state = 0;
+        uint8_t mode = 0;
+        uint8_t ports_read = 0;
+        uint8_t post_delay = 0;
+    };
+    Snapshot snapshot() const {
+        return {static_cast<uint8_t>(state_), static_cast<uint8_t>(mode_),
+                keyboard_ports_read_, post_delay_frames_};
+    }
+    /// False, leaving the typist as it was, when a field is out of range.
+    bool restore(const Snapshot& s) {
+        if (s.state > static_cast<uint8_t>(State::POST_DELAY) ||
+            s.mode > static_cast<uint8_t>(Mode::ENTER) ||
+            s.post_delay > POST_TRIGGER_DELAY_FRAMES) return false;
+        state_ = static_cast<State>(s.state);
+        mode_ = static_cast<Mode>(s.mode);
+        keyboard_ports_read_ = s.ports_read;
+        post_delay_frames_ = s.post_delay;
+        return true;
+    }
+
 private:
     enum class State : uint8_t {
         INACTIVE,    // Idle. No further work.

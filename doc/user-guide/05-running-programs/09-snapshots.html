@@ -4047,10 +4047,25 @@ are not yours either. Keep your snapshots; do not post them.</p>
 <p>If you want to hand somebody a program, hand them the <code>.nex</code>.</p>
 <h2 id="the-tape">The tape<a class="headerlink" href="#the-tape" title="Permanent link">&para;</a></h2>
 <p>The tape attached when you save is recorded by its full path, with a digest of
-the file. Loading the snapshot warns if that file is no longer there, from
-whichever folder you start JNEXT in. The snapshot does not put the tape back in
-the deck: insert it again with File &gt; Load. Snapshots written by versions that
-recorded only the file name look it up in the folder JNEXT was started from.</p>
+the file, and the deck's position in it: which block, and how far through it. Loading
+the snapshot opens that tape again and puts it back <strong>at the same place</strong>, so
+a program that was part-way through loading carries on loading. A tape that
+came out of a <code>.zip</code> is taken from the archive again (JNEXT remembers which
+archive and which member), even in a later session.</p>
+<p>A snapshot never changes a setting. The tape comes back in whatever fast or
+real-time mode and automatic play/stop setting <strong>this session</strong> has: the
+<code>--tape-realtime</code>, <code>--tape-auto-play</code> and <code>--no-tape-auto-play</code> options, or the
+Tape menu. The Tape menu and your saved preferences are left exactly as they
+were. When the snapshot's tape was playing in the other mode, JNEXT converts it
+at a block boundary, so that no block is cut or repeated: a real-time tape
+saved part-way through a block and loaded in a fast session finishes that block
+in real time and loads the rest fast.</p>
+<p>The tape is <strong>not</strong> put back, and the load says so in the status bar, when
+the file is no longer where it was recorded (or the archive is gone), when the
+file has changed since the snapshot was saved, or when the snapshot was written
+by a version that did not record the position. The machine still restores; open
+the tape again with Tape &gt; Open. Snapshots written by versions that recorded
+only the file name look the tape up in the folder JNEXT was started from.</p>
 <h2 id="two-flags-for-when-something-is-wrong">Two flags for when something is wrong<a class="headerlink" href="#two-flags-for-when-something-is-wrong" title="Permanent link">&para;</a></h2>
 <p><code>--snapshot-compression off</code> writes the file with nothing deflated. It is then
 an ordinary ZIP you can open with <code>unzip -p</code> and read with a text editor — the

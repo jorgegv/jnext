@@ -51,6 +51,11 @@
 #include "core/log.h"
 #include "core/host_path.h"
 #include "core/sha256.h"
+#include "core/program_archive.h"
+#include "third_party/nlohmann-json/nlohmann/json.hpp"
+#include "../zip_fixture.h"
+#include <functional>
+#include <algorithm>
 #include "peripheral/uart.h"
 
 #include <spdlog/sinks/ostream_sink.h>
@@ -6871,6 +6876,1008 @@ static int test_gh401_tape_path()
     return 0;
 }
 
+// ── GH #402: a .jns load puts the recorded tape back where it was ─────────
+//
+// No VHDL counterpart (the tape deck is a host device; the FPGA sees only the
+// EAR level on port 0xFE bit 6). Oracle for the behaviour rows: the
+// UNINTERRUPTED machine. A restored machine plus its deck must continue
+// byte-for-byte like the machine that never stopped (NEXT-SNAPSHOT-FORMAT G1),
+// so A (saved, then keeps running) and B (a fresh machine that loaded the
+// file) are run the same frames and their `save_state` streams and decks
+// compared. The mismatch rows' oracle is the tape's own blocks: every block
+// the program asked for must land in RAM whole, in the other mode, with no
+// block cut and none repeated. The programs are Z80 loops that call the ROM's
+// LD-BYTES (entry 0x0562, as ld_trap_rig.h does), so the real ROM routine
+// reads the real-time tape and the fast-load trap serves the same call.
+namespace g402 {
+
+using Bytes = std::vector<uint8_t>;
+namespace fs = std::filesystem;
+
+static std::string sd_image()
+{
+    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
+    const char* home = std::getenv("HOME");
+    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+}
+
+static std::unique_ptr<Emulator> make(bool auto_play = true)
+{
+    auto e = std::make_unique<Emulator>();
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = 0;
+    cfg.sd_card_image = sd_image();
+    cfg.sd_card_readonly = true;
+    cfg.tape_auto_play = auto_play;
+    e->init(cfg);
+    return e;
+}
+
+static Bytes le16(uint32_t v) { return {uint8_t(v), uint8_t(v >> 8)}; }
+
+static Bytes payload(int blk, int n)
+{
+    Bytes v;
+    for (int i = 0; i < n; ++i) v.push_back(uint8_t(i * 7 + blk * 31 + 1));
+    return v;
+}
+
+// flag 0xFF + payload + XOR checksum
+static Bytes body(const Bytes& p)
+{
+    Bytes b = {0xFF};
+    b.insert(b.end(), p.begin(), p.end());
+    uint8_t x = 0;
+    for (uint8_t c : b) x ^= c;
+    b.push_back(x);
+    return b;
+}
+
+static Bytes tap_of(int blocks, int n = 200)
+{
+    Bytes t;
+    for (int k = 0; k < blocks; ++k) {
+        const Bytes b = body(payload(k, n));
+        const Bytes l = le16(uint32_t(b.size()));
+        t.insert(t.end(), l.begin(), l.end());
+        t.insert(t.end(), b.begin(), b.end());
+    }
+    return t;
+}
+
+static Bytes b10(int blk, int n = 200)
+{
+    const Bytes b = body(payload(blk, n));
+    Bytes v = {0x10, 0xE8, 0x03};
+    const Bytes l = le16(uint32_t(b.size()));
+    v.insert(v.end(), l.begin(), l.end());
+    v.insert(v.end(), b.begin(), b.end());
+    return v;
+}
+
+static Bytes tzx_of(int blocks, bool stop_after_first = false, int n = 200)
+{
+    Bytes v = {'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 1, 20};
+    for (int k = 0; k < blocks; ++k) {
+        const Bytes b = b10(k, n);
+        v.insert(v.end(), b.begin(), b.end());
+        if (stop_after_first && k == 0) v.insert(v.end(), {0x20, 0, 0});
+    }
+    return v;
+}
+
+// One LD-BYTES call (flag 0xFF, LOAD, `n` bytes to `dest`), entered at 0x0562.
+static Bytes call_ld(uint16_t dest, uint16_t n)
+{
+    return {0xF3, 0xDD, 0x21, uint8_t(dest), uint8_t(dest >> 8), 0x11, uint8_t(n), uint8_t(n >> 8),
+            0x3E, 0xFF, 0x37, 0x14, 0x08, 0x15, 0xCD, 0x62, 0x05};
+}
+// A wait that never reads the tape port: `m` rounds of ~1.7 M T-states.
+static Bytes wait_rounds(uint16_t m)
+{
+    return {0x11, uint8_t(m), uint8_t(m >> 8), 0x21, 0x00, 0x00, 0x2B, 0x7C, 0xB5, 0x20, 0xFB,
+            0x1B, 0x7A, 0xB3, 0x20, 0xF3};
+}
+// A short wait (~2 frames): k loops of 26 T-states.
+static Bytes wait_short(uint16_t k)
+{
+    return {0x21, uint8_t(k), uint8_t(k >> 8), 0x2B, 0x7C, 0xB5, 0x20, 0xFB};
+}
+
+struct Prog {
+    Bytes code;
+    uint16_t end = 0;
+    int blocks = 0;
+};
+// `n_blocks` LD-BYTES calls to 0xA000, 0xB000, 0xC000; `gap(i)` is the wait after call i.
+template <typename G>
+static Prog loader_prog(int n_blocks, G gap)
+{
+    Prog p;
+    for (int i = 0; i < n_blocks; ++i) {
+        const Bytes c = call_ld(uint16_t(0xA000 + 0x1000 * i), 200);
+        p.code.insert(p.code.end(), c.begin(), c.end());
+        if (i + 1 < n_blocks) {
+            const Bytes g = gap(i);
+            p.code.insert(p.code.end(), g.begin(), g.end());
+        }
+    }
+    p.end = uint16_t(0x8000 + p.code.size());
+    p.code.insert(p.code.end(), {0x18, 0xFE});    // JR $
+    p.blocks = n_blocks;
+    return p;
+}
+static Bytes edge_poll_prog() { return {0xF3, 0xED, 0x78, 0x18, 0xFC}; }   // DI; IN A,(C); JR $-2
+
+static void inject(Emulator& e, const Bytes& code)
+{
+    for (size_t i = 0; i < code.size(); ++i) e.mmu().write(uint16_t(0x8000 + i), code[i]);
+    auto r = e.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0x9000; r.BC = 0xFFFE; r.IFF1 = r.IFF2 = 0;
+    e.cpu().set_registers(r);
+}
+
+static Bytes stream(Emulator& e)
+{
+    StateWriter m;
+    e.save_state(m);
+    Bytes b(m.position());
+    StateWriter w(b.data(), b.size());
+    e.save_state(w);
+    return b;
+}
+
+static bool save(Emulator& e, Bytes& out)
+{
+    jnext::JnsSaveOptions o;
+    jnext::JnsLoadReport r;
+    std::string why;
+    return e.save_jns(o, out, r, why);
+}
+
+static bool load(Emulator& e, const Bytes& j, bool tape_realtime, jnext::JnsLoadReport& rep)
+{
+    jnext::JnsLoadOptions o;
+    o.tape_realtime = tape_realtime;
+    std::string why;
+    return e.load_jns(j.data(), j.size(), o, rep, why);
+}
+
+static std::vector<std::string> tape_warnings(const jnext::JnsLoadReport& rep)
+{
+    std::vector<std::string> v;
+    for (const auto& s : rep.warnings)
+        if (s.find("tape") != std::string::npos) v.push_back(s);
+    return v;
+}
+
+// NOTE: every Emulator in the process shares ONE live FUSE T-state counter
+// (fuse_z80_tstates_ptr()), so two machines must never be run in turns: a
+// load into B zeroes the counter under A. The continuation rows therefore run
+// A to its end, capture it, drop it, and only then build and run B.
+struct Fin {
+    Bytes st;
+    uint64_t mono = 0;
+    bool lt = false, lz = false, lw = false, ft = false, fz = false;
+    TapLoader::DeckState tap;
+    TzxLoader::DeckState tzx;
+    WavLoader::DeckState wav;
+    std::string path;
+    uint8_t typ[4] = {0, 0, 0, 0};   // the phantom typist
+    bool decks_same(const Fin& o) const {
+        return lt == o.lt && lz == o.lz && lw == o.lw && ft == o.ft && fz == o.fz &&
+               tap == o.tap && tzx == o.tzx && wav == o.wav && path == o.path &&
+               std::memcmp(typ, o.typ, sizeof(typ)) == 0;
+    }
+};
+
+static Fin cap(Emulator& e, bool with_stream)
+{
+    Fin f;
+    f.mono = e.monotonic_tstates();
+    f.lt = e.tape().is_loaded();
+    f.lz = e.tzx_tape().is_loaded();
+    f.lw = e.wav_tape().is_loaded();
+    f.ft = e.tape().fast_load();
+    f.fz = e.tzx_tape().fast_load();
+    if (f.lt) f.tap = e.tape().deck_state();
+    if (f.lz) f.tzx = e.tzx_tape().deck_state(f.mono);
+    if (f.lw) f.wav = e.wav_tape().deck_state(f.mono);
+    f.path = f.lt ? e.tape().path() : f.lz ? e.tzx_tape().path() : f.lw ? e.wav_tape().path() : std::string();
+    const PhantomTypist::Snapshot ty = e.phantom_typist().snapshot();
+    f.typ[0] = ty.state; f.typ[1] = ty.mode; f.typ[2] = ty.ports_read; f.typ[3] = ty.post_delay;
+    if (with_stream) f.st = stream(e);
+    return f;
+}
+
+template <typename P>
+static bool run_until(Emulator& e, P pred, int max_frames)
+{
+    for (int i = 0; i < max_frames; ++i) {
+        if (pred()) return true;
+        e.run_frame();
+    }
+    return pred();
+}
+
+// Run A `frames` more, capture it, drop it; then a fresh B loads `j` (with the
+// session's `tape_realtime`), is compared with A's decks at the save, runs the
+// same frames and is compared with A's end. True when all agree.
+static bool resume_equal(std::unique_ptr<Emulator>& a, const Bytes& j, bool tape_realtime, bool auto_play,
+                         int frames, std::unique_ptr<Emulator>& b_out, jnext::JnsLoadReport& rep, std::string& why)
+{
+    const Fin f0 = cap(*a, false);
+    for (int i = 0; i < frames; ++i) a->run_frame();
+    const Fin fa = cap(*a, true);
+    a.reset();
+    b_out = make(auto_play);
+    if (!load(*b_out, j, tape_realtime, rep)) { why = "load failed"; return false; }
+    const Fin g0 = cap(*b_out, false);
+    if (!f0.decks_same(g0) || f0.mono != g0.mono) {
+        why = f0.mono != g0.mono ? "clock differs after load" : "decks differ right after load";
+        return false;
+    }
+    for (int i = 0; i < frames; ++i) b_out->run_frame();
+    const Fin fb = cap(*b_out, true);
+    if (fa.mono != fb.mono) { why = "clock differs at the end"; return false; }
+    if (fa.st != fb.st) {
+        size_t at = 0;
+        while (at < fa.st.size() && at < fb.st.size() && fa.st[at] == fb.st[at]) ++at;
+        why = "state stream differs at byte " + std::to_string(at) + " of " + std::to_string(fa.st.size());
+        return false;
+    }
+    if (!fa.decks_same(fb)) { why = "decks differ at the end"; return false; }
+    return true;
+}
+
+static bool block_in_ram(Emulator& e, int blk, int n = 200)
+{
+    const Bytes p = payload(blk, n);
+    for (int i = 0; i < n; ++i)
+        if (e.mmu().peek(uint16_t(0xA000 + 0x1000 * blk + i)) != p[size_t(i)]) return false;
+    return true;
+}
+
+static void write(const fs::path& p, const Bytes& b)
+{
+    std::ofstream f(p, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+}
+
+// Re-zip `in` with the manifest edited by `mfn` and state/tape.json replaced by
+// `tape_text` (kept as is when null; removed when `drop_tape`).
+static bool rewrite(const Bytes& in, const std::function<void(jnext::jns::Manifest&)>& mfn,
+                    const std::string* tape_text, bool drop_tape, Bytes& out)
+{
+    jnext::zip::Reader r;
+    std::string why;
+    if (!r.open(in.data(), in.size(), why)) return false;
+    jnext::zip::Writer w(r.comment());
+    for (const auto& e : r.entries()) {
+        std::vector<uint8_t> data;
+        if (!r.read(e.name, data, why)) return false;
+        if (e.name == jnext::jns::kManifestMember) {
+            jnext::jns::Manifest m;
+            std::vector<std::string> unk;
+            if (!jnext::jns::manifest_from_json(std::string(data.begin(), data.end()), m, unk, why)) return false;
+            if (mfn) mfn(m);
+            if (!w.add(e.name, jnext::jns::manifest_to_json(m), jnext::zip::Method::Stored, why)) return false;
+        } else if (e.name == "state/tape.json") {
+            if (drop_tape) continue;
+            if (tape_text) {
+                if (!w.add(e.name, *tape_text, jnext::zip::Method::Stored, why)) return false;
+            } else if (!w.add(e.name, data.data(), data.size(), jnext::zip::Method::Stored, why)) {
+                return false;
+            }
+        } else if (!w.add(e.name, data.data(), data.size(), jnext::zip::Method::Stored, why)) {
+            return false;
+        }
+    }
+    return w.finish(out, why);
+}
+
+static std::string member_text(const Bytes& j, const char* name)
+{
+    jnext::zip::Reader r;
+    std::string text, why;
+    if (!r.open(j.data(), j.size(), why) || !r.read_text(name, text, why)) return {};
+    return text;
+}
+
+}  // namespace g402
+
+static int test_gh402_tape_reattach()
+{
+    printf("\n--- GH #402: a .jns load puts the recorded tape back where it was ---\n");
+    using namespace g402;
+    const fs::path base = fs::temp_directory_path() / ("jnext-gh402-" + std::to_string(getpid()));
+    std::error_code ec;
+    fs::remove_all(base, ec);
+    fs::create_directories(base);
+    const std::string tap = (base / "three.tap").string(), tzx = (base / "three.tzx").string();
+    write(tap, tap_of(3));
+    write(tzx, tzx_of(3));
+    auto short_gap = [](int) { return wait_short(6000); };
+    const Prog three = loader_prog(3, short_gap);
+
+    // ── S6-EMU-TAPE-09: real-time TAP, saved mid-block ────────────────────
+    {
+        auto a = make();
+        std::unique_ptr<Emulator> b;
+        a->load_tap(tap, false);
+        inject(*a, three.code);
+        const bool mid = run_until(*a, [&] {
+            const auto d = a->tape().deck_state();
+            return d.phase == "data" && d.block == 1 && d.byte >= 20;
+        }, 3000);
+        Bytes j;
+        const bool saved = mid && save(*a, j);
+        jnext::JnsLoadReport rep;
+        std::string why;
+        const bool same = saved && resume_equal(a, j, true, true, 400, b, rep, why);
+        check("S6-EMU-TAPE-09", same && block_in_ram(*b, 0) && block_in_ram(*b, 1) && block_in_ram(*b, 2) &&
+              b->cpu().pc() == three.end && tape_warnings(rep).empty() && b->tape().is_loaded(),
+              "a real-time TAP saved mid-DATA of its second block (found by measuring the deck) restores into a fresh machine "
+              "with the deck at the same place: 400 frames later the state streams and decks are identical and the program "
+              "has loaded every block", why);
+    }
+    // ── -10: real-time TZX ────────────────────────────────────────────────
+    {
+        auto a = make();
+        std::unique_ptr<Emulator> b;
+        a->load_tzx(tzx, false);
+        inject(*a, three.code);
+        const bool mid = run_until(*a, [&] {
+            const auto d = a->tzx_tape().deck_state(a->monotonic_tstates());
+            return d.phase == "data" && d.offset == 10 + 2 * 207 && d.data_pos >= 20;
+        }, 3000);
+        Bytes j;
+        const bool saved = mid && save(*a, j);
+        jnext::JnsLoadReport rep;
+        std::string why;
+        const bool same = saved && resume_equal(a, j, true, true, 400, b, rep, why);
+        check("S6-EMU-TAPE-10", same && block_in_ram(*b, 2) && b->cpu().pc() == three.end && tape_warnings(rep).empty(),
+              "the same for a real-time TZX saved mid-DATA of its second block: the player's pointers, edge time and "
+              "counters come back, and the continuation is identical to the uninterrupted machine's", why);
+    }
+    // ── -11: WAV ──────────────────────────────────────────────────────────
+    {
+        Bytes wav = {'R','I','F','F',0,0,0,0,'W','A','V','E','f','m','t',' ',16,0,0,0,1,0,1,0,
+                     0x44,0xAC,0,0,0x44,0xAC,0,0,1,0,8,0,'d','a','t','a',0x40,0x9C,0,0};   // 40000 samples
+        for (int i = 0; i < 40000; ++i) wav.push_back(((i / 7) & 1) ? 0xC0 : 0x40);
+        write(base / "t.wav", wav);
+        auto a = make();
+        std::unique_ptr<Emulator> b;
+        a->load_wav((base / "t.wav").string());
+        inject(*a, edge_poll_prog());
+        for (int i = 0; i < 90; ++i) a->run_frame();
+        Bytes j;
+        const bool saved = save(*a, j);
+        jnext::JnsLoadReport rep;
+        std::string why;
+        const bool same = saved && resume_equal(a, j, true, true, 120, b, rep, why);
+        check("S6-EMU-TAPE-11", same && b->wav_tape().is_playing() && tape_warnings(rep).empty(),
+              "a WAV deck playing for 90 frames restores playing from the same sample instant: 120 frames later the "
+              "streams and decks are identical (the playback start travels as a distance from the saved clock)", why);
+    }
+    // ── -12: fast TAP between blocks ──────────────────────────────────────
+    {
+        auto a = make();
+        std::unique_ptr<Emulator> b;
+        a->load_tap(tap, true);
+        inject(*a, three.code);
+        const bool between = run_until(*a, [&] { return a->tape().current_block() == 1; }, 400);
+        Bytes j;
+        const bool saved = between && save(*a, j);
+        jnext::JnsLoadReport rep;
+        std::string why;
+        const bool same = saved && resume_equal(a, j, false, true, 60, b, rep, why);
+        check("S6-EMU-TAPE-12", same && block_in_ram(*b, 0) && block_in_ram(*b, 1) && block_in_ram(*b, 2) &&
+              b->tape().current_block() == 3 && tape_warnings(rep).empty() && b->tape().fast_load(),
+              "a fast TAP saved after its first block restores with the cursor on the second: the next traps serve "
+              "blocks 2 and 3 into RAM exactly as the uninterrupted machine's do", why);
+    }
+    // ── -13: held at a gap, auto play on ──────────────────────────────────
+    {
+        auto gap_long = [](int) { return wait_rounds(3); };
+        const Prog held_prog = loader_prog(2, gap_long);
+        const std::string t2 = (base / "two.tap").string();
+        write(t2, tap_of(2));
+        auto a = make();
+        std::unique_ptr<Emulator> b;
+        a->load_tap(t2, false);
+        inject(*a, held_prog.code);
+        const bool held = run_until(*a, [&] { return a->tape().is_held(); }, 1500);
+        Bytes j;
+        const bool saved = held && save(*a, j);
+        jnext::JnsLoadReport rep;
+        std::string why;
+        const bool same = saved && resume_equal(a, j, true, true, 700, b, rep, why);
+        check("S6-EMU-TAPE-13", same && block_in_ram(*b, 1) && b->cpu().pc() == held_prog.end && tape_warnings(rep).empty() &&
+              b->tape_auto_play(),
+              "a real-time deck held at a gap (auto play on, the program not listening) restores held with the poll "
+              "detector as it was: after the program polls again both machines resume on the same read, load the next "
+              "block and stay identical", why);
+    }
+    // ── -14 / -15: a load changes no setting ──────────────────────────────
+    {
+        auto run_pair = [&](bool a_auto, bool b_auto, bool& ok_loaded, bool& b_cfg, bool& b_val) {
+            Bytes j;
+            {
+                auto a = make(a_auto);
+                a->load_tap(tap, false);
+                inject(*a, edge_poll_prog());
+                for (int i = 0; i < 30; ++i) a->run_frame();
+                ok_loaded = save(*a, j);
+            }
+            auto b = make(b_auto);
+            jnext::JnsLoadReport rep;
+            ok_loaded = ok_loaded && load(*b, j, true, rep) && b->tape().is_loaded();
+            b_cfg = b->config().tape_auto_play == b_auto;
+            b_val = b->tape_auto_play() == b_auto;
+        };
+        bool l1 = false, c1 = false, v1 = false, l2 = false, c2 = false, v2 = false;
+        run_pair(false, true, l1, c1, v1);
+        check("S6-EMU-TAPE-14", l1 && c1 && v1,
+              "a snapshot saved with auto play OFF, loaded by a session with it ON, leaves the session's auto play ON "
+              "(machine setting and config): a .jns restores the machine and the tape position, never a setting");
+        run_pair(true, false, l2, c2, v2);
+        check("S6-EMU-TAPE-15", l2 && c2 && v2,
+              "the mirror: saved ON, loaded by a session with it OFF, it stays OFF");
+    }
+    // ── -16: the phantom typist travels ───────────────────────────────────
+    {
+        auto a = make();
+        std::unique_ptr<Emulator> b;
+        a->load_tap(tap, true);
+        for (int i = 0; i < 2; ++i) a->run_frame();
+        const bool waiting = a->phantom_typist().is_active();
+        Bytes j;
+        const bool saved = save(*a, j);
+        jnext::JnsLoadReport rep;
+        std::string why;
+        const bool same = saved && resume_equal(a, j, false, true, 300, b, rep, why);
+        // The same after the typing is done: a typist that had finished stays finished
+        // (a restore must not arm it again, which would type LOAD "" a second time).
+        auto a2 = make();
+        std::unique_ptr<Emulator> b2;
+        a2->load_tap(tap, true);
+        for (int i = 0; i < 400; ++i) a2->run_frame();
+        const bool done_typing = !a2->phantom_typist().is_active();
+        Bytes j2;
+        const bool saved2 = save(*a2, j2);
+        jnext::JnsLoadReport rep2;
+        std::string why2;
+        const bool same2 = saved2 && resume_equal(a2, j2, false, true, 30, b2, rep2, why2) &&
+                           !b2->phantom_typist().is_active();
+        check("S6-EMU-TAPE-16", waiting && same && done_typing && same2 && b->tape().current_block() >= 1 &&
+              tape_warnings(rep).empty(),
+              "a fast TAP saved two frames after load_tap (the typist waiting for BASIC) restores a machine that "
+              "types LOAD \"\" at the same moment: 300 frames later, with the first block trapped on both, the "
+              "streams are identical; and one saved after the typing was done restores a typist that stays idle", why + why2);
+    }
+    // The snapshot the failure rows start from: a real-time TAP, mid-block.
+    Bytes base_jns;
+    {
+        auto a = make();
+        a->load_tap(tap, false);
+        inject(*a, three.code);
+        run_until(*a, [&] { const auto d = a->tape().deck_state(); return d.phase == "data" && d.block == 1 && d.byte >= 20; }, 3000);
+        save(*a, base_jns);
+    }
+    // ── -17: the tape changed ─────────────────────────────────────────────
+    {
+        const std::string t = (base / "chg.tap").string();
+        write(t, tap_of(3));
+        auto a = make(), b = make();
+        a->load_tap(t, false);
+        inject(*a, three.code);
+        run_until(*a, [&] { return a->tape().deck_state().phase == "data"; }, 3000);
+        Bytes j;
+        save(*a, j);
+        Bytes changed = tap_of(3);
+        changed[changed.size() - 5] ^= 0x55;
+        write(t, changed);
+        jnext::JnsLoadReport rep;
+        const bool loaded = load(*b, j, true, rep);
+        const auto tw = tape_warnings(rep);
+        check("S6-EMU-TAPE-17", loaded && tw.size() == 1 && tw[0].find("changed") != std::string::npos &&
+              !b->tape().is_loaded() && !b->tzx_tape().is_loaded() && !b->wav_tape().is_loaded(),
+              "a tape file edited after the save is NOT reattached (its digest differs): the load succeeds with exactly "
+              "one tape warning saying it changed",
+              tw.empty() ? "" : tw[0]);
+    }
+    // ── -18 / -24 / -19: a damaged or older member ────────────────────────
+    {
+        std::string text = member_text(base_jns, "state/tape.json");
+        nlohmann::json jt = nlohmann::json::parse(text, nullptr, false);
+        const bool have_block = jt.is_object() && jt.contains("tap") && jt["tap"].contains("block");
+        if (have_block) jt["tap"]["block"] = 999;
+        const std::string bad = jt.dump(2);
+        Bytes j18, j24, j19;
+        const bool r18 = rewrite(base_jns, nullptr, &bad, false, j18);
+        const std::string junk = "not json";
+        const bool r24 = rewrite(base_jns, nullptr, &junk, false, j24);
+        const bool r19 = rewrite(base_jns, [](jnext::jns::Manifest& m) {
+            m.subsystems.erase(std::remove(m.subsystems.begin(), m.subsystems.end(), "tape"), m.subsystems.end());
+        }, nullptr, true, j19);
+        jnext::JnsLoadReport rep18, rep24, rep19;
+        auto b18 = make(), b24 = make(), b19 = make();
+        const bool l18 = r18 && load(*b18, j18, true, rep18);
+        const bool l24 = r24 && load(*b24, j24, true, rep24);
+        const bool l19 = r19 && load(*b19, j19, true, rep19);
+        const auto w18 = tape_warnings(rep18), w24 = tape_warnings(rep24), w19 = tape_warnings(rep19);
+        check("S6-EMU-TAPE-18", l18 && w18.size() == 1 && w18[0].find("not valid") != std::string::npos && !b18->tape().is_loaded() && have_block,
+              "a state/tape.json whose block index is past the tape (999 of 3) is refused by the deck: the load succeeds, "
+              "exactly one warning saying the position is not valid, nothing attached", w18.empty() ? "" : w18[0]);
+        check("S6-EMU-TAPE-24", l24 && w24.size() == 1 && w24[0].find("could not be read") != std::string::npos && !b24->tape().is_loaded(),
+              "a state/tape.json that is not JSON never refuses the load: exactly one warning saying the position could "
+              "not be read, nothing attached", w24.empty() ? "" : w24[0]);
+        check("S6-EMU-TAPE-19", l19 && w19.size() == 1 && w19[0].find("does not record") != std::string::npos && !b19->tape().is_loaded() &&
+              !b19->tzx_tape().is_loaded(),
+              "an older file (a tape in the manifest, no tape member) loads with exactly one warning saying it does not "
+              "record where the tape was, and the tape is NOT attached at its start", w19.empty() ? "" : w19[0]);
+    }
+    // ── -20: older file, tape missing ─────────────────────────────────────
+    {
+        Bytes j20;
+        const bool r = rewrite(base_jns, [&](jnext::jns::Manifest& m) {
+            m.subsystems.erase(std::remove(m.subsystems.begin(), m.subsystems.end(), "tape"), m.subsystems.end());
+            m.tape.path = (base / "gone.tap").string();
+        }, nullptr, true, j20);
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = r && load(*b, j20, true, rep);
+        const auto tw = tape_warnings(rep);
+        check("S6-EMU-TAPE-20", l && tw.size() == 1 && tw[0].find("gone.tap") != std::string::npos && !b->tape().is_loaded(),
+              "an older file whose tape is also missing raises exactly ONE tape warning, the container's, naming the path",
+              tw.empty() ? "" : tw[0]);
+    }
+    // ── -21 / -22: a tape from a .zip ─────────────────────────────────────
+    {
+        zipfx::Member m;
+        m.name = "games/three.tap";
+        m.data = tap_of(3);
+        const std::string zpath = (base / "pack.tap.zip").string();
+        write(zpath, zipfx::build({m}));
+        program_archive::ProgramArchive ar;
+        std::string why, extracted;
+        const bool opened = ar.open(zpath, why) && ar.extract("games/three.tap", extracted, why);
+        auto a = make(), b = make();
+        const bool att = opened && a->load_tap(extracted, false);
+        inject(*a, three.code);
+        run_until(*a, [&] { return a->tape().deck_state().phase == "data" && a->tape().current_block() == 1; }, 3000);
+        Bytes j;
+        const bool saved = att && save(*a, j);
+        jnext::jns::Manifest man;
+        jnext::zip::Reader zr;
+        std::string text, w2;
+        std::vector<std::string> unk;
+        const bool have_man = saved && zr.open(j.data(), j.size(), w2) && zr.read_text(jnext::jns::kManifestMember, text, w2) &&
+                              jnext::jns::manifest_from_json(text, man, unk, w2);
+        const bool names = have_man && man.tape.member == "games/three.tap" &&
+                           fs::equivalent(fs::u8path(man.tape.archive), fs::u8path(zpath), ec);
+        fs::remove(extracted, ec);                                   // the scratch copy dies with the process
+        jnext::JnsLoadReport rep;
+        const bool loaded = names && load(*b, j, true, rep);
+        const std::string np = b->tape().path();
+        check("S6-EMU-TAPE-21", loaded && b->tape().is_loaded() && b->tape().sha256() == man.tape.sha256 && tape_warnings(rep).empty() &&
+              fs::u8path(np).lexically_normal() != fs::u8path(extracted).lexically_normal() &&
+              fs::u8path(np).lexically_normal().string().find(
+                  fs::u8path(program_archive::process_scratch().process_dir()).lexically_normal().string()) == 0 &&
+              b->tape().deck_state() == a->tape().deck_state(),
+              "a tape extracted from a .zip is recorded by its archive and member: with the extracted copy deleted, a "
+              "fresh load re-extracts it from the archive (a different scratch path), verifies the digest, attaches at "
+              "the same position and warns nothing", np);
+        fs::remove(zpath, ec);
+        auto c = make();
+        jnext::JnsLoadReport rep2;
+        const bool l2 = have_man && load(*c, j, true, rep2);
+        const auto tw = tape_warnings(rep2);
+        check("S6-EMU-TAPE-22", l2 && tw.size() == 1 && tw[0].find("pack.tap.zip") != std::string::npos &&
+              tw[0].find("games/three.tap") != std::string::npos && !c->tape().is_loaded(),
+              "with the archive gone the load succeeds with exactly one warning naming the archive and the member, "
+              "and nothing is attached", tw.empty() ? "" : tw[0]);
+    }
+    // ── -23: a failed reattach leaves the current deck alone ──────────────
+    {
+        Bytes j23;
+        rewrite(base_jns, [&](jnext::jns::Manifest& m) { m.tape.path = (base / "gone.tap").string(); }, nullptr, false, j23);
+        const std::string other = (base / "other.tap").string();
+        write(other, tap_of(2, 50));
+        auto b = make();
+        b->load_tap(other, true);
+        b->tape().next_block();
+        const size_t blk = b->tape().current_block();
+        jnext::JnsLoadReport rep;
+        const bool l = load(*b, j23, true, rep);
+        check("S6-EMU-TAPE-23", l && b->tape().is_loaded() && b->tape().path() == jnext::absolute_host_path(other) &&
+              b->tape().current_block() == blk && b->tape().fast_load(),
+              "a snapshot whose tape cannot be reattached leaves the deck already in the machine exactly as it was "
+              "(same tape, same block, same mode)");
+    }
+    // ── -25: the member is there only with a tape ─────────────────────────
+    {
+        auto a = make();
+        Bytes without;
+        save(*a, without);
+        a->load_tap(tap, true);
+        Bytes with;
+        save(*a, with);
+        auto listed = [](const Bytes& j) {
+            jnext::zip::Reader r;
+            std::string text, why;
+            jnext::jns::Manifest m;
+            std::vector<std::string> unk;
+            if (!r.open(j.data(), j.size(), why) || !r.read_text(jnext::jns::kManifestMember, text, why) ||
+                !jnext::jns::manifest_from_json(text, m, unk, why)) return std::make_pair(false, false);
+            return std::make_pair(std::find(m.subsystems.begin(), m.subsystems.end(), "tape") != m.subsystems.end(),
+                                  r.has("state/tape.json"));
+        };
+        const auto w = listed(with), wo = listed(without);
+        check("S6-EMU-TAPE-25", w.first && w.second && !wo.first && !wo.second,
+              "state/tape.json is written, and listed in the manifest's subsystems, only when a tape is attached");
+    }
+
+
+    // ── The session's mode differs from the snapshot's (plan section 3.1) ──
+    // A snapshot never changes a setting: the deck is converted at a block
+    // boundary instead. Oracle: the tape's own blocks, whole, in RAM, and the
+    // program finished; for the cases that stop at a boundary, the deck state
+    // the session's own attach/auto-play rules give there.
+    auto finished = [&](Emulator& e, const Prog& p, int frames) {
+        return run_until(e, [&] { return e.cpu().pc() == p.end; }, frames);
+    };
+    // A real-time snapshot mid-block, and one held at a gap, and fast ones.
+    Bytes held_jns, fast_tap_jns, fast_tzx_jns, stop_jns, play_off_jns, play_on_jns;
+    const std::string two = (base / "two.tap").string();
+    auto gap_long = [](int) { return wait_rounds(3); };
+    const Prog held_prog = loader_prog(2, gap_long);
+    {
+        auto a = make();
+        a->load_tap(two, false);
+        inject(*a, held_prog.code);
+        run_until(*a, [&] { return a->tape().is_held(); }, 1500);
+        save(*a, held_jns);
+    }
+    {
+        auto a = make();
+        a->load_tap(tap, true);
+        inject(*a, three.code);
+        run_until(*a, [&] { return a->tape().current_block() == 1; }, 400);
+        save(*a, fast_tap_jns);
+    }
+    {
+        auto a = make();
+        a->load_tzx(tzx, true);
+        inject(*a, three.code);
+        run_until(*a, [&] { return a->tzx_tape().deck_state(0).fast_offset > 10; }, 400);
+        save(*a, fast_tzx_jns);
+    }
+    {
+        const std::string tz = (base / "stop.tzx").string();
+        write(tz, tzx_of(2, true));
+        auto a = make(false);
+        a->load_tzx(tz, false);
+        inject(*a, held_prog.code);
+        run_until(*a, [&] {
+            const auto d = a->tzx_tape().deck_state(a->monotonic_tstates());
+            return !d.playing && !d.held && d.offset > 10 + 207;
+        }, 1500);
+        save(*a, stop_jns);
+    }
+    {
+        for (int on = 0; on < 2; ++on) {
+            auto a = make(on == 1);
+            a->load_tap(tap, false);
+            inject(*a, three.code);
+            run_until(*a, [&] { const auto d = a->tape().deck_state(); return d.phase == "data" && d.block == 1 && d.byte >= 20; }, 3000);
+            save(*a, on ? play_on_jns : play_off_jns);
+        }
+    }
+    // ── -26 case 1: real time mid-block, loaded in a fast session ─────────
+    {
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = load(*b, base_jns, false, rep);
+        const bool pending = l && b->tape().is_playing() && !b->tape().fast_load();     // finishes the block in real time
+        const bool done = finished(*b, three, 1500);
+        check("S6-EMU-TAPE-26", pending && done && b->tape().fast_load() && block_in_ram(*b, 0) && block_in_ram(*b, 1) &&
+              block_in_ram(*b, 2) && b->tape().current_block() == 3 && tape_warnings(rep).empty(),
+              "a real-time TAP saved mid-block and loaded in a FAST session keeps playing in real time to the end of "
+              "that block, hands over to fast loading at the gap, and the ROM's third LD-BYTES is served by the trap: "
+              "every block is whole in RAM and the program finishes (no block cut, none repeated)");
+    }
+    // ── -27 case 1b: held at a gap, loaded fast ───────────────────────────
+    {
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = !held_jns.empty() && load(*b, held_jns, false, rep);
+        const bool now_fast = l && b->tape().fast_load() && !b->tape().is_held() && !b->tape().is_playing() &&
+                              b->tape().current_block() == 1;
+        const bool done = finished(*b, held_prog, 1500);
+        check("S6-EMU-TAPE-27", now_fast && done && block_in_ram(*b, 1) && b->tape().current_block() == 2,
+              "a deck saved held at a gap and loaded in a fast session is fast at once, before the same block, and the "
+              "next LD-BYTES is served by the trap with that block's bytes");
+    }
+    // ── -28 / -30 case 2: fast deck, real-time session ────────────────────
+    {
+        auto b = make(true);
+        jnext::JnsLoadReport rep;
+        const bool l = !fast_tap_jns.empty() && load(*b, fast_tap_jns, true, rep);
+        const bool held = l && b->tape().is_held() && !b->tape().fast_load() && b->tape().current_block() == 1;
+        const bool done = finished(*b, three, 2500);
+        check("S6-EMU-TAPE-28", held && done && block_in_ram(*b, 1) && block_in_ram(*b, 2) && b->tape_auto_play(),
+              "a fast TAP saved between blocks and loaded in a real-time session with auto play ON starts HELD before the "
+              "next block; the program's polling resumes it and the remaining blocks load in real time");
+        auto c = make(false);
+        jnext::JnsLoadReport rep2;
+        const bool l2 = !fast_tap_jns.empty() && load(*c, fast_tap_jns, true, rep2);
+        const bool playing = l2 && c->tape().is_playing() && !c->tape().is_held() && c->tape().current_block() == 1 &&
+                             c->tape().deck_state().phase == "leader" && !c->tape_auto_play();
+        const bool done2 = finished(*c, three, 2500);
+        check("S6-EMU-TAPE-30", playing && done2 && block_in_ram(*c, 1) && block_in_ram(*c, 2),
+              "the same with auto play OFF: the deck is PLAYING the next block's pilot right after the load, auto play "
+              "is still off, and the program loads the remaining blocks");
+    }
+    // ── -29 case 2 for TZX ────────────────────────────────────────────────
+    {
+        auto b = make(true);
+        jnext::JnsLoadReport rep;
+        const bool l = !fast_tzx_jns.empty() && load(*b, fast_tzx_jns, true, rep);
+        const auto d = b->tzx_tape().deck_state(b->monotonic_tstates());
+        const bool held = l && b->tzx_tape().is_held() && !b->tzx_tape().fast_load() && d.offset == 10 + 207;
+        const bool done = finished(*b, three, 2500);
+        check("S6-EMU-TAPE-29", held && done && block_in_ram(*b, 1) && block_in_ram(*b, 2),
+              "a fast TZX saved after its first block and loaded in a real-time session starts held at the recorded fast "
+              "position (the second block, offset 217, not the start of the tape) and loads the remaining blocks",
+              "offset=" + std::to_string(d.offset));
+    }
+    // ── -31 case 3: held, auto play off in the session ────────────────────
+    {
+        auto b = make(false);
+        jnext::JnsLoadReport rep;
+        const bool l = !held_jns.empty() && load(*b, held_jns, true, rep);
+        const bool plays = l && b->tape().is_playing() && !b->tape().is_held() && b->tape().current_block() == 1 &&
+                           !b->tape_auto_play();
+        const bool done = finished(*b, held_prog, 1500);
+        check("S6-EMU-TAPE-31", plays && done && block_in_ram(*b, 1),
+              "a deck saved held, loaded by a session with auto play OFF, is resumed at once (a held deck must not stay "
+              "stopped for ever), auto play stays off, and the block loads");
+    }
+    // ── -32 cases 4b and 4c ───────────────────────────────────────────────
+    {
+        auto b = make(true);
+        jnext::JnsLoadReport rep;
+        const bool l = !stop_jns.empty() && load(*b, stop_jns, true, rep);
+        const bool held = l && b->tzx_tape().is_held();
+        const bool done = finished(*b, held_prog, 2500);
+        check("S6-EMU-TAPE-32", held && done && block_in_ram(*b, 1),
+              "a TZX stopped at a stop block (saved with auto play off), loaded by a session with auto play ON, is held "
+              "there and resumes when the program polls: the next block loads");
+        // 4c: the poll run recorded under a different auto play setting is not carried over.
+        auto edit = [&](const Bytes& j, Bytes& out) {
+            nlohmann::json jt = nlohmann::json::parse(member_text(j, "state/tape.json"), nullptr, false);
+            jt["poll"] = {{"valid", true}, {"run", 100}, {"last_in", "-10"}};
+            const std::string t = jt.dump(2);
+            return rewrite(j, nullptr, &t, false, out);
+        };
+        Bytes off_e, on_e;
+        const bool e1 = edit(play_off_jns, off_e), e2 = edit(play_on_jns, on_e);
+        auto c = make(true), d = make(true);
+        jnext::JnsLoadReport r1, r2;
+        const bool l1 = e1 && load(*c, off_e, true, r1), l2 = e2 && load(*d, on_e, true, r2);
+        check("S6-EMU-TAPE-33", l1 && l2 && !c->tape_poll().polling(c->monotonic_tstates()) &&
+              d->tape_poll().polling(d->monotonic_tstates()),
+              "the poll run is restored when the snapshot's auto play setting equals the session's (the control, saved "
+              "ON, loaded ON: polling) and reset when it differs (saved OFF, loaded ON: not polling)");
+    }
+
+
+    // ── Round 2 (review): RZX, the TZX twins of the TAP conversion rows, the digest ──
+    const std::string tzx2 = (base / "two.tzx").string();
+    write(tzx2, tzx_of(2));
+    Bytes held_tzx_jns, mid_tzx_jns;
+    {
+        auto a = make();
+        a->load_tzx(tzx2, false);
+        inject(*a, held_prog.code);
+        run_until(*a, [&] { return a->tzx_tape().is_held(); }, 1500);
+        save(*a, held_tzx_jns);
+    }
+    {
+        auto a = make();
+        a->load_tzx(tzx, false);
+        inject(*a, three.code);
+        run_until(*a, [&] {
+            const auto d = a->tzx_tape().deck_state(a->monotonic_tstates());
+            return d.phase == "data" && d.offset == 10 + 2 * 207 && d.data_pos >= 20;
+        }, 3000);
+        save(*a, mid_tzx_jns);
+    }
+    // ── -34 / -35: an RZX recording and a pending switch to fast loading (review fix 1) ──
+    // The recording runs with the tape traps off; a deck that turned fast at the next
+    // gap would never see its next block. Oracle: every block of the tape lands in RAM.
+    {
+        const std::string rzx = (base / "r34.rzx").string();
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = load(*b, base_jns, false, rep);                  // real-time mid-block, FAST session
+        std::ostringstream cap34;
+        auto sink34 = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap34);
+        sink34->set_pattern("%l %v");
+        Log::emulator()->sinks().push_back(sink34);
+        const bool rec = l && b->start_rzx_recording(rzx);              // GUI route: record after the load
+        Log::emulator()->sinks().pop_back();
+        const bool logged34 = cap34.str().find("pending switch to fast loading is cancelled") != std::string::npos;
+        const bool done = rec && finished(*b, three, 2500);
+        const bool still_rt = !b->tape().fast_load();
+        b->stop_rzx_recording();
+        check("S6-EMU-TAPE-34", done && still_rt && logged34 && block_in_ram(*b, 0) && block_in_ram(*b, 1) && block_in_ram(*b, 2),
+              "a real-time snapshot loaded in a FAST session and then recorded to RZX keeps playing in real time (the "
+              "pending switch to fast loading is cancelled, the traps being off): every block lands in RAM and the deck "
+              "never turns fast, and the log says so (one line when the recording cancels the switch)", std::string("rec=") + (rec ? "1" : "0"));
+        fs::remove(rzx, ec);
+        auto c = make();
+        jnext::JnsLoadReport rep2;
+        const bool rec2 = c->start_rzx_recording(rzx);                  // command-line route: recording first
+        const bool l2 = rec2 && load(*c, base_jns, false, rep2);
+        const bool done2 = l2 && finished(*c, three, 2500);
+        const bool still2 = !c->tape().fast_load();
+        c->stop_rzx_recording();
+        check("S6-EMU-TAPE-35", done2 && still2 && block_in_ram(*c, 1) && block_in_ram(*c, 2),
+              "the same when the recording is already running at the load (--load x.jns --rzx-record): the restore "
+              "suspends the traps itself and the deck stays real time to the end", std::string("rec=") + (rec2 ? "1" : "0") + " load=" + (l2 ? "1" : "0"));
+        fs::remove(rzx, ec);
+    }
+    // ── -36: TZX twin of -27 (held at a gap, fast session): the fast cursor lands on the NEXT block ──
+    {
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = !held_tzx_jns.empty() && load(*b, held_tzx_jns, false, rep);
+        const auto d = b->tzx_tape().deck_state(b->monotonic_tstates());
+        const bool now_fast = l && b->tzx_tape().fast_load() && !b->tzx_tape().is_held() && d.fast_offset == 10 + 207;
+        const bool done = finished(*b, held_prog, 1500);
+        check("S6-EMU-TAPE-36", now_fast && done && block_in_ram(*b, 1),
+              "a TZX deck saved held at a gap and loaded in a fast session is fast at once with the fast cursor on the NEXT "
+              "block (offset 217, not the recorded 10): the trap serves that block, never block 0 again",
+              "fast_offset=" + std::to_string(d.fast_offset));
+    }
+    // ── -37: TZX twin of -26 (mid-block, fast session): the pending switch survives the move into place ──
+    {
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = !mid_tzx_jns.empty() && load(*b, mid_tzx_jns, false, rep);
+        const bool pending = l && b->tzx_tape().is_playing() && !b->tzx_tape().fast_load() && b->tzx_tape().handover_pending();
+        const bool done = finished(*b, three, 1500);
+        check("S6-EMU-TAPE-37", pending && done && b->tzx_tape().fast_load() && block_in_ram(*b, 0) && block_in_ram(*b, 1) &&
+              block_in_ram(*b, 2) && tape_warnings(rep).empty(),
+              "a real-time TZX saved mid-block and loaded in a FAST session finishes that block in real time, hands over "
+              "to fast loading at the gap (the pending switch survives the loader's move into the machine) and the trap "
+              "serves the third block: every block is whole in RAM");
+    }
+    // ── -38: TZX twin of -31 (held, auto play off in the session): the deck plays on at once ──
+    {
+        auto b = make(false);
+        jnext::JnsLoadReport rep;
+        const bool l = !held_tzx_jns.empty() && load(*b, held_tzx_jns, true, rep);
+        const bool plays = l && b->tzx_tape().is_playing() && !b->tzx_tape().is_held() && !b->tape_auto_play();
+        const bool done = finished(*b, held_prog, 1500);
+        check("S6-EMU-TAPE-38", plays && done && block_in_ram(*b, 1),
+              "a TZX deck saved held, loaded by a session with auto play OFF, is resumed at once, auto play stays off, "
+              "and the block loads");
+    }
+    // ── -39: the digest is of the bytes the loader read, not of the file at save time ──
+    {
+        const std::string ed = (base / "ed.tap").string();
+        write(ed, tap_of(3));
+        auto a = make(), b = make();
+        a->load_tap(ed, false);
+        inject(*a, three.code);
+        run_until(*a, [&] { return a->tape().deck_state().phase == "data"; }, 3000);
+        Bytes edited = tap_of(3);
+        edited[edited.size() - 7] ^= 0x33;                       // the file changes AFTER it was attached
+        write(ed, edited);
+        Bytes j;
+        const bool saved = save(*a, j);
+        a.reset();
+        jnext::JnsLoadReport rep;
+        const bool l = saved && load(*b, j, true, rep);
+        const auto tw = tape_warnings(rep);
+        check("S6-EMU-TAPE-39", l && tw.size() == 1 && tw[0].find("changed") != std::string::npos && !b->tape().is_loaded(),
+              "a tape file edited after it was attached but BEFORE the save is recorded by the digest of what the deck "
+              "holds, so the load refuses to reattach it (one 'changed' warning), instead of attaching it at offsets that "
+              "index other bytes", tw.empty() ? "" : tw[0]);
+    }
+    // ── -40 / -41: a hand-edited manifest ──
+    {
+        Bytes j40, j41;
+        const bool r40 = rewrite(base_jns, [](jnext::jns::Manifest& m) { m.tape.sha256.clear(); }, nullptr, false, j40);
+        const bool r41 = rewrite(base_jns, [](jnext::jns::Manifest& m) {
+            m.subsystems.erase(std::remove(m.subsystems.begin(), m.subsystems.end(), "tape"), m.subsystems.end());
+        }, nullptr, false, j41);
+        auto b40 = make(), b41 = make();
+        jnext::JnsLoadReport rep40, rep41;
+        const bool l40 = r40 && load(*b40, j40, true, rep40);
+        const bool l41 = r41 && load(*b41, j41, true, rep41);
+        const auto w40 = tape_warnings(rep40), w41 = tape_warnings(rep41);
+        check("S6-EMU-TAPE-40", l40 && w40.size() == 1 && w40[0].find("changed") != std::string::npos && !b40->tape().is_loaded(),
+              "a manifest with an EMPTY digest is not reattached: exactly one warning, nothing attached");
+        check("S6-EMU-TAPE-41", l41 && w41.size() == 1 && w41[0].find("does not record") != std::string::npos && !b41->tape().is_loaded(),
+              "a state/tape.json present but not listed in the manifest's subsystems is the older-file case, not a "
+              "reattach: exactly one warning, nothing attached");
+    }
+
+
+    // ── Save/load/save fidelity (review round 1, item 5) ───────────────────
+    // Oracle: a snapshot of a restored machine equals the snapshot of the machine that
+    // was never stopped (NEXT-SNAPSHOT-FORMAT G1; the format promises save -> load ->
+    // save is a fixed point). Before: state/ram.json size_bytes and state/cpu.json
+    // int_first_ts_rel / ei_grace / iff2_read were the stale scratch the BINARY
+    // save_state() marshals, so the file depended on whether a binary save had run in
+    // that process; and the FUSE-only EI grace and iff2_read flag were never restored.
+    {
+        auto jtext = [&](const Bytes& j, const char* member) {
+            return nlohmann::json::parse(member_text(j, member), nullptr, false);
+        };
+        Bytes j1, j2;
+        {
+            auto a = make();
+            inject(*a, edge_poll_prog());
+            for (int i = 0; i < 10; ++i) a->run_frame();
+            save(*a, j1);
+        }
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = !j1.empty() && load(*b, j1, true, rep) && save(*b, j2);
+        const auto r1 = jtext(j1, "state/ram.json"), r2 = jtext(j2, "state/ram.json");
+        const auto c1 = jtext(j1, "state/cpu.json"), c2 = jtext(j2, "state/cpu.json");
+        check("S6-EMU-JNSFID-01", l && r1.is_object() && r1.value("size_bytes", std::string()) == "2097152" &&
+              r1 == r2 && c1 == c2,
+              "a machine that never ran the binary save_state() writes state/ram.json size_bytes = the real RAM size, and the "
+              "snapshot of the restored machine has the same state/ram.json and state/cpu.json as the file it was restored from",
+              l ? r1.dump() + " vs " + r2.dump() : "load failed");
+    }
+    {
+        // EI as the last instruction: the FUSE grace stamp is pending AT the boundary.
+        auto a = make();
+        const Bytes ei = {0xFB, 0x00, 0x00, 0x18, 0xFE};
+        for (size_t i = 0; i < ei.size(); ++i) a->mmu().write(uint16_t(0x8000 + i), ei[i]);
+        auto r = a->cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+        a->cpu().set_registers(r);
+        a->run_frame();                                           // reach a frame boundary...
+        r = a->cpu().get_registers();
+        r.PC = 0x8000; r.IFF1 = r.IFF2 = 0;
+        a->cpu().set_registers(r);
+        a->execute_single_instruction();                          // ...then EI, and save at once
+        const bool at_boundary = !a->frame_in_progress();
+        Bytes j1, j2;
+        const bool saved = at_boundary && save(*a, j1);
+        a.reset();
+        auto b = make();
+        // An IN-PLACE load into a machine that has already run (debugger, ZRCP, DZRP):
+        // its T-state counter is not 0, so the grace stamp is only right if it is applied
+        // AFTER the counter is re-seated.
+        for (int k = 0; k < 3; ++k) b->run_frame();
+        jnext::JnsLoadReport rep;
+        const bool l = saved && load(*b, j1, true, rep) && save(*b, j2);
+        auto grace = [&](const Bytes& j) {
+            nlohmann::json c = nlohmann::json::parse(member_text(j, "state/cpu.json"), nullptr, false);
+            return c.is_object() ? c.value("ei_grace", 99) : 99;
+        };
+        check("S6-EMU-JNSFID-02", l && grace(j1) == 0 && grace(j2) == 0,
+              "a machine saved right after EI (the interrupt grace pending at the boundary) writes ei_grace 0 into "
+              "state/cpu.json (not a stale -1) and restores it: the restored machine's own snapshot says 0 again",
+              "saved=" + std::to_string(saved) + " boundary=" + std::to_string(at_boundary) + " j1=" + std::to_string(grace(j1)) + " j2=" + std::to_string(grace(j2)));
+    }
+
+    printf("Total so far: %d passed, %d failed\n", pass_count, fail_count);
+    fs::remove_all(base, ec);
+    return 0;
+}
+
 // ── GH #400: the rewind setting survives a program load ────────────────────
 //
 // No VHDL counterpart (rewind is a host debugger facility). Oracle: the
@@ -7135,6 +8142,7 @@ int main()
     test_s6_gaps();
     test_s8_jns_roundtrip();
     test_gh401_tape_path();
+    test_gh402_tape_reattach();
     test_rewind_setting_survives_load();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

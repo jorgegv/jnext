@@ -399,7 +399,12 @@ with status 1.
 
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of
-    fast load.
+    fast load. It sets the one fast/real-time setting (the GUI’s **Tape
+    \> Fast Load** toggle) for this run only, overriding the saved
+    preference without changing it; **Tape \> Open**, **File \> Load**,
+    **--load** of a `.tap` or `.tzx`, and the tape restored by a `.jns`
+    all follow that setting. The SDL-only build, which has no menu and
+    no saved preference, is controlled by this option alone.
 
 **--tape-auto-play**, **--no-tape-auto-play**
 :   Turn automatic tape play/stop on (the default) or off for this run,
@@ -796,7 +801,8 @@ with status 1.
     one whose recorded ROM digests differ from the ROMs now loaded. A
     missing tape file is **not** covered — that always warns and never
     refuses, because a machine restores perfectly well without the tape
-    it was loading from.
+    it was loading from. The same goes for a tape that has changed or
+    whose position cannot be restored.
 
     `force` restores even though the mounted SD card is not the one the
     snapshot was taken on, printing a warning that names both cards.
