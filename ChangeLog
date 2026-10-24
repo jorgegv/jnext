@@ -1,6 +1,6 @@
 # ChangeLog
 
-## Unreleased (2026-10-14)
+## v1.1.86 (2026-10-24)
 
 ### User Features
 - Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
@@ -36,9 +36,14 @@
 - Layer 2 games no longer tear the top line when they change bank or scroll during vblank
 - Quick Save and Quick Load no longer freeze the window for seconds on large SD cards
 - Tape fast load serves loaders that enter the ROM loader past LD-BYTES (Starglider 128K TAP loads); checksum and VERIFY errors are reported
+- At 28 MHz, boot-ROM reads now wait as on the hardware, and DivMMC, Multiface and Layer 2 overlay reads take their own wait
+
+### Internal JNEXT Development
+- CI uploads every package as a run artifact; regression-win captures stalled wine runs and isolates them from the host D-Bus
+- Branches run targeted tests, with the full gate once per batch on main; team-run skill for parallel work
 
 ### Contributors in this release
-- @pavero01, @janko-jj, @jattree, @jsmolina, @Nitrowing, @shadowphiar
+- @pavero01, @janko-jj, @jattree, @jsmolina, @Nitrowing, @shadowphiar, @bleughb
 
 ## v1.1.51 (2026-10-13)
 
