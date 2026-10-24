@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.83</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.84</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.83</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.84</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2722,21 +2722,24 @@ screenshots + the admitted rows (no lints, no stamp).</p>
    "the first child" is a shell, so the row finds the process named <code>jnext</code> /
    <code>jnext.exe</code> among the descendants (deepest one) and reads its CPU from <code>/proc</code>
    or, off Linux, <code>ps -o time=</code>.</li>
-<li>A <code>jnext.exe</code> that reaches its row's bound names its blocked call (GH #383).
-    The runner's TERM handler, when <code>JNEXT_WINE_CAPTURE_DIR</code> is set (the driver
-    exports <code>build/regression-artifacts/wine-stall/&lt;run&gt;/</code>), first writes
-    <code>wine-stall-&lt;time&gt;-&lt;pid&gt;.txt</code>: the process's threads from <code>/proc</code>, the
-    prefix's processes with thread counts, <code>winedbg info thread</code>, and <code>winedbg
-    bt all</code> of that one Windows pid, found by its exact command line. It is
-    bounded at 3.5 s (+0.4 s kill) inside the rows' <code>--kill-after=5s</code> (winedbg gets
-    what is left of that deadline), runs only while that process is alive (a
-    winedbg killed by its bound kills its debuggee, so it never attaches to
-    another row's <code>jnext.exe</code>), runs after
-    the verdict is decided, and then forwards TERM as before, so it never changes
-    a result. The driver ends every Windows run with a <code>wine prefix at the end:</code>
-    line (thread counts of the prefix's wine processes) and lists any captures.
-    Under heavy load (about 18 and up on the 12-CPU development host) the winedbg
-    sections are often cut by the budget; the <code>/proc</code> sections always land.</li>
+<li>The runner sets <code>DBUS_SESSION_BUS_ADDRESS</code> and <code>DBUS_SYSTEM_BUS_ADDRESS</code> to
+    <code>disabled:</code> in every mode, next to the <code>DISPLAY</code> removal (GH #383). SDL's audio init makes
+    wine load winealsa, whose pipewire plugin makes synchronous calls to the desktop's
+    xdg-desktop-portal over the inherited session bus; a slow portal stalled a Qt <code>jnext.exe</code>
+    past its row's bound. CI's container has no D-Bus, so this makes a local run equal CI. Both
+    are overridden, not unset (libdbus falls back to the system bus). Nothing of this exists on
+    Windows.</li>
+<li>A stalled <code>jnext.exe</code> names its blocked call (GH #383). With
+    <code>JNEXT_WINE_CAPTURE_DIR</code> set (the driver exports
+    <code>build/regression-artifacts/wine-stall/&lt;run&gt;/</code>) the runner's watchdog fires once on a
+    process at least 20 s old whose CPU time has been flat for 10 s and totals 2 s or less, and
+    writes <code>wine-stall-&lt;time&gt;-&lt;pid&gt;.txt</code>: <code>/proc</code> threads, the prefix's processes, the
+    <code>winedevice.exe</code> threads, <code>winedbg info thread</code>, and one <code>Backtrace:</code> per thread of that
+    Windows pid (one <code>winedbg --file</code> session; never <code>bt all</code>, which real winedbg refuses). TERM
+    is forwarded at once. Before the first row the driver checks the capture on a real
+    <code>jnext.exe</code> blocked on the SD prompt and treats a capture with no <code>ReadFile</code> backtrace as a
+    harness fault. Every Windows run ends with a <code>wine prefix at the end:</code> line and lists any
+    captures.</li>
 </ol>
 <p><strong>On macOS</strong> the SD image comes from <code>make sdcard-image</code>, the per-run clone falls
 back to a plain copy where <code>cp --reflink=always</code> does not exist (reported as
