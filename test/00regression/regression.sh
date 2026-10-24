@@ -515,6 +515,55 @@ if $PREFLIGHT_ONLY; then
     exit 0
 fi
 
+# --- The stall capture, checked against a known answer (GH #383) ---
+# The capture exists to name the call a stalled jnext.exe is blocked in; v1.1.79 shipped one that
+# could not (it passed review on a stub that answered a command real winedbg never answers). So
+# once per run, on the real wine, a real jnext.exe is blocked on purpose and must be captured:
+# --headless with an empty config dir and no --sdcard makes sdcard::cli_confirm block in
+# std::getline(std::cin) on a stdin pipe this driver holds open. The runner's watchdog is given
+# 3 s / 2 s instead of 20 s / 10 s, takes its capture, and the capture must hold a Backtrace: with
+# wine's own symbol for the read (ReadFile or ReadConsole) and no "can't debug several processes".
+# Anything else is a HARNESS FAULT: a capture that silently cannot capture looks like "no stall".
+wine_capture_selfcheck() {   # $1 = the Qt build dir
+    local dir=$TMP_DIR/wine-selfcheck sc_in sc_pid i f why= keep caps
+    mkdir -p "$dir/cfg"
+    mkfifo "$dir/stdin"
+    exec {sc_in}<>"$dir/stdin"
+    JNEXT_CONFIG_DIR=$dir/cfg JNEXT_WINE_CAPTURE_DIR=$dir/cap JNEXT_WINE_STALL_AFTER_S=3 JNEXT_WINE_STALL_FLAT_S=2 \
+        timeout --foreground --kill-after=5s 30s bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$1/jnext.exe" --headless --machine 48k \
+        <&"$sc_in" >"$dir/out" 2>&1 &
+    sc_pid=$!
+    # The runner prints "state saved to" once the capture file is complete.
+    for ((i = 0; i < 300; i++)); do
+        grep -q 'state saved to' "$dir/out" 2>/dev/null && break
+        kill -0 "$sc_pid" 2>/dev/null || break
+        /usr/bin/sleep 0.1
+    done
+    kill -TERM "$sc_pid" 2>/dev/null || true
+    wait "$sc_pid" 2>/dev/null || true
+    exec {sc_in}>&-
+    shopt -s nullglob
+    caps=("$dir"/cap/wine-stall-*.txt)
+    shopt -u nullglob
+    f=${caps[0]:-}
+    if ((${#caps[@]} != 1)); then why="${#caps[@]} capture files, expected exactly one"
+    elif grep -q "can't debug several processes" "$f"; then why="winedbg refused: can't debug several processes"
+    elif ! grep -q '^Backtrace:' "$f"; then why="the capture holds no Backtrace:"
+    elif ! grep -qE 'ReadFile|ReadConsole' "$f"; then why="no Backtrace: names ReadFile or ReadConsole"
+    fi
+    if [[ -n $why ]]; then
+        keep="$PROJECT_DIR/build/regression-artifacts/wine-stall/selfcheck-fault-$$"
+        mkdir -p "$keep"
+        cp -r "$dir/out" "$keep/runner-output.txt" 2>/dev/null || true
+        [[ -z $f ]] || cp "$f" "$keep/" 2>/dev/null || true
+        harness_fault "the wine stall capture cannot name a blocked call (GH #383): $why" \
+                      "Capture and runner output kept in ${BOLD}$keep${RESET}" \
+                      "A capture that cannot capture reads as 'no stall'; see doc/testing/REGRESSION-TEST-SUITE.md."
+    fi
+    rm -rf "$dir"
+    echo -e "  ${GREEN}wine stall capture self-check passed${RESET} (a blocked jnext.exe was captured with a ReadFile backtrace, GH #383)"
+}
+
 # --- Platform run: the binaries under test (GH #319) ---
 # $JNEXT / $JNEXT_SDL become what the rows execute. On macOS that is the build's
 # own binary. On Windows it is a one-line shim that runs the MinGW exe under wine
@@ -539,13 +588,18 @@ if $PLATFORM_MODE; then
             || harness_fault "cannot initialise the wine prefix $WINEPREFIX"
         # Persistent wineserver, before any row (wine-run.sh header); stopped by regression_cleanup.
         REG_WINE_PREFIX=$WINEPREFIX
-        # Where wine-run.sh --jnext saves a stalled jnext.exe's state when a row's bound
-        # sends it TERM (GH #383). Exported here so the rows and the shim inherit it; the
-        # directory is created by the capture, and reported / removed at the end of the run.
+        # Where wine-run.sh --jnext saves a stalled jnext.exe's state (GH #383): its watchdog
+        # takes one capture of a process that is 20 s old with its CPU flat for 10 s. Exported
+        # here so the rows and the shim inherit it; the directory is created by the capture, and
+        # reported / removed at the end of the run.
         export JNEXT_WINE_CAPTURE_DIR="$PROJECT_DIR/build/regression-artifacts/wine-stall/$(date +%Y%m%d-%H%M%S)-$$"
+        # The watchdog's thresholds and the winedbg bound are TEST-ONLY overrides (wine-run.sh header): a
+        # developer's exported copy must not reach the rows. Only the self-check below sets any, inline.
+        unset JNEXT_WINE_STALL_AFTER_S JNEXT_WINE_STALL_FLAT_S JNEXT_WINE_STALL_POLL_S JNEXT_WINE_DBG_BOUND_S
         # It also starts the desktop keeper and prints explorer.exe's pid (GH #329).
         REG_WINE_EXPLORER=$(bash "$PROJECT_DIR/test/wine-run.sh" --serve "$plat_qt_abs") \
             || harness_fault "cannot start a persistent wineserver and wine desktop"
+        wine_capture_selfcheck "$plat_qt_abs"
         mkdir -p "$TMP_DIR/platform"
         for plat_pair in "jnext:$plat_qt_abs" "jnext-sdl:$plat_sdl_abs"; do
             printf '#!/bin/bash\nexport WINEPREFIX=%q\nexec /bin/bash %q --jnext %q "$@"\n' \
@@ -666,7 +720,7 @@ if [[ -n "${REG_WINE_PREFIX:-}" ]]; then
                 echo "    $wine_cap"
                 sed -n '/^== target threads/,/^$/p' "$wine_cap" 2>/dev/null | head -25 | sed 's/^/      /' || true
             done
-            echo "    (the winedbg part is in each file)"
+            echo "    (the backtraces are in each file)"
         else
             rmdir "$JNEXT_WINE_CAPTURE_DIR" 2>/dev/null || true
         fi
