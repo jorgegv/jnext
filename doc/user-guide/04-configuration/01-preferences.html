@@ -3652,7 +3652,7 @@
 
 
 <h1 id="preferences">Preferences<a class="headerlink" href="#preferences" title="Permanent link">&para;</a></h1>
-<p><strong>Settings &gt; Preferences…</strong> (Alt+P) opens a dialog with six tabs.</p>
+<p><strong>Settings &gt; Preferences…</strong> (Alt+P) opens a dialog with seven tabs (six in a build without the debugger).</p>
 <p><img alt="The Preferences dialog, Startup tab" src="../img/preferences-startup.png" /></p>
 <p><strong>Startup</strong> holds what the emulator should look like when it launches:</p>
 <table>
@@ -3715,7 +3715,10 @@
 first free USB gamepad, a particular connected gamepad by name, the host cursor
 keys with Space as fire, or nothing. Only one connector can use the cursor keys
 and one gamepad can drive only one connector; the dialog enforces both for
-you. Details in <a href="../05-running-programs/02-input.html">5.2</a>.</p>
+you. Details in <a href="../05-running-programs/02-input.html">5.2</a>.
+It also holds <strong>Release captured mouse with</strong>: Ctrl+Alt (the default), a middle click or Esc.
+The chosen click or key is not passed to the program while the mouse is captured;
+<code>--mouse-release</code> overrides it for one run.</p>
 <p><strong>Audio</strong> has -24 dB to +24 dB sliders for the final master output and for the
 beeper, each of the three TurboSound AY chips, and the DAC family. Every slider
 is centred on the 0 dB default, which leaves that source unchanged. Subsystem
@@ -3733,13 +3736,15 @@ refused whatever you put here, and your own LAN stays reachable.</p>
 <p>Turning the ESP on here does not put a running program on the network — see
 below — and while it <em>is</em> running with the ESP on, the status bar always
 carries an ESP cell, so it can never be on invisibly.</p>
+<p><strong>NextPi</strong> starts NextPi under QEMU with JNEXT, and holds its directory, the release downloaded on first use, the QEMU program and where the Pi's sound goes; see <a href="../05-running-programs/10-the-raspberry-pi-serial-link.html">5.10</a>.</p>
 <p><strong>Paths</strong> remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
 and where screenshots go. It also holds the two settings <strong>File &gt; Quick
 Screenshot</strong> needs, since that capture never asks: the directory it writes to
 (blank means <code>~/.jnext/screenshots</code>) and whether it writes PNG or SCR. Those
 two are a deliberate choice rather than a memory of the last dialog, so the
-quick capture always lands in the same place.</p>
+quick capture always lands in the same place. It also sets how many Quick Save snapshots to keep
+(<strong>Unlimited</strong> at 0); <code>--quick-snapshot-keep</code> overrides it.</p>
 <p><strong>Debugger Keys</strong> rebinds the debugger's own keys — see
 <a href="../06-debugger/functions/09-changing-the-keys.html">6.3.9</a>. The tab is only
 present in a build with the debugger compiled in.</p>

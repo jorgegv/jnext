@@ -14,7 +14,7 @@ toolchain writes beside a program, as well as from the MAP files in
 ## Loading them
 
 **Automatically.** When a program is loaded — on the command line with
-`--load`, with **File ▸ Open**, or by a remote debugger — JNEXT looks beside it
+`--load`, with **File ▸ Load NEX File…**, or by a remote debugger — JNEXT looks beside it
 for:
 
 - `<name>.Memory.txt`, else `Memory.txt`, beside a `.nex`: the symbols;
