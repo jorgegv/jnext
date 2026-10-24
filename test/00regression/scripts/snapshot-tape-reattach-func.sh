@@ -99,9 +99,16 @@ if want snapshot-tape-reattach-func; then
     grep -qF "tape" <(grep -E "WARN|warn" "$ta_dir/mis-3.log" || true) && ta_faults+=("leg 3: a tape warning was raised")
     dm=$(png_diff "$ta_dir/mis.png" "$ta_dir/ctl.png")
     [[ "$dm" -gt 0 ]] || ta_faults+=("leg 3: the fast-session picture equals the no-tape control (png_diff=$dm)")
+    # The load must COMPLETE, not merely differ: bifrost's demo screen is static, so the
+    # restored fast session must show exactly what a plain fast load of the tape shows.
+    ta_run "$ta_dir/ref.log" --load "$ta_bif" \
+        --delayed-screenshot "$ta_dir/ref.png" --delayed-screenshot-frames 400 \
+        --delayed-automatic-exit-frames 401 || ta_faults+=("leg 3: the reference fast load failed")
+    dr=$(png_diff "$ta_dir/mis.png" "$ta_dir/ref.png")
+    [[ "$dr" == 0 ]] || ta_faults+=("leg 3: the restored fast session does not show the loaded demo (png_diff=$dr against a fast load)")
 
     if [[ ${#ta_faults[@]} -eq 0 ]]; then
-        pass_row " (real time restore+3000 == continuous, 0 px; zip restore+400 == continuous, 0 px; fast session hands over and loads; control differs by $dc px and warns)"
+        pass_row " (real time restore+3000 == continuous, 0 px; zip restore+400 == continuous, 0 px; fast session hands over and shows exactly the loaded demo (0 px against a plain fast load); control differs by $dc px and warns)"
     else
         fail_row " ($(IFS=';'; echo "${ta_faults[*]}"))"
     fi
