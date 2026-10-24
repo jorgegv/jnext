@@ -214,5 +214,5 @@
 | 23/10   |      | #395 tape auto play/stop, Starglider; #392 .zip; #396 SD hash; #400 rewind; #401 .jns path; #383       |
 |         |      | v1.1.77->1.1.82                                                                                        |
 | 24/10   |      | #399 pok_dialog_test; #383 wine D-Bus; #402 .jns tape reattach, one fast/real-time setting             |
-|         |      | v1.1.83->1.1.85; v1.1.86 PUBLIC RELEASE                                                                |
+|         |      | v1.1.83->1.1.86; v1.1.87 PUBLIC RELEASE                                                                |
 | TOTAL:  | 666h |                                                                                                        |
