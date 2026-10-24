@@ -672,6 +672,7 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
     SaveVisitor v;
     v.w   = &w;
     v.why = &why;
+    cpu_.marshal_for_describe();   // the FUSE-only EI grace / iff2 quirk flag (GH #402 review)
     visit_jns_subsystems(v);
     if (!v.ok) return false;
 
@@ -1049,6 +1050,7 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     tstates_frame_base_ = jns_monotonic_tstates_;
     cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
     *fuse_z80_tstates_ptr() = 0;
+    cpu_.apply_after_describe();   // EI grace and iff2_read, which only live in the FUSE struct
     {
         const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
         const int64_t first  = jns_int_first_ts_ + now_ts;

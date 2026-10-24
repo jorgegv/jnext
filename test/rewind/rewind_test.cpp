@@ -7803,6 +7803,66 @@ static int test_gh402_tape_reattach()
               "reattach: exactly one warning, nothing attached");
     }
 
+
+    // ── Save/load/save fidelity (review round 1, item 5) ───────────────────
+    // Oracle: a snapshot of a restored machine equals the snapshot of the machine that
+    // was never stopped (NEXT-SNAPSHOT-FORMAT G1; the format promises save -> load ->
+    // save is a fixed point). Before: state/ram.json size_bytes and state/cpu.json
+    // int_first_ts_rel / ei_grace / iff2_read were the stale scratch the BINARY
+    // save_state() marshals, so the file depended on whether a binary save had run in
+    // that process; and the FUSE-only EI grace and iff2_read flag were never restored.
+    {
+        auto jtext = [&](const Bytes& j, const char* member) {
+            return nlohmann::json::parse(member_text(j, member), nullptr, false);
+        };
+        Bytes j1, j2;
+        {
+            auto a = make();
+            inject(*a, edge_poll_prog());
+            for (int i = 0; i < 10; ++i) a->run_frame();
+            save(*a, j1);
+        }
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = !j1.empty() && load(*b, j1, true, rep) && save(*b, j2);
+        const auto r1 = jtext(j1, "state/ram.json"), r2 = jtext(j2, "state/ram.json");
+        const auto c1 = jtext(j1, "state/cpu.json"), c2 = jtext(j2, "state/cpu.json");
+        check("S6-EMU-JNSFID-01", l && r1.is_object() && r1.value("size_bytes", std::string()) == "2097152" &&
+              r1 == r2 && c1 == c2,
+              "a machine that never ran the binary save_state() writes state/ram.json size_bytes = the real RAM size, and the "
+              "snapshot of the restored machine has the same state/ram.json and state/cpu.json as the file it was restored from",
+              l ? r1.dump() + " vs " + r2.dump() : "load failed");
+    }
+    {
+        // EI as the last instruction: the FUSE grace stamp is pending AT the boundary.
+        auto a = make();
+        const Bytes ei = {0xFB, 0x00, 0x00, 0x18, 0xFE};
+        for (size_t i = 0; i < ei.size(); ++i) a->mmu().write(uint16_t(0x8000 + i), ei[i]);
+        auto r = a->cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+        a->cpu().set_registers(r);
+        a->run_frame();                                           // reach a frame boundary...
+        r = a->cpu().get_registers();
+        r.PC = 0x8000; r.IFF1 = r.IFF2 = 0;
+        a->cpu().set_registers(r);
+        a->execute_single_instruction();                          // ...then EI, and save at once
+        const bool at_boundary = !a->frame_in_progress();
+        Bytes j1, j2;
+        const bool saved = at_boundary && save(*a, j1);
+        a.reset();
+        auto b = make();
+        jnext::JnsLoadReport rep;
+        const bool l = saved && load(*b, j1, true, rep) && save(*b, j2);
+        auto grace = [&](const Bytes& j) {
+            nlohmann::json c = nlohmann::json::parse(member_text(j, "state/cpu.json"), nullptr, false);
+            return c.is_object() ? c.value("ei_grace", 99) : 99;
+        };
+        check("S6-EMU-JNSFID-02", l && grace(j1) == 0 && grace(j2) == 0,
+              "a machine saved right after EI (the interrupt grace pending at the boundary) writes ei_grace 0 into "
+              "state/cpu.json (not a stale -1) and restores it: the restored machine's own snapshot says 0 again",
+              "saved=" + std::to_string(saved) + " boundary=" + std::to_string(at_boundary) + " j1=" + std::to_string(grace(j1)) + " j2=" + std::to_string(grace(j2)));
+    }
+
     printf("Total so far: %d passed, %d failed\n", pass_count, fail_count);
     fs::remove_all(base, ec);
     return 0;

@@ -342,6 +342,16 @@ public:
     /// conversion stays visible at exactly two places.
     void describe_state(jnext::save::StateDesc& d);
 
+    /// GH #402 (review) - the two halves of the section 9.5(3) marshalling the binary
+    /// stream does inside save_state()/load_state(), for the `.jns` walk, which
+    /// calls describe_state() directly. Without them a `.jns` wrote whatever the
+    /// scratch last held (a stale ei_grace, iff2_read and int_first_ts_rel) and
+    /// restored the FUSE-only EI-grace stamp and iff2_read quirk flag from nothing.
+    /// marshal_for_describe(): FUSE struct and counter -> scratch, before a write.
+    /// apply_after_describe(): scratch -> FUSE struct, after a read.
+    void marshal_for_describe() const;
+    void apply_after_describe();
+
     /// V20R-CPU-NIT-02 — Test observable: count of `request_interrupt()`
     /// invocations since the last `reset_request_interrupt_count()`. Used
     /// by the V20R-CPU-NIT-02-NO-DOUBLE-STAMP regression to assert that a

@@ -41,6 +41,10 @@ void Ram::reset() { std::fill(data_.begin(), data_.end(), 0); }
 // sane encoding for 2 MB (a hex string would be 4 MB of text).
 void Ram::describe_state(jnext::save::StateDesc& d)
 {
+    // GH #402 (review): set here too, not only in save_state(): the `.jns` walk
+    // calls describe_state() directly, so a machine that never ran save_state()
+    // wrote 0 here, and two saves of the same machine differed.
+    stream_size_ = static_cast<uint64_t>(data_.size());
     d.u64("size_bytes", stream_size_);
     d.blob("ram", data_.data(), data_.size());
 }
