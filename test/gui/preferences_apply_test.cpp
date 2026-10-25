@@ -1306,6 +1306,26 @@ void test_quick_keep_control()
           untouched, std::to_string(collected.quick_snapshot_keep));
 }
 
+/// PA-27 - GH #406: File > Recent Files has no control in Preferences, and
+/// collect() rebuilds the whole struct, so the list must be carried through or
+/// pressing OK/Apply would wipe it.
+void test_recent_files_carried()
+{
+    AppConfigData initial;
+    initial.recent_files = {QStringLiteral("/home/u/a.nex"), QStringLiteral("/home/u/b.tap")};
+    PreferencesDialog dlg(initial);
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-27", "an untouched Preferences dialog does NOT wipe the recent-files list",
+          emitted && collected.recent_files == initial.recent_files,
+          collected.recent_files.join('|').toStdString());
+}
+
 /// PA-16 — issue #35: the policy lives in the frontend's frame sequencer, not
 /// in the emulator, so Apply must forward it. It applies live in every
 /// outcome, including the one where the user declined a machine-type restart.
@@ -1445,6 +1465,7 @@ int main(int argc, char** argv)
     test_snapshot_load_refusal();
     test_quick_save_prunes();
     test_quick_keep_control();
+    test_recent_files_carried();
     test_debug_keymap_passthrough();
     test_tape_auto_play_preference();
 

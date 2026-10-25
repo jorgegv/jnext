@@ -34,6 +34,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
                                      const std::vector<HostChord>& host_chords,
                                      const std::vector<JoyDeviceInfo>& joy_devices)
     : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
+      recent_files_(current.recent_files),
       crt_filter_saved_(current.crt_filter),
       crt_shader_saved_(current.crt_shader),
       crt_shader_style_saved_(current.crt_shader_style),
@@ -655,6 +656,7 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();
+    cfg.recent_files = recent_files_;   // GH #406 - kept by File > Recent Files, no control here
     cfg.debug_keys = debug_keys_;   // GH #1 — including the preserved unknowns
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
     cfg.quick_screenshot_format = static_cast<ScreenshotFormat>(

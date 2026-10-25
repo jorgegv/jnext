@@ -3636,6 +3636,15 @@ it, from either menu and from <strong>File &gt; Play RZX Recording…</strong>; 
 what was wrong with it. A file whose extension JNEXT does not know and that is
 not a NEX file is refused in the same way, before anything is reset, so the
 game you were playing is still there.</p>
+<p><strong>File &gt; Recent Files</strong> lists the last ten programs and tapes you loaded from
+the File and Tape menus, newest first, numbered 1 to 9 and 0; hovering an entry
+shows its full path. Choosing one loads it exactly as <strong>File &gt; Load NEX File…</strong>
+does. A file that has been deleted since is dropped from the list and the status
+bar says so. A load that failed, <strong>--load</strong>, and Quick Load are not recorded.
+<strong>Clear Recent Files</strong> empties the list. The list is kept between runs in
+<code>~/.jnext/jnext.conf</code> (<code>[recent] files</code>), and <strong>Load NEX File…</strong> and <strong>Open Tape
+File…</strong> open with the file you loaded last selected when it is still in the
+folder they open in.</p>
 <h2 id="programs-in-zip-archives">Programs in ZIP archives<a class="headerlink" href="#programs-in-zip-archives" title="Permanent link">&para;</a></h2>
 <p>A program downloaded as <code>game.tap.zip</code> or <code>game.nex.zip</code> loads without
 unzipping it, from the command line (<code>jnext game.tap.zip</code>) and from <strong>File &gt;

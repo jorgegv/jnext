@@ -202,6 +202,14 @@ public:
     /// the .jns probe is not repeated (GH #386: it re-read the whole SD card).
     void handle_load_path(const QString& path, bool jns_probed = false);
 
+    /// GH #406 - File > Recent Files. The submenu, the slot its entries and the
+    /// two load dialogs use, and the seed those dialogs start from (the most
+    /// recent file when it is still in the last load directory, else that
+    /// directory). Public for the reason given at handle_load_path().
+    QMenu* recent_menu() const { return recent_menu_; }
+    void on_recent_file(const QString& path);
+    QString load_dialog_seed() const;
+
     /// GH #392 - the window's POK session and whether its dialog is showing
     /// (an archive's bundled trainers make a session without opening it).
     const jnext::pok::Session* pok_session() const { return pok_.get(); }
@@ -491,6 +499,9 @@ private:
     // The file handle_load_path() last handed to load_file_callback_, until
     // load_finished() reports on it.
     std::string menu_load_pending_;
+    // GH #406 - the path (as the user gave it) to add to File > Recent Files
+    // when that load succeeds; empty for a load that is not recorded.
+    std::string menu_load_recent_;
     // GH #392 - what to call menu_load_pending_ in the failure box (an archive
     // member's extracted path is not something the user knows).
     std::string menu_load_shown_;
@@ -636,6 +647,9 @@ private:
     // sync_joy_source_menu() from joy_choices() (Automatic, each present
     // controller, Cursor Keys + Space, None).
     QMenu*        joy_menu_[2]  = { nullptr, nullptr };
+    QMenu*        recent_menu_  = nullptr;   // GH #406
+    void record_recent_file(const QString& path);
+    void rebuild_recent_menu();
     QActionGroup* joy_group_[2] = { nullptr, nullptr };
     std::function<std::vector<JoyDeviceInfo>()> joy_device_provider_;
     // Live-apply + persist a pick from a connector's submenu.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QSettings>
+#include <QStringList>
 #include <QString>
 
 #include <string>
@@ -105,6 +106,10 @@ struct AppConfigData {
     QString last_load_dir;    // seeds "Load Program..." / "Open Tape File..."
     QString sd_card_path;     // default --sdcard when the CLI gives none
     QString screenshot_dir;   // seeds "Save Screenshot..."
+    // GH #406 - File > Recent Files, most recent first, at most
+    // recent_files::kMax. Kept by MainWindow, not editable in Preferences
+    // (which carries it through untouched).
+    QStringList recent_files;
 
     // GH #19 — File > Quick Screenshot, the no-dialog capture.
     //

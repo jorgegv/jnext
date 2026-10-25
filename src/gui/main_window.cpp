@@ -1,4 +1,5 @@
 #include "gui/main_window.h"
+#include "gui/recent_files.h"
 #include "version.h"
 #include "gui/emulator_widget.h"
 #include "gui/host_chords.h"
@@ -846,6 +847,13 @@ void MainWindow::create_menus() {
     load_nex->setShortcut(QKeySequence(Qt::ALT | Qt::Key_O));
     connect(load_nex, &QAction::triggered, this, &MainWindow::on_load_nex);
 
+    // GH #406 - the last ten files loaded, filled by rebuild_recent_menu().
+    // F: free in this popup (the View popup's "&Fullscreen" reuses it the same
+    // way); the entries inside are numbered 1..9, 0 and live in a popup of
+    // their own, so they collide with nothing here.
+    recent_menu_ = file_menu->addMenu(tr("Recent &Files"));
+    rebuild_recent_menu();
+
     // GH #93 — a live card change, for NextZXOS's REMOUNT ("Remove/insert SD
     // and press Y"). I and E are free in this popup.
     QAction* insert_sd = file_menu->addAction(tr("&Insert SD Card Image..."));
@@ -1563,9 +1571,89 @@ void MainWindow::update_status(double fps, double presented_fps,
 // Menu action handlers
 // ---------------------------------------------------------------------------
 
+// GH #406 - the recent-files list is stored as QStringList in AppConfigData
+// and edited through the toolkit-free recent_files:: helpers.
+static recent_files::List recent_list(const QStringList& l) {
+    recent_files::List out;
+    for (const QString& s : l) out.push_back(s.toStdString());
+    return out;
+}
+static QStringList recent_qlist(const recent_files::List& l) {
+    QStringList out;
+    for (const std::string& s : l) out << QString::fromStdString(s);
+    return out;
+}
+
+void MainWindow::record_recent_file(const QString& path) {
+    recent_files::List list = recent_list(app_config_.data().recent_files);
+    recent_files::push(list, path.toStdString());
+    app_config_.data().recent_files = recent_qlist(list);
+    app_config_.save();
+    rebuild_recent_menu();
+}
+
+void MainWindow::rebuild_recent_menu() {
+    if (!recent_menu_) return;
+    // Not clear(): an entry's own triggered slot lands here (a vanished file is
+    // dropped), and deleting an action inside its own signal is undefined.
+    // Removed now, deleted once the slot has returned.
+    for (QAction* a : recent_menu_->actions()) {
+        recent_menu_->removeAction(a);
+        a->deleteLater();
+    }
+    const QStringList& files = app_config_.data().recent_files;
+    if (files.isEmpty()) {
+        QAction* none = recent_menu_->addAction(tr("(empty)"));
+        none->setEnabled(false);
+    }
+    for (int i = 0; i < files.size(); ++i) {
+        QString name = QFileInfo(files[i]).fileName();
+        name.replace(QLatin1Char('&'), QStringLiteral("&&"));   // a literal '&', not a mnemonic
+        // 1..9 then 0: the digit row, in the order it is typed.
+        const QString num = i < 9 ? QStringLiteral("&%1").arg(i + 1) : QStringLiteral("1&0");
+        QAction* a = recent_menu_->addAction(QStringLiteral("%1 %2").arg(num, name));
+        a->setStatusTip(files[i]);
+        a->setToolTip(files[i]);
+        connect(a, &QAction::triggered, this, [this, p = files[i]]() { on_recent_file(p); });
+    }
+    recent_menu_->addSeparator();
+    QAction* clear = recent_menu_->addAction(tr("&Clear Recent Files"));
+    clear->setEnabled(!files.isEmpty());
+    connect(clear, &QAction::triggered, this, [this]() {
+        app_config_.data().recent_files.clear();
+        app_config_.save();
+        rebuild_recent_menu();
+    });
+}
+
+void MainWindow::on_recent_file(const QString& path) {
+    if (!QFileInfo::exists(path)) {
+        recent_files::List list = recent_list(app_config_.data().recent_files);
+        recent_files::remove(list, path.toStdString());
+        app_config_.data().recent_files = recent_qlist(list);
+        app_config_.save();
+        rebuild_recent_menu();
+        const QString msg = tr("Recent file no longer exists, removed from the list: %1").arg(path);
+        statusBar()->showMessage(msg, 8000);
+        Log::platform()->error("status bar: {}", msg.toStdString());
+        return;
+    }
+    // As Load Program: remember the directory for the next dialog, then the
+    // same route.
+    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
+    app_config_.save();
+    handle_load_path(path);
+}
+
+QString MainWindow::load_dialog_seed() const {
+    return QString::fromStdString(recent_files::dialog_seed(
+        recent_list(app_config_.data().recent_files),
+        app_config_.data().last_load_dir.toStdString()));
+}
+
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Load Program"), app_config_.data().last_load_dir,
+        this, tr("Load Program"), load_dialog_seed(),
         load_filter());
     if (!path.isEmpty()) {
         // Task 66 — remember the containing directory for the next dialog.
@@ -1673,6 +1761,10 @@ void MainWindow::offer_archive_pok(const program_archive::ProgramArchive& archiv
 // picker is modal and untestable; this is not).
 void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     const std::string file = path.toStdString();
+    // GH #406 - what load_finished() records if this load works. Quick Load is
+    // the one caller that passes jns_probed; it is a snapshot slot, not a file
+    // the user chose, and would crowd the list.
+    menu_load_recent_ = jns_probed ? std::string() : file;
 
     // GH #392 - a program inside a .zip: pick the member, extract it to a file of
     // its own extension, and run the ordinary route on that file. Every message
@@ -1847,6 +1939,12 @@ bool MainWindow::handle_program_path(const QString& path, const QString& shown,
 
 void MainWindow::load_finished(const std::string& file, bool ok) {
     const bool from_menu = !menu_load_pending_.empty() && file == menu_load_pending_;
+    // GH #406 - a load the user asked for that worked joins File > Recent Files
+    // (the archive itself for a .zip member, not its scratch extraction).
+    // --load and a guest's M_EXECCMD are not recorded, nor is Quick Load.
+    if (ok && from_menu && !menu_load_recent_.empty())
+        record_recent_file(QString::fromStdString(menu_load_recent_));
+    menu_load_recent_.clear();
     const std::string shown = menu_load_shown_.empty() ? file : menu_load_shown_;
     menu_load_pending_.clear();
     menu_load_shown_.clear();
@@ -2025,7 +2123,7 @@ void MainWindow::on_about() {
 
 void MainWindow::on_tape_open() {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Open Tape File"), app_config_.data().last_load_dir,
+        this, tr("Open Tape File"), load_dialog_seed(),
         tr("Tape Files (*.tap *.tzx *.wav);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;All Files (*)"));
     if (path.isEmpty() || !emulator_) return;
 
@@ -2052,6 +2150,7 @@ void MainWindow::handle_tape_path(const QString& path) {
     // one aside and only swap it in on success).
     update_tape_status();
     if (!ok) report_load_failure(path);
+    else record_recent_file(path);
 }
 
 void MainWindow::on_tape_eject() {
