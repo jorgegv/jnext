@@ -7,11 +7,11 @@
 //    fullscreen_sync.h) is still on the NSWindow when AppKit sizes the new
 //    space. Qt's own will-enter handler only makes the window resizable
 //    (QCocoaWindow::windowWillEnterFullScreen, qtbase
-//    src/plugins/platforms/cocoa/qcocoawindow.mm); it leaves the maximum
-//    alone, so the window stays at its windowed size, centred on black.
+//    src/plugins/platforms/cocoa/qcocoawindow.mm); it leaves the minimum
+//    and maximum alone, so the window stays at its windowed size, centred on black.
 //    View > Fullscreen is unaffected: it lifts the Qt limits before
 //    showFullScreen(). This hooks NSWindowWillEnterFullScreenNotification and
-//    removes the content maximum there, as View > Fullscreen already does.
+//    removes the content minimum and maximum there, as View > Fullscreen already does.
 //
 // 2. AppKit adds an "Enter Full Screen" item to the View menu of every app on
 //    its own. It duplicates View > Fullscreen (F11, Control+Command+F) and
