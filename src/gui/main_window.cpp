@@ -1655,7 +1655,8 @@ void MainWindow::on_recent_file(const QString& path) {
     }
     // As Load Program: remember the directory for the next dialog, then the
     // same route.
-    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
+    app_config_.data().last_load_dir =
+        QString::fromStdString(recent_files::folder(path.toStdString()));
     app_config_.save();
     handle_load_path(path);
 }

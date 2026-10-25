@@ -317,7 +317,7 @@ int main(int argc, char** argv)
         Fixture f;
         f.load((g_root / "sub" / ".." / "a.tap").string());
         f.load(a);
-        check("RFM-16", "two spellings of one path are one entry, stored absolute and normalised",
+        check("RFM-16", "two spellings of one path are one entry, holding the last spelling pushed",
               f.ok && f.list() == QStringList{S(a)}, str(f.list()));
     }
     {

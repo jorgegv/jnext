@@ -75,6 +75,14 @@ inline void remove(List& list, const std::string& path)
     }
 }
 
+/// The folder a file is really in (symlinks resolved), the form dialog_seed()
+/// compares: MainWindow records this as the last load directory, so a
+/// hand-typed "link/../x" entry still preselects its own folder.
+inline std::string folder(const std::string& file)
+{
+    return key(std::filesystem::path(file).parent_path().string());
+}
+
 /// What a load dialog is seeded with: the most recent file, when it still
 /// exists and sits in `last_dir` (or `last_dir` is empty), so the dialog opens
 /// with that file selected; otherwise `last_dir` itself (the pre-#406 seed).
@@ -87,7 +95,7 @@ inline std::string dialog_seed(const List& list, const std::string& last_dir)
     std::error_code ec;
     if (!std::filesystem::is_regular_file(f, ec)) return last_dir;
     if (!last_dir.empty() &&
-        key(std::filesystem::path(f).parent_path().string()) != key(last_dir))
+        folder(f) != key(last_dir))
         return last_dir;
     return f;
 }

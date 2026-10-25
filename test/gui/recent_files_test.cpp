@@ -135,6 +135,20 @@ int main()
       check("RECF-16", "the last directory is compared by identity, not spelling",
             recent_files::dialog_seed(l, (r / "other" / "..").string()) == a); }
 
+    { // RECF-24: --load game.nex from a relative cwd is stored absolute, so a
+      // later session started elsewhere still finds it.
+      std::error_code cec;
+      const fs::path saved = fs::current_path(cec);
+      touch(r / "rel.nex");
+      std::error_code mec;
+      fs::current_path(r, mec);
+      List l; recent_files::push(l, "rel.nex");
+      std::error_code rec;
+      fs::current_path(saved, rec);
+      check("RECF-24", "a relative path is stored absolute",
+            !cec && !mec && !rec && l.size() == 1 && fs::path(l[0]).is_absolute() &&
+                fs::equivalent(l[0], r / "rel.nex"), join(l)); }
+
     std::error_code ec;
     fs::remove_all(r, ec);
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

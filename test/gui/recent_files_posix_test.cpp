@@ -160,6 +160,17 @@ int main()
               m.size() == 1 && m[0] == (r / "latest.nex").string(), m.empty() ? "" : m[0]);
     }
 
+    // RECF-25: a hand-typed "link/../x" entry records the folder it is really
+    // in as the last load directory, and the dialog then preselects it (the
+    // lexical folder, "ldir", is a different directory).
+    {
+        recent_files::List m;
+        recent_files::push(m, (r / "ldir" / "lnk" / ".." / "game.nex").string());
+        const std::string dir = recent_files::folder(m.empty() ? "" : m[0]);
+        check("RECF-25", "a link/.. entry's recorded folder makes the dialog seed that entry",
+              m.size() == 1 && recent_files::dialog_seed(m, dir) == m[0], dir);
+    }
+
     std::error_code ec;
     fs::remove_all(r, ec);
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
