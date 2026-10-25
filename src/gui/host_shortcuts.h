@@ -87,6 +87,16 @@ inline QKeySequence sequence(Action a, bool ctrl_is_command = kQtCtrlIsCommand)
     return QKeySequence();
 }
 
+/// File > Record MPEG4 Video / Stop (F5 / F6). Ctrl+F5/F6 elsewhere; on macOS the
+/// physical Control key (Qt::META), because Command+F5 is VoiceOver's system
+/// toggle and macOS takes it first. F5/F6 are off the Spectrum matrix, so
+/// Control (Symbol Shift) + F5 eats no guest sequence.
+inline QKeySequence record_sequence(bool start, bool ctrl_is_command = kQtCtrlIsCommand)
+{
+    const Qt::Key k = start ? Qt::Key_F5 : Qt::Key_F6;
+    return ctrl_is_command ? QKeySequence(Qt::META | k) : QKeySequence(Qt::CTRL | k);
+}
+
 /// File > Quit's second shortcut (GH #380): Alt+F4, a PC convention, so none on
 /// macOS (Command+Q is the one chord there).
 inline QKeySequence quit_alternate(bool ctrl_is_command = kQtCtrlIsCommand)

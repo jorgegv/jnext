@@ -70,7 +70,8 @@ JNEXT shortcut, press ⌘X; the menus show the Mac form. In particular:
   does not type a C.
 - The menu-bar mnemonics (Alt+F for the File menu, ...) do not exist on macOS,
   where the menu bar is the system one. The recording shortcuts, written
-  Ctrl+F5 and Ctrl+F6 below, are ⌘F5 and ⌘F6 there.
+  Ctrl+F5 and Ctrl+F6 below, are ⌃F5 and ⌃F6 there (the Control key, not
+  Command: ⌘F5 belongs to macOS's VoiceOver).
 
 **Ctrl belongs to the program you are running.** No Ctrl+letter chord of any
 kind is a JNEXT shortcut, so the Symbol Shift sequences NextBASIC leans on —

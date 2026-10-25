@@ -79,8 +79,8 @@ the sound up to the last change of level.
 
 ## Video
 
-**File > Record MPEG4 Video…** (Ctrl+F5) starts recording video with audio to
-an MP4; **Stop** (Ctrl+F6) ends it. From the command line, `--record FILE`.
+**File > Record MPEG4 Video…** (Ctrl+F5; ⌃F5 on a Mac) starts recording video with audio to
+an MP4; **Stop** (Ctrl+F6; ⌃F6 on a Mac) ends it. From the command line, `--record FILE`.
 
 This needs **ffmpeg** installed and on your PATH — JNEXT feeds it the frames.
 If it is missing, `--record` fails immediately: JNEXT says so and exits

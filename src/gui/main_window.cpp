@@ -893,7 +893,7 @@ void MainWindow::create_menus() {
     // (P is "Sto&p MPEG4 Recording") or is the digit; V would read better but
     // Alt+V is the View menu. So the 4 of MPEG4, underlined in place.
     record_start_action_ = file_menu->addAction(tr("Record MPEG&4 Video..."));
-    record_start_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
+    record_start_action_->setShortcut(host_shortcuts::record_sequence(true));
     connect(record_start_action_, &QAction::triggered, this, &MainWindow::on_record_start);
     // Packaging Task 67 follow-up: grey the option out entirely when ffmpeg
     // is missing, instead of only failing after the user picks a save path
@@ -911,7 +911,7 @@ void MainWindow::create_menus() {
     }
 
     record_stop_action_ = file_menu->addAction(tr("Sto&p MPEG4 Recording"));
-    record_stop_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F6));
+    record_stop_action_->setShortcut(host_shortcuts::record_sequence(false));
     record_stop_action_->setEnabled(false);
     connect(record_stop_action_, &QAction::triggered, this, &MainWindow::on_record_stop);
 

@@ -1905,7 +1905,8 @@ physical Control key, as on a PC keyboard, Command is not a Spectrum key, and
 Option stays the guest's Alt (Option+E/G/C are EDIT, GRAPH, CAPS LOCK). A
 Command chord that jnext does not use never reaches the program. The menu-bar
 mnemonics (Alt+F, ...) do not exist on macOS, and the recording shortcuts
-Ctrl+F5 and Ctrl+F6 are Command+F5 and Command+F6 there. The SDL-only build on
+Ctrl+F5 and Ctrl+F6 stay on the physical Control key there (Command+F5 is
+VoiceOver's). The SDL-only build on
 macOS follows the same rule for Command+1 to Command+8, Command+Shift+F5 and
 Command+Shift+F9 and Command+F4 (quit).
 

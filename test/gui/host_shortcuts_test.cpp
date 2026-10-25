@@ -190,7 +190,8 @@ int main(int argc, char** argv)
         // The two Command+function-key shortcuts the main window already
         // binds (File > Record MPEG4 Video: Ctrl+F5 / Ctrl+F6) and the full
         // screen chord are part of the same namespace on macOS.
-        const QKeySequence extra[] = {QKeySequence(Qt::CTRL | Qt::Key_F5), QKeySequence(Qt::CTRL | Qt::Key_F6),
+        const QKeySequence extra[] = {host_shortcuts::record_sequence(true, mac != 0),
+                                      host_shortcuts::record_sequence(false, mac != 0),
                                       QKeySequence(Qt::CTRL | Qt::META | Qt::Key_F),
                                       QKeySequence(Qt::Key_F11), QKeySequence(Qt::Key_F4),
                                       QKeySequence(Qt::Key_Pause)};
@@ -245,6 +246,14 @@ int main(int argc, char** argv)
               !host_shortcuts::text(Action::QuickScreenshot, true).contains("Alt") &&
               !host_shortcuts::script_text(8, true).contains("Alt") &&
               host_shortcuts::script_text(8, true).endsWith("8"));
+
+    check("HS403-31", "Record start/stop: Ctrl+F5/F6 elsewhere; on macOS the physical Control key "
+                      "(Meta+F5/F6, not Command: Command+F5 is VoiceOver's), and not a Symbol Shift "
+                      "sequence the guest needs since F5/F6 are no Spectrum keys",
+          portable(host_shortcuts::record_sequence(true, true)) == "Meta+F5" &&
+              portable(host_shortcuts::record_sequence(false, true)) == "Meta+F6" &&
+              portable(host_shortcuts::record_sequence(true, false)) == "Ctrl+F5" &&
+              portable(host_shortcuts::record_sequence(false, false)) == "Ctrl+F6");
 
     // --- the guest side: which Qt key is which guest modifier -------------
     {
@@ -357,6 +366,7 @@ int main(int argc, char** argv)
                           "from host_shortcuts.h",
               count_in_code(mw, "host_shortcuts::modifier_scancode(") == 1 &&
                   count_in_code(mw, "host_shortcuts::f4_quits(") == 1 &&
+                  count_in_code(mw, "host_shortcuts::record_sequence(") == 2 &&
                   count_in_code(mw, "command_gate_.swallow_press(") == 1 &&
                   count_in_code(mw, "command_gate_.swallow_release(") == 1 &&
                   count_in_code(mw, "command_gate_.reset()") == 1);
