@@ -103,6 +103,7 @@
 #include "gui/app_config.h"
 #include "gui/emulator_widget.h"
 #include "gui/main_window.h"
+#include <QWindow>
 
 #include <QApplication>
 #include <QFile>
@@ -384,13 +385,20 @@ int main(int argc, char** argv)
         MainWindow w;
         w.show();
         pump(w, fb);
-        const bool before = w.isFullScreen();
+        // isFullScreen() reads the widget's cached state, which the size lock
+        // re-applied on leaving clears; the platform window's state does not
+        // lie, so it is asserted too (it catches a dead showNormal()).
+        auto plat = [&w]() {
+            return w.windowHandle() &&
+                   w.windowHandle()->windowStates().testFlag(Qt::WindowFullScreen);
+        };
+        const bool before = w.isFullScreen() || plat();
         w.toggle_fullscreen();
         pump(w, fb);
-        const bool entered = w.isFullScreen();
+        const bool entered = w.isFullScreen() && plat();
         w.toggle_fullscreen();
         pump(w, fb);
-        const bool left = w.isFullScreen();
+        const bool left = w.isFullScreen() || plat();
         check("GH404-01",
               "toggle_fullscreen() enters then leaves real window full screen",
               !before && entered && !left,
