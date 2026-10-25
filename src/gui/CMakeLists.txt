@@ -80,4 +80,11 @@ endif()
 # CGAssociateMouseAndMouseCursorPosition live in CoreGraphics.
 if(APPLE)
     target_link_libraries(jnext_gui PUBLIC "-framework CoreGraphics")
+
+    # mac_fullscreen.mm (GH #404): AppKit full-screen glue. The project is
+    # C/CXX only, so Objective-C++ is enabled here, on macOS alone; the
+    # file is added explicitly because the glob above takes *.cpp only.
+    enable_language(OBJCXX)
+    target_sources(jnext_gui PRIVATE mac_fullscreen.mm)
+    target_link_libraries(jnext_gui PUBLIC "-framework AppKit")
 endif()

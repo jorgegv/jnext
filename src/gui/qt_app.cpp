@@ -1,6 +1,7 @@
 #include "gui/qt_app.h"
 #include "gui/main_window.h"
 #include "gui/desktop_color_scheme.h"   // GH #363
+#include "gui/mac_fullscreen.h"         // GH #404
 #include "platform/host_key_wiring.h"
 #include "platform/quit_signal.h"   // GH #364
 #include "gui/emulator_widget.h"
@@ -264,6 +265,10 @@ bool QtApp::init(int argc, char* argv[]) {
     // Qt6) and must be set BEFORE the QApplication is constructed.
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+#endif
+#ifdef __APPLE__
+    // GH #404 — before QApplication builds the menus.
+    mac_fullscreen::init();
 #endif
     qapp_ = new QApplication(qt_argc_, qt_argv_);
 
