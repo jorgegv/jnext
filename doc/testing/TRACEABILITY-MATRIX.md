@@ -68,7 +68,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    79 |   79 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6016 | 6016 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6016**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5551**. Rows the 169 suites declared in `test/unit-tests.conf` run live: **13983**.
+Rows the sections above carry: **6016**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5551**. Rows the 169 suites declared in `test/unit-tests.conf` run live: **13993**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 122 suites (8516 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 122 suites (8526 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -115,8 +115,8 @@ These 122 suites (8516 live rows) have no VHDL-derived plan row to map, so they 
 | `emulator_boot_test` | 125 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `fullscreen_sync_test` | 11 | macOS full-screen state sync and window size lock (GH #404, host GUI, no VHDL oracle) |
-| `recent_files_test` | 16 | File > Recent Files list logic and load-dialog seed (GH #406, host GUI, no VHDL oracle) |
-| `recent_files_posix_test` | 1 | File > Recent Files symlink dedup (GH #406, POSIX-only, host GUI, no VHDL oracle) |
+| `recent_files_test` | 17 | File > Recent Files list logic and load-dialog seed (GH #406, host GUI, no VHDL oracle) |
+| `recent_files_posix_test` | 8 | File > Recent Files symlink dedup (GH #406, POSIX-only, host GUI, no VHDL oracle) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 94 | host mouse-capture policy (window-manager behaviour) |
 | `frame_deadline_test` | 47 | host frame-deadline scheduling (wall-clock) |
@@ -175,11 +175,11 @@ These 122 suites (8516 live rows) have no VHDL-derived plan row to map, so they 
 | `pok_dialog_test` | 17 | POK trainers dialog (GUI), no core counterpart |
 | `rzx_menu_test` | 16 | RZX File-menu error dialogs (GUI), no core counterpart |
 | `load_error_test` | 45 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
-| `recent_files_menu_test` | 37 | File > Recent Files menu wiring (GH #406, host GUI, no VHDL oracle) |
+| `recent_files_menu_test` | 38 | File > Recent Files menu wiring (GH #406, host GUI, no VHDL oracle) |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
 | `host_hotkey_test` | 73 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `main_window_accel_test` | 5 | main-window menu mnemonics (host GUI) |
-| `host_shortcuts_test` | 37 | macOS host shortcuts on Command (host GUI) |
+| `host_shortcuts_test` | 38 | macOS host shortcuts on Command (host GUI) |
 | `host_shortcuts_mac_test` | 6 | macOS host shortcuts, default arguments (host GUI) |
 | `main_window_pause_test` | 17 | main-window Pause: Machine > Pause, Alt+U, Pause key (host GUI) |
 | `joystick_menu_test` | 14 | joystick controller picker: Input menu, Preferences (host GUI) |

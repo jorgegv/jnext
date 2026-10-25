@@ -93,6 +93,16 @@ inline QKeySequence record_sequence(bool start, bool ctrl_is_command = kQtCtrlIs
     return ctrl_is_command ? QKeySequence(Qt::META | k) : QKeySequence(Qt::CTRL | k);
 }
 
+/// GH #404 - macOS full screen: Command+Control+F (Qt::CTRL is Command and Qt::META
+/// the physical Control key there). Command+Control are both held, so it is a host
+/// chord on both counts: the Command gate would swallow its F, and MainWindow
+/// takes it in keyPressEvent before the guest path ever sees the F.
+inline QKeySequence fullscreen_sequence() { return QKeySequence(Qt::CTRL | Qt::META | Qt::Key_F); }
+inline bool is_fullscreen_chord(int qt_key, Qt::KeyboardModifiers m)
+{
+    return qt_key == Qt::Key_F && m.testFlag(Qt::ControlModifier) && m.testFlag(Qt::MetaModifier);
+}
+
 /// File > Quit's second shortcut (GH #380): Alt+F4, a PC convention, so none on
 /// macOS (Command+Q is the one chord there).
 inline QKeySequence quit_alternate(bool ctrl_is_command = kQtCtrlIsCommand)

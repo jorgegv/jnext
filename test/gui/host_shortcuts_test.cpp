@@ -306,6 +306,30 @@ int main(int argc, char** argv)
                   f1_decision(shift, true) == D::Pass && f4_decision(shift, true) == D::Pass);
     }
 
+    // --- GH #404's Control+Command+F still works under the Command gate ---------
+    {
+        host_shortcuts::CommandChordGate g(true);
+        const Qt::KeyboardModifiers both = Qt::ControlModifier | Qt::MetaModifier;
+        const QString mw = read_all("src/gui/main_window.cpp");
+        const int at_chord = mw.indexOf("host_shortcuts::is_fullscreen_chord(key, modifiers)");
+        const int at_guest = mw.indexOf("handle_key(event, true);");
+        check("HS403-38", "macOS Control+Command+F (GH #404): recognised only with both modifiers; MainWindow "
+                          "takes it in keyPressEvent BEFORE the guest path, so F never reaches the guest "
+                          "(the gate would swallow it anyway); the physical Control key alone is Symbol Shift "
+                          "and stays a guest key",
+              mods_of(host_shortcuts::fullscreen_sequence()).testFlag(Qt::ControlModifier) &&
+                  mods_of(host_shortcuts::fullscreen_sequence()).testFlag(Qt::MetaModifier) &&
+                  key_of(host_shortcuts::fullscreen_sequence()) == Qt::Key_F &&
+                  host_shortcuts::is_fullscreen_chord(Qt::Key_F, both) &&
+                  !host_shortcuts::is_fullscreen_chord(Qt::Key_F, Qt::ControlModifier) &&
+                  !host_shortcuts::is_fullscreen_chord(Qt::Key_F, Qt::MetaModifier) &&
+                  !host_shortcuts::is_fullscreen_chord(Qt::Key_G, both) &&
+                  g.swallow_press(Qt::Key_F, both) &&
+                  !host_shortcuts::CommandChordGate(true).swallow_press(Qt::Key_F, Qt::MetaModifier) &&
+                  at_chord > 0 && at_guest > at_chord &&
+                  count_in_code(mw, "host_shortcuts::fullscreen_sequence()") == 1);
+    }
+
     // --- the Command chord gate ---------------------------------------------
     {
         host_shortcuts::CommandChordGate off(false);

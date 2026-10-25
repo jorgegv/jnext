@@ -33,6 +33,7 @@
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QTemporaryDir>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QString>
@@ -296,6 +297,15 @@ int main(int argc, char** argv) {
     // MainWindow is a real QWidget, so a QApplication is required — but not a
     // display: force the offscreen QPA platform (quit_gate_test idiom).
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    // MainWindow reads (and may write) jnext.conf: keep it off the user's real
+    // ~/.jnext, whether or not the harness has already isolated $HOME.
+    QTemporaryDir cfg_dir;
+    if (!cfg_dir.isValid()) {
+        std::printf("  FAIL: could not create a temporary config directory\n");
+        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+        return 1;
+    }
+    qputenv("JNEXT_CONFIG_DIR", cfg_dir.path().toUtf8());
     QApplication app(argc, argv);
 
     std::printf("NEX V1.3 GUI warning-dialog tests (GH #228)\n\n");

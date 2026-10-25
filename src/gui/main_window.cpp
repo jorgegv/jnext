@@ -9,6 +9,7 @@
 #include "gui/qt_ctrl_is_command.h"   // GH #365
 #include "gui/host_shortcuts.h"        // GH #403
 #include "gui/fullscreen_sync.h"      // GH #404
+#include "gui/mac_fullscreen.h"        // GH #404
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
@@ -1338,7 +1339,7 @@ void MainWindow::create_menus() {
     // Command and Qt::META is Control there; QKeySequence::FullScreen is this
     // same sequence on macOS). The menu draws the first shortcut, so it leads;
     // F11 stays for external keyboards that deliver it.
-    fullscreen_action_->setShortcuts({QKeySequence(Qt::CTRL | Qt::META | Qt::Key_F),
+    fullscreen_action_->setShortcuts({host_shortcuts::fullscreen_sequence(),
                                       QKeySequence(Qt::Key_F11)});
 #endif
     fullscreen_action_->setCheckable(true);
@@ -3168,8 +3169,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 #ifdef Q_OS_MACOS
         // GH #404 — Control+Command+F: the menu bar is hidden in full screen,
         // so the action's shortcut cannot fire there (as with F11 below).
-        if (key == Qt::Key_F && modifiers.testFlag(Qt::ControlModifier) &&
-            modifiers.testFlag(Qt::MetaModifier)) {
+        if (host_shortcuts::is_fullscreen_chord(key, modifiers)) {
             toggle_fullscreen();
             event->accept();
             return;
@@ -3625,6 +3625,15 @@ void MainWindow::mouseMoveEvent(QMouseEvent* event) {
     if (m.recentre) warp_pointer(centre);
     event->accept();
 }
+
+#ifdef Q_OS_MACOS
+// GH #404 — the native window exists once shown, which is before any
+// full-screen request can arrive.
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+    mac_fullscreen::set_main_window(static_cast<std::uintptr_t>(winId()));
+}
+#endif
 
 void MainWindow::changeEvent(QEvent* event) {
     // Never hold the pointer hostage: losing focus (alt-tab, another window)
