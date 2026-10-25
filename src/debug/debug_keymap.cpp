@@ -154,7 +154,9 @@ bool parse_combo(const std::string& text, Combo& out, std::string& why) {
     return true;
 }
 
-bool validate_combo(const Combo& c, std::string& why) {
+bool validate_combo(const Combo& c, std::string& why, bool host_mod_is_ctrl) {
+    const uint8_t host_mod = host_mod_is_ctrl ? MOD_CTRL : MOD_ALT;
+    const char*   host_txt = host_mod_is_ctrl ? "Ctrl" : "Alt";
     if (!c.bound()) return true;   // deliberately unbound is always legal
 
     const bool has_hard_mod = (c.mods & (MOD_CTRL | MOD_ALT | MOD_META)) != 0;
@@ -196,8 +198,8 @@ bool validate_combo(const Combo& c, std::string& why) {
     // there would be AMBIGUOUS with the script QAction (GH #124) in one window
     // and lose silently in the other, so it is refused by name, as Alt+letter
     // is. Alt+9 and Alt+0 stay bindable.
-    if (c.mods == MOD_ALT && c.key >= Key::Num1 && c.key <= Key::Num8) {
-        why = "Alt+1..Alt+8 are the script host keys";
+    if (c.mods == host_mod && c.key >= Key::Num1 && c.key <= Key::Num8) {
+        why = std::string(host_txt) + "+1.." + host_txt + "+8 are the script host keys";
         return false;
     }
 
@@ -206,8 +208,9 @@ bool validate_combo(const Combo& c, std::string& why) {
     // build). Refused by name, as the script host keys are: a debugger action
     // bound there would be taken by the quick snapshot while the emulator
     // window has focus. Alt+F5, Alt+Shift+F6 and the rest stay bindable.
-    if (c.mods == (MOD_ALT | MOD_SHIFT) && (c.key == Key::F5 || c.key == Key::F9)) {
-        why = "Alt+Shift+F5 and Alt+Shift+F9 are the quick-snapshot keys";
+    if (c.mods == (host_mod | MOD_SHIFT) && (c.key == Key::F5 || c.key == Key::F9)) {
+        why = std::string(host_txt) + "+Shift+F5 and " + host_txt +
+              "+Shift+F9 are the quick-snapshot keys";
         return false;
     }
 
@@ -259,7 +262,7 @@ std::vector<Conflict> find_conflicts(const Keymap& map) {
 }
 
 Keymap build_keymap(const std::vector<std::pair<std::string, std::string>>& entries,
-                    std::vector<LoadIssue>& issues) {
+                    std::vector<LoadIssue>& issues, bool host_mod_is_ctrl) {
     Keymap map;
     bool explicit_set[ACTION_COUNT] = {};
 
@@ -283,7 +286,7 @@ Keymap build_keymap(const std::vector<std::pair<std::string, std::string>>& entr
                 why + "; keeping the default " + render_combo(a->def)});
             continue;
         }
-        if (!validate_combo(c, why)) {
+        if (!validate_combo(c, why, host_mod_is_ctrl)) {
             issues.push_back(LoadIssue{e.first, e.second,
                 why + "; keeping the default " + render_combo(a->def)});
             continue;

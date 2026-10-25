@@ -2437,6 +2437,184 @@ int main()
         if (sdl_ok) SDL_Quit();
     }
 
+    // --- HKL-MAC: the host modifier is GUI (Command) on macOS (GH #403) -----
+    // Oracle: the issue and its owner decision (2026-10-25): on macOS the host
+    // shortcuts ride Command - SDL's GUI key; SDL never swaps Control and
+    // Command - while the guest keeps Control (Symbol Shift) and Option (Alt);
+    // the Alt forms stay exactly what they were on every other platform. The
+    // macOS branch is a PARAMETER of the real code, so it runs here on any OS.
+    {
+        using namespace host_key_latch;
+        using jnext::QuickChord;
+        using jnext::QuickChordTracker;
+        using jnext::quick_snapshot_chord_held;
+        const int LALT = SC_LALT, LGUI = SC_LGUI, RGUI = SC_RGUI, LCTRL = SC_LCTRL,
+                  LSHIFT = SC_LSHIFT;
+        auto digit = [](int n) { return SC_DIGIT_1 + n - 1; };
+        struct FakeBackend {
+            std::vector<std::string> raised;
+            void raise_host_event(int, const std::string& name) { raised.push_back(name); }
+        };
+        auto names = [](const std::vector<std::string>& v) {
+            std::string s;
+            for (const auto& x : v) s += x + " ";
+            return s;
+        };
+
+        // HKL-MAC-01: GUI+1..GUI+8 (left GUI for odd, right GUI for even) raise
+        // scriptN and neither digit event reaches the guest.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            r.set_script_chord_gui(true);
+            FakeBackend be;
+            wire_script_keys(r, be);
+            bool clean = true;
+            for (int n = 1; n <= 8; ++n) {
+                const int gui = n % 2 ? LGUI : RGUI;
+                r.on_host_key(gui, true);
+                r.on_host_key(digit(n), true);
+                r.on_host_key(digit(n), false);
+                r.on_host_key(gui, false);
+                r.on_tick_end(1);
+                if (kb.count(digit(n), true) || kb.count(digit(n), false)) clean = false;
+            }
+            check("HKL-MAC-01", "with the host modifier GUI, Command+1..Command+8 each raise `scriptN` "
+                                "once and the digit's press and release never reach the guest",
+                  clean && names(be.raised) == "script1 script2 script3 script4 script5 script6 script7 script8 ",
+                  names(be.raised) + got(kb));
+        }
+        // HKL-MAC-02: in GUI mode Alt+1 is the GUEST's (Option is not a host
+        // key on macOS), and GUI with Alt, Ctrl or Shift is a different chord,
+        // as is GUI+9: each reaches the guest and raises nothing.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            r.set_script_chord_gui(true);
+            FakeBackend be;
+            wire_script_keys(r, be);
+            auto tap = [&](std::vector<int> mods, int key) {
+                for (int m : mods) r.on_host_key(m, true);
+                r.on_host_key(key, true);
+                r.on_tick_end(1);
+                r.on_host_key(key, false);
+                for (int m : mods) r.on_host_key(m, false);
+                r.on_tick_end(1);
+            };
+            tap({LALT}, digit(1));
+            tap({LGUI, LALT}, digit(2));
+            tap({LGUI, LCTRL}, digit(3));
+            tap({LGUI, LSHIFT}, digit(4));
+            tap({LGUI}, SC_DIGIT_8 + 1);   // GUI+9
+            check("HKL-MAC-02", "in GUI mode Alt+1, GUI+Alt+2, GUI+Ctrl+3, GUI+Shift+4 and GUI+9 are not "
+                                "script keys: each digit reaches the guest, pressed and released",
+                  be.raised.empty() && kb.count(digit(1), true) == 1 && kb.count(digit(1), false) == 1 &&
+                      kb.count(digit(2), true) == 1 && kb.count(digit(3), true) == 1 &&
+                      kb.count(digit(4), true) == 1 && kb.count(digit(4), false) == 1 &&
+                      kb.count(SC_DIGIT_8 + 1, true) == 1 && kb.count(SC_DIGIT_8 + 1, false) == 1,
+                  names(be.raised) + got(kb));
+        }
+        // HKL-MAC-03: the default Router keeps the Alt chord: GUI+1 is not it
+        // (an unchanged platform, and a Mac build's existing Alt rows, mean
+        // what they always did).
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            FakeBackend be;
+            wire_script_keys(r, be);
+            r.on_host_key(LGUI, true);
+            r.on_host_key(digit(1), true);
+            r.on_tick_end(1);
+            r.on_host_key(digit(1), false);
+            r.on_host_key(LGUI, false);
+            r.on_tick_end(1);
+            check("HKL-MAC-03", "by default the script chord is Alt: GUI+1 raises nothing and reaches "
+                                "the guest",
+                  be.raised.empty() && kb.count(digit(1), true) == 1, names(be.raised) + got(kb));
+        }
+        // HKL-MAC-04: the quick-snapshot chord with GUI as the host modifier
+        // (bit 3 = LGui, bit 7 = RGui; bit 2 = LAlt; bit 1 = LShift; bit 0 = LCtrl).
+        {
+            constexpr int F5 = 62, F9 = 66;
+            const unsigned gui = 1u << 3, rgui = 1u << 7, alt = 1u << 2, shift = 1u << 1, ctrl = 1u;
+            check("HKL-MAC-04", "GUI+Shift+F5 / F9 are Quick Save / Load in GUI mode (left or right GUI); "
+                                "Alt+Shift+F5, GUI+Alt+Shift+F5, Ctrl+GUI+Shift+F9 and GUI+F5 are not; "
+                                "the default mode is unchanged (Alt+Shift+F5 saves, GUI+Shift+F5 does not)",
+                  quick_snapshot_chord_held(F5, gui | shift, true) == QuickChord::Save &&
+                  quick_snapshot_chord_held(F9, rgui | shift, true) == QuickChord::Load &&
+                  quick_snapshot_chord_held(F5, alt | shift, true) == QuickChord::None &&
+                  quick_snapshot_chord_held(F5, gui | alt | shift, true) == QuickChord::None &&
+                  quick_snapshot_chord_held(F9, ctrl | gui | shift, true) == QuickChord::None &&
+                  quick_snapshot_chord_held(F5, gui, true) == QuickChord::None &&
+                  quick_snapshot_chord_held(F5, alt | shift) == QuickChord::Save &&
+                  quick_snapshot_chord_held(F5, gui | shift) == QuickChord::None);
+        }
+        // HKL-MAC-05: the tracker, host modifier GUI: one press acts once,
+        // autorepeat is swallowed, Alt+Shift+F5 is nothing.
+        {
+            QuickChordTracker t;
+            t.set_host_is_gui(true);
+            t.on_key(SC_LGUI, true);
+            t.on_key(SC_LSHIFT, true);
+            const QuickChord first = t.on_key(62, true);
+            const QuickChord rep   = t.on_key(62, true);
+            t.on_key(62, false);
+            t.on_key(SC_LGUI, false);
+            t.on_key(SC_LALT, true);
+            const QuickChord alt_only = t.on_key(62, true);
+            check("HKL-MAC-05", "QuickChordTracker in GUI mode: GUI+Shift+F5 acts once and repeats are "
+                                "swallowed; Alt+Shift+F5 is not a chord there",
+                  first == QuickChord::Save && rep == QuickChord::Repeat &&
+                      alt_only == QuickChord::None && t.host_is_gui());
+        }
+        // HKL-MAC-06: sdl_reset_keys through the real poll(), host modifier GUI:
+        // GUI+F4 quits and resets nothing, GUI+F1 resets nothing, and Option+F4 /
+        // Option+F1 do nothing (Option is not a host modifier on macOS; the Qt
+        // window does the same, HS403-32).
+        {
+            const bool sdl_ok = SDL_Init(SDL_INIT_EVENTS);
+            const std::string sdl_err =
+                sdl_ok ? std::string() : std::string("SDL_Init(EVENTS) failed: ") + SDL_GetError();
+            bool ok = sdl_ok;
+            std::string d = sdl_err;
+            if (sdl_ok) {
+                AltF4Rig q;
+                q.chords.set_host_is_gui(true);
+                const bool more_q = q.batch({{SDL_SCANCODE_LGUI, true}, {SDL_SCANCODE_F4, true},
+                                             {SDL_SCANCODE_F4, false}, {SDL_SCANCODE_LGUI, false}});
+                const bool q_ok = q.pushed && q.quits == 1 && !more_q && q.emu.soft == 0 &&
+                                  q.emu.hard == 0 && q.router.fkeys == 0;
+                AltF4Rig f1;
+                f1.chords.set_host_is_gui(true);
+                f1.batch({{SDL_SCANCODE_RGUI, true}, {SDL_SCANCODE_F1, true},
+                          {SDL_SCANCODE_F1, false}, {SDL_SCANCODE_RGUI, false}});
+                const bool f1_ok = f1.quits == 0 && f1.emu.hard == 0 && f1.emu.soft == 0;
+                // Option is no host modifier: Option+F4 and Option+F1 do nothing at all
+                // (no quit, no reset; the Qt window agrees), and Command wins over Option.
+                AltF4Rig a;
+                a.chords.set_host_is_gui(true);
+                a.batch({{SDL_SCANCODE_LALT, true}, {SDL_SCANCODE_F4, true},
+                         {SDL_SCANCODE_F4, false}, {SDL_SCANCODE_F1, true},
+                         {SDL_SCANCODE_F1, false}, {SDL_SCANCODE_LALT, false}});
+                const bool a_ok = a.quits == 0 && a.emu.soft == 0 && a.emu.hard == 0;
+                AltF4Rig both;
+                both.chords.set_host_is_gui(true);
+                both.batch({{SDL_SCANCODE_LALT, true}, {SDL_SCANCODE_LGUI, true}, {SDL_SCANCODE_F4, true},
+                            {SDL_SCANCODE_F4, false}, {SDL_SCANCODE_LGUI, false}, {SDL_SCANCODE_LALT, false}});
+                const bool both_ok = both.quits == 1 && both.emu.soft == 0;
+                ok = q_ok && f1_ok && a_ok && both_ok;
+                d = "quit:" + q.state(more_q) + " f1:" + f1.state(false) + " alt:" + a.state(false);
+            }
+            check("HKL-MAC-06", "GUI mode: GUI+F4 quits (no reset), GUI+F1 resets nothing, Option+F4 and "
+                                "Option+F1 do nothing, and GUI beats Option",
+                  ok, d);
+            if (sdl_ok) SDL_Quit();
+        }
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

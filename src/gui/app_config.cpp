@@ -1,4 +1,5 @@
 #include "gui/app_config.h"
+#include "gui/qt_ctrl_is_command.h"   // GH #403
 #include "gui/emulator_widget.h"
 #include "gui/recent_files.h"
 #include "peripheral/esp_host_policy.h"
@@ -284,7 +285,7 @@ void AppConfig::load() {
         for (const QString& k : settings_.childKeys())
             entries.emplace_back(k.toStdString(), settings_.value(k).toString().toStdString());
         settings_.endGroup();
-        data_.debug_keys = jnext::dbgkeys::build_keymap(entries, debug_key_issues_);
+        data_.debug_keys = jnext::dbgkeys::build_keymap(entries, debug_key_issues_, kQtCtrlIsCommand);
     }
 
     settings_.beginGroup("esp");

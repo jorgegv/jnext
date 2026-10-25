@@ -7,6 +7,7 @@
 #include "gui/preferences_apply_policy.h"
 #include "gui/pok_dialog.h"           // GH #381
 #include "gui/qt_ctrl_is_command.h"   // GH #365
+#include "gui/host_shortcuts.h"        // GH #403
 #include "gui/fullscreen_sync.h"      // GH #404
 #include "gui/mac_fullscreen.h"        // GH #404
 #include "core/emulator.h"
@@ -91,6 +92,9 @@ pointer_capture::HostButton qt_host_button(Qt::MouseButton b) {
 }
 
 SDL_Scancode qt_key_to_sdl(int key) {
+    // GH #403: the modifier keys, which differ on macOS, are one tested helper.
+    if (const SDL_Scancode m = host_shortcuts::modifier_scancode(key); m != SDL_SCANCODE_UNKNOWN)
+        return m;
     switch (key) {
         // Letters
         case Qt::Key_A: return SDL_SCANCODE_A;
@@ -133,9 +137,7 @@ SDL_Scancode qt_key_to_sdl(int key) {
         case Qt::Key_9: return SDL_SCANCODE_9;
 
         // Modifiers
-        case Qt::Key_Shift:   return SDL_SCANCODE_LSHIFT;
-        case Qt::Key_Control: return SDL_SCANCODE_LCTRL;
-        case Qt::Key_Alt:     return SDL_SCANCODE_LALT;
+        // GH #403: Control/Command/Meta differ on macOS, see host_shortcuts.h.
 
         // Task 77 — host keys for the Spectrum compound keys wired in
         // Keyboard::init_map(). Without these the mappings are unreachable
@@ -803,6 +805,14 @@ void MainWindow::create_menus() {
     // gives up ever binding the Alt keys as guest shift keys. Deliberate, not
     // an oversight — see doc/design/TASK-115-HOST-SHORTCUT-INVENTORY.md §8.
     //
+    // GH #403 - macOS: the same split, one key over. Command is the platform's
+    // shortcut modifier and is NOT a guest key there (Key_Control is mapped to
+    // the key Router's LGUI, which the guest ignores), while the physical
+    // Control key (Qt's Key_Meta) is the guest's Symbol Shift. So every
+    // "Alt+X" below is Command+X on macOS - host_shortcuts.h holds the set for
+    // both - and the guest keeps Option for its own Alt+E/G/C. Where this
+    // comment says Alt, read "the host modifier".
+    //
     // Consequence for anyone adding a menu or a shortcut here: Alt+<letter> is
     // ONE namespace shared by the QAction shortcuts below AND by the top-level
     // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
@@ -845,7 +855,7 @@ void MainWindow::create_menus() {
     // thing. L is free everywhere: no menubar title, no shortcut, not a guest
     // Alt key, and unused in this popup.
     QAction* load_nex = file_menu->addAction(tr("&Load NEX File..."));
-    load_nex->setShortcut(QKeySequence(Qt::ALT | Qt::Key_O));
+    load_nex->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::LoadNex));
     connect(load_nex, &QAction::triggered, this, &MainWindow::on_load_nex);
 
     // GH #406 - Alt+L reloads the newest recent file (the rebuild-and-retry loop
@@ -854,7 +864,7 @@ void MainWindow::create_menus() {
     // label is taken somewhere in this popup or the window-wide Alt namespace,
     // and the shortcut is the way in.
     reload_last_action_ = file_menu->addAction(tr("Reload Last File"));
-    reload_last_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_L));
+    reload_last_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::ReloadLast));
     connect(reload_last_action_, &QAction::triggered, this, [this]() {
         // A copy: on_recent_file() may rewrite the very list this names.
         const QString newest = app_config_.data().recent_files.value(0);
@@ -885,7 +895,7 @@ void MainWindow::create_menus() {
     // (P is "Sto&p MPEG4 Recording") or is the digit; V would read better but
     // Alt+V is the View menu. So the 4 of MPEG4, underlined in place.
     record_start_action_ = file_menu->addAction(tr("Record MPEG&4 Video..."));
-    record_start_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
+    record_start_action_->setShortcut(host_shortcuts::record_sequence(true));
     connect(record_start_action_, &QAction::triggered, this, &MainWindow::on_record_start);
     // Packaging Task 67 follow-up: grey the option out entirely when ffmpeg
     // is missing, instead of only failing after the user picks a save path
@@ -903,7 +913,7 @@ void MainWindow::create_menus() {
     }
 
     record_stop_action_ = file_menu->addAction(tr("Sto&p MPEG4 Recording"));
-    record_stop_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F6));
+    record_stop_action_->setShortcut(host_shortcuts::record_sequence(false));
     record_stop_action_->setEnabled(false);
     connect(record_stop_action_, &QAction::triggered, this, &MainWindow::on_record_stop);
 
@@ -921,7 +931,7 @@ void MainWindow::create_menus() {
     file_menu->addSeparator();
 
     screenshot_action_ = file_menu->addAction(tr("Save &Screenshot..."));
-    screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_S));
+    screenshot_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::Screenshot));
     connect(screenshot_action_, &QAction::triggered, this, [this]() {
         if (!emulator_) return;
         // GH #18 — two formats, chosen by the extension, exactly as
@@ -957,7 +967,7 @@ void MainWindow::create_menus() {
     // and is the label's own mnemonic, so the menu entry and the shortcut are
     // the same letter rather than two unrelated choices.
     quick_screenshot_action_ = file_menu->addAction(tr("Quic&k Screenshot"));
-    quick_screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_K));
+    quick_screenshot_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::QuickScreenshot));
     connect(quick_screenshot_action_, &QAction::triggered,
             this, &MainWindow::on_quick_screenshot);
     // Same two fixes as the quick snapshot actions below (GH #321): reachable
@@ -982,17 +992,17 @@ void MainWindow::create_menus() {
     // Alt+S's, so Qt treats the two as distinct sequences, not as one
     // ambiguous binding — pinned by host_hotkey_test H115-33.
     QAction* save_snapshot = file_menu->addAction(tr("Save S&napshot..."));
-    save_snapshot->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_S));
+    save_snapshot->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::SaveSnapshot));
     connect(save_snapshot, &QAction::triggered, this, &MainWindow::on_save_snapshot);
 
     // GH #321 — Quick Save / Quick Load: no dialog, fixed folder. No '&'
     // mnemonic (every letter is taken in some Alt namespace, #217). The chords
     // live HERE; the SDL frontend's twin is platform/quick_snapshot_chord.h.
     quick_save_action_ = file_menu->addAction(tr("Quick Save Snapshot"));
-    quick_save_action_->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_F5));
+    quick_save_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::QuickSave));
     connect(quick_save_action_, &QAction::triggered, this, &MainWindow::on_quick_save);
     quick_load_action_ = file_menu->addAction(tr("Quick Load Snapshot"));
-    quick_load_action_->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_F9));
+    quick_load_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::QuickLoad));
     connect(quick_load_action_, &QAction::triggered, this, &MainWindow::on_quick_load);
     // A held chord must act once, not once per autorepeat (35 saves in 2 s).
     quick_save_action_->setAutoRepeat(false);
@@ -1011,14 +1021,17 @@ void MainWindow::create_menus() {
     // qwindowskeymapper.cpp passes it on) and closes the window; where nothing
     // does, the key reaches this window, and keyPressEvent() sends every other
     // Alt-held F4 here too. Alt+Q stays the primary: host hotkeys live on Alt (#115).
-    quit_action_->setShortcuts({QKeySequence(Qt::ALT | Qt::Key_Q), QKeySequence(Qt::ALT | Qt::Key_F4)});
+    //
+    // GH #403 - macOS: Command+Q alone (Alt+F4 is a PC convention).
+    const QList<QKeySequence> quit_keys = host_shortcuts::quit_shortcuts();
+    quit_action_->setShortcuts(quit_keys);
     // A menu draws only shortcut() — the first — unless the text carries its own
     // accelerator column after a tab (QMenu::initStyleOption), so the label names
     // both, taken from the bindings. Consumers that compare this action's text
     // look at the part before the tab (host_chords.cpp, the suites' lookups).
-    quit_action_->setText(tr("&Quit") + QLatin1Char('\t') +
-                          QKeySequence::listToString(quit_action_->shortcuts(),
-                                                     QKeySequence::NativeText));
+    // Only when there IS a second one: a single shortcut is drawn by the menu,
+    // and on macOS a tab in a Quit label would be read as a key equivalent.
+    quit_action_->setText(host_shortcuts::quit_text(tr("&Quit"), quit_keys));
     // Issue #131 — go through close() so closeEvent() actually RUNS. This used
     // to connect straight to QApplication::quit(), which skips closeEvent
     // entirely, so File > Quit and closing the window with [X] did different
@@ -1070,7 +1083,7 @@ void MainWindow::create_menus() {
     // now as Alt+R per #115; F4 matches the host soft-reset hotkey
     // (zxnext.vhd:6370).
     QAction* reset = machine_menu->addAction(tr("&Power Reset"));
-    reset->setShortcut(QKeySequence(Qt::ALT | Qt::Key_R));
+    reset->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::Reset));
     connect(reset, &QAction::triggered, this, &MainWindow::on_reset);
 
     QAction* soft_reset = machine_menu->addAction(tr("&Soft Reset"));
@@ -1091,12 +1104,12 @@ void MainWindow::create_menus() {
     // only the primary shortcut and Mac keyboards have no Pause key.
     pause_action_ = machine_menu->addAction(tr("P&ause"));
     pause_action_->setCheckable(true);
-    pause_action_->setShortcuts({QKeySequence(Qt::ALT | Qt::Key_U),
+    pause_action_->setShortcuts({host_shortcuts::sequence(host_shortcuts::Action::Pause),
                                  QKeySequence(Qt::Key_Pause)});
     // A held key re-fired the action (measured ~20 toggles in 1.5 s).
     pause_action_->setAutoRepeat(false);
     // Its icon (pause, resume while checked) is bound in create_toolbar().
-    pause_action_->setToolTip(tr("Pause / resume emulation (Alt+U or Pause)"));
+    pause_action_->setToolTip(host_shortcuts::pause_tooltip());
     connect(pause_action_, &QAction::triggered, this, [this]() { toggle_pause(); });
     addAction(pause_action_);
 
@@ -1241,7 +1254,7 @@ void MainWindow::create_menus() {
     QMenu* tape_menu = menuBar()->addMenu(tr("T&ape"));
 
     QAction* tape_open = tape_menu->addAction(tr("&Open Tape File..."));
-    tape_open->setShortcut(QKeySequence(Qt::ALT | Qt::Key_T));
+    tape_open->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::TapeOpen));
     connect(tape_open, &QAction::triggered, this, &MainWindow::on_tape_open);
 
     tape_eject_action_ = tape_menu->addAction(tr("&Eject Tape"));
@@ -1326,7 +1339,7 @@ void MainWindow::create_menus() {
     // Command and Qt::META is Control there; QKeySequence::FullScreen is this
     // same sequence on macOS). The menu draws the first shortcut, so it leads;
     // F11 stays for external keyboards that deliver it.
-    fullscreen_action_->setShortcuts({QKeySequence(Qt::CTRL | Qt::META | Qt::Key_F),
+    fullscreen_action_->setShortcuts({host_shortcuts::fullscreen_sequence(),
                                       QKeySequence(Qt::Key_F11)});
 #endif
     fullscreen_action_->setCheckable(true);
@@ -1369,7 +1382,7 @@ void MainWindow::create_menus() {
 #ifdef ENABLE_DEBUGGER
     view_menu->addSeparator();
     debugger_action_ = view_menu->addAction(tr("&Debugger"));
-    debugger_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_D));
+    debugger_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::Debugger));
     debugger_action_->setCheckable(true);
 
     // GH #215: the Debug menu used to hold Magic Breakpoint and nothing else,
@@ -1396,7 +1409,7 @@ void MainWindow::create_menus() {
     // namespace (#115), and P is free in all of it: no menubar mnemonic, no
     // other shortcut, not one of the guest's Alt+E/G/C.
     QAction* preferences = settings_menu->addAction(tr("&Preferences..."));
-    preferences->setShortcut(QKeySequence(Qt::ALT | Qt::Key_P));
+    preferences->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::Preferences));
     connect(preferences, &QAction::triggered, this, &MainWindow::on_open_preferences);
 
     // --- Help menu ---
@@ -3156,8 +3169,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 #ifdef Q_OS_MACOS
         // GH #404 — Control+Command+F: the menu bar is hidden in full screen,
         // so the action's shortcut cannot fire there (as with F11 below).
-        if (key == Qt::Key_F && modifiers.testFlag(Qt::ControlModifier) &&
-            modifiers.testFlag(Qt::MetaModifier)) {
+        if (host_shortcuts::is_fullscreen_chord(key, modifiers)) {
             toggle_fullscreen();
             event->accept();
             return;
@@ -3188,32 +3200,50 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         // and the modified presses: Shift/Ctrl+F4 reset nothing, and F4 with
         // Alt held is File > Quit (GH #380). Alt+F1 resets nothing either.
         case Qt::Key_F1:
-            if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
-                          && !modifiers.testFlag(Qt::ControlModifier)
-                          && !modifiers.testFlag(Qt::AltModifier)) {
-                emulator_->on_hotkey_f1_hard_reset();
+            // GH #403: the decision (reset / swallow / pass) is host_shortcuts::
+            // f1_decision, so macOS (Command for Alt, Option inert, physical
+            // Control = Ctrl) is tested on every host.
+            switch (host_shortcuts::f1_decision(modifiers)) {
+            case host_shortcuts::FKeyDecision::Reset:
+                if (emulator_) {
+                    emulator_->on_hotkey_f1_hard_reset();
+                    event->accept();
+                    return;
+                }
+                break;
+            case host_shortcuts::FKeyDecision::Swallow:
                 event->accept();
                 return;
+            default:
+                break;
             }
             break;
         case Qt::Key_F4:
-            // GH #380 — any F4 with Alt held is File > Quit, whatever else is held
-            // and with the mouse captured or not. An exact Alt+F4 in an active
-            // window is taken earlier, by the shortcut map, through the same
-            // action; what lands here is the rest: Ctrl+Alt+F4 (AltGr+F4 on
-            // Windows), Alt+Shift+F4, Meta+Alt+F4, a plain Alt+F4 with the menu
-            // bar hidden (fullscreen) or the window not active. It never reaches
-            // the guest, and needs no emulator.
-            if (modifiers.testFlag(Qt::AltModifier)) {
+            // GH #380 — any F4 with the host modifier (Alt; Command on macOS)
+            // held is File > Quit, whatever else is held and with the mouse
+            // captured or not. An exact Alt+F4 in an active window is taken
+            // earlier, by the shortcut map, through the same action; what lands
+            // here is the rest: Ctrl+Alt+F4 (AltGr+F4 on Windows),
+            // Alt+Shift+F4, Meta+Alt+F4, a plain Alt+F4 with the menu bar
+            // hidden (fullscreen) or the window not active. It never reaches
+            // the guest, and needs no emulator. Option+F4 on macOS does nothing.
+            switch (host_shortcuts::f4_decision(modifiers)) {
+            case host_shortcuts::FKeyDecision::Quit:
                 if (quit_action_) quit_action_->trigger();
                 event->accept();
                 return;
-            }
-            if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
-                          && !modifiers.testFlag(Qt::ControlModifier)) {
-                on_soft_reset();   // the same dispatcher as Machine > Soft Reset
+            case host_shortcuts::FKeyDecision::Swallow:
                 event->accept();
                 return;
+            case host_shortcuts::FKeyDecision::Reset:
+                if (emulator_) {
+                    on_soft_reset();   // the same dispatcher as Machine > Soft Reset
+                    event->accept();
+                    return;
+                }
+                break;
+            default:
+                break;
             }
             break;
         case Qt::Key_F9:
@@ -3391,6 +3421,7 @@ void MainWindow::focusOutEvent(QFocusEvent* event) {
     // three letters silently stop appearing while every other letter still
     // types. "press A I got A, press G nothing is shown", exactly.
     release_filter_.reset();   // GH #365 — a swallowed Esc's release goes elsewhere
+    command_gate_.reset();     // GH #403 - and so does a swallowed Command chord's
     if (keyboard_lost_callback_) keyboard_lost_callback_();
     QMainWindow::focusOutEvent(event);
 }
@@ -3414,6 +3445,14 @@ void MainWindow::handle_key(QKeyEvent* event, bool pressed) {
     // BASIC line with it. Feeding a press whose release cannot arrive is the
     // bug; the user is driving a menu, so dropping it is also what they meant.
     if (QApplication::activePopupWidget()) {
+        event->accept();
+        return;
+    }
+
+    // GH #403 - macOS: a key pressed with Command held is a host chord and
+    // never reaches the guest (see host_shortcuts::CommandChordGate).
+    if (pressed ? command_gate_.swallow_press(event->key(), event->modifiers())
+                : command_gate_.swallow_release(event->key())) {
         event->accept();
         return;
     }

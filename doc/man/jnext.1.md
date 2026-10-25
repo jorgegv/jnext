@@ -914,7 +914,7 @@ naming the option and the value, and exits with status 1.
 **\--record-script** *FILE*
 :   Record the session as a replay script; see **Recording a session** under
     **SCRIPTING**. Every input change is written as the frame it landed on,
-    each Alt + 8 (or **\--script-key** *FRAME* `8`) captures the screen, and
+    each Alt + 8 (Command+8 on macOS) (or **\--script-key** *FRAME* `8`) captures the screen, and
     *FILE* is written when jnext exits. Works in every frontend.
 
 **\--map** *FILE*
@@ -1885,7 +1885,7 @@ held down for the guest while you press the chord.
 
 The Pause key (Pause/Break) pauses and resumes the machine in the GUI, the same
 as Machine > Pause; keyboards without one, such as most Mac keyboards, use
-Alt+U. On a real Next that key only resets the PS/2 keyboard interface, so no
+Alt+U (Command+U on macOS). On a real Next that key only resets the PS/2 keyboard interface, so no
 Spectrum key is lost. The SDL-only build has no pause.
 
 Ctrl is left alone for the guest. No Ctrl+letter chord of any kind is a jnext
@@ -1896,6 +1896,20 @@ Shift + S), which was the last one to move. Earlier releases bound those to
 menu commands and the program never saw them. The only Ctrl chords jnext still
 takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording), and function
 keys have no Spectrum meaning to lose.
+
+On macOS the two roles move one key over. The host shortcuts are Command
+instead of Alt: every Alt+X below is Command+X (⌘X), Quit is Command+Q (Command+F4, the
+Alt+F4 equivalent, quits too), Preferences is Command+, and the script host keys are Command+1
+to Command+8; the menus show the Mac form. The Spectrum's Symbol Shift is the
+physical Control key, as on a PC keyboard, Command is not a Spectrum key, and
+Option stays the guest's Alt (Option+E/G/C are EDIT, GRAPH, CAPS LOCK). A
+Command chord that jnext does not use never reaches the program. The menu-bar
+mnemonics (Alt+F, ...) do not exist on macOS, and the recording shortcuts
+Ctrl+F5 and Ctrl+F6 stay on the physical Control key there (Command+F5 is
+VoiceOver's). The SDL-only build on
+macOS follows the same rule for Command+1 to Command+8, Command+Shift+F5 and
+Command+Shift+F9 and Command+F4 (quit); Option+F1 and
+Option+F4 do nothing in either frontend.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext claims
 Alt + Q/O/L/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S, Alt+Shift+F5 and Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H

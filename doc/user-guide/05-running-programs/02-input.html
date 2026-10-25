@@ -1381,6 +1381,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Keyboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#on-a-mac-shortcuts-use-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On a Mac, shortcuts use Command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3785,16 +3802,38 @@ symbols were thrown away before the Spectrum saw them.</p>
 <ul>
 <li><strong>Shift is Caps Shift and Ctrl is Symbol Shift</strong> — the same way round as a
   real Spectrum Next with a PC keyboard plugged into it. Earlier versions had
-  these two swapped. On a Mac, <strong>Cmd</strong> is the key that does what this page
-  says of Ctrl.</li>
+  these two swapped. On a Mac the Symbol Shift key is <strong>Control</strong> (⌃), in the
+  same place as on a PC keyboard; <strong>Cmd</strong> (⌘) is not a Spectrum key at all, it
+  carries JNEXT's shortcuts (see <a href="#on-a-mac-shortcuts-use-command">On a Mac</a>).</li>
 <li><strong>Esc is Break</strong>, not "get me out of fullscreen". Fullscreen is F11 (on a Mac: Control+Command+F, ⌃⌘F, or the green title-bar button, since macOS takes F11).</li>
-<li><strong>Alt is a host modifier, never a Spectrum key.</strong> Only the four Alt
+<li><strong>Alt is a host modifier, never a Spectrum key</strong> (on a Mac the host
+  modifier is Cmd instead and Option is the Spectrum key). Only the four Alt
   combinations above are used, because the menu bar and the menu shortcuts
   claim the rest — and <strong>Alt+1 to Alt+8</strong> are the
   <a href="../06-debugger/functions/13-debugger-scripts.html#host-keys-alt1-to-alt8">script host keys</a>:
   they do not type their digit (Alt+9 and Alt+0 still do). <strong>Alt+Shift+F5</strong>
   and <strong>Alt+Shift+F9</strong> are Quick Save and Quick Load
   (<a href="09-snapshots.html#quick-save-and-quick-load">5.9 Snapshots</a>).</li>
+</ul>
+<h3 id="on-a-mac-shortcuts-use-command">On a Mac, shortcuts use Command<a class="headerlink" href="#on-a-mac-shortcuts-use-command" title="Permanent link">&para;</a></h3>
+<p>On macOS every JNEXT shortcut that is <strong>Alt + key</strong> on the other systems is
+<strong>Cmd + key</strong> (⌘), the Mac convention. Wherever this guide says Alt+X for a
+JNEXT shortcut, press ⌘X; the menus show the Mac form. In particular:</p>
+<ul>
+<li><strong>⌘Q</strong> quits, and so does <strong>⌘F4</strong> (the Mac form of Alt+F4) and <strong>⌘,</strong> opens Settings &gt;
+  Preferences, as in other Mac applications.</li>
+<li><strong>⌘1</strong> to <strong>⌘8</strong> are the script host keys, and <strong>⌘⇧F5</strong> and <strong>⌘⇧F9</strong> are
+  Quick Save and Quick Load; ⌘9 and ⌘0 do nothing special.</li>
+<li><strong>Option</strong> (⌥) is the Spectrum's Alt, never a host modifier: Option+E is Edit,
+  Option+G Graph, Option+C Caps Lock, and Option+F1 / Option+F4 do nothing.</li>
+<li><strong>Control</strong> (⌃) is Symbol Shift, so the NextBASIC sequences described below
+  (Ctrl+O <code>;</code>, Ctrl+D <code>STEP</code>, ...) are Control+letter on a Mac too.</li>
+<li>A Cmd chord that JNEXT does not use never reaches the program, so Cmd+C
+  does not type a C.</li>
+<li>The menu-bar mnemonics (Alt+F for the File menu, ...) do not exist on macOS,
+  where the menu bar is the system one. The recording shortcuts, written
+  Ctrl+F5 and Ctrl+F6 below, are ⌃F5 and ⌃F6 there (the Control key, not
+  Command: ⌘F5 belongs to macOS's VoiceOver).</li>
 </ul>
 <p><strong>Ctrl belongs to the program you are running.</strong> No Ctrl+letter chord of any
 kind is a JNEXT shortcut, so the Symbol Shift sequences NextBASIC leans on —

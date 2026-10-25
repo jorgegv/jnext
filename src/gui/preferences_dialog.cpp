@@ -1,4 +1,5 @@
 #include "gui/preferences_dialog.h"
+#include "gui/host_shortcuts.h"   // GH #403
 #include "gui/qt_ctrl_is_command.h"   // GH #365
 #include "qt/palette_tint_qt.h"   // GH #363
 #include "gui/emulator_widget.h"
@@ -552,10 +553,7 @@ QWidget* PreferencesDialog::build_paths_tab() {
     form->addRow(tr("Quick snapshots to keep:"), quick_keep_spin_);
 
     auto* quick_note = new QLabel(
-        tr("Quick Screenshot (Alt+K) writes jnext-<date>-<time> into that "
-           "directory with no dialog, and names the file in the status bar. "
-           "A .SCR records only the classic ULA screen memory - Layer 2, the "
-           "tilemap and the sprites are not in it."), tab);
+        host_shortcuts::quick_screenshot_note(), tab);
     quick_note->setWordWrap(true);
     form->addRow(QString(), quick_note);
 

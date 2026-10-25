@@ -150,6 +150,8 @@ BEGIN {
     M["esc_break_test"]                = "Esc/BREAK + fullscreen routing"
     M["host_hotkey_test"]              = "Host hotkeys on Alt (Ctrl to guest)"
     M["main_window_accel_test"]        = "Main-window menu mnemonics"
+    M["host_shortcuts_mac_test"]       = "macOS host shortcuts, default args (GH #403)"
+    M["host_shortcuts_test"]           = "macOS host shortcuts on Command (GH #403)"
     M["main_window_pause_test"]        = "Main-window Pause (Alt+U, Pause key)"
     M["joystick_menu_test"]            = "Joystick controller picker (Input menu, Preferences)"
     M["shifted_keys_test"]             = "Shifted symbols reach the guest"

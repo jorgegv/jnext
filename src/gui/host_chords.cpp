@@ -1,4 +1,5 @@
 #include "gui/host_chords.h"
+#include "gui/qt_ctrl_is_command.h"   // GH #403
 
 #include "qt/debug_keymap_qt.h"
 
@@ -26,7 +27,7 @@ std::vector<HostChord> harvest_host_chords(const QWidget* w) {
             // by definition not a collision, so it is skipped rather than
             // guessed at.
             if (!parse_combo(seq.toString().toStdString(), c, why)) continue;
-            if (!validate_combo(c, why)) continue;   // the user could not bind it either
+            if (!validate_combo(c, why, kQtCtrlIsCommand)) continue;   // the user could not bind it either
             if (find_host_chord(out, c)) continue;   // first claimant wins the label
             // The text before a tab: an action may carry its own accelerator
             // column after one (File > Quit names both its shortcuts, GH #380).
