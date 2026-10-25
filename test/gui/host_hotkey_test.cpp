@@ -59,6 +59,7 @@
 // ===========================================================================
 #include <QAction>
 #include <QApplication>
+#include <QTemporaryDir>
 #include <QImage>
 #include <QToolBar>
 #include <QFile>
@@ -1515,6 +1516,15 @@ void test_script_keys(MainWindow& w) {
 
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    // MainWindow reads (and may write) jnext.conf: keep it off the user's real
+    // ~/.jnext, whether or not the harness has already isolated $HOME.
+    QTemporaryDir cfg_dir;
+    if (!cfg_dir.isValid()) {
+        std::printf("  FAIL: could not create a temporary config directory\n");
+        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+        return 1;
+    }
+    qputenv("JNEXT_CONFIG_DIR", cfg_dir.path().toUtf8());
     QApplication app(argc, argv);
 
     std::printf("Issue #115 part 2 - host hotkeys on Alt, Ctrl left to the guest\n");

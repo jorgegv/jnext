@@ -82,7 +82,9 @@ int main()
       recent_files::push(l, (r / "sub" / ".." / "a.nex").string());
       recent_files::push(l, (r / "." / "a.nex").string());
       check("RECF-04", "two spellings of one existing file are one entry",
-            l.size() == 1 && l[0] == a, join(l)); }
+            l.size() == 1 && l[0] == (r / "." / "a.nex").string(), join(l)); }
+    // (the entry holds the LAST spelling pushed, as given: it is not folded
+    //  lexically, since "link/.." would cross a symlink -- see RECF-21)
 
     { List l; recent_files::push(l, a); recent_files::push(l, b); recent_files::push(l, c);
       recent_files::remove(l, (r / "x" / ".." / "b.tap").string());
@@ -132,6 +134,22 @@ int main()
     { List l; recent_files::push(l, a);
       check("RECF-16", "the last directory is compared by identity, not spelling",
             recent_files::dialog_seed(l, (r / "other" / "..").string()) == a); }
+
+    { // RECF-24: --load game.nex from a relative cwd is stored absolute, so a
+      // later session started elsewhere still finds it.
+      std::error_code cec;
+      const fs::path saved = fs::current_path(cec);
+      touch(r / "rel.nex");
+      std::error_code mec;
+      fs::current_path(r, mec);
+      List l; recent_files::push(l, "rel.nex");
+      std::error_code rec;
+      fs::current_path(saved, rec);
+      std::error_code eec;
+      const bool same = l.size() == 1 && fs::equivalent(l[0], r / "rel.nex", eec) && !eec;
+      check("RECF-24", "a relative path is stored absolute",
+            !cec && !mec && !rec && l.size() == 1 && fs::path(l[0]).is_absolute() && same,
+            join(l)); }
 
     std::error_code ec;
     fs::remove_all(r, ec);

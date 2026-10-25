@@ -317,7 +317,7 @@ int main(int argc, char** argv)
         Fixture f;
         f.load((g_root / "sub" / ".." / "a.tap").string());
         f.load(a);
-        check("RFM-16", "two spellings of one path are one entry, stored absolute and normalised",
+        check("RFM-16", "two spellings of one path are one entry, holding the last spelling pushed",
               f.ok && f.list() == QStringList{S(a)}, str(f.list()));
     }
     {
@@ -477,6 +477,25 @@ int main(int argc, char** argv)
         const Picked p = open_picker(*f.win, "&Open Tape File...");
         check("RFM-32", "the real Open Tape picker opens with the file last loaded selected",
               f.ok && p.seen > 0 && p.selected == a && p.dir == g_root.string(),
+              p.selected + " | " + p.dir);
+    }
+    {
+        // A hand-typed "link/.." entry: Qt folds ".." lexically when it seeds a
+        // picker, so seeding the file would preselect ldir/dec.tap, a DIFFERENT
+        // file from the real tdir/dec.tap. The picker must not do that.
+        Fixture f;
+        const fs::path t = g_root / "rtdir" / "sub", l = g_root / "rldir";
+        fs::create_directories(t);
+        fs::create_directories(l);
+        good_tap("rtdir/dec.tap");
+        const std::string decoy = good_tap("rldir/dec.tap");
+        std::error_code lec;
+        fs::create_directory_symlink(t, l / "lnk", lec);
+        f.load((l / "lnk" / ".." / "dec.tap").string());
+        f.win->recent_menu()->actions()[0]->trigger();
+        const Picked p = open_picker(*f.win, "&Load NEX File...");
+        check("RFM-38", "the real picker never preselects another file for a link/.. entry",
+              f.ok && !lec && p.seen > 0 && p.selected != decoy,
               p.selected + " | " + p.dir);
     }
     {

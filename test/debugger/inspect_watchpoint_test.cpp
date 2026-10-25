@@ -59,6 +59,7 @@
 #include "debugger/watch_panel.h"
 
 #include <QApplication>
+#include <QTemporaryDir>
 #include <QImage>
 #include <QKeyEvent>
 #include <QLineEdit>
@@ -285,6 +286,15 @@ int main(int argc, char** argv) {
     // The panels are QWidgets, so a QApplication is required — but not a
     // display: force the offscreen QPA platform.
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    // DebuggerWindow writes its geometry to jnext.conf and migrates (deletes)
+    // a legacy Debugger.conf: keep both off the user's real ~/.jnext.
+    QTemporaryDir cfg_dir;
+    if (!cfg_dir.isValid()) {
+        std::printf("  FAIL: could not create a temporary config directory\n");
+        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+        return 1;
+    }
+    qputenv("JNEXT_CONFIG_DIR", cfg_dir.path().toUtf8());
     QApplication app(argc, argv);
 
     std::printf("\n======================================================\n");

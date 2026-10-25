@@ -7,8 +7,9 @@
 //
 // The list is most-recent-first and capped at kMax. Two spellings of one file
 // (a symlink, "a/../b") are one entry: entries are compared by key(), which is
-// the canonical path while the file exists and the lexically normalised
-// absolute path when it does not (a vanished file must still be removable).
+// the canonical path while the file exists and, when it does not, the weakly
+// canonical one (symlinks resolved as far as the path exists, the rest
+// lexically normalised), so a vanished file is still removable.
 // ---------------------------------------------------------------------------
 
 #include <cstddef>
@@ -23,7 +24,7 @@ inline constexpr std::size_t kMax = 10;
 
 using List = std::vector<std::string>;
 
-/// The absolute, lexically normalised form that is stored and shown.
+/// The absolute, lexically normalised form (what key() falls back to).
 inline std::string normalise(const std::string& path)
 {
     std::error_code ec;
@@ -37,6 +38,11 @@ inline std::string key(const std::string& path)
 {
     std::error_code ec;
     std::filesystem::path c = std::filesystem::canonical(path, ec);
+    if (!ec) return c.string();
+    // Vanished file: still resolve symlinks in the part that exists, so it
+    // keys like the same spelling of a file that does (/var -> /private/var).
+    ec.clear();
+    c = std::filesystem::weakly_canonical(normalise(path), ec);
     return ec ? normalise(path) : c.string();
 }
 
@@ -50,7 +56,12 @@ inline void push(List& list, const std::string& path)
         if (key(*it) == k) it = list.erase(it);
         else ++it;
     }
-    list.insert(list.begin(), normalise(path));
+    // Stored as given, made absolute but NOT folded: a lexical "link/../x"
+    // crosses the symlink, and a canonical path would freeze a re-pointed
+    // symlink (latest.nex) at its old target. The OS resolves it at open time.
+    std::error_code ec;
+    const std::filesystem::path abs = std::filesystem::absolute(path, ec);
+    list.insert(list.begin(), ec ? path : abs.string());
     if (list.size() > kMax) list.resize(kMax);
 }
 
@@ -75,6 +86,9 @@ inline std::string dialog_seed(const List& list, const std::string& last_dir)
     const std::string& f = list.front();
     std::error_code ec;
     if (!std::filesystem::is_regular_file(f, ec)) return last_dir;
+    // "link/../x": Qt folds ".." lexically when it seeds a dialog, which would
+    // preselect a different file, so such an entry offers its folder only.
+    if (key(normalise(f)) != key(f)) return last_dir;
     if (!last_dir.empty() &&
         key(std::filesystem::path(f).parent_path().string()) != key(last_dir))
         return last_dir;
