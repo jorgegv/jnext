@@ -165,7 +165,8 @@ int main()
     // would preselect the lexical sibling, a different file).
     {
         recent_files::List m;
-        const std::string ldir = (r / "ldir").string();
+        // last_dir is the folder the file REALLY is in (tdir): the folder test passes
+        const std::string ldir = (r / "tdir").string();
         recent_files::push(m, (r / "ldir" / "lnk" / ".." / "game.nex").string());
         const std::string seed = recent_files::dialog_seed(m, ldir);
         check("RECF-25", "a link/.. entry is never offered as a file seed",
