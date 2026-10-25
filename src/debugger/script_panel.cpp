@@ -1,4 +1,5 @@
 #include "debugger/script_panel.h"
+#include "gui/host_shortcuts.h"   // GH #403
 
 #include "script/script_host.h"
 
@@ -54,7 +55,8 @@ ScriptPanel::ScriptPanel(QWidget* parent) : QWidget(parent) {
     record_btn_  = new QPushButton(tr("Record..."), this);
     capture_btn_ = new QPushButton(tr("Capture"), this);
     stop_btn_    = new QPushButton(tr("Stop Recording"), this);
-    capture_btn_->setToolTip(tr("Capture the screen at the next frame (Alt+8 does the same while recording)"));
+    capture_btn_->setToolTip(tr("Capture the screen at the next frame (%1 does the same while recording)")
+                                 .arg(host_shortcuts::script_text(8)));
     rec_buttons->addWidget(record_btn_);
     rec_buttons->addWidget(capture_btn_);
     rec_buttons->addWidget(stop_btn_);
@@ -277,7 +279,7 @@ void ScriptPanel::refresh() {
         const QString what = tr("%1: %n input edge(s), ", "", static_cast<int>(rec->edges()))
                                  .arg(QString::fromStdString(rec->path())) +
                              tr("%n capture(s)", "", static_cast<int>(rec->captures()));
-        record_->setText(recording ? tr("Recording to %1 (Alt+8 captures).").arg(what)
+        record_->setText(recording ? tr("Recording to %1 (%2 captures).").arg(what, host_shortcuts::script_text(8))
                                    : tr("Last recording: %1.").arg(what));
     }
 

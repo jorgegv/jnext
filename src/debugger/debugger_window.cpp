@@ -1,4 +1,5 @@
 #include "debugger/debugger_window.h"
+#include "gui/host_shortcuts.h"   // GH #403
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "qt/debug_keymap_qt.h"
 #include "qt/palette_tint_qt.h"     // GH #363
@@ -675,7 +676,7 @@ void DebuggerWindow::create_menus() {
     // can be ambiguous with them (GH #124).
     for (int n = 1; n <= 8; ++n) {
         auto* a = new QAction(tr("Script Key %1").arg(n), this);
-        a->setShortcut(QKeySequence(Qt::ALT | static_cast<Qt::Key>(Qt::Key_0 + n)));
+        a->setShortcut(host_shortcuts::script_sequence(n));   // GH #403: Command on macOS
         a->setShortcutContext(Qt::WindowShortcut);
         a->setAutoRepeat(false);   // a held chord raises once, as the Router's does
         connect(a, &QAction::triggered, this, [this, n]() {

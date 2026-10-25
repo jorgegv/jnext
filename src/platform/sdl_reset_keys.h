@@ -18,6 +18,11 @@ namespace sdl_reset_keys {
 /// LAlt | RAlt in QuickChordTracker::held_modifiers() (bit n = scancode 224 + n).
 inline constexpr unsigned kAltHeld = (1u << (SDL_SCANCODE_LALT - SDL_SCANCODE_LCTRL)) |
                                      (1u << (SDL_SCANCODE_RALT - SDL_SCANCODE_LCTRL));
+static_assert(kAltHeld == host_modifier::kAltBits, "host_modifier.h Alt bits must match SDL");
+static_assert(host_modifier::kGuiBits ==
+                  ((1u << (SDL_SCANCODE_LGUI - SDL_SCANCODE_LCTRL)) |
+                   (1u << (SDL_SCANCODE_RGUI - SDL_SCANCODE_LCTRL))),
+              "host_modifier.h GUI bits must match SDL");
 
 /// A PRESS of F1 or F4. Without Alt they are the hard and soft reset
 /// (zxnext.vhd:6340/6343 -> 6371/6370). With Alt held, left or right and
@@ -37,7 +42,8 @@ template <class Emu>
 bool on_press(Emu& emu, SDL_Scancode sc, const jnext::QuickChordTracker& chords)
 {
     if (sc != SDL_SCANCODE_F1 && sc != SDL_SCANCODE_F4) return false;
-    if ((chords.held_modifiers() & kAltHeld) == 0) {
+    // GH #403: the tracker knows which modifier is the host's (Alt; GUI on macOS).
+    if (!chords.host_modifier_held()) {
         if (sc == SDL_SCANCODE_F1) emu.on_hotkey_f1_hard_reset();
         else                       emu.on_hotkey_f4_soft_reset();
     } else if (sc == SDL_SCANCODE_F4) {

@@ -372,6 +372,10 @@ public:
     /// window and the SDL window cannot disagree. An empty `fn` still swallows.
     void set_script_key_callback(std::function<void(int)> fn) { script_key_ = std::move(fn); }
 
+    /// GH #403 - the script chord's modifier is GUI (Command) instead of Alt.
+    /// Default Alt; the macOS frontends switch it on (platform/host_modifier.h).
+    void set_script_chord_gui(bool gui) { script_chord_gui_ = gui; }
+
     /// One host key event. Applied at once when the gates permit, queued
     /// otherwise — see the SERIALISATION block above for the gates.
     void on_host_key(Scancode sc, bool pressed)
@@ -535,15 +539,20 @@ private:
 
     static bool in_range(int sc) { return sc >= 0 && sc < MAX_KEYS; }
 
-    /// Alt held, and nothing else: Ctrl/Shift/GUI with it make a different
-    /// chord (Ctrl+Alt is the pointer release; Shift+Alt a guest compound).
+    /// The host modifier held (Alt; GUI when `script_chord_gui_`, GH #403), and
+    /// nothing else: Ctrl/Shift/the other of Alt and GUI with it make a
+    /// different chord (Ctrl+Alt is the pointer release; Shift+Alt a guest
+    /// compound).
     bool script_chord_held() const
     {
         const bool alt  = host_down_.test(SC_LALT) || host_down_.test(SC_RALT);
+        const bool gui  = host_down_.test(SC_LGUI) || host_down_.test(SC_RGUI);
+        const bool host  = script_chord_gui_ ? gui : alt;
+        const bool other = script_chord_gui_ ? alt : gui;
         const bool more = host_down_.test(SC_LCTRL) || host_down_.test(SC_RCTRL) ||
                           host_down_.test(SC_LSHIFT) || host_down_.test(SC_RSHIFT) ||
-                          host_down_.test(SC_LGUI) || host_down_.test(SC_RGUI);
-        return alt && !more;
+                          other;
+        return host && !more;
     }
 
     /// Gates (b) and (c). Gate (a) — the queue being empty — is checked by the
@@ -692,6 +701,7 @@ private:
     /// so their release is swallowed too (even if Alt was let go first).
     std::bitset<8> script_down_;
     std::function<void(int)> script_key_;
+    bool script_chord_gui_ = false;   // GH #403: GUI (macOS) instead of Alt
 };
 
 }  // namespace host_key_latch

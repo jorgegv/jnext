@@ -12,6 +12,7 @@
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
 #include "input/joy_assign.h"
+#include "gui/host_shortcuts.h"       // GH #403
 #include "platform/pointer_capture.h"
 #include "platform/quick_snapshot_chord.h"   // jnext::QuickAction (GH #386)
 #include "debug/events.h"        // ClientId — GH #306 pause client
@@ -548,6 +549,7 @@ private:
     /// GH #365 — which gesture releases the capture, and the swallow state of
     /// an Esc that did. See pointer_capture.h.
     pointer_capture::ReleaseFilter release_filter_;
+    host_shortcuts::CommandChordGate command_gate_;   // GH #403 (macOS only; inert elsewhere)
     void set_mouse_release_method(pointer_capture::ReleaseMethod m);
     void update_capture_status_tip();
     QString release_hint_text() const;

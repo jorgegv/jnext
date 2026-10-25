@@ -2,6 +2,7 @@
 #include "gui/main_window.h"
 #include "gui/desktop_color_scheme.h"   // GH #363
 #include "platform/host_key_wiring.h"
+#include "gui/qt_ctrl_is_command.h"   // GH #403
 #include "platform/quit_signal.h"   // GH #364
 #include "gui/emulator_widget.h"
 #include "gui/frame_timer.h"
@@ -384,6 +385,9 @@ bool QtApp::init(int argc, char* argv[]) {
     wire_host_actions(*main_window_, key_router_, pending_quick_);
     // GH #26 WP5 — Alt+1..Alt+8 are the script host keys (host_key_wiring.h).
     wire_script_keys(key_router_, *debugger_);
+    // GH #403 - on macOS the script chord is Command+1..8 (MainWindow forwards
+    // Command as LGUI there), everywhere else Alt+1..8.
+    key_router_.set_script_chord_gui(kQtCtrlIsCommand);
 
     // Task 79 — SDL gamepad host + per-connector input-source wiring.
     wire_gamepad_and_sources(cfg);

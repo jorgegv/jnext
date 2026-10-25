@@ -4,9 +4,12 @@
 // place, as a pure predicate (no SDL include) so it can be unit-tested.
 //
 // Alt+Shift+F5 = Quick Save, Alt+Shift+F9 = Quick Load: Alt and Shift held, and
-// NO other modifier
+// NO other modifier (GH #403: on macOS the host modifier is Command/GUI instead
+// of Alt, see platform/host_modifier.h)
 // (the same exact-modifier policy as Router::script_chord_held). Bare F5/F9
 // are not claimed: they keep the EmuFnKeys strobe and the Multiface NMI.
+
+#include "platform/host_modifier.h"
 
 namespace jnext {
 
@@ -34,10 +37,14 @@ inline QuickChord quick_snapshot_chord(int scancode, bool alt, bool ctrl,
 
 // The same, from a bitmask of held modifier KEYS (bit n = scancode 224+n:
 // LCtrl LShift LAlt LGui RCtrl RShift RAlt RGui), left or right counting alike.
-inline QuickChord quick_snapshot_chord_held(int scancode, unsigned held)
+// `host_is_gui` (GH #403): the host modifier is GUI (macOS), so GUI plays Alt's
+// part and Alt plays GUI's.
+inline QuickChord quick_snapshot_chord_held(int scancode, unsigned held, bool host_is_gui = false)
 {
-    return quick_snapshot_chord(scancode, (held & 0x44u) != 0, (held & 0x11u) != 0,
-                                (held & 0x22u) != 0, (held & 0x88u) != 0);
+    using namespace host_modifier;
+    return quick_snapshot_chord(scancode, (held & host_bits(host_is_gui)) != 0,
+                                (held & kCtrlBits) != 0, (held & kShiftBits) != 0,
+                                (held & other_bits(host_is_gui)) != 0);
 }
 
 // The press/release bookkeeping behind the chords, kept pure so it can be
@@ -46,6 +53,11 @@ inline QuickChord quick_snapshot_chord_held(int scancode, unsigned held)
 // which quick key is already down (so autorepeat acts once per press).
 class QuickChordTracker {
 public:
+    // GH #403: the host modifier is GUI (macOS) rather than Alt.
+    void set_host_is_gui(bool gui) { host_is_gui_ = gui; }
+    bool host_is_gui() const { return host_is_gui_; }
+    // Is the host modifier (Alt, or GUI on macOS), left or right, held?
+    bool host_modifier_held() const { return (mods_ & host_modifier::host_bits(host_is_gui_)) != 0; }
     // Feed EVERY key event the pointer-release gate does not consume (GH #365), press and release. Returns what a PRESS means.
     QuickChord on_key(int scancode, bool pressed)
     {
@@ -58,7 +70,7 @@ public:
             return QuickChord::None;
         bool& down = (scancode == kQuickSaveScancode) ? f5_ : f9_;
         if (!pressed) { down = false; return QuickChord::None; }
-        const QuickChord c = quick_snapshot_chord_held(scancode, mods_);
+        const QuickChord c = quick_snapshot_chord_held(scancode, mods_, host_is_gui_);
         if (c == QuickChord::None) return c;
         if (down) return QuickChord::Repeat;
         down = true;
@@ -67,6 +79,7 @@ public:
     unsigned held_modifiers() const { return mods_; }
 private:
     unsigned mods_ = 0;
+    bool host_is_gui_ = false;
     bool f5_ = false, f9_ = false;
 };
 
