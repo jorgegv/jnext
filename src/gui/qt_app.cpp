@@ -1,6 +1,7 @@
 #include "gui/qt_app.h"
 #include "gui/main_window.h"
 #include "gui/desktop_color_scheme.h"   // GH #363
+#include "gui/mac_fullscreen.h"         // GH #404
 #include "platform/host_key_wiring.h"
 #include "platform/quit_signal.h"   // GH #364
 #include "gui/emulator_widget.h"
@@ -265,6 +266,8 @@ bool QtApp::init(int argc, char* argv[]) {
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 #endif
+    // GH #404 — macOS only (no-op elsewhere); before QApplication builds the menus.
+    mac_fullscreen::init();
     qapp_ = new QApplication(qt_argc_, qt_argv_);
 
     // Task 63 (issue #9) — identify the display path once. Which Qt platform
