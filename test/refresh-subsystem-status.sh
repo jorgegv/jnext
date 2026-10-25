@@ -227,6 +227,7 @@ BEGIN {
     M["emulator_boot_test"]            = "Emulator Boot"
     M["preferences_apply_test"]        = "GUI Preferences (Apply)"
     M["preferences_apply_policy_test"] = "GUI Preferences (Apply Policy)"
+    M["fullscreen_sync_test"]          = "Fullscreen Sync (GH #404)"
     M["pointer_capture_test"]          = "Pointer Capture"
     M["sdl_pointer_release_test"]      = "SDL Pointer Release (GH #365)"
     M["mouse_release_test"]            = "Mouse Release Gesture (GH #365)"

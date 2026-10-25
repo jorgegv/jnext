@@ -98,7 +98,7 @@
 - Monochrome SVG toolbar icons (Power Reset, Soft Reset, Pause/Resume, Load, Screenshot, NMI, Debug) drawn in the window's text colour, so they follow a light or dark theme, re-rendered live when it changes; Screenshot and NMI now have icons of their own, and Pause shows a play icon while paused
 - Light and dark mode: the windows (debugger included) follow the desktop's colour scheme, live; on Linux read from the XDG desktop portal, which Qt misses under GNOME; `JNEXT_COLOR_SCHEME=dark|light` forces one. Qt 6 builds only
 - Hi-DPI pixel-perfect rendering at integer scale (2×/3×/4×)
-- True fullscreen with aspect-ratio letterbox
+- True fullscreen with aspect-ratio letterbox; on macOS also the green title-bar button (kept in sync) and Control+Command+F (⌃⌘F)
 - CRT effect, one choice (View menu or Preferences): off, Scanlines, or an optional GPU Soft scanlines / TV / PC-monitor look (curved glass kept inside the screen, bloom, scanlines, phosphor mask). Scanlines is the simple software overlay, with or without OpenGL. Off creates no GL context and does no per-frame work; the GPU looks fall back, with a message (Soft scanlines to the software Scanlines), where OpenGL is unavailable. Qt 6 builds with OpenGLWidgets (`-DENABLE_CRT_GL=OFF` leaves the shader out)
 - FPS counter, CPU speed, and machine mode in status bar
 - Two distinct reset controls in menu and toolbar, as on real hardware: Power Reset (Alt+R/F1, cold boot) and Soft Reset (F4, back to NextZXOS without re-running the boot chain)
