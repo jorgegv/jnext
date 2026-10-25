@@ -266,10 +266,8 @@ bool QtApp::init(int argc, char* argv[]) {
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 #endif
-#ifdef __APPLE__
-    // GH #404 — before QApplication builds the menus.
+    // GH #404 — macOS only (no-op elsewhere); before QApplication builds the menus.
     mac_fullscreen::init();
-#endif
     qapp_ = new QApplication(qt_argc_, qt_argv_);
 
     // Task 63 (issue #9) — identify the display path once. Which Qt platform

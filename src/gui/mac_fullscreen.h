@@ -21,12 +21,24 @@
 // Kept in its own Objective-C++ file so AppKit stays out of the Qt
 // translation units. Built only under if(APPLE) in src/gui/CMakeLists.txt.
 
-#ifdef __APPLE__
+#include <cstdint>
+
 namespace mac_fullscreen {
+
+#ifdef __APPLE__
 
 /// Install both. Call once, BEFORE the QApplication is constructed (the
 /// default must be set before AppKit builds the menus).
 void init();
 
-}  // namespace mac_fullscreen
+/// Tell the full-screen hook which window is jnext's main window: `view` is its
+/// WId, which on macOS is the QNSView (qtbase qcocoawindow.mm). Only that
+/// window has its size limits lifted on entering full screen. Call once the
+/// native window exists (MainWindow::showEvent), before any full-screen request.
+void set_main_window(std::uintptr_t view);
+#else
+inline void init() {}
+inline void set_main_window(std::uintptr_t) {}
 #endif
+
+}  // namespace mac_fullscreen

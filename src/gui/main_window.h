@@ -397,6 +397,9 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
+#ifdef Q_OS_MACOS
+    void showEvent(QShowEvent* event) override;   // GH #404: register with mac_fullscreen
+#endif
 
 private:
     void handle_key(QKeyEvent* event, bool pressed);
