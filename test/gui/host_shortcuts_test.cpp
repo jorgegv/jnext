@@ -66,10 +66,25 @@ std::vector<QKeySequence> every_sequence(bool mac)
     return v;
 }
 
-Qt::KeyboardModifiers mods_of(const QKeySequence& s)
+// The first chord of a sequence as modifier flags | key code, whichever Qt major
+// builds this (Qt5 returns an int, Qt6 a QKeyCombination).
+int combined(const QKeySequence& s)
 {
-    return s.isEmpty() ? Qt::KeyboardModifiers() : s[0].keyboardModifiers();
+    if (s.isEmpty()) return 0;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    return s[0].toCombined();
+#else
+    return s[0];
+#endif
 }
+
+struct Mods {
+    int v;
+    bool testFlag(Qt::KeyboardModifier m) const { return (v & static_cast<int>(m)) != 0; }
+};
+
+Mods mods_of(const QKeySequence& s) { return Mods{combined(s) & static_cast<int>(Qt::KeyboardModifierMask)}; }
+int key_of(const QKeySequence& s) { return combined(s) & ~static_cast<int>(Qt::KeyboardModifierMask); }
 
 QString read_all(const QString& rel)
 {
@@ -199,7 +214,7 @@ int main(int argc, char** argv)
         std::string bad;
         for (const QKeySequence& s : every_sequence(true)) {
             if (s.isEmpty()) continue;
-            if (reserved.count(static_cast<int>(s[0].key()))) bad += portable(s).toStdString() + " ";
+            if (reserved.count(key_of(s))) bad += portable(s).toStdString() + " ";
         }
         check("HS403-09", "macOS: no host chord is a system chord (Command+H hide, +M minimise, +W close, "
                           "+` window cycle, +Tab, +Space)",
