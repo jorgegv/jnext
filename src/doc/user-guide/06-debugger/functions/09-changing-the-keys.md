@@ -53,6 +53,7 @@ Four kinds of combination are refused, and the dialog says which and why:
   and letter keys, and the disassembly has an address box. `Shift+F6` is fine:
   the key is still a function key.
 - **Alt + a letter.** The debugger's menu bar owns those. `Alt+F5` is accepted (and so is `Alt+Shift+F6`), but **Alt+Shift+F5** and **Alt+Shift+F9** are refused: they are the emulator window's Quick Save and Quick Load Snapshot.
+  On a Mac the host shortcuts are Cmd chords, and the same two sets move with them: **Cmd+1** to **Cmd+8** (the script host keys) and **Cmd+Shift+F5** / **Cmd+Shift+F9** are refused there, and the Option forms are free.
 - **Ctrl+C and Ctrl+A.** The disassembly panel's Copy and Select All.
 - **A combination another debugger command already has.** Rebind that one
   first. This is refused rather than silently taken over, because Qt answers

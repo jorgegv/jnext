@@ -351,6 +351,26 @@ GRAPH, CAPS LOCK and INV VIDEO. Adding a menu on one of those would silently
 kill a guest key, so `host_hotkey_test` pins the two sets disjoint — see
 [Testing](../04-testing/index.md).
 
+### macOS: Command is the host modifier (GH #403)
+
+On macOS the same split sits one key over. Qt reports Command as
+`Key_Control` / `ControlModifier` / `Qt::CTRL` and the physical Control key as
+`Key_Meta` (jnext does not set `AA_MacDontSwapCtrlAndMeta`), so
+`gui/host_shortcuts.h` holds the host set for both platforms, with the
+platform as a parameter so the macOS branch is unit-tested on Linux
+(`host_shortcuts_test`): `sequence()` (Command+letter, Command+Q, Command+,;
+no Alt+F4), `script_sequence()`, `f4_quits()`, and `modifier_scancode()`,
+which maps Command to the Router as `LGUI` (the guest ignores it) and the
+physical Control key to Symbol Shift. `CommandChordGate` keeps an unbound
+Command chord from reaching the guest. The key Router's script chord
+(`set_script_chord_gui()`) and the SDL frontend's quick-snapshot / F1 / F4
+decisions (`platform/host_modifier.h`, `QuickChordTracker::set_host_is_gui()`)
+take the host modifier as a parameter whose default is Alt, so every Alt row
+keeps its meaning on a Mac build. The debugger keymap's reserved chords follow
+the same flag (`validate_combo(c, why, host_mod_is_ctrl)`). Add a host
+shortcut to the `host_shortcuts::Action` table, never as a literal `Qt::ALT`
+(`HS403-27` fails on one).
+
 The one bare non-function host key is **Pause**, an alternate shortcut on
 Machine > Pause (GH #322, an owner-approved exception to the Alt rule; it is the
 conventional emulator pause key). It is safe because Next PS/2 Pause/Break is

@@ -1897,6 +1897,18 @@ menu commands and the program never saw them. The only Ctrl chords jnext still
 takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording), and function
 keys have no Spectrum meaning to lose.
 
+On macOS the two roles move one key over. The host shortcuts are Command
+instead of Alt: every Alt+X below is Command+X (⌘X), Quit is Command+Q (there
+is no Alt+F4), Preferences is Command+, and the script host keys are Command+1
+to Command+8; the menus show the Mac form. The Spectrum's Symbol Shift is the
+physical Control key, as on a PC keyboard, Command is not a Spectrum key, and
+Option stays the guest's Alt (Option+E/G/C are EDIT, GRAPH, CAPS LOCK). A
+Command chord that jnext does not use never reaches the program. The menu-bar
+mnemonics (Alt+F, ...) do not exist on macOS, and the recording shortcuts
+Ctrl+F5 and Ctrl+F6 are Command+F5 and Command+F6 there. The SDL-only build on
+macOS follows the same rule for Command+1 to Command+8, Command+Shift+F5 and
+Command+Shift+F9 and Command+F4 (quit).
+
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext claims
 Alt + Q/O/L/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S, Alt+Shift+F5 and Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H
 (menu bar) and Alt + 1 to Alt + 8 (the script host keys), which leaves the

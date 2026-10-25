@@ -39,16 +39,38 @@ Three things catch people out:
 
 - **Shift is Caps Shift and Ctrl is Symbol Shift** — the same way round as a
   real Spectrum Next with a PC keyboard plugged into it. Earlier versions had
-  these two swapped. On a Mac, **Cmd** is the key that does what this page
-  says of Ctrl.
+  these two swapped. On a Mac the Symbol Shift key is **Control** (⌃), in the
+  same place as on a PC keyboard; **Cmd** (⌘) is not a Spectrum key at all, it
+  carries JNEXT's shortcuts (see [On a Mac](#on-a-mac-shortcuts-use-command)).
 - **Esc is Break**, not "get me out of fullscreen". Fullscreen is F11 (on a Mac: Control+Command+F, ⌃⌘F, or the green title-bar button, since macOS takes F11).
-- **Alt is a host modifier, never a Spectrum key.** Only the four Alt
+- **Alt is a host modifier, never a Spectrum key** (on a Mac the host
+  modifier is Cmd instead and Option is the Spectrum key). Only the four Alt
   combinations above are used, because the menu bar and the menu shortcuts
   claim the rest — and **Alt+1 to Alt+8** are the
   [script host keys](../06-debugger/functions/13-debugger-scripts.md#host-keys-alt1-to-alt8):
   they do not type their digit (Alt+9 and Alt+0 still do). **Alt+Shift+F5**
   and **Alt+Shift+F9** are Quick Save and Quick Load
   ([5.9 Snapshots](09-snapshots.md#quick-save-and-quick-load)).
+
+### On a Mac, shortcuts use Command
+
+On macOS every JNEXT shortcut that is **Alt + key** on the other systems is
+**Cmd + key** (⌘), the Mac convention. Wherever this guide says Alt+X for a
+JNEXT shortcut, press ⌘X; the menus show the Mac form. In particular:
+
+- **⌘Q** quits (there is no Alt+F4 on a Mac) and **⌘,** opens Settings >
+  Preferences, as in other Mac applications.
+- **⌘1** to **⌘8** are the script host keys, and **⌘⇧F5** and **⌘⇧F9** are
+  Quick Save and Quick Load; ⌘9 and ⌘0 do nothing special.
+- **Option** (⌥) is a plain Spectrum key, like Alt elsewhere: Option+E is Edit,
+  Option+G Graph, Option+C Caps Lock.
+- **Control** (⌃) is Symbol Shift, so the NextBASIC sequences described below
+  (Ctrl+O `;`, Ctrl+D `STEP`, ...) are Control+letter on a Mac too.
+- A Cmd chord that JNEXT does not use never reaches the program, so Cmd+C
+  does not type a C.
+- The menu-bar mnemonics (Alt+F for the File menu, ...) do not exist on macOS,
+  where the menu bar is the system one. The recording shortcuts, written
+  Ctrl+F5 and Ctrl+F6 below, are ⌘F5 and ⌘F6 there.
 
 **Ctrl belongs to the program you are running.** No Ctrl+letter chord of any
 kind is a JNEXT shortcut, so the Symbol Shift sequences NextBASIC leans on —

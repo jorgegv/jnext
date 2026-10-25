@@ -1578,6 +1578,16 @@ if(ENABLE_QT_UI)
         ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
     add_test(NAME main_window_accel_tests COMMAND main_window_accel_test)
 
+    # GH #403 - macOS host shortcuts on Command (Control = Symbol Shift). The
+    # macOS branch is a parameter of the real code, so it runs on any OS. Reads
+    # a few product sources (the wiring rows), hence the source-tree definition.
+    add_executable(host_shortcuts_test gui/host_shortcuts_test.cpp)
+    set_target_properties(host_shortcuts_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(host_shortcuts_test PRIVATE jnext_gui)
+    target_include_directories(host_shortcuts_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(host_shortcuts_test PRIVATE JNEXT_SRC_DIR="${CMAKE_SOURCE_DIR}")
+    add_test(NAME host_shortcuts_tests COMMAND host_shortcuts_test)
+
     # GH #306 — Machine > Pause (Alt+U): one QAction on the menu, the Main
     # toolbar and the window; a pause by MainWindow's own observer client does
     # not open the debugger window, every other pause still does; the checkmark
