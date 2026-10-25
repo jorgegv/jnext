@@ -54,10 +54,8 @@ std::string join(const List& l)
 
 int main()
 {
-    // push() stores the canonical path, so the fixtures are spelled canonically
-    // too (macOS's temp dir is reached through the /var -> /private/var link).
-    const fs::path r = fs::canonical(jtp::make_temp_dir("jnext_recent_"));
-    const std::string root = r.string();
+    const std::string root = jtp::make_temp_dir("jnext_recent_");
+    const fs::path r(root);
     const std::string a = touch(r / "a.nex"), b = touch(r / "b.tap"), c = touch(r / "c.sna");
 
     { List l; recent_files::push(l, a); recent_files::push(l, b); recent_files::push(l, c);
@@ -84,7 +82,9 @@ int main()
       recent_files::push(l, (r / "sub" / ".." / "a.nex").string());
       recent_files::push(l, (r / "." / "a.nex").string());
       check("RECF-04", "two spellings of one existing file are one entry",
-            l.size() == 1 && l[0] == a, join(l)); }
+            l.size() == 1 && l[0] == (r / "." / "a.nex").string(), join(l)); }
+    // (the entry holds the LAST spelling pushed, as given: it is not folded
+    //  lexically, since "link/.." would cross a symlink -- see RECF-21)
 
     { List l; recent_files::push(l, a); recent_files::push(l, b); recent_files::push(l, c);
       recent_files::remove(l, (r / "x" / ".." / "b.tap").string());

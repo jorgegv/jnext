@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <system_error>
 #include "../row_id.h"
@@ -32,12 +33,17 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
     if (!detail.empty()) std::printf(" [%s]", detail.c_str());
     std::printf("\n");
 }
+std::string slurp(const std::string& p)
+{
+    std::ifstream f(p);
+    return std::string(std::istreambuf_iterator<char>(f), {});
+}
 }  // namespace
 
 int main()
 {
-    const fs::path r = fs::canonical(jtp::make_temp_dir("jnext_recent_posix_"));
-    const std::string root = r.string();
+    const std::string root = jtp::make_temp_dir("jnext_recent_posix_");
+    const fs::path r(root);
     const fs::path file = r / "a.nex", link = r / "alias.nex";
     std::ofstream(file).put('x');
     std::error_code lec;
@@ -104,20 +110,54 @@ int main()
 
     // RECF-21: "link/../game.nex" crosses the symlink: the real file is the
     // sibling of the link's TARGET, which a lexical fold of ".." gets wrong.
+    // The path is stored as given and the OS resolves it at open time, so what
+    // the stored path OPENS must be the real file.
     {
         const fs::path t = r / "tdir" / "sub", other = r / "ldir";
         std::error_code e1, e2;
         fs::create_directories(t, e1);
         fs::create_directories(other, e1);
-        std::ofstream(r / "tdir" / "game.nex").put('x');   // the real file
-        std::ofstream(other / "game.nex").put('y');        // the lexical decoy
+        std::ofstream(r / "tdir" / "game.nex") << "real";   // the real file
+        std::ofstream(other / "game.nex") << "decoy";       // the lexical decoy
         fs::create_directory_symlink(t, other / "lnk", e2);
         recent_files::List m;
         recent_files::push(m, (other / "lnk" / ".." / "game.nex").string());
         std::string d = (e1 || e2) ? "fixture not created" : "";
         for (const auto& e : m) d += " | " + e;
-        check("RECF-21", "push through link/.. records the real file, not the lexical sibling",
-              !e1 && !e2 && m.size() == 1 && m[0] == (r / "tdir" / "game.nex").string(), d);
+        check("RECF-21", "push through link/.. records a path that reopens the real file, not the lexical sibling",
+              !e1 && !e2 && m.size() == 1 && slurp(m[0]) == "real", d);
+    }
+
+    // RECF-22: a symlink a build script re-points (latest.nex -> new build) is
+    // stored under its OWN name, so a reload opens the current target and the
+    // menu label (the stored path's file name) is the name the user picked.
+    {
+        std::ofstream(r / "v1.nex") << "v1";
+        std::ofstream(r / "v2.nex") << "v2";
+        const fs::path lat = r / "latest.nex";
+        std::error_code e1;
+        fs::create_symlink(r / "v1.nex", lat, e1);
+        recent_files::List m;
+        recent_files::push(m, lat.string());
+        const bool first = m.size() == 1 && slurp(m[0]) == "v1";
+        std::error_code e2, e3;
+        fs::remove(lat, e2);
+        fs::create_symlink(r / "v2.nex", lat, e3);
+        std::string d = (e1 || e2 || e3) ? "fixture not created" : "";
+        for (const auto& e : m) d += " | " + e;
+        check("RECF-22", "a re-pointed file symlink is stored under its own name and reloads the new target",
+              !e1 && !e2 && !e3 && first && m.size() == 1 && m[0] == lat.string() &&
+              fs::path(m[0]).filename() == "latest.nex" && slurp(m[0]) == "v2", d);
+    }
+
+    // RECF-23: re-pushing another spelling of an entry replaces it at the top
+    // with the NEW spelling (the symlink name, not the earlier target name).
+    {
+        recent_files::List m;
+        recent_files::push(m, (r / "v2.nex").string());
+        recent_files::push(m, (r / "latest.nex").string());
+        check("RECF-23", "pushing a symlink spelling of a listed file replaces the entry with the new spelling",
+              m.size() == 1 && m[0] == (r / "latest.nex").string(), m.empty() ? "" : m[0]);
     }
 
     std::error_code ec;

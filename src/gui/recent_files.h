@@ -24,7 +24,7 @@ inline constexpr std::size_t kMax = 10;
 
 using List = std::vector<std::string>;
 
-/// The absolute, lexically normalised form (the stored one when the file is gone).
+/// The absolute, lexically normalised form (what key() falls back to).
 inline std::string normalise(const std::string& path)
 {
     std::error_code ec;
@@ -56,11 +56,12 @@ inline void push(List& list, const std::string& path)
         if (key(*it) == k) it = list.erase(it);
         else ++it;
     }
-    // Stored canonical: a lexical "link/../x" crosses the symlink and names
-    // another file. push() follows a successful load, so the file exists.
+    // Stored as given, made absolute but NOT folded: a lexical "link/../x"
+    // crosses the symlink, and a canonical path would freeze a re-pointed
+    // symlink (latest.nex) at its old target. The OS resolves it at open time.
     std::error_code ec;
-    const std::filesystem::path c = std::filesystem::canonical(path, ec);
-    list.insert(list.begin(), ec ? normalise(path) : c.string());
+    const std::filesystem::path abs = std::filesystem::absolute(path, ec);
+    list.insert(list.begin(), ec ? path : abs.string());
     if (list.size() > kMax) list.resize(kMax);
 }
 
