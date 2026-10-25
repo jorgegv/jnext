@@ -191,6 +191,9 @@ int main(int argc, char** argv)
     std::error_code ec;
     fs::remove_all(g_root, ec);
     fs::create_directories(g_root);
+    // push() stores canonical paths; spell the fixtures that way too (macOS
+    // reaches the temp dir through the /var -> /private/var link).
+    g_root = fs::canonical(g_root);
 
     const std::string a = good_tap("a.tap"), b = good_tap("b.tap");
 

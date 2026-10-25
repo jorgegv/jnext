@@ -24,7 +24,7 @@ inline constexpr std::size_t kMax = 10;
 
 using List = std::vector<std::string>;
 
-/// The absolute, lexically normalised form that is stored and shown.
+/// The absolute, lexically normalised form (the stored one when the file is gone).
 inline std::string normalise(const std::string& path)
 {
     std::error_code ec;
@@ -56,7 +56,11 @@ inline void push(List& list, const std::string& path)
         if (key(*it) == k) it = list.erase(it);
         else ++it;
     }
-    list.insert(list.begin(), normalise(path));
+    // Stored canonical: a lexical "link/../x" crosses the symlink and names
+    // another file. push() follows a successful load, so the file exists.
+    std::error_code ec;
+    const std::filesystem::path c = std::filesystem::canonical(path, ec);
+    list.insert(list.begin(), ec ? normalise(path) : c.string());
     if (list.size() > kMax) list.resize(kMax);
 }
 

@@ -54,8 +54,10 @@ std::string join(const List& l)
 
 int main()
 {
-    const std::string root = jtp::make_temp_dir("jnext_recent_");
-    const fs::path r(root);
+    // push() stores the canonical path, so the fixtures are spelled canonically
+    // too (macOS's temp dir is reached through the /var -> /private/var link).
+    const fs::path r = fs::canonical(jtp::make_temp_dir("jnext_recent_"));
+    const std::string root = r.string();
     const std::string a = touch(r / "a.nex"), b = touch(r / "b.tap"), c = touch(r / "c.sna");
 
     { List l; recent_files::push(l, a); recent_files::push(l, b); recent_files::push(l, c);

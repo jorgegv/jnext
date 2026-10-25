@@ -36,8 +36,8 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 
 int main()
 {
-    const std::string root = jtp::make_temp_dir("jnext_recent_posix_");
-    const fs::path r(root);
+    const fs::path r = fs::canonical(jtp::make_temp_dir("jnext_recent_posix_"));
+    const std::string root = r.string();
     const fs::path file = r / "a.nex", link = r / "alias.nex";
     std::ofstream(file).put('x');
     std::error_code lec;
@@ -82,6 +82,42 @@ int main()
         for (const auto& e : m) d += " | " + e;
         check("RECF-19", "a vanished file under a symlinked directory is one entry and removable via either spelling",
               setup.empty() && one && m.empty(), d);
+    }
+
+    // RECF-20: a self-looping symlink cannot be resolved at all, so key() must
+    // fall back to the lexical form rather than an empty key shared by every
+    // path beneath it (two files would collapse into one entry).
+    {
+        const fs::path loop = r / "loop";
+        std::error_code lpe;
+        fs::create_symlink(loop, loop, lpe);
+        recent_files::List m;
+        recent_files::push(m, (loop / "a.nex").string());
+        recent_files::push(m, (loop / "b.nex").string());
+        const bool two = m.size() == 2;
+        recent_files::remove(m, (loop / "a.nex").string());
+        std::string d = lpe ? "loop not created: " + lpe.message() : "";
+        for (const auto& e : m) d += " | " + e;
+        check("RECF-20", "paths under an unresolvable symlink loop stay distinct entries",
+              !lpe && two && m.size() == 1 && m[0] == (loop / "b.nex").string(), d);
+    }
+
+    // RECF-21: "link/../game.nex" crosses the symlink: the real file is the
+    // sibling of the link's TARGET, which a lexical fold of ".." gets wrong.
+    {
+        const fs::path t = r / "tdir" / "sub", other = r / "ldir";
+        std::error_code e1, e2;
+        fs::create_directories(t, e1);
+        fs::create_directories(other, e1);
+        std::ofstream(r / "tdir" / "game.nex").put('x');   // the real file
+        std::ofstream(other / "game.nex").put('y');        // the lexical decoy
+        fs::create_directory_symlink(t, other / "lnk", e2);
+        recent_files::List m;
+        recent_files::push(m, (other / "lnk" / ".." / "game.nex").string());
+        std::string d = (e1 || e2) ? "fixture not created" : "";
+        for (const auto& e : m) d += " | " + e;
+        check("RECF-21", "push through link/.. records the real file, not the lexical sibling",
+              !e1 && !e2 && m.size() == 1 && m[0] == (r / "tdir" / "game.nex").string(), d);
     }
 
     std::error_code ec;
