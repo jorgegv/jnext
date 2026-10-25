@@ -126,6 +126,7 @@
 #include "port/port_dispatch.h"
 
 #include <QApplication>
+#include <QTemporaryDir>
 #include <QImage>
 #include <QLabel>
 #include <QLayout>
@@ -3012,6 +3013,15 @@ static void test_resume_does_not_rewind_the_copper(Emulator& emu) {
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    // DebuggerWindow writes its geometry to jnext.conf and migrates (deletes)
+    // a legacy Debugger.conf: keep both off the user's real ~/.jnext.
+    QTemporaryDir cfg_dir;
+    if (!cfg_dir.isValid()) {
+        std::printf("  FAIL: could not create a temporary config directory\n");
+        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+        return 1;
+    }
+    qputenv("JNEXT_CONFIG_DIR", cfg_dir.path().toUtf8());
     QApplication app(argc, argv);
 
     std::printf("Debugger Video Panel Tests (Task 22a)\n");
