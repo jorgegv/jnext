@@ -23,6 +23,8 @@
 #include "gui/main_window.h"
 
 #include <QAction>
+#include <QKeyEvent>
+#include <QKeySequence>
 #include <QApplication>
 #include <QMenu>
 #include <QStatusBar>
@@ -142,6 +144,7 @@ struct DialogWatcher {
     }
 };
 
+std::string fmt_n(int n) { return std::to_string(n); }
 QString S(const std::string& s) { return QString::fromStdString(s); }
 std::string str(const QStringList& l) { return l.join("|").toStdString(); }
 
@@ -188,8 +191,11 @@ int main(int argc, char** argv)
     {
         Fixture f;
         f.win->load_finished(a, true);   // --load: no handle_load_path() asked for it
+        const bool plain = f.list().isEmpty();
+        f.win->handle_load_path(S(a));   // a menu load is pending...
+        f.win->load_finished(b, true);   // ...and a different file (--load) reports first
         check("RFM-05", "a load nobody asked the window for (--load) is not recorded",
-              f.ok && f.list().isEmpty(), str(f.list()));
+              f.ok && plain && f.list().isEmpty(), str(f.list()));
     }
     {
         Fixture f;
@@ -306,6 +312,51 @@ int main(int argc, char** argv)
               f.ok && gone_seed == S(g_root.string()) &&
                   f.win->load_dialog_seed() == S((g_root / "elsewhere").string()),
               gone_seed.toStdString() + " / " + f.win->load_dialog_seed().toStdString());
+    }
+    {
+        Fixture f;
+        QAction* r = f.ok ? f.win->reload_last_action() : nullptr;
+        const bool empty_off = r && !r->isEnabled();
+        f.load(a);
+        check("RFM-19", "File > Reload Last File carries Alt+L, disabled with an empty list, enabled after a load",
+              r && r->text() == "Reload Last File" && r->shortcut() == QKeySequence("Alt+L") &&
+                  empty_off && r->isEnabled(),
+              r ? r->text().toStdString() : "no action");
+    }
+    {
+        Fixture f;
+        f.load(a); f.load(b);
+        f.handed_n = 0; f.handed.clear();
+        f.win->reload_last_action()->trigger();
+        check("RFM-20", "Reload Last File loads the newest recent file, the one entry 1 would",
+              f.ok && f.handed_n == 1 && f.handed == b, f.handed);
+        f.win->load_finished(b, true);
+        check("RFM-20b", "and the list order is unchanged by it", f.list() == QStringList({S(b), S(a)}),
+              str(f.list()));
+    }
+    {
+        Fixture f;
+        const std::string gone = touch("gone2.tap");
+        f.load(a); f.load(gone);
+        fs::remove(gone);
+        f.handed_n = 0;
+        f.win->reload_last_action()->trigger();
+        check("RFM-21", "Reload Last File on a vanished newest file loads nothing, drops it and says so",
+              f.ok && f.handed_n == 0 && f.list() == QStringList{S(a)} &&
+                  f.win->statusBar()->currentMessage().contains("gone2.tap") &&
+                  f.win->reload_last_action()->isEnabled(), str(f.list()));
+    }
+    {
+        Fixture f;
+        f.win->show();
+        QApplication::processEvents();
+        f.load(a); f.load(b);
+        f.handed_n = 0; f.handed.clear();
+        QKeyEvent e(QEvent::KeyPress, Qt::Key_L, Qt::AltModifier);
+        QApplication::sendEvent(f.win.get(), &e);
+        QApplication::processEvents();
+        check("RFM-22", "the Alt+L key chord itself reloads the newest recent file",
+              f.ok && f.handed_n == 1 && f.handed == b, fmt_n(f.handed_n) + " " + f.handed);
     }
 
     fs::remove_all(g_root, ec);

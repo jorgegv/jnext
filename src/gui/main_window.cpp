@@ -807,7 +807,7 @@ void MainWindow::create_menus() {
     // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
     // Qt shortcut — QAction::event() only prints a warning and does nothing, so
     // BOTH bindings break. host_hotkey_test pins the two sets disjoint.
-    // Reserved today: Alt+Q/O/S/K/R/T/D/P/U, Alt+Shift+F5 and Alt+Shift+F9 (shortcuts) and Alt+F/M/I/A/B/V/N/H
+    // Reserved today: Alt+Q/O/L/S/K/R/T/D/P/U, Alt+Shift+F5 and Alt+Shift+F9 (shortcuts) and Alt+F/M/I/A/B/V/N/H
     // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
     // (keyboard.cpp:163,172-174).
     //
@@ -846,6 +846,19 @@ void MainWindow::create_menus() {
     QAction* load_nex = file_menu->addAction(tr("&Load NEX File..."));
     load_nex->setShortcut(QKeySequence(Qt::ALT | Qt::Key_O));
     connect(load_nex, &QAction::triggered, this, &MainWindow::on_load_nex);
+
+    // GH #406 - Alt+L reloads the newest recent file (the rebuild-and-retry loop
+    // the issue is about). Alt+L: free in the host shortcut set, the menubar
+    // mnemonics and the guest's Alt+E/G/C. No '&' mnemonic: every letter of the
+    // label is taken somewhere in this popup or the window-wide Alt namespace,
+    // and the shortcut is the way in.
+    reload_last_action_ = file_menu->addAction(tr("Reload Last File"));
+    reload_last_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_L));
+    connect(reload_last_action_, &QAction::triggered, this, [this]() {
+        // A copy: on_recent_file() may rewrite the very list this names.
+        const QString newest = app_config_.data().recent_files.value(0);
+        if (!newest.isEmpty()) on_recent_file(newest);
+    });
 
     // GH #406 - the last ten files loaded, filled by rebuild_recent_menu().
     // F: free in this popup (the View popup's "&Fullscreen" reuses it the same
@@ -962,7 +975,7 @@ void MainWindow::create_menus() {
     // other host chord lives.
     //
     // Alt+Shift+S collides with nothing: the live host set is Alt+F/M/I/A/B/V/
-    // N/H (menubar mnemonics, all PLAIN Alt+letter) plus Alt+O/S/Q/R/T/D,
+    // N/H (menubar mnemonics, all PLAIN Alt+letter) plus Alt+O/L/S/Q/R/T/D,
     // Ctrl+F5, Ctrl+F6, F4, F11 and Preferences. Its modifier set differs from
     // Alt+S's, so Qt treats the two as distinct sequences, not as one
     // ambiguous binding — pinned by host_hotkey_test H115-33.
@@ -1602,6 +1615,7 @@ void MainWindow::rebuild_recent_menu() {
         a->deleteLater();
     }
     const QStringList& files = app_config_.data().recent_files;
+    if (reload_last_action_) reload_last_action_->setEnabled(!files.isEmpty());
     if (files.isEmpty()) {
         QAction* none = recent_menu_->addAction(tr("(empty)"));
         none->setEnabled(false);

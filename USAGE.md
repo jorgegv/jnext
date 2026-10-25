@@ -1900,8 +1900,9 @@ Symbol Shift, so a Ctrl shortcut would eat a key the guest needs (see
 
 **File**  
 Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
-opens POK Trainers instead, without a reset), Insert SD Card Image /
-Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4
+opens POK Trainers instead, without a reset), Recent Files (the last ten
+loaded, newest first) and Reload Last File (Alt+L), Insert SD Card Image
+/ Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4
 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save
 Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
 (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot

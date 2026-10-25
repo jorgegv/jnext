@@ -58,7 +58,8 @@ the File and Tape menus, newest first, numbered 1 to 9 and 0; hovering an entry
 shows its full path. Choosing one loads it exactly as **File > Load NEX File…**
 does. A file that has been deleted since is dropped from the list and the status
 bar says so. A load that failed, **--load**, and Quick Load are not recorded.
-**Clear Recent Files** empties the list. The list is kept between runs in
+**File > Reload Last File** (Alt+L) loads the newest entry again in one keystroke, handy
+when you rebuild a program and want to run it again. **Clear Recent Files** empties the list. The list is kept between runs in
 `~/.jnext/jnext.conf` (`[recent] files`), and **Load NEX File…** and **Open Tape
 File…** open with the file you loaded last selected when it is still in the
 folder they open in.

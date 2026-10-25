@@ -207,6 +207,7 @@ public:
     /// recent file when it is still in the last load directory, else that
     /// directory). Public for the reason given at handle_load_path().
     QMenu* recent_menu() const { return recent_menu_; }
+    QAction* reload_last_action() const { return reload_last_action_; }
     void on_recent_file(const QString& path);
     QString load_dialog_seed() const;
 
@@ -648,6 +649,7 @@ private:
     // controller, Cursor Keys + Space, None).
     QMenu*        joy_menu_[2]  = { nullptr, nullptr };
     QMenu*        recent_menu_  = nullptr;   // GH #406
+    QAction*      reload_last_action_ = nullptr;   // GH #406, Alt+L
     void record_recent_file(const QString& path);
     void rebuild_recent_menu();
     QActionGroup* joy_group_[2] = { nullptr, nullptr };

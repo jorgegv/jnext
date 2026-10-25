@@ -655,6 +655,16 @@ void test_quick_screenshot_chord(MainWindow& w) {
     }
 }
 
+// GH #406 - File > Reload Last File is a host chord too: Alt+L, free in the host
+// set, the menu bar and the guest's Alt+E/G/C. Its firing, and its being
+// disabled with nothing to reload, are driven in recent_files_menu_test.
+void test_reload_last_chord(MainWindow& w) {
+    QAction* a = find_action(w, "Reload Last File");
+    check("H406-01", "action \"Reload Last File\" is bound to exactly Alt+L",
+          a != nullptr && seq_of(a) == QStringLiteral("Alt+L"),
+          a ? ("got='" + seq_of(a) + "'").toStdString() : "action not found");
+}
+
 // ---------------------------------------------------------------------------
 // Group 3e — GH #321: File > Quick Save / Quick Load Snapshot are host chords
 // ---------------------------------------------------------------------------
@@ -1524,6 +1534,7 @@ int main(int argc, char** argv) {
     test_snapshot_chord(w);
     test_preferences_chord(w);
     test_quick_screenshot_chord(w);
+    test_reload_last_chord(w);
     test_quick_snapshot_chords(w);
     test_alt_f4_quit(w);
     test_alt_namespace(w);

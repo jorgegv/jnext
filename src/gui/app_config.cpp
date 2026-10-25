@@ -345,7 +345,9 @@ void AppConfig::save() const {
     settings_.endGroup();
 
     settings_.beginGroup("recent");
-    settings_.setValue("files", data_.recent_files);
+    // An empty list is not written: QSettings stores it as "@Invalid()".
+    if (data_.recent_files.isEmpty()) settings_.remove("files");
+    else settings_.setValue("files", data_.recent_files);
     settings_.endGroup();
 
     settings_.beginGroup("screenshot");   // GH #19
