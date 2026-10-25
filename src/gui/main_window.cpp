@@ -8,6 +8,7 @@
 #include "gui/pok_dialog.h"           // GH #381
 #include "gui/qt_ctrl_is_command.h"   // GH #365
 #include "gui/fullscreen_sync.h"      // GH #404
+#include "gui/mac_fullscreen.h"        // GH #404
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
@@ -3585,6 +3586,15 @@ void MainWindow::mouseMoveEvent(QMouseEvent* event) {
     if (m.recentre) warp_pointer(centre);
     event->accept();
 }
+
+#ifdef Q_OS_MACOS
+// GH #404 — the native window exists once shown, which is before any
+// full-screen request can arrive.
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+    mac_fullscreen::set_main_window(static_cast<std::uintptr_t>(winId()));
+}
+#endif
 
 void MainWindow::changeEvent(QEvent* event) {
     // Never hold the pointer hostage: losing focus (alt-tab, another window)
