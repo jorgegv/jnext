@@ -359,7 +359,7 @@ On macOS the same split sits one key over. Qt reports Command as
 `gui/host_shortcuts.h` holds the host set for both platforms, with the
 platform as a parameter so the macOS branch is unit-tested on Linux
 (`host_shortcuts_test`): `sequence()` (Command+letter, Command+Q, Command+,;
-no Alt+F4), `script_sequence()`, `f4_quits()`, and `modifier_scancode()`,
+no Alt+F4), `script_sequence()`, `f1_decision()` / `f4_decision()` (Command for Alt, Option inert, physical Control as Ctrl), and `modifier_scancode()`,
 which maps Command to the Router as `LGUI` (the guest ignores it) and the
 physical Control key to Symbol Shift. `CommandChordGate` keeps an unbound
 Command chord from reaching the guest. The key Router's script chord

@@ -43,6 +43,10 @@ bool on_press(Emu& emu, SDL_Scancode sc, const jnext::QuickChordTracker& chords)
 {
     if (sc != SDL_SCANCODE_F1 && sc != SDL_SCANCODE_F4) return false;
     // GH #403: the tracker knows which modifier is the host's (Alt; GUI on macOS).
+    // GH #403 (macOS parity with the Qt window): Option is no host modifier, so
+    // Option+F1/F4 do nothing at all (neither reset nor quit); Command wins when
+    // both are held, as Alt wins over everything elsewhere.
+    if (!chords.host_modifier_held() && chords.option_held_in_gui_mode()) return true;
     if (!chords.host_modifier_held()) {
         if (sc == SDL_SCANCODE_F1) emu.on_hotkey_f1_hard_reset();
         else                       emu.on_hotkey_f4_soft_reset();

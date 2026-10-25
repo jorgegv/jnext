@@ -1124,8 +1124,9 @@ Needs a \f[B]\-\-script\f[R], or a \f[B]\-\-record\-script\f[R] (key
 Record the session as a replay script; see \f[B]Recording a session\f[R]
 under \f[B]SCRIPTING\f[R].
 Every input change is written as the frame it landed on, each Alt + 8
-(or \f[B]\-\-script\-key\f[R] \f[I]FRAME\f[R] \f[CR]8\f[R]) captures the
-screen, and \f[I]FILE\f[R] is written when jnext exits.
+(Command+8 on macOS) (or \f[B]\-\-script\-key\f[R] \f[I]FRAME\f[R]
+\f[CR]8\f[R]) captures the screen, and \f[I]FILE\f[R] is written when
+jnext exits.
 Works in every frontend.
 .TP
 \f[B]\-\-map\f[R] \f[I]FILE\f[R]
@@ -2465,7 +2466,7 @@ while you press the chord.
 .PP
 The Pause key (Pause/Break) pauses and resumes the machine in the GUI,
 the same as Machine > Pause; keyboards without one, such as most Mac
-keyboards, use Alt+U.
+keyboards, use Alt+U (Command+U on macOS).
 On a real Next that key only resets the PS/2 keyboard interface, so no
 Spectrum key is lost.
 The SDL\-only build has no pause.
@@ -2485,9 +2486,9 @@ lose.
 .PP
 On macOS the two roles move one key over.
 The host shortcuts are Command instead of Alt: every Alt+X below is
-Command+X (⌘X), Quit is Command+Q (there is no Alt+F4), Preferences is
-Command+, and the script host keys are Command+1 to Command+8; the menus
-show the Mac form.
+Command+X (⌘X), Quit is Command+Q (Command+F4, the Alt+F4 equivalent,
+quits too), Preferences is Command+, and the script host keys are
+Command+1 to Command+8; the menus show the Mac form.
 The Spectrum\(cqs Symbol Shift is the physical Control key, as on a PC
 keyboard, Command is not a Spectrum key, and Option stays the guest\(cqs
 Alt (Option+E/G/C are EDIT, GRAPH, CAPS LOCK).
@@ -2496,7 +2497,8 @@ The menu\-bar mnemonics (Alt+F, \&...)
 do not exist on macOS, and the recording shortcuts Ctrl+F5 and Ctrl+F6
 stay on the physical Control key there (Command+F5 is VoiceOver\(cqs).
 The SDL\-only build on macOS follows the same rule for Command+1 to
-Command+8, Command+Shift+F5 and Command+Shift+F9 and Command+F4 (quit).
+Command+8, Command+Shift+F5 and Command+Shift+F9 and Command+F4 (quit);
+Option+F1 and Option+F4 do nothing in either frontend.
 .PP
 Alt is the opposite: it is a host modifier, never a Spectrum key.
 jnext claims Alt + Q/O/L/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S,

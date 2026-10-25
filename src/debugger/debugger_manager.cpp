@@ -337,8 +337,7 @@ void DebuggerManager::create_debug_toolbar() {
     // A tooltip naming the old chord would tell the user to press the very
     // sequence the fix hands back to the guest — Ctrl+D types SS+D (STEP).
     // host_hotkey_test H115-28 pins this string against the real shortcut.
-    dbg_toggle->setToolTip(QObject::tr("Toggle Debugger (%1)")
-                               .arg(host_shortcuts::text(host_shortcuts::Action::Debugger)));
+    dbg_toggle->setToolTip(host_shortcuts::debugger_tooltip());
     connect(dbg_toggle, &QAction::triggered, this, [this](bool checked) {
         set_enabled(checked);
     });

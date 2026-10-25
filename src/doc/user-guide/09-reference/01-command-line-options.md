@@ -980,9 +980,10 @@ with status 1.
 **--record-script** *FILE*
 :   Record the session as a replay script; see **Recording a session**
     under [Debugger scripting](../06-debugger/scripting/index.md). Every
-    input change is written as the frame it landed on, each Alt + 8 (or
-    **--script-key** *FRAME* `8`) captures the screen, and *FILE* is
-    written when jnext exits. Works in every frontend.
+    input change is written as the frame it landed on, each Alt + 8
+    (Command+8 on macOS) (or **--script-key** *FRAME* `8`) captures the
+    screen, and *FILE* is written when jnext exits. Works in every
+    frontend.
 
 **--map** *FILE*
 :   Load a symbol table, a z88dk `.map` or an sjasmplus `--sym` or

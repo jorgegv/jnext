@@ -91,6 +91,9 @@ pointer_capture::HostButton qt_host_button(Qt::MouseButton b) {
 }
 
 SDL_Scancode qt_key_to_sdl(int key) {
+    // GH #403: the modifier keys, which differ on macOS, are one tested helper.
+    if (const SDL_Scancode m = host_shortcuts::modifier_scancode(key); m != SDL_SCANCODE_UNKNOWN)
+        return m;
     switch (key) {
         // Letters
         case Qt::Key_A: return SDL_SCANCODE_A;
@@ -134,8 +137,6 @@ SDL_Scancode qt_key_to_sdl(int key) {
 
         // Modifiers
         // GH #403: Control/Command/Meta differ on macOS, see host_shortcuts.h.
-        case Qt::Key_Shift: case Qt::Key_Control: case Qt::Key_Alt: case Qt::Key_Meta:
-            return host_shortcuts::modifier_scancode(key);
 
         // Task 77 — host keys for the Spectrum compound keys wired in
         // Keyboard::init_map(). Without these the mappings are unreachable
@@ -1021,8 +1022,7 @@ void MainWindow::create_menus() {
     // Alt-held F4 here too. Alt+Q stays the primary: host hotkeys live on Alt (#115).
     //
     // GH #403 - macOS: Command+Q alone (Alt+F4 is a PC convention).
-    QList<QKeySequence> quit_keys{host_shortcuts::sequence(host_shortcuts::Action::Quit)};
-    if (!host_shortcuts::quit_alternate().isEmpty()) quit_keys << host_shortcuts::quit_alternate();
+    const QList<QKeySequence> quit_keys = host_shortcuts::quit_shortcuts();
     quit_action_->setShortcuts(quit_keys);
     // A menu draws only shortcut() — the first — unless the text carries its own
     // accelerator column after a tab (QMenu::initStyleOption), so the label names
@@ -1030,10 +1030,7 @@ void MainWindow::create_menus() {
     // look at the part before the tab (host_chords.cpp, the suites' lookups).
     // Only when there IS a second one: a single shortcut is drawn by the menu,
     // and on macOS a tab in a Quit label would be read as a key equivalent.
-    if (quit_keys.size() > 1)
-        quit_action_->setText(tr("&Quit") + QLatin1Char('\t') +
-                              QKeySequence::listToString(quit_action_->shortcuts(),
-                                                         QKeySequence::NativeText));
+    quit_action_->setText(host_shortcuts::quit_text(tr("&Quit"), quit_keys));
     // Issue #131 — go through close() so closeEvent() actually RUNS. This used
     // to connect straight to QApplication::quit(), which skips closeEvent
     // entirely, so File > Quit and closing the window with [X] did different
@@ -1111,8 +1108,7 @@ void MainWindow::create_menus() {
     // A held key re-fired the action (measured ~20 toggles in 1.5 s).
     pause_action_->setAutoRepeat(false);
     // Its icon (pause, resume while checked) is bound in create_toolbar().
-    pause_action_->setToolTip(tr("Pause / resume emulation (%1 or Pause)")
-                                  .arg(host_shortcuts::text(host_shortcuts::Action::Pause)));
+    pause_action_->setToolTip(host_shortcuts::pause_tooltip());
     connect(pause_action_, &QAction::triggered, this, [this]() { toggle_pause(); });
     addAction(pause_action_);
 
@@ -3204,38 +3200,50 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         // and the modified presses: Shift/Ctrl+F4 reset nothing, and F4 with
         // Alt held is File > Quit (GH #380). Alt+F1 resets nothing either.
         case Qt::Key_F1:
-            if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
-                          && !modifiers.testFlag(Qt::ControlModifier)
-                          && !modifiers.testFlag(Qt::AltModifier)) {
-                emulator_->on_hotkey_f1_hard_reset();
+            // GH #403: the decision (reset / swallow / pass) is host_shortcuts::
+            // f1_decision, so macOS (Command for Alt, Option inert, physical
+            // Control = Ctrl) is tested on every host.
+            switch (host_shortcuts::f1_decision(modifiers)) {
+            case host_shortcuts::FKeyDecision::Reset:
+                if (emulator_) {
+                    emulator_->on_hotkey_f1_hard_reset();
+                    event->accept();
+                    return;
+                }
+                break;
+            case host_shortcuts::FKeyDecision::Swallow:
                 event->accept();
                 return;
+            default:
+                break;
             }
             break;
         case Qt::Key_F4:
-            // GH #380 — any F4 with Alt held is File > Quit, whatever else is held
-            // and with the mouse captured or not. An exact Alt+F4 in an active
-            // window is taken earlier, by the shortcut map, through the same
-            // action; what lands here is the rest: Ctrl+Alt+F4 (AltGr+F4 on
-            // Windows), Alt+Shift+F4, Meta+Alt+F4, a plain Alt+F4 with the menu
-            // bar hidden (fullscreen) or the window not active. It never reaches
-            // the guest, and needs no emulator.
-            if (host_shortcuts::f4_quits(modifiers)) {
+            // GH #380 — any F4 with the host modifier (Alt; Command on macOS)
+            // held is File > Quit, whatever else is held and with the mouse
+            // captured or not. An exact Alt+F4 in an active window is taken
+            // earlier, by the shortcut map, through the same action; what lands
+            // here is the rest: Ctrl+Alt+F4 (AltGr+F4 on Windows),
+            // Alt+Shift+F4, Meta+Alt+F4, a plain Alt+F4 with the menu bar
+            // hidden (fullscreen) or the window not active. It never reaches
+            // the guest, and needs no emulator. Option+F4 on macOS does nothing.
+            switch (host_shortcuts::f4_decision(modifiers)) {
+            case host_shortcuts::FKeyDecision::Quit:
                 if (quit_action_) quit_action_->trigger();
                 event->accept();
                 return;
-            }
-            // GH #403: Option+F4 on macOS is no quit chord (f4_quits is false
-            // there), and no reset either: with Alt held F4 resets nothing.
-            if (modifiers.testFlag(Qt::AltModifier)) {
+            case host_shortcuts::FKeyDecision::Swallow:
                 event->accept();
                 return;
-            }
-            if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
-                          && !modifiers.testFlag(Qt::ControlModifier)) {
-                on_soft_reset();   // the same dispatcher as Machine > Soft Reset
-                event->accept();
-                return;
+            case host_shortcuts::FKeyDecision::Reset:
+                if (emulator_) {
+                    on_soft_reset();   // the same dispatcher as Machine > Soft Reset
+                    event->accept();
+                    return;
+                }
+                break;
+            default:
+                break;
             }
             break;
         case Qt::Key_F9:
@@ -3443,8 +3451,7 @@ void MainWindow::handle_key(QKeyEvent* event, bool pressed) {
 
     // GH #403 - macOS: a key pressed with Command held is a host chord and
     // never reaches the guest (see host_shortcuts::CommandChordGate).
-    if (pressed ? command_gate_.swallow_press(event->key(),
-                                              event->modifiers().testFlag(Qt::ControlModifier))
+    if (pressed ? command_gate_.swallow_press(event->key(), event->modifiers())
                 : command_gate_.swallow_release(event->key())) {
         event->accept();
         return;

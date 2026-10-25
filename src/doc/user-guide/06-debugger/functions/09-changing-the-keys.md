@@ -61,7 +61,7 @@ Four kinds of combination are refused, and the dialog says which and why:
 
 Five combinations are **not** refused but do get a warning, because the
 emulator window already uses them: **Ctrl+F5** (record), **Ctrl+F6** (stop
-recording), **F4** (soft reset), **F11** (fullscreen) and **Alt+F4** (quit). (On a Mac the recording pair is Control+F5 / Control+F6, which the keymap writes as Meta.) You can bind them —
+recording), **F4** (soft reset), **F11** (fullscreen) and **Alt+F4** (quit). On a Mac the set differs: every ⌘ host shortcut (the keymap writes ⌘ as Ctrl: Ctrl+O, Ctrl+L, Ctrl+S, Ctrl+K, Ctrl+Q, Ctrl+R, Ctrl+U, Ctrl+T, Ctrl+D, Ctrl+Shift+S) warns too, the recording pair is Control+F5 / Control+F6 (written Meta+F5 / Meta+F6), the fullscreen chord Ctrl+Meta+F, and there is no Alt+F4. You can bind them —
 F11 for Step Into is a popular choice — and they will work in the debugger
 window. The emulator window keeps its own use of them, and the message under
 the table says so when you pick one.

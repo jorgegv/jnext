@@ -276,53 +276,107 @@ int main(int argc, char** argv)
                   host_shortcuts::modifier_scancode(Qt::Key_A, true) == SDL_SCANCODE_UNKNOWN);
     }
 
-    // --- F4 as quit -------------------------------------------------------
-    check("HS403-16", "F4 with Alt held is File > Quit elsewhere (GH #380); on macOS no modifier makes F4 "
-                      "quit (neither Option nor Command)",
-          host_shortcuts::f4_quits(Qt::AltModifier, false) &&
-              host_shortcuts::f4_quits(Qt::AltModifier | Qt::ShiftModifier, false) &&
-              !host_shortcuts::f4_quits(Qt::NoModifier, false) &&
-              !host_shortcuts::f4_quits(Qt::ControlModifier, false) &&
-              !host_shortcuts::f4_quits(Qt::AltModifier, true) &&
-              !host_shortcuts::f4_quits(Qt::ControlModifier, true) &&
-              !host_shortcuts::f4_quits(Qt::NoModifier, true));
+    // --- F1 / F4 decisions ----------------------------------------------------
+    {
+        using D = host_shortcuts::FKeyDecision;
+        using host_shortcuts::f1_decision;
+        using host_shortcuts::f4_decision;
+        const Qt::KeyboardModifiers none, alt = Qt::AltModifier, ctl = Qt::ControlModifier,
+                                    shift = Qt::ShiftModifier, meta = Qt::MetaModifier;
+        // Elsewhere (the GH #380 behaviour, unchanged): Alt+F4 quits whatever else is held;
+        // F1 resets only with no Shift/Ctrl/Alt; F4 resets with no Shift/Ctrl.
+        check("HS403-16", "elsewhere: F4 with Alt quits (any company), plain F4 / F1 reset, Shift or Ctrl "
+                          "pass through, Alt+F1 does not reset, and the Meta key changes nothing",
+              f4_decision(alt, false) == D::Quit && f4_decision(alt | shift | ctl, false) == D::Quit &&
+                  f4_decision(none, false) == D::Reset && f4_decision(meta, false) == D::Reset &&
+                  f4_decision(shift, false) == D::Pass && f4_decision(ctl, false) == D::Pass &&
+                  f1_decision(none, false) == D::Reset && f1_decision(meta, false) == D::Reset &&
+                  f1_decision(alt, false) == D::Pass && f1_decision(shift, false) == D::Pass &&
+                  f1_decision(ctl, false) == D::Pass);
+        // macOS: Command (ControlModifier) is what Alt is elsewhere; Option does nothing at all;
+        // the physical Control key (MetaModifier) behaves as Ctrl does elsewhere.
+        check("HS403-32", "macOS: Command+F4 quits (any company), Command+F1 resets nothing, Option+F1 / "
+                          "Option+F4 do nothing (swallowed, no reset, no quit), physical Control+F1 / "
+                          "Control+F4 reset nothing (as Ctrl on Linux), plain F1 / F4 reset",
+              f4_decision(ctl, true) == D::Quit && f4_decision(ctl | alt | meta | shift, true) == D::Quit &&
+                  f1_decision(ctl, true) == D::Pass &&
+                  f1_decision(alt, true) == D::Swallow && f4_decision(alt, true) == D::Swallow &&
+                  f1_decision(meta, true) == D::Pass && f4_decision(meta, true) == D::Pass &&
+                  f1_decision(none, true) == D::Reset && f4_decision(none, true) == D::Reset &&
+                  f1_decision(shift, true) == D::Pass && f4_decision(shift, true) == D::Pass);
+    }
 
     // --- the Command chord gate ---------------------------------------------
     {
         host_shortcuts::CommandChordGate off(false);
         check("HS403-17", "the gate is inert off macOS: an unbound Ctrl+C reaches the guest, press and release",
-              !off.swallow_press(Qt::Key_C, true) && !off.swallow_release(Qt::Key_C));
+              !off.swallow_press(Qt::Key_C, Qt::ControlModifier) && !off.swallow_release(Qt::Key_C));
         host_shortcuts::CommandChordGate g(true);
-        const bool p = g.swallow_press(Qt::Key_C, true);
+        const bool p = g.swallow_press(Qt::Key_C, Qt::ControlModifier);
         const bool r = g.swallow_release(Qt::Key_C);
         check("HS403-18", "macOS: a key pressed with Command held is a host chord - press and release are "
                           "swallowed, so an unbound Command+C never types C in the guest",
               p && r);
+        check("HS403-33", "macOS: a key pressed with the PHYSICAL Control key held (MetaModifier = Symbol "
+                          "Shift) is never swallowed, press or release; Command+Control still is",
+              !g.swallow_press(Qt::Key_O, Qt::MetaModifier) && !g.swallow_release(Qt::Key_O) &&
+                  g.swallow_press(Qt::Key_O, Qt::MetaModifier | Qt::ControlModifier) &&
+                  g.swallow_release(Qt::Key_O));
         check("HS403-19", "macOS: a key pressed WITHOUT Command reaches the guest, and so does its release "
                           "even if Command went down meanwhile",
-              !g.swallow_press(Qt::Key_D, false) && !g.swallow_release(Qt::Key_D));
+              !g.swallow_press(Qt::Key_D, Qt::NoModifier) && !g.swallow_release(Qt::Key_D));
         host_shortcuts::CommandChordGate g2(true);
         bool mods_pass = true;
         for (int k : {int(Qt::Key_Shift), int(Qt::Key_Control), int(Qt::Key_Alt), int(Qt::Key_Meta),
                       int(Qt::Key_AltGr), int(Qt::Key_CapsLock)})
-            mods_pass = mods_pass && !g2.swallow_press(k, true) && !g2.swallow_release(k);
+            mods_pass = mods_pass && !g2.swallow_press(k, Qt::ControlModifier) && !g2.swallow_release(k);
         bool digits = true;
-        for (int k = Qt::Key_1; k <= Qt::Key_8; ++k) digits = digits && !g2.swallow_press(k, true);
+        for (int k = Qt::Key_1; k <= Qt::Key_8; ++k) digits = digits && !g2.swallow_press(k, Qt::ControlModifier);
         check("HS403-20", "macOS: the modifier keys themselves and the digits 1..8 (the Router's Command+n "
                           "script chord) are never swallowed; Command+9 and Command+0 are",
-              mods_pass && digits && g2.swallow_press(Qt::Key_9, true) && g2.swallow_press(Qt::Key_0, true));
+              mods_pass && digits && g2.swallow_press(Qt::Key_9, Qt::ControlModifier) && g2.swallow_press(Qt::Key_0, Qt::ControlModifier));
         host_shortcuts::CommandChordGate g3(true);
-        g3.swallow_press(Qt::Key_X, true);          // swallowed, its key-up never arrives
-        const bool again = g3.swallow_press(Qt::Key_X, false);   // later plain press: forwarded
+        g3.swallow_press(Qt::Key_X, Qt::ControlModifier);          // swallowed, its key-up never arrives
+        const bool again = g3.swallow_press(Qt::Key_X, Qt::NoModifier);   // later plain press: forwarded
         const bool rel = g3.swallow_release(Qt::Key_X);          // ... and its release is real
         check("HS403-21", "macOS: a stale entry (a swallowed key whose key-up never came) is dropped by the "
                           "key's next plain press, so it cannot eat a real release",
               !again && !rel);
         host_shortcuts::CommandChordGate g4(true);
-        g4.swallow_press(Qt::Key_Z, true);
+        g4.swallow_press(Qt::Key_Z, Qt::ControlModifier);
         g4.reset();
         check("HS403-22", "reset() (the keyboard went elsewhere) forgets every swallowed key",
               !g4.swallow_release(Qt::Key_Z));
+    }
+
+    // --- texts and the Quit label -------------------------------------------
+    {
+        using namespace host_shortcuts;
+        check("HS403-34", "elsewhere the texts are byte-identical to GH #115's: Pause tooltip, Quick Screenshot "
+                          "note, debugger tooltip, script panel strings",
+              pause_tooltip(false) == "Pause / resume emulation (Alt+U or Pause)" &&
+                  quick_screenshot_note(false).startsWith("Quick Screenshot (Alt+K) writes jnext-") &&
+                  debugger_tooltip(false) == "Toggle Debugger (Alt+D)" &&
+                  script_capture_tooltip(false) ==
+                      "Capture the screen at the next frame (Alt+8 does the same while recording)" &&
+                  script_recording_text("x", false) == "Recording to x (Alt+8 captures).");
+        check("HS403-35", "macOS: none of those texts names Alt; each names the Command form of its action",
+              !pause_tooltip(true).contains("Alt") && pause_tooltip(true).contains(text(Action::Pause, true)) &&
+                  !quick_screenshot_note(true).contains("Alt") &&
+                  quick_screenshot_note(true).contains(text(Action::QuickScreenshot, true)) &&
+                  !debugger_tooltip(true).contains("Alt") &&
+                  debugger_tooltip(true).contains(text(Action::Debugger, true)) &&
+                  !script_capture_tooltip(true).contains("Alt") &&
+                  script_capture_tooltip(true).contains(script_text(8, true)) &&
+                  !script_recording_text("x", true).contains("Alt") &&
+                  script_recording_text("x", true).contains(script_text(8, true)));
+        check("HS403-36", "the Quit label carries a tab and both shortcuts elsewhere (Alt+Q and Alt+F4) and "
+                          "none on macOS, where it has one shortcut",
+              quit_shortcuts(false).size() == 2 && quit_shortcuts(true).size() == 1 &&
+                  quit_text("&Quit", quit_shortcuts(false)).startsWith("&Quit\tAlt+Q") &&
+                  quit_text("&Quit", quit_shortcuts(false)).endsWith("Alt+F4") &&
+                  quit_text("&Quit", quit_shortcuts(true)) == "&Quit",
+              quit_text("&Quit", quit_shortcuts(false)).toStdString());
     }
 
     // --- the debugger keymap's reserved chords follow the host modifier ----
@@ -365,10 +419,15 @@ int main(int argc, char** argv)
         check("HS403-28", "MainWindow takes the modifier scancodes, the F4 quit test and the Command gate "
                           "from host_shortcuts.h",
               count_in_code(mw, "host_shortcuts::modifier_scancode(") == 1 &&
-                  count_in_code(mw, "host_shortcuts::f4_quits(") == 1 &&
+                  count_in_code(mw, "case Qt::Key_Meta") == 0 &&
+                  count_in_code(mw, "host_shortcuts::f1_decision(") == 1 &&
+                  count_in_code(mw, "host_shortcuts::f4_decision(") == 1 &&
+                  count_in_code(mw, "host_shortcuts::quit_shortcuts()") == 1 &&
+                  count_in_code(mw, "host_shortcuts::quit_text(") == 1 &&
+                  count_in_code(mw, "host_shortcuts::pause_tooltip()") == 1 &&
+                  count_in_code(mw, "command_gate_.swallow_press(event->key(), event->modifiers())") == 1 &&
                   count_in_code(mw, "host_shortcuts::record_sequence(") == 2 &&
-                  count_in_code(mw, "command_gate_.swallow_press(") == 1 &&
-                  count_in_code(mw, "command_gate_.swallow_release(") == 1 &&
+                                    count_in_code(mw, "command_gate_.swallow_release(") == 1 &&
                   count_in_code(mw, "command_gate_.reset()") == 1);
         const QString qa = read_all("src/gui/qt_app.cpp");
         const QString sa = read_all("src/platform/sdl_app.cpp");
@@ -377,6 +436,12 @@ int main(int argc, char** argv)
               count_in_code(qa, "key_router_.set_script_chord_gui(kQtCtrlIsCommand)") == 1 &&
                   count_in_code(sa, "key_router_.set_script_chord_gui(host_modifier::kIsGui)") == 1 &&
                   count_in_code(sa, "quick_chords_.set_host_is_gui(host_modifier::kIsGui)") == 1);
+        check("HS403-37", "the text sites use the helpers, not literals: Preferences note, debugger toolbar tooltip, "
+                          "script panel capture tooltip and recording line",
+              count_in_code(read_all("src/gui/preferences_dialog.cpp"), "host_shortcuts::quick_screenshot_note()") == 1 &&
+                  count_in_code(read_all("src/debugger/debugger_manager.cpp"), "host_shortcuts::debugger_tooltip()") == 1 &&
+                  count_in_code(read_all("src/debugger/script_panel.cpp"), "host_shortcuts::script_capture_tooltip()") == 1 &&
+                  count_in_code(read_all("src/debugger/script_panel.cpp"), "host_shortcuts::script_recording_text(") == 1);
         const QString ac = read_all("src/gui/app_config.cpp");
         const QString hc = read_all("src/gui/host_chords.cpp");
         const QString sc = read_all("src/gui/shortcut_capture_button.cpp");

@@ -55,8 +55,7 @@ ScriptPanel::ScriptPanel(QWidget* parent) : QWidget(parent) {
     record_btn_  = new QPushButton(tr("Record..."), this);
     capture_btn_ = new QPushButton(tr("Capture"), this);
     stop_btn_    = new QPushButton(tr("Stop Recording"), this);
-    capture_btn_->setToolTip(tr("Capture the screen at the next frame (%1 does the same while recording)")
-                                 .arg(host_shortcuts::script_text(8)));
+    capture_btn_->setToolTip(host_shortcuts::script_capture_tooltip());
     rec_buttons->addWidget(record_btn_);
     rec_buttons->addWidget(capture_btn_);
     rec_buttons->addWidget(stop_btn_);
@@ -279,7 +278,7 @@ void ScriptPanel::refresh() {
         const QString what = tr("%1: %n input edge(s), ", "", static_cast<int>(rec->edges()))
                                  .arg(QString::fromStdString(rec->path())) +
                              tr("%n capture(s)", "", static_cast<int>(rec->captures()));
-        record_->setText(recording ? tr("Recording to %1 (%2 captures).").arg(what, host_shortcuts::script_text(8))
+        record_->setText(recording ? host_shortcuts::script_recording_text(what)
                                    : tr("Last recording: %1.").arg(what));
     }
 

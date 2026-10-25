@@ -1588,6 +1588,17 @@ if(ENABLE_QT_UI)
     target_compile_definitions(host_shortcuts_test PRIVATE JNEXT_SRC_DIR="${CMAKE_SOURCE_DIR}")
     add_test(NAME host_shortcuts_tests COMMAND host_shortcuts_test)
 
+    # The same code through its DEFAULT arguments, with the macOS platform
+    # constant forced (qt_ctrl_is_command.h), so a default flipped to `false`
+    # fails on a Linux host. Not linked against the MainWindow-bearing objects'
+    # constant: header-only inline code, evaluated in this TU only.
+    add_executable(host_shortcuts_mac_test gui/host_shortcuts_mac_test.cpp)
+    set_target_properties(host_shortcuts_mac_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(host_shortcuts_mac_test PRIVATE jnext_gui)
+    target_include_directories(host_shortcuts_mac_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(host_shortcuts_mac_test PRIVATE JNEXT_TEST_FORCE_CTRL_IS_COMMAND=1)
+    add_test(NAME host_shortcuts_mac_tests COMMAND host_shortcuts_mac_test)
+
     # GH #306 — Machine > Pause (Alt+U): one QAction on the menu, the Main
     # toolbar and the window; a pause by MainWindow's own observer client does
     # not open the debugger window, every other pause still does; the checkmark

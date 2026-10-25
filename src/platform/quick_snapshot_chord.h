@@ -56,6 +56,11 @@ public:
     // GH #403: the host modifier is GUI (macOS) rather than Alt.
     void set_host_is_gui(bool gui) { host_is_gui_ = gui; }
     bool host_is_gui() const { return host_is_gui_; }
+    // GH #403: in GUI mode Alt (Option) is no host modifier at all; is it held?
+    bool option_held_in_gui_mode() const
+    {
+        return host_is_gui_ && (mods_ & host_modifier::kAltBits) != 0;
+    }
     // Is the host modifier (Alt, or GUI on macOS), left or right, held?
     bool host_modifier_held() const { return (mods_ & host_modifier::host_bits(host_is_gui_)) != 0; }
     // Feed EVERY key event the pointer-release gate does not consume (GH #365), press and release. Returns what a PRESS means.

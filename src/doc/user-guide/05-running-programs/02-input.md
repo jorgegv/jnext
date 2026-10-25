@@ -58,12 +58,12 @@ On macOS every JNEXT shortcut that is **Alt + key** on the other systems is
 **Cmd + key** (⌘), the Mac convention. Wherever this guide says Alt+X for a
 JNEXT shortcut, press ⌘X; the menus show the Mac form. In particular:
 
-- **⌘Q** quits (there is no Alt+F4 on a Mac) and **⌘,** opens Settings >
+- **⌘Q** quits, and so does **⌘F4** (the Mac form of Alt+F4) and **⌘,** opens Settings >
   Preferences, as in other Mac applications.
 - **⌘1** to **⌘8** are the script host keys, and **⌘⇧F5** and **⌘⇧F9** are
   Quick Save and Quick Load; ⌘9 and ⌘0 do nothing special.
-- **Option** (⌥) is a plain Spectrum key, like Alt elsewhere: Option+E is Edit,
-  Option+G Graph, Option+C Caps Lock.
+- **Option** (⌥) is the Spectrum's Alt, never a host modifier: Option+E is Edit,
+  Option+G Graph, Option+C Caps Lock, and Option+F1 / Option+F4 do nothing.
 - **Control** (⌃) is Symbol Shift, so the NextBASIC sequences described below
   (Ctrl+O `;`, Ctrl+D `STEP`, ...) are Control+letter on a Mac too.
 - A Cmd chord that JNEXT does not use never reaches the program, so Cmd+C

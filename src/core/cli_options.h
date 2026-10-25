@@ -792,8 +792,8 @@ inline constexpr Option OPTIONS[] = {
     { "--record-script", 1, Doc::Documented, OptId::RecordScript,
       "FILE",
       "Record the session as a replay script: input edges per\n"
-      "frame, and a screen capture at each Alt+8 (or --script-key\n"
-      "FRAME 8). FILE is written when jnext exits; replay it\n"
+      "frame, and a screen capture at each Alt+8 (Cmd+8 on macOS;\n"
+      "or --script-key FRAME 8). FILE is written when jnext exits; replay it\n"
       "with --headless --script FILE." },
     { "--map", 1, Doc::Documented, OptId::Map,
       "FILE",

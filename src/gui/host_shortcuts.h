@@ -14,7 +14,9 @@
 // the macOS branch is unit-tested on Linux, the way
 // pointer_capture::release_chord() is.
 
+#include <QCoreApplication>
 #include <QKeySequence>
+#include <QList>
 #include <QString>
 #include <QtGlobal>
 #include <SDL3/SDL.h>
@@ -53,12 +55,6 @@ inline constexpr Action kAllActions[] = {
 inline constexpr Qt::Modifier modifier(bool ctrl_is_command = kQtCtrlIsCommand)
 {
     return ctrl_is_command ? Qt::CTRL : Qt::ALT;
-}
-
-/// The same, as the event-side flag a QKeyEvent carries.
-inline constexpr Qt::KeyboardModifier event_modifier(bool ctrl_is_command = kQtCtrlIsCommand)
-{
-    return ctrl_is_command ? Qt::ControlModifier : Qt::AltModifier;
 }
 
 /// The primary key sequence of a host action.
@@ -121,11 +117,82 @@ inline QString script_text(int n, bool ctrl_is_command = kQtCtrlIsCommand)
     return script_sequence(n, ctrl_is_command).toString(QKeySequence::NativeText);
 }
 
-/// GH #380 - an F4 with the host-quit modifier held is File > Quit. On macOS
-/// there is no such chord (Command+Q only): F4 with Option held does nothing.
-inline bool f4_quits(Qt::KeyboardModifiers mods, bool ctrl_is_command = kQtCtrlIsCommand)
+/// What MainWindow::keyPressEvent does with an F1 / F4 press (GH #380, GH #403).
+///
+/// Elsewhere: F4 with Alt held quits whatever else is held; otherwise F1 resets
+/// only with no Shift/Ctrl/Alt and F4 only with no Shift/Ctrl; every other
+/// combination falls through to the guest path. macOS is the same with Alt
+/// replaced by Command (Qt's ControlModifier), plus two rules: Option is no
+/// host modifier, so Option+F1/F4 do nothing at all (Swallow), and the physical
+/// Control key (Qt's MetaModifier) is Symbol Shift, so it behaves exactly as Ctrl
+/// does elsewhere (Pass, no reset).
+enum class FKeyDecision { Reset, Quit, Swallow, Pass };
+
+inline FKeyDecision f1_decision(Qt::KeyboardModifiers m, bool ctrl_is_command = kQtCtrlIsCommand)
 {
-    return !ctrl_is_command && mods.testFlag(Qt::AltModifier);
+    if (ctrl_is_command && m.testFlag(Qt::AltModifier) && !m.testFlag(Qt::ControlModifier))
+        return FKeyDecision::Swallow;
+    if (m.testFlag(Qt::ShiftModifier) || m.testFlag(Qt::ControlModifier) || m.testFlag(Qt::AltModifier) ||
+        (ctrl_is_command && m.testFlag(Qt::MetaModifier)))
+        return FKeyDecision::Pass;
+    return FKeyDecision::Reset;
+}
+
+inline FKeyDecision f4_decision(Qt::KeyboardModifiers m, bool ctrl_is_command = kQtCtrlIsCommand)
+{
+    if (m.testFlag(ctrl_is_command ? Qt::ControlModifier : Qt::AltModifier)) return FKeyDecision::Quit;
+    if (ctrl_is_command && m.testFlag(Qt::AltModifier)) return FKeyDecision::Swallow;
+    if (m.testFlag(Qt::ShiftModifier) || m.testFlag(Qt::ControlModifier) ||
+        (ctrl_is_command && m.testFlag(Qt::MetaModifier)))
+        return FKeyDecision::Pass;
+    return FKeyDecision::Reset;
+}
+
+/// File > Quit's shortcuts: the primary, plus Alt+F4 where that exists.
+inline QList<QKeySequence> quit_shortcuts(bool ctrl_is_command = kQtCtrlIsCommand)
+{
+    QList<QKeySequence> v{sequence(Action::Quit, ctrl_is_command)};
+    if (!quit_alternate(ctrl_is_command).isEmpty()) v << quit_alternate(ctrl_is_command);
+    return v;
+}
+
+/// The Quit menu label: a menu draws only the first shortcut, so with a second
+/// one the label carries its own accelerator column after a tab; with one, no
+/// tab (on macOS a tab in a Quit label would be read as a key equivalent).
+inline QString quit_text(const QString& base, const QList<QKeySequence>& keys)
+{
+    if (keys.size() <= 1) return base;
+    return base + QLatin1Char('\t') + QKeySequence::listToString(keys, QKeySequence::NativeText);
+}
+
+// User-visible strings that name a host shortcut. The shortcut is spelt by the
+// platform (text()/script_text()), never typed here.
+inline QString tr_(const char* s) { return QCoreApplication::translate("host_shortcuts", s); }
+
+inline QString pause_tooltip(bool m = kQtCtrlIsCommand)
+{
+    return tr_("Pause / resume emulation (%1 or Pause)").arg(text(Action::Pause, m));
+}
+inline QString quick_screenshot_note(bool m = kQtCtrlIsCommand)
+{
+    return tr_("Quick Screenshot (%1) writes jnext-<date>-<time> into that "
+               "directory with no dialog, and names the file in the status bar. "
+               "A .SCR records only the classic ULA screen memory - Layer 2, the "
+               "tilemap and the sprites are not in it.")
+        .arg(text(Action::QuickScreenshot, m));
+}
+inline QString debugger_tooltip(bool m = kQtCtrlIsCommand)
+{
+    return tr_("Toggle Debugger (%1)").arg(text(Action::Debugger, m));
+}
+inline QString script_capture_tooltip(bool m = kQtCtrlIsCommand)
+{
+    return tr_("Capture the screen at the next frame (%1 does the same while recording)")
+        .arg(script_text(8, m));
+}
+inline QString script_recording_text(const QString& what, bool m = kQtCtrlIsCommand)
+{
+    return tr_("Recording to %1 (%2 captures).").arg(what, script_text(8, m));
 }
 
 /// The guest scancode of a Qt modifier key (SDL_SCANCODE_UNKNOWN: none).
@@ -161,10 +228,12 @@ class CommandChordGate {
 public:
     explicit CommandChordGate(bool enabled = kQtCtrlIsCommand) : enabled_(enabled) {}
 
-    bool swallow_press(int qt_key, bool command_held)
+    /// `mods` are the event's modifiers; Command is Qt's ControlModifier. The
+    /// physical Control key (MetaModifier) is Symbol Shift and never counts.
+    bool swallow_press(int qt_key, Qt::KeyboardModifiers mods)
     {
         if (!enabled_ || is_exempt(qt_key)) return false;
-        if (command_held) { held_.insert(qt_key); return true; }
+        if (mods.testFlag(Qt::ControlModifier)) { held_.insert(qt_key); return true; }
         held_.erase(qt_key);
         return false;
     }

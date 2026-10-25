@@ -2571,8 +2571,9 @@ int main()
                       alt_only == QuickChord::None && t.host_is_gui());
         }
         // HKL-MAC-06: sdl_reset_keys through the real poll(), host modifier GUI:
-        // GUI+F4 quits and resets nothing, GUI+F1 resets nothing, and Alt+F4 is
-        // an ordinary soft reset (Option is not the host modifier on macOS).
+        // GUI+F4 quits and resets nothing, GUI+F1 resets nothing, and Option+F4 /
+        // Option+F1 do nothing (Option is not a host modifier on macOS; the Qt
+        // window does the same, HS403-32).
         {
             const bool sdl_ok = SDL_Init(SDL_INIT_EVENTS);
             const std::string sdl_err =
@@ -2591,16 +2592,24 @@ int main()
                 f1.batch({{SDL_SCANCODE_RGUI, true}, {SDL_SCANCODE_F1, true},
                           {SDL_SCANCODE_F1, false}, {SDL_SCANCODE_RGUI, false}});
                 const bool f1_ok = f1.quits == 0 && f1.emu.hard == 0 && f1.emu.soft == 0;
+                // Option is no host modifier: Option+F4 and Option+F1 do nothing at all
+                // (no quit, no reset; the Qt window agrees), and Command wins over Option.
                 AltF4Rig a;
                 a.chords.set_host_is_gui(true);
                 a.batch({{SDL_SCANCODE_LALT, true}, {SDL_SCANCODE_F4, true},
-                         {SDL_SCANCODE_F4, false}, {SDL_SCANCODE_LALT, false}});
-                const bool a_ok = a.quits == 0 && a.emu.soft == 1 && a.emu.hard == 0;
-                ok = q_ok && f1_ok && a_ok;
+                         {SDL_SCANCODE_F4, false}, {SDL_SCANCODE_F1, true},
+                         {SDL_SCANCODE_F1, false}, {SDL_SCANCODE_LALT, false}});
+                const bool a_ok = a.quits == 0 && a.emu.soft == 0 && a.emu.hard == 0;
+                AltF4Rig both;
+                both.chords.set_host_is_gui(true);
+                both.batch({{SDL_SCANCODE_LALT, true}, {SDL_SCANCODE_LGUI, true}, {SDL_SCANCODE_F4, true},
+                            {SDL_SCANCODE_F4, false}, {SDL_SCANCODE_LGUI, false}, {SDL_SCANCODE_LALT, false}});
+                const bool both_ok = both.quits == 1 && both.emu.soft == 0;
+                ok = q_ok && f1_ok && a_ok && both_ok;
                 d = "quit:" + q.state(more_q) + " f1:" + f1.state(false) + " alt:" + a.state(false);
             }
-            check("HKL-MAC-06", "GUI mode: GUI+F4 quits (no reset), GUI+F1 resets nothing, Alt+F4 is a "
-                                "plain soft reset and does not quit",
+            check("HKL-MAC-06", "GUI mode: GUI+F4 quits (no reset), GUI+F1 resets nothing, Option+F4 and "
+                                "Option+F1 do nothing, and GUI beats Option",
                   ok, d);
             if (sdl_ok) SDL_Quit();
         }

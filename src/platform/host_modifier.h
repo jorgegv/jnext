@@ -12,7 +12,7 @@
 // Command, unlike Qt: see gui/qt_ctrl_is_command.h). Every consumer takes the
 // choice as a PARAMETER whose default is the Alt form, so a suite exercises
 // the macOS branch on any OS and the existing Alt rows mean the same on a Mac
-// build; the frontends pass kHostModifierIsGui.
+// build; the frontends pass host_modifier::kIsGui.
 
 namespace host_modifier {
 

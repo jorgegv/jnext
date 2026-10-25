@@ -2690,7 +2690,7 @@ kill a guest key, so <code>host_hotkey_test</code> pins the two sets disjoint â€
 <code>gui/host_shortcuts.h</code> holds the host set for both platforms, with the
 platform as a parameter so the macOS branch is unit-tested on Linux
 (<code>host_shortcuts_test</code>): <code>sequence()</code> (Command+letter, Command+Q, Command+,;
-no Alt+F4), <code>script_sequence()</code>, <code>f4_quits()</code>, and <code>modifier_scancode()</code>,
+no Alt+F4), <code>script_sequence()</code>, <code>f1_decision()</code> / <code>f4_decision()</code> (Command for Alt, Option inert, physical Control as Ctrl), and <code>modifier_scancode()</code>,
 which maps Command to the Router as <code>LGUI</code> (the guest ignores it) and the
 physical Control key to Symbol Shift. <code>CommandChordGate</code> keeps an unbound
 Command chord from reaching the guest. The key Router's script chord
