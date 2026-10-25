@@ -1955,9 +1955,12 @@ void MainWindow::load_finished(const std::string& file, bool ok) {
     const bool from_menu = !menu_load_pending_.empty() && file == menu_load_pending_;
     // GH #406 - a load the user asked for that worked joins File > Recent Files
     // (the archive itself for a .zip member, not its scratch extraction).
-    // --load and a guest's M_EXECCMD are not recorded, nor is Quick Load.
+    // The startup --load counts too (the rebuild-and-run workflow). Quick Load
+    // is a snapshot slot, not a file the user picked, and is not recorded.
     if (ok && from_menu && !menu_load_recent_.empty())
         record_recent_file(QString::fromStdString(menu_load_recent_));
+    else if (ok && !from_menu && !startup_load_file_.empty() && file == startup_load_file_)
+        record_recent_file(QString::fromStdString(startup_load_shown_));
     menu_load_recent_.clear();
     const std::string shown = menu_load_shown_.empty() ? file : menu_load_shown_;
     menu_load_pending_.clear();

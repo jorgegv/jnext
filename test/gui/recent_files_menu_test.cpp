@@ -194,7 +194,7 @@ int main(int argc, char** argv)
         const bool plain = f.list().isEmpty();
         f.win->handle_load_path(S(a));   // a menu load is pending...
         f.win->load_finished(b, true);   // ...and a different file (--load) reports first
-        check("RFM-05", "a load nobody asked the window for (--load) is not recorded",
+        check("RFM-05", "a load nobody registered with the window is not recorded, nor a pending menu load's neighbour",
               f.ok && plain && f.list().isEmpty(), str(f.list()));
     }
     {
@@ -357,6 +357,31 @@ int main(int argc, char** argv)
         QApplication::processEvents();
         check("RFM-22", "the Alt+L key chord itself reloads the newest recent file",
               f.ok && f.handed_n == 1 && f.handed == b, fmt_n(f.handed_n) + " " + f.handed);
+    }
+
+    {
+        Fixture f;
+        f.win->set_startup_load(a, a);
+        f.win->load_finished(a, true);
+        check("RFM-23", "a startup --load that worked is recorded",
+              f.ok && f.list() == QStringList{S(a)}, str(f.list()));
+    }
+    {
+        Fixture f;
+        f.win->set_startup_load(a, a);
+        f.win->load_finished(a, false);
+        f.win->load_finished(b, true);   // some other load reporting: not the --load file
+        check("RFM-24", "a startup --load that failed is not recorded, nor is another file's report",
+              f.ok && f.list().isEmpty(), str(f.list()));
+    }
+    {
+        Fixture f;
+        const std::string zip = std::string(JNEXT_ZIP_FIXTURE_DIR) + "/beeper.tap.zip";
+        f.win->set_startup_load(b, zip);   // main.cpp loads the extracted copy, names the archive
+        f.win->load_finished(b, true);
+        check("RFM-25", "a startup --load of a .zip records the archive, not the extracted copy",
+              f.ok && f.list() == QStringList{S(fs::path(zip).lexically_normal().string())},
+              str(f.list()));
     }
 
     fs::remove_all(g_root, ec);

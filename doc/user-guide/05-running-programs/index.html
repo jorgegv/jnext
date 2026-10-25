@@ -3640,7 +3640,9 @@ game you were playing is still there.</p>
 the File and Tape menus, newest first, numbered 1 to 9 and 0; hovering an entry
 shows its full path. Choosing one loads it exactly as <strong>File &gt; Load NEX File…</strong>
 does. A file that has been deleted since is dropped from the list and the status
-bar says so. A load that failed, <strong>--load</strong>, and Quick Load are not recorded.
+bar says so. A program started with <strong>--load</strong> is recorded once it has loaded; a
+load that failed, and Quick Load, are not. Like Load NEX File…, an entry cold-boots the machine, so a
+<code>.tap</code> or <code>.tzx</code> entry boots and auto-loads rather than just inserting the tape.
 <strong>File &gt; Reload Last File</strong> (Alt+L) loads the newest entry again in one keystroke, handy
 when you rebuild a program and want to run it again. <strong>Clear Recent Files</strong> empties the list. The list is kept between runs in
 <code>~/.jnext/jnext.conf</code> (<code>[recent] files</code>), and <strong>Load NEX File…</strong> and <strong>Open Tape

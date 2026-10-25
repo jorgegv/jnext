@@ -108,7 +108,7 @@
 - Pause / resume from the emulator window (toolbar button, Machine > Pause, Alt+U or the Pause key; works in fullscreen) without opening the debugger; a Paused cell in the status bar
 - Quick Screenshot (Alt+K): no dialog, timestamped collision-free name, into a configurable directory (default `~/.jnext/screenshots`), in the configured default format; the status bar names the file written
 - Quick Save (Alt+Shift+F5) / Quick Load (Alt+Shift+F9): one-key `.jns` snapshot into `~/.jnext/snapshots`, timestamped and never overwritten; Quick Load restores the newest after a bad-file check; Quick Save keeps the newest 20 (`--quick-snapshot-keep N|unlimited`, Preferences, `[snapshot] quick_keep`)
-- File > Recent Files: the last ten programs and tapes loaded from the menus, newest first, persisted (`[recent] files` in `jnext.conf`); File > Reload Last File (Alt+L) loads the newest again; the Load dialogs open with the last file selected
+- File > Recent Files: the last ten programs and tapes loaded from the menus or with `--load`, newest first, persisted (`[recent] files` in `jnext.conf`); File > Reload Last File (Alt+L) loads the newest again; the Load dialogs open with the last file selected
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)
 - Preferences dialog (Settings → Preferences…, Alt+P): configure startup defaults, input sources, live host audio gain, remembered paths and the quick-screenshot directory/format; saved to `~/.jnext/jnext.conf` — CLI flags always override saved settings
