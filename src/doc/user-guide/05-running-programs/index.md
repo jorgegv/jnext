@@ -53,6 +53,19 @@ what was wrong with it. A file whose extension JNEXT does not know and that is
 not a NEX file is refused in the same way, before anything is reset, so the
 game you were playing is still there.
 
+**File > Recent Files** lists the last ten programs and tapes you loaded from
+the File and Tape menus, newest first, numbered 1 to 9 and 0; hovering an entry
+shows its full path. Choosing one loads it exactly as **File > Load NEX File…**
+does. A file that has been deleted since is dropped from the list and the status
+bar says so. A program started with **--load** is recorded once it has loaded; a
+load that failed, and Quick Load, are not. Like Load NEX File…, an entry cold-boots the machine, so a
+`.tap` or `.tzx` entry boots and auto-loads rather than just inserting the tape.
+**File > Reload Last File** (Alt+L) loads the newest entry again in one keystroke, handy
+when you rebuild a program and want to run it again. **Clear Recent Files** empties the list. The list is kept between runs in
+`~/.jnext/jnext.conf` (`[recent] files`), and **Load NEX File…** and **Open Tape
+File…** open with the file you loaded last selected when it is still in the
+folder they open in.
+
 ## Programs in ZIP archives
 
 A program downloaded as `game.tap.zip` or `game.nex.zip` loads without

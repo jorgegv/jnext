@@ -903,6 +903,22 @@ add_executable(fullscreen_sync_test gui/fullscreen_sync_test.cpp)
 target_include_directories(fullscreen_sync_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME fullscreen_sync_tests COMMAND fullscreen_sync_test)
 
+# File > Recent Files list logic (GH #406). Pure helper under test
+# (src/gui/recent_files.h) -- header-only, no Qt, so push/dedup/cap/remove and
+# the load-dialog seed are reachable from every OS's SDL-only run. Registered
+# unconditionally, like fullscreen_sync_test.
+add_executable(recent_files_test gui/recent_files_test.cpp)
+target_include_directories(recent_files_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME recent_files_tests COMMAND recent_files_test)
+
+# RECF-17 (symlink dedup) needs a symbolic link, which Windows (and wine) cannot
+# create: POSIX only, `# os: posix` in unit-tests.conf (GH #214).
+if(NOT WIN32)
+    add_executable(recent_files_posix_test gui/recent_files_posix_test.cpp)
+    target_include_directories(recent_files_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME recent_files_posix_tests COMMAND recent_files_posix_test)
+endif()
+
 # Debugger window attachment geometry (issue #39). Pure placement helper under
 # test (src/debugger/window_attach.h) — header-only, no Qt, so the arithmetic
 # that decides where the debugger window lands (and the rule that it must NOT
@@ -1459,6 +1475,17 @@ if(ENABLE_QT_UI)
     target_link_libraries(esp_status_test PRIVATE jnext_gui)
     target_include_directories(esp_status_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esp_status_tests COMMAND esp_status_test)
+
+    # File > Recent Files wiring (GH #406): what is recorded, the numbered
+    # entries, Clear, a vanished file, persistence, the load-dialog seed.
+    # Drives the REAL menu actions and load routes of an offscreen MainWindow.
+    add_executable(recent_files_menu_test gui/recent_files_menu_test.cpp)
+    set_target_properties(recent_files_menu_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(recent_files_menu_test PRIVATE jnext_gui)
+    target_include_directories(recent_files_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(recent_files_menu_test PRIVATE
+        JNEXT_ZIP_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zip")
+    add_test(NAME recent_files_menu_tests COMMAND recent_files_menu_test)
 
     # GUI load paths report a failed load (Tape > Open, File > Open via the
     # frontend's load_finished(), File > Play RZX), Tape > Open follows the

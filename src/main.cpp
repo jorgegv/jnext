@@ -1127,6 +1127,9 @@ int main(int argc, char* argv[]) {
     // file of its own extension, and carry on with that path, so every check
     // below (RZX rules, warm start, the pending-load dispatch) sees an ordinary
     // file. Several programs, none, or an unreadable archive refuse with exit 1.
+#ifdef ENABLE_QT_UI
+    const std::string load_file_given = load_file;   // GH #406: File > Recent Files names the archive
+#endif
     if (!load_file.empty() && program_archive::is_archive_path(load_file)) {
         std::string extracted, member, why;
         if (!program_archive::extract_single_program(load_file, extracted, why, &member)) {
@@ -2161,6 +2164,11 @@ int main(int argc, char* argv[]) {
         };
         // Set up pending load (auto-detect format by extension).
         if (!load_file.empty()) {
+            // GH #406 - a --load that works joins File > Recent Files.
+#ifdef ENABLE_QT_UI
+            if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>)
+                if (auto* mw = app.main_window()) mw->set_startup_load(load_file, load_file_given);
+#endif
             std::string ext;
             auto dot = load_file.rfind('.');
             if (dot != std::string::npos) {

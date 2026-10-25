@@ -219,10 +219,10 @@ static void test_accelerators(MainWindow& w)
 
     // MA-05 — the denominator, the same device as the debugger suite's DACC-05
     // and for the same reason: every row above passes trivially against an
-    // empty harvest, so the shape of the walk is pinned. Eight menus; thirteen
-    // popups (File, Machine + Machine Type + CPU Speed + Emulator Speed, Input
-    // + Joy 1 + Joy 2, Tape, Debug, View, Settings, Help); fifty-one
-    // mnemonics; seventeen shortcuts — plus, in a debugger build, the two
+    // empty harvest, so the shape of the walk is pinned. Eight menus; fourteen
+    // popups (File + Recent Files, Machine + Machine Type + CPU Speed + Emulator Speed, Input
+    // + Joy 1 + Joy 2, Tape, Debug, View, Settings, Help); fifty-three
+    // mnemonics; eighteen shortcuts — plus, in a debugger build, the two
     // View/Debug entries sharing one Alt+D. (GH #19 added one of each:
     // File > Quic&k Screenshot, Alt+K. GH #93 added a mnemonic: File > &Eject
     // SD Card. GH #89 added two: Tape > Start &Saving... and Stop Sa&ving.
@@ -232,7 +232,10 @@ static void test_accelerators(MainWindow& w)
     // GH #321 added two shortcuts: File > Quick Save Snapshot, Alt+Shift+F5, and
     // Quick Load Snapshot, Alt+Shift+F9; neither has a mnemonic.
     // GH #380 added a shortcut: File > Quit's second, Alt+F4, next to Alt+Q.
-    // GH #381 added a mnemonic: Machine > POK T&rainers...)
+    // GH #381 added a mnemonic: Machine > POK T&rainers...
+    // GH #406 added a popup and two mnemonics: File > Recent &Files, and its
+    // &Clear Recent Files; the numbered entries exist only once a file was loaded.
+    // And a shortcut: File > Reload Last File, Alt+L.)
     //
     // ADDING OR REMOVING A MENU ENTRY MEANS UPDATING THESE NUMBERS, and that
     // edit is the point: it is the claim about how much of the menu tree is
@@ -245,16 +248,16 @@ static void test_accelerators(MainWindow& w)
     {
         const bool as_expected =
                top.size()           == 8
-            && popup_scopes.size()  == 13
-            && menu_accels.size()   == 51 + kDebuggerMnemonics
-            && key_accels.size()    == 17 + kDebuggerShortcuts;
+            && popup_scopes.size()  == 14
+            && menu_accels.size()   == 53 + kDebuggerMnemonics
+            && key_accels.size()    == 18 + kDebuggerShortcuts;
         check("MA-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 8), popups=%zu (want 13), mnemonics=%zu (want %zu), "
+              fmt("menus=%zu (want 8), popups=%zu (want 14), mnemonics=%zu (want %zu), "
                   "shortcuts=%zu (want %zu)",
                   top.size(), popup_scopes.size(),
-                  menu_accels.size(), 51 + kDebuggerMnemonics,
-                  key_accels.size(), 17 + kDebuggerShortcuts));
+                  menu_accels.size(), 53 + kDebuggerMnemonics,
+                  key_accels.size(), 18 + kDebuggerShortcuts));
     }
 }
 

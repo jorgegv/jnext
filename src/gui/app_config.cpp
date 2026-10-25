@@ -1,5 +1,6 @@
 #include "gui/app_config.h"
 #include "gui/emulator_widget.h"
+#include "gui/recent_files.h"
 #include "peripheral/esp_host_policy.h"
 
 #include <QDir>
@@ -187,6 +188,15 @@ void AppConfig::load() {
     data_.screenshot_dir = settings_.value("screenshot_dir", data_.screenshot_dir).toString();
     settings_.endGroup();
 
+    // GH #406. Its own group; cleaned of blanks and cut to the cap, so a
+    // hand-edited file cannot grow the menu.
+    settings_.beginGroup("recent");
+    data_.recent_files = settings_.value("files").toStringList();
+    data_.recent_files.removeAll(QString());
+    while (data_.recent_files.size() > static_cast<qsizetype>(recent_files::kMax))
+        data_.recent_files.removeLast();
+    settings_.endGroup();
+
     // GH #19. A new group rather than more `[paths]` keys, because only one of
     // the two is a path. No CONFIG_VERSION bump: both keys are absent from a
     // v1 file and both fall back to their defaults, which is the behaviour
@@ -332,6 +342,12 @@ void AppConfig::save() const {
     settings_.setValue("last_load_dir", data_.last_load_dir);
     settings_.setValue("sd_card_path", data_.sd_card_path);
     settings_.setValue("screenshot_dir", data_.screenshot_dir);
+    settings_.endGroup();
+
+    settings_.beginGroup("recent");
+    // An empty list is not written: QSettings stores it as "@Invalid()".
+    if (data_.recent_files.isEmpty()) settings_.remove("files");
+    else settings_.setValue("files", data_.recent_files);
     settings_.endGroup();
 
     settings_.beginGroup("screenshot");   // GH #19

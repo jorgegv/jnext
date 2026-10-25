@@ -1900,8 +1900,9 @@ Symbol Shift, so a Ctrl shortcut would eat a key the guest needs (see
 
 **File**  
 Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok
-opens POK Trainers instead, without a reset), Insert SD Card Image /
-Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4
+opens POK Trainers instead, without a reset), Recent Files (the last ten
+loaded, newest first) and Reload Last File (Alt+L), Insert SD Card Image
+/ Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4
 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop RZX, Save
 Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
 (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot
@@ -2061,7 +2062,7 @@ Ctrl+F6 (start and stop video recording), and function keys have no
 Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext
-claims Alt + Q/O/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S, Alt+Shift+F5 and
+claims Alt + Q/O/L/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S, Alt+Shift+F5 and
 Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H (menu bar) and
 Alt + 1 to Alt + 8 (the script host keys), which leaves the guest only
 Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1` (INV

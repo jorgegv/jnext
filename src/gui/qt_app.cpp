@@ -475,6 +475,8 @@ int QtApp::run() {
     // emulator_start_rzx_record_when_loaded() in TickEffects::pre_frames().
     if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
+    else if (main_window_ && !rzx_play_file_.empty())
+        main_window_->startup_rzx_started(rzx_play_file_);   // GH #406: --load x.rzx joins Recent Files
     return qapp_->exec();
 }
 
