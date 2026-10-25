@@ -212,6 +212,10 @@ public:
     /// GH #406 - the startup --load: `file` is what the frontend will load
     /// (an archive member's extracted copy), `shown` what the user named; when
     /// load_finished() reports `file` worked, `shown` joins the recent list.
+    /// GH #406 - a startup `--load x.rzx` is played by the frontend, not loaded:
+    /// it calls this once playback has started.
+    void startup_rzx_started(const std::string& file) { load_finished(file, true); }
+
     void set_startup_load(const std::string& file, const std::string& shown) {
         startup_load_file_ = file;
         startup_load_shown_ = shown;
@@ -511,6 +515,7 @@ private:
     // GH #406 - the path (as the user gave it) to add to File > Recent Files
     // when that load succeeds; empty for a load that is not recorded.
     std::string menu_load_recent_;
+    std::string recent_candidate_;   // what handle_load_path() was asked for, until handed on
     std::string startup_load_file_, startup_load_shown_;   // GH #406, --load
     // GH #392 - what to call menu_load_pending_ in the failure box (an archive
     // member's extracted path is not something the user knows).

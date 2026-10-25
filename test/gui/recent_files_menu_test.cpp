@@ -11,8 +11,9 @@
 // frontend's report) and handle_tape_path(), and triggers the real menu
 // actions. The load callback stands in for the cold boot.
 //
-// NOT covered here: the native macOS open panel (it is Cocoa, not Qt's own
-// dialog); only the seed string handed to getOpenFileName is pinned (RFM-12).
+// The Load Program and Open Tape pickers are opened for real (RFM-31/32) and
+// shown to select the seeded file. NOT covered: the native macOS open panel (it
+// is Cocoa, not Qt's own dialog), which Linux CI cannot open.
 //
 // Run: ./build/test/recent_files_menu_test
 
@@ -21,12 +22,17 @@
 #include "debug/debugger.h"
 #include "gui/app_config.h"
 #include "gui/main_window.h"
+#include "gui/preferences_dialog.h"
 
+#include <QAbstractButton>
 #include <QAction>
+#include <QDialogButtonBox>
+#include <QFileDialog>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QApplication>
 #include <QMenu>
+#include <QPushButton>
 #include <QStatusBar>
 #include <QString>
 #include <QMessageBox>
@@ -144,6 +150,31 @@ struct DialogWatcher {
     }
 };
 
+// Opens the real picker behind the menu action `text` and reports what it was
+// seeded with (the file it has selected, and its directory); then rejects it.
+struct Picked { int seen = 0; std::string selected, dir; };
+Picked open_picker(MainWindow& w, const char* text)
+{
+    Picked p;
+    QAction* act = nullptr;
+    for (QAction* a : w.findChildren<QAction*>())
+        if (a->text() == QString::fromUtf8(text)) act = a;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* fd = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+        if (!fd || !fd->isVisible()) return;
+        ++p.seen;
+        p.selected = fd->selectedFiles().value(0).toStdString();
+        p.dir = fd->directory().absolutePath().toStdString();
+        static_cast<QDialog*>(fd)->reject();
+    });
+    timer.start(1);
+    if (act) act->trigger();
+    timer.stop();
+    QApplication::processEvents();
+    return p;
+}
+
 std::string fmt_n(int n) { return std::to_string(n); }
 QString S(const std::string& s) { return QString::fromStdString(s); }
 std::string str(const QStringList& l) { return l.join("|").toStdString(); }
@@ -249,7 +280,7 @@ int main(int argc, char** argv)
         Fixture f;
         f.win->app_config().data().last_load_dir = S(g_root.string());
         f.load(a);
-        check("RFM-12", "the Load dialogs are seeded with the file just loaded, when it is still there",
+        check("RFM-12", "load_dialog_seed() is the file just loaded while it is still in the last load directory",
               f.ok && f.win->load_dialog_seed() == S(a), f.ok ? f.win->load_dialog_seed().toStdString() : "no fixture");
     }
     {
@@ -382,6 +413,114 @@ int main(int argc, char** argv)
         check("RFM-25", "a startup --load of a .zip records the archive, not the extracted copy",
               f.ok && f.list() == QStringList{S(fs::path(zip).lexically_normal().string())},
               str(f.list()));
+    }
+
+    {
+        Fixture f;
+        f.load(a);
+        f.win->recent_menu()->actions().back()->trigger();   // Clear
+        Fixture g(true);
+        check("RFM-26", "Clear Recent Files is saved: a restart finds the list empty",
+              f.ok && g.ok && g.list().isEmpty(), str(g.list()));
+    }
+    {
+        Fixture f;
+        const std::string gone = touch("gone3.tap");
+        f.load(a); f.load(gone);
+        fs::remove(gone);
+        f.win->recent_menu()->actions()[0]->trigger();   // the vanished one
+        Fixture g(true);
+        check("RFM-27", "dropping a vanished file is saved: a restart does not bring it back",
+              f.ok && g.ok && g.list() == QStringList{S(a)}, str(g.list()));
+    }
+    {
+        Fixture f;
+        f.load(a);
+        f.win->app_config().data().last_load_dir = S((g_root / "elsewhere").string());
+        f.win->recent_menu()->actions()[0]->trigger();
+        Fixture g(true);
+        check("RFM-28", "choosing an entry makes its folder the last load directory, saved like Load Program does",
+              f.ok && g.ok && f.win->app_config().data().last_load_dir == S(g_root.string()) &&
+                  g.win->app_config().data().last_load_dir == S(g_root.string()),
+              f.win->app_config().data().last_load_dir.toStdString());
+    }
+    {
+        Fixture f;
+        f.win->set_unattended(true);
+        f.win->handle_load_path(S(a));                               // handed, pending
+        f.win->handle_load_path(S(touch("junk.xyz")));               // refused before the cold boot
+        f.win->load_finished(a, true);
+        check("RFM-29", "a refused request made while a load is pending does not take its place in the list",
+              f.ok && f.list() == QStringList{S(a)}, str(f.list()));
+    }
+    {
+        Fixture f;
+        f.win->handle_load_path(S(a));                  // handed, pending
+        f.win->handle_load_path(S(b), true);            // Quick Load's call, handed on: supersedes it
+        f.win->load_finished(b, true);
+        check("RFM-30", "a Quick Load handed on while a menu load is pending records neither file",
+              f.ok && f.list().isEmpty(), str(f.list()));
+    }
+    {
+        Fixture f;
+        f.win->app_config().data().last_load_dir = S(g_root.string());
+        f.load(a);
+        const Picked p = open_picker(*f.win, "&Load NEX File...");
+        check("RFM-31", "the real Load Program picker opens with the file last loaded selected",
+              f.ok && p.seen > 0 && p.selected == a && p.dir == g_root.string(),
+              p.selected + " | " + p.dir);
+    }
+    {
+        Fixture f;
+        f.win->app_config().data().last_load_dir = S(g_root.string());
+        f.load(a);
+        const Picked p = open_picker(*f.win, "&Open Tape File...");
+        check("RFM-32", "the real Open Tape picker opens with the file last loaded selected",
+              f.ok && p.seen > 0 && p.selected == a && p.dir == g_root.string(),
+              p.selected + " | " + p.dir);
+    }
+    {
+        Fixture f;
+        f.load(a);
+        QAction* first = f.win->recent_menu()->actions()[0];
+        check("RFM-33", "the submenu shows tooltips and an entry's tooltip is its full path",
+              f.ok && f.win->recent_menu()->toolTipsVisible() && first->toolTip() == S(a),
+              first->toolTip().toStdString());
+    }
+    {
+        Fixture f;
+        f.load(a);
+        QAction* prefs = nullptr;
+        for (QAction* x : f.win->findChildren<QAction*>())
+            if (x->text() == "&Preferences...") prefs = x;
+        f.win->handle_load_path(S(b));   // pending while the dialog is open
+        int polls = 0;
+        QTimer timer;
+        QObject::connect(&timer, &QTimer::timeout, [&]() {
+            auto* d = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+            if (!d || !d->isVisible() || polls++) return;
+            f.win->load_finished(b, true);   // the load finishes under the open dialog
+            if (auto* bb = d->findChild<QDialogButtonBox*>())
+                if (auto* ap = bb->button(QDialogButtonBox::Apply)) ap->click();
+            static_cast<QDialog*>(d)->reject();
+        });
+        timer.start(1);
+        if (prefs) prefs->trigger();
+        timer.stop();
+        Fixture g(true);
+        check("RFM-34", "Preferences Apply keeps a file recorded while the dialog was open",
+              f.ok && prefs && polls > 0 && f.list() == QStringList({S(b), S(a)}) &&
+                  g.list() == QStringList({S(b), S(a)}), str(f.list()));
+    }
+    {
+        Fixture f;
+        f.win->set_startup_load(a, a);
+        f.win->startup_rzx_started(a);
+        Fixture g;   // another file started the same way is not the --load file
+        g.win->set_startup_load(a, a);
+        g.win->startup_rzx_started(b);
+        check("RFM-35", "a startup --load of a recording is recorded once it plays, and only that file",
+              f.ok && g.ok && f.list() == QStringList{S(a)} && g.list().isEmpty(), str(f.list()));
     }
 
     fs::remove_all(g_root, ec);

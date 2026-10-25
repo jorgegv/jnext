@@ -865,6 +865,7 @@ void MainWindow::create_menus() {
     // way); the entries inside are numbered 1..9, 0 and live in a popup of
     // their own, so they collide with nothing here.
     recent_menu_ = file_menu->addMenu(tr("Recent &Files"));
+    recent_menu_->setToolTipsVisible(true);   // the full path of an entry, on hover
     rebuild_recent_menu();
 
     // GH #93 — a live card change, for NextZXOS's REMOUNT ("Remove/insert SD
@@ -1778,7 +1779,7 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // GH #406 - what load_finished() records if this load works. Quick Load is
     // the one caller that passes jns_probed; it is a snapshot slot, not a file
     // the user chose, and would crowd the list.
-    menu_load_recent_ = jns_probed ? std::string() : file;
+    recent_candidate_ = jns_probed ? std::string() : file;
 
     // GH #392 - a program inside a .zip: pick the member, extract it to a file of
     // its own extension, and run the ordinary route on that file. Every message
@@ -1943,6 +1944,9 @@ bool MainWindow::handle_program_path(const QString& path, const QString& shown,
     bool handed = false;
     if (load_file_callback_) {
         menu_load_pending_ = file;
+        // GH #406 - armed here, where the load is really handed on, so a refused
+        // or cancelled request cannot take another pending load's place.
+        menu_load_recent_ = recent_candidate_;
         menu_load_shown_ = shown.toStdString();
         load_file_callback_(file, allow_experimental_nex_v13);
         handed = true;
@@ -3045,9 +3049,13 @@ void MainWindow::on_open_preferences() {
                           joy_device_provider_ ? joy_device_provider_()
                                                : std::vector<JoyDeviceInfo>{});
     connect(&dlg, &PreferencesDialog::apply_requested, this, [this](const AppConfigData& cfg) {
-        app_config_.data() = cfg;
+        // GH #406 - the recent list has no control in the dialog, so its copy is
+        // only as new as the moment it opened; a load can finish meanwhile.
+        AppConfigData merged = cfg;
+        merged.recent_files = app_config_.data().recent_files;
+        app_config_.data() = merged;
         app_config_.save();
-        apply_preferences(cfg);
+        apply_preferences(merged);
     });
     dlg.exec();
 }

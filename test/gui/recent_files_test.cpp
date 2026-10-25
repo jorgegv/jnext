@@ -133,6 +133,16 @@ int main()
       check("RECF-16", "the last directory is compared by identity, not spelling",
             recent_files::dialog_seed(l, (r / "other" / "..").string()) == a); }
 
+    { // a symlinked spelling of one file is the same entry (where the OS lets the test make one)
+      List l; recent_files::push(l, a);
+      const fs::path link = r / "alias.nex";
+      std::error_code lec;
+      fs::create_symlink(a, link, lec);
+      const std::string spelling = lec ? (r / "." / "a.nex").string() : link.string();
+      recent_files::push(l, spelling);
+      check("RECF-17", "a symlink to a listed file is the same entry, not a second one",
+            l.size() == 1, join(l) + (lec ? " (no symlinks here: dot spelling used)" : "")); }
+
     std::error_code ec;
     fs::remove_all(r, ec);
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
