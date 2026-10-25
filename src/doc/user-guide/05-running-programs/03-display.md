@@ -5,7 +5,7 @@ always a whole number of pixels, so the picture stays sharp.
 
 **Fullscreen.** **F11**, or **View > Fullscreen**. The image is centred with
 black bars, keeping the correct shape. F11 again returns. (Esc will not: it is
-the Break key.) On a Mac, macOS takes F11 for Show Desktop: use **Ctrl+Cmd+F**, the green
+the Break key.) On a Mac, macOS takes F11 for Show Desktop: use **Control+Command+F (⌃⌘F)**, the green
 button in the title bar, or **View > Fullscreen**.
 
 **CRT effect.** One choice, in **View** or **Settings > Preferences**: *off*, *Scanlines*,

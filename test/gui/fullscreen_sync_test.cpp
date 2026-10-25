@@ -13,7 +13,8 @@
 //     window's minimum size equals its maximum (QCocoaWindow::isFixedSize,
 //     qtbase src/plugins/platforms/cocoa/qcocoawindow.mm), so the macOS lock
 //     must keep max != min while staying within a pixel or so of the hint,
-//     and the other platforms must keep the exact fixed size.
+//     and size_lock(..., false) must add no slack. (No production code calls it with
+//     false; the real non-macOS window is pinned by GH404-02 in window_scale_test.)
 //
 // Run: ./build/test/fullscreen_sync_test
 
@@ -77,7 +78,7 @@ int main()
     }
     {
         const auto l = size_lock(1280, 1109, false);
-        check("FSYNC-11", "non-macOS lock: exact fixed size, as before",
+        check("FSYNC-11", "size_lock(.., false) has no slack (helper argument only; the window itself is pinned by GH404-02)",
               l.min_w == 1280 && l.max_w == 1280 && l.min_h == 1109 && l.max_h == 1109);
     }
 

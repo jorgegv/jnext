@@ -375,6 +375,60 @@ int main(int argc, char** argv)
               ok, ok ? "1x, 2x, 3x all restored" : detail);
     }
 
+    // ── GH404-01 — toggle_fullscreen() really changes the window state ──
+    // GH #404 split toggle_fullscreen() into a state part and a show call
+    // (apply_fullscreen_state(enter, call_show)). Off macOS the show call must
+    // always happen: View > Fullscreen / F11 must put the WINDOW in full screen,
+    // not only hide the chrome.
+    {
+        MainWindow w;
+        w.show();
+        pump(w, fb);
+        const bool before = w.isFullScreen();
+        w.toggle_fullscreen();
+        pump(w, fb);
+        const bool entered = w.isFullScreen();
+        w.toggle_fullscreen();
+        pump(w, fb);
+        const bool left = w.isFullScreen();
+        check("GH404-01",
+              "toggle_fullscreen() enters then leaves real window full screen",
+              !before && entered && !left,
+              fmt("before %d entered %d left %d", before, entered, left));
+    }
+
+    // ── GH404-02 — the windowed size lock is exact ──────────────────────
+    // Off macOS the windowed window is fixed (min == max == size). macOS alone
+    // gets one pixel of slack, to keep the zoom button enabled (GH #404); that
+    // must not leak to other platforms. Checked after a scale change and after
+    // a fullscreen round trip, the two paths that re-apply the lock.
+    {
+        bool ok = true;
+        std::string detail;
+        MainWindow w;
+        w.show();
+        pump(w, fb);
+        for (int step = 0; step < 2; ++step) {
+            if (step == 0) {
+                w.set_scale(3);
+            } else {
+                w.toggle_fullscreen();
+                pump(w, fb);
+                w.toggle_fullscreen();
+            }
+            pump(w, fb);
+            if (w.minimumSize() != w.maximumSize() || w.minimumSize() != w.size()) {
+                ok = false;
+                detail += fmt("step %d: min %dx%d max %dx%d size %dx%d; ", step,
+                              w.minimumSize().width(), w.minimumSize().height(),
+                              w.maximumSize().width(), w.maximumSize().height(),
+                              w.width(), w.height());
+            }
+        }
+        check("GH404-02", "windowed main window has minimumSize == maximumSize == size",
+              ok, ok ? "exact at set_scale and after a fullscreen round trip" : detail);
+    }
+
     std::printf("\n=========================================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

@@ -1951,10 +1951,10 @@ Magic Breakpoint (toggle), Debugger (Alt+D - the same entry as in
 **View**).
 
 **View**  
-Scale 1x / 2x / 3x, Fullscreen (F11, or Ctrl+Command+F on macOS;
-letterboxed), the CRT effect (CRT Scanlines, CRT Soft Scanlines, CRT TV,
-CRT PC Monitor; one at a time, none checked = off; the last three only
-in builds with GPU support), Debugger (Alt+D).
+Scale 1x / 2x / 3x, Fullscreen (F11, or Control+Command+F (⌃⌘F) on
+macOS; letterboxed), the CRT effect (CRT Scanlines, CRT Soft Scanlines,
+CRT TV, CRT PC Monitor; one at a time, none checked = off; the last
+three only in builds with GPU support), Debugger (Alt+D).
 
 **Settings**  
 Preferences… (Alt+P), which opens the settings dialog (Startup, Input,
@@ -2028,8 +2028,8 @@ keystrokes before the Spectrum saw them.
 
 Esc is the Spectrum’s Break key, not a fullscreen shortcut. Fullscreen
 is toggled with F11 only (it used to also be exited with Esc). On macOS,
-which takes F11 for Show Desktop, Ctrl+Command+F and the green title-bar
-button also toggle it.
+which takes F11 for Show Desktop, Control+Command+F (⌃⌘F) and the green
+title-bar button also toggle it.
 
 The function keys are host controls, not Spectrum keys. F1 is Power
 Reset (the same as Alt+R), F4 is Soft Reset, F9 fires the Multiface NMI,
