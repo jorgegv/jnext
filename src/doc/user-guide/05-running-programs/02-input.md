@@ -42,7 +42,7 @@ Three things catch people out:
   these two swapped. On a Mac, **Cmd** is the key that does what this page
   says of Ctrl.
 - **Esc is Break**, not "get me out of fullscreen". Fullscreen is F11 and only
-  F11.
+  F11 (on a Mac: Ctrl+Cmd+F or the green title-bar button, since macOS takes F11).
 - **Alt is a host modifier, never a Spectrum key.** Only the four Alt
   combinations above are used, because the menu bar and the menu shortcuts
   claim the rest — and **Alt+1 to Alt+8** are the

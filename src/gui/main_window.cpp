@@ -6,6 +6,7 @@
 #include "gui/preferences_apply_policy.h"
 #include "gui/pok_dialog.h"           // GH #381
 #include "gui/qt_ctrl_is_command.h"   // GH #365
+#include "gui/fullscreen_sync.h"      // GH #404
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
@@ -605,13 +606,24 @@ void MainWindow::sync_joy_source_menu() {
 }
 
 void MainWindow::toggle_fullscreen() {
-    if (is_fullscreen_) {
+    // GH #404 — our own showFullScreen()/showNormal() raise WindowStateChange
+    // too; changeEvent() must not apply that as a system-initiated change.
+    applying_fullscreen_ = true;
+    apply_fullscreen_state(!is_fullscreen_, true);
+    applying_fullscreen_ = false;
+}
+
+// GH #404 — the body of View > Fullscreen. `call_show` is false when the
+// window system has ALREADY moved the window (macOS green button): only the
+// chrome, size constraints, viewport mode and menu tick follow it.
+void MainWindow::apply_fullscreen_state(bool enter, bool call_show) {
+    if (!enter) {
         // Restore chrome.
         menuBar()->show();
         for (QToolBar* tb : findChildren<QToolBar*>()) tb->show();
         statusBar()->show();
 
-        showNormal();
+        if (call_show) showNormal();
         is_fullscreen_ = false;
         emulator_widget_->set_fullscreen_mode(false);
         // GH #242 — give the viewport its fixed size back BEFORE the window is
@@ -640,7 +652,7 @@ void MainWindow::toggle_fullscreen() {
         emulator_widget_->setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
         emulator_widget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         emulator_widget_->set_fullscreen_mode(true);
-        showFullScreen();
+        if (call_show) showFullScreen();
         is_fullscreen_ = true;
     }
 
@@ -710,7 +722,21 @@ void MainWindow::apply_fixed_window_size() {
     setMinimumSize(0, 0);
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     emulator_widget_->updateGeometry();
+#ifdef Q_OS_MACOS
+    // GH #404 — Qt's Cocoa plugin disables the title-bar zoom / full-screen
+    // button on a window whose minimum size equals its maximum
+    // (QCocoaWindow::isFixedSize) and re-checks on every constraint change, so
+    // a setFixedSize() window has a dead green button. One pixel of slack keeps
+    // it enabled; see gui/fullscreen_sync.h.
+    const QSize hint = sizeHint();
+    const fullscreen_sync::SizeLock lock =
+        fullscreen_sync::size_lock(hint.width(), hint.height(), true);
+    setMinimumSize(lock.min_w, lock.min_h);
+    setMaximumSize(lock.max_w, lock.max_h);
+    resize(hint);
+#else
     setFixedSize(sizeHint());
+#endif
 }
 
 void MainWindow::cycle_scale() {
@@ -1271,6 +1297,15 @@ void MainWindow::create_menus() {
     // (A previous comment here claimed F11 was taken by Step Into and that
     // fullscreen moved to Ctrl+F11; neither was true of the code.)
     fullscreen_action_->setShortcut(QKeySequence(Qt::Key_F11));
+#ifdef Q_OS_MACOS
+    // GH #404 — macOS takes F11 for Show Desktop, so the key never arrives;
+    // Control+Command+F is the system's own full-screen chord (Qt::CTRL is
+    // Command and Qt::META is Control there; QKeySequence::FullScreen is this
+    // same sequence on macOS). The menu draws the first shortcut, so it leads;
+    // F11 stays for external keyboards that deliver it.
+    fullscreen_action_->setShortcuts({QKeySequence(Qt::CTRL | Qt::META | Qt::Key_F),
+                                      QKeySequence(Qt::Key_F11)});
+#endif
     fullscreen_action_->setCheckable(true);
     connect(fullscreen_action_, &QAction::triggered, this, &MainWindow::on_fullscreen);
 
@@ -2993,6 +3028,17 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         }
 #endif
 
+#ifdef Q_OS_MACOS
+        // GH #404 — Control+Command+F: the menu bar is hidden in full screen,
+        // so the action's shortcut cannot fire there (as with F11 below).
+        if (key == Qt::Key_F && modifiers.testFlag(Qt::ControlModifier) &&
+            modifiers.testFlag(Qt::MetaModifier)) {
+            toggle_fullscreen();
+            event->accept();
+            return;
+        }
+#endif
+
         switch (key) {
         case Qt::Key_F11:
             toggle_fullscreen();
@@ -3423,6 +3469,19 @@ void MainWindow::changeEvent(QEvent* event) {
         set_mouse_captured(false);
     }
     QMainWindow::changeEvent(event);
+#ifdef Q_OS_MACOS
+    // GH #404 — macOS enters / leaves full screen on its own (green button).
+    // Follow it with the same work View > Fullscreen does.
+    if (event->type() == QEvent::WindowStateChange) {
+        switch (fullscreen_sync::on_window_state_change(
+                    is_fullscreen_, windowState().testFlag(Qt::WindowFullScreen),
+                    applying_fullscreen_)) {
+        case fullscreen_sync::Action::Enter: apply_fullscreen_state(true, false);  break;
+        case fullscreen_sync::Action::Exit:  apply_fullscreen_state(false, false); break;
+        case fullscreen_sync::Action::None:  break;
+        }
+    }
+#endif
 }
 
 void MainWindow::mousePressEvent(QMouseEvent* event) {

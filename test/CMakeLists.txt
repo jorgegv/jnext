@@ -895,6 +895,14 @@ add_executable(preferences_apply_policy_test gui/preferences_apply_policy_test.c
 target_include_directories(preferences_apply_policy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME preferences_apply_policy_tests COMMAND preferences_apply_policy_test)
 
+# Full-screen state sync and macOS window size lock (GH #404). Pure decision
+# helper under test (src/gui/fullscreen_sync.h) -- header-only, no Qt, so the
+# rule MainWindow applies on macOS is reachable from Linux CI. Registered
+# unconditionally, like preferences_apply_policy_test.
+add_executable(fullscreen_sync_test gui/fullscreen_sync_test.cpp)
+target_include_directories(fullscreen_sync_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME fullscreen_sync_tests COMMAND fullscreen_sync_test)
+
 # Debugger window attachment geometry (issue #39). Pure placement helper under
 # test (src/debugger/window_attach.h) — header-only, no Qt, so the arithmetic
 # that decides where the debugger window lands (and the rule that it must NOT

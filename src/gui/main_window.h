@@ -478,6 +478,8 @@ private:
 
     /// Recompute the window's fixed size from the widget + chrome.
     void apply_fixed_window_size();
+    // GH #404 — shared body of toggle_fullscreen() and the macOS state sync.
+    void apply_fullscreen_state(bool enter, bool call_show);
 
     EmulatorWidget* emulator_widget_ = nullptr;
     Emulator*       emulator_        = nullptr;
@@ -545,6 +547,7 @@ private:
     int capture_margin() const;
 
     bool is_fullscreen_ = false;
+    bool applying_fullscreen_ = false;  // GH #404 — inside toggle_fullscreen()
     int current_scale_ = 1;  ///< Default 1× scale (640×512 viewport — post-G104, was 2× / 1280×1024 pre-G104).
 
     // Status bar labels
