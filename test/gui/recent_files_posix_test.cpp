@@ -51,6 +51,39 @@ int main()
     check("RECF-17", "a symlink to a listed file is the same entry, not a second one",
           !lec && l.size() == 1, detail);
 
+    // RECF-18/19: a directory reached through a symlink (macOS /var/folders ->
+    // /private/var). Entries are stored as given (lexical); the other spelling
+    // goes through the link, and a nonexistent "x/.." or a vanished file must
+    // not change the key. Reproduces the macOS CI failure of RECF-05.
+    const fs::path real = r / "real", dlink = r / "dlink";
+    std::error_code dec1, dec2;
+    fs::create_directory(real, dec1);
+    fs::create_directory_symlink(real, dlink, dec2);
+    std::ofstream(real / "b.tap").put('x');
+    const std::string setup = (dec1 || dec2) ? "fixture not created" : "";
+    {
+        recent_files::List m;
+        recent_files::push(m, (real / "b.tap").string());
+        recent_files::push(m, (real / "a.tap").string());
+        recent_files::remove(m, (dlink / "x" / ".." / "b.tap").string());
+        std::string d = setup;
+        for (const auto& e : m) d += " | " + e;
+        check("RECF-18", "remove through a symlinked directory with a nonexistent x/.. drops the entry",
+              setup.empty() && m.size() == 1 && m[0] == (real / "a.tap").string(), d);
+    }
+    {
+        recent_files::List m;
+        const std::string gone = (real / "gone.nex").string();
+        recent_files::push(m, gone);
+        recent_files::push(m, (dlink / "gone.nex").string());
+        const bool one = m.size() == 1;
+        recent_files::remove(m, (dlink / "gone.nex").string());
+        std::string d = setup;
+        for (const auto& e : m) d += " | " + e;
+        check("RECF-19", "a vanished file under a symlinked directory is one entry and removable via either spelling",
+              setup.empty() && one && m.empty(), d);
+    }
+
     std::error_code ec;
     fs::remove_all(r, ec);
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

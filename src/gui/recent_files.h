@@ -7,8 +7,9 @@
 //
 // The list is most-recent-first and capped at kMax. Two spellings of one file
 // (a symlink, "a/../b") are one entry: entries are compared by key(), which is
-// the canonical path while the file exists and the lexically normalised
-// absolute path when it does not (a vanished file must still be removable).
+// the canonical path while the file exists and, when it does not, the weakly
+// canonical one (symlinks resolved as far as the path exists, the rest
+// lexically normalised), so a vanished file is still removable.
 // ---------------------------------------------------------------------------
 
 #include <cstddef>
@@ -37,6 +38,11 @@ inline std::string key(const std::string& path)
 {
     std::error_code ec;
     std::filesystem::path c = std::filesystem::canonical(path, ec);
+    if (!ec) return c.string();
+    // Vanished file: still resolve symlinks in the part that exists, so it
+    // keys like the same spelling of a file that does (/var -> /private/var).
+    ec.clear();
+    c = std::filesystem::weakly_canonical(normalise(path), ec);
     return ec ? normalise(path) : c.string();
 }
 
