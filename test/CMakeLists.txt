@@ -911,6 +911,14 @@ add_executable(recent_files_test gui/recent_files_test.cpp)
 target_include_directories(recent_files_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME recent_files_tests COMMAND recent_files_test)
 
+# RECF-17 (symlink dedup) needs a symbolic link, which Windows (and wine) cannot
+# create: POSIX only, `# os: posix` in unit-tests.conf (GH #214).
+if(NOT WIN32)
+    add_executable(recent_files_posix_test gui/recent_files_posix_test.cpp)
+    target_include_directories(recent_files_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME recent_files_posix_tests COMMAND recent_files_posix_test)
+endif()
+
 # Debugger window attachment geometry (issue #39). Pure placement helper under
 # test (src/debugger/window_attach.h) — header-only, no Qt, so the arithmetic
 # that decides where the debugger window lands (and the rule that it must NOT

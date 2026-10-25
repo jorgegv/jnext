@@ -212,14 +212,15 @@ public:
     /// GH #406 - the startup --load: `file` is what the frontend will load
     /// (an archive member's extracted copy), `shown` what the user named; when
     /// load_finished() reports `file` worked, `shown` joins the recent list.
-    /// GH #406 - a startup `--load x.rzx` is played by the frontend, not loaded:
-    /// it calls this once playback has started.
-    void startup_rzx_started(const std::string& file) { load_finished(file, true); }
-
     void set_startup_load(const std::string& file, const std::string& shown) {
         startup_load_file_ = file;
         startup_load_shown_ = shown;
     }
+
+    /// GH #406 - a startup `--load x.rzx` is played by the frontend, not loaded
+    /// through load_finished(): it calls this once playback has started.
+    void startup_rzx_started(const std::string& file) { load_finished(file, true); }
+
     void on_recent_file(const QString& path);
     QString load_dialog_seed() const;
 

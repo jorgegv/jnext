@@ -228,6 +228,7 @@ BEGIN {
     M["preferences_apply_test"]        = "GUI Preferences (Apply)"
     M["preferences_apply_policy_test"] = "GUI Preferences (Apply Policy)"
     M["recent_files_test"]             = "Recent Files logic (GH #406)"
+    M["recent_files_posix_test"]       = "Recent Files symlinks (GH #406)"
     M["recent_files_menu_test"]        = "Recent Files menu (GH #406)"
     M["fullscreen_sync_test"]          = "Fullscreen Sync (GH #404)"
     M["pointer_capture_test"]          = "Pointer Capture"

@@ -1312,7 +1312,7 @@ void test_quick_keep_control()
 void test_recent_files_carried()
 {
     AppConfigData initial;
-    initial.recent_files = {QStringLiteral("/home/u/a.nex"), QStringLiteral("/home/u/b.tap")};
+    initial.recent_files = {QStringLiteral("/srv/u/a.nex"), QStringLiteral("/srv/u/b.tap")};
     PreferencesDialog dlg(initial);
     AppConfigData collected;
     bool emitted = false;

@@ -76,7 +76,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Emulator Boot         |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Fullscreen Sync (GH #404) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Recent Files logic (GH #406) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Recent Files logic (GH #406) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Recent Files symlinks (GH #406) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Frame-deadline scheduler |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |

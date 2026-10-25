@@ -3,8 +3,8 @@
 // No VHDL oracle: host UI behaviour. The oracle is the issue's request -- a
 // "Recent Files" menu (SimCoupe's) so a rebuilt program is one click away and
 // the Load dialog opens on the file last loaded -- and the plan's rules: a
-// SUCCESSFUL load the user asked for is recorded (a failed one, --load, Quick
-// Load are not), most recent first, ten at most, persisted in jnext.conf, a
+// SUCCESSFUL load the user asked for, or a startup --load, is recorded (a
+// failed one and Quick Load are not), most recent first, ten at most, persisted in jnext.conf, a
 // vanished file is dropped with a message, Preferences leaves the list alone.
 //
 // Drives a real offscreen MainWindow: handle_load_path() + load_finished() (the

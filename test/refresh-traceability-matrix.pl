@@ -1098,6 +1098,7 @@ my %NO_MATRIX_SECTION = (
     'preferences_apply_test'        => 'Preferences dialog wiring (host GUI)',
     'preferences_apply_policy_test' => 'Preferences apply/revert policy (host GUI)',
     'recent_files_test'         => 'File > Recent Files list logic and load-dialog seed (GH #406, host GUI, no VHDL oracle)',
+    'recent_files_posix_test'   => 'File > Recent Files symlink dedup (GH #406, POSIX-only, host GUI, no VHDL oracle)',
     'recent_files_menu_test'    => 'File > Recent Files menu wiring (GH #406, host GUI, no VHDL oracle)',
     'fullscreen_sync_test'      => 'macOS full-screen state sync and window size lock (GH #404, host GUI, no VHDL oracle)',
     'audio_gain_config_test'        => 'gain settings persistence (host settings file)',

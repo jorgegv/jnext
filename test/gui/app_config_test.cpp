@@ -169,7 +169,7 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().nextpi_release         = "latest";
         writer.data().nextpi_qemu_binary     = "/opt/qemu/bin/qemu-system-arm";
         writer.data().nextpi_audio           = "wav:/tmp/pi.wav";
-        writer.data().recent_files           = {"/home/u/b,c.nex", "/home/u/a.tap"};   // GH #406
+        writer.data().recent_files           = {"/srv/u/b,c.nex", "/srv/u/a.tap"};   // GH #406
         writer.save();
         written = writer.data();
     }
