@@ -480,6 +480,25 @@ int main(int argc, char** argv)
               p.selected + " | " + p.dir);
     }
     {
+        // A hand-typed "link/.." entry: Qt folds ".." lexically when it seeds a
+        // picker, so seeding the file would preselect ldir/dec.tap, a DIFFERENT
+        // file from the real tdir/dec.tap. The picker must not do that.
+        Fixture f;
+        const fs::path t = g_root / "rtdir" / "sub", l = g_root / "rldir";
+        fs::create_directories(t);
+        fs::create_directories(l);
+        good_tap("rtdir/dec.tap");
+        const std::string decoy = good_tap("rldir/dec.tap");
+        std::error_code lec;
+        fs::create_directory_symlink(t, l / "lnk", lec);
+        f.load((l / "lnk" / ".." / "dec.tap").string());
+        f.win->recent_menu()->actions()[0]->trigger();
+        const Picked p = open_picker(*f.win, "&Load NEX File...");
+        check("RFM-38", "the real picker never preselects another file for a link/.. entry",
+              f.ok && !lec && p.seen > 0 && p.selected != decoy,
+              p.selected + " | " + p.dir);
+    }
+    {
         Fixture f;
         f.load(a);
         QAction* first = f.win->recent_menu()->actions()[0];

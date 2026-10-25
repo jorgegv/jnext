@@ -145,9 +145,11 @@ int main()
       List l; recent_files::push(l, "rel.nex");
       std::error_code rec;
       fs::current_path(saved, rec);
+      std::error_code eec;
+      const bool same = l.size() == 1 && fs::equivalent(l[0], r / "rel.nex", eec) && !eec;
       check("RECF-24", "a relative path is stored absolute",
-            !cec && !mec && !rec && l.size() == 1 && fs::path(l[0]).is_absolute() &&
-                fs::equivalent(l[0], r / "rel.nex"), join(l)); }
+            !cec && !mec && !rec && l.size() == 1 && fs::path(l[0]).is_absolute() && same,
+            join(l)); }
 
     std::error_code ec;
     fs::remove_all(r, ec);

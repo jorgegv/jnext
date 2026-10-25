@@ -160,15 +160,16 @@ int main()
               m.size() == 1 && m[0] == (r / "latest.nex").string(), m.empty() ? "" : m[0]);
     }
 
-    // RECF-25: a hand-typed "link/../x" entry records the folder it is really
-    // in as the last load directory, and the dialog then preselects it (the
-    // lexical folder, "ldir", is a different directory).
+    // RECF-25: Qt folds ".." lexically when it seeds a dialog, so a hand-typed
+    // "link/../x" entry must offer its folder only, never a file seed (which
+    // would preselect the lexical sibling, a different file).
     {
         recent_files::List m;
+        const std::string ldir = (r / "ldir").string();
         recent_files::push(m, (r / "ldir" / "lnk" / ".." / "game.nex").string());
-        const std::string dir = recent_files::folder(m.empty() ? "" : m[0]);
-        check("RECF-25", "a link/.. entry's recorded folder makes the dialog seed that entry",
-              m.size() == 1 && recent_files::dialog_seed(m, dir) == m[0], dir);
+        const std::string seed = recent_files::dialog_seed(m, ldir);
+        check("RECF-25", "a link/.. entry is never offered as a file seed",
+              m.size() == 1 && seed == ldir, seed);
     }
 
     std::error_code ec;
