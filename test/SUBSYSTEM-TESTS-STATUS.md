@@ -156,7 +156,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Window scale + fullscreen geometry |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect (widget, settings, menu) |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window title (version) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI light/dark scheme (GH #363) |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI light/dark scheme (GH #363) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI scheme: private bus dies with the suite (GH #414) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD-card/NextPi download dialog (GH #358) |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
