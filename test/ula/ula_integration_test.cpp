@@ -301,7 +301,7 @@ static void test_scroll_integration(Emulator& emu) {
             if (line[Ula::DISP_X + c] != exp) { ok = false; bad = c; break; }
         }
         check("INT-SCROLL-03",
-              "nextreg().write(0x68, 0x04) → fine X-scroll = 1 → half-pixel shift  "
+              "nextreg().write(0x68, 0x04) -> fine X-scroll = 1 -> half-pixel shift  "
               "(zxula.vhd:199,354-399; zxnext.vhd:5449; emulator.cpp:762-768)",
               fine == true && ok,
               fmt("fine=%d first bad cell %d; cell14=0x%08X cell15=0x%08X cell511=0x%08X",
@@ -390,7 +390,7 @@ static void test_scroll_integration(Emulator& emu) {
             if (line[Ula::DISP_X + c] != exp) { bad = c; break; }
         }
         check("INT-SCROLL-04",
-              "OUT 0xFF,0x02 + nextreg().write(0x26,8)/(0x27,1) → hi-colour "
+              "OUT 0xFF,0x02 + nextreg().write(0x26,8)/(0x27,1) -> hi-colour "
               "picture scrolls (zxula.vhd:191-252; GH #409)",
               bad < 0,
               fmt("first bad cell %d; cell0=0x%08X cell16=0x%08X",

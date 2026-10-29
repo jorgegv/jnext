@@ -657,6 +657,8 @@ Status (Wave A, USER PRIORITY, 2026-04-23): row 1 (S9.01) reclassified to G-comm
 | 14| S9.14 | HI_RES Y scroll | 0 | 1 | Row 1 of both screens | pass |
 | 15| S9.15 | HI_RES X scroll | 10 | 0 | 20 hi-res pixel shift across both screens | pass |
 | 16| S9.16 | HI_RES fine scroll | 0 (fine=1) | 0 | One hi-res pixel shift | pass |
+| 17| S9.17 | HI_COLOUR column wraps, data in the wrapped-to columns 0..2 | 19 | 0 | px wraps at slots 30/31, px_1 at slot 29 (`:199`, `:216`) | pass |
+| 18| S9.18 | HI_RES column wraps, data in the wrapped-to columns 0..2 | 19 | 0 | px wraps at slots 30/31, px_1 at slot 29 | pass |
 
 Integration coverage: **INT-SCROLL-01** (NR 0x26 coarse X), **INT-SCROLL-02** (NR 0x27 Y), **INT-SCROLL-03** (NR 0x68 bit 2 fine X), **INT-SCROLL-04** (NR 0x26/0x27 in Timex hi-colour, GH #409) in `ula_integration_test.cpp`. This was the user-priority cluster that motivated the plan.
 
@@ -1100,6 +1102,10 @@ are re-derived in the test from the register table above, not from
 | VMUX-14 | Scrolled path (fine scroll 4), primary fetches, slots 2 and 3: pixel at P/P+1, attribute at A/A+1, both at P+1 | Seen / not seen; old pixel in the new attribute | pass |
 | VMUX-15 | Render, flush, rewind, render again at the same instant (the debugger panel's second walk) | A pixel written after its fetch shows the old byte on both passes | pass |
 | VMUX-16 | Pre-display write (raw line 10, raw hc 300) to a paper byte, vblank_top 32 | The first paper row shows it: the pre-display tag is (row 0, hc 0) (GH #362) | pass |
+| VMUX-17 | Hi-colour, coarse scroll 2 columns (NR 0x26 = 16), slots 4 and 5: pixel of the shown column at P/P+1, colour byte at A/A+1 | Seen / not seen: the DISPLAY slot's instants (GH #409) | pass |
+| VMUX-18 | Hi-colour, coarse + fine scroll (NR 0x26 = 20), slots 4 and 5: px column pixel/colour at P/A, px_1 column pixel/colour at the secondary instants, each and one tick later | Seen / not seen; writes between a slot's primary and secondary instants reach only the later fetch (GH #409) | pass |
+| VMUX-19 | Hi-res, coarse scroll 2 columns (NR 0x26 = 16), slots 4 and 5: screen 0 of the shown column at P/P+1, screen 1 at A/A+1 | Seen / not seen: the DISPLAY slot's instants (GH #409) | pass |
+| VMUX-20 | Hi-res, coarse + fine scroll (NR 0x26 = 22, shift 12 cells), slots 4 and 5: screen 1 of px at A, screens 0 and 1 of px_1 at the secondary instants | Seen / not seen (GH #409) | pass |
 
 The production render orders (main render then the debugger panel; panel then the frame-end render) are pinned by `debugger_backend_test` INS-14-24 / INS-14-25. The end-to-end check is the functional row `editmenu-beam-func`: NextZXOS's EDIT
 menu frames, rebuilt from the debugger's own write log with this fetch rule.
@@ -1117,7 +1123,7 @@ The end-to-end check for the other memory-fetching layers (sprite attribute and 
 | 6 | ULAnext mode | 12 (+INT-ULANEXT-02 in integration suite) |
 | 7 | ULA+ mode | 6 (+INT-ULAPLUS-03 in integration suite) |
 | 8 | Clip windows | 8 |
-| 9 | Pixel scrolling | 10 (+S9-PSL.01..04 for G08) |
+| 9 | Pixel scrolling | 18 (+S9-PSL.01..04 for G08) |
 | 10 | Floating bus | 8 |
 | 11 | Contention timing | 12 |
 | 12 | ULA disable | 4 |
@@ -1126,8 +1132,8 @@ The end-to-end check for the other memory-fetching layers (sprite attribute and 
 | 15 | Shadow screen | 4 |
 | 16 | NR 0xFF palette side-channel | 1 (G150) |
 | 17 | Per-scanline active-palette select | 4 (G10) |
-| 19 | ULA VRAM beam replay | 15 (GH #305) |
-| | **Total** | **~153** |
+| 19 | ULA VRAM beam replay | 20 (GH #305, GH #409) |
+| | **Total** | **~166** |
 
 ## Implementation Notes
 
