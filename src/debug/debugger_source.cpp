@@ -485,17 +485,19 @@ namespace {
 
 // Would a live, unconditional, non-transient `Execute` Stop (a breakpoint, not
 // a script rule) have stopped an instruction of the retained trace? Only what
-// does not depend on the machine of then can be answered: the range, and the
-// page qualifier against what the trace recorded (`ram_only` compares only a
-// RAM fetch).
-bool history_stop_at(const EventTable& events, uint16_t pc, uint8_t mmu_page, bool not_ram) {
+// does not depend on the machine of then can be answered: the filter against
+// the Event the trace entry recorded (`EventFilter::matches`, the same
+// predicate the live gate asks).
+bool history_stop_at(const EventTable& events, const TraceEntry& te) {
+    Event ev;
+    ev.kind      = EventKind::Execute;
+    ev.pc        = te.pc;
+    ev.phys_page = te.mmu[te.pc >> 13];
+    ev.space     = te.fetch_space();
     for (const auto& e : events.entries()) {
         if (!e.live || e.transient || e.once_fired || e.kind != EventKind::Execute) continue;
         if (e.condition || e.handler || e.action != Action::Stop) continue;
-        if (pc < e.filter.lo || pc > e.filter.hi) continue;
-        if (e.filter.page != PAGE_ANY &&
-            (e.filter.page != mmu_page || (e.filter.page_ram_only && not_ram)))
-            continue;
+        if (!e.filter.matches(ev)) continue;
         return true;
     }
     return false;
@@ -543,7 +545,6 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         for (size_t i = size; i > 0; --i) {
             const TraceEntry& te = trace.at(i - 1);
             if (te.cycle >= now || !same_gen(i - 1)) continue;
-            const int slot = te.pc >> 13;
             const SourceLocation* at = at_entry(i - 1);
             if (!at) continue;
             size_t target = i - 1;
@@ -562,8 +563,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
                     if (!SourceMap::same_position(pos, *older)) break;
                     target = k - 1;
                 }
-            } else if (!history_stop_at(impl_->events, te.pc, te.mmu[slot],
-                                        trace.fetch_not_mmu_ram(i - 1)) &&
+            } else if (!history_stop_at(impl_->events, te) &&
                        !impl_->ds().breakpoints().has_pc(te.pc)) {
                 continue;
             }

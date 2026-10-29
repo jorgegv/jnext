@@ -266,11 +266,6 @@ const TraceEntry& TraceLog::at(size_t index) const
     return buffer_[physical];
 }
 
-bool TraceLog::fetch_not_mmu_ram(size_t index) const
-{
-    return at(index).fetch_space().kind != jnext::dbg::MemSpace::Kind::Page;
-}
-
 bool TraceLog::export_to_file(const std::string& path) const
 {
     std::ofstream ofs(path, std::ios::binary);   // "\n" lines on every host (GH #319)

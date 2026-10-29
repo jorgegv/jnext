@@ -697,19 +697,19 @@ int main() {
               m.dbg->source_page(0x0001) == MemSpace::rom(0) && !m.dbg->source_location(0x0001));
 
         // A page-qualified Execute matches page numbers alone (DZRP, the DSL);
-        // one marked page_ram_only (a source breakpoint) refuses the ROM.
+        // one qualified by space = Page{n} (a source breakpoint) refuses the ROM.
         Subscription by_number;
         by_number.kind = EventKind::Execute;
         by_number.filter.lo = by_number.filter.hi = 0x0001;
         by_number.filter.page = static_cast<uint16_t>(rom_page);
         Subscription ram_only = by_number;
-        ram_only.filter.page_ram_only = true;
+        ram_only.filter.space = MemSpace::page(static_cast<uint16_t>(rom_page));
         const auto id1 = m.dbg->subscribe(m.a, by_number).value;
         const auto id2 = m.dbg->subscribe(m.a, ram_only).value;
         const auto hits = m.dbg->probe_execute(0x0001);
         const bool has1 = std::find(hits.begin(), hits.end(), id1) != hits.end();
         const bool has2 = std::find(hits.begin(), hits.end(), id2) != hits.end();
-        check("SRCDBG-ID-02", "a page_ram_only Execute does not match a ROM fetch under "
+        check("SRCDBG-ID-02", "an Execute qualified by space Page{n} does not match a ROM fetch under "
                               "the same page number; a plain page qualifier still does",
               has1 && !has2);
     }
@@ -807,7 +807,7 @@ int main() {
         const bool predicted = m.dbg->source_page(0x0000) == MemSpace::divmmc_rom();
         Subscription bp = execute_stop(0x0000);
         bp.filter.page = 10;
-        bp.filter.page_ram_only = true;
+        bp.filter.space = MemSpace::page(10);
         const auto id = m.dbg->subscribe(m.a, bp).value;
         const auto hits = m.dbg->probe_execute(0x0000);
         const bool bp_refused = std::find(hits.begin(), hits.end(), id) == hits.end();
@@ -824,7 +824,7 @@ int main() {
         const auto& t = m.emu.trace_log();
         const bool ran_divmmc = (m.emu.cpu().get_registers().AF >> 8) == 1;
         const bool flagged = t.size() >= 2 && t.at(t.size() - 1).pc == 0x0000 &&
-                             t.fetch_not_mmu_ram(t.size() - 1);
+                             t.at(t.size() - 1).fetch_space().kind != MemSpace::Kind::Page;
         const auto& f = m.dbg->call_stack();
         check("SRCDBG-ID-07", "and once it runs: the trace marks DivMMC's instruction "
                               "not-RAM, and the CALL's frame names no RAM page as target",
@@ -1208,7 +1208,7 @@ int main() {
                         "DivMMC ROM's bytes (CD 20 00) and opens its own frame",
                   e.pc == c.call_at && e.opcode_bytes[0] == 0xCD && e.opcode_bytes[1] == 0x20 &&
                       e.opcode_bytes[2] == 0x00 && e.opcode_len == 3 &&
-                      t.fetch_not_mmu_ram(t.size() - 1) && f.size() == 2 &&
+                      t.at(t.size() - 1).fetch_space().kind != MemSpace::Kind::Page && f.size() == 2 &&
                       f[1].caller_pc == c.call_at && f[1].target_pc == 0x0020,
                   [&] {
                       char b[96];
@@ -1246,7 +1246,7 @@ int main() {
         check("SRCDBG-ID-24", "the first instruction after the DivMMC unmap range is traced with "
                               "RAM's bytes (3E 77), not the ROM it was mapped over",
               e.pc == 0x1FF9 && e.opcode_bytes[0] == 0x3E && e.opcode_bytes[1] == 0x77 &&
-                  e.opcode_len == 2 && !t.fetch_not_mmu_ram(t.size() - 1),
+                  e.opcode_len == 2 && t.at(t.size() - 1).fetch_space().kind == MemSpace::Kind::Page,
               [&] {
                   char b[96];
                   std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X len=%d", e.pc,
@@ -1272,7 +1272,7 @@ int main() {
         check("SRCDBG-ID-25", "an armed Multiface fetch at $0066 is traced with the Multiface "
                               "ROM's bytes (3E 42), not RAM's",
               e.pc == 0x0066 && e.opcode_bytes[0] == 0x3E && e.opcode_bytes[1] == 0x42 &&
-                  e.opcode_len == 2 && t.fetch_not_mmu_ram(t.size() - 1),
+                  e.opcode_len == 2 && t.at(t.size() - 1).fetch_space().kind != MemSpace::Kind::Page,
               [&] {
                   char b[96];
                   std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X len=%d", e.pc,
@@ -1310,7 +1310,7 @@ int main() {
                               "and the trace shows those bytes (2A 00 A0)",
               m.dbg->registers().HL == 0xDDCC && m.pc() == 0x000B && e.pc == 0x0008 &&
                   e.opcode_bytes[0] == 0x2A && e.opcode_bytes[1] == 0x00 &&
-                  e.opcode_bytes[2] == 0xA0 && e.opcode_len == 3 && !t.fetch_not_mmu_ram(t.size() - 1),
+                  e.opcode_bytes[2] == 0xA0 && e.opcode_len == 3 && t.at(t.size() - 1).fetch_space().kind == MemSpace::Kind::Page,
               "HL=" + hex(m.dbg->registers().HL) + " " + m.where());
     }
     {
@@ -1342,7 +1342,7 @@ int main() {
                               "those bytes (3A 00 90)",
               (m.dbg->registers().AF >> 8) == 0xAA && m.pc() == 0x1FFB && e.pc == 0x1FF8 &&
                   e.opcode_bytes[0] == 0x3A && e.opcode_bytes[1] == 0x00 &&
-                  e.opcode_bytes[2] == 0x90 && e.opcode_len == 3 && t.fetch_not_mmu_ram(t.size() - 1),
+                  e.opcode_bytes[2] == 0x90 && e.opcode_len == 3 && t.at(t.size() - 1).fetch_space().kind != MemSpace::Kind::Page,
               "AF=" + hex(m.dbg->registers().AF) + " " + m.where());
     }
     {
@@ -1909,7 +1909,7 @@ int main() {
     {
         // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes
         // the same prediction as probe_execute (ID-02, ID-06): at an instant DivMMC entry the fetch
-        // at $0000 is the DivMMC ROM's, so a page_ram_only subscription on RAM page 10 there is
+        // at $0000 is the DivMMC ROM's, so a space-Page{10} subscription on RAM page 10 there is
         // refused and a plain page qualifier, which compares numbers alone, still matches.
         Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
         m.dbg->nextreg_write(m.a, 0x50, 10);
@@ -1929,14 +1929,14 @@ int main() {
         ram_only.kind = EventKind::Execute;
         ram_only.filter.lo = ram_only.filter.hi = 0x0000;
         ram_only.filter.page = 10;
-        ram_only.filter.page_ram_only = true;
+        ram_only.filter.space = MemSpace::page(10);
         ram_only.action = Action::Continue;
         ram_only.handler = [&ram_only_hits](const jnext::dbg::Event&, Debugger&) {
             ++ram_only_hits;
             return Action::Continue;
         };
         Subscription plain = ram_only;
-        plain.filter.page_ram_only = false;
+        plain.filter.space = MemSpace::cpu();
         plain.handler = [&plain_hits](const jnext::dbg::Event&, Debugger&) {
             ++plain_hits;
             return Action::Continue;
@@ -1946,7 +1946,7 @@ int main() {
         m.dbg->run(m.a);
         m.emu.run_frame();
         check("SRCDBG-ID-21", "while running, an Execute gate at an instant DivMMC entry refuses a "
-                              "page_ram_only subscription on the RAM page there and delivers the plain "
+                              "space-qualified subscription on the RAM page there and delivers the plain "
                               "page-qualified one",
               ram_only_hits == 0 && plain_hits >= 1,
               "ram_only=" + std::to_string(ram_only_hits) + " plain=" + std::to_string(plain_hits));

@@ -40,6 +40,7 @@
 #include <functional>
 #include <vector>
 
+#include "debug/mem_space.h"
 #include "debug/result.h"
 
 namespace jnext {
@@ -65,6 +66,11 @@ using EventId = uint32_t;
 
 /// Not a subscription.
 constexpr EventId EVENT_NONE = 0;
+
+/// A source breakpoint (E23-09): the `Execute` subscriptions armed for one
+/// `file:line`, one per place it compiled to. Ids are never reused in a run.
+using GroupId = uint32_t;
+constexpr GroupId GROUP_NONE = 0;
 
 // ---------------------------------------------------------------------------
 // Kinds
@@ -303,13 +309,12 @@ struct Event {
     uint16_t addr = 0;
     /// `Mem`: the physical 8 K page behind `addr` at the moment of the access.
     uint16_t phys_page = 0;
-    /// `Execute`: the opcode at `pc` comes from an overlay (boot ROM,
-    /// Multiface, DivMMC, Layer 2 read mapping) or a ROM-mapped slot, not
-    /// from the RAM page `phys_page` names (`Emulator::predict_fetch()` is not
-    /// a `MemSpace::Kind::Page`, predicted for this M1, DivMMC's instant entry
-    /// points included). ROM and RAM page numbers overlap, so a page alone
-    /// cannot say which.
-    bool fetch_not_ram = false;
+    /// `Execute`: the `FetchSource` of the M1 at `pc` -- predicted for a live
+    /// delivery (`Emulator::predict_fetch()`, DivMMC's instant entry points
+    /// included) or as recorded for a history entry; `MemSpace::cpu()` for every
+    /// other kind. ROM and RAM page numbers overlap, so `phys_page` alone
+    /// cannot say what supplied the opcode; this does.
+    MemSpace space = MemSpace::cpu();
     /// `Port`: the full 16-bit port. Masking is the filter's job, not the
     /// payload's — the payload always carries what the guest actually put on
     /// the bus.
@@ -427,14 +432,24 @@ struct EventFilter {
     /// Optional physical-page qualifier, AND-ed with the range once the range
     /// has matched (`Execute`: the effective page at slot(PC); `Mem`: the page
     /// behind the address — DZRP's `bank+1` watchpoints). `PAGE_ANY` = none.
+    /// The LEGACY protocol qualifier: it compares `Mmu::get_effective_page(slot)`
+    /// and nothing more, so it also matches a ROM or an overlay that sits under
+    /// that number. DZRP's `bank+1` and the DSL's `page` use it; `space` is the
+    /// exact one.
     uint16_t page = PAGE_ANY;
 
-    /// `Execute` with a `page`: match only an opcode fetched from that RAM
-    /// page — never one an overlay or a ROM slot supplied under the same
-    /// page number (`Event::fetch_not_ram`). A source-line breakpoint is
-    /// this: its page names RAM. Off, the qualifier compares page numbers
-    /// alone, as DZRP's banked breakpoints and the DSL's `page` do.
-    bool page_ram_only = false;
+    /// `Execute`: the memory that must supply the opcode fetch (a
+    /// `FetchSource`), compared exactly, kind and index, against
+    /// `Event::space`. `MemSpace::cpu()` = no qualifier (`Cpu` is never a fetch
+    /// source, design 4.1). AND-ed with the range and with `page`. This is the
+    /// canonical qualifier: a source-line breakpoint names the memory its
+    /// location was compiled into.
+    MemSpace space = MemSpace::cpu();
+
+    /// The `Execute` predicate: kind, range, legacy `page`, then `space`.
+    /// Returns false for an event of any other kind. The ONE copy: the live
+    /// gate, `probe_execute()` and ReverseContinue all call it.
+    bool matches(const Event& ev) const;
 
     /// `Mem`: match on the physical page INSTEAD of a logical range, for any
     /// page in this set. Empty = use the range above. A `Mem` filter is one or
@@ -592,6 +607,9 @@ struct SubscriptionInfo {
     /// Whether it can fire right now: `enabled` ∧ master ∧ its client's switch.
     bool        live = true;
     ClientId    owner = CLIENT_NONE;
+    /// The source breakpoint this is one location of; `GROUP_NONE` = a plain
+    /// subscription.
+    GroupId     group = GROUP_NONE;
 };
 
 /// CAP-EVT / SES-02 — one subscription that matched at a stop

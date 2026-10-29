@@ -101,11 +101,6 @@ public:
     /// Access entry by index (0 = oldest, size()-1 = newest).
     const TraceEntry& at(size_t index) const;
 
-    /// True when entry `index` was NOT fetched from a RAM page (an overlay, a
-    /// ROM, nothing recorded): derived from its recorded fetch identity, kept
-    /// for the legacy page-qualified breakpoint test until E23-09.
-    bool fetch_not_mmu_ram(size_t index) const;
-
     /// Export all entries to a text file, one line per instruction:
     /// CYCLE  $PC  AF= BC= DE= HL=  AF'= BC'= DE'= HL'=  IX= IY= SP=
     /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7 ROM=mask FETCH=kind:index

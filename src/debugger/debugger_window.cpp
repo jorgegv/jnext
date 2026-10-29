@@ -1394,8 +1394,8 @@ void DebuggerWindow::activate_follow_pc() {
 }
 
 bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr,
-                                       std::vector<std::pair<uint16_t, uint16_t>>* targets) {
-    const bool page = targets != nullptr;
+                                       jnext::dbg::MemSpace* space, QString* source_line) {
+    const bool page = space != nullptr;
     QDialog dlg(this);
     dlg.setWindowTitle(title);
     dlg.setMinimumWidth(400);
@@ -1428,36 +1428,21 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr,
         // `@name` forces the symbol (OD-12).
         if (const auto resolved = dbg_.symbols().resolve_key(text)) {
             addr = resolved->addr;
-            // A name assembled for a RAM page keeps it (see the Breakpoints
+            // A name keeps the memory it was assembled for (see the Breakpoints
             // panel's Add dialog).
-            const bool paged = resolved->space &&
-                               resolved->space->kind == jnext::dbg::MemSpace::Kind::Page;
-            if (targets)
-                *targets = {{addr, paged ? resolved->space->index : jnext::dbg::PAGE_ANY}};
+            if (space) *space = resolved->space ? *resolved->space : jnext::dbg::MemSpace::cpu();
             return true;
         }
-        // CAP-SRC: a source line is one breakpoint per place it compiled to,
-        // each keeping the page its record names, as in the Breakpoints
-        // panel's Add dialog.
+        // CAP-SRC: a source line is one breakpoint armed at every place it
+        // compiled to, each tied to the memory that supplies it (one group), as
+        // in the Breakpoints panel's Add dialog.
         QString reason;
-        if (targets) {
+        if (space) {
             const SourceResolution src = dbg_.source_map().resolve(text);
             if (!src.starts.empty()) {
-                targets->clear();
-                for (const SourceAddress& s : src.starts) {
-                    // See the Breakpoints panel: GH #337 / E23-09 lift this.
-                    if (s.space.kind != jnext::dbg::MemSpace::Kind::Page) {
-                        targets->clear();
-                        break;
-                    }
-                    targets->push_back({s.address, s.space.index});
-                }
-                if (!targets->empty()) {
-                    addr = targets->front().first;
-                    return true;
-                }
-                reason = tr("%1 is not in a RAM page: no breakpoint can be set on it")
-                             .arg(addr_edit->text().trimmed());
+                *space = jnext::dbg::MemSpace::cpu();
+                *source_line = QString::fromStdString(text);
+                return true;
             } else if (!src.error.empty()) {
                 reason = QString::fromStdString(src.error);
             }
@@ -1495,11 +1480,14 @@ void DebuggerWindow::show_add_data_bp_dialog(int type) {
 // this site remembering to repaint it.
 void DebuggerWindow::show_add_exec_bp_dialog() {
     uint16_t addr = 0;
-    std::vector<std::pair<uint16_t, uint16_t>> targets;
-    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr, &targets)) return;
+    jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
+    QString source_line;
+    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr, &space, &source_line)) return;
 
-    if (BreakpointModel* m = breakpoint_model())
-        for (const auto& [a, page] : targets) m->add(BreakpointModel::Execute, a, page);
+    if (BreakpointModel* m = breakpoint_model()) {
+        if (!source_line.isEmpty()) m->add_source_line(source_line);
+        else                        m->add(BreakpointModel::Execute, addr, space);
+    }
 }
 
 void DebuggerWindow::refresh_panels() {

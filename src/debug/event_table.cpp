@@ -9,8 +9,9 @@ namespace dbg {
 // Subscriptions
 // ---------------------------------------------------------------------------
 
-EventId EventTable::add(ClientId owner, const Subscription& sub) {
+EventId EventTable::add(ClientId owner, const Subscription& sub, GroupId group) {
     Entry e;
+    e.group     = group;
     e.id        = next_id_++;
     e.owner     = owner;
     e.kind      = sub.kind;
@@ -338,17 +339,22 @@ std::vector<Event> EventTable::since(uint64_t seq) const {
 // Matching, at the boundary
 // ---------------------------------------------------------------------------
 
+bool EventFilter::matches(const Event& ev) const {
+    if (ev.kind != EventKind::Execute) return false;
+    if (ev.pc < lo || ev.pc > hi) return false;
+    // The legacy protocol qualifier: the MMU page number, nothing more.
+    if (page != PAGE_ANY && page != ev.phys_page) return false;
+    // The canonical one: what actually supplied the opcode, kind and index.
+    if (space != MemSpace::cpu() && space != ev.space) return false;
+    return true;
+}
+
 bool EventTable::filter_matches(const Entry& e, const Event& ev) const {
     if (e.kind != ev.kind) return false;
 
     switch (e.kind) {
         case EventKind::Execute:
-            if (ev.pc < e.filter.lo || ev.pc > e.filter.hi) return false;
-            if (e.filter.page != PAGE_ANY && e.filter.page != ev.phys_page)
-                return false;
-            if (e.filter.page != PAGE_ANY && e.filter.page_ram_only && ev.fetch_not_ram)
-                return false;
-            return true;
+            return e.filter.matches(ev);
 
         case EventKind::Mem:
             if (ev.access == Access::Read  && !has_read(e.access))  return false;

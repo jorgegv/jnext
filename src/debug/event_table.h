@@ -158,12 +158,18 @@ public:
         /// "disable after the first accepted firing" is a property of the
         /// subscription, not of the checkbox.
         bool once_fired = false;
+
+        /// E23-09 -- the source breakpoint this is one location of
+        /// (`GROUP_NONE` = a plain subscription). Set by the backend only:
+        /// `Subscription` has no such field, so a client cannot pick an id.
+        GroupId group = GROUP_NONE;
     };
 
     // ── subscriptions ───────────────────────────────────────────────────
 
-    /// Register `sub` for `owner`. Ids are never reused within a run.
-    EventId add(ClientId owner, const Subscription& sub);
+    /// Register `sub` for `owner`, as a member of `group` when it is not
+    /// `GROUP_NONE`. Ids are never reused within a run.
+    EventId add(ClientId owner, const Subscription& sub, GroupId group = GROUP_NONE);
 
     /// Tombstone the subscription `id`. Returns false if there is no such live
     /// id. §4.3's owner-only rule is the CALLER's: it reads `find(id)->owner`

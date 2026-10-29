@@ -85,6 +85,11 @@
 
 namespace {
 
+using jnext::dbg::MemSpace;
+
+// The RAM page n as a fetch source (the qualifier a source line is tied to).
+MemSpace pg(unsigned n) { return MemSpace::page(static_cast<uint16_t>(n)); }
+
 int g_pass  = 0;
 int g_fail  = 0;
 int g_total = 0;
@@ -460,10 +465,10 @@ void test_breakpoints() {
     fx.enable();
     fx.load_map();
     BreakpointModel& m = fx.mgr->breakpoints();
-    m.add(BreakpointModel::Execute, 0x8005, static_cast<uint16_t>(fx.p80));
+    m.add(BreakpointModel::Execute, 0x8005, pg(fx.p80));
     const auto rows = m.rows();
     const bool one = rows.size() == 1 && rows[0].own && rows[0].type == BreakpointModel::Execute &&
-                     rows[0].page == fx.p80;
+                     rows[0].space == pg(fx.p80);
     check("QBPM-01", "an Execute breakpoint qualified with a page is the GUI's own row, "
                      "with its page",
           one);
@@ -473,18 +478,20 @@ void test_breakpoints() {
           one ? s(rows[0].addr_text) : "");
     bool ram_only = false;
     for (const auto& si : fx.backend->subscriptions(false))
-        if (si.id == rows[0].id) ram_only = si.filter.page_ram_only;
-    check("QBPM-07", "the GUI's page-qualified breakpoint names RAM: it is page_ram_only",
+        if (si.id == rows[0].id)
+            ram_only = si.filter.space == pg(fx.p80) && si.filter.page == jnext::dbg::PAGE_ANY;
+    check("QBPM-07", "the GUI's page-qualified breakpoint names RAM page p80 exactly: its filter is "
+                     "space == Page{p80} with page == PAGE_ANY",
           one && ram_only);
     m.add(BreakpointModel::Execute, 0x8005);
     check("QBPM-03", "a logical breakpoint at the same address is a second row",
           m.rows().size() == 2);
     m.remove(BreakpointModel::Execute, 0x8005);
     check("QBPM-04", "removing the logical one keeps the page-qualified one",
-          m.rows().size() == 1 && m.rows()[0].page == fx.p80);
+          m.rows().size() == 1 && m.rows()[0].space == pg(fx.p80));
     check("QBPM-05", "the gutter marks it while its page is mapped, not for another page",
-          m.pc_marked(0x8005, static_cast<uint16_t>(fx.p80)) &&
-              !m.pc_marked(0x8005, static_cast<uint16_t>((fx.p80 + 1) % 224)));
+          m.pc_marked(0x8005, pg(fx.p80)) &&
+              !m.pc_marked(0x8005, pg((fx.p80 + 1) % 224)));
     fx.backend->run(jnext::dbg::CLIENT_NONE);
     for (int i = 0; i < 4 && !fx.backend->state().paused; ++i) fx.emu.run_frame();
     check("QBPM-06", "it stops the machine at its address", fx.pc() == 0x8005);
@@ -499,7 +506,7 @@ void test_breakpoints() {
     const auto added = m.rows();
     check("QBPP-02", "file:line typed into Add Breakpoint creates an Execute breakpoint "
                      "at that line's address, on the page its record names",
-          seen && added.size() == 1 && added[0].addr == 0x8002 && added[0].page == fx.p80);
+          seen && added.size() == 1 && added[0].addr == 0x8002 && added[0].space == pg(fx.p80));
 }
 
 // ── QCSP: the Call Stack's source column ───────────────────────────────
@@ -556,7 +563,7 @@ void test_address_fields() {
         add_exec && answer_modal(QStringLiteral("main.bas:12"), [&]() { add_exec->trigger(); });
     const auto rows = fx.mgr->breakpoints().rows();
     check("QADR-03", "Add Execute Breakpoint takes file:line, on the page its record names",
-          seen3 && rows.size() == 1 && rows[0].addr == 0x8005 && rows[0].page == fx.p80);
+          seen3 && rows.size() == 1 && rows[0].addr == 0x8005 && rows[0].space == pg(fx.p80));
 
     fx.mgr->breakpoints().clear_all();
     QString reason;
@@ -694,7 +701,7 @@ void test_gutter() {
     fx.enable();
     fx.load_map();
     BreakpointModel& m = fx.mgr->breakpoints();
-    const auto page = static_cast<uint16_t>(fx.p80);
+    const MemSpace page = pg(fx.p80);
     {
         // ROM and RAM page numbers overlap: a breakpoint on RAM page N at $0000
         // is not drawn while ROM page N supplies the fetch.
@@ -702,7 +709,7 @@ void test_gutter() {
         if (auto* sb = g.panel->findChild<QScrollBar*>()) sb->setValue(0);
         const uint16_t rom = fx.backend->effective_page(0);
         const uint16_t fetch = ram_page_of(fx.backend->source_page(0));
-        m.add(BreakpointModel::Execute, 0x0000, rom);
+        m.add(BreakpointModel::Execute, 0x0000, pg(rom));
         g.panel->refresh();
         QApplication::processEvents();
         check("QSRC-36", "the gutter draws no dot for a RAM page's breakpoint on a ROM line "
@@ -747,7 +754,7 @@ void test_gutter() {
         g.panel->refresh();
         g.panel->set_paused(false);
         g.click_gutter();
-        const bool left = m.rows().size() == 1 && m.rows()[0].page == page;
+        const bool left = m.rows().size() == 1 && m.rows()[0].space == page;
         check("QSRC-28", "while running, a click that removes the plain breakpoint still "
                          "draws the source breakpoint under it",
               left && g.red_dot());
@@ -795,10 +802,10 @@ void test_gutter() {
         // While running the panel keeps the lines it drew. A bank switch after
         // that must not turn a click on the drawn dot into a second breakpoint.
         GutterView g(*fx.backend, m);
-        const uint8_t other = static_cast<uint8_t>(page + 2);
+        const uint8_t other = static_cast<uint8_t>(page.index + 2);
         auto rows_text = [&]() {
             std::string t;
-            for (const auto& r : m.rows()) t += " page=" + std::to_string(r.page);
+            for (const auto& r : m.rows()) t += " page=" + std::to_string(r.space.index);
             return t;
         };
         m.add(BreakpointModel::Execute, 0x8005, page);
@@ -808,7 +815,7 @@ void test_gutter() {
         g.click_gutter();
         const bool click_ok = m.rows().empty();
         const std::string click_rows = rows_text();
-        fx.emu.mmu().set_page(4, static_cast<uint8_t>(page));
+        fx.emu.mmu().set_page(4, static_cast<uint8_t>(page.index));
         g.panel->set_paused(true);
         check("QSRC-29", "while running, a click on a source breakpoint's dot after its bank "
                          "is switched out removes it and adds nothing",
@@ -822,7 +829,7 @@ void test_gutter() {
         g.context_pick(QStringLiteral("Toggle Breakpoint"));
         const bool menu_ok = m.rows().empty();
         const std::string menu_rows = rows_text();
-        fx.emu.mmu().set_page(4, static_cast<uint8_t>(page));
+        fx.emu.mmu().set_page(4, static_cast<uint8_t>(page.index));
         g.panel->set_paused(true);
         check("QSRC-30", "the context menu's Toggle Breakpoint does the same after a bank switch",
               menu_ok, "rows:" + menu_rows);
@@ -837,7 +844,7 @@ void test_breakpoint_page_rows() {
     fx.enable();
     fx.load_map();
     BreakpointModel& m = fx.mgr->breakpoints();
-    const auto page = static_cast<uint16_t>(fx.p80);
+    const MemSpace page = pg(fx.p80);
     BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
     auto* table = bp ? bp->findChild<QTableWidget*>() : nullptr;
     if (!bp || !table) { check("QBPM-08", "Breakpoints panel", false); return; }
@@ -845,13 +852,13 @@ void test_breakpoint_page_rows() {
     m.add(BreakpointModel::Execute, 0x8005, page);
     bp->refresh();
     if (QTableWidgetItem* en = table->item(0, 0)) en->setCheckState(Qt::Unchecked);
-    const bool disabled = m.rows().size() == 1 && !m.rows()[0].enabled && m.rows()[0].page == page;
+    const bool disabled = m.rows().size() == 1 && !m.rows()[0].enabled && m.rows()[0].space == page;
     table->setCurrentCell(0, 1);
     // The edit moves it to main.bas:11 ($8002): the old row must go, by its page.
     const bool edited = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_edit(); });
     const auto after_edit = m.rows();
     const bool kept = edited && after_edit.size() == 1 && after_edit[0].addr == 0x8002 &&
-                      after_edit[0].page == page && !after_edit[0].enabled;
+                      after_edit[0].space == page && !after_edit[0].enabled;
     bp->refresh();
     table->setCurrentCell(0, 1);
     bp->on_remove();
@@ -864,10 +871,10 @@ void test_breakpoint_page_rows() {
     // The Symbol / Source column reads the breakpoint's own page, not the one
     // mapped there now.
     m.add(BreakpointModel::Execute, 0x8005, page);
-    fx.emu.mmu().set_page(4, static_cast<uint8_t>(page + 2));
+    fx.emu.mmu().set_page(4, static_cast<uint8_t>(page.index + 2));
     bp->refresh();
     const QString while_other = cell(bp, 0, 3);
-    fx.emu.mmu().set_page(4, static_cast<uint8_t>(page));
+    fx.emu.mmu().set_page(4, static_cast<uint8_t>(page.index));
     m.remove(BreakpointModel::Execute, 0x8005, page);
     check("QBPP-03", "the Symbol / Source column names the breakpoint's line while another "
                      "page is mapped at its address",
@@ -880,7 +887,7 @@ void test_breakpoint_page_rows() {
     mem.action = jnext::dbg::Action::Stop;
     mem.access = jnext::dbg::Access::Read;
     mem.filter.lo = mem.filter.hi = 0x9000;
-    mem.filter.page = page;
+    mem.filter.page = page.index;
     const bool subscribed = static_cast<bool>(fx.backend->subscribe(m.client(), mem));
     // The client that made the change is not told at once (a later pump may
     // tell it): an add and a remove of the model's own make it read the listing.
@@ -914,24 +921,38 @@ void test_line_starts() {
     BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
     auto* table = bp ? bp->findChild<QTableWidget*>() : nullptr;
     if (!bp || !table) { check("QBPP-04", "Breakpoints panel", false); return; }
-    const auto p80 = static_cast<uint16_t>(fx.p80);
-    const auto p90 = static_cast<uint16_t>(fx.p90);
-    auto two_rows = [&](bool enabled) {
+    const MemSpace p80 = pg(fx.p80);
+    const MemSpace p90 = pg(fx.p90);
+    // E23-09: the line is ONE group row of two locations; its members are the
+    // backend's two subscriptions, each tied to its own page.
+    auto one_group = [&](bool enabled) {
         const auto r = m.rows();
-        return r.size() == 2 && r[0].type == BreakpointModel::Execute && r[0].own &&
-               r[1].own && r[0].addr == 0x8002 && r[0].page == p80 && r[1].addr == 0x9000 &&
-               r[1].page == p90 && r[0].enabled == enabled && r[1].enabled == enabled;
+        if (r.size() != 1 || r[0].type != BreakpointModel::Execute || !r[0].own ||
+            r[0].group == jnext::dbg::GROUP_NONE || r[0].locations != 2 ||
+            r[0].addr != 0x8002 || r[0].space != p80 || r[0].enabled != enabled)
+            return false;
+        int n = 0;
+        bool a = false, b = false;
+        for (const auto& si : fx.backend->subscriptions(false)) {
+            if (si.owner != m.client()) continue;
+            ++n;
+            if (si.group != r[0].group || si.enabled != enabled) return false;
+            if (si.filter.lo == 0x8002 && si.filter.space == p80) a = true;
+            if (si.filter.lo == 0x9000 && si.filter.space == p90) b = true;
+        }
+        return n == 2 && a && b;
     };
 
     const bool seen = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_add(); });
-    const bool rows = seen && two_rows(true);
+    const bool rows = seen && one_group(true);
     fx.backend->run(jnext::dbg::CLIENT_NONE);
     for (int i = 0; i < 4 && !fx.backend->state().paused; ++i) fx.emu.run_frame();
     const bool first = fx.pc() == 0x8002;
     fx.backend->run(jnext::dbg::CLIENT_NONE);
     for (int i = 0; i < 4 && !fx.backend->state().paused; ++i) fx.emu.run_frame();
     check("QBPP-04", "file:line typed into Add Breakpoint arms every place the line "
-                     "compiled to, each on its own page, and a run stops at both",
+                     "compiled to as one group of two locations, each on its own page, and a "
+                     "run stops at both",
           rows && first && fx.pc() == 0x9000,
           "rows=" + std::to_string(rows) + " first=" + std::to_string(first) +
               " pc=" + std::to_string(fx.pc()));
@@ -963,9 +984,9 @@ void test_line_starts() {
     if (QTableWidgetItem* en = table->item(0, 0)) en->setCheckState(Qt::Unchecked);
     table->setCurrentCell(0, 1);
     const bool edited = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_edit(); });
-    check("QBPP-06", "Edit to a line with several places leaves one breakpoint per place, "
-                     "each disabled as the edited one was, and the old one gone",
-          edited && two_rows(false), "rows=" + std::to_string(m.rows().size()));
+    check("QBPP-06", "Edit to a line with several places leaves one group of two locations, "
+                     "both disabled as the edited one was, and the old one gone",
+          edited && one_group(false), "rows=" + std::to_string(m.rows().size()));
     m.clear_all();
 
     // A logical breakpoint (no page) on a mapped address names its line too.
@@ -983,8 +1004,9 @@ void test_line_starts() {
                 if (i->text() == QStringLiteral("Add &Execute Breakpoint...")) add_exec = i;
     const bool seen2 =
         add_exec && answer_modal(QStringLiteral("main.bas:11"), [&]() { add_exec->trigger(); });
-    check("QADR-10", "Add Execute Breakpoint arms every place a source line compiled to",
-          seen2 && two_rows(true));
+    check("QADR-10", "Add Execute Breakpoint arms every place a source line compiled to, "
+                     "as one group of two locations",
+          seen2 && one_group(true));
     m.clear_all();
 
     QString reason2;
@@ -1016,7 +1038,7 @@ void test_edit_type_refused() {
     fx.enable();
     fx.load_map();
     BreakpointModel& m = fx.mgr->breakpoints();
-    const auto page = static_cast<uint16_t>(fx.p80);
+    const MemSpace page = pg(fx.p80);
     BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
     auto* table = bp ? bp->findChild<QTableWidget*>() : nullptr;
     if (!bp || !table) { check("QBPM-10", "Breakpoints panel", false); return; }
@@ -1046,7 +1068,7 @@ void test_edit_type_refused() {
     check("QBPM-10", "changing only the Type of a source breakpoint is refused with a "
                      "reason and the dialog stays open; the breakpoint is unchanged",
           shown == 2 && reason.contains(QStringLiteral("Execute")) && rows.size() == 1 &&
-              rows[0].type == BreakpointModel::Execute && rows[0].page == page,
+              rows[0].type == BreakpointModel::Execute && rows[0].space == page,
           "shown=" + std::to_string(shown) + " reason=" + s(reason));
 }
 
@@ -1078,8 +1100,7 @@ void test_source_buttons() {
         for (int i = 0; i < 3 && into; ++i) { into->click(); QApplication::processEvents(); }
         // At main.bas:12. Back would land on sub.bas:1 ($9000); Reverse
         // Continue rewinds to the source breakpoint on main.bas:11.
-        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8002,
-                                  static_cast<uint16_t>(fx.p80));
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8002, pg(fx.p80));
         fx.mgr->refresh_panels();
         const uint16_t from = fx.pc();
         if (QPushButton* rev = button(sp, QStringLiteral("Reverse"))) rev->click();
@@ -1734,7 +1755,6 @@ void test_call_stack_pages() {
 // is which memory each panel asks about.
 
 void test_paged_symbols() {
-    using jnext::dbg::MemSpace;
     Fixture fx;
     fx.enable();
     SymbolTable t;
@@ -1758,10 +1778,10 @@ void test_paged_symbols() {
 
     // The Symbol column reads the breakpoint's own page, else the page mapped now.
     fx.emu.mmu().set_page(6, 20);
-    m.add(BreakpointModel::Execute, 0xC000, 30);
+    m.add(BreakpointModel::Execute, 0xC000, MemSpace::page(30));
     bp->refresh();
     const QString own = cell(bp, 0, 3);
-    m.remove(BreakpointModel::Execute, 0xC000, 30);
+    m.remove(BreakpointModel::Execute, 0xC000, MemSpace::page(30));
     m.add(BreakpointModel::Execute, 0xC000);
     bp->refresh();
     const QString mapped20 = cell(bp, 0, 3);
@@ -1781,17 +1801,17 @@ void test_paged_symbols() {
     // The Add dialog keeps the page of a paged name; a number or an unpaged name has none.
     const bool seen_a = answer_modal(QStringLiteral("banked"), [&]() { bp->on_add(); });
     const auto after_a = m.rows();
-    const bool paged = seen_a && after_a.size() == 1 && after_a[0].addr == 0xC000 && after_a[0].page == 20;
+    const bool paged = seen_a && after_a.size() == 1 && after_a[0].addr == 0xC000 && after_a[0].space == MemSpace::page(20);
     m.clear_all();
     const bool seen_b = answer_modal(QStringLiteral("scr"), [&]() { bp->on_add(); });
     const auto after_b = m.rows();
     const bool unpaged = seen_b && after_b.size() == 1 && after_b[0].addr == 0x4000 &&
-                         after_b[0].page == jnext::dbg::PAGE_ANY;
+                         after_b[0].space == MemSpace::cpu();
     m.clear_all();
     const bool seen_c = answer_modal(QStringLiteral("C000"), [&]() { bp->on_add(); });
     const auto after_c = m.rows();
     const bool number = seen_c && after_c.size() == 1 && after_c[0].addr == 0xC000 &&
-                        after_c[0].page == jnext::dbg::PAGE_ANY;
+                        after_c[0].space == MemSpace::cpu();
     m.clear_all();
     check("QSYM-04", "the Add dialog sets a breakpoint on a paged name in that name's page, and on an "
                      "unpaged name or a number in any page",
@@ -1819,10 +1839,10 @@ void test_paged_symbols() {
     check("QSYM-10", "the Add dialog gives a Read breakpoint on a paged name no page: only an Execute "
                      "breakpoint is page-qualified",
           seen_r && after_r.size() == 1 && after_r[0].type == BreakpointModel::Read &&
-              after_r[0].addr == 0xC000 && after_r[0].page == jnext::dbg::PAGE_ANY,
+              after_r[0].addr == 0xC000 && after_r[0].space == MemSpace::cpu(),
           "rows=" + std::to_string(after_r.size()) +
               (after_r.empty() ? std::string() : " type=" + std::to_string(after_r[0].type) +
-                                                     " page=" + std::to_string(after_r[0].page)));
+                                                     " space=" + std::to_string(after_r[0].space.index)));
     m.clear_all();
 
     // Edit moves a DISABLED Read breakpoint to a paged name: it stays disabled and page-less. The edit
@@ -1836,9 +1856,9 @@ void test_paged_symbols() {
     const auto after_e = m.rows();
     check("QSYM-11", "editing a disabled Read breakpoint to a paged name keeps it disabled and page-less",
           edited && after_e.size() == 1 && after_e[0].type == BreakpointModel::Read &&
-              after_e[0].addr == 0xC000 && after_e[0].page == jnext::dbg::PAGE_ANY && !after_e[0].enabled,
+              after_e[0].addr == 0xC000 && after_e[0].space == MemSpace::cpu() && !after_e[0].enabled,
           "rows=" + std::to_string(after_e.size()) +
-              (after_e.empty() ? std::string() : " page=" + std::to_string(after_e[0].page) +
+              (after_e.empty() ? std::string() : " space=" + std::to_string(after_e[0].space.index) +
                                                      " enabled=" + std::to_string(after_e[0].enabled)));
     m.clear_all();
 
@@ -1944,8 +1964,7 @@ void at_line_12(Fixture& fx) {
     fx.load_map();
     fx.mgr->refresh_panels();
     for (int i = 0; i < 3; ++i) trigger(fx.dbg(), QStringLiteral("Step Into"));
-    fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8002,
-                              static_cast<uint16_t>(fx.p80));
+    fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8002, pg(fx.p80));
     fx.mgr->refresh_panels();
 }
 

@@ -358,6 +358,9 @@ struct Debugger::Impl {
 
     std::vector<Client> clients;
     ClientId            next_client_id = 1;
+    /// Source-breakpoint group ids (E23-09); never reused in a run, like
+    /// `EventId`.
+    GroupId             next_group_id = 1;
 
     /// Live client lookup. Null for an unknown or detached id — which is what
     /// makes `RefusedUnavailable` (benign, "no such client") the answer rather
