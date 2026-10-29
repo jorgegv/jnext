@@ -10,12 +10,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |      365 |      365 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |      366 |      366 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind call stack     |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU            |      265 |      265 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU (int)      |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU            |      278 |      278 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU (int)      |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -36,9 +36,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 AT command engine |      499 |      499 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DivMMC + SPI          |      154 |      154 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DivMMC + SPI          |      155 |      155 |      0 |       0 |    100% | 🟢 All tests pass. |
 | divmmc_integration_test |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "divmmc_integration_test" to the label map in refresh-subsystem-status.sh. |
-| Multiface (core)      |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Multiface (core)      |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (GH #269) |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -59,7 +59,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ULA Video (int)       |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Contention            |      173 |      173 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Contention            |      178 |      178 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      162 |      162 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (Pi I2S source, POSIX) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -115,10 +115,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | src/debug Qt-free lint (GH #278) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source maps + symbols |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source maps + symbols |       91 |       91 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      177 |      177 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1469 |     1469 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1474 |     1474 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -169,12 +169,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Key Bindings |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Key Bindings |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Disasm Copy  |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Source panel |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14029**| **14029**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Source panel |       97 |       97 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **14229**| **14229**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
