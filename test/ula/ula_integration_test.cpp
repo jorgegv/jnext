@@ -275,9 +275,11 @@ static void test_scroll_integration(Emulator& emu) {
     // Phase 3 must not trample Compositor bits.
     //
     // With NR 0x26 still = 8 from INT-SCROLL-01 we reset it to 0 first
-    // so this test observes the ISOLATED 1-pixel fine shift.
-    // Marker at src (row 0, col 0) = 0xFF → white at src_x ∈ [0..7]
-    // → display_x = src_x − 1 (mod 256) ⇒ display_x ∈ {255, 0..6}.
+    // so this test observes the ISOLATED fine shift, which is HALF a pixel:
+    // one 14 MHz cell of shift_reg_32 (shift_scroll = px(2:0) & px(8),
+    // zxula.vhd:354-399; "ULA half pixel scroll", nextreg.txt).
+    // Marker at src (row 0, col 0) = 0xFF → stream cells 0..15 → display
+    // cell C shows cell C+1 ⇒ white at cells {511, 0..14}.
     {
         fill_pixels(emu, 0x00);
         fill_attrs(emu, 0x07);
@@ -292,17 +294,19 @@ static void test_scroll_integration(Emulator& emu) {
         render_line(emu, 32, line);
 
         bool ok = true;
-        for (int x = 0; x < 256; ++x) {
-            const bool should_white = (x == 255) || (x >= 0 && x <= 6);
+        int bad = -1;
+        for (int c = 0; c < 512; ++c) {
+            const bool should_white = (c == 511) || (c <= 14);
             const uint32_t exp = should_white ? WHITE : BLACK;
-            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + c] != exp) { ok = false; bad = c; break; }
         }
         check("INT-SCROLL-03",
-              "nextreg().write(0x68, 0x04) → fine X-scroll = 1 → 1-pixel shift  "
-              "(zxula.vhd:199,216; zxnext.vhd:5449; emulator.cpp:762-768)",
+              "nextreg().write(0x68, 0x04) → fine X-scroll = 1 → half-pixel shift  "
+              "(zxula.vhd:199,354-399; zxnext.vhd:5449; emulator.cpp:762-768)",
               fine == true && ok,
-              fmt("fine=%d line[DISP_X]=0x%08X line[DISP_X+2*255]=0x%08X line[DISP_X+2*7]=0x%08X",
-                  fine, line[Ula::DISP_X], line[Ula::DISP_X + 2*255], line[Ula::DISP_X + 2*7]));
+              fmt("fine=%d first bad cell %d; cell14=0x%08X cell15=0x%08X cell511=0x%08X",
+                  fine, bad, line[Ula::DISP_X + 14], line[Ula::DISP_X + 15],
+                  line[Ula::DISP_X + 511]));
     }
 
     // ── INT-SCROLL-02 — NR 0x27 = 32 via nextreg().write → 32-row Y shift ──
@@ -354,6 +358,48 @@ static void test_scroll_integration(Emulator& emu) {
               stored == 32 && all_white,
               fmt("stored=%u all_white=%d display[0]=0x%08X exp 0x%08X",
                   stored, all_white, line[Ula::DISP_X], WHITE));
+    }
+
+    // ── INT-SCROLL-04 — GH #409: NR 0x26 / NR 0x27 in Timex hi-colour ──
+    //
+    // The reported program selects hi-colour (OUT 0xFF, 0x02) and scrolls
+    // with NR 0x26 / 0x27; the picture stayed put. py/px form vram_a in
+    // every screen mode (zxula.vhd:192-252), so hi-colour scrolls too.
+    // Stimulus: OUT 0xFF,0x02 (zxula.vhd:191), NR 0x26 = 8 (one column),
+    // NR 0x27 = 1. Hi-colour row 1 col 1 = pixels 0xFF, attr 0x07 (attr
+    // area 0x6000, :239); everything else zero. Display row 0 must show
+    // that byte at cells 0..15 (white) and black elsewhere.
+    {
+        fill_pixels(emu, 0x00);
+        for (uint16_t addr = 0x6000; addr < 0x7800; ++addr) {
+            poke_bank5(emu, addr, 0x00);
+        }
+        poke_bank5(emu, 0x4000 + emu_pixel_addr_offset(1, 1), 0xFF);
+        poke_bank5(emu, 0x6000 + emu_pixel_addr_offset(1, 1), 0x07);
+
+        emu.port().out(0x00FF, 0x02);      // Timex hi-colour
+        emu.nextreg().write(0x26, 8);
+        emu.nextreg().write(0x27, 1);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        render_line(emu, 32, line);
+
+        int bad = -1;
+        for (int c = 0; c < 512; ++c) {
+            const uint32_t exp = c <= 15 ? WHITE : BLACK;
+            if (line[Ula::DISP_X + c] != exp) { bad = c; break; }
+        }
+        check("INT-SCROLL-04",
+              "OUT 0xFF,0x02 + nextreg().write(0x26,8)/(0x27,1) → hi-colour "
+              "picture scrolls (zxula.vhd:191-252; GH #409)",
+              bad < 0,
+              fmt("first bad cell %d; cell0=0x%08X cell16=0x%08X",
+                  bad, line[Ula::DISP_X], line[Ula::DISP_X + 16]));
+
+        // Leave the machine as the later groups expect it.
+        emu.port().out(0x00FF, 0x00);
+        emu.nextreg().write(0x26, 0);
+        emu.nextreg().write(0x27, 0);
     }
 }
 

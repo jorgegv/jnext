@@ -623,10 +623,18 @@ Coarse scroll (bits 7:3) is added to the column counter. Fine scroll (bits
 2:0) provides sub-character offset. `fine_scroll_x` (bit 8 of px) enables
 half-pixel precision.
 
-The shift register is pre-shifted by the scroll amount (line 395):
+The shift register is pre-shifted by the scroll amount (line 399):
 ```vhdl
-shift_reg_ld <= shift_left(shift_reg_32, scroll_amount);
+shift_reg_ld <= shift_left(unsigned(shift_reg_32), to_integer(unsigned(shift_scroll)));
 ```
+
+`shift_scroll = px(2:0) & px(8)` counts 14 MHz cells (one framebuffer cell
+each): lo-res modes double every source bit (lines 390-393), so NR 0x26 moves
+the picture in lo-res pixels and NR 0x68 bit 2 by HALF a pixel (one cell);
+hi-res packs 16 cells per column (line 388), so NR 0x26 moves 2 hi-res pixels
+per unit and the fine bit one. `py`/`px` form `vram_a` in every screen mode
+(lines 192-252), so the Timex hi-colour and hi-res modes scroll exactly like
+STANDARD (GH #409 — they used to ignore NR 0x26/0x27/0x68 b2).
 
 ### Test cases (~10 tests)
 
@@ -638,13 +646,19 @@ Status (Wave A, USER PRIORITY, 2026-04-23): row 1 (S9.01) reclassified to G-comm
 | 3 | S9.03 | Scroll Y by 191 | 0 | 191 | Display shifted up 191 (= down 1) | pass |
 | 4 | S9.04 | Scroll Y wraps at 192 | 0 | 192 | Same as no scroll | pass |
 | 5 | S9.05 | Scroll X by 8 (1 char) | 8 | 0 | Display shifted left 1 char | pass |
-| 6 | S9.06 | Scroll X by 1 (fine) | 1 | 0 | Fine sub-char scroll | pass |
+| 6 | S9.06 | Fine scroll X (NR 0x68 b2) | 0 (fine=1) | 0 | Half-pixel (1-cell) shift | pass |
 | 7 | S9.07 | Scroll X by 255 | 255 | 0 | Maximum scroll | pass |
 | 8 | S9.08 | Fine scroll X enabled | 0 (fine=1) | 0 | Half-pixel offset | pass |
 | 9 | S9.09 | Combined X+Y scroll | 16 | 32 | Both axes scrolled | pass |
 | 10| S9.10 | Y scroll wraps mid-third | 0 | 100 | Wraps across screen thirds correctly | pass |
+| 11| S9.11 | HI_COLOUR Y scroll | 0 | 1 | Row 1 pixels and 8x1 attributes | pass |
+| 12| S9.12 | HI_COLOUR X scroll across a slot | 19 | 0 | Pixels and attributes shift 19 px; attribute follows source column | pass |
+| 13| S9.13 | HI_COLOUR fine scroll | 0 (fine=1) | 0 | Half-pixel shift | pass |
+| 14| S9.14 | HI_RES Y scroll | 0 | 1 | Row 1 of both screens | pass |
+| 15| S9.15 | HI_RES X scroll | 10 | 0 | 20 hi-res pixel shift across both screens | pass |
+| 16| S9.16 | HI_RES fine scroll | 0 (fine=1) | 0 | One hi-res pixel shift | pass |
 
-Integration coverage: **INT-SCROLL-01** (NR 0x26 coarse X), **INT-SCROLL-02** (NR 0x27 Y), **INT-SCROLL-03** (NR 0x68 bit 2 fine X) in `ula_integration_test.cpp`. This was the user-priority cluster that motivated the plan.
+Integration coverage: **INT-SCROLL-01** (NR 0x26 coarse X), **INT-SCROLL-02** (NR 0x27 Y), **INT-SCROLL-03** (NR 0x68 bit 2 fine X), **INT-SCROLL-04** (NR 0x26/0x27 in Timex hi-colour, GH #409) in `ula_integration_test.cpp`. This was the user-priority cluster that motivated the plan.
 
 ### §9-PSL — Per-scanline NR 0x26 / NR 0x27 ULA scroll replay (G08)
 
