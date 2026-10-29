@@ -166,6 +166,12 @@ if(NOT WIN32)
     target_link_libraries(quick_snapshot_posix_test PRIVATE jnext_core spdlog::spdlog)
     target_include_directories(quick_snapshot_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME quick_snapshot_posix_tests COMMAND quick_snapshot_posix_test)
+    # GH #416 — the PGO link-map reader of cmake/JnextPgo.cmake, both map formats.
+    # Drives `cmake -P` through env(1), so POSIX only.
+    add_executable(pgo_map_parse_test pgo/pgo_map_parse_test.cpp)
+    target_compile_definitions(pgo_map_parse_test PRIVATE
+        JNEXT_TEST_CMAKE="${CMAKE_COMMAND}" JNEXT_TEST_SRC="${CMAKE_SOURCE_DIR}")
+    add_test(NAME pgo_map_parse_tests COMMAND pgo_map_parse_test)
     add_executable(esxdos_symlink_test esxdos_stub/esxdos_symlink_test.cpp)
     target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
     target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
