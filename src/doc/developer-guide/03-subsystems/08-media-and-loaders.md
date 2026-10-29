@@ -152,7 +152,8 @@ trapped at once; the typist's first fire at power-on is frame 63-92 on the
 48K/128K/+3, 92 on a Next started with `--load`, and 311 on a cold Next, which
 runs the FPGA bootloader and tbblue firmware first (`init()` overlays
 `nextboot.rom` only when no `load_file` is set). A reset, Tape > Eject, a newly attached tape (`.tap`, `.tzx`
-or `.wav`) and a `.jns` tape reattach each close the window.
+or `.wav`) and any state restore (a rewind, a debugger state load, a `.jns`)
+each close the window.
 
 **Automatic play/stop (GH #395)** is a host deck feature with no hardware
 counterpart (no Spectrum has tape motor control). The signal is

@@ -13436,6 +13436,10 @@ void Emulator::save_state(StateWriter& w) const
 bool Emulator::load_state(StateReader& r)
 {
     tape_poll_.reset();   // GH #395: time may have moved backwards
+    // GH #408 - and so may the fast-load window: it was opened by a block
+    // trapped in the timeline being left (a rewind, a debugger state load, the
+    // .jns round trip). The restored machine sprints again at its next trap.
+    tape_fastload_frames_left_ = 0;
     // GH #276 B2 — THE RECONCILIATION RUNS ON EVERY EXIT, not just the
     // successful one, and this is the exit that needs it most.
     //
