@@ -139,13 +139,18 @@ does not cost real time: `Emulator::fastload_active()` drops the frame pacing (t
 Qt frontend runs up to 200 frames per tick, the SDL one skips its delay) and the
 audio. Like FUSE's `timer_fastloading_active()`, it holds only while something is
 loading, never because a tape is merely attached (GH #408): while the phantom
-typist waits, for at most `PhantomTypist::FASTLOAD_WAIT_FRAMES` (500) frames, or,
+typist waits, for at most `PhantomTypist::FASTLOAD_WAIT_FRAMES` (1000) frames, or,
 for a fast tape with blocks left, while the keyboard auto-type is typing its
 `LOAD ""` or within `FASTLOAD_TAPE_IDLE_FRAMES` (50) frames of the last block the
 trap served. Before that bound, a tape nobody read (opened at a NextZXOS screen,
 or a second program on it) kept the sprint for the whole session: the window
 answered once a burst, and one key tap lasted a burst, long enough for the ROM to
-auto-repeat it dozens of times.
+auto-repeat it dozens of times. Both bounds are measured (`tap_loader_test`
+TAPF-09..12): the ROM's own work between trapped blocks is 0-1 frames, and a
+loader `PAUSE` past the window runs only its tail at 1x, the next block still
+trapped at once; the typist's first fire at power-on is frame 63-92 on the
+48K/128K/+3 and 311 on the Next. A reset, Tape > Eject and a newly attached tape
+each close the window.
 
 **Automatic play/stop (GH #395)** is a host deck feature with no hardware
 counterpart (no Spectrum has tape motor control). The signal is

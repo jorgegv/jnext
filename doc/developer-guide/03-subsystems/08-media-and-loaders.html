@@ -2604,13 +2604,18 @@ does not cost real time: <code>Emulator::fastload_active()</code> drops the fram
 Qt frontend runs up to 200 frames per tick, the SDL one skips its delay) and the
 audio. Like FUSE's <code>timer_fastloading_active()</code>, it holds only while something is
 loading, never because a tape is merely attached (GH #408): while the phantom
-typist waits, for at most <code>PhantomTypist::FASTLOAD_WAIT_FRAMES</code> (500) frames, or,
+typist waits, for at most <code>PhantomTypist::FASTLOAD_WAIT_FRAMES</code> (1000) frames, or,
 for a fast tape with blocks left, while the keyboard auto-type is typing its
 <code>LOAD ""</code> or within <code>FASTLOAD_TAPE_IDLE_FRAMES</code> (50) frames of the last block the
 trap served. Before that bound, a tape nobody read (opened at a NextZXOS screen,
 or a second program on it) kept the sprint for the whole session: the window
 answered once a burst, and one key tap lasted a burst, long enough for the ROM to
-auto-repeat it dozens of times.</p>
+auto-repeat it dozens of times. Both bounds are measured (<code>tap_loader_test</code>
+TAPF-09..12): the ROM's own work between trapped blocks is 0-1 frames, and a
+loader <code>PAUSE</code> past the window runs only its tail at 1x, the next block still
+trapped at once; the typist's first fire at power-on is frame 63-92 on the
+48K/128K/+3 and 311 on the Next. A reset, Tape &gt; Eject and a newly attached tape
+each close the window.</p>
 <p><strong>Automatic play/stop (GH #395)</strong> is a host deck feature with no hardware
 counterpart (no Spectrum has tape motor control). The signal is
 <code>TapePollDetector</code> (<code>src/core/tape_poll_detector.h</code>): every CPU <code>IN</code> of the ULA

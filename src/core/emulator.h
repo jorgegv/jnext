@@ -708,8 +708,24 @@ public:
         return keyboard_.auto_typing() || tape_fastload_frames_left_ > 0;
     }
     /// GH #408 - frames a fast tape keeps the emulator uncapped after a
-    /// ROM-trap load (one emulated second at 50 Hz).
+    /// ROM-trap load (one emulated second at 50 Hz). Measured on a synthetic
+    /// `10 LOAD ""CODE : PAUSE n : LOAD ""CODE` loader (tap_loader_test
+    /// TAPF-09..11): the ROM's own work between trapped blocks is 0-1 frames
+    /// (header and data share a frame; the program to the first CODE is 1),
+    /// so 50 covers that 50 times over and any loader pause up to 1 s. A
+    /// longer pause runs its tail past the window at 1x (PAUSE 100: 51 of the
+    /// load's 221 frames) and the next block is still trapped at once. Too
+    /// high is the GH #408 symptom: an idle tape keeps the sprint that long.
     static constexpr uint32_t FASTLOAD_TAPE_IDLE_FRAMES = 50;
+    /// GH #408 - what is left of that window (0: none). Diagnostic only.
+    uint32_t tape_fastload_frames_left() const { return tape_fastload_frames_left_; }
+    /// GH #408 - Tape > Eject: empty all three decks; no window outlives them.
+    void eject_tape() {
+        tape_.eject();
+        tzx_tape_.eject();
+        wav_tape_.eject();
+        tape_fastload_frames_left_ = 0;
+    }
     Joystick&       joystick()       { return joystick_; }
 
     // --- Task 79: per-connector host input source ---------------------------
@@ -2456,7 +2472,9 @@ private:
     bool             tape_auto_play_ = true;
     TapePollDetector tape_poll_;
     // GH #408 - fast-load pacing window (fastload_active()): set on every
-    // trap-served block, counted down once per frame.
+    // trap-served block, counted down once per frame, and zeroed by init()
+    // (every in-place reset or load), eject_tape(), load_tap() and load_tzx(),
+    // so no window outlives the tape or the machine it was opened for.
     // Host pacing only: not serialised (a restored machine sprints again at
     // its next trapped block).
     uint32_t         tape_fastload_frames_left_ = 0;

@@ -110,14 +110,18 @@ public:
     bool is_active() const { return state_ != State::INACTIVE; }
 
     /// GH #408 - how many frames an armed typist may keep the emulator
-    /// uncapped while it WAITS for a full keyboard scan. Every machine's ROM
-    /// reaches one within 100 frames of a startup `--load` (measured: 48K,
-    /// 128K, +3, Next), so this is 5x that. A tape attached while a program
-    /// that never scans the whole matrix runs (a game's own key routine, a
-    /// `DI` loop) would otherwise keep the typist waiting, and the machine
-    /// sprinting, for the rest of the session. Only the pacing gives up: the
+    /// uncapped while it WAITS for a full keyboard scan: 20 emulated seconds.
+    /// Measured first fire of a tape attached at power-on (tap_loader_test
+    /// TAPF-12, `Emulator::init()` cold boot, distro SD image): 48K frame 92,
+    /// 128K 63, +3 66, Next 311 (the firmware and NextZXOS boot; the frontend
+    /// `--load` path fires before frame 100). 1000 is 3x the slowest. Too low
+    /// costs only pacing: a boot slower than the bound finishes at 1x and the
+    /// load is still trapped. Too high is the GH #408 symptom itself: a tape
+    /// attached while a program that never scans the whole matrix runs (a
+    /// game's own key routine, a `DI` loop) keeps the typist waiting, and the
+    /// machine sprinting, until the bound. Only the pacing gives up: the
     /// typist stays armed and still types once a scan comes.
-    static constexpr uint32_t FASTLOAD_WAIT_FRAMES = 500;
+    static constexpr uint32_t FASTLOAD_WAIT_FRAMES = 1000;
 
     /// True while the typist should keep the emulator uncapped: armed, and
     /// either about to fire or not yet waiting longer than

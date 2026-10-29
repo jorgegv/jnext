@@ -113,6 +113,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // never outlives the machine it was counted on.
     tape_auto_play_ = cfg.tape_auto_play;
     tape_poll_.reset();
+    tape_fastload_frames_left_ = 0;   // GH #408
     // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
     // latch loaded only at video_frame_sync, with no reset clause
     // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
@@ -8364,6 +8365,7 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     loader.set_fast_load(fast_load);
     tape_poll_.reset();
     tape_ = std::move(loader);
+    tape_fastload_frames_left_ = 0;   // GH #408: the old tape's window goes with it
     Log::emulator()->info("TAP: tape attached - {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
 
@@ -8471,6 +8473,7 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     loader.set_fast_load(fast_load);
     tape_poll_.reset();
     tzx_tape_ = std::move(loader);
+    tape_fastload_frames_left_ = 0;   // GH #408: the old tape's window goes with it
     Log::emulator()->info("TZX: tape attached, mode: {}",
                            tzx_tape_.fast_load() ? "fast" : "realtime");
 
