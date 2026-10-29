@@ -162,10 +162,10 @@ private:
         /// on. The gutter draws a filled dot for live and a hollow ring for
         /// suspended, so the two are never confused for one another.
         bool breakpoint_live;
-        /// The page the line was drawn with (`source_page`). While running
-        /// the panel is not redrawn, so a click must act on what it shows,
-        /// not on what is mapped by then.
-        uint16_t page = jnext::dbg::PAGE_ANY;
+        /// The memory that supplied the line when it was drawn (`source_page`).
+        /// While running the panel is not redrawn, so a click must act on what
+        /// it shows, not on what is mapped by then.
+        jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
     };
     std::vector<DisasmEntry> entries_;
     int selected_line_ = -1;

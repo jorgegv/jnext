@@ -2764,6 +2764,14 @@ compares the whole serialised machine state around each view.</p>
 <td>owner only</td>
 </tr>
 <tr>
+<td><code>subscribe_source_line(by, "file:line", like)</code></td>
+<td>a source breakpoint: resolves the line in the live source map and subscribes one <code>Execute</code> per start, each a copy of <code>like</code> with <code>lo = hi = start.address</code> and <code>space = start.space</code>, all under one new <code>GroupId</code>. All or nothing; refused with no map, no code at the line, or a <code>like</code> that is not <code>Execute</code></td>
+</tr>
+<tr>
+<td><code>unsubscribe_group(by, group)</code>, <code>set_group_enabled(by, group, on)</code></td>
+<td>every member of a source breakpoint; owner only. <code>SubscriptionInfo::group</code> says which group a listed subscription belongs to (<code>GROUP_NONE</code> for a plain one)</td>
+</tr>
+<tr>
 <td><code>master_enabled()</code>, <code>set_master_enabled(on)</code></td>
 <td>suspend every non-transient subscription without touching its own flag</td>
 </tr>
@@ -2935,10 +2943,19 @@ recorded at the first fetch at the target and stays unrecorded, <code>cpu()</cod
 then; an INT or NMI frame's caller is the prediction at the interrupted PC). A
 slot that records no fetch (an accepted INT or NMI, the esxdos shim) keeps the
 prediction for its PC in its trace entry.
-<code>TraceLog::fetch_not_mmu_ram()</code> is a view of that identity, for the page
-qualifier below. An <code>Execute</code> filter with
-<code>page_ram_only</code> matches only a fetch from that RAM page (<code>Event::fetch_not_ram</code>);
-without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
+An <code>Execute</code> filter has two qualifiers. <code>EventFilter::space</code> is the canonical
+one: the <code>FetchSource</code> that must supply the opcode, compared exactly (kind and
+index) with <code>Event::space</code>, which the gate and <code>probe_execute()</code> predict and
+<code>history_stop_at()</code> reads from the trace entry. <code>EventFilter::page</code> is the
+<strong>legacy protocol qualifier</strong>: it compares <code>Mmu::get_effective_page(slot)</code> and
+nothing more, so it also matches a ROM or an overlay that carries that number.
+DZRP's <code>bank+1</code> and the DSL's <code>page</code> use it, and
+<code>dzrp-frontend.md</code> stays a frozen design record of that meaning. One
+predicate, <code>EventFilter::matches(ev)</code>, applies both; the live gate
+(<code>EventTable::filter_matches()</code>), <code>probe_execute()</code> and Reverse Continue all
+call it. A source breakpoint is a group of <code>Execute</code> subscriptions with a
+<code>space</code> each (<code>subscribe_source_line()</code>); the Qt Breakpoints panel shows it as
+one row.
 An SLD may carry a SHA-256 of the program's bytes (<code>||program.*</code> comment
 records); <code>load_source_map(path, accept_mismatch)</code> checks it against memory and
 stores the path absolute.</p>

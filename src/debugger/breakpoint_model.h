@@ -54,10 +54,16 @@ public:
         /// other client's range, NextREG, frame... watch.
         int      type    = -1;
         uint16_t addr    = 0;   ///< the address, the port, or a range's low end
-        /// An Execute row's physical 8K page qualifier (CAP-SRC: a breakpoint
-        /// set on a source line of banked code), or `PAGE_ANY` for a logical
-        /// breakpoint that matches whatever page is mapped.
-        uint16_t page    = jnext::dbg::PAGE_ANY;
+        /// An Execute row's fetch qualifier (E23-09: the `FetchSource` a
+        /// source line compiled into), or `cpu()` for a logical breakpoint
+        /// that matches whatever memory supplies the opcode. A group row
+        /// carries its lowest member's.
+        jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
+        /// The source breakpoint this row stands for, or `GROUP_NONE`: the
+        /// members of one group are ONE row.
+        jnext::dbg::GroupId group = jnext::dbg::GROUP_NONE;
+        /// How many places the row arms: the group's member count, 1 otherwise.
+        int      locations = 1;
         bool     enabled = true;
         bool     live    = true;
         /// This GUI's own row: editable. Another client's is read-only.
@@ -78,26 +84,38 @@ public:
     /// its own enabled flag (GH #225 — a second gutter click must not re-arm a
     /// breakpoint the user disabled).
     ///
-    /// `page` qualifies an Execute breakpoint with a physical 8K page
-    /// (CAP-SRC); every other type, and the default, is unqualified. A
-    /// qualified and an unqualified breakpoint at one address are two rows.
-    void add(int type, uint16_t addr, uint16_t page = jnext::dbg::PAGE_ANY);
-    void remove(int type, uint16_t addr, uint16_t page = jnext::dbg::PAGE_ANY);
+    /// `space` qualifies an Execute breakpoint with the memory that must
+    /// supply the opcode (E23-09); every other type, and the default, is
+    /// unqualified. A qualified and an unqualified breakpoint at one address
+    /// are two rows. These act on ONE subscription (a group's member too);
+    /// a whole group goes through the Row overloads below.
+    void add(int type, uint16_t addr, jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu());
+    void remove(int type, uint16_t addr, jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu());
     /// No-op if there is no such breakpoint or the flag already has that value.
     void set_enabled(int type, uint16_t addr, bool enabled,
-                     uint16_t page = jnext::dbg::PAGE_ANY);
+                     jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu());
+
+    /// E23-09 -- a breakpoint on a source line (`file:line`): one group, every
+    /// place the line compiled to. Returns the group, or `GROUP_NONE` when the
+    /// backend refuses it (no live map, no code at that line).
+    jnext::dbg::GroupId add_source_line(const QString& file_line);
+    /// Remove / enable the row as listed: a group row acts on every location.
+    void remove(const Row& row);
+    void set_enabled(const Row& row, bool enabled);
     /// Remove every breakpoint THIS GUI owns. Other clients' are not the GUI's
     /// to delete.
     void clear_all();
 
-    bool exists(int type, uint16_t addr, uint16_t page = jnext::dbg::PAGE_ANY) const;
+    bool exists(int type, uint16_t addr,
+                jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu()) const;
     /// This GUI's Execute breakpoint at `addr`: is there one, and can it fire.
     bool pc_exists(uint16_t addr) const;
     bool pc_live(uint16_t addr) const;
-    /// What the gutter draws at `addr` while physical `page` is mapped there:
-    /// the logical breakpoint, or one qualified with that page (CAP-SRC).
-    bool pc_marked(uint16_t addr, uint16_t page) const;
-    bool pc_marked_live(uint16_t addr, uint16_t page) const;
+    /// What the gutter draws at `addr` while `space` supplies the opcode there:
+    /// the logical breakpoint, or a location qualified with that space (a
+    /// group's member counts).
+    bool pc_marked(uint16_t addr, jnext::dbg::MemSpace space) const;
+    bool pc_marked_live(uint16_t addr, jnext::dbg::MemSpace space) const;
 
     /// GH #225's master switch — the backend's, one for every client.
     bool master_enabled() const;
@@ -119,8 +137,18 @@ private:
     /// Re-read the backend's listing, rebuild rows_, and emit changed() with
     /// the kinds that differ from the last published state.
     void publish_();
-    const Row* find_own_(int type, uint16_t addr,
-                         uint16_t page = jnext::dbg::PAGE_ANY) const;
+    /// This GUI's own expressible subscriptions, one per backend subscription:
+    /// a group is several here and one row in `rows_`.
+    struct Member {
+        jnext::dbg::EventId  id;
+        int                  type;
+        uint16_t             addr;
+        jnext::dbg::MemSpace space;
+        bool                 enabled;
+        bool                 live;
+    };
+    const Member* find_own_(int type, uint16_t addr,
+                            jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu()) const;
 
     // jnext::dbg::Listener — only the subscription push is used; the pause
     // state is PULLED by DebuggerManager (§4.1), so the rest are deliberately
@@ -136,6 +164,7 @@ private:
     jnext::dbg::Debugger& dbg_;
     jnext::dbg::ClientId  client_ = jnext::dbg::CLIENT_NONE;
     std::vector<Row>      rows_;
+    std::vector<Member>   members_;
     /// What the last publish saw, per listed id: its kind and whether it was
     /// enabled / live. A row's filter cannot change without a new id.
     struct Seen {

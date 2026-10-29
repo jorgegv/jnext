@@ -128,12 +128,14 @@ In the Breakpoints panel's **Add** dialog, the address can be a number
 (`8000`, `$8000`, `0x8000`), a symbol (`PlayerTick`), or, for an Execute
 breakpoint, a source line, `file:line`: `main.bas:120`, or the end of the
 path (`game/main.bas:120`) when two files share a name. A line the program
-compiled to several places (a routine in two banks, say) gets a breakpoint at
-each; a line with no code is refused with "no code at main.bas:120". A number wins over a symbol: `FE` or `B` is that
+compiled to several places (a routine in two banks, say) is ONE breakpoint,
+armed at each place and listed as one row, "main.bas:120 (2 locations)": Enabled,
+Edit and Remove act on all its places, and a click on the dot of one place in the
+disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A number wins over a symbol: `FE` or `B` is that
 address even when the program has a variable called `FE` or `B`. Write `@FE`
 to mean the symbol. A breakpoint on a line of banked code is tied to
-its page (shown as `$C000 @2E`): it fires only while that RAM page supplies the
-address, and the disassembly gutter shows it only then.
+the memory that supplies it (shown as `$C000 @2E` for a RAM page): it fires only
+while that memory supplies the address, and the disassembly gutter shows it only then.
 
 **Breakpoints ▸ Add Execute Breakpoint…** takes `file:line` too. Symbols work
 in the other address fields: the other **Breakpoints ▸ Add …** dialogs,

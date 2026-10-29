@@ -21,7 +21,6 @@
 #include <QKeySequence>
 
 #include "debug/debugger.h"
-#include "debug/ram_page.h"
 #include "debug/symbol_table.h"
 #include "debugger/watch_panel.h"
 
@@ -160,8 +159,9 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
     BreakpointModel* bps = bp_model_.data();
     if (!bps) return;
     // The click removes the breakpoint the gutter draws, so it asks the same
-    // question the gutter does: a logical one, or one tied to the page the
-    // line was drawn with (a breakpoint set on a source line of banked code).
+    // question the gutter does: a logical one, or one tied to the memory that
+    // supplied the line when it was drawn (a location of a source breakpoint;
+    // the click removes that one location, not its group).
     // Asking only for the logical one added a second breakpoint on top of a
     // drawn dot; asking for the page mapped now did the same after a bank
     // switch while running, when the line is not redrawn.
@@ -169,13 +169,13 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
     // there, and a click on it removes it rather than stacking another.
     const bool shown = line >= 0 && line < static_cast<int>(entries_.size()) &&
                        entries_[line].line.addr == addr;
-    const uint16_t page = shown ? entries_[line].page
-                        : dbg_  ? ram_page_of(dbg_->source_page(addr))
-                                : jnext::dbg::PAGE_ANY;
+    const jnext::dbg::MemSpace space = shown ? entries_[line].space
+                                     : dbg_  ? dbg_->source_page(addr)
+                                             : jnext::dbg::MemSpace::cpu();
     if (bps->pc_exists(addr))
         bps->remove(BreakpointModel::Execute, addr);
-    else if (bps->exists(BreakpointModel::Execute, addr, page))
-        bps->remove(BreakpointModel::Execute, addr, page);
+    else if (bps->exists(BreakpointModel::Execute, addr, space))
+        bps->remove(BreakpointModel::Execute, addr, space);
     else
         bps->add(BreakpointModel::Execute, addr);
     // The model's notification has already run. While PAUSED it
@@ -184,8 +184,8 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
     // patch plus update() is what still shows the dot the instant it is
     // clicked.
     if (line < static_cast<int>(entries_.size())) {
-        entries_[line].has_breakpoint  = bps->pc_marked(addr, page);
-        entries_[line].breakpoint_live = bps->pc_marked_live(addr, page);
+        entries_[line].has_breakpoint  = bps->pc_marked(addr, space);
+        entries_[line].breakpoint_live = bps->pc_marked_live(addr, space);
     }
     update();
 }
@@ -254,11 +254,12 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         // and can it fire? paintEvent draws a filled dot for the second and a
         // hollow ring for a breakpoint that is only the first.
         // CAP-SRC — a breakpoint set on a source line of banked code is
-        // qualified with its page: drawn only while that page is mapped here.
-        const uint16_t page   = dbg_ ? ram_page_of(dbg_->source_page(cur)) : jnext::dbg::PAGE_ANY;
-        entry.has_breakpoint  = bps && bps->pc_marked(cur, page);
-        entry.breakpoint_live = bps && bps->pc_marked_live(cur, page);
-        entry.page            = page;
+        // qualified with its fetch source: drawn only while that memory
+        // supplies the opcode here.
+        const jnext::dbg::MemSpace space = dbg_ ? dbg_->source_page(cur) : jnext::dbg::MemSpace::cpu();
+        entry.has_breakpoint  = bps && bps->pc_marked(cur, space);
+        entry.breakpoint_live = bps && bps->pc_marked_live(cur, space);
+        entry.space           = space;
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);

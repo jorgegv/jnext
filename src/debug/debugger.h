@@ -737,6 +737,28 @@ public:
     /// CAP-EVT — set a subscription's own enable flag. Owner only.
     Result set_enabled(ClientId by, EventId id, bool enabled);
 
+    /// E23-09 (design 8.1) -- a breakpoint on a source line. Resolves
+    /// `file_line` in the live source map (`source_map().resolve()`) and
+    /// subscribes one `Execute` per start, each a copy of `like` with
+    /// `lo = hi = start.address`, `space = start.space` and `page = PAGE_ANY`,
+    /// all under one new group. All or nothing. `like.transient` and
+    /// `like.once` reach every member, so a transient group dies as a whole at
+    /// the next stop. `RefusedUnavailable` for a gone client, a `like.kind` that
+    /// is not `Execute`, no live map, or a line with no start
+    /// (`source_map().resolve(file_line).error` says why). A detach erases the
+    /// members, so the group goes with them.
+    Expected<GroupId> subscribe_source_line(ClientId by, const std::string& file_line,
+                                            const Subscription& like);
+
+    /// E23-09 -- remove every member of `group`. Owner only: an unknown group,
+    /// or another client's, is `RefusedUnavailable`. `unsubscribe(by, id)` still
+    /// removes one member.
+    Result unsubscribe_group(ClientId by, GroupId group);
+
+    /// E23-09 -- set every member's own enable flag. Owner only, as above.
+    /// `set_enabled(by, id, on)` still acts on one member.
+    Result set_group_enabled(ClientId by, GroupId group, bool enabled);
+
     /// CAP-EVT — the master switch (GH #225). Suspends every subscription
     /// without deleting one and without touching any per-subscription flag;
     /// `transient` subscriptions are EXEMPT, so Step Over and Run to Here keep

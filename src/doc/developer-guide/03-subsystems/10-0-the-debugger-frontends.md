@@ -128,6 +128,7 @@ a write.
 | input injection | — | — | — | NMI | keys, joystick | — |
 | `subscribe` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `subscriptions` listing | ✓ | — | ✓ | ✓ | — | — |
+| source-line breakpoints (`subscribe_source_line`, group verbs) | ✓ | — | — | — | — | — |
 | master switch | ✓ | — | — | — | — | — |
 | magic breakpoint switch | r w (the main window's Debug ▸ Magic Breakpoint) | — | — | — | — | — |
 | `probe_execute` | — | — | — | ✓ | — | — |
