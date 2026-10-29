@@ -256,10 +256,10 @@ int main() {
         const auto r = load(m, map);
         const SourceLocation* l = m.lookup(P4, 0x8D5C);
         const std::string tail = "sccz80-subdir/prog.map";
-        const std::string loaded = m.loaded_file();
+        const std::string loaded = fs::path(m.loaded_file()).generic_string();   // '/' on Windows too
         check("Z88MAP-13", "a file in a subdirectory keeps its path (game/util.c), resolves by its tail; the stored map path is absolute",
               r && starts_are(m.resolve("util.c:8"), {{P4, 0x8D5C}}) && l && l->file == "game/util.c" &&
-                  fs::path(loaded).is_absolute() && loaded.size() > tail.size() &&
+                  fs::path(m.loaded_file()).is_absolute() && loaded.size() > tail.size() &&
                   loaded.compare(loaded.size() - tail.size(), tail.size(), tail) == 0);
     }
 
