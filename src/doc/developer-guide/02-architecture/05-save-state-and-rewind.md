@@ -150,7 +150,8 @@ when a tape is attached. `TapLoader`, `TzxLoader` and `WavLoader` each expose a
 the save instant and file pointers are byte offsets. The member also carries
 the poll detector, the phantom typist and the recorded auto play. On load,
 `Emulator::reattach_jns_tape_()` runs last (the state round trip resets the
-detector): it re-opens the tape (from the archive when there is one), checks
+detector and, like every `load_state()`, a rewind's included, closes the
+fast-load pacing window, GH #408): it re-opens the tape (from the archive when there is one), checks
 the digest, and has the loader validate every value against the file before
 installing it. Any failure is ONE warning and the deck stays as it was. A file
 without the member (older jnext) is not reattached either, since attaching at

@@ -2477,14 +2477,17 @@ private:
     TapePollDetector tape_poll_;
     // GH #408 - fast-load pacing window (fastload_active()): set on every
     // trap-served block, counted down once per frame, and zeroed by init()
-    // (every in-place reset or load) and by tape_deck_changed_(), so no
-    // window outlives the tape or the machine it was opened for.
+    // (every in-place reset or load), by load_state() (every state restore:
+    // rewind, a debugger state load, the .jns round trip) and by
+    // tape_deck_changed_(), so no window outlives the tape, the machine or the
+    // timeline it was opened in.
     // Host pacing only: not serialised (a restored machine sprints again at
     // its next trapped block).
     uint32_t         tape_fastload_frames_left_ = 0;
     /// GH #408 - the one rule for a deck change: whatever replaces or empties
-    /// the decks (load_tap, load_tzx, load_wav, a .jns tape reattach,
-    /// eject_tape) calls this, and the old tape's window goes with it.
+    /// the decks outside a state restore (load_tap, load_tzx, load_wav,
+    /// eject_tape) calls this, and the old tape's window goes with it. A .jns
+    /// tape reattach needs no call: load_jns runs load_state() first.
     void tape_deck_changed_() { tape_fastload_frames_left_ = 0; }
     /// One CPU read of the ULA port: count it, and resume a deck that auto play
     /// itself held (never start one that is not playing).

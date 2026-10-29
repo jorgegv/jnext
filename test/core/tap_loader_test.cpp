@@ -1554,6 +1554,46 @@ int main() {
                   " left=" + std::to_string(emu->tape_fastload_frames_left()) +
                   " why=" + emu->last_jns_error());
         }
+        {   // TAPF-18: a rewind restore goes through load_state() but never
+            // through a deck change: the tape stays in, only time moves back.
+            // A window opened by a block trapped after the restore point is from
+            // a timeline that is gone, and must not sprint the restored machine.
+            // Three programs: the first loads, the machine settles (window run
+            // out, nothing typing), that frame is the restore point; a second
+            // LOAD "" traps program 2 (window open, program 3 still pending);
+            // then the ring restores the settled frame.
+            emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 600;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            const std::string three = write_file("gh408-three.tap",
+                concat({basic_prog("PROG1     "), basic_prog("PROG2     "), basic_prog("PROG3     ")}));
+            bool rok = emu->init(cfg) && emu->rewind_buffer() && emu->load_tap(three, true);
+            for (int i = 0; rok && i < 1500 && emu->tape().current_block() < 2; ++i) emu->run_frame();
+            for (int i = 0; rok && i < 120; ++i) emu->run_frame();   // window out, typing done
+            const bool settled = rok && emu->tape().current_block() == 2 && !emu->fastload_active() &&
+                                 !emu->keyboard().auto_typing() && !emu->phantom_typist().is_active();
+            // The ring takes a frame's snapshot as that frame BEGINS, inside
+            // the next run_frame() (begin_new_frame()), tagged with its start
+            // cycle: run that frame before typing, so the restore point holds
+            // the settled machine and not the keys queued between frames.
+            const uint64_t point = emu->current_frame_cycle();
+            emu->run_frame();
+            emu->keyboard().queue_auto_type({J, QQ, QQ, EN});
+            for (int i = 0; rok && i < 600 && emu->tape().current_block() < 4; ++i) emu->run_frame();
+            for (int i = 0; rok && i < 50 && emu->keyboard().auto_typing(); ++i) emu->run_frame();
+            const bool open = emu->tape().current_block() == 4 && emu->tape_fastload_frames_left() > 0;
+            const uint64_t landed = emu->rewind_buffer()->restore_nearest(point, *emu);
+            const bool pending = emu->tape().is_loaded() && emu->tape().fast_load() && !emu->tape().at_end();
+            const bool quiet = !emu->keyboard().auto_typing() && !emu->phantom_typist().is_active();
+            check("TAPF-18", "a rewind to before a trapped block closes that block's window: the tape stays "
+                  "in with blocks left and nothing sprints",
+                  settled && open && landed == point && pending && quiet &&
+                      emu->tape_fastload_frames_left() == 0 && !emu->fastload_active(),
+                  "settled=" + std::to_string(settled) + " open=" + std::to_string(open) +
+                  " landed_ok=" + std::to_string(landed == point) + " pending=" + std::to_string(pending) +
+                  " quiet=" + std::to_string(quiet) +
+                  " left=" + std::to_string(emu->tape_fastload_frames_left()));
+        }
         {   // TAPF-15
             const bool pre_tap = window_open();
             const bool tap_ok = emu->load_tap(write_file("gh408-new.tap", basic_prog("NEWTAPE   ")), true);
