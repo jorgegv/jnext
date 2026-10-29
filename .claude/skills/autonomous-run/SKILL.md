@@ -48,13 +48,13 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 3. Planner → `<run>/gh<N>-plan.md` (root cause, design, rows, mutations, acceptance criteria). Plan says PARK → park (see below).
 4. Implementer, briefed with the plan path → `<run>/gh<N>-report.md`.
 5. Verify the tree against the report's claims (grep), not the handback text.
-6. Reviewer in its own detached worktree (`git worktree add --detach ~/tmp/worktrees/rev-gh<N> gh<N>-<slug>`) → `<run>/gh<N>-review-<round>.md`. Read the FILE.
+6. Reviewer in its own detached worktree (`git worktree add --detach ~/tmp/worktrees/jnext/rev-gh<N> gh<N>-<slug>`) → `<run>/gh<N>-review-<round>.md`. Read the FILE.
 7. REJECT → SendMessage findings to the same implementer; design-level finding → back to the same planner first. Re-review by the same reviewer. 10 rounds without APPROVE → park.
 8. APPROVE → implementer merges its target branch (§Branches) into the branch, recounts manifest counters by hand, keeps both lines in ChangeLog conflicts.
 9. Land into the target. `main`: `JNEXT_ALLOW_MAIN_WRITE=1 git merge`, then `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`; it stays local until the batch gate (step 10). Epic branch: plain merge, no bump.
 10. Batch gate, then push (main only).
     - When: once, after all of the session's landings (no landing-count limit), and before any push.
-    - What: the batch gate (CLAUDE.md merge protocol step 2), on `main`'s tip, in `~/tmp/worktrees/main-gate`. A `regression-runner` agent runs it; that agent counts toward the cap.
+    - What: the batch gate (CLAUDE.md merge protocol step 2), on `main`'s tip, in `~/tmp/worktrees/jnext/main-gate`. A `regression-runner` agent runs it; that agent counts toward the cap.
     - Green and CI on main idle (`gh run list --workflow CI --limit 1`) → `JNEXT_ALLOW_PUSH=1 git push origin main`, then all the batch's tags except the newest in one push, then the newest tag on its own (it always gets its tag event; a public release tag alone, RELEASE-PROTOCOL.md §6). CI busy → wait, then push.
     - Red → find the landing that broke it (re-run the failing rows at each merge commit). Fix forward on a branch, or undo that merge with a new revert commit. Re-run the gate. Never push red.
 11. Close the issue (rules.md §GitHub): standalone once pushed; epic sub-issue once merged into the epic branch, noting it reaches `main` with the epic. Untestable-by-gate fix (feel, speed, host-specific) → comment, leave open for reporter confirmation.
@@ -63,7 +63,7 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 ## Branches
 
 - **Standalone issue** (bug, feature, …): `gh<N>-<slug>` off `main`; target `main`.
-- **Epic**: `epic<E>-<slug>` off `main`, created when its first sub-issue starts, with its own worktree `~/tmp/worktrees/epic<E>` (merges and the final gate happen there). Sub-issues: `gh<N>-<slug>` off the epic branch (`worktree-launch` with the epic branch as base, not `main`); target the epic branch, never `main`. Merge `main` into the epic branch after each landing on `main`.
+- **Epic**: `epic<E>-<slug>` off `main`, created when its first sub-issue starts, with its own worktree `~/tmp/worktrees/jnext/epic<E>` (merges and the final gate happen there). Sub-issues: `gh<N>-<slug>` off the epic branch (`worktree-launch` with the epic branch as base, not `main`); target the epic branch, never `main`. Merge `main` into the epic branch after each landing on `main`.
 - **Epic finished** (all sub-issues closed, epic scope done):
   1. Merge `main` into the epic branch; full gate on it.
   2. Reviewer (`autorun-reviewer`) on the whole epic diff vs `main`: cross-sub-issue interactions, the merge, acceptance criteria of the epic.

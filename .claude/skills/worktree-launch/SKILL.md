@@ -1,6 +1,6 @@
 ---
 name: worktree-launch
-description: Create a fresh agent worktree under /home/jorgegv/tmp/worktrees/ (OUTSIDE the repo) off an up-to-date main, with the project's hygiene rules baked in. Use when the user says "spin up a worktree", "create a worktree for agent X", "set up a worktree for branch Y", or when about to dispatch an agent that needs an isolated work area.
+description: Create a fresh agent worktree under /home/jorgegv/tmp/worktrees/jnext/ (OUTSIDE the repo) off an up-to-date main, with the project's hygiene rules baked in. Use when the user says "spin up a worktree", "create a worktree for agent X", "set up a worktree for branch Y", or when about to dispatch an agent that needs an isolated work area.
 ---
 
 # Launch an agent worktree
@@ -36,7 +36,7 @@ If `behind` > 0, ask the user whether to fast-forward main first. Do NOT auto-pu
 ### 2. Create the worktree
 
 ```bash
-git worktree add /home/jorgegv/tmp/worktrees/agent-<ID> -b <BRANCH> <BASE>   # <BASE> = main unless the caller names another (e.g. an epic branch)
+git worktree add /home/jorgegv/tmp/worktrees/jnext/agent-<ID> -b <BRANCH> <BASE>   # <BASE> = main unless the caller names another (e.g. an epic branch)
 ```
 
 **If the branch or the worktree already exists, STOP** — an existing workspace is
@@ -55,7 +55,7 @@ prevent (`feedback_check_for_concurrent_sessions`).
 ### 3. Provision the roms/ fixtures (ALWAYS — the tests need them)
 
 ```bash
-make -C /home/jorgegv/tmp/worktrees/agent-<ID> worktree-bootstrap
+make -C /home/jorgegv/tmp/worktrees/jnext/agent-<ID> worktree-bootstrap
 ```
 
 `roms/*` is git-ignored, so a fresh worktree gets only the tracked `nextboot.rom`.
@@ -71,7 +71,7 @@ Per `feedback_worktree_demo_artifacts`, build artifacts under `demo/` aren't che
 rsync -a --include='*.nex' --include='*.bin' --include='*.tap' --include='*.tzx' \
       --include='*.wav' --include='*/' --exclude='*' \
       /home/jorgegv/src/spectrum/jnext/demo/ \
-      /home/jorgegv/tmp/worktrees/agent-<ID>/demo/
+      /home/jorgegv/tmp/worktrees/jnext/agent-<ID>/demo/
 ```
 
 Skip this step if the agent doesn't need to run demos.
@@ -81,7 +81,7 @@ Skip this step if the agent doesn't need to run demos.
 This goes into the agent's prompt:
 
 ```
-WORKING DIRECTORY: /home/jorgegv/tmp/worktrees/agent-<ID>
+WORKING DIRECTORY: /home/jorgegv/tmp/worktrees/jnext/agent-<ID>
 BRANCH: <BRANCH>
 BASE: main @ <SHA>
 
@@ -112,9 +112,9 @@ Hard rules per CLAUDE.md:
 After the agent's branch is merged into its target (`<TARGET>` = `main`, or the epic branch for an epic sub-issue). A detached reviewer worktree has no branch: only the status check applies.
 
 ```bash
-git -C /home/jorgegv/tmp/worktrees/agent-<ID> status --short   # must be empty
+git -C /home/jorgegv/tmp/worktrees/jnext/agent-<ID> status --short   # must be empty
 git merge-base --is-ancestor <BRANCH> <TARGET>                   # must succeed
-git worktree remove --force /home/jorgegv/tmp/worktrees/agent-<ID>   # --force: the tree has submodules
+git worktree remove --force /home/jorgegv/tmp/worktrees/jnext/agent-<ID>   # --force: the tree has submodules
 git -C <TARGET-checkout> branch -d <BRANCH>   # -d, never -D; run where <TARGET> is checked out (the main checkout for main, the epic worktree for an epic sub-issue): -d checks "merged" against that HEAD
 ```
 
