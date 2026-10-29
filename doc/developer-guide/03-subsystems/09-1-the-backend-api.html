@@ -2880,6 +2880,10 @@ says SIZEOF(label) was used, and is an ordinary label; a value past 0xFFFF or a 
 (rows SYMPG-<em>, SLDL-</em>).
 The <code>-debug</code> records (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or <code>__CDBINFO__</code>)
 are dropped by the loader, so they never name an address or resolve by name.
+<code>load_z88dk_map()</code> and <code>load_simple_map()</code> refuse a file that is not regular or is
+over the size cap before opening it, with the table untouched, and say why
+through their optional <code>why</code> argument; a file that merely fails to open leaves it
+empty (rows Z88MAP-27).
 <code>MapFormat::NextBuild</code> reads a NextBuild / Boriel ZX Basic <code>Memory.txt</code> (<code>8000: ._Main</code>): the shown name drops the <code>.</code> and the
 compiler's <code>_</code>, and the raw label resolves by name too. <code>SymbolTable::resolve()</code>
 turns an address field's text into an address: hex first (<code>4000</code>, <code>$4000</code>,
@@ -2942,6 +2946,27 @@ without it the page qualifier compares numbers alone, as DZRP and the DSL use it
 An SLD may carry a SHA-256 of the program's bytes (<code>||program.*</code> comment
 records); <code>load_source_map(path, accept_mismatch)</code> checks it against memory and
 stores the path absolute.</p>
+<p>The second source adapter is <code>load_z88dk_source_map()</code> (<code>src/debug/z88dk_source_map.*</code>,
+GH #344), which reads the <code>__C_LINE_</code> and <code>__ASM_LINE_</code> records of a z88dk
+<code>-debug</code> map. The symbols of the same file stay the symbol table's. Its rules
+(design 9.1, 9.4, 9.7) live in two places. <code>z88dk_section_space()</code> and
+<code>parse_z88dk_map_line()</code> (<code>src/debug/z88dk_space.*</code>, std-only) are the one derivation
+of a section's page (<code>PAGE_n</code> and <code>BANK_n</code> and their siblings name it; any other
+section binds to the RAM page the MMU maps, which the caller supplies as
+<code>space_of</code>; a DIV section, a PAGE section with no head or a number out of range is
+unpaged and refused) and the one tokenizer of a map line. The adapter is strict (a
+record it cannot place refuses the half, the reason naming the map line, the
+store untouched) and extends each range to the first of the next line start in
+its space, the next <code>addr</code> symbol of another module, the section's
+<code>__&lt;section&gt;_tail</code>, start + 0x400 and the 8K page end. Lines sharing an address:
+the highest line owns the range, a lower one of the same module and function is an
+alias (<code>resolve()</code> finds it), else it has no code. The program identity is a set of
+byte checks (<code>SourceProgramIdentity::bytes</code>): each non-data line range that a
+section binary <code>&lt;map stem&gt;_&lt;GROUP&gt;.bin</code> beside the map covers, in the range's own
+space. <code>SourceMap::verify_program(read, read_space)</code> reads those through
+<code>read_space</code>, never through logical memory; data, bss and smc sections are not
+checked, and no binary means no identity. <code>SourceMap::format()</code> ("SLD" or
+"z88dk") is set by <code>replace()</code>.</p>
 <p><code>load_program_sidecars(path)</code> attaches <code>&lt;stem&gt;.Memory.txt</code> (or <code>Memory.txt</code>,
 beside a <code>.nex</code>) and <code>&lt;stem&gt;.sld</code> / <code>&lt;stem&gt;.sld.txt</code>, searching with the
 non-throwing filesystem calls; only a regular file counts (a FIFO would block the

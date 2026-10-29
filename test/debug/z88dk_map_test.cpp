@@ -151,7 +151,8 @@ int main() {
     SourceMap sc;
     const auto sc_r = load(sc, v24 / "sccz80-debug" / "prog.map");
     check("Z88MAP-01", "main.c:19 starts at $8CB5 in page 4 (__C_LINE_19 = $8CB5, prog_CODE.bin at bank 2)",
-          sc_r && starts_are(sc.resolve("main.c:19"), {{P4, 0x8CB5}}) && sc.resolve("main.c:19").error.empty());
+          sc_r && starts_are(sc.resolve("main.c:19"), {{P4, 0x8CB5}}) && sc.resolve("main.c:19").error.empty() &&
+              sc.format() == "z88dk" && SourceMap().format() == "SLD");
     check("Z88MAP-02", "a range is looked up in its own page: $8CB8 is main.c:19 in page 4, nothing in page 5",
           is_at(sc.lookup(P4, 0x8CB8), "main.c", 19) && !sc.lookup(MemSpace::page(5), 0x8CB8));
     {
@@ -237,8 +238,17 @@ int main() {
         SourceMap m;
         const auto r = load(m, master / "sdcc-debug" / "prog.map");
         const SourceLocation* l = m.lookup(P4, 0x8C5F);
-        check("Z88MAP-12", "an sdcc location (file::x::level::block TAB :line) gives file and line with no TAB in the file",
-              r && starts_are(m.resolve("main.c:11"), {{P4, 0x8C5F}}) && l && l->file == "main.c" && l->line == 11);
+        const auto t = parse_z88dk_map_line(
+            "__C_LINE_11_x = $8C5F ; addr, local, , main_c, code_compiler, main.c::x::10000::11\t:11\r");
+        const auto big = parse_z88dk_map_line(
+            "__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF ; const, local, , zxn_crt_asm_m4, , a,b.m4:482");
+        const auto none = parse_z88dk_map_line("; just a comment = nothing");
+        check("Z88MAP-12", "an sdcc location (file::x::level::block TAB :line) gives file and line with no TAB in the file; the tokenizer keeps the whole location (TAB, commas) and 64-bit values",
+              r && starts_are(m.resolve("main.c:11"), {{P4, 0x8C5F}}) && l && l->file == "main.c" && l->line == 11 &&
+                  t && t->is_addr && !t->is_const && t->value == 0x8C5F && t->module == "main_c" &&
+                  t->section == "code_compiler" && t->location == "main.c::x::10000::11\t:11" &&
+                  big && big->is_const && big->value == 0xFFFFFFFFFFFFFFFFull && big->location == "a,b.m4:482" &&
+                  big->section.empty() && !none);
     }
     {
         SourceMap m;
@@ -275,13 +285,40 @@ int main() {
         const auto r20 = load(m20, v24 / "sccz80-page20" / "prog.map");
         NexMemory ok20 = nex20, bad20 = nex20;
         bad20.pages[20][3] ^= 0xFF;   // banked.c:8 in page 20; the logical reader never sees page 20
+        NexMemory last20 = nex20, no20 = nex20;
+        no20.pages.erase(20);
+        last20.pages[20][0x23] ^= 0xFF;   // the last byte of prog_PAGE_20.bin, in banked.c:9
+        // A lower-case head (__code_compiler_head) names a section, not a group: a file
+        // that happens to be called prog_code_compiler.bin is not its binary (no other
+        // binary here, so any check made from it would make the map verifiable).
+        const fs::path decoy = dir / "decoy" / "prog.map";
+        fs::create_directories(decoy.parent_path());
+        fs::copy_file(v24 / "sccz80-debug" / "prog.map", decoy);
+        write_text(decoy.parent_path() / "prog_code_compiler.bin", std::string(16, '\0'));
+        // A binary covers a range by address only when its group puts the range in the
+        // range's own space: this PAGE_20 line lies inside the CODE binary's addresses.
+        const fs::path foreign = dir / "foreign" / "prog.map";
+        fs::create_directories(foreign.parent_path());
+        write_text(foreign,
+            rec("__CODE_head", 0x8000, "", "", "", "const") + rec("__PAGE_20_head", 0x8100, "", "", "", "const") +
+            rec("__C_LINE_3_a", 0x8100, "a_c", "PAGE_20", "a.c:3"));
+        write_text(foreign.parent_path() / "prog_CODE.bin", std::string(0x2000, '\x11'));
+        SourceMap mf;
+        const auto rf = load(mf, foreign);
+        const SourceMap::SpaceReader all22 = [](FetchSource, uint16_t) -> std::optional<uint8_t> { return 0x22; };
+        SourceMap md;
+        const auto rd = load(md, decoy);
         check("Z88MAP-14", "the identity is the section binaries against the range's own page: code is checked, data and bss are not, no binary is unverified, a bank not mapped is checked",
               nex.ok && nex20.ok && r && verdict(original) == true && verdict(a) == false &&
                   verdict(b) == true && verdict(c) == true &&
                   rl && !lonely.verify_program(logical_junk, original.reader()).has_value() &&
                   r20 && m20.verify_program(logical_junk, ok20.reader()) == true &&
                   m20.verify_program(logical_junk, bad20.reader()) == false &&
-                  m20.verify_program(logical_junk).value_or(true) == false);
+                  m20.verify_program(logical_junk, last20.reader()) == false &&
+                  m20.verify_program(logical_junk, no20.reader()) == false &&   // page 20 unreadable
+                  m20.verify_program(logical_junk).value_or(true) == false &&
+                  rd && !md.verify_program(logical_junk, original.reader()).has_value() &&
+                  rf && mf.lookup(P20, 0x8100) && !mf.verify_program(logical_junk, all22).has_value());
     }
 
     // ── Z88MAP-15: the symbol half is the symbol loader's ──
@@ -354,6 +391,28 @@ int main() {
             rec("__C_LINE_12_a", 0x9010, "a_c", "code_compiler", "a.c::x::10000::1\t:12") +
             rec("__C_LINE_20_a", 0x9010, "a_c", "code_compiler", "a.c::x::10000::2\t:20") +
             rec("_next", 0x9010, "a_c", "code_compiler", "a.c::x::10000::2\t:20")));
+        // Two modules' lines at one address: no function is known, but they are not one function.
+        SourceMap modules;
+        const auto rm = load(modules, synth("z23m.map",
+            rec("__C_LINE_5_x", 0x9100, "x_c", "code_compiler", "x.c:5") +
+            rec("__C_LINE_7_y", 0x9100, "y_c", "code_compiler", "y.c:7") +
+            rec("__C_LINE_9_x", 0x9200, "x_c", "code_compiler", "x.c:9")));
+        // Not a function entry that comes later: the lower line stays an alias.
+        const char* const not_entries[] = {
+            "loop = $9400 ; addr, local, , m_c, code_compiler, m.c:6\n",          // not a `_` name
+            "_f = $9400 ; addr, public, , n_c, code_compiler, m.c:6\n",           // another module
+            "_f = $9400 ; addr, public, , m_c, code_compiler, other.c:6\n",       // another file
+            "_f = $9400 ; addr, public, , m_c, code_compiler, m.c:3\n",           // not a later line
+            "_f = $9500 ; addr, public, , m_c, code_compiler, m.c:6\n",           // another address
+        };
+        bool aliases_kept = true;
+        for (const char* symbol : not_entries) {
+            SourceMap a;
+            const auto ra = load(a, synth("z23n.map",
+                rec("__C_LINE_3_q", 0x9400, "m_c", "code_compiler", "m.c:3") +
+                rec("__C_LINE_6_q", 0x9400, "m_c", "code_compiler", "m.c:6") + symbol));
+            aliases_kept = aliases_kept && ra && starts_are(a.resolve("m.c:3"), {{P4, 0x9400}});
+        }
         SourceMap early;
         const auto re = load(early, synth("z23e.map",
             rec("__C_LINE_12_a", 0x9010, "a_c", "code_compiler", "a.c::x::10000::1\t:12") +
@@ -361,7 +420,9 @@ int main() {
             rec("_cur", 0x9010, "a_c", "code_compiler", "a.c::x::10000::1\t:12")));
         check("Z88MAP-23", "sdcc has no function name (x): 14 is an alias of 17 at $8C6B (_main is located at line 14), 25 of 26, 28 of 29; a function entry located at a later line means the lower line has no code",
               z23a && r && m.resolve("a.c:12").error == "no code at a.c:12" && starts_are(m.resolve("a.c:20"), {{P4, 0x9010}}) &&
-                  re && starts_are(early.resolve("a.c:12"), {{P4, 0x9010}}));
+                  re && starts_are(early.resolve("a.c:12"), {{P4, 0x9010}}) &&
+                  aliases_kept && rm && modules.resolve("x.c:5").error == "no code at x.c:5" &&
+                  starts_are(modules.resolve("y.c:7"), {{P4, 0x9100}}));
     }
     {
         const char* const body[3] = {"__C_LINE_3_a = $C000 ; addr, local, , a_c, DIV_3, a.c:3\n",
@@ -383,12 +444,16 @@ int main() {
             rec("__x", 1, "a_c", "", "", "const") + rec("__C_LINE_3_a", 0x9000, "a_c", "code_compiler", "main.c:abc")));
         const auto rv = load(bad_value, synth("z25b.map",
             rec("__x", 1, "a_c", "", "", "const") + rec("__C_LINE_3_a", 0x1000000, "a_c", "code_compiler", "a.c:3")));
+        SourceMap bad_bank;
+        const auto rb = load(bad_bank, synth("z25c.map",
+            rec("__x", 1, "a_c", "", "", "const") + rec("__C_LINE_3_a", 0x1000000, "a_c", "BANK_10", "a.c:3")));
         SourceMap loaded;
         load(loaded, v24 / "sccz80-debug" / "prog.map");
         const std::string before = loaded.loaded_file();
         const auto rn = load(loaded, kNoDebugMap);
         check("Z88MAP-25", "an unparsable location and a value over 24 bits refuse the half naming line 2; a map with no line records gives 0, no error, and leaves the store alone",
               !rl && rl.error.find("line 2") != std::string::npos && !rv && rv.error.find("line 2") != std::string::npos &&
+                  !rb && rb.error.find("line 2") != std::string::npos && bad_bank.empty() &&
                   bad_loc.empty() && bad_value.empty() &&
                   rn && rn.count == 0 && rn.error.empty() && loaded.size() == 46 && loaded.loaded_file() == before);
     }
@@ -416,7 +481,9 @@ int main() {
         const std::string expected = source_file_problem(huge.string());
         check("Z88MAP-27", "a map over the size cap is refused by both symbol loaders with the reason, the loaded table stays; the source half refuses it too",
               !expected.empty() && rz == -1 && rs == -1 && why_z88dk == expected && why_simple == expected &&
-                  st.symbols().size() == before && st.lookup_name("_main") == 0x8C92 && !rm && rm.error == expected);
+                  st.symbols().size() == before && st.lookup_name("_main") == 0x8C92 && !rm && rm.error == expected &&
+                  program_loads_later("a.tap") && program_loads_later("DIR/A.TZX") && program_loads_later("a.wav") &&
+                  !program_loads_later("a.nex") && !program_loads_later("a.sna") && !program_loads_later("tap"));
     }
     {
         const auto with = [](uint16_t h) {

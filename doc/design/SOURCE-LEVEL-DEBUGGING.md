@@ -346,7 +346,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
-| z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
+| z88dk | the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352); the source adapter `load_z88dk_source_map()` exists (E23-13 stage 1) and is attached to no load path yet | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
@@ -939,7 +939,9 @@ gives its symbols, as v1.1.45 does today.
 
 - SLD: to the next record in the same space, capped at the 8K page end.
 - z88dk map: to the next line start in the same space, or the next `addr` symbol of a different
-  module, or start + 0x400, or the 8K page end, whichever is first. This is DeZog's rule
+  module in that space, or the record's own `__<section>_tail` (the linker's end of the section,
+  when the map has it), or start + 0x400, or the 8K page end, whichever is first. The tail bound
+  is ours; the rest is DeZog's rule
   (`z88dklabelparserv2.ts`, `addCLineDebugInfo`, `MAX_C_LINE_SIZE = 0x400`): library code has
   no lines and must not inherit a module's last C line.
 - `.lis`: exact, from the bytes column.
@@ -960,8 +962,10 @@ Symbols only, with no page (10.4).
 
 ### 9.4 z88dk `-debug` map (E23-13 (#344))
 
-Input: `prog.map`. One read fills both stores: symbols through `load_z88dk_map`, and ranges from
-`__C_LINE_` and `__ASM_LINE_`. The parser accepts the three location forms of 2.3 (the same
+Input: `prog.map`. One file fills both stores, each its own transaction: symbols through
+`load_z88dk_map`, and ranges from `__C_LINE_` and `__ASM_LINE_` through
+`load_z88dk_source_map()` (`src/debug/z88dk_source_map.*`, rules 1 to 5 in
+`z88dk_section_space()`, `src/debug/z88dk_space.*`). The parser accepts the three location forms of 2.3 (the same
 that DeZog's `z88dkmapfile.ts` accepts). Lines in an empty section are dropped (G2).
 
 **Space derivation**, in this order. The section name comes first, because the meaning of a
@@ -1009,15 +1013,23 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    0 and 1 for $4000-$FFFF, so $8000-$9FFF is `Page{4}`. A map read before the program is in
    memory (`--map`, `--source-map`) takes its rule-4 spaces at the program load, not when it is
    read: `--map` is read when the script host starts, before the `--load` countdown applies
-   the program.
+   the program. The adapter binds a rule-4 record with the `space_of` function its caller
+   gives (the backend passes `source_page()`, the identity lookups compare against), and the
+   space must be a `Page`: an address the MMU maps to ROM refuses the half.
 5. A DivMMC dot command (org $2000), and the `DIV_<n>` and `<KIND>_DIV_<n>` sections of the
    memory maps: `DivMmcRam{bank}` (E23-21 (#351), OD-14). E23-21 establishes how a dot
-   command's sections map to a bank.
+   command's sections map to a bank. Until then a record in such a section refuses the source
+   half (there is no unqualified record, D3), as does a `PAGE_<n>` section with no
+   `__PAGE_<n>_head` and a section number out of range.
 
 **Zero-width lines** (G3). A line whose address equals the next line's start is an alias of
 that line if both are in the same function: sccz80 and 80cc give the function; for sdcc, which
 writes `x`, the test is the same module and no function-entry `addr` symbol of another
-function at that address. Otherwise the line has no code (`main.c:14` in the fixture, the line
+function at that address. "Which writes `x`" is read from the location's form: sdcc's carries a
+TAB before the colon of the line (`main.c::x::10000::11<TAB>:11`), and a function named `x` under
+sccz80 keeps its name. Without a function on either side, a line is not an alias of the owner if
+a `_`-named `addr` symbol of its module sits at that address and is located at a later line of the
+same file (the entry of a function declared after it). Otherwise the line has no code (`main.c:14` in the fixture, the line
 of `int main(void)`, which carries `square`'s scope). Toolchain mis-attributions are reported
 as the map says (G4 on 2.4, master sdcc's `util.h:9`).
 
@@ -1051,7 +1063,14 @@ evidence (commands, z88dk commits, outputs).
 - z88dk: the section binaries `prog_<GROUP>.bin`, compared with memory over every line range
   through `MemSpace` peeks of the range's own space. A bank that is not mapped is still
   checked, and data sections are not compared (a program changes its variables). No binaries
-  means unverified: the map attaches and the log says so (OD-6).
+  means unverified: the map attaches and the log says so (OD-6). As built
+  (`load_z88dk_source_map()`): the binaries are `<map stem>_<GROUP>.bin` for each upper-case
+  group with a `__<GROUP>_head` in the map; a binary covers a range when the range lies in
+  `[head, head + file size)` and the group's own space rule puts both ends of the range in the
+  range's space; each non-data range (a section not starting with `data`, `bss` or `smc`, any
+  case) that a binary covers becomes one byte check `{space, lo, bytes}`, and a range no binary
+  covers is not checked. `SourceMap::verify_program(read, read_space)` reads them through
+  `read_space`.
 - The `.lis` bytes are a secondary check only: references to other modules are unrelocated in
   a listing (`cd0000`), so they verify only the bytes the listing marks as final.
 
@@ -1239,7 +1258,11 @@ call, `load()` reporting, Back across a landing, purity of the check), RB-GEN-01
 (`rewind_test`), TRACE-SEQ-01 (`debugger_backend_test`) and QSRC-58 to QSRC-61
 (`debugger_source_panel_test`).
 
-**Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
+E23-13 (#344) added Z88MAP-01 to Z88MAP-28 (`z88dk_map_test`: the section rules against where
+`appmake` put the bytes in each fixture's `.nex`, extents, zero-width lines, strict refusal,
+identity from the section binaries, the symbol loaders' file-type refusal).
+
+**Planned.** `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
 `z88dk-source-func` (E23-15).
 
 **Oracles.**
