@@ -1,5 +1,7 @@
 #include "debug/source_file.h"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 std::string source_file_problem(const std::string& path)
@@ -15,4 +17,12 @@ std::string source_file_problem(const std::string& path)
         return "file is " + std::to_string(size) + " bytes, over the "
              + std::to_string(SOURCE_FILE_MAX_BYTES) + "-byte limit";
     return {};
+}
+
+bool program_loads_later(const std::string& path)
+{
+    std::string ext = std::filesystem::path(path).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext == ".tap" || ext == ".tzx" || ext == ".wav";
 }

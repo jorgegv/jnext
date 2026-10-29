@@ -1136,6 +1136,7 @@ my %NO_MATRIX_SECTION = (
     'step_out_test'             => 'debugger Step Out execution control (jnext-internal); the T80N core has no debugger',
     'rewind_call_stack_test'    => 'debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger',
     'source_map_test'           => 'source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger',
+    'z88dk_map_test'            => 'z88dk -debug map source adapter (sections to pages, extents, identity; jnext-internal); the T80N core has no debugger',
     'source_debug_test'         => 'debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger',
     'source_debug_posix_test'   => 'source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger',
     'persistent_bp_test'        => 'debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger',

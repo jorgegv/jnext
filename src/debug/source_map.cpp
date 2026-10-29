@@ -47,7 +47,8 @@ std::optional<int> decimal(std::string_view text)
 void SourceMap::replace(std::vector<SourceRange> ranges,
                         std::vector<SourceAlias> aliases,
                         std::optional<SourceProgramIdentity> identity,
-                        std::string loaded_file)
+                        std::string loaded_file,
+                        std::string format)
 {
     SourceMap next;
     std::map<std::tuple<std::string, int, int>, size_t> location_ids;
@@ -116,6 +117,7 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
 
     next.identity_ = std::move(identity);
     next.loaded_file_ = std::move(loaded_file);
+    next.format_ = std::move(format);
     *this = std::move(next);
 }
 
@@ -207,15 +209,27 @@ SourceResolution SourceMap::resolve(std::string_view expression) const
 }
 
 std::optional<bool> SourceMap::verify_program(
-    const std::function<uint8_t(uint16_t)>& read) const
+    const std::function<uint8_t(uint16_t)>& read,
+    const SpaceReader& read_space) const
 {
-    if (!identity_) return std::nullopt;
-    if (identity_->size > 0x10000u - identity_->org) return false;
-    std::vector<uint8_t> bytes(identity_->size);
-    for (uint32_t i = 0; i < identity_->size; ++i)
-        bytes[i] = read(static_cast<uint16_t>(identity_->org + i));
-    const std::string actual = sdcard::sha256_hex(bytes);
-    return !actual.empty() && actual == identity_->sha256;
+    if (!identity_ || (identity_->sha256.empty() && identity_->bytes.empty()))
+        return std::nullopt;
+    if (!identity_->sha256.empty()) {
+        if (identity_->size > 0x10000u - identity_->org) return false;
+        std::vector<uint8_t> bytes(identity_->size);
+        for (uint32_t i = 0; i < identity_->size; ++i)
+            bytes[i] = read(static_cast<uint16_t>(identity_->org + i));
+        const std::string actual = sdcard::sha256_hex(bytes);
+        if (actual.empty() || actual != identity_->sha256) return false;
+    }
+    for (const SourceByteCheck& check : identity_->bytes) {
+        if (!read_space || check.bytes.size() > 0x10000u - check.lo) return false;
+        for (size_t i = 0; i < check.bytes.size(); ++i) {
+            const auto actual = read_space(check.space, static_cast<uint16_t>(check.lo + i));
+            if (!actual || *actual != check.bytes[i]) return false;
+        }
+    }
+    return true;
 }
 
 void SourceMap::clear()
@@ -228,5 +242,6 @@ void SourceMap::clear()
     aliases_.clear();
     files_.clear();
     loaded_file_.clear();
+    format_ = "SLD";
     identity_.reset();
 }

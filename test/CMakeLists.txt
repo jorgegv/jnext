@@ -1171,6 +1171,19 @@ target_compile_definitions(source_map_test PRIVATE
 target_compile_definitions(source_map_test PRIVATE
     JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME source_map_tests COMMAND source_map_test)
+
+# GH #344 — the z88dk -debug map adapter (pure): the committed z88dk fixtures,
+# and nodebug.map (a map with no line records).
+add_executable(z88dk_map_test debug/z88dk_map_test.cpp)
+target_link_libraries(z88dk_map_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(z88dk_map_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(z88dk_map_test PRIVATE
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk"
+    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
+add_test(NAME z88dk_map_tests COMMAND z88dk_map_test)
 add_executable(source_debug_test debug/source_debug_test.cpp)
 target_link_libraries(source_debug_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video

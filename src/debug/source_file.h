@@ -11,3 +11,8 @@ constexpr std::uintmax_t SOURCE_FILE_MAX_BYTES = 64u * 1024 * 1024;
 /// is opened (not a regular file, or over the cap), or an empty string when
 /// it may be.
 std::string source_file_problem(const std::string& path);
+
+/// Whether the program at `path` is one whose bytes are not in memory when its
+/// load call returns: the tape formats (.tap, .tzx, .wav, by extension, case
+/// ignored), which the machine loads over the following frames.
+bool program_loads_later(const std::string& path);
