@@ -651,7 +651,10 @@ void DebuggerManager::on_load_sld() {
     }
     if (r.count >= 0) {
         QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
-            QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path));
+            r.labels > 0
+                ? QObject::tr("Loaded %1 source traces and %2 labels from:\n%3")
+                      .arg(r.count).arg(r.labels).arg(path)
+                : QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path));
         refresh_panels();
         update_actions();
     } else {

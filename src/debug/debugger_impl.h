@@ -58,6 +58,13 @@ struct Debugger::Impl {
     enum class StoreOwner : uint8_t { None, Sidecar, User };
     SourceMap   source_map;
     StoreOwner  symbols_owner = StoreOwner::None;
+    /// The user's symbols came from a hand-loaded SLD's labels (true), not from Load
+    /// MAP / --map (false). Consulted only while symbols_owner == User.
+    bool        symbols_from_sld = false;
+    /// A hand-loaded SLD's labels (`n` of them) become the user's symbols, unless
+    /// the user loaded a MAP (then -1: kept). `n == 0` clears only an earlier hand
+    /// SLD's labels. Returns the number attached.
+    int attach_hand_labels(SymbolTable&& labels, int n);
     StoreOwner  sources_owner = StoreOwner::None;
     // ── CAP-SRC lifetime (GH #342; design §6.5) ──────────────────────────────
     //
