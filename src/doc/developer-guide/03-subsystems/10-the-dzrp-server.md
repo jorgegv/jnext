@@ -124,7 +124,7 @@ backend's fan-out.
 | `CMD_CONTINUE` | each enabled address becomes a **transient** `Execute` subscription, owned by this client, then `run(cid)`; the reply is sent first |
 | a stop | `on_paused()` records it; `on_notify()` sends one `NTF_PAUSE`, reason in this order: a temporary (0), this client's own pause (1), its breakpoint (2), its watchpoint (3/4, at the accessed address), break-on-interrupt (255, "Break on interrupt."), anything else (255, with who stopped it) |
 | `CMD_PAUSE` | `pause(cid)`; one notification only if it stopped a running machine |
-| `ADD/REMOVE_BREAKPOINT` | an `Execute` subscription with the page qualifier; ids 1..65535, never reused in a session, 0 = refused |
+| `ADD/REMOVE_BREAKPOINT` | an `Execute` subscription with the legacy page qualifier (3.9.1); ids 1..65535, never reused in a session, 0 = refused |
 | `ADD/REMOVE_WATCHPOINT` | a `Mem` subscription over the range; removed by the exact tuple the add carried (DZRP watchpoints have no id) |
 | `ENABLE_BREAK_ON_INTERRUPT` | an `IntAck` subscription that stops |
 | `READ_STATE` / `WRITE_STATE` | a named **bookmark** (at most 8), sent as the token `JNXB` + its name; refused mid-frame, since DeZog does not re-read registers after a save; a restore validates the token before any backend call |

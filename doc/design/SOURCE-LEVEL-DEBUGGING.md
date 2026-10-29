@@ -331,20 +331,19 @@ record, a source-line breakpoint and a history entry each carry one, compared ex
 replaces `NOT_RAM_PAGE` and `EventFilter::page_ram_only`. The plain `EventFilter::page`, which
 DZRP long breakpoints (`bank+1`) and the DSL `page` keyword use, keeps comparing
 `Mmu::get_effective_page(slot)` and nothing more: a protocol-level qualifier, not the identity
-(section 4.5). The type is built (E23-07 (#339)); `NOT_RAM_PAGE` and `page_ram_only` survive
-until the consumers move: the source map (E23-06 (#338)), history (E23-08) and breakpoints
-(E23-09 (#341), with one predicate). This document is E23-02 (#334). Check (epic acceptance 4):
+(section 4.5). The type is built (E23-07 (#339)) and every consumer has moved: the source map (E23-06 (#338)),
+history (E23-08) and breakpoints (E23-09 (#341), with one predicate); `page_ram_only` is gone. This document is E23-02 (#334). Check (epic acceptance 4):
 SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned).
 
 ### 3.3 Implementation status
 
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The panels and the breakpoint gate still reduce the identity to a RAM page through `ram_page_of()` (`debug/ram_page.h`) or "not a `Page`" until E23-09 (#341) | 4.1, 4.2, 4.4 | E23-07 (#339) |
-| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is derived from the entry (the legacy page qualifier of `history_stop_at()` until E23-09). Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The breakpoint gate, the Breakpoints panel and the disassembly gutter use the `FetchSource` itself (E23-09 (#341)); only the Source tab's display string still reduces it to a RAM page through `ram_page_of()` (`debug/ram_page.h`), which is E23-22's | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
 | Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
-| Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
+| Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
 | z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
@@ -480,9 +479,7 @@ after it, from `Mmu::last_m1()`, read once per instruction and only when
 prediction for its PC, the value the live Execute gate used: an accepted INT reads no memory
 (`t80na.vhd:278-279`); an NMI does an M1 read at the interrupted PC and discards the byte
 (`t80n.vhd:502`), which jnext's core does not perform, so the prediction stands for it; the
-esxdos shim is jnext-only. `TraceLog::fetch_not_mmu_ram()` is a one-line
-view of the recorded identity ("not a `Page`"), kept for `history_stop_at()`'s page qualifier
-until E23-09.
+esxdos shim is jnext-only.
 
 `CallFrame` carries `caller_space` and `target_space` (`cpu()` = none recorded). The caller is
 the CALL's or RST's own recorded fetch. The target is pending until the first fetch AT
@@ -870,8 +867,12 @@ Breakpoints panel shows one row, "main.c:18 (2 locations)", and remove, enable a
 the group. One predicate, `EventFilter::matches(ev)`, replaces the three copies of today (3.3):
 the gate (`execute_gate` to `filter_matches`), `probe_execute()` and `history_stop_at()` all
 call it. The disassembly gutter draws, toggles and patches from the same identity:
-`BreakpointModel::pc_marked(addr, space)` takes the `FetchSource` where it takes a page number
-today. Clicking a Source tab line toggles its group (E23-16).
+`BreakpointModel::pc_marked(addr, space)` takes the `FetchSource` where it took a page number.
+Clicking a Source tab line toggles its group (E23-16); a click on a gutter dot removes only that
+location. As built: the group verbs are `Debugger::subscribe_source_line(by, file_line, like)`,
+`unsubscribe_group(by, group)` and `set_group_enabled(by, group, on)`, with `SubscriptionInfo::group`;
+the model folds a group into one row (`Row::group`, `Row::locations`), enabled only while every
+location is; a `space` on a kind other than `Execute` is refused.
 
 ### 8.2 Qt
 
@@ -1232,6 +1233,13 @@ column of a logical breakpoint).
 
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).
+
+E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug_test`: the live gate,
+the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group
+verbs), SRCBP-05 (`dzrp_adapter_test`: the legacy qualifier through `CMD_ADD_BREAKPOINT`) and
+QBPM-12/13 (`debugger_source_panel_test`: one row per group, the gutter removes one location).
+QBPP-04, QBPP-06 and QADR-10 now assert the group row. QADR-12, the Add Execute dialog with a
+paged name, waits for #375 stage 2 (no label reaches the backend's table before it).
 
 E23-10 (#342) added SRCLIFE-01 to SRCLIFE-39 (`source_debug_test`: the cache both ways, identity
 checks at a state load, a `.sna`, an RZX start and a reset, stale user maps, the readers' first

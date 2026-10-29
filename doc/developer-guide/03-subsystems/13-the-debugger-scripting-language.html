@@ -2566,6 +2566,8 @@ own <code>Listener</code>. <code>load(text, file)</code> does four things, in th
 <li>only then registers each rule (<code>subscriptions_for()</code>).</li>
 </ol>
 <p>A script with any error registers nothing.</p>
+<p>The DSL's <code>page</code> is the legacy page-number qualifier (3.9.1): it compares the
+MMU page number only, as DZRP's <code>bank+1</code> does.</p>
 <p>A rule is one subscription, with one exception: <code>on execute … page P1..P2</code> is
 one subscription per page, because the Execute filter takes a single page
 (<code>MAX_EXECUTE_PAGES</code> = 16). The engine spends the sibling subscriptions of a

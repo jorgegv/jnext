@@ -233,11 +233,17 @@ connect to the same `DebuggerManager` slots as its buttons, and their enabled
 state comes from `SourcePanel::update_buttons()` through the `steps_available()`
 signal, so the buttons and the actions share one predicate. The menu tree and
 the bindings are pinned by `debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
-Execute subscription with a page qualifier as the GUI's own row (`Row::page`);
-the Breakpoints panel creates one per place a `file:line` compiled to (its Add
-and Edit dialogs and Breakpoints > Add Execute Breakpoint share that rule, and show
-the store's reason, such as "no code at main.bas:5", when a line has none), and
-the gutter draws it only while its page is mapped (`pc_marked()`). The Call
+Execute subscription with a fetch-source qualifier as the GUI's own row
+(`Row::space`). A `file:line` is one source breakpoint, a backend group
+(`subscribe_source_line()`) armed at every place it compiled to, and the model
+folds the group into ONE row with its location count (`Row::group`,
+`Row::locations`; the panel's Symbol / Source cell reads "main.bas:11 (2
+locations)"); Remove, the Enabled cell and Edit act on the whole group, and the
+row is enabled only while every location is. The Add and Edit dialogs and
+Breakpoints > Add Execute Breakpoint share that rule, and show the store's
+reason, such as "no code at main.bas:5", when a line has none. The gutter
+draws a location only while its `FetchSource` supplies the address
+(`pc_marked(addr, space)`), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 `FetchSource` (`CallFrame::caller_space`).
 

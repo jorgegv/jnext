@@ -2632,11 +2632,17 @@ connect to the same <code>DebuggerManager</code> slots as its buttons, and their
 state comes from <code>SourcePanel::update_buttons()</code> through the <code>steps_available()</code>
 signal, so the buttons and the actions share one predicate. The menu tree and
 the bindings are pinned by <code>debugger_accel_test</code> and <code>debugger_keymap_test</code>. <code>BreakpointModel</code> lists an
-Execute subscription with a page qualifier as the GUI's own row (<code>Row::page</code>);
-the Breakpoints panel creates one per place a <code>file:line</code> compiled to (its Add
-and Edit dialogs and Breakpoints &gt; Add Execute Breakpoint share that rule, and show
-the store's reason, such as "no code at main.bas:5", when a line has none), and
-the gutter draws it only while its page is mapped (<code>pc_marked()</code>). The Call
+Execute subscription with a fetch-source qualifier as the GUI's own row
+(<code>Row::space</code>). A <code>file:line</code> is one source breakpoint, a backend group
+(<code>subscribe_source_line()</code>) armed at every place it compiled to, and the model
+folds the group into ONE row with its location count (<code>Row::group</code>,
+<code>Row::locations</code>; the panel's Symbol / Source cell reads "main.bas:11 (2
+locations)"); Remove, the Enabled cell and Edit act on the whole group, and the
+row is enabled only while every location is. The Add and Edit dialogs and
+Breakpoints &gt; Add Execute Breakpoint share that rule, and show the store's
+reason, such as "no code at main.bas:5", when a line has none. The gutter
+draws a location only while its <code>FetchSource</code> supplies the address
+(<code>pc_marked(addr, space)</code>), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 <code>FetchSource</code> (<code>CallFrame::caller_space</code>).</p>
 <h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
