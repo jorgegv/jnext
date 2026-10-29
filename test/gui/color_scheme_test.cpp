@@ -40,7 +40,6 @@
 #include <QProcess>
 #include <QStyle>
 #include <QTemporaryDir>
-#include <QThread>
 #include <QToolBar>
 #ifdef JNEXT_HAVE_QTDBUS
 #include <QDBusConnection>
@@ -51,12 +50,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
-#ifndef _WIN32
-#include <csignal>
-#include <fcntl.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
 #include <sstream>
 #include <string>
 #include "../row_id.h"
