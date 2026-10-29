@@ -406,10 +406,11 @@ int main() {
     {
         SourceMap m20;
         const auto r = load(m20, v24 / "sccz80-page20" / "prog.map");
-        // A record exactly AT its section's tail is not bounded by it (D3: the tail counts when it is
-        // above the start). Oracle, v2.4 sccz80-debug: `__ASM_LINE_9496 = $800C ; CODE`, `__CODE_tail =
-        // $800C`, `__code_crt_init_head = $800C`, `__ASM_LINE_9535 = $8035`; prog_CODE.bin holds real
-        // crt-init code at $800C-$8034 (`ld hl,$8F8E` ...), so that line owns those 41 bytes.
+        // D3: the tail bounds only when it is above the start. Fixture, v2.4 sccz80-debug:
+        // `__ASM_LINE_9496 = $800C ; CODE`, `__CODE_tail = $800C`; $800C-$8031 is code_crt_init
+        // (`ld hl,$8E8F` ...), $8032 is `call _main` in code_crt_main; next record 9535 at $8035.
+        // Neither has a record of its own, so the extent to the next start gives line 9496
+        // [$800C, $8035).
         const SourceLocation* const at_tail = sc.lookup(P4, 0x800C);
         const SourceLocation* const before_next = sc.lookup(P4, 0x8034);
         const auto ends_with = [](const std::string& text, const std::string& tail) {
