@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# THIRTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
+# FOURTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
 # playing a tone into the audio pipe):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
@@ -59,7 +59,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      the log say what the dialog would, in order: the line naming what is
 #      fetched and from where (after 1 s), then the stalled note (after 5 s),
 #      then the question that carries on.
-# Facts 3, 4 and 10-12 run the GUI on Qt's offscreen platform, where the warning
+#  14. (GH #407) Enabled in Preferences with an unterminated quote in the saved extra
+#      QEMU arguments, NextPi is not started and the log says why with the position
+#      (exit 0, the Preferences-only path). The check runs BEFORE the QEMU lookup:
+#      "qemu-system-arm not found" is NOT logged, so no download would be offered.
+# Facts 3, 4, 10-12 and 14 run the GUI on Qt's offscreen platform, where the warning
 # dialogs are not shown (nobody could dismiss them); SdcardGuiProvisioner writes
 # the title and text it would have shown to the platform log at debug level
 # (--log-level platform=debug), and that is what the row reads.
@@ -179,7 +183,7 @@ if want nextpi-func; then
     conf_saved=""
     [[ -e "$conf" ]] && conf_saved="$TMP_DIR/nextpi-func-jnext.conf" && cp "$conf" "$conf_saved"
     gui_run() {
-        printf '[nextpi]\nenabled=true\n' >"$conf"
+        printf '[nextpi]\nenabled=true\n%s' "${gui_extra_conf:-}" >"$conf"
         rm -rf "$np"
         mkdir -p "$np/boot"
         : >"$np/nextpi.img"
@@ -207,6 +211,17 @@ if want nextpi-func; then
         || fails+=("a Preferences-only NextPi that cannot start did not log why")
     if grep -q 'error: NextPi:' <<<"$out"; then
         fails+=("a Preferences-only NextPi failure was reported as a command-line error")
+    fi
+
+    # Fact 14 - a malformed extra-arguments value refuses the start before QEMU is looked up.
+    gui_extra_conf='qemu_args="-name '"'"'my pi"'$'\n'
+    gui_run
+    gui_extra_conf=""
+    [[ $rc -eq 0 ]] || fails+=("a Preferences-only NextPi with an unterminated quote in its extra QEMU arguments exited $rc, want 0")
+    grep -qF "NextPi: extra QEMU arguments (Settings > Preferences > NextPi): unterminated ' quote (it opens at character 7)" <<<"$out" \
+        || fails+=("an unterminated quote in the extra QEMU arguments was not reported with its position")
+    if grep -q 'qemu-system-arm not found' <<<"$out"; then
+        fails+=("the extra QEMU arguments were checked AFTER the QEMU lookup (an install hint or a download would be offered)")
     fi
 
     # nf_text <fixed text> <file> <what>: the text is in that file (CR removed: Windows writes CRLF).

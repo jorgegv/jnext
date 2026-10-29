@@ -25,7 +25,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   2. The saved Pi audio preference reaches QEMU: a GUI session with
 #      [nextpi] audio=none and a stand-in QEMU on PATH starts it with
 #      -audiodev none (not the mixer's wav FIFO). This is main.cpp copying
-#      the preference into the start (spec.audio = saved.nextpi_audio).
+#      the preference into the start (spec.audio = saved.nextpi_audio). It also covers
+#      the saved extra QEMU arguments (GH #407): `[nextpi] qemu_args` is split by
+#      main.cpp, reaches QEMU as the LAST arguments, after jnext's own, with a spaced
+#      one in one piece (on Windows, through the real binary's CreateProcessW quoting),
+#      and the log says how the box was split.
 #   3. NR 0xA2 bit 0 sends the Pi's audio to the EAR input: a program that
 #      sets NR 0xA2 = 0xC3 and polls port 0xFE sees bit 6 toggle with a Pi
 #      square wave, as a tape loader does when NextPi streams a tape.
@@ -132,7 +136,7 @@ PY
     # Fact 2 — the saved audio preference reaches QEMU. A ready directory with
     # its overlay (no qemu-img needed) and a stand-in QEMU that records its
     # arguments, then holds its UART FIFOs open as the real one does.
-    printf '[nextpi]\nenabled=true\naudio=none\n' >"$conf"
+    printf '[nextpi]\nenabled=true\naudio=none\nqemu_args="-name '"'"'jnext pi'"'"' -serial telnet::2357,server,nowait"\n' >"$conf"
     rm -rf "$np"
     mkdir -p "$np/boot"
     : >"$np/nextpi.img"
@@ -165,6 +169,20 @@ STANDIN
         fails+=("a GUI session with NextPi enabled in Preferences never started the stand-in QEMU")
     elif ! grep -qx 'none,id=snd0' <<<"$qemu_args" || grep -q 'wav,id=snd0,path=' <<<"$qemu_args"; then
         fails+=("the saved Pi audio preference 'none' did not reach QEMU's -audiodev")
+    else
+        # The extras: the last four lines, exactly, and jnext's console chardev before them.
+        mapfile -t qa_lines < <(tr -d '\r' <<<"$qemu_args")
+        qa_n=${#qa_lines[@]}
+        if (( qa_n < 4 )) || [[ "${qa_lines[qa_n-4]}|${qa_lines[qa_n-3]}|${qa_lines[qa_n-2]}|${qa_lines[qa_n-1]}" \
+                != '-name|jnext pi|-serial|telnet::2357,server,nowait' ]]; then
+            fails+=("the saved extra QEMU arguments did not reach QEMU as its last four arguments")
+        fi
+        qa_pi=-1
+        for ((qa_i = 0; qa_i < qa_n; qa_i++)); do [[ "${qa_lines[qa_i]}" == chardev:pi ]] && qa_pi=$qa_i; done
+        (( qa_pi >= 0 && qa_pi < qa_n - 4 )) \
+            || fails+=("the extra QEMU arguments are not after jnext's own console chardev")
+        grep -qF 'NextPi: 4 extra QEMU arguments, after jnext'"'"'s own: "-name" "jnext pi" "-serial" "telnet::2357,server,nowait"' <<<"$out" \
+            || fails+=("the log does not say how the extra QEMU arguments were split")
     fi
 
     if [[ -n "$conf_saved" ]]; then mv "$conf_saved" "$conf"; else rm -f "$conf"; fi
