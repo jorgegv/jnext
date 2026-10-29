@@ -32,7 +32,8 @@ project(jnext VERSION "${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" LANGUAGES C CXX)
 # Reading a variable marks it used. The list is exactly the macros' names, so a
 # typo in one of jnext's own -D options is still reported.
 foreach(_jnext_fedora_var INCLUDE_INSTALL_DIR SHARE_INSTALL_PREFIX SYSCONF_INSTALL_DIR
-        LIB_INSTALL_DIR LIB_SUFFIX CMAKE_INSTALL_DO_STRIP CMAKE_Fortran_FLAGS_RELEASE)
+        LIB_INSTALL_DIR LIB_SUFFIX CMAKE_INSTALL_DO_STRIP CMAKE_Fortran_FLAGS_RELEASE
+        CMAKE_VERBOSE_MAKEFILE)
     set(_jnext_fedora_unused "${${_jnext_fedora_var}}")
 endforeach()
 set(CMAKE_CXX_STANDARD 17)
