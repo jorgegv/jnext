@@ -1,5 +1,22 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Static-library de-duplication is left to the linker's own platform setting
+# (GH #416). jnext_core <-> jnext_debug is a deliberate cycle (see
+# src/debug/CMakeLists.txt), so under the OLD behaviour of CMP0156 CMake repeats
+# that group of archives on every link line: GNU ld needs the repeat, but Apple's
+# linker resolves backward references itself and warns "ignoring duplicate
+# libraries" about each copy. With NEW, CMake reads
+# CMAKE_<LANG>_LINK_LIBRARIES_PROCESSING, which only the Apple linker module
+# sets (ORDER=REVERSE DEDUPLICATION=ALL); GNU ld keeps the traditional repeats,
+# so Linux and MinGW link lines are unchanged. CMP0179 keeps the FIRST
+# occurrence when de-duplicating. Guarded: CMake < 3.29 has neither policy.
+if(POLICY CMP0156)
+    cmake_policy(SET CMP0156 NEW)
+endif()
+if(POLICY CMP0179)
+    cmake_policy(SET CMP0179 NEW)
+endif()
+
 # Read version from version.yaml (single source of truth).
 # Re-run CMake automatically when version.yaml changes so the generated
 # build/generated/version.h (and JNEXT_VERSION_STRING baked into the binary)
