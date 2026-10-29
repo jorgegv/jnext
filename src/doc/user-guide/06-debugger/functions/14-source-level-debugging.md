@@ -7,8 +7,9 @@ with rewind.
 
 JNEXT reads source maps in the **sjasmplus SLD** format (`.sld`), which
 sjasmplus writes with `--sld`, and which a Boriel ZX Basic / NextBuild build
-can produce too. Symbols come from the **NextBuild `Memory.txt`** the NextBuild
-toolchain writes beside a program, as well as from the MAP files in
+can produce too. An SLD also lists the program's **labels**, and they join the
+symbols. Symbols come from them, from the **NextBuild `Memory.txt`** the
+NextBuild toolchain writes beside a program, and from the MAP files in
 [Symbols from MAP files](05-symbols-from-z88dk-map-files.md).
 
 ## Loading them
@@ -18,10 +19,11 @@ toolchain writes beside a program, as well as from the MAP files in
 for:
 
 - `<name>.Memory.txt`, else `Memory.txt`, beside a `.nex`: the symbols;
-- `<name>.sld`, else `<name>.sld.txt`: the source map.
+- `<name>.sld`, else `<name>.sld.txt`: the source map and its labels.
 
 Each one found is loaded and named in the log (`Loaded 2 NextBuild symbols
-from …`, `Loaded 812 SLD source traces from …`). This happens in every
+from …`, `Loaded 12 SLD labels from …`, `Loaded 812 SLD source traces from …`).
+When both a `Memory.txt` and an SLD have a label, the `Memory.txt` one wins. This happens in every
 frontend, with or without the debugger window open, but only the Qt debugger
 shows the source map: with `--headless`, and in the SDL-only build, it is
 attached and logged and nothing reads it yet (a remote debugger can still look
@@ -41,9 +43,11 @@ itself, such as one chosen in the NextZXOS browser or started with `LOAD ""`,
 is not seen by JNEXT: load its source map by hand (below). With
 `--esxdos-stub`, a `.RUN` of a sibling NEX is a load like any other: the
 machine cold-boots with it, which drops the old ones, and the new program's
-are attached. A tape (`.tap`, `.tzx`, `.wav`) is not attached automatically:
-its program is not in memory until the tape has loaded, so load its source map
-by hand (below) once it has.
+are attached. A tape (`.tap`, `.tzx`, `.wav`) has its labels attached at once,
+but its source map is not attached automatically: its program is not in memory
+until the tape has loaded, so load the source map by hand (below) once it has.
+An SLD built for another binary, or one you did not load because you had loaded
+a source map yourself, brings no labels either.
 
 Symbols you loaded by hand (below), or a MAP given with `--map`, are kept: they
 are your choice, not the program's. A source map you loaded by hand is yours too
@@ -55,7 +59,9 @@ again (**Load SLD...**) to use it.
 **By hand.** The **Source** tab has **Load SLD...** and **Load Memory.txt...**
 buttons, also in **Debug ▸ Source ▸ Load Source Map…** and **Load Symbols
 (Memory.txt)…**. The symbols replace whatever was loaded before, as the
-**Map ▸ Load MAP File** formats do.
+**Map ▸ Load MAP File** formats do. **Load SLD...** loads the SLD's labels too and
+replaces the symbols the same way, unless you loaded symbols yourself (**Map ▸ Load MAP
+File**, **Load Memory.txt...** or `--map`), which are kept; a later SLD replaces an earlier SLD's labels.
 
 **Binary identity.** An SLD may record the SHA-256 of the program's bytes as it
 was built (`||program.sha256:`, `||program.org:` and `||program.size:` comment
@@ -79,7 +85,10 @@ code that is not the one in memory. Code supplied by ROM or by an overlay
 (DivMMC — including the instruction at which its automatic paging switches on
 or off —, the Multiface, the Layer 2 read mapping, the boot ROM) is not any RAM
 page, so page-tagged records never describe it; the Source tab says "ROM or
-overlay" there.
+overlay" there. Labels follow the page too: a label assembled for a bank names
+its address only while that bank is mapped there, in the disassembly, the
+Breakpoints and Call Stack panels, and a remote debugger's `monitor sym`; a label
+assembled for no bank names it always.
 
 A statement covers every byte up to the next one: the data of a
 `DB` after an instruction belongs to that instruction's statement, and so does everything after the last
@@ -128,12 +137,14 @@ In the Breakpoints panel's **Add** dialog, the address can be a number
 (`8000`, `$8000`, `0x8000`), a symbol (`PlayerTick`), or, for an Execute
 breakpoint, a source line, `file:line`: `main.bas:120`, or the end of the
 path (`game/main.bas:120`) when two files share a name. A line the program
-compiled to several places (a routine in two banks, say) gets a breakpoint at
-each; a line with no code is refused with "no code at main.bas:120". A number wins over a symbol: `FE` or `B` is that
+compiled to several places (a routine in two banks, say) is ONE breakpoint,
+armed at each place and listed as one row, "main.bas:120 (2 locations)": Enabled,
+Edit and Remove act on all its places, and a click on the dot of one place in the
+disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A number wins over a symbol: `FE` or `B` is that
 address even when the program has a variable called `FE` or `B`. Write `@FE`
 to mean the symbol. A breakpoint on a line of banked code is tied to
-its page (shown as `$C000 @2E`): it fires only while that RAM page supplies the
-address, and the disassembly gutter shows it only then.
+the memory that supplies it (shown as `$C000 @2E` for a RAM page): it fires only
+while that memory supplies the address, and the disassembly gutter shows it only then.
 
 **Breakpoints ▸ Add Execute Breakpoint…** takes `file:line` too. Symbols work
 in the other address fields: the other **Breakpoints ▸ Add …** dialogs,

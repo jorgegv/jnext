@@ -2064,6 +2064,33 @@ static void breakpoint_rows() {
                   bp_id(rom) == 2 && rom_any);
     }
     {
+        // SRCBP-05 (GH #341 / E23-09) -- THE LEGACY MEANING IS PINNED. DZRP's bank+1 is the page
+        // NUMBER: `EventFilter::page` compares Mmu::get_effective_page(slot) and nothing more, so it
+        // fires on a ROM that carries that number (a ROM-slot effective page is sram_rom*2+slot, a
+        // number in the RAM-page range), which the canonical `space` qualifier never would. Premises (measured):
+        // reset leaves ROM 0 in slot 0, source_page says so, and its effective page p is 0.
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_prog(rig, 0x8000, {0xC3, 0x00, 0x00});  // JP $0000
+        set_pc(rig, 0x8000);
+        const unsigned p = rig.dbg->effective_page(0x0000);
+        const bool premise = rig.dbg->source_page(0x0000).kind == jnext::dbg::MemSpace::Kind::Rom && p == 0;
+        const Resp a = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x0000, static_cast<int>(p) + 1));
+        c.cmd(CMD_CONTINUE, cont());
+        run_until_paused(rig, 3);
+        c.tick();
+        const Ntf hit = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        const auto subs = rig.dbg->subscriptions(false);
+        check("SRCBP-05", "a DZRP breakpoint with bank+1 = p+1 is the legacy page-number qualifier: it "
+                          "stops a fetch from the ROM at $0000 whose effective page number is p, and "
+                          "carries no space",
+              premise && bp_id(a) == 1 && subs.size() == 1 && subs[0].filter.page == p &&
+                  subs[0].filter.space == jnext::dbg::MemSpace::cpu() && hit.ok &&
+                  hit.reason == BREAK_BP && hit.addr == 0x0000,
+              "premise=" + std::to_string(premise) + " p=" + std::to_string(p) + " " + ntf_str(hit));
+    }
+    {
         // ROM BANK BYTES (§5.3): slot 0's ROM reports 0xFF (DeZog 3.7.4's
         // 0xFE + 1, which it can match), slot 1's reports 0 (0xFF + 1 does not
         // fit the byte).

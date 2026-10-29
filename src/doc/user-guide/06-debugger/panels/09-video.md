@@ -67,7 +67,11 @@ Below that, one tab per view:
 
 Two conventions to know. Rows the raster has **not yet reached** in the current
 frame are drawn dark, so you can see exactly how much of the frame is done at
-the point you stopped — pause mid-frame and the bottom of the picture is dark.
+the point you stopped — pause mid-frame and the bottom of the picture is dark,
+with a red line at the raster. A pause between two frames, which is where an
+ordinary **Break** usually lands, shows the whole frame that has just ended, with
+no red line. A pause above the top of the picture in a frame already under way
+(after stepping into it) has drawn nothing of it yet, so that picture is all dark.
 **Transparent** pixels — including whatever a layer's clip window cuts away —
 are drawn as a light checkerboard, the way an image editor shows them, which
 makes it obvious whether a layer is empty or merely transparent.

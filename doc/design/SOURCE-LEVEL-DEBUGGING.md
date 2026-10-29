@@ -64,8 +64,7 @@ after the header `|SLD.data.version|1` (sjasmplus 1.23.1, "Source Level Debuggin
   writes an `F` or `D` record beside the `L` record of the same label (observed 2026-10-18),
   so reading `L` alone sees each label once.
 
-Today only `Z` and `T` are read and the other types are skipped; E23-23 (#375) reads `L`
-(section 10.4). The optional binary identity travels in comment records other readers ignore:
+`Z`, `T` and `L` are read and the other types are skipped (`L` by E23-23 (#375), section 10.4). The optional binary identity travels in comment records other readers ignore:
 `||program.name:`, `||program.sha256:`, `||program.org:`, `||program.size:` (section 9.7).
 
 ### 2.2 NextBuild `Memory.txt`
@@ -331,23 +330,22 @@ record, a source-line breakpoint and a history entry each carry one, compared ex
 replaces `NOT_RAM_PAGE` and `EventFilter::page_ram_only`. The plain `EventFilter::page`, which
 DZRP long breakpoints (`bank+1`) and the DSL `page` keyword use, keeps comparing
 `Mmu::get_effective_page(slot)` and nothing more: a protocol-level qualifier, not the identity
-(section 4.5). The type is built (E23-07 (#339)); `NOT_RAM_PAGE` and `page_ram_only` survive
-until the consumers move: the source map (E23-06 (#338)), history (E23-08) and breakpoints
-(E23-09 (#341), with one predicate). This document is E23-02 (#334). Check (epic acceptance 4):
+(section 4.5). The type is built (E23-07 (#339)) and every consumer has moved: the source map (E23-06 (#338)),
+history (E23-08) and breakpoints (E23-09 (#341), with one predicate); `page_ram_only` is gone. This document is E23-02 (#334). Check (epic acceptance 4):
 SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned).
 
 ### 3.3 Implementation status
 
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The panels and the breakpoint gate still reduce the identity to a RAM page through `ram_page_of()` (`debug/ram_page.h`) or "not a `Page`" until E23-09 (#341) | 4.1, 4.2, 4.4 | E23-07 (#339) |
-| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is derived from the entry (the legacy page qualifier of `history_stop_at()` until E23-09). Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The breakpoint gate, the Breakpoints panel and the disassembly gutter use the `FetchSource` itself (E23-09 (#341)); only the Source tab's display string still reduces it to a RAM page through `ram_page_of()` (`debug/ram_page.h`), which is E23-22's | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
 | Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
-| Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
+| Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
 | z88dk | the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352); the source adapter `load_z88dk_source_map()` exists (E23-13 stage 1) and is attached to no load path yet | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
-| Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
+| Symbols | DONE (E23-23 (#375) stages 1 and 2): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages: stage 3 | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
@@ -480,9 +478,7 @@ after it, from `Mmu::last_m1()`, read once per instruction and only when
 prediction for its PC, the value the live Execute gate used: an accepted INT reads no memory
 (`t80na.vhd:278-279`); an NMI does an M1 read at the interrupted PC and discards the byte
 (`t80n.vhd:502`), which jnext's core does not perform, so the prediction stands for it; the
-esxdos shim is jnext-only. `TraceLog::fetch_not_mmu_ram()` is a one-line
-view of the recorded identity ("not a `Page`"), kept for `history_stop_at()`'s page qualifier
-until E23-09.
+esxdos shim is jnext-only.
 
 `CallFrame` carries `caller_space` and `target_space` (`cpu()` = none recorded). The caller is
 the CALL's or RST's own recorded fetch. The target is pending until the first fetch AT
@@ -704,7 +700,10 @@ headless and SDL.
 after the load call returns, and neither the tape loader nor the backend has a point at which
 "the program has loaded" (a program may also run, and change its own image, before any check
 could match). This holds for every source format, the source half of `<stem>.map` included; its
-symbol half attaches. A tape's map is loaded by hand once the program is in memory. **Open,
+symbol half attaches, and so do an SLD's labels (E23-23 stage 2). An SLD's labels attach with its
+sidecar unit: not when the file is refused as a whole or its identity does not match, and not
+when the user's source map is kept (the SLD is then not loaded at all); they do attach when only
+its source records are refused. A tape's map is loaded by hand once the program is in memory. **Open,
 settled in E23-23 (#375):** once z88dk symbols are paged by the rules of 9.4, rule 4 (the MMU
 mapping with the program in memory) has no load point for a tape program either, so E23-23
 states when the symbols of a tape's `<stem>.map` take their spaces.
@@ -870,8 +869,12 @@ Breakpoints panel shows one row, "main.c:18 (2 locations)", and remove, enable a
 the group. One predicate, `EventFilter::matches(ev)`, replaces the three copies of today (3.3):
 the gate (`execute_gate` to `filter_matches`), `probe_execute()` and `history_stop_at()` all
 call it. The disassembly gutter draws, toggles and patches from the same identity:
-`BreakpointModel::pc_marked(addr, space)` takes the `FetchSource` where it takes a page number
-today. Clicking a Source tab line toggles its group (E23-16).
+`BreakpointModel::pc_marked(addr, space)` takes the `FetchSource` where it took a page number.
+Clicking a Source tab line toggles its group (E23-16); a click on a gutter dot removes only that
+location. As built: the group verbs are `Debugger::subscribe_source_line(by, file_line, like)`,
+`unsubscribe_group(by, group)` and `set_group_enabled(by, group, on)`, with `SubscriptionInfo::group`;
+the model folds a group into one row (`Row::group`, `Row::locations`), enabled only while every
+location is; a `space` on a kind other than `Execute` is refused.
 
 ### 8.2 Qt
 
@@ -1109,7 +1112,9 @@ only its own verbs (add, rename and remove a label; set or clear a comment) and 
 project file change it, and loading replaces it whole and transactionally; a sidecar load, a
 hand load of a MAP, `clear_symbols()`, a reset, a state load and a rewind never touch it. Both
 layers live in `Debugger::Impl` beside the `SourceMap`, and frontends reach them only through
-`Debugger`.
+`Debugger`. A hand-loaded SLD (`load_source_map()`) fills the toolchain layer with its labels
+and owns it as the user's (`Impl::symbols_from_sld`), unless the user loaded a MAP, which is
+kept; a later hand SLD replaces an earlier one's labels, and one with none clears only those.
 
 ### 10.3 One reader
 
@@ -1129,8 +1134,9 @@ UI, and the rule for a name already used at another key are E23-24's.
 ### 10.4 Page rules per adapter
 
 - **SLD `L`** (E23-23): `page >= 0` gives (`Page{page}`, `value & 0xFFFF`). `page = -1` gives
-  an unpaged label ("stay unpaged", #375), and a name-only value when the value does not fit
-  16 bits (an EQU can be 32-bit). sjasmplus writes -1 for every `EQU` without an explicit
+  an unpaged label ("stay unpaged", #375). A value that does not fit 16 bits (an EQU can be
+  32-bit), or is negative, is skipped; only a `+struct_def` record (a struct's offsets and size)
+  is a name-only value. sjasmplus writes -1 for every `EQU` without an explicit
   page, address constants included (2.1), so the format cannot tell an address from a
   constant; making them labels agrees with the `--sym` file, which lists the EQU constants
   too. A record with no main label (a module marker) names nothing.
@@ -1251,6 +1257,23 @@ column of a logical breakpoint).
 
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).
+
+E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug_test`: the live gate,
+the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group
+verbs), SRCBP-05 (`dzrp_adapter_test`: the legacy qualifier through `CMD_ADD_BREAKPOINT`) and
+QBPM-12/13 (`debugger_source_panel_test`: one row per group, the gutter removes one location).
+QBPP-04, QBPP-06 and QADR-10 now assert the group row. The review round added SRCBP-11/12
+(group verb refusals) and QADR-12, QBPM-14 to QBPM-18 (Add Execute with a paged name, Edit and the
+Enabled cell on a group row, notification, the lowest location, another client's legacy-page row).
+QADR-12 injects its paged label into the backend's table; QSYM-13 (#375 stage 2) is the same
+dialog through the real SLD-label path.
+
+E23-23 (#375) stage 2 added SYMPG-12 (`source_map_test`: `merge()`), SRCDBG-SYM-01 to SRCDBG-SYM-10
+and SRCDBG-SYM-12 to SRCDBG-SYM-14 (`source_debug_test`: an SLD's labels reach the backend's table,
+by page, through the sidecar and the hand load, with their ownership rules), GDB-MON-13
+(`gdb_rsp_test`: `monitor sym` by page), SCRIPT-SLD-01 (`script_events_test`), QSYM-06 and QSYM-13
+(`debugger_source_panel_test`: the Load Source Map message and Add Execute with an SLD label) and the
+functional row `sld-labels-func`.
 
 E23-10 (#342) added SRCLIFE-01 to SRCLIFE-39 (`source_debug_test`: the cache both ways, identity
 checks at a state load, a `.sna`, an RZX start and a reset, stale user maps, the readers' first

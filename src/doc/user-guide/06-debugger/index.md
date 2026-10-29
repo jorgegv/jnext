@@ -62,6 +62,7 @@ Four panels — CPU Registers, Disassembly, Stack and Call Stack — only show d
 while the machine is **paused**, and are greyed out while it runs. That is
 deliberate: reading them every frame would slow the emulation down for no
 benefit, since the values would be a blur. The rest refresh about four times a
-second while the machine is running.
+second while the machine is running, except the Video panel's layer views, which
+show a dark placeholder until you pause.
 
 ---

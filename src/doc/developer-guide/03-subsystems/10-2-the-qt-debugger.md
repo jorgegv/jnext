@@ -145,8 +145,12 @@ not.
 **The Video panel draws through the backend.** Each layer view is
 `render_layer()` ([3.9.1](09-1-the-backend-api.md)). The panel keeps the
 presentation: the `QImage`, the dark "not yet rendered" rows, the checkerboard
-under every alpha-0 cell, the scaling, the red raster line and the titles. Its
-raster block shows `hc`/`vc`, `hc_ula`/`vc_ula`, `cvc` and `phc` side by side,
+under every alpha-0 cell, the scaling, the red raster line and the titles.
+Paused at a frame boundary (`Debugger::at_frame_boundary()`, raster row < 0) it
+renders all 256 rows with no raster line: `begin_new_frame()` has not yet
+re-baselined the per-scanline change logs, so they still hold the frame that just
+ended. Paused in the top vblank of a frame in progress, it shows the placeholder.
+Its raster block shows `hc`/`vc`, `hc_ula`/`vc_ula`, `cvc` and `phc` side by side,
 each labelled with the VHDL signal it mirrors; `cvc` is labelled as what NR
 0x1E/0x1F report. The derivation lives in `src/debug/raster_state.*` and takes
 the live `VideoTiming` by reference, so there is no second table of raster
@@ -233,11 +237,17 @@ connect to the same `DebuggerManager` slots as its buttons, and their enabled
 state comes from `SourcePanel::update_buttons()` through the `steps_available()`
 signal, so the buttons and the actions share one predicate. The menu tree and
 the bindings are pinned by `debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
-Execute subscription with a page qualifier as the GUI's own row (`Row::page`);
-the Breakpoints panel creates one per place a `file:line` compiled to (its Add
-and Edit dialogs and Breakpoints > Add Execute Breakpoint share that rule, and show
-the store's reason, such as "no code at main.bas:5", when a line has none), and
-the gutter draws it only while its page is mapped (`pc_marked()`). The Call
+Execute subscription with a fetch-source qualifier as the GUI's own row
+(`Row::space`). A `file:line` is one source breakpoint, a backend group
+(`subscribe_source_line()`) armed at every place it compiled to, and the model
+folds the group into ONE row with its location count (`Row::group`,
+`Row::locations`; the panel's Symbol / Source cell reads "main.bas:11 (2
+locations)"); Remove, the Enabled cell and Edit act on the whole group, and the
+row is enabled only while every location is. The Add and Edit dialogs and
+Breakpoints > Add Execute Breakpoint share that rule, and show the store's
+reason, such as "no code at main.bas:5", when a line has none. The gutter
+draws a location only while its `FetchSource` supplies the address
+(`pc_marked(addr, space)`), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 `FetchSource` (`CallFrame::caller_space`).
 

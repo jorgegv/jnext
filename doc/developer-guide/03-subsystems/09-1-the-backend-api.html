@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2764,6 +2764,14 @@ compares the whole serialised machine state around each view.</p>
 <td>owner only</td>
 </tr>
 <tr>
+<td><code>subscribe_source_line(by, "file:line", like)</code></td>
+<td>a source breakpoint: resolves the line in the live source map and subscribes one <code>Execute</code> per start, each a copy of <code>like</code> with <code>lo = hi = start.address</code> and <code>space = start.space</code>, all under one new <code>GroupId</code>. All or nothing; refused with no map, no code at the line, or a <code>like</code> that is not <code>Execute</code></td>
+</tr>
+<tr>
+<td><code>unsubscribe_group(by, group)</code>, <code>set_group_enabled(by, group, on)</code></td>
+<td>every member of a source breakpoint; owner only. <code>SubscriptionInfo::group</code> says which group a listed subscription belongs to (<code>GROUP_NONE</code> for a plain one)</td>
+</tr>
+<tr>
 <td><code>master_enabled()</code>, <code>set_master_enabled(on)</code></td>
 <td>suspend every non-transient subscription without touching its own flag</td>
 </tr>
@@ -2878,6 +2886,9 @@ loads neither, a bad trace refuses only the source half. The name is
 records (a struct's offsets and size) are name-only, while a <code>+sizeof</code> record only
 says SIZEOF(label) was used, and is an ordinary label; a value past 0xFFFF or a page the device lacks is skipped
 (rows SYMPG-<em>, SLDL-</em>).
+<code>SymbolTable::merge(other)</code> is the one way to combine two tables: it adds the other's
+labels whose key is still free, its names and its name-only values not yet taken, so
+the first table wins throughout (row SYMPG-12).
 The <code>-debug</code> records (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or <code>__CDBINFO__</code>)
 are dropped by the loader, so they never name an address or resolve by name.
 <code>load_z88dk_map()</code> and <code>load_simple_map()</code> refuse a file that is not regular or is
@@ -2939,10 +2950,19 @@ recorded at the first fetch at the target and stays unrecorded, <code>cpu()</cod
 then; an INT or NMI frame's caller is the prediction at the interrupted PC). A
 slot that records no fetch (an accepted INT or NMI, the esxdos shim) keeps the
 prediction for its PC in its trace entry.
-<code>TraceLog::fetch_not_mmu_ram()</code> is a view of that identity, for the page
-qualifier below. An <code>Execute</code> filter with
-<code>page_ram_only</code> matches only a fetch from that RAM page (<code>Event::fetch_not_ram</code>);
-without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
+An <code>Execute</code> filter has two qualifiers. <code>EventFilter::space</code> is the canonical
+one: the <code>FetchSource</code> that must supply the opcode, compared exactly (kind and
+index) with <code>Event::space</code>, which the gate and <code>probe_execute()</code> predict and
+<code>history_stop_at()</code> reads from the trace entry. <code>EventFilter::page</code> is the
+<strong>legacy protocol qualifier</strong>: it compares <code>Mmu::get_effective_page(slot)</code> and
+nothing more, so it also matches a ROM or an overlay that carries that number.
+DZRP's <code>bank+1</code> and the DSL's <code>page</code> use it, and
+<code>dzrp-frontend.md</code> stays a frozen design record of that meaning. One
+predicate, <code>EventFilter::matches(ev)</code>, applies both; the live gate
+(<code>EventTable::filter_matches()</code>), <code>probe_execute()</code> and Reverse Continue all
+call it. A source breakpoint is a group of <code>Execute</code> subscriptions with a
+<code>space</code> each (<code>subscribe_source_line()</code>); the Qt Breakpoints panel shows it as
+one row.
 An SLD may carry a SHA-256 of the program's bytes (<code>||program.*</code> comment
 records); <code>load_source_map(path, accept_mismatch)</code> checks it against memory and
 stores the path absolute.</p>
@@ -2973,7 +2993,19 @@ non-throwing filesystem calls; only a regular file counts (a FIFO would block th
 load), and one that cannot be read is reported. Both loaders refuse a file that is
 not regular, or is over 64 MiB, before opening it (<code>debug/source_file.h</code>). Every frontend calls it after a successful <code>--load</code> or File ▸
 Open, and <code>load()</code> calls it for a remote client; a tape program gets no
-automatic map. Ownership is explicit (<code>Impl::StoreOwner</code>: None, Sidecar, User)
+automatic map. The SLD sidecar is parsed once (<code>load_sld_sidecar()</code> with a label
+table) and judged before the symbols: its labels attach when the file is not
+refused as a whole, its identity does not mismatch and the user's source map is not
+kept, also beside a tape and when only its <code>T</code> records are refused (an SLD with no
+label is not a symbol source). The sidecar symbol store is assembled in one block, in
+order, first wins: <code>Memory.txt</code>, then the SLD's labels (<code>SymbolTable::merge()</code>); the
+log has <code>Loaded N SLD labels from '&lt;file&gt;'</code>. Labels live in the Sidecar store, so
+the attachment cache and the lifetime rules below treat them like <code>Memory.txt</code>.
+<code>load_source_map()</code> fills the same table from a hand-loaded SLD
+(<code>Impl::attach_hand_labels()</code>, count in <code>SourceMapLoad::labels</code>): the labels become
+the user's symbols (<code>Impl::symbols_from_sld</code>), unless the user loaded a MAP
+(<code>labels == -1</code>, kept); a hand SLD without labels clears only an earlier hand SLD's
+labels (rows SRCDBG-SYM-*). Ownership is explicit (<code>Impl::StoreOwner</code>: None, Sidecar, User)
 and changes only on a successful load: a sidecar never touches the user's
 store, and a previous program's sidecar data is replaced or cleared — also when
 the new sidecar cannot be read.</p>

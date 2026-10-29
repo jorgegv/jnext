@@ -133,6 +133,9 @@ own `Listener`. `load(text, file)` does four things, in this order:
 
 A script with any error registers nothing.
 
+The DSL's `page` is the legacy page-number qualifier (3.9.1): it compares the
+MMU page number only, as DZRP's `bank+1` does.
+
 A rule is one subscription, with one exception: `on execute … page P1..P2` is
 one subscription per page, because the Execute filter takes a single page
 (`MAX_EXECUTE_PAGES` = 16). The engine spends the sibling subscriptions of a

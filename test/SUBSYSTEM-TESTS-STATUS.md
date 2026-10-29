@@ -20,7 +20,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub (symlinks, POSIX) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| quick_snapshot_posix_test |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "quick_snapshot_posix_test" to the label map in refresh-subsystem-status.sh. |
+| Quick snapshots: prune never follows a symlink (GH #321) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      391 |      391 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -37,7 +37,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      155 |      155 |      0 |       0 |    100% | 🟢 All tests pass. |
-| divmmc_integration_test |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "divmmc_integration_test" to the label map in refresh-subsystem-status.sh. |
+| DivMMC (int, SRAM map) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -100,7 +100,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | TZX loader (container) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tape SAVE TZX/WAV (GH #89) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
-| snapshot_machine_test |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "snapshot_machine_test" to the label map in refresh-subsystem-status.sh. |
+| Loading .sna/.szx/.z80 selects the saved machine (GH #323) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | POK trainers (.pok, GH #381) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -115,9 +115,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | src/debug Qt-free lint (GH #278) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source maps + symbols |       91 |       91 |      0 |       0 |    100% | 🟢 All tests pass. |
-| z88dk -debug map adapter |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |      177 |      177 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source maps + symbols |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      204 |      204 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1474 |     1474 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -126,11 +125,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger resume step-off |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster State (beam + ULA fetch) |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger socket transport (GH #287) |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DZRP remote debugger adapter (GH #12) |      162 |      162 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GDB RSP remote debugger adapter (GH #281) |       98 |       98 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DZRP remote debugger adapter (GH #12) |      163 |      163 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GDB RSP remote debugger adapter (GH #281) |       99 |       99 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL front end (GH #26) |      260 |      260 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL evaluator (GH #26) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger DSL engine (GH #26) |      123 |      123 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger DSL engine (GH #26) |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger session recorder (GH #20) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZRCP remote debugger adapter (GH #280) |      216 |      216 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect rules (pure) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -139,7 +138,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Mouse Release Gesture (GH #365) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present count (widget) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
-| frame_timer_test      |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "frame_timer_test" to the label map in refresh-subsystem-status.sh. |
+| GUI frame timer (single-shot, GH #155) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | POK Trainers GUI dialog (GH #381) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -157,12 +156,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Window scale + fullscreen geometry |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect (widget, settings, menu) |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window title (version) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI light/dark scheme (GH #363) |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI light/dark scheme (GH #363) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI scheme: private bus dies with the suite (GH #414) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD-card/NextPi download dialog (GH #358) |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Video Panel  |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Video Panel  |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -175,7 +175,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Source panel |       97 |       97 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14257**| **14257**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Source panel |      107 |      107 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **14275**| **14275**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

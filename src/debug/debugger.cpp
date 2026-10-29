@@ -247,7 +247,10 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
     // A MAP the user chose replaces whatever a program's sidecar brought —
     // once it HAS: a file that cannot be read leaves the table, and so its
     // owner, as they were.
-    if (n >= 0) impl_->symbols_owner = Impl::StoreOwner::User;
+    if (n >= 0) {
+        impl_->symbols_owner    = Impl::StoreOwner::User;
+        impl_->symbols_from_sld = false;
+    }
     // Both loaders return -1 on a file that cannot be read or parsed. That is
     // not a refusal of the verb by the machine's state, and it is not "there is
     // no such thing" either — the caller asked for a file that is not there.
@@ -258,7 +261,8 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
 Result Debugger::clear_symbols() {
     impl_->recheck();   // a writer first (CAP-SRC)
     impl_->symbols.clear();
-    impl_->symbols_owner = Impl::StoreOwner::None;
+    impl_->symbols_owner    = Impl::StoreOwner::None;
+    impl_->symbols_from_sld = false;
     return Result::Ok;
 }
 

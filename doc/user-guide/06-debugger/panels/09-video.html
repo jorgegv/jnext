@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3769,7 +3769,11 @@ and the 32 reachable entries of the active ULA palette as swatches.</p>
 </table>
 <p>Two conventions to know. Rows the raster has <strong>not yet reached</strong> in the current
 frame are drawn dark, so you can see exactly how much of the frame is done at
-the point you stopped — pause mid-frame and the bottom of the picture is dark.
+the point you stopped — pause mid-frame and the bottom of the picture is dark,
+with a red line at the raster. A pause between two frames, which is where an
+ordinary <strong>Break</strong> usually lands, shows the whole frame that has just ended, with
+no red line. A pause above the top of the picture in a frame already under way
+(after stepping into it) has drawn nothing of it yet, so that picture is all dark.
 <strong>Transparent</strong> pixels — including whatever a layer's clip window cuts away —
 are drawn as a light checkerboard, the way an image editor shows them, which
 makes it obvious whether a layer is empty or merely transparent.</p>

@@ -737,6 +737,28 @@ public:
     /// CAP-EVT — set a subscription's own enable flag. Owner only.
     Result set_enabled(ClientId by, EventId id, bool enabled);
 
+    /// E23-09 (design 8.1) -- a breakpoint on a source line. Resolves
+    /// `file_line` in the live source map (`source_map().resolve()`) and
+    /// subscribes one `Execute` per start, each a copy of `like` with
+    /// `lo = hi = start.address`, `space = start.space` and `page = PAGE_ANY`,
+    /// all under one new group. All or nothing. `like.transient` and
+    /// `like.once` reach every member, so a transient group dies as a whole at
+    /// the next stop. `RefusedUnavailable` for a gone client, a `like.kind` that
+    /// is not `Execute`, no live map, or a line with no start
+    /// (`source_map().resolve(file_line).error` says why). A detach erases the
+    /// members, so the group goes with them.
+    Expected<GroupId> subscribe_source_line(ClientId by, const std::string& file_line,
+                                            const Subscription& like);
+
+    /// E23-09 -- remove every member of `group`. Owner only: an unknown group,
+    /// or another client's, is `RefusedUnavailable`. `unsubscribe(by, id)` still
+    /// removes one member.
+    Result unsubscribe_group(ClientId by, GroupId group);
+
+    /// E23-09 -- set every member's own enable flag. Owner only, as above.
+    /// `set_enabled(by, id, on)` still acts on one member.
+    Result set_group_enabled(ClientId by, GroupId group, bool enabled);
+
     /// CAP-EVT — the master switch (GH #225). Suspends every subscription
     /// without deleting one and without touching any per-subscription flag;
     /// `transient` subscriptions are EXEMPT, so Step Over and Run to Here keep
@@ -952,11 +974,16 @@ public:
         /// The map's binary identity checked against memory: nullopt when the
         /// map carries none, else whether it matched.
         std::optional<bool> identity;
+        /// SLD labels put in the symbol table; 0 none in the file; -1 refused, or
+        /// the symbols you loaded (Load MAP, Load Memory.txt, --map) kept.
+        int labels = -1;
     };
 
     /// CAP-SRC — load an sjasmplus SLD file, replacing the current map only on
-    /// success. A map that carries a binary identity which no longer matches
-    /// memory is refused unless `accept_identity_mismatch` (a program may have
+    /// success. Its labels replace the symbol table unless that holds symbols the
+    /// user loaded (a MAP, a Memory.txt); a file with no labels clears only an
+    /// earlier SLD's. A map that carries a binary identity which no longer
+    /// matches memory is refused unless `accept_identity_mismatch` (a program may have
     /// legitimately changed variables inside its own image since it loaded).
     SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch);
 
@@ -1018,11 +1045,14 @@ public:
     /// store the user filled (a MAP or SLD loaded by hand, `--map`) is kept.
     /// A previous program's sidecar data is cleared when the new program has
     /// none, so a stale map never describes the wrong binary. An SLD whose
-    /// binary identity does not match the loaded program is refused.
+    /// binary identity does not match the loaded program is refused. The SLD's
+    /// labels join the program's symbols (after a `Memory.txt`, first wins), also
+    /// beside a tape, and also when only its source records are refused; not when
+    /// its identity does not match or the user's source map is kept.
     /// Each outcome is logged. Every frontend calls this after a successful
     /// program load.
     struct SidecarLoad {
-        int symbols = -1;   ///< labels loaded, -1 when none was found
+        int symbols = -1;   ///< labels loaded from every symbol sidecar together, -1 when none attached
         int sources = -1;   ///< source records loaded, -1 when none was attached
         /// A Memory.txt was found and could not be read (the previous
         /// program's sidecar symbols are cleared all the same).

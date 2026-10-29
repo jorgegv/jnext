@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QSettings>
 #include "debug/debug_keymap.h"
+#include "debug/mem_space.h"
 #include "debugger/window_attach.h"
 #include <utility>
 #include <vector>
@@ -139,13 +140,17 @@ private:
     /// its own dialog title and menu entry.
     void show_add_exec_bp_dialog();
     /// Modal address prompt shared by both of the above: a number or a symbol,
-    /// and with a non-null `targets` a source line `file:line` too, which comes
-    /// back as one (address, page) per place the line compiled to (PAGE_ANY for
-    /// a plain address). Text that resolves to nothing keeps the dialog open
-    /// with a message (a source line's reason, when it has one). Returns false
-    /// only when the user cancels.
+    /// and with a non-null `space` (the Execute dialog; `source_line` then
+    /// too) a source line `file:line` as well. A plain address or symbol comes
+    /// back in `addr` with the memory that must supply it in `space` (`cpu()`
+    /// for a plain address); a source line comes back as its text in
+    /// `source_line`, which the model arms at every place it compiled to as one
+    /// group. Text that resolves to nothing keeps the dialog open with a
+    /// message (a source line's reason, when it has one). Returns false only
+    /// when the user cancels.
     bool prompt_bp_address(const QString& title, uint16_t& addr,
-                           std::vector<std::pair<uint16_t, uint16_t>>* targets = nullptr);
+                           jnext::dbg::MemSpace* space = nullptr,
+                           QString* source_line = nullptr);
     void show_rewind_buffer_size_dialog();
     void update_trace_indicator();
     void update_rewind_ui();

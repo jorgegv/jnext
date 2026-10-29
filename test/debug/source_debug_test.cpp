@@ -35,6 +35,8 @@
 //                    the load they came with
 //   SRCDBG-PATH-*    a relative map path is made absolute
 //   SRCDBG-FB-*      Back after a Frame Back goes back in time
+//   SRCDBG-SYM-*     the labels of an SLD reach the backend's symbol table, by page
+//                    (GH #375 stage 2), through the sidecar and the hand load
 //   SRCLIFE-*        the source map's lifetime: load generations, the attachment
 //                    cache, stale user maps, Back stops at a landing (GH #342)
 //
@@ -54,11 +56,15 @@
 #include "debug/sld_loader.h"
 #include "debug/source_file.h"
 #include "core/saveable.h"
+#include "core/log.h"
+
+#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -148,6 +154,22 @@ static std::string x_sld(unsigned page,
                 std::to_string(addr) + "|T|\n";
     return text;
 }
+
+// The debugger log lines `fn` writes, joined.
+static std::string debugger_log_of(const std::function<void()>& fn) {
+    auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);
+    Log::debugger()->sinks().push_back(ring);
+    fn();
+    Log::debugger()->sinks().pop_back();
+    std::string all;
+    for (const auto& l : ring->last_formatted()) all += l;
+    return all;
+}
+
+static bool has(const std::string& hay, const std::string& needle) {
+    return hay.find(needle) != std::string::npos;
+}
+
 
 struct Machine {
     Emulator emu;
@@ -697,19 +719,19 @@ int main() {
               m.dbg->source_page(0x0001) == MemSpace::rom(0) && !m.dbg->source_location(0x0001));
 
         // A page-qualified Execute matches page numbers alone (DZRP, the DSL);
-        // one marked page_ram_only (a source breakpoint) refuses the ROM.
+        // one qualified by space = Page{n} (a source breakpoint) refuses the ROM.
         Subscription by_number;
         by_number.kind = EventKind::Execute;
         by_number.filter.lo = by_number.filter.hi = 0x0001;
         by_number.filter.page = static_cast<uint16_t>(rom_page);
         Subscription ram_only = by_number;
-        ram_only.filter.page_ram_only = true;
+        ram_only.filter.space = MemSpace::page(static_cast<uint16_t>(rom_page));
         const auto id1 = m.dbg->subscribe(m.a, by_number).value;
         const auto id2 = m.dbg->subscribe(m.a, ram_only).value;
         const auto hits = m.dbg->probe_execute(0x0001);
         const bool has1 = std::find(hits.begin(), hits.end(), id1) != hits.end();
         const bool has2 = std::find(hits.begin(), hits.end(), id2) != hits.end();
-        check("SRCDBG-ID-02", "a page_ram_only Execute does not match a ROM fetch under "
+        check("SRCDBG-ID-02", "an Execute qualified by space Page{n} does not match a ROM fetch under "
                               "the same page number; a plain page qualifier still does",
               has1 && !has2);
     }
@@ -807,7 +829,7 @@ int main() {
         const bool predicted = m.dbg->source_page(0x0000) == MemSpace::divmmc_rom();
         Subscription bp = execute_stop(0x0000);
         bp.filter.page = 10;
-        bp.filter.page_ram_only = true;
+        bp.filter.space = MemSpace::page(10);
         const auto id = m.dbg->subscribe(m.a, bp).value;
         const auto hits = m.dbg->probe_execute(0x0000);
         const bool bp_refused = std::find(hits.begin(), hits.end(), id) == hits.end();
@@ -824,7 +846,7 @@ int main() {
         const auto& t = m.emu.trace_log();
         const bool ran_divmmc = (m.emu.cpu().get_registers().AF >> 8) == 1;
         const bool flagged = t.size() >= 2 && t.at(t.size() - 1).pc == 0x0000 &&
-                             t.fetch_not_mmu_ram(t.size() - 1);
+                             t.at(t.size() - 1).fetch_space().kind != MemSpace::Kind::Page;
         const auto& f = m.dbg->call_stack();
         check("SRCDBG-ID-07", "and once it runs: the trace marks DivMMC's instruction "
                               "not-RAM, and the CALL's frame names no RAM page as target",
@@ -1208,7 +1230,7 @@ int main() {
                         "DivMMC ROM's bytes (CD 20 00) and opens its own frame",
                   e.pc == c.call_at && e.opcode_bytes[0] == 0xCD && e.opcode_bytes[1] == 0x20 &&
                       e.opcode_bytes[2] == 0x00 && e.opcode_len == 3 &&
-                      t.fetch_not_mmu_ram(t.size() - 1) && f.size() == 2 &&
+                      t.at(t.size() - 1).fetch_space().kind != MemSpace::Kind::Page && f.size() == 2 &&
                       f[1].caller_pc == c.call_at && f[1].target_pc == 0x0020,
                   [&] {
                       char b[96];
@@ -1246,7 +1268,7 @@ int main() {
         check("SRCDBG-ID-24", "the first instruction after the DivMMC unmap range is traced with "
                               "RAM's bytes (3E 77), not the ROM it was mapped over",
               e.pc == 0x1FF9 && e.opcode_bytes[0] == 0x3E && e.opcode_bytes[1] == 0x77 &&
-                  e.opcode_len == 2 && !t.fetch_not_mmu_ram(t.size() - 1),
+                  e.opcode_len == 2 && t.at(t.size() - 1).fetch_space().kind == MemSpace::Kind::Page,
               [&] {
                   char b[96];
                   std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X len=%d", e.pc,
@@ -1272,7 +1294,7 @@ int main() {
         check("SRCDBG-ID-25", "an armed Multiface fetch at $0066 is traced with the Multiface "
                               "ROM's bytes (3E 42), not RAM's",
               e.pc == 0x0066 && e.opcode_bytes[0] == 0x3E && e.opcode_bytes[1] == 0x42 &&
-                  e.opcode_len == 2 && t.fetch_not_mmu_ram(t.size() - 1),
+                  e.opcode_len == 2 && t.at(t.size() - 1).fetch_space().kind != MemSpace::Kind::Page,
               [&] {
                   char b[96];
                   std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X len=%d", e.pc,
@@ -1310,7 +1332,7 @@ int main() {
                               "and the trace shows those bytes (2A 00 A0)",
               m.dbg->registers().HL == 0xDDCC && m.pc() == 0x000B && e.pc == 0x0008 &&
                   e.opcode_bytes[0] == 0x2A && e.opcode_bytes[1] == 0x00 &&
-                  e.opcode_bytes[2] == 0xA0 && e.opcode_len == 3 && !t.fetch_not_mmu_ram(t.size() - 1),
+                  e.opcode_bytes[2] == 0xA0 && e.opcode_len == 3 && t.at(t.size() - 1).fetch_space().kind == MemSpace::Kind::Page,
               "HL=" + hex(m.dbg->registers().HL) + " " + m.where());
     }
     {
@@ -1342,7 +1364,7 @@ int main() {
                               "those bytes (3A 00 90)",
               (m.dbg->registers().AF >> 8) == 0xAA && m.pc() == 0x1FFB && e.pc == 0x1FF8 &&
                   e.opcode_bytes[0] == 0x3A && e.opcode_bytes[1] == 0x00 &&
-                  e.opcode_bytes[2] == 0x90 && e.opcode_len == 3 && t.fetch_not_mmu_ram(t.size() - 1),
+                  e.opcode_bytes[2] == 0x90 && e.opcode_len == 3 && t.at(t.size() - 1).fetch_space().kind != MemSpace::Kind::Page,
               "AF=" + hex(m.dbg->registers().AF) + " " + m.where());
     }
     {
@@ -1909,7 +1931,7 @@ int main() {
     {
         // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes
         // the same prediction as probe_execute (ID-02, ID-06): at an instant DivMMC entry the fetch
-        // at $0000 is the DivMMC ROM's, so a page_ram_only subscription on RAM page 10 there is
+        // at $0000 is the DivMMC ROM's, so a space-Page{10} subscription on RAM page 10 there is
         // refused and a plain page qualifier, which compares numbers alone, still matches.
         Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
         m.dbg->nextreg_write(m.a, 0x50, 10);
@@ -1929,14 +1951,14 @@ int main() {
         ram_only.kind = EventKind::Execute;
         ram_only.filter.lo = ram_only.filter.hi = 0x0000;
         ram_only.filter.page = 10;
-        ram_only.filter.page_ram_only = true;
+        ram_only.filter.space = MemSpace::page(10);
         ram_only.action = Action::Continue;
         ram_only.handler = [&ram_only_hits](const jnext::dbg::Event&, Debugger&) {
             ++ram_only_hits;
             return Action::Continue;
         };
         Subscription plain = ram_only;
-        plain.filter.page_ram_only = false;
+        plain.filter.space = MemSpace::cpu();
         plain.handler = [&plain_hits](const jnext::dbg::Event&, Debugger&) {
             ++plain_hits;
             return Action::Continue;
@@ -1946,7 +1968,7 @@ int main() {
         m.dbg->run(m.a);
         m.emu.run_frame();
         check("SRCDBG-ID-21", "while running, an Execute gate at an instant DivMMC entry refuses a "
-                              "page_ram_only subscription on the RAM page there and delivers the plain "
+                              "space-qualified subscription on the RAM page there and delivers the plain "
                               "page-qualified one",
               ram_only_hits == 0 && plain_hits >= 1,
               "ram_only=" + std::to_string(ram_only_hits) + " plain=" + std::to_string(plain_hits));
@@ -3680,6 +3702,601 @@ int main() {
                   ld == Result::Ok && rw == Result::Ok && r == Result::Ok && after >= at,
                   "r=" + std::to_string(int(r)) + " at=" + std::to_string(at) + " after=" +
                       std::to_string(after) + " now=" + m.where());
+        }
+    }
+
+    // ── GH #341 / E23-09: source-line breakpoints on the canonical identity ──
+    bool srcbp07_b = false;
+    std::string srcbp07_detail;
+    // The stores have no VHDL counterpart (design 13); the identity rows cite
+    // the arbiter they rely on. Every row asserts the machine it stands on (the
+    // fetch source and the effective page) so a wrong setup fails instead of
+    // passing vacuously.
+    {
+        // Two RAM pages with the same code at $C000, a program that calls each in turn.
+        auto bank_machine = [&](Machine& m) {
+            for (uint8_t pg : {uint8_t(20), uint8_t(21)}) {
+                m.dbg->nextreg_write(m.a, 0x56, pg);
+                m.emu.mmu().write(0xC000, 0x04);   // INC B
+                m.emu.mmu().write(0xC001, 0xC9);   // RET
+            }
+            const uint8_t prog[] = {0xED, 0x91, 0x56, 21,       // NEXTREG $56,21
+                                    0xCD, 0x00, 0xC0,           // CALL $C000
+                                    0xED, 0x91, 0x56, 20,       // NEXTREG $56,20
+                                    0xCD, 0x00, 0xC0,           // CALL $C000
+                                    0x18, 0xFE};                // JR $
+            for (size_t i = 0; i < sizeof(prog); ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.BC = 0;
+            m.emu.cpu().set_registers(r);
+            m.set_pc(0x8000);
+        };
+        const fs::path c_sld = dir / "bank.sld";
+        write_text(c_sld, std::string("|SLD.data.version|1\n") + "main.c|1||0" + kNextDevice +
+                              "main.c|19||0|20|49152|T|\n");
+
+        // SRCBP-01 (zxnext.vhd:2952-2959, :3058-3065: MMU6 alone decides $C000).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        bank_machine(m);
+        m.dbg->load_source_map(c_sld.string(), false);
+        const auto g = m.dbg->subscribe_source_line(m.a, "main.c:19", execute_stop(0));
+        m.dbg->run(m.a);
+        for (int i = 0; i < 4 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        const auto subs = m.dbg->subscriptions(false);
+        check("SRCBP-01", "a source breakpoint on page 20 fires at $C000 only while page 20 is "
+                          "mapped there: the page-21 call runs through (B==1), the page-20 call "
+                          "stops",
+              static_cast<bool>(g) && subs.size() == 1 && subs[0].group == g.value &&
+                  m.dbg->state().paused && m.pc() == 0xC000 &&
+                  m.dbg->effective_page(0xC000) == 20 && (m.emu.cpu().get_registers().BC >> 8) == 1,
+              m.where() + " page=" + std::to_string(m.dbg->effective_page(0xC000)) +
+                  " B=" + std::to_string(m.emu.cpu().get_registers().BC >> 8));
+
+        // SRCBP-06: the probe asks the same predicate.
+        Machine q(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        bank_machine(q);
+        q.dbg->load_source_map(c_sld.string(), false);
+        const auto gq = q.dbg->subscribe_source_line(q.a, "main.c:19", execute_stop(0));
+        const jnext::dbg::EventId member = q.dbg->subscriptions(false).at(0).id;
+        auto probed = [&](uint8_t pg) {
+            q.dbg->nextreg_write(q.a, 0x56, pg);
+            const auto h = q.dbg->probe_execute(0xC000);
+            return std::find(h.begin(), h.end(), member) != h.end();
+        };
+        const bool on21 = probed(21);
+        const bool on20 = probed(20);
+        check("SRCBP-06", "probe_execute lists the source breakpoint's member with page 20 "
+                          "at slot 6, and not with page 21",
+              static_cast<bool>(gq) && q.dbg->source_page(0xC000) == MemSpace::page(20) && on20 &&
+                  !on21,
+              "on21=" + std::to_string(on21) + " on20=" + std::to_string(on20));
+    }
+    {
+        // SRCBP-02 (divmmc.vhd:94-96; zxnext.vhd:3037-3043 override "110", :3092-3098, :4180-4182):
+        // NR 0x50 = 20 names page 20 at $0100, but under conmem + mapram DivMMC RAM bank 3 supplies it.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 20);
+        m.emu.mmu().write(0x0100, 0x04);   // page 20: INC B
+        m.emu.mmu().write(0x0101, 0xC9);   // RET
+        m.emu.divmmc().ram_data()[3 * 0x2000 + 0x0100] = 0x04;
+        m.emu.divmmc().ram_data()[3 * 0x2000 + 0x0101] = 0xC9;
+        const uint8_t prog[] = {0xCD, 0x00, 0x01,   // CALL $0100 (DivMMC RAM)
+                                0x3E, 0x00,         // LD A,0
+                                0xD3, 0xE3,         // OUT ($E3),A: conmem off
+                                0xCD, 0x00, 0x01,   // CALL $0100 (page 20)
+                                0x18, 0xFE};
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        m.dbg->port_out(m.a, 0xE3, 0xC0);   // conmem + mapram
+        Z80Registers r = m.emu.cpu().get_registers();
+        r.BC = 0;
+        m.emu.cpu().set_registers(r);
+        m.set_pc(0x8000);
+        const fs::path sld0 = dir / "divmmc-ram.sld";
+        write_text(sld0, std::string("|SLD.data.version|1\n") + "main.c|1||0" + kNextDevice +
+                             "main.c|19||0|20|256|T|\n");
+        m.dbg->load_source_map(sld0.string(), false);
+        const bool premise = m.dbg->source_page(0x0100) == MemSpace::divmmc_ram(3) &&
+                             m.dbg->effective_page(0x0100) == 20;
+        const auto g = m.dbg->subscribe_source_line(m.a, "main.c:19", execute_stop(0));
+        m.dbg->run(m.a);
+        for (int i = 0; i < 4 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        check("SRCBP-02", "NR 0x50 naming page 20 is not the identity: a source breakpoint on "
+                          "page 20 at $0100 does not stop in DivMMC RAM bank 3 (conmem+mapram), "
+                          "and stops once page 20 itself supplies it",
+              premise && static_cast<bool>(g) && m.dbg->state().paused && m.pc() == 0x0100 &&
+                  !m.emu.divmmc().conmem() && m.dbg->source_page(0x0100) == MemSpace::page(20) &&
+                  (m.emu.cpu().get_registers().BC >> 8) == 1,
+              "premise=" + std::to_string(premise) + " " + m.where() + " B=" +
+                  std::to_string(m.emu.cpu().get_registers().BC >> 8));
+
+        // SRCBP-07(b): the DivMMC RAM space itself is an exact, matchable identity.
+        Machine n(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        n.dbg->nextreg_write(n.a, 0x50, 20);
+        n.emu.divmmc().ram_data()[3 * 0x2000 + 0x0100] = 0x00;   // NOP
+        n.emu.mmu().write(0x8000, 0xC3);                           // JP $0100
+        n.emu.mmu().write(0x8001, 0x00);
+        n.emu.mmu().write(0x8002, 0x01);
+        n.dbg->port_out(n.a, 0xE3, 0xC0);
+        n.set_pc(0x8000);
+        int ram_hits = 0, page_hits = 0;
+        auto counting = [](int& n_hits, MemSpace sp) {
+            Subscription s = execute_stop(0x0100);
+            s.filter.space = sp;
+            s.action = Action::Continue;
+            s.handler = [&n_hits](const jnext::dbg::Event&, Debugger&) {
+                ++n_hits;
+                return Action::Continue;
+            };
+            return s;
+        };
+        n.dbg->subscribe(n.a, counting(ram_hits, MemSpace::divmmc_ram(3)));
+        n.dbg->subscribe(n.a, counting(page_hits, MemSpace::page(20)));
+        const bool premise_n = n.dbg->source_page(0x0100) == MemSpace::divmmc_ram(3);
+        n.dbg->run(n.a);
+        n.emu.run_frame();
+        srcbp07_b = premise_n && ram_hits >= 1 && page_hits == 0;
+        srcbp07_detail = "(b) ram=" + std::to_string(ram_hits) + " page=" + std::to_string(page_hits);
+    }
+    {
+        // SRCBP-03: ReverseContinue asks the same predicate of the RECORDED fetch identity. A second
+        // record (main.c:30 on page 21) is required: an entry the map does not cover is skipped
+        // before the predicate is asked, so without it a space-blind predicate would never be tried.
+        const fs::path rc_sld = dir / "reverse-bank.sld";
+        write_text(rc_sld, std::string("|SLD.data.version|1\n") + "main.c|1||0" + kNextDevice +
+                               "main.c|19||0|20|49152|T|\n" + "main.c|30||0|21|49152|T|\n");
+        // A machine that has run both calls and both RETs, trace on.
+        auto ran_machine = [&]() {
+            auto m = std::make_unique<Machine>(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+            for (uint8_t pg : {uint8_t(20), uint8_t(21)}) {
+                m->dbg->nextreg_write(m->a, 0x56, pg);
+                m->emu.mmu().write(0xC000, 0x04);   // INC B
+                m->emu.mmu().write(0xC001, 0xC9);   // RET
+            }
+            const uint8_t prog[] = {0xED, 0x91, 0x56, 20, 0xCD, 0x00, 0xC0,    // page 20 first
+                                    0xED, 0x91, 0x56, 21, 0xCD, 0x00, 0xC0,    // page 21 last
+                                    0x00, 0x00};
+            for (size_t i = 0; i < sizeof(prog); ++i)
+                m->emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            m->set_pc(0x8000);
+            m->dbg->load_source_map(rc_sld.string(), false);
+            m->dbg->set_trace_enabled(true);
+            for (int i = 0; i < 8; ++i) m->dbg->step_into(m->a);   // both calls and both RETs
+            return m;
+        };
+        auto m = ran_machine();
+        const bool ran = m->pc() == 0x800E && m->dbg->effective_page(0xC000) == 21;
+        const auto g = m->dbg->subscribe_source_line(m->a, "main.c:19", execute_stop(0));
+        const Result rc = m->dbg->source_step(m->a, Step::ReverseContinue);
+        const bool by_space = static_cast<bool>(g) && rc == Result::Ok && m->pc() == 0xC000 &&
+                              m->dbg->effective_page(0xC000) == 20;
+        // The legacy page-number qualifier (DZRP, the DSL) is still asked of the recorded MMU page.
+        auto n = ran_machine();
+        Subscription legacy = execute_stop(0xC000);
+        legacy.filter.page = 20;
+        n->dbg->subscribe(n->a, legacy);
+        const Result rl = n->dbg->source_step(n->a, Step::ReverseContinue);
+        const bool by_page = rl == Result::Ok && n->pc() == 0xC000 && n->dbg->effective_page(0xC000) == 20;
+        check("SRCBP-03", "Reverse Continue lands on the page-20 execution of $C000, not the "
+                          "newer page-21 one, whose recorded fetch source is not the breakpoint's; "
+                          "a legacy page-20 qualifier lands there too",
+              ran && by_space && by_page,
+              "ran=" + std::to_string(ran) + " rc=" + std::to_string(int(rc)) + " " + m->where() +
+                  " page=" + std::to_string(m->dbg->effective_page(0xC000)) +
+                  " legacy=" + std::to_string(by_page) + " " + n->where());
+    }
+    {
+        // SRCBP-04: a line compiled to two places is one group of two subscriptions.
+        const fs::path two = dir / "two-places.sld";
+        write_text(two, program_sld(p80, p90, "main.bas|11||0|" + std::to_string(p90) + "|36864|T|\n"));
+        Machine m;
+        m.dbg->load_source_map(two.string(), false);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "other";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId other = m.dbg->attach(ci).value;
+        const auto g = m.dbg->subscribe_source_line(m.a, "main.bas:11", execute_stop(0));
+        const auto subs = m.dbg->subscriptions(false);
+        bool at8002 = false, at9000 = false;
+        for (const auto& si : subs) {
+            if (si.filter.lo == 0x8002 && si.filter.space == MemSpace::page(p80)) at8002 = true;
+            if (si.filter.lo == 0x9000 && si.filter.space == MemSpace::page(p90)) at9000 = true;
+        }
+        const bool listed = static_cast<bool>(g) && g.value != jnext::dbg::GROUP_NONE &&
+                            subs.size() == 2 && subs[0].group == g.value &&
+                            subs[1].group == g.value && at8002 && at9000;
+        const Result foreign = m.dbg->unsubscribe_group(other, g.value);
+        const bool kept = foreign == Result::RefusedUnavailable && m.dbg->subscriptions(false).size() == 2;
+        const Result gone = m.dbg->unsubscribe_group(m.a, g.value);
+        const Result again = m.dbg->unsubscribe_group(m.a, g.value);
+        check("SRCBP-04", "subscribe_source_line on a two-place line makes one group of two "
+                          "Execute subscriptions, one per start with its space; only the owner "
+                          "removes it, and unsubscribe_group removes both",
+              listed && kept && gone == Result::Ok && again == Result::RefusedUnavailable &&
+                  m.dbg->subscriptions(false).empty(),
+              "listed=" + std::to_string(listed) + " kept=" + std::to_string(kept));
+
+        // SRCBP-09: enabling acts on the group, and the run honours it.
+        m.dbg->subscribe_source_line(m.a, "main.bas:11", execute_stop(0));
+        const auto grp = m.dbg->subscriptions(false).at(0).group;
+        m.dbg->set_group_enabled(m.a, grp, false);
+        const auto off = m.dbg->subscriptions(false);
+        const bool both_off = off.size() == 2 && !off[0].enabled && !off[1].enabled;
+        m.dbg->run(m.a);
+        m.emu.run_frame();
+        const bool passed = !m.dbg->state().paused;
+        m.dbg->pause(m.a);
+        const Result foreign_en = m.dbg->set_group_enabled(other, grp, true);
+        m.dbg->set_group_enabled(m.a, grp, true);
+        const auto on = m.dbg->subscriptions(false);
+        check("SRCBP-09", "set_group_enabled(false) disables every member and a run passes both "
+                          "places with no stop; (true) enables them again; another client may not",
+              both_off && passed && foreign_en == Result::RefusedUnavailable && on.size() == 2 &&
+                  on[0].enabled && on[1].enabled,
+              "both_off=" + std::to_string(both_off) + " passed=" + std::to_string(passed));
+    }
+    {
+        // SRCBP-07(a): a ROM fetch at $0000 is Rom{0}, whose effective page number is also a RAM page
+        // number; only the space tells them apart (zxnext.vhd ROM branch, slot 0; mmu.cpp:374).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        const uint8_t prog[] = {0xC3, 0x00, 0x00};   // JP $0000
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        m.set_pc(0x8000);
+        const unsigned eff = m.dbg->effective_page(0x0000);
+        const bool premise = m.dbg->source_page(0x0000) == MemSpace::rom(0) && eff == 0;
+        int page_hits = 0, rom_hits = 0;
+        auto counting = [](int& n_hits, MemSpace sp) {
+            Subscription s = execute_stop(0x0000);
+            s.filter.space = sp;
+            s.action = Action::Continue;
+            s.handler = [&n_hits](const jnext::dbg::Event&, Debugger&) {
+                ++n_hits;
+                return Action::Continue;
+            };
+            return s;
+        };
+        m.dbg->subscribe(m.a, counting(page_hits, MemSpace::page(static_cast<uint16_t>(eff))));
+        m.dbg->subscribe(m.a, counting(rom_hits, MemSpace::rom(0)));
+        m.dbg->run(m.a);
+        m.emu.run_frame();
+        check("SRCBP-07", "the space comparison is exact, kind and index: a fetch from Rom{0} at $0000 "
+                          "is not Page{effective page}, and DivMMC RAM bank 3 is not Page{20}",
+              premise && page_hits == 0 && rom_hits >= 1 && srcbp07_b,
+              "(a) premise=" + std::to_string(premise) + " eff=" + std::to_string(eff) +
+                  " page=" + std::to_string(page_hits) + " rom=" + std::to_string(rom_hits) + " " +
+                  srcbp07_detail);
+    }
+    {
+        // SRCBP-08: a fetch-source qualifier on a kind that has no fetch is refused, not stored inert.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        Subscription mem;
+        mem.kind = EventKind::Mem;
+        mem.access = Access::Read;
+        mem.filter.space = MemSpace::page(20);
+        const auto r = m.dbg->subscribe(m.a, mem);
+        check("SRCBP-08", "a Mem subscription carrying a space is refused and nothing is listed",
+              !r && r.status == Result::RefusedUnavailable && m.dbg->subscriptions(true).empty());
+    }
+    {
+        // SRCBP-10: subscribe_source_line arms nothing when it refuses.
+        Machine m;
+        const auto no_map = m.dbg->subscribe_source_line(m.a, "main.bas:11", execute_stop(0));
+        m.dbg->load_source_map(sld.string(), false);
+        const auto no_code = m.dbg->subscribe_source_line(m.a, "main.bas:5", execute_stop(0));
+        Subscription mem = execute_stop(0);
+        mem.kind = EventKind::Mem;
+        mem.access = Access::Read;
+        const auto bad_kind = m.dbg->subscribe_source_line(m.a, "main.bas:11", mem);
+        check("SRCBP-10", "subscribe_source_line refuses with no map, a line with no code and a non-"
+                          "Execute subscription, and arms nothing",
+              !no_map && !no_code && !bad_kind && no_map.status == Result::RefusedUnavailable &&
+                  no_code.status == Result::RefusedUnavailable &&
+                  bad_kind.status == Result::RefusedUnavailable && m.dbg->subscriptions(true).empty() &&
+                  m.dbg->source_map().resolve("main.bas:5").error.find("no code at") != std::string::npos);
+    }
+    {
+        // SRCBP-11: GROUP_NONE is "not grouped", so it names no group: both verbs refuse it and the
+        // client's plain subscriptions (group == GROUP_NONE too) are untouched; a removed group is
+        // refused like an unknown one (debugger.h: owner only, RefusedUnavailable otherwise).
+        const fs::path two = dir / "two-places-b.sld";
+        write_text(two, program_sld(p80, p90, "main.bas|11||0|" + std::to_string(p90) + "|36864|T|\n"));
+        Machine m;
+        m.dbg->load_source_map(two.string(), false);
+        m.dbg->subscribe(m.a, execute_stop(0x8000));
+        const Result un_none = m.dbg->unsubscribe_group(m.a, jnext::dbg::GROUP_NONE);
+        const Result en_none = m.dbg->set_group_enabled(m.a, jnext::dbg::GROUP_NONE, false);
+        const auto plain = m.dbg->subscriptions(false);
+        const bool intact = plain.size() == 1 && plain[0].enabled && plain[0].group == jnext::dbg::GROUP_NONE;
+        const auto g = m.dbg->subscribe_source_line(m.a, "main.bas:11", execute_stop(0));
+        m.dbg->unsubscribe_group(m.a, g.value);
+        const Result en_gone = m.dbg->set_group_enabled(m.a, g.value, true);
+        check("SRCBP-11", "unsubscribe_group and set_group_enabled refuse GROUP_NONE and leave a plain "
+                          "subscription intact; set_group_enabled refuses a removed group",
+              un_none == Result::RefusedUnavailable && en_none == Result::RefusedUnavailable && intact &&
+                  static_cast<bool>(g) && en_gone == Result::RefusedUnavailable &&
+                  m.dbg->subscriptions(false).size() == 1,
+              "un=" + std::to_string(int(un_none)) + " en=" + std::to_string(int(en_none)) +
+                  " intact=" + std::to_string(intact) + " gone=" + std::to_string(int(en_gone)));
+    }
+    {
+        // SRCBP-12: a detached client cannot own a source breakpoint (the GH #276 B5 rule subscribe() keeps).
+        Machine m;
+        m.dbg->load_source_map(sld.string(), false);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "gone";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId c = m.dbg->attach(ci).value;
+        m.dbg->detach(c);
+        const auto r = m.dbg->subscribe_source_line(c, "main.bas:11", execute_stop(0));
+        check("SRCBP-12", "subscribe_source_line for a detached client is refused and arms nothing",
+              !r && r.status == Result::RefusedUnavailable && m.dbg->subscriptions(true).empty());
+    }
+
+    // ── GH #375 stage 2: an SLD's labels reach the backend's symbol table ──
+    // The fixtures are sjasmplus's own output (test/fixtures/sjasmequ/README.md):
+    // equlabels.sld places `banked` at $C000 on page 20 and `other_bank` at $C000
+    // on page 30, `SCREEN` unpaged at $4000, `main` at $8000 and `gfx.draw.loop`
+    // at $8018 on page 4; its 12 accepted labels and 18 `T` records.
+    {
+        const fs::path fixtures = JNEXT_SJASMEQU_DIR;
+        const auto sub = [&](const char* name) {
+            fs::create_directories(dir / name);
+            return dir / name;
+        };
+        const auto equlabels = [&]() {
+            std::ifstream in(fixtures / "equlabels.sld", std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), {});
+        };
+        const std::string equ = equlabels();
+        const auto at_c000 = [](Machine& m, unsigned page) {
+            m.dbg->nextreg_write(m.a, 0x56, page);
+            return m.dbg->source_page(0xC000) == MemSpace::page(page);
+        };
+        const fs::path user_map_sym = dir / "sym-user.map";
+        write_text(user_map_sym, "UserSym = $8005 ; addr, local\n");
+
+        {   // SYM-01 (R10) and SYM-02
+            const fs::path d = sub("sym01");
+            write_text(d / "lab1.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "lab1.nex").string());
+            });
+            const bool p20 = at_c000(m, 20);
+            const auto n20 = m.dbg->lookup(0xC000);
+            const bool p30 = at_c000(m, 30);
+            const auto n30 = m.dbg->lookup(0xC000);
+            const bool p21 = at_c000(m, 21);
+            const auto n21 = m.dbg->lookup(0xC000);
+            check("SRCDBG-SYM-01", "a sidecar SLD's labels name an address by the page mapped there now",
+                  r.symbols == 12 && r.sources == 18 &&
+                      has(log, "Loaded 12 SLD labels from '" + (d / "lab1.sld").string() + "'") &&
+                      p20 && p30 && p21 && n20 == std::optional<std::string>("banked") &&
+                      n30 == std::optional<std::string>("other_bank") && !n21,
+                  "symbols=" + std::to_string(r.symbols) + " sources=" + std::to_string(r.sources) +
+                      " n20=" + n20.value_or("-") + " n30=" + n30.value_or("-") +
+                      " n21=" + n21.value_or("-"));
+            m.dbg->nextreg_write(m.a, 0x52, 10);
+            const auto s10 = m.dbg->lookup(0x4000);
+            m.dbg->nextreg_write(m.a, 0x52, 40);
+            const auto s40 = m.dbg->lookup(0x4000);
+            check("SRCDBG-SYM-02", "an unpaged label (page -1) names its address whatever is mapped",
+                  s10 == std::optional<std::string>("SCREEN") &&
+                      s40 == std::optional<std::string>("SCREEN"),
+                  s10.value_or("-") + " " + s40.value_or("-"));
+
+            // SYM-07: the next program's sidecars (none) take them away.
+            fs::create_directories(d / "next");
+            m.dbg->load_program_sidecars((d / "next" / "plain7.nex").string());
+            check("SRCDBG-SYM-07", "the SLD's labels belong to the program: the next program without "
+                                   "sidecars clears them",
+                  m.dbg->symbols().empty() && !m.dbg->lookup_name("banked"));
+        }
+        {   // SYM-03
+            const fs::path d = sub("sym03");
+            write_text(d / "lab3.Memory.txt", "8000: ._Main\nC000: .banked\n");
+            write_text(d / "lab3.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "lab3.nex").string());
+            });
+            const auto loop = m.dbg->symbols().find_name("gfx.draw.loop");
+            const auto banked = m.dbg->symbols().find_name("banked");
+            const bool p30 = at_c000(m, 30);
+            const auto n30 = m.dbg->lookup(0xC000);
+            const bool p21 = at_c000(m, 21);
+            const auto n21 = m.dbg->lookup(0xC000);
+            check("SRCDBG-SYM-03", "Memory.txt and the SLD's labels make one table, Memory.txt first",
+                  r.symbols == 14 && m.dbg->lookup_name("Main") == 0x8000 && loop &&
+                      loop->addr == 0x8018 && loop->space && *loop->space == MemSpace::page(4) &&
+                      banked && !banked->space && p30 && p21 &&
+                      n30 == std::optional<std::string>("other_bank") &&
+                      n21 == std::optional<std::string>("banked") &&
+                      has(log, "Loaded 2 NextBuild symbols from") && has(log, "Loaded 12 SLD labels from"),
+                  "symbols=" + std::to_string(r.symbols) + " n30=" + n30.value_or("-") +
+                      " n21=" + n21.value_or("-"));
+        }
+        {   // SYM-04
+            const fs::path d = sub("sym04");
+            write_text(d / "lab4.tap", "");
+            write_text(d / "lab4.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab4.tap").string());
+            const bool p20 = at_c000(m, 20);
+            check("SRCDBG-SYM-04", "beside a tape program the SLD's labels attach",
+                  r.symbols == 12 && p20 && m.dbg->lookup(0xC000) == std::optional<std::string>("banked"),
+                  "symbols=" + std::to_string(r.symbols));
+        }
+        {   // SYM-05: an identity that does not match: neither half, either path
+            const fs::path d = sub("sym05");
+            Machine m;
+            const std::string body =
+                program_sld(p80, p90, "main.bas|10||0|" + std::to_string(p80) + "|32768|L|,Start,\n");
+            const fs::path bad = d / "bad5.sld";
+            write_text(bad, "|SLD.data.version|1\n||program.name:x\n"
+                       "||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a\n"
+                       "||program.org:32768\n||program.size:4\n" + body.substr(20));
+            const auto r = m.dbg->load_program_sidecars((d / "bad5.nex").string());
+            const bool sidecar_none = r.sources == -1 && r.symbols == -1 && !m.dbg->lookup_name("Start") &&
+                                      r.problem.find("bad5.sld' rejected") != std::string::npos;
+            const auto refused = m.dbg->load_source_map(bad.string(), false);
+            const bool hand_none = refused.count == -1 && refused.labels == -1 &&
+                                   !m.dbg->lookup_name("Start");
+            const auto forced = m.dbg->load_source_map(bad.string(), true);
+            check("SRCDBG-SYM-05", "an SLD whose identity does not match the program attaches no labels; "
+                                   "accepted by hand, it does",
+                  sidecar_none && hand_none && forced.count == 6 && forced.labels == 1 &&
+                      m.dbg->lookup_name("Start") == 0x8000,
+                  r.problem);
+        }
+        {   // SYM-06
+            const fs::path d = sub("sym06");
+            write_text(d / "lab6.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->load_map(user_map_sym.string(), jnext::dbg::MapFormat::Z88dk);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "lab6.nex").string());
+            });
+            check("SRCDBG-SYM-06", "a MAP the user loaded is kept over the SLD sidecar's labels",
+                  r.symbols == -1 && r.sources == 18 && m.dbg->lookup_name("UserSym") == 0x8005 &&
+                      !m.dbg->lookup_name("banked") && has(log, "Kept the loaded symbols"));
+        }
+        {   // SYM-08
+            const fs::path d = sub("sym08");
+            write_text(d / "m8.Memory.txt", "8000: ._Main\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto h = m.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const bool p20 = at_c000(m, 20);
+            const bool named = m.dbg->lookup(0xC000) == std::optional<std::string>("banked");
+            const auto r = m.dbg->load_program_sidecars((d / "m8.nex").string());
+            check("SRCDBG-SYM-08", "a hand-loaded SLD's labels are the user's symbols: a program's "
+                                   "sidecars do not replace them",
+                  h.count == 18 && h.labels == 12 && p20 && named && r.symbols == -1 &&
+                      m.dbg->lookup_name("banked") == 0xC000 && !m.dbg->lookup_name("Main"),
+                  "count=" + std::to_string(h.count) + " labels=" + std::to_string(h.labels));
+        }
+        {   // SYM-09
+            Machine a(false, MachineType::ZXN_ISSUE2);
+            a.dbg->load_map(user_map_sym.string(), jnext::dbg::MapFormat::Z88dk);
+            const auto ra = a.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const bool part_a = ra.count == 18 && ra.labels == -1 && a.dbg->lookup_name("UserSym") &&
+                                !a.dbg->lookup_name("banked");
+            Machine b(false, MachineType::ZXN_ISSUE2);
+            b.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            b.dbg->load_map(user_map_sym.string(), jnext::dbg::MapFormat::Z88dk);
+            const auto rb = b.dbg->load_source_map((fixtures / "sizeof.sld").string(), false);
+            const bool part_b = rb.labels == -1 && b.dbg->lookup_name("UserSym") &&
+                                !b.dbg->lookup_name("msg");
+            check("SRCDBG-SYM-09", "a hand SLD never replaces a MAP the user loaded, whichever came first",
+                  part_a && part_b,
+                  "a=" + std::to_string(part_a) + " b=" + std::to_string(part_b));
+        }
+        {   // SYM-10
+            const fs::path d = sub("sym10");
+            write_text(d / "lab10.sld", equ + "x.asm|99||0|999|32768|T|\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab10.nex").string());
+            check("SRCDBG-SYM-10", "an SLD whose trace is malformed refuses the source half only: "
+                                   "its labels still load",
+                  r.sources == -1 && r.problem.find("lab10.sld' rejected") != std::string::npos &&
+                      r.symbols == 12 && m.dbg->lookup_name("banked") == 0xC000,
+                  "symbols=" + std::to_string(r.symbols) + " " + r.problem);
+        }
+        {   // SYM-12, SYM-13
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const auto two = m.dbg->load_source_map((fixtures / "sizeof.sld").string(), false);
+            const bool replaced = two.labels == 2 && m.dbg->lookup_name("msg") == 0x8004 &&
+                                  !m.dbg->lookup_name("banked");
+            const fs::path plain = dir / "sym12-plain.sld";
+            write_text(plain, program_sld(p80, p90));
+            const auto none = m.dbg->load_source_map(plain.string(), false);
+            // Cleared, they are nobody's: the next program's sidecar symbols attach again.
+            const fs::path d12 = sub("sym12");
+            write_text(d12 / "m12.Memory.txt", "8000: ._Main\n");
+            const auto next = m.dbg->load_program_sidecars((d12 / "m12.nex").string());
+            check("SRCDBG-SYM-12", "a later hand SLD replaces an earlier hand SLD's labels; one with none "
+                                   "clears them, and leaves the store free for a program's sidecar",
+                  replaced && none.count == 6 && none.labels == 0 && next.symbols == 1 &&
+                      m.dbg->lookup_name("Main") == 0x8000,
+                  "two.labels=" + std::to_string(two.labels) + " none.labels=" + std::to_string(none.labels) +
+                      " next=" + std::to_string(next.symbols));
+
+            const fs::path d = sub("sym13");
+            write_text(d / "m13.Memory.txt", "8000: ._Main\n");
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            const auto r = n.dbg->load_program_sidecars((d / "m13.nex").string());
+            const auto h = n.dbg->load_source_map(plain.string(), false);
+            check("SRCDBG-SYM-13", "a hand SLD with no labels leaves a program's sidecar symbols alone",
+                  r.symbols == 1 && h.labels == 0 && n.dbg->lookup_name("Main") == 0x8000,
+                  "labels=" + std::to_string(h.labels));
+        }
+        {   // SYM-15: an unreadable Memory.txt beside an SLD with labels
+            const fs::path d = sub("sym15");
+            write_text(d / "lab15.sld", equ);
+            write_text(d / "lab15.Memory.txt", "8000: ._Main\n");
+            std::error_code ec;
+            fs::resize_file(d / "lab15.Memory.txt", SOURCE_FILE_MAX_BYTES + 1, ec);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab15.nex").string());
+            const bool attached = m.dbg->lookup_name("banked") == 0xC000;
+            fs::create_directories(d / "next");
+            m.dbg->load_program_sidecars((d / "next" / "plain15.nex").string());
+            check("SRCDBG-SYM-15", "an unreadable Memory.txt is reported and the SLD's labels still attach, "
+                                   "counted alone, as the program's symbols",
+                  !ec && r.symbols_unreadable && r.symbols == 12 && attached &&
+                      r.problem.find("NextBuild symbols '") != std::string::npos &&
+                      r.problem.find("rejected") != std::string::npos && m.dbg->symbols().empty(),
+                  "symbols=" + std::to_string(r.symbols) + " " + r.problem);
+        }
+        {   // SYM-16: beside a tape, an SLD with an identity is not checked against memory
+            const fs::path d = sub("sym16");
+            write_text(d / "lab16.tap", "");
+            write_text(d / "lab16.sld", "|SLD.data.version|1\n||program.name:x\n"
+                       "||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a\n"
+                       "||program.org:32768\n||program.size:4\n" + equ.substr(20));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab16.tap").string());
+            check("SRCDBG-SYM-16", "beside a tape program the labels of an SLD that carries a binary identity "
+                                   "attach too: the tape is not in memory to check it against",
+                  r.symbols == 12 && m.dbg->lookup_name("banked") == 0xC000 && r.problem.empty(),
+                  "symbols=" + std::to_string(r.symbols) + " " + r.problem);
+        }
+        {   // SYM-17: a hand SLD's labels replace a program's sidecar symbols
+            const fs::path d = sub("sym17");
+            write_text(d / "m17.Memory.txt", "8000: ._Main\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto first = m.dbg->load_program_sidecars((d / "m17.nex").string());
+            const auto h = m.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const bool replaced = h.labels == 12 && m.dbg->lookup_name("banked") == 0xC000 &&
+                                  !m.dbg->lookup_name("Main");
+            write_text(d / "m17b.Memory.txt", "8000: ._Other\n");
+            const auto next = m.dbg->load_program_sidecars((d / "m17b.nex").string());
+            check("SRCDBG-SYM-17", "a hand SLD with labels replaces a program's sidecar symbols, and they "
+                                   "are then the user's: the next program's Memory.txt is kept out",
+                  first.symbols == 1 && replaced && next.symbols == -1 && !m.dbg->lookup_name("Other"),
+                  "labels=" + std::to_string(h.labels) + " next=" + std::to_string(next.symbols));
+        }
+        {   // SYM-14
+            const fs::path d = sub("sym14");
+            write_text(d / "lab14.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const fs::path plain = dir / "sym14-plain.sld";
+            write_text(plain, program_sld(p80, p90));
+            m.dbg->load_source_map(plain.string(), false);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "lab14.nex").string());
+            });
+            check("SRCDBG-SYM-14", "with the user's source map kept, the sidecar SLD is not loaded, "
+                                   "labels included",
+                  r.sources == -1 && r.symbols == -1 && !m.dbg->lookup_name("banked") &&
+                      has(log, "Kept the loaded source map"));
         }
     }
 

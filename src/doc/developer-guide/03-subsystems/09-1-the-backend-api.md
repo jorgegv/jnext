@@ -167,6 +167,8 @@ compares the whole serialised machine state around each view.
 |---|---|
 | `subscribe(by, Subscription)` | register a subscription owned by `by`; returns its `EventId` |
 | `unsubscribe(by, id)`, `set_enabled(by, id, on)` | owner only |
+| `subscribe_source_line(by, "file:line", like)` | a source breakpoint: resolves the line in the live source map and subscribes one `Execute` per start, each a copy of `like` with `lo = hi = start.address` and `space = start.space`, all under one new `GroupId`. All or nothing; refused with no map, no code at the line, or a `like` that is not `Execute` |
+| `unsubscribe_group(by, group)`, `set_group_enabled(by, group, on)` | every member of a source breakpoint; owner only. `SubscriptionInfo::group` says which group a listed subscription belongs to (`GROUP_NONE` for a plain one) |
 | `master_enabled()`, `set_master_enabled(on)` | suspend every non-transient subscription without touching its own flag |
 | `client_enabled(cid)`, `set_client_enabled(cid, on)` | the per-client switch |
 | `probe_execute(pc)` | the ids of every live `Execute` subscription that would fire at `pc`, with its condition evaluated. A pure query, for step loops |
@@ -286,6 +288,9 @@ loads neither, a bad trace refuses only the source half. The name is
 records (a struct's offsets and size) are name-only, while a `+sizeof` record only
 says SIZEOF(label) was used, and is an ordinary label; a value past 0xFFFF or a page the device lacks is skipped
 (rows SYMPG-*, SLDL-*).
+`SymbolTable::merge(other)` is the one way to combine two tables: it adds the other's
+labels whose key is still free, its names and its name-only values not yet taken, so
+the first table wins throughout (row SYMPG-12).
 The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or `__CDBINFO__`)
 are dropped by the loader, so they never name an address or resolve by name.
 `load_z88dk_map()` and `load_simple_map()` refuse a file that is not regular or is
@@ -350,10 +355,19 @@ recorded at the first fetch at the target and stays unrecorded, `cpu()`, until
 then; an INT or NMI frame's caller is the prediction at the interrupted PC). A
 slot that records no fetch (an accepted INT or NMI, the esxdos shim) keeps the
 prediction for its PC in its trace entry.
-`TraceLog::fetch_not_mmu_ram()` is a view of that identity, for the page
-qualifier below. An `Execute` filter with
-`page_ram_only` matches only a fetch from that RAM page (`Event::fetch_not_ram`);
-without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
+An `Execute` filter has two qualifiers. `EventFilter::space` is the canonical
+one: the `FetchSource` that must supply the opcode, compared exactly (kind and
+index) with `Event::space`, which the gate and `probe_execute()` predict and
+`history_stop_at()` reads from the trace entry. `EventFilter::page` is the
+**legacy protocol qualifier**: it compares `Mmu::get_effective_page(slot)` and
+nothing more, so it also matches a ROM or an overlay that carries that number.
+DZRP's `bank+1` and the DSL's `page` use it, and
+`dzrp-frontend.md` stays a frozen design record of that meaning. One
+predicate, `EventFilter::matches(ev)`, applies both; the live gate
+(`EventTable::filter_matches()`), `probe_execute()` and Reverse Continue all
+call it. A source breakpoint is a group of `Execute` subscriptions with a
+`space` each (`subscribe_source_line()`); the Qt Breakpoints panel shows it as
+one row.
 An SLD may carry a SHA-256 of the program's bytes (`||program.*` comment
 records); `load_source_map(path, accept_mismatch)` checks it against memory and
 stores the path absolute.
@@ -386,7 +400,19 @@ non-throwing filesystem calls; only a regular file counts (a FIFO would block th
 load), and one that cannot be read is reported. Both loaders refuse a file that is
 not regular, or is over 64 MiB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
 Open, and `load()` calls it for a remote client; a tape program gets no
-automatic map. Ownership is explicit (`Impl::StoreOwner`: None, Sidecar, User)
+automatic map. The SLD sidecar is parsed once (`load_sld_sidecar()` with a label
+table) and judged before the symbols: its labels attach when the file is not
+refused as a whole, its identity does not mismatch and the user's source map is not
+kept, also beside a tape and when only its `T` records are refused (an SLD with no
+label is not a symbol source). The sidecar symbol store is assembled in one block, in
+order, first wins: `Memory.txt`, then the SLD's labels (`SymbolTable::merge()`); the
+log has `Loaded N SLD labels from '<file>'`. Labels live in the Sidecar store, so
+the attachment cache and the lifetime rules below treat them like `Memory.txt`.
+`load_source_map()` fills the same table from a hand-loaded SLD
+(`Impl::attach_hand_labels()`, count in `SourceMapLoad::labels`): the labels become
+the user's symbols (`Impl::symbols_from_sld`), unless the user loaded a MAP
+(`labels == -1`, kept); a hand SLD without labels clears only an earlier hand SLD's
+labels (rows SRCDBG-SYM-*). Ownership is explicit (`Impl::StoreOwner`: None, Sidecar, User)
 and changes only on a successful load: a sidecar never touches the user's
 store, and a previous program's sidecar data is replaced or cleared — also when
 the new sidecar cannot be read.

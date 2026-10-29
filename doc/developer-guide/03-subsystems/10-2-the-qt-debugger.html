@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2555,8 +2555,12 @@ not.</p>
 <p><strong>The Video panel draws through the backend.</strong> Each layer view is
 <code>render_layer()</code> (<a href="09-1-the-backend-api.html">3.9.1</a>). The panel keeps the
 presentation: the <code>QImage</code>, the dark "not yet rendered" rows, the checkerboard
-under every alpha-0 cell, the scaling, the red raster line and the titles. Its
-raster block shows <code>hc</code>/<code>vc</code>, <code>hc_ula</code>/<code>vc_ula</code>, <code>cvc</code> and <code>phc</code> side by side,
+under every alpha-0 cell, the scaling, the red raster line and the titles.
+Paused at a frame boundary (<code>Debugger::at_frame_boundary()</code>, raster row &lt; 0) it
+renders all 256 rows with no raster line: <code>begin_new_frame()</code> has not yet
+re-baselined the per-scanline change logs, so they still hold the frame that just
+ended. Paused in the top vblank of a frame in progress, it shows the placeholder.
+Its raster block shows <code>hc</code>/<code>vc</code>, <code>hc_ula</code>/<code>vc_ula</code>, <code>cvc</code> and <code>phc</code> side by side,
 each labelled with the VHDL signal it mirrors; <code>cvc</code> is labelled as what NR
 0x1E/0x1F report. The derivation lives in <code>src/debug/raster_state.*</code> and takes
 the live <code>VideoTiming</code> by reference, so there is no second table of raster
@@ -2632,11 +2636,17 @@ connect to the same <code>DebuggerManager</code> slots as its buttons, and their
 state comes from <code>SourcePanel::update_buttons()</code> through the <code>steps_available()</code>
 signal, so the buttons and the actions share one predicate. The menu tree and
 the bindings are pinned by <code>debugger_accel_test</code> and <code>debugger_keymap_test</code>. <code>BreakpointModel</code> lists an
-Execute subscription with a page qualifier as the GUI's own row (<code>Row::page</code>);
-the Breakpoints panel creates one per place a <code>file:line</code> compiled to (its Add
-and Edit dialogs and Breakpoints &gt; Add Execute Breakpoint share that rule, and show
-the store's reason, such as "no code at main.bas:5", when a line has none), and
-the gutter draws it only while its page is mapped (<code>pc_marked()</code>). The Call
+Execute subscription with a fetch-source qualifier as the GUI's own row
+(<code>Row::space</code>). A <code>file:line</code> is one source breakpoint, a backend group
+(<code>subscribe_source_line()</code>) armed at every place it compiled to, and the model
+folds the group into ONE row with its location count (<code>Row::group</code>,
+<code>Row::locations</code>; the panel's Symbol / Source cell reads "main.bas:11 (2
+locations)"); Remove, the Enabled cell and Edit act on the whole group, and the
+row is enabled only while every location is. The Add and Edit dialogs and
+Breakpoints &gt; Add Execute Breakpoint share that rule, and show the store's
+reason, such as "no code at main.bas:5", when a line has none. The gutter
+draws a location only while its <code>FetchSource</code> supplies the address
+(<code>pc_marked(addr, space)</code>), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 <code>FetchSource</code> (<code>CallFrame::caller_space</code>).</p>
 <h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
