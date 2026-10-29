@@ -69,7 +69,10 @@ The SLD sjasmplus v1.23.1 (same commit as above) writes for the same source:
 `PASTTOP` and `NEG` past 16 bits, the two `gfx` module markers). The same invocation's `--sym` and
 `--exp` are byte-identical to the committed ones, which is why `equlabels.sym` is the oracle for
 the SLD's names and values.
-Rows: `SLDL-01`..`SLDL-09` in `test/debug/source_map_test.cpp`.
+Rows: `SLDL-01`..`SLDL-09` in `test/debug/source_map_test.cpp`. Stage 2 (the backend's table):
+`SYMPG-12` (`source_map_test`), `SRCDBG-SYM-01`..`10`, `12`..`14` (`source_debug_test`, which
+copies it beside a program as its sidecar), `GDB-MON-13` (`gdb_rsp_test`), `SCRIPT-SLD-01`
+(`script_events_test`) and `QSYM-06`, `QSYM-13` (`debugger_source_panel_test`).
 
 ## `sizeof.asm` (GH #375 review)
 
@@ -83,4 +86,4 @@ trait like `+used`: its record keeps the label's own address. Built with the sam
     09a899e189f29a66f27c01d744ca6bf6498bfeecf9e63282b4ebb3e4084e3eec  sizeof.sld
     d7f8cc12ca9035f19acc1e82e90cfedea642e6eb1bde0a36f05303ea45e8e586  sizeof.sym
 
-Row: `SLDL-10` (the `.sym` is its oracle).
+Rows: `SLDL-10` (the `.sym` is its oracle), `SRCDBG-SYM-09` and `SRCDBG-SYM-12`.

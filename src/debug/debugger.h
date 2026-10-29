@@ -974,11 +974,16 @@ public:
         /// The map's binary identity checked against memory: nullopt when the
         /// map carries none, else whether it matched.
         std::optional<bool> identity;
+        /// SLD labels put in the symbol table; 0 none in the file; -1 refused, or
+        /// the symbols you loaded (Load MAP, Load Memory.txt, --map) kept.
+        int labels = -1;
     };
 
     /// CAP-SRC — load an sjasmplus SLD file, replacing the current map only on
-    /// success. A map that carries a binary identity which no longer matches
-    /// memory is refused unless `accept_identity_mismatch` (a program may have
+    /// success. Its labels replace the symbol table unless that holds symbols the
+    /// user loaded (a MAP, a Memory.txt); a file with no labels clears only an
+    /// earlier SLD's. A map that carries a binary identity which no longer
+    /// matches memory is refused unless `accept_identity_mismatch` (a program may have
     /// legitimately changed variables inside its own image since it loaded).
     SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch);
 
@@ -1040,11 +1045,14 @@ public:
     /// store the user filled (a MAP or SLD loaded by hand, `--map`) is kept.
     /// A previous program's sidecar data is cleared when the new program has
     /// none, so a stale map never describes the wrong binary. An SLD whose
-    /// binary identity does not match the loaded program is refused.
+    /// binary identity does not match the loaded program is refused. The SLD's
+    /// labels join the program's symbols (after a `Memory.txt`, first wins), also
+    /// beside a tape, and also when only its source records are refused; not when
+    /// its identity does not match or the user's source map is kept.
     /// Each outcome is logged. Every frontend calls this after a successful
     /// program load.
     struct SidecarLoad {
-        int symbols = -1;   ///< labels loaded, -1 when none was found
+        int symbols = -1;   ///< labels loaded from every symbol sidecar together, -1 when none attached
         int sources = -1;   ///< source records loaded, -1 when none was attached
         /// A Memory.txt was found and could not be read (the previous
         /// program's sidecar symbols are cleared all the same).

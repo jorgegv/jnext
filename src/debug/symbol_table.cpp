@@ -395,6 +395,23 @@ bool SymbolTable::add_label(const std::string& name, uint16_t addr,
     return true;
 }
 
+void SymbolTable::merge(const SymbolTable& other)
+{
+    for (const auto& [addr, label] : other.labels_) {
+        bool taken = false;
+        const auto range = labels_.equal_range(addr);
+        for (auto it = range.first; it != range.second; ++it)
+            if (it->second.space == label.space)
+                taken = true;
+        if (!taken)
+            labels_.emplace(addr, label);
+    }
+    name_to_key_.insert(other.name_to_key_.begin(), other.name_to_key_.end());
+    const_by_name_.insert(other.const_by_name_.begin(), other.const_by_name_.end());
+    if (loaded_file_.empty())
+        loaded_file_ = other.loaded_file_;
+}
+
 void SymbolTable::add_value(const std::string& name, uint16_t value)
 {
     const_by_name_.emplace(name, value);

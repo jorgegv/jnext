@@ -35,6 +35,8 @@
 //                    the load they came with
 //   SRCDBG-PATH-*    a relative map path is made absolute
 //   SRCDBG-FB-*      Back after a Frame Back goes back in time
+//   SRCDBG-SYM-*     the labels of an SLD reach the backend's symbol table, by page
+//                    (GH #375 stage 2), through the sidecar and the hand load
 //   SRCLIFE-*        the source map's lifetime: load generations, the attachment
 //                    cache, stale user maps, Back stops at a landing (GH #342)
 //
@@ -54,11 +56,15 @@
 #include "debug/sld_loader.h"
 #include "debug/source_file.h"
 #include "core/saveable.h"
+#include "core/log.h"
+
+#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -148,6 +154,22 @@ static std::string x_sld(unsigned page,
                 std::to_string(addr) + "|T|\n";
     return text;
 }
+
+// The debugger log lines `fn` writes, joined.
+static std::string debugger_log_of(const std::function<void()>& fn) {
+    auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);
+    Log::debugger()->sinks().push_back(ring);
+    fn();
+    Log::debugger()->sinks().pop_back();
+    std::string all;
+    for (const auto& l : ring->last_formatted()) all += l;
+    return all;
+}
+
+static bool has(const std::string& hay, const std::string& needle) {
+    return hay.find(needle) != std::string::npos;
+}
+
 
 struct Machine {
     Emulator emu;
@@ -4010,6 +4032,272 @@ int main() {
         const auto r = m.dbg->subscribe_source_line(c, "main.bas:11", execute_stop(0));
         check("SRCBP-12", "subscribe_source_line for a detached client is refused and arms nothing",
               !r && r.status == Result::RefusedUnavailable && m.dbg->subscriptions(true).empty());
+    }
+
+    // ── GH #375 stage 2: an SLD's labels reach the backend's symbol table ──
+    // The fixtures are sjasmplus's own output (test/fixtures/sjasmequ/README.md):
+    // equlabels.sld places `banked` at $C000 on page 20 and `other_bank` at $C000
+    // on page 30, `SCREEN` unpaged at $4000, `main` at $8000 and `gfx.draw.loop`
+    // at $8018 on page 4; its 12 accepted labels and 18 `T` records.
+    {
+        const fs::path fixtures = JNEXT_SJASMEQU_DIR;
+        const auto sub = [&](const char* name) {
+            fs::create_directories(dir / name);
+            return dir / name;
+        };
+        const auto equlabels = [&]() {
+            std::ifstream in(fixtures / "equlabels.sld", std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), {});
+        };
+        const std::string equ = equlabels();
+        const auto at_c000 = [](Machine& m, unsigned page) {
+            m.dbg->nextreg_write(m.a, 0x56, page);
+            return m.dbg->source_page(0xC000) == MemSpace::page(page);
+        };
+        const fs::path user_map_sym = dir / "sym-user.map";
+        write_text(user_map_sym, "UserSym = $8005 ; addr, local\n");
+
+        {   // SYM-01 (R10) and SYM-02
+            const fs::path d = sub("sym01");
+            write_text(d / "lab1.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "lab1.nex").string());
+            });
+            const bool p20 = at_c000(m, 20);
+            const auto n20 = m.dbg->lookup(0xC000);
+            const bool p30 = at_c000(m, 30);
+            const auto n30 = m.dbg->lookup(0xC000);
+            const bool p21 = at_c000(m, 21);
+            const auto n21 = m.dbg->lookup(0xC000);
+            check("SRCDBG-SYM-01", "a sidecar SLD's labels name an address by the page mapped there now",
+                  r.symbols == 12 && r.sources == 18 &&
+                      has(log, "Loaded 12 SLD labels from '" + (d / "lab1.sld").string() + "'") &&
+                      p20 && p30 && p21 && n20 == std::optional<std::string>("banked") &&
+                      n30 == std::optional<std::string>("other_bank") && !n21,
+                  "symbols=" + std::to_string(r.symbols) + " sources=" + std::to_string(r.sources) +
+                      " n20=" + n20.value_or("-") + " n30=" + n30.value_or("-") +
+                      " n21=" + n21.value_or("-"));
+            m.dbg->nextreg_write(m.a, 0x52, 10);
+            const auto s10 = m.dbg->lookup(0x4000);
+            m.dbg->nextreg_write(m.a, 0x52, 40);
+            const auto s40 = m.dbg->lookup(0x4000);
+            check("SRCDBG-SYM-02", "an unpaged label (page -1) names its address whatever is mapped",
+                  s10 == std::optional<std::string>("SCREEN") &&
+                      s40 == std::optional<std::string>("SCREEN"),
+                  s10.value_or("-") + " " + s40.value_or("-"));
+
+            // SYM-07: the next program's sidecars (none) take them away.
+            fs::create_directories(d / "next");
+            m.dbg->load_program_sidecars((d / "next" / "plain7.nex").string());
+            check("SRCDBG-SYM-07", "the SLD's labels belong to the program: the next program without "
+                                   "sidecars clears them",
+                  m.dbg->symbols().empty() && !m.dbg->lookup_name("banked"));
+        }
+        {   // SYM-03
+            const fs::path d = sub("sym03");
+            write_text(d / "lab3.Memory.txt", "8000: ._Main\nC000: .banked\n");
+            write_text(d / "lab3.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "lab3.nex").string());
+            });
+            const auto loop = m.dbg->symbols().find_name("gfx.draw.loop");
+            const auto banked = m.dbg->symbols().find_name("banked");
+            const bool p30 = at_c000(m, 30);
+            const auto n30 = m.dbg->lookup(0xC000);
+            const bool p21 = at_c000(m, 21);
+            const auto n21 = m.dbg->lookup(0xC000);
+            check("SRCDBG-SYM-03", "Memory.txt and the SLD's labels make one table, Memory.txt first",
+                  r.symbols == 14 && m.dbg->lookup_name("Main") == 0x8000 && loop &&
+                      loop->addr == 0x8018 && loop->space && *loop->space == MemSpace::page(4) &&
+                      banked && !banked->space && p30 && p21 &&
+                      n30 == std::optional<std::string>("other_bank") &&
+                      n21 == std::optional<std::string>("banked") &&
+                      has(log, "Loaded 2 NextBuild symbols from") && has(log, "Loaded 12 SLD labels from"),
+                  "symbols=" + std::to_string(r.symbols) + " n30=" + n30.value_or("-") +
+                      " n21=" + n21.value_or("-"));
+        }
+        {   // SYM-04
+            const fs::path d = sub("sym04");
+            write_text(d / "lab4.tap", "");
+            write_text(d / "lab4.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab4.tap").string());
+            const bool p20 = at_c000(m, 20);
+            check("SRCDBG-SYM-04", "beside a tape program the SLD's labels attach",
+                  r.symbols == 12 && p20 && m.dbg->lookup(0xC000) == std::optional<std::string>("banked"),
+                  "symbols=" + std::to_string(r.symbols));
+        }
+        {   // SYM-05: an identity that does not match: neither half, either path
+            const fs::path d = sub("sym05");
+            Machine m;
+            const std::string body =
+                program_sld(p80, p90, "main.bas|10||0|" + std::to_string(p80) + "|32768|L|,Start,\n");
+            const fs::path bad = d / "bad5.sld";
+            write_text(bad, "|SLD.data.version|1\n||program.name:x\n"
+                       "||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a\n"
+                       "||program.org:32768\n||program.size:4\n" + body.substr(20));
+            const auto r = m.dbg->load_program_sidecars((d / "bad5.nex").string());
+            const bool sidecar_none = r.sources == -1 && r.symbols == -1 && !m.dbg->lookup_name("Start") &&
+                                      r.problem.find("bad5.sld' rejected") != std::string::npos;
+            const auto refused = m.dbg->load_source_map(bad.string(), false);
+            const bool hand_none = refused.count == -1 && refused.labels == -1 &&
+                                   !m.dbg->lookup_name("Start");
+            const auto forced = m.dbg->load_source_map(bad.string(), true);
+            check("SRCDBG-SYM-05", "an SLD whose identity does not match the program attaches no labels; "
+                                   "accepted by hand, it does",
+                  sidecar_none && hand_none && forced.count == 6 && forced.labels == 1 &&
+                      m.dbg->lookup_name("Start") == 0x8000,
+                  r.problem);
+        }
+        {   // SYM-06
+            const fs::path d = sub("sym06");
+            write_text(d / "lab6.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->load_map(user_map_sym.string(), jnext::dbg::MapFormat::Z88dk);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "lab6.nex").string());
+            });
+            check("SRCDBG-SYM-06", "a MAP the user loaded is kept over the SLD sidecar's labels",
+                  r.symbols == -1 && r.sources == 18 && m.dbg->lookup_name("UserSym") == 0x8005 &&
+                      !m.dbg->lookup_name("banked") && has(log, "Kept the loaded symbols"));
+        }
+        {   // SYM-08
+            const fs::path d = sub("sym08");
+            write_text(d / "m8.Memory.txt", "8000: ._Main\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto h = m.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const bool p20 = at_c000(m, 20);
+            const bool named = m.dbg->lookup(0xC000) == std::optional<std::string>("banked");
+            const auto r = m.dbg->load_program_sidecars((d / "m8.nex").string());
+            check("SRCDBG-SYM-08", "a hand-loaded SLD's labels are the user's symbols: a program's "
+                                   "sidecars do not replace them",
+                  h.count == 18 && h.labels == 12 && p20 && named && r.symbols == -1 &&
+                      m.dbg->lookup_name("banked") == 0xC000 && !m.dbg->lookup_name("Main"),
+                  "count=" + std::to_string(h.count) + " labels=" + std::to_string(h.labels));
+        }
+        {   // SYM-09
+            Machine a(false, MachineType::ZXN_ISSUE2);
+            a.dbg->load_map(user_map_sym.string(), jnext::dbg::MapFormat::Z88dk);
+            const auto ra = a.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const bool part_a = ra.count == 18 && ra.labels == -1 && a.dbg->lookup_name("UserSym") &&
+                                !a.dbg->lookup_name("banked");
+            Machine b(false, MachineType::ZXN_ISSUE2);
+            b.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            b.dbg->load_map(user_map_sym.string(), jnext::dbg::MapFormat::Z88dk);
+            const auto rb = b.dbg->load_source_map((fixtures / "sizeof.sld").string(), false);
+            const bool part_b = rb.labels == -1 && b.dbg->lookup_name("UserSym") &&
+                                !b.dbg->lookup_name("msg");
+            check("SRCDBG-SYM-09", "a hand SLD never replaces a MAP the user loaded, whichever came first",
+                  part_a && part_b,
+                  "a=" + std::to_string(part_a) + " b=" + std::to_string(part_b));
+        }
+        {   // SYM-10
+            const fs::path d = sub("sym10");
+            write_text(d / "lab10.sld", equ + "x.asm|99||0|999|32768|T|\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab10.nex").string());
+            check("SRCDBG-SYM-10", "an SLD whose trace is malformed refuses the source half only: "
+                                   "its labels still load",
+                  r.sources == -1 && r.problem.find("lab10.sld' rejected") != std::string::npos &&
+                      r.symbols == 12 && m.dbg->lookup_name("banked") == 0xC000,
+                  "symbols=" + std::to_string(r.symbols) + " " + r.problem);
+        }
+        {   // SYM-12, SYM-13
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const auto two = m.dbg->load_source_map((fixtures / "sizeof.sld").string(), false);
+            const bool replaced = two.labels == 2 && m.dbg->lookup_name("msg") == 0x8004 &&
+                                  !m.dbg->lookup_name("banked");
+            const fs::path plain = dir / "sym12-plain.sld";
+            write_text(plain, program_sld(p80, p90));
+            const auto none = m.dbg->load_source_map(plain.string(), false);
+            // Cleared, they are nobody's: the next program's sidecar symbols attach again.
+            const fs::path d12 = sub("sym12");
+            write_text(d12 / "m12.Memory.txt", "8000: ._Main\n");
+            const auto next = m.dbg->load_program_sidecars((d12 / "m12.nex").string());
+            check("SRCDBG-SYM-12", "a later hand SLD replaces an earlier hand SLD's labels; one with none "
+                                   "clears them, and leaves the store free for a program's sidecar",
+                  replaced && none.count == 6 && none.labels == 0 && next.symbols == 1 &&
+                      m.dbg->lookup_name("Main") == 0x8000,
+                  "two.labels=" + std::to_string(two.labels) + " none.labels=" + std::to_string(none.labels) +
+                      " next=" + std::to_string(next.symbols));
+
+            const fs::path d = sub("sym13");
+            write_text(d / "m13.Memory.txt", "8000: ._Main\n");
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            const auto r = n.dbg->load_program_sidecars((d / "m13.nex").string());
+            const auto h = n.dbg->load_source_map(plain.string(), false);
+            check("SRCDBG-SYM-13", "a hand SLD with no labels leaves a program's sidecar symbols alone",
+                  r.symbols == 1 && h.labels == 0 && n.dbg->lookup_name("Main") == 0x8000,
+                  "labels=" + std::to_string(h.labels));
+        }
+        {   // SYM-15: an unreadable Memory.txt beside an SLD with labels
+            const fs::path d = sub("sym15");
+            write_text(d / "lab15.sld", equ);
+            write_text(d / "lab15.Memory.txt", "8000: ._Main\n");
+            std::error_code ec;
+            fs::resize_file(d / "lab15.Memory.txt", SOURCE_FILE_MAX_BYTES + 1, ec);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab15.nex").string());
+            const bool attached = m.dbg->lookup_name("banked") == 0xC000;
+            fs::create_directories(d / "next");
+            m.dbg->load_program_sidecars((d / "next" / "plain15.nex").string());
+            check("SRCDBG-SYM-15", "an unreadable Memory.txt is reported and the SLD's labels still attach, "
+                                   "counted alone, as the program's symbols",
+                  !ec && r.symbols_unreadable && r.symbols == 12 && attached &&
+                      r.problem.find("NextBuild symbols '") != std::string::npos &&
+                      r.problem.find("rejected") != std::string::npos && m.dbg->symbols().empty(),
+                  "symbols=" + std::to_string(r.symbols) + " " + r.problem);
+        }
+        {   // SYM-16: beside a tape, an SLD with an identity is not checked against memory
+            const fs::path d = sub("sym16");
+            write_text(d / "lab16.tap", "");
+            write_text(d / "lab16.sld", "|SLD.data.version|1\n||program.name:x\n"
+                       "||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a\n"
+                       "||program.org:32768\n||program.size:4\n" + equ.substr(20));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab16.tap").string());
+            check("SRCDBG-SYM-16", "beside a tape program the labels of an SLD that carries a binary identity "
+                                   "attach too: the tape is not in memory to check it against",
+                  r.symbols == 12 && m.dbg->lookup_name("banked") == 0xC000 && r.problem.empty(),
+                  "symbols=" + std::to_string(r.symbols) + " " + r.problem);
+        }
+        {   // SYM-17: a hand SLD's labels replace a program's sidecar symbols
+            const fs::path d = sub("sym17");
+            write_text(d / "m17.Memory.txt", "8000: ._Main\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto first = m.dbg->load_program_sidecars((d / "m17.nex").string());
+            const auto h = m.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const bool replaced = h.labels == 12 && m.dbg->lookup_name("banked") == 0xC000 &&
+                                  !m.dbg->lookup_name("Main");
+            write_text(d / "m17b.Memory.txt", "8000: ._Other\n");
+            const auto next = m.dbg->load_program_sidecars((d / "m17b.nex").string());
+            check("SRCDBG-SYM-17", "a hand SLD with labels replaces a program's sidecar symbols, and they "
+                                   "are then the user's: the next program's Memory.txt is kept out",
+                  first.symbols == 1 && replaced && next.symbols == -1 && !m.dbg->lookup_name("Other"),
+                  "labels=" + std::to_string(h.labels) + " next=" + std::to_string(next.symbols));
+        }
+        {   // SYM-14
+            const fs::path d = sub("sym14");
+            write_text(d / "lab14.sld", equ);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const fs::path plain = dir / "sym14-plain.sld";
+            write_text(plain, program_sld(p80, p90));
+            m.dbg->load_source_map(plain.string(), false);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "lab14.nex").string());
+            });
+            check("SRCDBG-SYM-14", "with the user's source map kept, the sidecar SLD is not loaded, "
+                                   "labels included",
+                  r.sources == -1 && r.symbols == -1 && !m.dbg->lookup_name("banked") &&
+                      has(log, "Kept the loaded source map"));
+        }
     }
 
     fs::remove_all(dir);

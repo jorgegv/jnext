@@ -64,8 +64,7 @@ after the header `|SLD.data.version|1` (sjasmplus 1.23.1, "Source Level Debuggin
   writes an `F` or `D` record beside the `L` record of the same label (observed 2026-10-18),
   so reading `L` alone sees each label once.
 
-Today only `Z` and `T` are read and the other types are skipped; E23-23 (#375) reads `L`
-(section 10.4). The optional binary identity travels in comment records other readers ignore:
+`Z`, `T` and `L` are read and the other types are skipped (`L` by E23-23 (#375), section 10.4). The optional binary identity travels in comment records other readers ignore:
 `||program.name:`, `||program.sha256:`, `||program.org:`, `||program.size:` (section 9.7).
 
 ### 2.2 NextBuild `Memory.txt`
@@ -346,7 +345,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
 | z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
-| Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
+| Symbols | DONE (E23-23 (#375) stages 1 and 2): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages: stage 3 | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
@@ -701,7 +700,10 @@ headless and SDL.
 after the load call returns, and neither the tape loader nor the backend has a point at which
 "the program has loaded" (a program may also run, and change its own image, before any check
 could match). This holds for every source format, the source half of `<stem>.map` included; its
-symbol half attaches. A tape's map is loaded by hand once the program is in memory. **Open,
+symbol half attaches, and so do an SLD's labels (E23-23 stage 2). An SLD's labels attach with its
+sidecar unit: not when the file is refused as a whole or its identity does not match, and not
+when the user's source map is kept (the SLD is then not loaded at all); they do attach when only
+its source records are refused. A tape's map is loaded by hand once the program is in memory. **Open,
 settled in E23-23 (#375):** once z88dk symbols are paged by the rules of 9.4, rule 4 (the MMU
 mapping with the program in memory) has no load point for a tape program either, so E23-23
 states when the symbols of a tape's `<stem>.map` take their spaces.
@@ -1091,7 +1093,9 @@ only its own verbs (add, rename and remove a label; set or clear a comment) and 
 project file change it, and loading replaces it whole and transactionally; a sidecar load, a
 hand load of a MAP, `clear_symbols()`, a reset, a state load and a rewind never touch it. Both
 layers live in `Debugger::Impl` beside the `SourceMap`, and frontends reach them only through
-`Debugger`.
+`Debugger`. A hand-loaded SLD (`load_source_map()`) fills the toolchain layer with its labels
+and owns it as the user's (`Impl::symbols_from_sld`), unless the user loaded a MAP, which is
+kept; a later hand SLD replaces an earlier one's labels, and one with none clears only those.
 
 ### 10.3 One reader
 
@@ -1111,8 +1115,9 @@ UI, and the rule for a name already used at another key are E23-24's.
 ### 10.4 Page rules per adapter
 
 - **SLD `L`** (E23-23): `page >= 0` gives (`Page{page}`, `value & 0xFFFF`). `page = -1` gives
-  an unpaged label ("stay unpaged", #375), and a name-only value when the value does not fit
-  16 bits (an EQU can be 32-bit). sjasmplus writes -1 for every `EQU` without an explicit
+  an unpaged label ("stay unpaged", #375). A value that does not fit 16 bits (an EQU can be
+  32-bit), or is negative, is skipped; only a `+struct_def` record (a struct's offsets and size)
+  is a name-only value. sjasmplus writes -1 for every `EQU` without an explicit
   page, address constants included (2.1), so the format cannot tell an address from a
   constant; making them labels agrees with the `--sym` file, which lists the EQU constants
   too. A record with no main label (a module marker) names nothing.
@@ -1241,8 +1246,15 @@ QBPM-12/13 (`debugger_source_panel_test`: one row per group, the gutter removes 
 QBPP-04, QBPP-06 and QADR-10 now assert the group row. The review round added SRCBP-11/12
 (group verb refusals) and QADR-12, QBPM-14 to QBPM-18 (Add Execute with a paged name, Edit and the
 Enabled cell on a group row, notification, the lowest location, another client's legacy-page row).
-QADR-12 injects its paged label into the backend's table, since no loader supplies one before
-#375 stage 2, which replaces the injection with the real SLD-label path.
+QADR-12 injects its paged label into the backend's table; QSYM-13 (#375 stage 2) is the same
+dialog through the real SLD-label path.
+
+E23-23 (#375) stage 2 added SYMPG-12 (`source_map_test`: `merge()`), SRCDBG-SYM-01 to SRCDBG-SYM-10
+and SRCDBG-SYM-12 to SRCDBG-SYM-14 (`source_debug_test`: an SLD's labels reach the backend's table,
+by page, through the sidecar and the hand load, with their ownership rules), GDB-MON-13
+(`gdb_rsp_test`: `monitor sym` by page), SCRIPT-SLD-01 (`script_events_test`), QSYM-06 and QSYM-13
+(`debugger_source_panel_test`: the Load Source Map message and Add Execute with an SLD label) and the
+functional row `sld-labels-func`.
 
 E23-10 (#342) added SRCLIFE-01 to SRCLIFE-39 (`source_debug_test`: the cache both ways, identity
 checks at a state load, a `.sna`, an RZX start and a reset, stale user maps, the readers' first

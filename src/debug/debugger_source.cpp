@@ -79,7 +79,8 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     impl_->recheck();   // a writer first: a pending landing must not undo it later
     SourceMapLoad out;
     SourceMap candidate;
-    const SourceMapLoadResult parsed = load_sld(candidate, path);
+    SymbolTable labels;
+    const SourceMapLoadResult parsed = load_sld(candidate, path, &labels);
     if (!parsed) {
         out.error = parsed.error;
         return out;
@@ -95,8 +96,27 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     impl_->user_sources_stale = false;
     impl_->pause_verify_user  = false;
     impl_->source_reason.clear();
-    out.count = parsed.count;
+    out.count  = parsed.count;
+    out.labels = impl_->attach_hand_labels(std::move(labels), parsed.labels);
     return out;
+}
+
+int Debugger::Impl::attach_hand_labels(SymbolTable&& labels, int n) {
+    if (symbols_owner == StoreOwner::User && !symbols_from_sld) return -1;   // the user's MAP
+    if (n <= 0) {
+        // An earlier hand SLD's labels describe another build; a program's
+        // sidecar symbols (or nothing) are left alone.
+        if (symbols_owner == StoreOwner::User) {
+            symbols.clear();
+            symbols_owner    = StoreOwner::None;
+            symbols_from_sld = false;
+        }
+        return 0;
+    }
+    symbols          = std::move(labels);
+    symbols_owner    = StoreOwner::User;
+    symbols_from_sld = true;
+    return n;
 }
 
 Result Debugger::clear_source_map() {
@@ -184,39 +204,72 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         }
     } attached{impl_.get(), gen};
 
+    // The SLD sidecar is read ONCE (design 9.1: one file, two transactions) and
+    // judged here, before the symbols, because its labels join them; it is logged
+    // below, in today's order.
+    const auto memory = nextbuild_sidecar(program);
+    SourceMap candidate;
+    SymbolTable sld_labels;
+    const SourceMapLoadResult parsed = load_sld_sidecar(candidate, program_path, &sld_labels);
+    const bool user_sources = impl_->sources_owner == Owner::User;
+    const bool tape         = loads_later(program);
+    std::optional<bool> identity;   // only a source half that loaded, from memory
+    if (parsed && !tape && !user_sources)
+        identity = candidate.verify_program(peek_reader(impl_->emu));
+    const bool mismatch = identity && !*identity;
+    // Its labels go with it (D7): not when the file is refused whole (labels < 0),
+    // not when its identity is another build's, not when the user's source map is
+    // kept (the SLD is then not loaded at all); yes when only its source records
+    // are refused, and beside a tape. An SLD with no label is not a symbol source.
+    const bool sld_labels_attach = parsed.labels > 0 && !mismatch && !user_sources;
+
     // Symbols. The user's store is never touched; a previous program's
     // sidecar symbols never survive into a program they do not describe —
-    // not when it has no Memory.txt, and not when its Memory.txt is unusable.
-    const auto memory = nextbuild_sidecar(program);
+    // not when it has no symbol sidecar, and not when its Memory.txt is unusable.
     if (impl_->symbols_owner == Owner::User) {
         if (memory)
             log->info("Kept the loaded symbols '{}'; not loading '{}'",
                       impl_->symbols.loaded_file(), memory->string());
-    } else if (memory) {
-        std::string why;
-        const int n = impl_->symbols.load_nextbuild_memory(memory->string(), &why);
-        if (n >= 0) {
-            impl_->symbols_owner = Owner::Sidecar;
-            out.symbols = n;
-            log->info("Loaded {} NextBuild symbols from '{}'", n, memory->string());
-        } else {
-            out.symbols_unreadable = true;
-            add_problem(out, "NextBuild symbols '" + memory->string() + "' rejected: " + why);
-            log->warn("Could not read NextBuild symbols '{}': {}", memory->string(), why);
-            if (impl_->symbols_owner == Owner::Sidecar) {
-                impl_->symbols.clear();
-                impl_->symbols_owner = Owner::None;
+        else if (sld_labels_attach)
+            log->info("Kept the loaded symbols '{}'; not loading '{}'",
+                      impl_->symbols.loaded_file(), parsed.file);
+    } else {
+        // The program's symbols: each sidecar in order, first wins.
+        SymbolTable store;
+        int n = 0;
+        bool attached_symbols = false;
+        if (memory) {
+            std::string why;
+            const int m = store.load_nextbuild_memory(memory->string(), &why);
+            if (m >= 0) {
+                n += m;
+                attached_symbols = true;
+                log->info("Loaded {} NextBuild symbols from '{}'", m, memory->string());
+            } else {
+                out.symbols_unreadable = true;
+                add_problem(out, "NextBuild symbols '" + memory->string() + "' rejected: " + why);
+                log->warn("Could not read NextBuild symbols '{}': {}", memory->string(), why);
             }
         }
-    } else if (impl_->symbols_owner == Owner::Sidecar) {
-        impl_->symbols.clear();
-        impl_->symbols_owner = Owner::None;
+        if (sld_labels_attach) {
+            store.merge(sld_labels);
+            n += parsed.labels;
+            attached_symbols = true;
+            log->info("Loaded {} SLD labels from '{}'", parsed.labels, parsed.file);
+        }
+        if (attached_symbols) {
+            impl_->symbols       = std::move(store);
+            impl_->symbols_owner = Owner::Sidecar;
+            out.symbols          = n;
+        } else if (impl_->symbols_owner == Owner::Sidecar) {
+            impl_->symbols.clear();
+            impl_->symbols_owner = Owner::None;
+        }
     }
 
     // The source map, under the same ownership rule.
-    if (impl_->sources_owner == Owner::User) {
-        SourceMap candidate;
-        if (load_sld_sidecar(candidate, program_path))
+    if (user_sources) {
+        if (parsed)
             log->info("Kept the loaded source map '{}'; not loading '{}'",
                       impl_->source_map.loaded_file(), candidate.loaded_file());
         return out;
@@ -225,8 +278,6 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         impl_->source_map.clear();
         impl_->sources_owner = Owner::None;
     }
-    SourceMap candidate;
-    const SourceMapLoadResult parsed = load_sld_sidecar(candidate, program_path);
     if (!parsed) {
         if (parsed.error != "no adjacent SLD sidecar") {
             log->error("Rejected SLD source map '{}': {}", parsed.file, parsed.error);
@@ -239,14 +290,13 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     // A tape is loaded by the machine over the frames that follow, so there
     // is nothing in memory yet to match the map against, and no single point
     // at which the program "has loaded". Not attached automatically.
-    if (loads_later(program)) {
+    if (tape) {
         log->info("Not attaching SLD source map '{}' automatically: '{}' loads from tape "
                   "after this point; load the map by hand once it has loaded",
                   candidate.loaded_file(), program_path);
         return out;
     }
-    const auto identity = candidate.verify_program(peek_reader(impl_->emu));
-    if (identity && !*identity) {
+    if (mismatch) {
         log->error("Rejected SLD source map '{}': the loaded program's bytes differ "
                    "from its binary identity", candidate.loaded_file());
         const std::string why = "source map '" + candidate.loaded_file() +
@@ -326,7 +376,7 @@ void Debugger::Impl::drop_sidecars(const std::string& why) {
     if (symbols_owner == StoreOwner::Sidecar) {
         symbols.clear();
         symbols_owner = StoreOwner::None;
-        pending_log.push_back("Dropped the program's NextBuild symbols: " + why);
+        pending_log.push_back("Dropped the program's symbols: " + why);
     }
     if (sources_owner == StoreOwner::Sidecar) {
         source_map.clear();
@@ -402,13 +452,13 @@ void Debugger::Impl::recheck() {
                     if (rec && rec->symbols) {
                         symbols = *rec->symbols;
                         symbols_owner = StoreOwner::Sidecar;
-                        pending_log.push_back("Restored the program's NextBuild symbols of this "
+                        pending_log.push_back("Restored the program's symbols of this "
                                               "point in the history");
                     } else {
                         symbols.clear();
                         symbols_owner = StoreOwner::None;
                         if (had)
-                            pending_log.push_back("Dropped the program's NextBuild symbols: " +
+                            pending_log.push_back("Dropped the program's symbols: " +
                                                   std::string(before));
                     }
                 }

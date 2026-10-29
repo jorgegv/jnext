@@ -1177,6 +1177,9 @@ target_link_libraries(source_debug_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(source_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# SRCDBG-SYM-* (GH #375) load the committed sjasmplus SLD fixtures.
+target_compile_definitions(source_debug_test PRIVATE
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
 add_test(NAME source_debug_tests COMMAND source_debug_test)
 # The rows whose sidecar fixtures are POSIX file types (a socket, a symlink,
 # a FIFO): Windows has none of them, so they live apart (GH #214).
@@ -1372,6 +1375,9 @@ target_link_libraries(gdb_rsp_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(gdb_rsp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# GDB-MON-13 (GH #375) loads the committed sjasmplus SLD fixture.
+target_compile_definitions(gdb_rsp_test PRIVATE
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
 add_test(NAME gdb_rsp_tests COMMAND gdb_rsp_test)
 
 # GH #280 (epic #276, package Z) — the ZRCP adapter (the ZEsarUX remote command
@@ -1952,6 +1958,9 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
         Qt${JNEXT_QT_MAJOR}::Test)
     target_include_directories(debugger_source_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # QSYM-13 (GH #375) loads the committed sjasmplus SLD fixture.
+    target_compile_definitions(debugger_source_panel_test PRIVATE
+        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
     add_test(NAME debugger_source_panel_tests COMMAND debugger_source_panel_test)
 
     # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered

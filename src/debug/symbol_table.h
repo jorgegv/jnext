@@ -115,6 +115,12 @@ public:
     /// through `add_label()`).
     void set_loaded_file(std::string path) { loaded_file_ = std::move(path); }
 
+    /// Add another table's entries after this one's: its labels whose key (memory,
+    /// address) is still free, its names (labels' and aliases') not yet taken, its
+    /// name-only values not yet taken. First wins throughout, as within one table.
+    /// An empty `loaded_file()` takes the other's.
+    void merge(const SymbolTable& other);
+
     /// The name of `addr` in the memory `space`: the paged label with exactly
     /// that key, else the unpaged label at `addr`. `MemSpace::cpu()` is "no
     /// memory known": it reaches unpaged labels only.

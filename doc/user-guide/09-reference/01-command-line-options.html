@@ -3774,12 +3774,14 @@ read the extra bytes from its own file. If the header says
 loads only the declared banks, ignores the trailing bytes and starts
 the program. More than 16 KB of ignored bytes also logs a warning.</p>
 <p>The debugger’s source map and symbols attach from beside the
-program: <em>NAME</em><code>.sld</code> (or <em>NAME</em><code>.sld.txt</code>), an sjasmplus source
-map, beside any program but a tape, and <em>NAME</em><code>.Memory.txt</code> (or
-<code>Memory.txt</code>), NextBuild / Boriel ZX Basic symbols, beside a <code>.nex</code>.
-A map given with <strong>--map</strong> or loaded by hand is kept over them. An
-SLD built for another binary, or a file over 64 MiB, is refused,
-with the reason in the log.</p>
+program: <em>NAME</em><code>.sld</code> (or <em>NAME</em><code>.sld.txt</code>), an sjasmplus source map
+whose labels join the symbols (a label assembled for a page names
+its address only while that page is mapped), beside any program but
+a tape (beside a tape only its labels attach), and
+<em>NAME</em><code>.Memory.txt</code> (or <code>Memory.txt</code>), NextBuild / Boriel ZX Basic
+symbols, beside a <code>.nex</code>. A map given with <strong>--map</strong> or loaded by
+hand is kept over them. An SLD built for another binary, or a file
+over 64 MiB, is refused, with the reason in the log.</p>
 </dd>
 <dt><strong>--nex-args</strong> <em>LINE</em></dt>
 <dd>Argument line for a NEX <strong>V1.3</strong> program. <em>LINE</em> is placed, verbatim
