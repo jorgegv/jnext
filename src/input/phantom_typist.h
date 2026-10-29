@@ -112,9 +112,13 @@ public:
     /// GH #408 - how many frames an armed typist may keep the emulator
     /// uncapped while it WAITS for a full keyboard scan: 20 emulated seconds.
     /// Measured first fire of a tape attached at power-on (tap_loader_test
-    /// TAPF-12, `Emulator::init()` cold boot, distro SD image): 48K frame 92,
-    /// 128K 63, +3 66, Next 311 (the firmware and NextZXOS boot; the frontend
-    /// `--load` path fires before frame 100). 1000 is 3x the slowest. Too low
+    /// TAPF-12, distro SD image): 48K frame 92, 128K 63, +3 66; Next 311 on a
+    /// cold `init()` but 92 with `cfg.load_file` set. `init()` overlays the
+    /// embedded nextboot.rom only when `cfg.load_file` is empty, so a cold
+    /// Next runs the FPGA bootloader and the tbblue firmware first, while
+    /// `jnext --load` (main.cpp sets `cfg.load_file`) skips them. A tape
+    /// opened later from the Tape menu meets a booted ROM instead. 1000 is 3x
+    /// the slowest. Too low
     /// costs only pacing: a boot slower than the bound finishes at 1x and the
     /// load is still trapped. Too high is the GH #408 symptom itself: a tape
     /// attached while a program that never scans the whole matrix runs (a

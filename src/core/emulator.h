@@ -719,12 +719,16 @@ public:
     static constexpr uint32_t FASTLOAD_TAPE_IDLE_FRAMES = 50;
     /// GH #408 - what is left of that window (0: none). Diagnostic only.
     uint32_t tape_fastload_frames_left() const { return tape_fastload_frames_left_; }
-    /// GH #408 - Tape > Eject: empty all three decks; no window outlives them.
+    /// GH #408 - Tape > Eject: empty all three decks. Closing the window
+    /// here is invisible to fastload_active() (with no deck loaded nothing
+    /// sprints, and the next attach closes it anyway); it keeps the one rule
+    /// of tape_deck_changed_() true at every deck change, so the diagnostic
+    /// accessor above never reports a window for a tape that is gone.
     void eject_tape() {
         tape_.eject();
         tzx_tape_.eject();
         wav_tape_.eject();
-        tape_fastload_frames_left_ = 0;
+        tape_deck_changed_();
     }
     Joystick&       joystick()       { return joystick_; }
 
@@ -2473,11 +2477,15 @@ private:
     TapePollDetector tape_poll_;
     // GH #408 - fast-load pacing window (fastload_active()): set on every
     // trap-served block, counted down once per frame, and zeroed by init()
-    // (every in-place reset or load), eject_tape(), load_tap() and load_tzx(),
-    // so no window outlives the tape or the machine it was opened for.
+    // (every in-place reset or load) and by tape_deck_changed_(), so no
+    // window outlives the tape or the machine it was opened for.
     // Host pacing only: not serialised (a restored machine sprints again at
     // its next trapped block).
     uint32_t         tape_fastload_frames_left_ = 0;
+    /// GH #408 - the one rule for a deck change: whatever replaces or empties
+    /// the decks (load_tap, load_tzx, load_wav, a .jns tape reattach,
+    /// eject_tape) calls this, and the old tape's window goes with it.
+    void tape_deck_changed_() { tape_fastload_frames_left_ = 0; }
     /// One CPU read of the ULA port: count it, and resume a deck that auto play
     /// itself held (never start one that is not playing).
     void tape_auto_on_read_();

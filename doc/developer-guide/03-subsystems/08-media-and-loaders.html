@@ -2614,8 +2614,10 @@ auto-repeat it dozens of times. Both bounds are measured (<code>tap_loader_test<
 TAPF-09..12): the ROM's own work between trapped blocks is 0-1 frames, and a
 loader <code>PAUSE</code> past the window runs only its tail at 1x, the next block still
 trapped at once; the typist's first fire at power-on is frame 63-92 on the
-48K/128K/+3 and 311 on the Next. A reset, Tape &gt; Eject and a newly attached tape
-each close the window.</p>
+48K/128K/+3, 92 on a Next started with <code>--load</code>, and 311 on a cold Next, which
+runs the FPGA bootloader and tbblue firmware first (<code>init()</code> overlays
+<code>nextboot.rom</code> only when no <code>load_file</code> is set). A reset, Tape &gt; Eject, a newly attached tape (<code>.tap</code>, <code>.tzx</code>
+or <code>.wav</code>) and a <code>.jns</code> tape reattach each close the window.</p>
 <p><strong>Automatic play/stop (GH #395)</strong> is a host deck feature with no hardware
 counterpart (no Spectrum has tape motor control). The signal is
 <code>TapePollDetector</code> (<code>src/core/tape_poll_detector.h</code>): every CPU <code>IN</code> of the ULA

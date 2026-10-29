@@ -1448,18 +1448,24 @@ int main() {
 
         // TAPF-12: the typist's first fire at a startup --load, per machine,
         // against its 1000-frame sprint bound: no normal boot may lose its
-        // sprint. Measured (cold init(), distro SD image): 48K 92, 128K 63,
-        // +3 66, Next 311.
+        // sprint. Measured (distro SD image): 48K 92, 128K 63, +3 66; Next 311
+        // on a cold init() and 92 with cfg.load_file set. The difference is
+        // the boot path: init() overlays the embedded nextboot.rom only when
+        // cfg.load_file is empty (emulator.cpp, "Auto-load gate"), so a cold
+        // Next runs the FPGA bootloader and the tbblue firmware before any
+        // ROM scans the keyboard, while `jnext --load` (main.cpp sets
+        // cfg.load_file) skips that overlay. Both are covered here.
         {
             const MachineType mts[] = {MachineType::ZX48K, MachineType::ZX128K, MachineType::ZX_PLUS3,
-                                       MachineType::ZXN_ISSUE2};
-            const char* names[] = {"48k", "128k", "plus3", "next"};
+                                       MachineType::ZXN_ISSUE2, MachineType::ZXN_ISSUE2};
+            const char* names[] = {"48k", "128k", "plus3", "next-cold", "next-load-file"};
             bool all = true;
             std::string d;
-            for (int m = 0; m < 4; ++m) {
+            for (int m = 0; m < 5; ++m) {
                 auto e = std::make_unique<Emulator>();
                 EmulatorConfig cfg; cfg.type = mts[m]; cfg.rewind_buffer_frames = 0;
                 cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+                if (m == 4) cfg.load_file = two_progs;   // what main.cpp does for --load
                 bool mok = e->init(cfg) && e->load_tap(two_progs, true);
                 int fired = -1;
                 for (int i = 1; mok && i <= 600 && fired < 0; ++i) {
@@ -1470,7 +1476,7 @@ int main() {
                 if (!mok || fired < 1 || fired >= static_cast<int>(PhantomTypist::FASTLOAD_WAIT_FRAMES))
                     all = false;
             }
-            check("TAPF-12", "at a startup --load the typist fires inside its 1000-frame sprint bound on "
+            check("TAPF-12", "at a startup tape load the typist fires inside its 1000-frame sprint bound on "
                   "the 48K, 128K, +3 and Next", all, d);
         }
 
@@ -1493,14 +1499,60 @@ int main() {
                   "pre=" + std::to_string(pre) + " still=" + std::to_string(still) +
                   " left=" + std::to_string(emu->tape_fastload_frames_left()));
         }
-        {   // TAPF-14
+        // A minimal 8-bit mono PCM WAV (44-byte header + 64 samples), as TAPC-11.
+        Bytes wav = {'R', 'I', 'F', 'F', 100, 0, 0, 0, 'W', 'A', 'V', 'E',
+                     'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                     0x44, 0xAC, 0, 0, 0x44, 0xAC, 0, 0, 1, 0, 8, 0,
+                     'd', 'a', 't', 'a', 64, 0, 0, 0};
+        wav.resize(wav.size() + 64, 0x80);
+        const std::string wav_path = write_file("gh408.wav", wav);
+        auto all_empty = [&]() {
+            return !emu->tape().is_loaded() && !emu->tzx_tape().is_loaded() && !emu->wav_tape().is_loaded();
+        };
+        {   // TAPF-14: each deck in turn (a load ejects the other two, so one at a time)
             const bool pre = window_open();
             emu->eject_tape();
-            check("TAPF-14", "Tape > Eject empties every deck and closes the window",
-                  pre && !emu->tape().is_loaded() && !emu->tzx_tape().is_loaded() &&
-                  !emu->wav_tape().is_loaded() && emu->tape_fastload_frames_left() == 0 &&
-                  !emu->fastload_active(),
+            const bool tap_out = all_empty() && emu->tape_fastload_frames_left() == 0 && !emu->fastload_active();
+            const bool tzx_in = emu->load_tzx(write_file("gh408-eject.tzx", tzx_two), true) &&
+                                emu->tzx_tape().is_loaded();
+            emu->eject_tape();
+            const bool tzx_out = all_empty();
+            const bool wav_in = emu->load_wav(wav_path) && emu->wav_tape().is_loaded();
+            emu->eject_tape();
+            const bool wav_out = all_empty();
+            check("TAPF-14", "Tape > Eject empties the deck whichever holds the tape (TAP with its window "
+                  "open, TZX, WAV) and closes the window",
+                  pre && tap_out && tzx_in && tzx_out && wav_in && wav_out,
+                  "tap_out=" + std::to_string(tap_out) + " tzx_out=" + std::to_string(tzx_out) +
+                  " wav_out=" + std::to_string(wav_out));
+        }
+        {   // TAPF-16: a WAV replacing a fast TAP takes the TAP's window with it.
+            // Only the accessor can see it: a WAV is never fast, so with the TAP
+            // gone nothing sprints either way.
+            const bool pre = window_open();
+            const bool ok_wav = emu->load_wav(wav_path);
+            check("TAPF-16", "load_wav() replacing a TAP whose window is open closes the window",
+                  pre && ok_wav && !emu->tape().is_loaded() && emu->tape_fastload_frames_left() == 0,
                   "left=" + std::to_string(emu->tape_fastload_frames_left()));
+        }
+        {   // TAPF-17: a .jns restore reattaches its tape without init() (same
+            // machine): a window open before the restore must not sprint the
+            // restored tape, which nothing is reading.
+            const bool pre = window_open();
+            const std::string jns = (g_root / "gh408.jns").string();
+            const bool saved = emu->save_jns_file(jns);
+            const bool still_open = emu->tape_fastload_frames_left() > 0;
+            const bool restored = emu->load_jns_file(jns);
+            const bool pending = emu->tape().is_loaded() && emu->tape().fast_load() && !emu->tape().at_end();
+            const bool quiet = !emu->phantom_typist().is_active() && !emu->keyboard().auto_typing();
+            check("TAPF-17", "a .jns restore of a fast tape with blocks left starts with no window from "
+                  "before the restore: nothing sprints",
+                  pre && saved && still_open && restored && pending && quiet &&
+                      emu->tape_fastload_frames_left() == 0 && !emu->fastload_active(),
+                  "saved=" + std::to_string(saved) + " restored=" + std::to_string(restored) +
+                  " pending=" + std::to_string(pending) + " quiet=" + std::to_string(quiet) +
+                  " left=" + std::to_string(emu->tape_fastload_frames_left()) +
+                  " why=" + emu->last_jns_error());
         }
         {   // TAPF-15
             const bool pre_tap = window_open();

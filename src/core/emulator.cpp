@@ -8365,7 +8365,7 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     loader.set_fast_load(fast_load);
     tape_poll_.reset();
     tape_ = std::move(loader);
-    tape_fastload_frames_left_ = 0;   // GH #408: the old tape's window goes with it
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("TAP: tape attached - {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
 
@@ -8473,7 +8473,7 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     loader.set_fast_load(fast_load);
     tape_poll_.reset();
     tzx_tape_ = std::move(loader);
-    tape_fastload_frames_left_ = 0;   // GH #408: the old tape's window goes with it
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("TZX: tape attached, mode: {}",
                            tzx_tape_.fast_load() ? "fast" : "realtime");
 
@@ -8531,6 +8531,7 @@ bool Emulator::load_wav(const std::string& path)
     resume_from_park("a WAV tape was attached");
 
     wav_tape_ = std::move(loader);
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("WAV: tape attached (always real-time)");
 
     // Eject any other tape to avoid conflicts.

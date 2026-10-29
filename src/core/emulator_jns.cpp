@@ -1259,6 +1259,7 @@ void Emulator::reattach_jns_tape_(const jnext::zip::Reader& zip,
         if (tape_.is_loaded()) tape_.eject();
         if (tzx_tape_.is_loaded()) tzx_tape_.eject();
     }
+    tape_deck_changed_();   // GH #408: no window from the tape that was in
     // Parking is restored machine state and a restore types nothing: no
     // resume_from_park(), no typist arm(), no LOAD "" (D8).
     // The poll run was counted under the recorded auto play setting; under a
