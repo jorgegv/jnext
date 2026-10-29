@@ -469,9 +469,15 @@ endif()
 # the LTO *link* step — not a per-TU compile — so it must be silenced on both
 # the compile and link of the jnext target (GCC only). Our own code keeps the
 # warning; only this third-party false positive is suppressed.
+# The MinGW build (Fedora's %mingw64_cmake passes BUILD_SHARED_LIBS=ON) builds
+# spdlog as libspdlog.dll, whose own LTO link instantiates the same fmt code
+# (write_fixed -> write_significand -> write2digits) and warns the same way, so
+# the spdlog target's link gets the same suppression (GH #416). For a static
+# spdlog (Linux) link options on a static library are ignored: no effect.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(jnext PRIVATE -Wno-stringop-overflow)
     target_link_options(jnext PRIVATE -Wno-stringop-overflow)
+    target_link_options(spdlog PRIVATE -Wno-stringop-overflow)
 endif()
 
 # Windows: embed the application icon and the activeCodePage=UTF-8 manifest
