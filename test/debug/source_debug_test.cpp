@@ -3821,33 +3821,48 @@ int main() {
         // SRCBP-03: ReverseContinue asks the same predicate of the RECORDED fetch identity. A second
         // record (main.c:30 on page 21) is required: an entry the map does not cover is skipped
         // before the predicate is asked, so without it a space-blind predicate would never be tried.
-        Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
-        for (uint8_t pg : {uint8_t(20), uint8_t(21)}) {
-            m.dbg->nextreg_write(m.a, 0x56, pg);
-            m.emu.mmu().write(0xC000, 0x04);   // INC B
-            m.emu.mmu().write(0xC001, 0xC9);   // RET
-        }
-        const uint8_t prog[] = {0xED, 0x91, 0x56, 20, 0xCD, 0x00, 0xC0,    // page 20 first
-                                0xED, 0x91, 0x56, 21, 0xCD, 0x00, 0xC0,    // page 21 last
-                                0x00, 0x00};
-        for (size_t i = 0; i < sizeof(prog); ++i)
-            m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
-        m.set_pc(0x8000);
         const fs::path rc_sld = dir / "reverse-bank.sld";
         write_text(rc_sld, std::string("|SLD.data.version|1\n") + "main.c|1||0" + kNextDevice +
                                "main.c|19||0|20|49152|T|\n" + "main.c|30||0|21|49152|T|\n");
-        m.dbg->load_source_map(rc_sld.string(), false);
-        m.dbg->set_trace_enabled(true);
-        for (int i = 0; i < 8; ++i) m.dbg->step_into(m.a);   // both calls and both RETs
-        const bool ran = m.pc() == 0x800E && m.dbg->effective_page(0xC000) == 21;
-        const auto g = m.dbg->subscribe_source_line(m.a, "main.c:19", execute_stop(0));
-        const Result rc = m.dbg->source_step(m.a, Step::ReverseContinue);
+        // A machine that has run both calls and both RETs, trace on.
+        auto ran_machine = [&]() {
+            auto m = std::make_unique<Machine>(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+            for (uint8_t pg : {uint8_t(20), uint8_t(21)}) {
+                m->dbg->nextreg_write(m->a, 0x56, pg);
+                m->emu.mmu().write(0xC000, 0x04);   // INC B
+                m->emu.mmu().write(0xC001, 0xC9);   // RET
+            }
+            const uint8_t prog[] = {0xED, 0x91, 0x56, 20, 0xCD, 0x00, 0xC0,    // page 20 first
+                                    0xED, 0x91, 0x56, 21, 0xCD, 0x00, 0xC0,    // page 21 last
+                                    0x00, 0x00};
+            for (size_t i = 0; i < sizeof(prog); ++i)
+                m->emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            m->set_pc(0x8000);
+            m->dbg->load_source_map(rc_sld.string(), false);
+            m->dbg->set_trace_enabled(true);
+            for (int i = 0; i < 8; ++i) m->dbg->step_into(m->a);   // both calls and both RETs
+            return m;
+        };
+        auto m = ran_machine();
+        const bool ran = m->pc() == 0x800E && m->dbg->effective_page(0xC000) == 21;
+        const auto g = m->dbg->subscribe_source_line(m->a, "main.c:19", execute_stop(0));
+        const Result rc = m->dbg->source_step(m->a, Step::ReverseContinue);
+        const bool by_space = static_cast<bool>(g) && rc == Result::Ok && m->pc() == 0xC000 &&
+                              m->dbg->effective_page(0xC000) == 20;
+        // The legacy page-number qualifier (DZRP, the DSL) is still asked of the recorded MMU page.
+        auto n = ran_machine();
+        Subscription legacy = execute_stop(0xC000);
+        legacy.filter.page = 20;
+        n->dbg->subscribe(n->a, legacy);
+        const Result rl = n->dbg->source_step(n->a, Step::ReverseContinue);
+        const bool by_page = rl == Result::Ok && n->pc() == 0xC000 && n->dbg->effective_page(0xC000) == 20;
         check("SRCBP-03", "Reverse Continue lands on the page-20 execution of $C000, not the "
-                          "newer page-21 one, whose recorded fetch source is not the breakpoint's",
-              ran && static_cast<bool>(g) && rc == Result::Ok && m.pc() == 0xC000 &&
-                  m.dbg->effective_page(0xC000) == 20,
-              "ran=" + std::to_string(ran) + " rc=" + std::to_string(int(rc)) + " " + m.where() +
-                  " page=" + std::to_string(m.dbg->effective_page(0xC000)));
+                          "newer page-21 one, whose recorded fetch source is not the breakpoint's; "
+                          "a legacy page-20 qualifier lands there too",
+              ran && by_space && by_page,
+              "ran=" + std::to_string(ran) + " rc=" + std::to_string(int(rc)) + " " + m->where() +
+                  " page=" + std::to_string(m->dbg->effective_page(0xC000)) +
+                  " legacy=" + std::to_string(by_page) + " " + n->where());
     }
     {
         // SRCBP-04: a line compiled to two places is one group of two subscriptions.
