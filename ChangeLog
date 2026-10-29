@@ -11,6 +11,7 @@
 - ULA scrolling (NR 0x26/0x27/0x68) now works in Timex hi-colour and hi-res modes
 - macOS: the green full-screen button works and fills the screen; no duplicate Enter Full Screen menu item
 - Debugger Video panel shows the just-finished frame after Break instead of a dark placeholder
+- Windows build under wine 11.7+: downloads no longer freeze waiting for a slow server; progress, stall note and cancel work
 
 ### Contributors in this release
 - @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar

@@ -70,6 +70,15 @@ shipped an older pandoc than the maintainer's failed `docs-check` on every run
 from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.
 
+The container tracks the `updates` repository of fedora:44, so CI can receive a newer
+package than a developer host that has not upgraded yet: GH #415 was `unit-test-win` red on
+CI under wine 11.20 and green on a host with 11.0. To see CI's package set locally, build an
+image from `ci.yml`'s two install lists (the test dependencies, and the MinGW and wine
+packages), and run the same make targets in it against a separate detached worktree, with
+`--security-opt label=disable --userns=keep-id` and `$HOME/.jnext` and `$HOME/.cache`
+mounted, so the host's build trees and wine prefixes are never shared with the container's
+wine. This is a documented local check, not a CI step.
+
 ## The jobs in `ci.yml`
 
 **`test`** is the main job: one definition, a matrix of five legs that run in

@@ -3717,14 +3717,30 @@ synchronous request's handle from another thread as a race. With the cable pulle
 the GUI thread sat inside that read for its 120 s, and Windows ghosted the window as
 "Not Responding". In async mode the thread waits on an event for the next completion,
 one tick at a time, and a cancel or a stall is "close the request handle and return".
-The per-request state (event, latest completion, read buffer, the extra headers
+That holds only while the waiting thread makes no WinHTTP call that can wait on the
+network, and <code>WinHttpReceiveResponse</code> is one that may: Microsoft documents that even in
+async mode it "can operate either synchronously or asynchronously", and wine 11.7 and
+later read the headers inside the call, in its caller (GH #415: no tick, no stall note
+and no cancel for the whole header wait, up to 21 s, until the server closed). So the
+sequence is "send; the receive is started from the <code>SENDREQUEST_COMPLETE</code> callback,
+Microsoft's reentrant pattern; the waiting thread only waits and ticks". The callback
+returns without signalling after a successful call (<code>HEADERS_AVAILABLE</code> or
+<code>REQUEST_ERROR</code> may be delivered nested inside it and set the state themselves), and the
+waiting thread treats <code>HEADERS_AVAILABLE</code> as done only once that call has returned
+(Microsoft: wait for the function to return and the completion callback before another
+operation on the handle). Closing the handle while the callback thread is inside the call
+is what the concurrency rules forbid, so a handoff under a mutex decides who closes: a
+waiting thread that gives up while the receive is in flight marks the request abandoned
+and the callback closes it when the call returns, otherwise the waiting thread closes it
+itself; either way once, and the callback touches nothing after its own close. The
+per-request state (event, latest completion, read buffer, the extra headers
 <code>WinHttpSendRequest</code> still points at) is heap-allocated and belongs to the request
 handle from the moment the status callback is installed: the callback frees it on
 <code>WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING</code>, the last callback a handle gets, so an
 abort returns at once while WinHTTP may still be completing a read into that buffer,
-and nothing touches the state after <code>WinHttpCloseHandle</code>. The callback only stores
-atomics and signals (no logging, no globals) and is declared <code>CALLBACK</code>, which the
-i686 builds need. Reads are sized by <code>WinHttpQueryDataAvailable</code>, so every byte that
+and nothing touches the state after <code>WinHttpCloseHandle</code>. The callback stores atomics,
+signals and starts the receive (no logging, no globals) and is declared <code>CALLBACK</code>, which
+the i686 builds need. Reads are sized by <code>WinHttpQueryDataAvailable</code>, so every byte that
 arrived reaches the <code>.part</code>, and a read never asks for more than the buffer holds
 (<code>DownloadTimings::read_bytes</code>, 64 KiB); the receive timeout is only a backstop 30 s
 behind the stall timeout.</p>
@@ -3738,7 +3754,12 @@ loopback server models "connection open, nothing arrives", which is what a recei
 sees until TCP gives up. WinHTTP's teardown of a pending asynchronous read: wine keeps
 it until data, EOF, the server's close or the backstop (measured 58 s), so a row that
 abandons a connection builds its own server and lets its destructor close it; the
-caller's result and timing are the same, only the abandoned socket lives longer. And
+caller's result and timing are the same, only the abandoned socket lives longer (under wine
+11.7 and later this includes the header wait of an abandoned attempt: it holds wine's queue
+thread until the server closes or 21 s pass). The close handoff itself is not observable:
+wine keeps a request object alive while a call holds it, so closing mid-call is tolerated and
+removing the handoff passes every row; it rests on Microsoft's rule and on review, and
+<code>PROV-STALL-11</code> pins the user-visible half (cancel before the server has answered). And
 TLS under asynchronous WinHTTP, and the read-fill semantics and error codes of real
 Windows (wine fills the buffer, reports a read timeout as 10060 and never reports
 more than 8 KiB available: measured over the whole provisioner suite, 8192 at most):
