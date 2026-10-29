@@ -51,7 +51,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
-#ifdef __linux__
+#ifndef _WIN32
 #include <csignal>
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -584,7 +584,7 @@ struct PrivateBus {
     }
 };
 
-#ifdef __linux__
+#ifndef _WIN32
 // --bus-guard CONF: run dbus-daemon on CONF (its address on our stdout), print
 // "pid=N" on stderr, and SIGKILL it when stdin reaches EOF. Plain POSIX: it
 // must not depend on anything a dying parent could leave half-done.
@@ -696,6 +696,32 @@ void test_bus_normal_exit() {
 #endif
 }
 
+// CS-30 — a --bus-guard copy is only ever the guard: it never runs the suite.
+// PrivateBus re-runs this binary as --bus-guard; a platform whose main() did
+// not dispatch the flag ran the whole suite in the child, which built its own
+// PrivateBus, which started another guard: a chain of processes without end
+// (macOS, where only Linux dispatched it). The guard here is given a config
+// that does not exist, so its daemon dies at once, and stdin is closed so the
+// guard itself ends; it must finish within 5 s and print no suite banner.
+void test_bus_guard_is_not_the_suite() {
+    QProcess child;
+    QProcessEnvironment env;
+    env.insert("LANG", "C");
+    env.insert("PATH", qEnvironmentVariable("PATH"));
+    child.setProcessEnvironment(env);
+    child.start(QString::fromLocal8Bit(g_self), {"--bus-guard", "/nonexistent/jnext-bus.conf"});
+    const bool started = child.waitForStarted(5000);
+    child.closeWriteChannel();
+    const bool finished = started && child.waitForFinished(5000);
+    if (started && !finished) { child.kill(); child.waitForFinished(3000); }
+    const bool ran_suite = child.readAllStandardOutput().contains("GH #363");
+    check("CS-30", "a --bus-guard copy of this binary is only the guard: it ends within 5 s on a closed "
+                   "stdin and never runs the suite (which would start another guard, without end)",
+          started && finished && !ran_suite,
+          std::string(started ? "started" : "did not start") + (finished ? ", finished" : ", STILL RUNNING") +
+              (ran_suite ? ", RAN THE SUITE" : ""));
+}
+
 // --bus-child FILE: start the private bus, publish the daemon's pid, then
 // wait to be killed (bounded: 60 s); with `stay` false, return at once, so
 // the caller's exit runs ~PrivateBus.
@@ -714,9 +740,16 @@ int bus_child(const char* pidfile, bool stay) {
 
 int main(int argc, char** argv) {
     g_self = argv[0];
-#ifdef __linux__
-    if (argc == 3 && std::string(argv[1]) == "--bus-guard") return bus_guard(argv[2]);
+    // On EVERY platform, never fall through to the suite: PrivateBus re-runs this
+    // binary as the guard, so a platform that ran the suite instead would start a
+    // guard that starts a guard, without end (macOS did, before CS-30).
+    if (argc == 3 && std::string(argv[1]) == "--bus-guard") {
+#ifndef _WIN32
+        return bus_guard(argv[2]);
+#else
+        return 1;   // no POSIX guard here: PrivateBus reports "dbus-daemon did not start"
 #endif
+    }
     if (argc == 3 && std::string(argv[1]) == "--bus-child") return bus_child(argv[2], true);
     if (argc == 3 && std::string(argv[1]) == "--bus-child-exit") return bus_child(argv[2], false);
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -746,6 +779,7 @@ int main(int argc, char** argv) {
     std::printf("  Group: CS wiring      - done\n");
     test_bus_cleanup();
     test_bus_normal_exit();
+    test_bus_guard_is_not_the_suite();
     std::printf("  Group: CS bus cleanup - done\n");
     std::printf("\n==================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
