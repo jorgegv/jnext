@@ -62,12 +62,7 @@ void check(const char* id, const char* desc, bool cond,
 const char kFFFD[] = "\xEF\xBF\xBD";
 
 bool strict_parses(const std::string& text) {
-    try {
-        (void)nlohmann::json::parse(text);
-        return true;
-    } catch (const std::exception&) {
-        return false;
-    }
+    return nlohmann::json::accept(text);   // strict parse, no exceptions
 }
 
 bool member(const std::vector<uint8_t>& jns, const char* name, std::string& text) {
