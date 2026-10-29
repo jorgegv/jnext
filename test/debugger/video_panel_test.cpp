@@ -2457,11 +2457,13 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
     // paint can only fix its size (paintEvent), so render until it is stable.
     auto painted_line = [](VideoLayerView* v) {
         QImage img;
-        do {
+        for (int tries = 0; tries < 4; ++tries) {
             img = QImage(v->size(), QImage::Format_ARGB32);
             img.fill(Qt::black);
             v->render(&img);
-        } while (img.size() != v->size());
+            if (img.size() == v->size()) break;
+        }
+        if (img.size() != v->size()) return true;   // never settled: fail the row
         for (int y = 0; y < img.height(); ++y)
             if (img.pixel(0, y) == qRgb(255, 0, 0)) return true;
         return false;
@@ -2473,7 +2475,7 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
         tabs->setCurrentIndex(i);
         panel.refresh();
         auto* v = tabs->widget(i)->findChild<VideoLayerView*>();
-        if (!v) continue;
+        if (!v || is_placeholder(v->image())) continue;   // each tab really rendered
         ++tabs_checked;
         if (v->raster_line_shown() || painted_line(v)) ++tabs_with_line;
     }
