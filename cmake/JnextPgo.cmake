@@ -108,6 +108,11 @@ endfunction()
 # between the two trees must still fail every TU jnext does link.
 # GNU ld lists a member as `path/libX.a(member.o)` at the start of a line; ld64
 # (clang, macOS) under `# Object files:` as `[  12] /abs/path/libX.a(member.o)`.
+# UNVERIFIED on macOS (no AppleClang on the dev host): if ThinLTO makes ld64
+# list only the LTO-generated object, the FATAL below fires on the first macOS
+# run; then configure the clang GENERATE tree with -DJNEXT_ENABLE_LTO=OFF in
+# tools/pgo-build.sh (member selection is symbol resolution, before LTO, and
+# clang's instrumentation hashes do not depend on LTO).
 function(_jnext_pgo_linked_members out_var clang)
     set(map "${JNEXT_PGO_DIR}/jnext.map")
     if(NOT EXISTS "${map}")
