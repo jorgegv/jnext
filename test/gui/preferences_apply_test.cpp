@@ -617,7 +617,7 @@ void test_nextpi_preference_controls()
               passthrough.nextpi_audio == initial.nextpi_audio);
 }
 
-/// PA-28a/b — GH #407: the NextPi tab's "Extra QEMU arguments" box.
+/// PA-28a/b, GH #407: the NextPi tab's "Extra QEMU arguments" box.
 void test_nextpi_qemu_args_control()
 {
     AppConfigData initial;

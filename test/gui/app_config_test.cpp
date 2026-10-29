@@ -429,7 +429,7 @@ static void test_recent_files(QTemporaryDir& dir) {
           r.data().recent_files.join('|').toStdString());
 }
 
-// ── AC-91..93: GH #407 — [nextpi] qemu_args, and a free-text value with an unquoted comma ──
+// ── AC-91..93: GH #407: [nextpi] qemu_args, and a free-text value with an unquoted comma ──
 
 static void test_nextpi_qemu_args(QTemporaryDir& dir) {
     set_group("AC-QEMUARGS");
