@@ -110,6 +110,8 @@ saved value, in a headless session too: `--nextpi-dir DIR`, `--nextpi-release
 NAME`, `--nextpi-qemu PROGRAM`, `--nextpi-audio SPEC` and `--nextpi-qemu-args
 "ARGS"`. An empty value means the default. They go with `--nextpi` (or a saved
 preference that starts NextPi), which alone starts NextPi with the defaults.
+Given when NextPi is not enabled for the run, a flag is ignored and JNEXT warns
+in its log, naming it.
 
 Changes made in Preferences take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With

@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# FIFTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
+# SIXTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
 # playing a tone into the audio pipe):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
@@ -66,6 +66,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #  15. (GH #407) The same from the command line, headless: `--nextpi --nextpi-qemu-args`
 #      with an unterminated quote exits 1 with the same message and position, and does not
 #      get as far as looking for QEMU.
+#  16. (GH #407) A --nextpi-* setting flag with NextPi not enabled (no --nextpi, or
+#      --no-nextpi) is warned about by name and the run goes on: exit 0.
 # Facts 3, 4, 10-12 and 14 run the GUI on Qt's offscreen platform, where the warning
 # dialogs are not shown (nobody could dismiss them); SdcardGuiProvisioner writes
 # the title and text it would have shown to the platform log at debug level
@@ -238,6 +240,20 @@ if want nextpi-func; then
     if grep -q 'qemu-system-arm not found' <<<"$out"; then
         fails+=("--nextpi-qemu-args was checked AFTER the QEMU lookup")
     fi
+
+    # Fact 16 - a setting flag with NextPi off is reported, not dropped quietly.
+    for nf16 in "" "--no-nextpi"; do
+        rc=0
+        out=$(timeout --foreground --kill-after=5s 60s \
+            env PATH="$no_qemu_path" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+            ${nf16:+"$nf16"} --nextpi-qemu-args "-name x" --nextpi-dir "$TMP_DIR/nf16" \
+            --delayed-automatic-exit-frames 2 </dev/null 2>&1) || rc=$?
+        [[ $rc -eq 0 ]] || fails+=("a --nextpi-* flag with NextPi not enabled (${nf16:-no flag}) exited $rc, want 0")
+        for f in --nextpi-qemu-args --nextpi-dir; do
+            grep -qF "$f is ignored: NextPi is not enabled (use --nextpi, or enable it in Settings > Preferences > NextPi)" <<<"$out" \
+                || fails+=("$f with NextPi not enabled (${nf16:-no flag}) was not warned about")
+        done
+    done
 
     # nf_text <fixed text> <file> <what>: the text is in that file (CR removed: Windows writes CRLF).
     nf_text() {

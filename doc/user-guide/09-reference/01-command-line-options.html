@@ -4064,7 +4064,9 @@ enables it.</dd>
 <dd>The NextPi directory for this run (default <code>~/.jnext/nextpi</code>), over
 the value saved under <strong>Settings &gt; Preferences &gt; NextPi</strong>. An
 empty value means the default. It is used when NextPi starts, so it
-goes with <strong>--nextpi</strong> (or a saved preference that enables it).</dd>
+goes with <strong>--nextpi</strong> (or a saved preference that enables it);
+given when NextPi is not enabled for the run, this and the four
+options below are ignored, with a warning naming each.</dd>
 <dt><strong>--nextpi-release</strong> <em>NAME</em></dt>
 <dd>The NextPi release for this run: a release name on the mirror, or
 <code>latest</code> for the newest one listed there (default <code>1_93D</code>). Over the

@@ -3834,7 +3834,9 @@ the Preferences tab means that default:</p>
 saved value, in a headless session too: <code>--nextpi-dir DIR</code>, <code>--nextpi-release
 NAME</code>, <code>--nextpi-qemu PROGRAM</code>, <code>--nextpi-audio SPEC</code> and <code>--nextpi-qemu-args
 "ARGS"</code>. An empty value means the default. They go with <code>--nextpi</code> (or a saved
-preference that starts NextPi), which alone starts NextPi with the defaults.</p>
+preference that starts NextPi), which alone starts NextPi with the defaults.
+Given when NextPi is not enabled for the run, a flag is ignored and JNEXT warns
+in its log, naming it.</p>
 <p>Changes made in Preferences take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With
 <code>latest</code>, JNEXT checks the mirror each time it starts; if it cannot reach it, it

@@ -404,7 +404,9 @@ with status 1.
 :   The NextPi directory for this run (default `~/.jnext/nextpi`), over
     the value saved under **Settings \> Preferences \> NextPi**. An
     empty value means the default. It is used when NextPi starts, so it
-    goes with **--nextpi** (or a saved preference that enables it).
+    goes with **--nextpi** (or a saved preference that enables it);
+    given when NextPi is not enabled for the run, this and the four
+    options below are ignored, with a warning naming each.
 
 **--nextpi-release** *NAME*
 :   The NextPi release for this run: a release name on the mirror, or

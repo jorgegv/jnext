@@ -196,6 +196,16 @@ StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_en
     return r;
 }
 
+std::vector<std::string> given_flags(const CliSettings& cli) {
+    std::vector<std::string> v;
+    if (cli.dir) v.push_back("--nextpi-dir");
+    if (cli.release) v.push_back("--nextpi-release");
+    if (cli.qemu_binary) v.push_back("--nextpi-qemu");
+    if (cli.audio) v.push_back("--nextpi-audio");
+    if (cli.qemu_args) v.push_back("--nextpi-qemu-args");
+    return v;
+}
+
 Settings merge_settings(const Settings& saved, const CliSettings& cli) {
     Settings s = saved;
     if (cli.dir) s.dir = *cli.dir;

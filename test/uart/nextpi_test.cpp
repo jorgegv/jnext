@@ -2547,6 +2547,23 @@ void test_nextpi_extra_args_rows() {
               ok);
     }
 
+    // PIT-64 - which setting flags were given, for the "ignored: NextPi is not enabled" warning.
+    {
+        nextpi::CliSettings none, some, all;
+        some.audio = "";
+        some.dir   = "/d";
+        all.dir = all.release = all.qemu_binary = all.audio = all.qemu_args = "x";
+        const std::vector<std::string> w_some{"--nextpi-dir", "--nextpi-audio"};
+        const std::vector<std::string> w_all{"--nextpi-dir", "--nextpi-release", "--nextpi-qemu",
+                                             "--nextpi-audio", "--nextpi-qemu-args"};
+        check("PIT-64",
+              "the setting flags given on the command line are named, in order, each once, an empty value "
+              "included, and none when no flag was given: main.cpp warns about each when NextPi is not "
+              "enabled (GH #407; jnext-only, no VHDL counterpart)",
+              nextpi::given_flags(none).empty() && nextpi::given_flags(some) == w_some &&
+                  nextpi::given_flags(all) == w_all);
+    }
+
     // PIT-61 - build_args puts the extras after jnext's own, in order, on both transports.
     {
         PiQemu::Spec spec;

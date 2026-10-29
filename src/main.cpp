@@ -1632,6 +1632,12 @@ int main(int argc, char* argv[]) {
         // one `asked_on_cli` drives the report, the policy and the exit.
         const nextpi::StartRequest req =
             nextpi::start_request(gui, nextpi_enabled_set, nextpi_enabled, saved_enabled);
+        if (!req.wanted) {
+            // A setting flag with no NextPi to apply it to: say so, do not drop it quietly.
+            for (const std::string& f : nextpi::given_flags(nextpi_cli))
+                Log::uart()->warn("{} is ignored: NextPi is not enabled (use --nextpi, or enable it in "
+                                  "Settings > Preferences > NextPi)", f);
+        }
         if (req.wanted) {
             std::function<void(const std::string&)> report = [](const std::string& m) {
                 Log::uart()->error("NextPi: {}", m);   // kept by --log-file; stderr may go nowhere

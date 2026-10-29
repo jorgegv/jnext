@@ -170,6 +170,10 @@ struct CliSettings {
     std::optional<std::string> dir, release, qemu_binary, audio, qemu_args;
 };
 
+/// The names of the --nextpi-* setting flags that were given, in a fixed order. main.cpp warns
+/// about each when NextPi is not enabled for the run (GH #407). Pure.
+std::vector<std::string> given_flags(const CliSettings& cli);
+
 /// A flag that was given replaces the saved value, an empty one included (it means the
 /// default); a flag that was not given leaves the saved value. Pure.
 Settings merge_settings(const Settings& saved, const CliSettings& cli);
