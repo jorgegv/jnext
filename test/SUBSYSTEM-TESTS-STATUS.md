@@ -23,7 +23,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | quick_snapshot_posix_test |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "quick_snapshot_posix_test" to the label map in refresh-subsystem-status.sh. |
 | Input                 |      391 |      391 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Phantom Typist        |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Phantom Typist        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      174 |      174 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -95,7 +95,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NEX loader (screen ingest) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TAP loader (container) |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TAP loader (container) |       77 |       77 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZIP program archives  |       71 |       71 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TZX loader (container) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tape SAVE TZX/WAV (GH #89) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -175,6 +175,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14006**| **14006**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **14024**| **14024**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
