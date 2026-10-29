@@ -1080,6 +1080,140 @@ void test_line_starts() {
               "rows=" + std::to_string(left.size()) + " cell=" + s(cell(bp, 0, 3)));
         m.clear_all();
     }
+
+    // QADR-12 (closes #375's R08): Add Execute Breakpoint with a paged NAME keeps that name's space.
+    // No loader puts a paged label into the backend's table before #375 stage 2, so the label is
+    // injected through the same const seam panels_test uses; stage 2 replaces the injection with the
+    // real SLD-label path.
+    {
+        const_cast<SymbolTable&>(fx.backend->symbols())
+            .add_label("rvbanked", 0xC000, MemSpace::page(20));
+        const bool seen = add_exec &&
+            answer_modal(QStringLiteral("rvbanked"), [&]() { add_exec->trigger(); });
+        const auto r = m.rows();
+        check("QADR-12", "Add Execute Breakpoint with a paged name sets a plain Execute row on that "
+                         "name's page",
+              seen && r.size() == 1 && r[0].addr == 0xC000 && r[0].space == MemSpace::page(20) &&
+                  r[0].group == jnext::dbg::GROUP_NONE,
+              "rows=" + std::to_string(r.size()) +
+                  (r.empty() ? std::string() : " space=" + std::to_string(unsigned(r[0].space.kind)) +
+                                                   "/" + std::to_string(r[0].space.index)));
+        m.clear_all();
+    }
+
+    // QBPM-14: Edit FROM a two-location group row removes the whole old group.
+    {
+        const bool added = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_add(); });
+        bp->refresh();
+        table->setCurrentCell(0, 1);
+        const bool edited = answer_modal(QStringLiteral("main.bas:12"), [&]() { bp->on_edit(); });
+        int mine = 0;
+        bool new_only = false;
+        for (const auto& si : fx.backend->subscriptions(false)) {
+            if (si.owner != m.client()) continue;
+            ++mine;
+            new_only = si.filter.lo == 0x8005 && si.filter.space == p80;
+        }
+        check("QBPM-14", "Edit from a two-location source row to another line leaves none of the old "
+                         "group's members armed, and the new target",
+              added && edited && mine == 1 && new_only && m.rows().size() == 1 &&
+                  m.rows()[0].addr == 0x8005,
+              "mine=" + std::to_string(mine) + " rows=" + std::to_string(m.rows().size()));
+        m.clear_all();
+    }
+
+    // QBPM-15: the Enabled cell of a group row acts on every location, and the run honours it.
+    {
+        const bool added = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_add(); });
+        bp->refresh();
+        auto members_enabled = [&](bool want) {
+            int n = 0;
+            for (const auto& si : fx.backend->subscriptions(false))
+                if (si.owner == m.client()) {
+                    if (si.enabled != want) return false;
+                    ++n;
+                }
+            return n == 2;
+        };
+        if (QTableWidgetItem* en = table->item(0, 0)) en->setCheckState(Qt::Unchecked);
+        const bool both_off = members_enabled(false);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x8000;
+        fx.emu.cpu().set_registers(r);
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        fx.emu.run_frame();
+        const bool passed = !fx.backend->state().paused;
+        fx.backend->pause(jnext::dbg::CLIENT_NONE);
+        bp->refresh();
+        if (QTableWidgetItem* en = table->item(0, 0)) en->setCheckState(Qt::Checked);
+        const bool both_on = members_enabled(true);
+        check("QBPM-15", "unchecking the Enabled cell of a two-location row disables both places "
+                         "(a run passes them) and checking it enables both",
+              added && both_off && passed && both_on,
+              "off=" + std::to_string(both_off) + " passed=" + std::to_string(passed) +
+                  " on=" + std::to_string(both_on));
+        m.clear_all();
+    }
+
+    // QBPM-16: a change to a NON-first member of a group is notified, with no manual refresh.
+    {
+        uint32_t kinds = 0;
+        int n = 0;
+        m.add_source_line(QStringLiteral("main.bas:11"));
+        const auto c = QObject::connect(&m, &BreakpointModel::changed, [&](uint32_t k) { kinds |= k; ++n; });
+        m.set_enabled(BreakpointModel::Execute, 0x9000, false, p90);
+        const bool toggled = n >= 1 && (kinds & jnext::dbg::kind_bit(jnext::dbg::EventKind::Execute));
+        kinds = 0;
+        n = 0;
+        m.remove(BreakpointModel::Execute, 0x9000, p90);
+        const bool removed = n >= 1 && (kinds & jnext::dbg::kind_bit(jnext::dbg::EventKind::Execute));
+        QObject::disconnect(c);
+        check("QBPM-16", "disabling and removing the second location of a group emit changed() with "
+                         "the Execute kind",
+              toggled && removed && m.rows().size() == 1 && m.rows()[0].locations == 1,
+              "toggled=" + std::to_string(toggled) + " removed=" + std::to_string(removed));
+        m.clear_all();
+    }
+
+    // QBPM-17: the group row takes the LOWEST location's address and space, not the first listed
+    // (resolve() sorts by space, so Page{20} $C000 lists before Page{30} $8000).
+    {
+        const std::string low = g_tmp->path().toStdString() + "/lowest.sld";
+        write_text(low, std::string("|SLD.data.version|1\n") + "main.c|1||0" + kNextDevice +
+                            "main.c|19||0|20|49152|T|\n" + "main.c|19||0|30|32768|T|\n");
+        fx.backend->load_source_map(low, false);
+        const jnext::dbg::GroupId g = m.add_source_line(QStringLiteral("main.c:19"));
+        const auto r = m.rows();
+        check("QBPM-17", "a group whose first-listed start is not the lowest address is one row at the "
+                         "lowest location's address and space",
+              g != jnext::dbg::GROUP_NONE && r.size() == 1 && r[0].locations == 2 &&
+                  r[0].addr == 0x8000 && r[0].space == MemSpace::page(30) &&
+                  r[0].addr_text == QStringLiteral("$8000 @1E"),
+              r.empty() ? std::string() : s(r[0].addr_text));
+        m.clear_all();
+    }
+
+    // QBPM-18: another client's legacy-page Execute (DZRP, the DSL) is a read-only row reading "$C000 @14".
+    {
+        jnext::dbg::ClientInfo ci;
+        ci.name = "dzrp-like";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const jnext::dbg::ClientId other = fx.backend->attach(ci).value;
+        jnext::dbg::Subscription legacy;
+        legacy.kind = jnext::dbg::EventKind::Execute;
+        legacy.action = jnext::dbg::Action::Stop;
+        legacy.filter.lo = legacy.filter.hi = 0xC000;
+        legacy.filter.page = 20;
+        fx.backend->subscribe(other, legacy);
+        m.add(BreakpointModel::Execute, 0x8000);   // the model re-reads the listing on its own mutations
+        m.remove(BreakpointModel::Execute, 0x8000);
+        const auto r = m.rows();
+        check("QBPM-18", "another client's Execute with a legacy page qualifier is a typeless, "
+                         "read-only row reading \"$C000 @14\"",
+              r.size() == 1 && r[0].type == -1 && !r[0].own && r[0].addr_text == QStringLiteral("$C000 @14"),
+              r.empty() ? std::string() : s(r[0].addr_text));
+        fx.backend->detach(other);
+    }
 }
 
 // ── QBPM-10: Edit never cancels silently ──────────────────────────────

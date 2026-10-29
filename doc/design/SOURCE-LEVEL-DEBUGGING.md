@@ -1238,8 +1238,11 @@ E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug
 the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group
 verbs), SRCBP-05 (`dzrp_adapter_test`: the legacy qualifier through `CMD_ADD_BREAKPOINT`) and
 QBPM-12/13 (`debugger_source_panel_test`: one row per group, the gutter removes one location).
-QBPP-04, QBPP-06 and QADR-10 now assert the group row. QADR-12, the Add Execute dialog with a
-paged name, waits for #375 stage 2 (no label reaches the backend's table before it).
+QBPP-04, QBPP-06 and QADR-10 now assert the group row. The review round added SRCBP-11/12
+(group verb refusals) and QADR-12, QBPM-14 to QBPM-18 (Add Execute with a paged name, Edit and the
+Enabled cell on a group row, notification, the lowest location, another client's legacy-page row).
+QADR-12 injects its paged label into the backend's table, since no loader supplies one before
+#375 stage 2, which replaces the injection with the real SLD-label path.
 
 E23-10 (#342) added SRCLIFE-01 to SRCLIFE-39 (`source_debug_test`: the cache both ways, identity
 checks at a state load, a `.sna`, an RZX start and a reset, stale user maps, the readers' first

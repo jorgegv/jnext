@@ -3974,6 +3974,43 @@ int main() {
                   bad_kind.status == Result::RefusedUnavailable && m.dbg->subscriptions(true).empty() &&
                   m.dbg->source_map().resolve("main.bas:5").error.find("no code at") != std::string::npos);
     }
+    {
+        // SRCBP-11: GROUP_NONE is "not grouped", so it names no group: both verbs refuse it and the
+        // client's plain subscriptions (group == GROUP_NONE too) are untouched; a removed group is
+        // refused like an unknown one (debugger.h: owner only, RefusedUnavailable otherwise).
+        const fs::path two = dir / "two-places-b.sld";
+        write_text(two, program_sld(p80, p90, "main.bas|11||0|" + std::to_string(p90) + "|36864|T|\n"));
+        Machine m;
+        m.dbg->load_source_map(two.string(), false);
+        m.dbg->subscribe(m.a, execute_stop(0x8000));
+        const Result un_none = m.dbg->unsubscribe_group(m.a, jnext::dbg::GROUP_NONE);
+        const Result en_none = m.dbg->set_group_enabled(m.a, jnext::dbg::GROUP_NONE, false);
+        const auto plain = m.dbg->subscriptions(false);
+        const bool intact = plain.size() == 1 && plain[0].enabled && plain[0].group == jnext::dbg::GROUP_NONE;
+        const auto g = m.dbg->subscribe_source_line(m.a, "main.bas:11", execute_stop(0));
+        m.dbg->unsubscribe_group(m.a, g.value);
+        const Result en_gone = m.dbg->set_group_enabled(m.a, g.value, true);
+        check("SRCBP-11", "unsubscribe_group and set_group_enabled refuse GROUP_NONE and leave a plain "
+                          "subscription intact; set_group_enabled refuses a removed group",
+              un_none == Result::RefusedUnavailable && en_none == Result::RefusedUnavailable && intact &&
+                  static_cast<bool>(g) && en_gone == Result::RefusedUnavailable &&
+                  m.dbg->subscriptions(false).size() == 1,
+              "un=" + std::to_string(int(un_none)) + " en=" + std::to_string(int(en_none)) +
+                  " intact=" + std::to_string(intact) + " gone=" + std::to_string(int(en_gone)));
+    }
+    {
+        // SRCBP-12: a detached client cannot own a source breakpoint (the GH #276 B5 rule subscribe() keeps).
+        Machine m;
+        m.dbg->load_source_map(sld.string(), false);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "gone";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId c = m.dbg->attach(ci).value;
+        m.dbg->detach(c);
+        const auto r = m.dbg->subscribe_source_line(c, "main.bas:11", execute_stop(0));
+        check("SRCBP-12", "subscribe_source_line for a detached client is refused and arms nothing",
+              !r && r.status == Result::RefusedUnavailable && m.dbg->subscriptions(true).empty());
+    }
 
     fs::remove_all(dir);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
