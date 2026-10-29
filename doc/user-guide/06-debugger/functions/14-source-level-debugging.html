@@ -3741,8 +3741,8 @@ again (<strong>Load SLD...</strong>) to use it.</p>
 buttons, also in <strong>Debug ▸ Source ▸ Load Source Map…</strong> and <strong>Load Symbols
 (Memory.txt)…</strong>. The symbols replace whatever was loaded before, as the
 <strong>Map ▸ Load MAP File</strong> formats do. <strong>Load SLD...</strong> loads the SLD's labels too and
-replaces the symbols the same way, unless they came from <strong>Map ▸ Load MAP File</strong>
-or <code>--map</code>, which are kept; a later SLD replaces an earlier SLD's labels.</p>
+replaces the symbols the same way, unless you loaded symbols yourself (<strong>Map ▸ Load MAP
+File</strong>, <strong>Load Memory.txt...</strong> or <code>--map</code>), which are kept; a later SLD replaces an earlier SLD's labels.</p>
 <p><strong>Binary identity.</strong> An SLD may record the SHA-256 of the program's bytes as it
 was built (<code>||program.sha256:</code>, <code>||program.org:</code> and <code>||program.size:</code> comment
 records, which other SLD readers ignore). An SLD found beside a program whose
