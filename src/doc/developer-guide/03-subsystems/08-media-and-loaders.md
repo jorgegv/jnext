@@ -134,6 +134,26 @@ byte C, whose value after the sync depends on the pilot phase the ROM caught and
 which the trap pins to `0x21`. A custom or turbo loader that never enters the ROM
 routine is never intercepted, and real time is then the only way it will load.
 
+**A fast load also runs the machine uncapped**, so the BASIC between the blocks
+does not cost real time: `Emulator::fastload_active()` drops the frame pacing (the
+Qt frontend runs up to 200 frames per tick, the SDL one skips its delay) and the
+audio. Like FUSE's `timer_fastloading_active()`, it holds only while something is
+loading, never because a tape is merely attached (GH #408): while the phantom
+typist waits, for at most `PhantomTypist::FASTLOAD_WAIT_FRAMES` (1000) frames, or,
+for a fast tape with blocks left, while the keyboard auto-type is typing its
+`LOAD ""` or within `FASTLOAD_TAPE_IDLE_FRAMES` (50) frames of the last block the
+trap served. Before that bound, a tape nobody read (opened at a NextZXOS screen,
+or a second program on it) kept the sprint for the whole session: the window
+answered once a burst, and one key tap lasted a burst, long enough for the ROM to
+auto-repeat it dozens of times. Both bounds are measured (`tap_loader_test`
+TAPF-09..12): the ROM's own work between trapped blocks is 0-1 frames, and a
+loader `PAUSE` past the window runs only its tail at 1x, the next block still
+trapped at once; the typist's first fire at power-on is frame 63-92 on the
+48K/128K/+3, 92 on a Next started with `--load`, and 311 on a cold Next, which
+runs the FPGA bootloader and tbblue firmware first (`init()` overlays
+`nextboot.rom` only when no `load_file` is set). A reset, Tape > Eject, a newly attached tape (`.tap`, `.tzx`
+or `.wav`) and a `.jns` tape reattach each close the window.
+
 **Automatic play/stop (GH #395)** is a host deck feature with no hardware
 counterpart (no Spectrum has tape motor control). The signal is
 `TapePollDetector` (`src/core/tape_poll_detector.h`): every CPU `IN` of the ULA

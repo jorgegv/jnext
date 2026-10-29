@@ -2190,9 +2190,7 @@ void MainWindow::handle_tape_path(const QString& path) {
 
 void MainWindow::on_tape_eject() {
     if (!emulator_) return;
-    emulator_->tape().eject();
-    emulator_->tzx_tape().eject();
-    emulator_->wav_tape().eject();
+    emulator_->eject_tape();
     update_tape_status();
 }
 

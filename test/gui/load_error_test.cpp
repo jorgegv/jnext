@@ -51,6 +51,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -194,11 +195,19 @@ struct Fixture {
     int        callbacks = 0;
     bool       ok = false;
 
-    explicit Fixture(bool sd_readonly = false) {
+    explicit Fixture(bool sd_readonly = false, MachineType mt = MachineType::ZXN_ISSUE2) {
         EmulatorConfig cfg;
-        cfg.type                 = MachineType::ZXN_ISSUE2;
+        cfg.type                 = mt;
         cfg.rewind_buffer_frames = 0;
         cfg.sd_card_readonly     = sd_readonly;   // GH #93, LE-19
+        // GH #408, LE-32: a non-Next machine needs its ROM, which comes from
+        // the SD image (the Next fixtures run without one, as they always have).
+        if (mt != MachineType::ZXN_ISSUE2) {
+            const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
+            const char* home = std::getenv("HOME");
+            cfg.sd_card_image = env ? std::string(env)
+                                    : std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+        }
         if (!emu.init(cfg)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         win.set_debugger(backend.get());
@@ -1035,6 +1044,53 @@ int main(int argc, char** argv) {
               f.ok && h.n == 1 && s && s->path() == zp + " (" + program_archive::display_name(pok) + ")" &&
                   s->path().find('\x1b') == std::string::npos,
               s ? s->path() : std::string("no session"));
+    }
+
+    // GH #408 - Tape > Eject, the menu action: MainWindow::on_tape_eject() must
+    // go through Emulator::eject_tape(), which empties every deck AND closes
+    // the fast-load window of the tape that was in.
+    // LE-32 - a 48K whose fast TAP has just been read through the ROM trap
+    // (the window is open), then Tape > Eject.
+    {
+        Fixture f(true, MachineType::ZX48K);
+        DialogWatcher w;
+        f.win.handle_tape_path(QString::fromStdString(good_tap_path));
+        for (int i = 0; f.ok && i < 1500 && f.emu.tape_fastload_frames_left() == 0; ++i) f.emu.run_frame();
+        const uint32_t open = f.emu.tape_fastload_frames_left();
+        QAction* eject = find_action(f.win, "&Eject Tape");
+        const bool enabled = eject && eject->isEnabled();
+        if (eject) eject->trigger();
+        w.stop();
+        const bool empty = !f.emu.tape().is_loaded() && !f.emu.tzx_tape().is_loaded() &&
+                           !f.emu.wav_tape().is_loaded();
+        check("LE-32", "Tape > Eject (the menu action) of a fast TAP whose window is open empties every "
+              "deck, closes the window and shows no tape",
+              f.ok && open > 0 && enabled && empty && f.emu.tape_fastload_frames_left() == 0 &&
+                  !eject->isEnabled() && f.status() == "Tape: none",
+              fmt("open=%u enabled=%d empty=%d left=%u status='%s'", open, enabled ? 1 : 0, empty ? 1 : 0,
+                 f.emu.tape_fastload_frames_left(), q(f.status()).c_str()));
+    }
+    // LE-33 - the same action with a TZX in the deck, then with a WAV.
+    {
+        bool all = true;
+        std::string det;
+        for (const std::string& path : {good_tzx_path, good_wav_path}) {
+            Fixture f;
+            DialogWatcher w;
+            f.win.handle_tape_path(QString::fromStdString(path));
+            const bool in = f.emu.tzx_tape().is_loaded() || f.emu.wav_tape().is_loaded();
+            QAction* eject = find_action(f.win, "&Eject Tape");
+            if (eject) eject->trigger();
+            w.stop();
+            const bool empty = !f.emu.tape().is_loaded() && !f.emu.tzx_tape().is_loaded() &&
+                               !f.emu.wav_tape().is_loaded();
+            if (!(f.ok && in && eject && empty && f.status() == "Tape: none")) {
+                all = false;
+                det += path + ": in=" + std::to_string(in) + " empty=" + std::to_string(empty) +
+                       " status=" + q(f.status()) + " | ";
+            }
+        }
+        check("LE-33", "Tape > Eject (the menu action) empties the deck of a TZX and of a WAV", all, det);
     }
 
     std::filesystem::remove_all(g_root, ec);

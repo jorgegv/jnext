@@ -30,6 +30,11 @@
 //          (defensive — no observable effect, no crash).
 //   PT-17  Fire-without-attach() does NOT crash (safety net) and
 //          transitions to INACTIVE.
+//   PT-18  GH #408: wants_fastload() holds for FASTLOAD_WAIT_FRAMES frames
+//          of WAITING, then lets go while the typist stays armed; a full
+//          scan afterwards still fires it (POST_DELAY wants it again).
+//   PT-19  GH #408: arm(), reset() and restore() each restart the wait.
+//   PT-20  GH #408: the wait bound in absolute frames, 1000 (20 s at 50 Hz).
 //
 // Run: ./build/test/phantom_typist_test
 
@@ -347,6 +352,57 @@ static void test_pt_17_fire_without_attach() {
           !pt.is_active(), "");
 }
 
+static void test_pt_18_fastload_wait_bound() {
+    Keyboard kb; kb.reset();
+    PhantomTypist pt; pt.attach(&kb);
+    pt.arm(MachineType::ZX48K);
+    const int wait = static_cast<int>(PhantomTypist::FASTLOAD_WAIT_FRAMES);
+    bool on = pt.wants_fastload();
+    for (int i = 1; i < wait; ++i) { pt.tick_frame(); if (!pt.wants_fastload()) on = false; }
+    pt.tick_frame();   // the FASTLOAD_WAIT_FRAMES-th waiting frame
+    const bool off = !pt.wants_fastload() && pt.is_active();
+    for (int i = 0; i < 100; ++i) pt.tick_frame();
+    const bool saturated = !pt.wants_fastload() &&
+                           pt.frames_waiting() == PhantomTypist::FASTLOAD_WAIT_FRAMES;
+    simulate_full_scan_to_post_delay(pt);
+    const bool post = pt.wants_fastload();
+    for (int i = 0; i < 60 && pt.is_active(); ++i) pt.tick_frame();
+    check("PT-18", "a waiting typist wants fast loading for FASTLOAD_WAIT_FRAMES frames, then not "
+          "(still armed); a later full scan still fires it",
+          on && off && saturated && post && !pt.is_active() && kb.auto_typing(),
+          detail("frames_waiting=%d", static_cast<int>(pt.frames_waiting())));
+}
+
+static void test_pt_19_wait_restarts() {
+    PhantomTypist pt;
+    const int wait = static_cast<int>(PhantomTypist::FASTLOAD_WAIT_FRAMES);
+    auto exhaust = [&]() { for (int i = 0; i < wait; ++i) pt.tick_frame(); };
+    pt.arm(MachineType::ZX48K); exhaust();
+    const PhantomTypist::Snapshot waiting = pt.snapshot();
+    pt.arm(MachineType::ZX48K);
+    const bool rearm = pt.wants_fastload() && pt.frames_waiting() == 0;
+    exhaust(); pt.reset();
+    const bool reset = pt.frames_waiting() == 0 && !pt.wants_fastload();
+    pt.arm(MachineType::ZX48K); exhaust();
+    const bool restored = pt.restore(waiting) && pt.frames_waiting() == 0 && pt.wants_fastload();
+    check("PT-19", "arm(), reset() and restore() each restart the fast-loading wait",
+          rearm && reset && restored, "");
+}
+
+static void test_pt_20_fastload_wait_literal() {
+    // Literal on purpose: PT-18 reads the constant, so a bound of 5000 (100 s
+    // of the GH #408 sprint) passes it. 1000 = 3x the slowest measured first
+    // fire (Next cold boot, 311 frames: tap_loader_test TAPF-12).
+    PhantomTypist pt;
+    pt.arm(MachineType::ZX48K);
+    for (int i = 0; i < 999; ++i) pt.tick_frame();
+    const bool on = pt.wants_fastload();
+    pt.tick_frame();
+    const bool off = !pt.wants_fastload() && pt.is_active();
+    check("PT-20", "a waiting typist wants fast loading after 999 frames and not after 1000 (20 s at 50 Hz)",
+          on && off, detail("frames_waiting=%d", static_cast<int>(pt.frames_waiting())));
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // main
 // ══════════════════════════════════════════════════════════════════════════
@@ -375,6 +431,9 @@ int main(int argc, char** argv) {
     test_pt_15_re_arm_clears_accumulator();
     test_pt_16_inactive_is_no_op();
     test_pt_17_fire_without_attach();
+    test_pt_18_fastload_wait_bound();
+    test_pt_19_wait_restarts();
+    test_pt_20_fastload_wait_literal();
 
     printf("\nTotal: %d  Passed: %d  Failed: %d  Skipped: %d\n",
            g_total, g_pass, g_fail, 0);
