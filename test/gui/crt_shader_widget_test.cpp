@@ -255,11 +255,11 @@ int main(int argc, char** argv) {
         w.set_crt_shader(true);
         QElapsedTimer t;
         t.start();
-        while (t.elapsed() < 1500) {   // the failure is discovered at the first paint, then queued
+        do {   // the failure is discovered at the first paint, then queued; at least one pass (GH #399)
             w.update_frame(fb.data(), FB_W, FB_H);
             settle(2);
             if (built_in ? (failed_count > 0) : true) break;
-        }
+        } while (t.elapsed() < 1500);
         settle(6);
 
         const bool running  = w.crt_shader_active() && w.crt_shader();

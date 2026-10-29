@@ -12,6 +12,7 @@
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
 #include "input/joy_assign.h"
+#include "gui/host_shortcuts.h"       // GH #403
 #include "platform/pointer_capture.h"
 #include "platform/quick_snapshot_chord.h"   // jnext::QuickAction (GH #386)
 #include "debug/events.h"        // ClientId — GH #306 pause client
@@ -28,7 +29,8 @@ class PokDialog;
 class DebuggerManager;
 #endif
 namespace jnext { namespace dbg { class Debugger; } }
-namespace jnext { namespace pok { class Session; } }
+namespace jnext { namespace pok { class Session; struct PokFile; } }
+namespace program_archive { class ProgramArchive; }
 
 /// Main emulator window — QMainWindow shell with emulator viewport, menu bar,
 /// toolbar, and status bar.  Keyboard events are dispatched to a configurable callback.
@@ -201,6 +203,33 @@ public:
     /// the .jns probe is not repeated (GH #386: it re-read the whole SD card).
     void handle_load_path(const QString& path, bool jns_probed = false);
 
+    /// GH #406 - File > Recent Files. The submenu, the slot its entries and the
+    /// two load dialogs use, and the seed those dialogs start from (the most
+    /// recent file when it is still in the last load directory, else that
+    /// directory). Public for the reason given at handle_load_path().
+    QMenu* recent_menu() const { return recent_menu_; }
+    QAction* reload_last_action() const { return reload_last_action_; }
+
+    /// GH #406 - the startup --load: `file` is what the frontend will load
+    /// (an archive member's extracted copy), `shown` what the user named; when
+    /// load_finished() reports `file` worked, `shown` joins the recent list.
+    void set_startup_load(const std::string& file, const std::string& shown) {
+        startup_load_file_ = file;
+        startup_load_shown_ = shown;
+    }
+
+    /// GH #406 - a startup `--load x.rzx` is played by the frontend, not loaded
+    /// through load_finished(): it calls this once playback has started.
+    void startup_rzx_started(const std::string& file) { load_finished(file, true); }
+
+    void on_recent_file(const QString& path);
+    QString load_dialog_seed() const;
+
+    /// GH #392 - the window's POK session and whether its dialog is showing
+    /// (an archive's bundled trainers make a session without opening it).
+    const jnext::pok::Session* pok_session() const { return pok_.get(); }
+    bool pok_dialog_visible() const;
+
     /// GH #381 - everything Machine > POK Trainers... does AFTER its file picker
     /// returns, and what File > Load of a .pok does instead of a cold boot: read
     /// the file, make it the window's POK session (replacing the previous one,
@@ -242,6 +271,8 @@ public:
     // reason (load_error_test drives it): attaches the tape in the mode the
     // Fast Load toggle shows, and reports a file the loader refuses.
     void handle_tape_path(const QString& path);
+    // GH #402 - the one fast/real-time setting: Tape > Fast Load checked = fast.
+    bool tape_fast_load() const { return !tape_fast_action_ || tape_fast_action_->isChecked(); }
 
     // GH #89 — the post-picker half of Tape > Start Saving..., split out like
     // handle_tape_path(): arms saving to `path` as --tape-save would, and
@@ -367,6 +398,9 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
+#ifdef Q_OS_MACOS
+    void showEvent(QShowEvent* event) override;   // GH #404: register with mac_fullscreen
+#endif
 
 private:
     void handle_key(QKeyEvent* event, bool pressed);
@@ -392,6 +426,7 @@ private:
     void on_tape_eject();
     void on_tape_rewind();
     void on_tape_fast_load(bool checked);
+    void on_tape_auto_play(bool checked);
     void on_tape_save_start();
     void on_tape_save_stop();
     void update_tape_status();
@@ -443,6 +478,14 @@ private:
     /// dialog.
     void refuse_jns(const QString& path, const QString& why);
 
+    /// handle_load_path() for one real program file; `shown` (when not empty)
+    /// is what every message calls it (GH #392: "<archive> (<member>)"). True
+    /// when the load was handed to load_file_callback_.
+    bool handle_program_path(const QString& path, const QString& shown, bool jns_probed);
+    void start_pok_session(jnext::pok::PokFile file, const std::string& display, bool show);
+    void offer_archive_pok(const program_archive::ProgramArchive& archive,
+                           const std::string& program, const std::string& archive_path);
+
     /// GH #18/#19 — the single write path behind both screenshot menu
     /// entries. Picks PNG or .SCR from `path`'s extension, reports the file
     /// it wrote in the status bar, and raises a dialog when it could not.
@@ -461,6 +504,8 @@ private:
 
     /// Recompute the window's fixed size from the widget + chrome.
     void apply_fixed_window_size();
+    // GH #404 — shared body of toggle_fullscreen() and the macOS state sync.
+    void apply_fullscreen_state(bool enter, bool call_show);
 
     EmulatorWidget* emulator_widget_ = nullptr;
     Emulator*       emulator_        = nullptr;
@@ -472,6 +517,14 @@ private:
     // The file handle_load_path() last handed to load_file_callback_, until
     // load_finished() reports on it.
     std::string menu_load_pending_;
+    // GH #406 - the path (as the user gave it) to add to File > Recent Files
+    // when that load succeeds; empty for a load that is not recorded.
+    std::string menu_load_recent_;
+    std::string recent_candidate_;   // what handle_load_path() was asked for, until handed on
+    std::string startup_load_file_, startup_load_shown_;   // GH #406, --load
+    // GH #392 - what to call menu_load_pending_ in the failure box (an archive
+    // member's extracted path is not something the user knows).
+    std::string menu_load_shown_;
     // GH #381 - the POK file open in Machine > POK Trainers... and the dialog
     // showing it. The session outlives resets (set_emulator() makes it forget
     // its undo records) and is replaced when another file is opened.
@@ -499,6 +552,7 @@ private:
     /// GH #365 — which gesture releases the capture, and the swallow state of
     /// an Esc that did. See pointer_capture.h.
     pointer_capture::ReleaseFilter release_filter_;
+    host_shortcuts::CommandChordGate command_gate_;   // GH #403 (macOS only; inert elsewhere)
     void set_mouse_release_method(pointer_capture::ReleaseMethod m);
     void update_capture_status_tip();
     QString release_hint_text() const;
@@ -525,6 +579,7 @@ private:
     int capture_margin() const;
 
     bool is_fullscreen_ = false;
+    bool applying_fullscreen_ = false;  // GH #404 — inside toggle_fullscreen()
     int current_scale_ = 1;  ///< Default 1× scale (640×512 viewport — post-G104, was 2× / 1280×1024 pre-G104).
 
     // Status bar labels
@@ -580,6 +635,7 @@ private:
     QAction* tape_eject_action_  = nullptr;
     QAction* tape_rewind_action_ = nullptr;
     QAction* tape_fast_action_   = nullptr;
+    QAction* tape_auto_action_   = nullptr;
     QAction* tape_save_start_action_ = nullptr;   // GH #89
     QAction* tape_save_stop_action_  = nullptr;
     QLabel*  tape_label_         = nullptr;
@@ -612,6 +668,10 @@ private:
     // sync_joy_source_menu() from joy_choices() (Automatic, each present
     // controller, Cursor Keys + Space, None).
     QMenu*        joy_menu_[2]  = { nullptr, nullptr };
+    QMenu*        recent_menu_  = nullptr;   // GH #406
+    QAction*      reload_last_action_ = nullptr;   // GH #406, Alt+L
+    void record_recent_file(const QString& path);
+    void rebuild_recent_menu();
     QActionGroup* joy_group_[2] = { nullptr, nullptr };
     std::function<std::vector<JoyDeviceInfo>()> joy_device_provider_;
     // Live-apply + persist a pick from a connector's submenu.

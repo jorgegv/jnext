@@ -591,6 +591,7 @@ snapshot.jns
 ├── state/membrane_stick.json
 ├── state/iomode.json
 ├── state/joy_uart.json         present only when a cable is attached
+├── state/tape.json            present only when a tape is attached: the deck's position (GH #402)
 ├── state/esxdos_hostfs.json    handles + cwd + root
 ├── state/emulator.json         Emulator's own scalars, §10
 ├── state/ram.json              Ram's own scalars; the bytes are the blob below
@@ -759,6 +760,13 @@ stated unconditionally in §7.4 ("every 64-bit field"), the table's own rows are
 descriptor primitives that exist only in `state/*.json` (`blob`, `ram_window`,
 `log`, `fifo`), and §8's example shows `"frame": 41291` as a number — three
 statements a careful reader cannot reconcile. Now it can.
+
+**A host string that is not UTF-8.** `manifest.json` and `state/esxdos_hostfs.json`
+carry host paths (`media.tape.path`, `media.sdcard.mounted_path`,
+`media.esxdos_root`, the handle paths), and a Linux file name is bytes. The
+writer replaces each invalid byte with U+FFFD rather than refusing to save
+(GH #401). The recorded path is then lossy and will not reopen: a tape warns on
+load, an esxDOS handle is dropped. Valid UTF-8 is written byte for byte.
 
 **Why the manifest is safe with numbers, stated rather than assumed.** §7.4's
 hazard is real and measured: the `/INT` window exceeds 2^53 in *every*
@@ -1159,7 +1167,8 @@ Three consequences, all now in §6.2:
     "roms":   { "source": "sdcard", "sha256": { "48.rom": "…", "128.rom": "…" } },
     "boot_rom_sha256": "…",
     "tape":   { "path": "…/game.tzx", "sha256": "…", "position_tstates": 0,
-                "realtime": false },
+                "realtime": false,
+                "archive": "…/game.tzx.zip", "member": "game.tzx" },
     "esxdos_root": "/home/user/nextdev"
   },
 
@@ -1193,6 +1202,18 @@ Notes on the parts that carry weight:
   deliberately **no `"paused"` key**: see §10.2 P7 — a mid-frame pause is a
   state a `.jns` cannot be written from at all, so a flag saying so would
   describe a file that does not exist.
+- **`media.tape.path`** is the attached tape's ABSOLUTE host path (GH #401):
+  UTF-8, lexically normalised, symlinks kept, native separators. The digest is
+  of the bytes the tape loader READ when it attached the file (GH #402), which is
+  the file unless it was edited after it was attached. `archive` and `member`
+  (both optional, written together) appear only for a tape extracted from a
+  `.zip`: the extracted copy lives in a scratch directory that dies with the
+  process, so a later session re-extracts `member` from `archive` and checks the
+  digest. The deck's position is `state/tape.json`, not the manifest. A file from a version that recorded only the file name holds a bare file name, which
+  is opened as written and so resolves against the working directory; a reader
+  does not guess otherwise. The key, its type and `format_version` are
+  unchanged, since the old writer only under-filled a field this section always
+  defined as a path.
 - **`media.roms`** closes a real gap. For `--machine 48k/128k/plus3` the ROM
   lives in the separate `Rom rom_` object, which is **not serialised** — so a
   snapshot restored against a different `48.rom` runs different code with no
@@ -1437,12 +1458,21 @@ An earlier draft named three of these. All eight, from the classification:
    where they belong logically.
 3. **Values written relative to something the stream does not carry** — the
    CPU's `/INT` window, a delta against the FUSE T-state counter that
-   `load_state` re-seeds at the next frame start (§7.4).
+   `load_state` re-seeds at the next frame start (§7.4). The tape deck's edge,
+   start and poll times (`state/tape.json`, GH #402) are the same shape: signed
+   distances from the save instant, re-based by `load_jns`. The CPU's three
+   scratch values (`ei_grace`, `iff2_read`, `int_first_ts_rel`) are marshalled
+   from the FUSE struct before a `.jns` write and applied back after a read
+   (`Z80Cpu::marshal_for_describe` / `apply_after_describe`, GH #402), as the
+   binary stream does inside `save_state`/`load_state`.
 4. **Variable-length lists** — the esxDOS host-FS handle table (path, offset,
-   mode per open handle) and the joystick-cable cursor.
+   mode per open handle), the joystick-cable cursor, and the tape deck
+   (`state/tape.json`, GH #402: the three loaders' own player state, which no
+   declaration can express because the TZX player holds pointers into the file).
 5. **Presence-flag-gated optional blocks** — `joy_uart` writes a `bool` and then
-   a whole subsystem only when a cable is attached. In JSON this is simply an
-   absent member, so the flag itself does not travel.
+   a whole subsystem only when a cable is attached; `tape` (GH #402) only when a
+   tape is attached. In JSON this is simply an absent member, so the flag itself
+   does not travel.
 6. **Reconstructed-on-load fields** — `Multiface::mf_type_`, today rebuilt from
    three booleans and knowingly lossy (§4.3(3)). JNS serialises the 2-bit value
    directly, which makes this a *fix* rather than an exception, and the three
@@ -1504,7 +1534,7 @@ JNS re-expresses it through the descriptor and does not add state.
 | **P1** ✓ **DONE (S6)** | **`SdCardDevice` has no `save_state` at all.** Its own header says so and enumerates what would be needed: `multi_block_`, `multi_block_sector_`, `state_`, `resp_buf_`, `resp_idx_`, `data_idx_`, `data_crc_count_`, `data_block_`. A snapshot taken mid-CMD18 stream restores a card that is not streaming. | **High** — this is the one that silently corrupts a running loader | **Serialise the FSM** into `state/sdcard.json`, plus the mounted path, the read-only flag and the read-overlay window. The field list is already written down in the header comment. |
 | **P2** | **SD image contents.** §11. | High | §11. |
 | **P3** ✓ **DONE (S6)** | **`rom_` is not serialised** — for 48K/128K/+3, ROM content comes from the SD image at load time and never travels. | Medium | Record `media.roms` digests (§8) and refuse on mismatch under `--snapshot-mode strict`, warn otherwise. Do **not** embed 64 KB of ROM: it is firmware, and N3 applies. |
-| **P4** ✓ **DONE (S6)** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and reopen on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. |
+| **P4** ✓ **DONE (S6)** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and check it on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. **Reattached since GH #402:** `media.tape` is the identity (path, digest of the bytes the loader read, realtime flag, and for a tape extracted from a `.zip` the optional `archive` and `member`, since the scratch copy dies with the process); the deck's position is the hand-written `state/tape.json` (§9.5(4)/(5) shape: presence-gated, listed in `subsystems`, outside the generated schema): the recorded loader, the TAP/TZX/WAV player state (times as signed distances from the save instant, §9.5(3); file pointers as byte offsets), the poll detector, the phantom typist and the recorded auto play. `load_jns` ends by re-opening the tape, checking the digest and having the loader validate every value against the file. Any failure is ONE warning and leaves the deck as it was, never a refusal: the file missing (the container's warning), changed since the save, the member damaged or its position not valid for the file, or an older file with no member (attaching at the start would hand block 0 to a program waiting for a later one). **A snapshot changes no setting** (owner, 2026-10-23): the session's fast/real-time mode (`JnsLoadOptions::tape_realtime`) and auto play apply, and a deck recorded in the other mode is converted at a block boundary (finish the block in real time then hand over to fast at the next gap; fast to real time held under auto play; a held deck resumed when auto play is off; a stopped TZX held when it is on). `format_version` and `state_model_revision` stay 1. |
 | **P5** ✓ **DONE (S6)** | **Framebuffer.** Regenerated by the next render, so a snapshot restored *paused* shows the previous frame until the user steps. | Low | `meta/preview.png` doubles as the restore-time paused image. Free — jnext already writes PNG. |
 | **P6** | **Mixer integration accumulator.** Deliberately not snapshotted; the first sample after a restore averages a short window. | Negligible | Keep the existing decision; document it. |
 | **P7** ✓ **DONE (S6)** | **Scheduler queue — and the mid-frame pause it forbids.** `emulator.cpp:11871` states snapshots "are only ever taken at a frame boundary (`begin_new_frame()`), so a restored machine has no frame in flight". The queue is empty exactly there and nowhere else. **But the debugger breaks MID-frame**, so a paused machine is normally not at a boundary — and that is precisely when a developer reaches for File ▸ Save Snapshot. The bug that proves the stakes is on record at `emulator.cpp:9144` (Task 40, `beast.nex`): stepping a machine past a mid-frame point cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. | **High** — it is the *debugging* save that is most likely to hit it | **One rule — always advance to the next frame boundary; never refuse** (owner decision, 2026-09-23). A **running** machine's save is queued to the next `begin_new_frame()`, which is required anyway because the GUI cannot serialise from inside `run_frame()`. A machine **paused mid-frame is advanced** to the next `begin_new_frame()` and saved there. There is no refusal path, no unavailable menu item and no failure mode. **The consequence, stated plainly: the restored machine is up to one frame past the moment the user paused at.** That is the accepted trade — a save that always works beats one that is sometimes unavailable, and a developer who needs the exact mid-frame instant has the rewind buffer, which exists for precisely that. §15.2 carries the implementation note that makes the advance safe. |
@@ -1586,6 +1616,20 @@ identity split in two so it can be both stable and informative.
 
 ### 11.3 Recommendation: a two-tier identity
 
+> **GH #396 revision (owner, 2026-10-22): Tier 2 removed.** Tier 2
+> (`content_stamp`) and the mid-transfer refusal below are WITHDRAWN. The
+> whole-image SHA-256 ran on the UI thread on every save, probe and load
+> (0.6-1.2 s per GB measured, tens of seconds on a large card): Quick Save and
+> Quick Load froze the window. The rule now: jnext **assumes the mounted card is
+> the one the snapshot was taken with, in the state it was left**. Tier 1 stays
+> exactly as described (size, MBR digest, `BS_VolID`, partition LBA; refusal;
+> `--snapshot-mode force`), and reads two sectors. Changing the card between
+> saving and loading is **at the user's risk**: NextZXOS keeps FAT and directory
+> state in RAM, and a snapshot restored over a changed card can corrupt it.
+> The text below is kept as the record; the struck rows are retired, and the
+> JSON example no longer carries `content_stamp`. `.jns` files from jnext
+> 1.1.0-1.1.75 carry one; readers ignore it (see section 12.3).
+
 ```json
 "media": {
   "sdcard": {
@@ -1600,11 +1644,6 @@ identity split in two so it can be both stable and informative.
     },
     "informational": {
       "fat32_bs_vollab": "NEXT       "
-    },
-
-    "content_stamp": {
-      "sha256": "…",
-      "mtime_utc": "2026-09-23T09:58:41Z"
     }
   }
 }
@@ -1632,8 +1671,9 @@ genuinely stable identifier and is what the refusal rests on.
 small, honest difference worth writing down, because "already parses it" and
 "already exposes it" are not the same claim.
 
-**Tier 2 — `content_stamp`: "has it changed since?"** The whole-image SHA-256
-and mtime, the warm-start cache's existing mechanism reused verbatim.
+**Tier 2 — `content_stamp`: "has it changed since?"** *(RETIRED, GH #396.)* The
+whole-image SHA-256 and mtime, the warm-start cache's mechanism reused
+verbatim.
 
 **Restore behaviour:**
 
@@ -1641,10 +1681,10 @@ and mtime, the warm-start cache's existing mechanism reused verbatim.
 |---|---|
 | No card mounted now, snapshot had one | **Refuse.** Naming the path and the volume label. |
 | `identity` differs (size, MBR or `BS_VolID`) | **Refuse.** This is the silently-wrong case settled point 4 demands be caught. `--snapshot-mode force` overrides, with a warning that names both identities. |
-| Only `informational.fat32_bs_vollab` differs | **No refusal, and no warning about the label or the identity.** It is never compared. *(Corrected at S7 — see the note under the table: it was written "nothing at all", and that is unreachable for an ON-DISK label change.)* |
-| `identity` matches, `content_stamp` differs | **Restore, with one warning line** naming the snapshot's digest and the current one. Legitimate and common — the card drifts. |
-| Both match | Silent. |
-| The SD FSM (P1) was mid-transfer at capture | Restore it (P1), and additionally require `content_stamp` to match — a half-finished sector read against changed bytes is exactly the "streams garbage" failure. Mismatch here is a **refusal**, not a warning. |
+| Only `informational.fat32_bs_vollab` differs | **Nothing at all** (GH #396: the original wording holds again; the S7 correction below is reversed, because without a whole-image digest a label edit warns about nothing). |
+| ~~`identity` matches, `content_stamp` differs~~ | ~~Restore, with one warning line.~~ **Retired (GH #396):** the contents are not compared; silent. |
+| `identity` matches | Silent. |
+| ~~The SD FSM (P1) was mid-transfer at capture~~ | ~~Additionally require `content_stamp` to match; mismatch refuses.~~ **Retired (GH #396):** restored like any other; the FSM resumes against the card as it is now (correct when the card is unchanged, the user's risk otherwise). |
 
 That last row is the part worth defending: the identity check is tiered because
 most of the time the card's drift is irrelevant, but when the machine is *in the
@@ -1749,6 +1789,16 @@ the digest; `JNSI-P08` requires a bootstrap byte **not** to.
 
 ---
 
+### 11.4 Why not a cheaper content check (GH #396)
+
+A content index was designed and rejected: a 1 MiB-chunk digest tree kept
+current by jnext's own writes, invalidated by a stat key, built off the UI thread
+and optionally persisted. It would have kept Tier 2's guarantees but was judged
+over-engineered for what Tier 2 buys (a warning, and a refusal in a rare case).
+A timestamp alone could not serve as the stamp either: jnext's own writes move
+it, outside tools preserve it (`cp -p`, `touch -r`), and coarse filesystems
+round it. So the card is simply assumed to be as the snapshot left it.
+
 ## 12. Compatibility rules and the unknown-member rule
 
 SZX's convention (settled point 7) is "unknown chunk types must be ignored". ZIP
@@ -1811,6 +1861,13 @@ reviewer reads.
 
 ### 12.3 Retired names
 
+`media.sdcard.content_stamp` (GH #396) is TOMBSTONED: never written, and on read
+ignored whatever its shape (not parsed, not reported as unknown). `format_version`
+stays 1 (removing a key does not bump it, section 7.1); an older jnext reading a
+new file finds no stamp and loads it with its existing "could not be compared"
+warning. The planned `doc/formats/jns-retired-names.json` table is not created
+for this one key; the tombstone lives in the reader.
+
 Checked **before** the ignore-unknown rule, against the committed
 `doc/formats/jns-retired-names.json` (§7.1): a key listed there is **migrated**
 to its successor, or ignored *deliberately* if tombstoned. Only a key in neither
@@ -1836,6 +1893,12 @@ not listed here is a gap in this document, not a licence to improvise.
 | Snapshot had **no** card, one is mounted now | **Restore, with a warning.** The machine did not depend on it; a card that appeared is not a reason to refuse, but it is a reason the run may diverge. |
 | `media.sdcard.read_only` differs from the current mount | **Warn.** A snapshot taken read-only restoring onto a writable mount is legal and common; the reverse means writes the snapshot's program made were never persisted. Named in the warning, not refused. |
 | `model.ram_kb` is a size this build cannot construct | **Refuse** (§8 — never assume 2048). |
+| `media.tape` present and its file (or, with `archive`, the archive) cannot be opened | **Warn once** (the container's), restore without the tape. Never a refusal, not under `strict` (§10.2 P4). |
+| `media.tape` present, no `state/tape.json` (a file from before GH #402) | **Warn once** that the position is not recorded; the tape is **not** attached (attaching at the start would hand block 0 to a program waiting for a later one). |
+| `state/tape.json` unreadable, not JSON, or a field missing/mistyped | **Warn once**, not attached, never a refusal. |
+| The tape's digest differs from `media.tape.sha256` (or either is empty) | **Warn once** ("changed"), not attached: the recorded offsets would index other bytes. |
+| A position the tape file cannot be in (block past the end, pointer outside the file, an unknown phase...) | **Warn once** ("not valid"), not attached, the deck untouched. Every value is checked against the loaded bytes before any is written. |
+| Any tape warning above | The deck already in the machine is **left as it was**. A snapshot never changes a setting: the session's fast/real-time mode and auto play apply, and a deck saved in the other mode is converted at a block boundary. |
 | *(no row)* A save attempted while paused mid-frame | **Not a refusal condition.** The writer advances to the next frame boundary (§10.2 P7), so no file and no reader ever sees this state. Listed as absent so the omission is deliberate rather than overlooked. |
 | `format_version` unknown / `state_model_revision` mismatch / machine mismatch | §7.3. |
 
@@ -2105,7 +2168,7 @@ positions map onto the two booleans and nothing about the policy was rewritten.
 | **File ▸ Save Snapshot…, while PAUSED mid-frame** | **Advance to the next `begin_new_frame()` and save there.** Always available, never refused (owner decision). The machine is left at that boundary, i.e. up to one frame past where the user paused — a status-bar line says so once, rather than the move being silent. |
 | **What makes the advance safe** | It must complete the in-flight frame through the ordinary path, **not** re-run `begin_new_frame()` on a frame already in progress. That is exactly the Task 40 defect (`emulator.cpp:9144`, `beast.nex`): re-entering frame start mid-frame cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. The `if (!frame_in_progress_)` guard there is the fix, and the snapshot advance rides on it rather than reimplementing it. **A row must pin this**, because a save that quietly wipes a frame's raster history is worse than one that refuses. |
 | **File ▸ Load…** | Add `*.jns` to the file dialog's filter string (`main_window.cpp:1137`). |
-| **Status bar** | On restore: the one-line provenance note when `state_model_revision` or the SD `content_stamp` differ (§7.3, §11.3). It must be visible, not log-only — a user who ignores a mismatch should have had to ignore it. |
+| **Status bar** | On restore: the one-line provenance note when `state_model_revision` differs (§7.3; the SD `content_stamp` was retired by GH #396). It must be visible, not log-only — a user who ignores a mismatch should have had to ignore it. |
 | **Error reporting** | Refusals go through the existing `QMessageBox::warning` path `on_save_snapshot()` already uses for `SzxSaver`'s machine refusal, with the reader's reason string verbatim. |
 
 ### 15.3 Documentation
@@ -2194,7 +2257,7 @@ a real image and asserts what must, and must not, move with it.
 | **Version** | `JNSV-01…` | Every row of §7.3, both directions: `format_version` too new → refuse naming both numbers; too old with reader present → reads; too old with reader absent → refuse; missing → refuse; non-integer → refuse. |
 | **Reader rules** | `JNSR-01…` | **One row per line of §12.4** — that table is the row list. Blob declared but absent; blob present but undeclared; manifest CRC vs ZIP CRC disagreement; subsystem listed but member absent; member present but unlisted; inflated length ≠ declared; card-present/absent both directions; `read_only` mismatch; unconstructible `ram_kb`. |
 | **Unknown / retired names** | `JNSU-01…` | Unknown member ignored + logged; unknown key ignored; missing optional key takes its **declared default** (asserted against the declaration, never against a literal, and never against `reset()` — §12.2); missing required key refuses; a **retired** key is migrated to its successor, not ignored; a tombstoned key is ignored deliberately; a key in neither table is "unknown". |
-| **Identity** | `JNSI-01…` | SD Tier-1 mismatch refuses; Tier-2 mismatch warns and restores; Tier-2 mismatch **with the SD FSM mid-transfer** refuses; `BS_VolLab` differing alone produces no refusal and no label/identity warning (§11.3, as corrected at S7); an **unknown** Tier-2 stamp is not a changed one — it says "could not be compared", and still refuses mid-transfer (`JNSI-14`…`17`, S7); no card mounted refuses; ROM digest mismatch warns / refuses under strict; tape file absent warns. |
+| **Identity** | *(GH #396: `JNSI-08/09/10/14…17` and `JNSI-P21/P23/P25/P26/P26b/P33/P34` retired with Tier 2; `JNSI-18…21`, `JNSI-P35` and `NODIG-01…04` added.)* `JNSI-01…` | SD Tier-1 mismatch refuses; Tier-2 mismatch warns and restores; Tier-2 mismatch **with the SD FSM mid-transfer** refuses; `BS_VolLab` differing alone produces no refusal and no label/identity warning (§11.3, as corrected at S7); an **unknown** Tier-2 stamp is not a changed one — it says "could not be compared", and still refuses mid-transfer (`JNSI-14`…`17`, S7); no card mounted refuses; ROM digest mismatch warns / refuses under strict; tape file absent warns. |
 | **Encoding** | `JNSE-01…` | Hex strings exactly the declared length; every `u64`/`i64` emits a **string**; a negative `i64` round-trips (**the `/INT` window with its real measured value, −564 933**, §7.4); `INT64_MAX` emits `"open"` and round-trips; `i32` round-trips negative; enums emit names, and an unknown name on read **refuses** rather than defaulting — a wrong FSM state is not a safe default. |
 | **History primitive** | `JNSH-01…` | The binary encoding of `port_ff_log_` and the UART's four FIFOs is **padded to capacity** (constant width, per `RewindBuffer`); the JSON encoding carries exactly `count` items; a round-trip through JSON with 3 in-flight entries restores 3, not 1 024; **an in-flight port-0xFF log survives save→restore and the replayed frame is pixel-identical** (the §10.3 defect, pinned). |
 | **Descriptor** | `JNSD-01…` | For every subsystem: the JSON and binary encodings, fed the same machine, restore to identical machines. |
@@ -2241,7 +2304,7 @@ none of these either, because it was written before the gaps were closed:
 | **SD FSM** | `S6-SD-*`, `S6-EMU-CMD18-MID` | §10.2 P1. A save taken mid-block, mid-stream of a CMD18 restores a card that is STILL streaming — asserted against a second card driven identically and never interrupted, because a hand-written expectation would only pin what the row's author believed the stream to be. Plus the negotiated capacity class surviving (GH #94's two fields decide how every later address is read), the transfer-in-flight predicate §11.3's last row needs, and the write path's purity. |
 | **Multiface type** | `S6-MF-TYPE-01`, `S6-EMU-MF-TYPE` | §10.2 P13, all four NR 0x0A encodings. `MF-CORE-12` is built with `mf_type=10` and did NOT catch this, because it asserts `mode_128()` and the VHDL decodes both `"01"` and `"10"` to that. |
 | **Declared defaults** | `S6-DEF-*`, `S6-SD-DEFAULTS-*`, `S6-MF-DEFAULTS-01` | §12.2's gate, and the rows that make it more than a tautology: one drifts a default and requires the failure to name the field with both numbers, one covers every scalar primitive rather than the `u8` the first one drifts, one asserts the aggregates contribute nothing in either direction, and two assert the defaulted/undefaulted SPLIT so "the gate passed" cannot mean "the gate saw nothing". |
-| **Media identity** | `S6-MEDIA-01`, `S6-ROMS-*`, `S6-TAPE-*`, `S6-PREVIEW-*` | §10.2 P3/P4/P5: the round trip through the manifest TEXT, the ROM-digest warn/refuse matrix (including that a name only one side has is not a mismatch, and that the boot ROM is named separately), the absent-tape warning that is never a refusal even under `--snapshot-mode strict`, and the preview's declaration versus its mere presence. |
+| **Media identity** | `S6-MEDIA-01`, `S6-ROMS-*`, `S6-TAPE-*`, `S6-PREVIEW-*` | §10.2 P3/P4/P5: the round trip through the manifest TEXT, the ROM-digest warn/refuse matrix (including that a name only one side has is not a mismatch, and that the boot ROM is named separately), the absent-tape warning that is never a refusal even under `--snapshot-mode strict`, and the preview's declaration versus its mere presence. `S6-EMU-TAPE-01…08` (GH #401) pin what the emulator itself writes: the absolute path and its digest whatever the working directory, through all three loaders, the load-time check from another directory, the legacy bare-name file, and the UTF-8 path helper; `TAPP-01…03` pin `path()` on the TAP and WAV loaders and the lexical normalisation; `S6-MEDIA-02`/`S6-TAPE-03` pin the `archive`/`member` keys and the archive-naming warning; `S6-EMU-TAPE-09…33` (GH #402) pin the reattach (continuation equivalence against the uninterrupted machine for TAP, TZX, WAV, fast, held and the phantom typist; the changed, damaged, older and missing-tape and zip cases; that no setting changes; the mode conversions); `TAPD`/`TZXD`/`WAVD`/`TPOL` pin the loaders' deck state and its validation; `LE-28…30` pin the GUI toggles and preferences; `JNSN-31` and `JNSP-01…04` (Linux-only suite) pin that a non-UTF-8 host path never aborts the save and that a symlinked tape is recorded under its link name. |
 | **Mid-frame save** | `S6-P7-*` | §10.2 P7. The advance happens, the debugging session survives it intact, a machine already at a boundary is not advanced — and, the row that matters, the frame's per-scanline change log is NOT wiped. Mutation-tested: re-running `begin_new_frame()` in the advance kills `S6-P7-HISTORY-01` and nothing else. |
 | **Emulator declaration** | `S6-DECL-EMULATOR`, `S6-WIDTH-EMULATOR*` | The field list and the width of each of the five blocks §10.1's last row became. |
 
@@ -2415,7 +2478,7 @@ agent that did not write it, on its own branch and worktree.
 | **S5 — Migration, group 3** | Peripherals + audio + input: ctc, dma, spi, i2c, rtc, uart (FIFOs), divmmc, multiface, nmi, beeper, turbosound, dac, i2s, and the six input classes | **S–M** (1.5–2.5) | as above |
 | **S5b — Remove the duplicated RAM** ✓ **DONE** | D3 + D4: the DivMMC window becomes a *reference* and the Multiface private array is dropped on the Next. Golden re-baselined **once**, with the diff explained field by field. | **XS** (~0.5) | `JNSX-S5B-LENGTHS` pins 2 153 701 / 2 161 893; the diff is §17.0's table |
 | **S6 — The gaps** ✓ **DONE** | P1 `SdCardDevice`; P13 `mf_type_`; P3 ROM digests; P4 tape identity; P5 preview; P7's two save rules; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row (`S6-SD-CMD18-MID` + `S6-EMU-CMD18-MID`); P7 by `snapshot-paused-advance-func`. **The gate row named `snapshot-paused-refusal-func` and that was stale**: the owner's 2026-09-23 decision overruled the refusal, §16.2 has carried the advance row's name since, and a gate naming a test that must not exist is one nobody can meet. |
-| **S7 — SD identity** ✓ **DONE** | Tier 1 from MBR + BPB `BS_VolID` (`read_sd_image_identity`, the new exported entry point in `sd_rom_extractor`), Tier 2 reuse (`read_sd_image_content_stamp`), the producer that assembles both (`describe_sdcard_for_snapshot`), the refusal/warning matrix, and **two** row groups: `JNSI-14…17` in `snapshot_test` for the unknown-vs-changed stamp the matrix had not distinguished, and `JNSI-P01…P34` in the new `sd_identity_test` for the producer | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs — landed, plus the mid-transfer and `--force` legs. Two corrections to §11.3 fell out of implementing it (the `BS_VolLab` row and the unknown stamp), both recorded there |
+| **S7 — SD identity** ✓ **DONE** *(Tier 2 retired by GH #396)* | Tier 1 from MBR + BPB `BS_VolID` (`read_sd_image_identity`, the new exported entry point in `sd_rom_extractor`), Tier 2 reuse (`read_sd_image_content_stamp`), the producer that assembles both (`describe_sdcard_for_snapshot`), the refusal/warning matrix, and **two** row groups: `JNSI-14…17` in `snapshot_test` for the unknown-vs-changed stamp the matrix had not distinguished, and `JNSI-P01…P34` in the new `sd_identity_test` for the producer | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs — landed, plus the mid-transfer and `--force` legs. Two corrections to §11.3 fell out of implementing it (the `BS_VolLab` row and the unknown stamp), both recorded there |
 | **S8 — Integration** ✓ **DONE** | **THE ASSEMBLER FIRST — this row did not name it and it did not exist.** S1-S7 built every PART of a `.jns` and nothing assembled one: no code walked the declarations with `JsonWriteDesc`, emitted the members and blobs, filled the manifest and handed it to `SnapshotWriter`. `Emulator::save_jns`/`load_jns` + `visit_jns_subsystems` (the ONE list, walked by both directions) are that. Then: CLI table + man page + `cli-check`; the load-dispatch sites (**seven, not three** — §3.3's correction); GUI save/load/filter/status-bar provenance; user guide §5.9; developer guide chapter; FEATURES; §16.3's revisit | **S** (1–2) → **M** | `make cli-check`, `docs-check`, full triplet — and `snapshot-jns-roundtrip-func`, which is the row that matters: a field-level oracle passed through a defect that restored NO MEMORY AT ALL, and only a rendered frame caught it |
 | **S9 — Validation** ✓ **DONE** | The spec-written Python reader (`test/snapshot/jns_reader.py`); **the foreign-reader row, via libspectrum rather than a scraped FUSE debugger** — see below; the overlay's §4.3(2) invariant; `snapshot-spec-reader-func`, `snapshot-foreign-szx-func`, `snapshot-schema-func`; `libspectrum-devel` in CI | **S** (1–2) | All §16.2 rows green |
 

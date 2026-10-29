@@ -1,4 +1,5 @@
 #include "gui/preferences_dialog.h"
+#include "gui/host_shortcuts.h"   // GH #403
 #include "gui/qt_ctrl_is_command.h"   // GH #365
 #include "qt/palette_tint_qt.h"   // GH #363
 #include "gui/emulator_widget.h"
@@ -34,6 +35,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
                                      const std::vector<HostChord>& host_chords,
                                      const std::vector<JoyDeviceInfo>& joy_devices)
     : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
+      recent_files_(current.recent_files),
       crt_filter_saved_(current.crt_filter),
       crt_shader_saved_(current.crt_shader),
       crt_shader_style_saved_(current.crt_shader_style),
@@ -87,6 +89,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     crt_initial_choice_ = crt_choice;
     silent_check_->setChecked(current.silent);
     tape_fast_check_->setChecked(current.tape_fast_load);
+    tape_auto_check_->setChecked(current.tape_auto_play);
     audio_gain_slider_->setValue(static_cast<int>(std::lround(current.audio_gain_db)));
     audio_beeper_gain_slider_->setValue(
         static_cast<int>(std::lround(current.audio_gain_beeper_db)));
@@ -200,6 +203,8 @@ QWidget* PreferencesDialog::build_startup_tab() {
 
     tape_fast_check_ = new QCheckBox(tr("Tape fast-load by default"), tab);
     form->addRow(QString(), tape_fast_check_);
+    tape_auto_check_ = new QCheckBox(tr("Tape: automatic play/stop"), tab);
+    form->addRow(QString(), tape_auto_check_);
 
     return tab;
 }
@@ -548,10 +553,7 @@ QWidget* PreferencesDialog::build_paths_tab() {
     form->addRow(tr("Quick snapshots to keep:"), quick_keep_spin_);
 
     auto* quick_note = new QLabel(
-        tr("Quick Screenshot (Alt+K) writes jnext-<date>-<time> into that "
-           "directory with no dialog, and names the file in the status bar. "
-           "A .SCR records only the classic ULA screen memory - Layer 2, the "
-           "tilemap and the sprites are not in it."), tab);
+        host_shortcuts::quick_screenshot_note(), tab);
     quick_note->setWordWrap(true);
     form->addRow(QString(), quick_note);
 
@@ -604,6 +606,7 @@ AppConfigData PreferencesDialog::collect() const {
     }
     cfg.silent       = silent_check_->isChecked();
     cfg.tape_fast_load = tape_fast_check_->isChecked();
+    cfg.tape_auto_play = tape_auto_check_->isChecked();
     cfg.audio_gain_db = static_cast<float>(audio_gain_slider_->value());
     cfg.audio_gain_beeper_db = static_cast<float>(audio_beeper_gain_slider_->value());
     for (int chip = 0; chip < 3; ++chip)
@@ -651,6 +654,7 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();
+    cfg.recent_files = recent_files_;   // GH #406 - kept by File > Recent Files, no control here
     cfg.debug_keys = debug_keys_;   // GH #1 — including the preserved unknowns
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
     cfg.quick_screenshot_format = static_cast<ScreenshotFormat>(

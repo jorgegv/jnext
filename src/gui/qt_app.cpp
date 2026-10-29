@@ -1,7 +1,9 @@
 #include "gui/qt_app.h"
 #include "gui/main_window.h"
 #include "gui/desktop_color_scheme.h"   // GH #363
+#include "gui/mac_fullscreen.h"         // GH #404
 #include "platform/host_key_wiring.h"
+#include "gui/qt_ctrl_is_command.h"   // GH #403
 #include "platform/quit_signal.h"   // GH #364
 #include "gui/emulator_widget.h"
 #include "gui/frame_timer.h"
@@ -265,6 +267,8 @@ bool QtApp::init(int argc, char* argv[]) {
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 #endif
+    // GH #404 — macOS only (no-op elsewhere); before QApplication builds the menus.
+    mac_fullscreen::init();
     qapp_ = new QApplication(qt_argc_, qt_argv_);
 
     // Task 63 (issue #9) — identify the display path once. Which Qt platform
@@ -323,7 +327,7 @@ bool QtApp::init(int argc, char* argv[]) {
             // GH #323: a snapshot saved on another machine switches it in
             // place; the frontend must follow, or its next reset boots the old one.
             // GH #386: the load wipes the matrix; the helper re-asserts held keys.
-            return emulator_apply_load_keeping_keys(emulator_, path, tape_realtime_,
+            return emulator_apply_load_keeping_keys(emulator_, path, tape_realtime(),
                 [this](MachineType t) {
                     config_.type = t;
                     if (main_window_) main_window_->sync_machine_type_display();
@@ -384,6 +388,9 @@ bool QtApp::init(int argc, char* argv[]) {
     wire_host_actions(*main_window_, key_router_, pending_quick_);
     // GH #26 WP5 — Alt+1..Alt+8 are the script host keys (host_key_wiring.h).
     wire_script_keys(key_router_, *debugger_);
+    // GH #403 - on macOS the script chord is Command+1..8 (MainWindow forwards
+    // Command as LGUI there), everywhere else Alt+1..8.
+    key_router_.set_script_chord_gui(kQtCtrlIsCommand);
 
     // Task 79 — SDL gamepad host + per-connector input-source wiring.
     wire_gamepad_and_sources(cfg);
@@ -475,6 +482,8 @@ int QtApp::run() {
     // emulator_start_rzx_record_when_loaded() in TickEffects::pre_frames().
     if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
+    else if (main_window_ && !rzx_play_file_.empty())
+        main_window_->startup_rzx_started(rzx_play_file_);   // GH #406: --load x.rzx joins Recent Files
     return qapp_->exec();
 }
 
@@ -657,7 +666,7 @@ bool QtApp::TickEffects::pre_frames() {
         // GH #386 - the load wipes the matrix, keys the host holds included; the
         // helper re-asserts them.
         const bool loaded = emulator_apply_load_keeping_keys(
-            a.emulator_, a.load_file_, a.tape_realtime_, [&a](MachineType t) {
+            a.emulator_, a.load_file_, a.tape_realtime(), [&a](MachineType t) {
                 a.config_.type = t;
                 if (a.main_window_) a.main_window_->sync_machine_type_display();
             }, a.key_router_);
@@ -1038,4 +1047,9 @@ void QtApp::on_status_tick() {
     main_window_->update_status(fps, static_cast<double>(cad.presented),
                                 speed_idx, speed_multiplier_,
                                 emulator_.frame_period_ms(), measured_rate);
+}
+
+bool QtApp::tape_realtime() const
+{
+    return main_window_ ? !main_window_->tape_fast_load() : false;
 }

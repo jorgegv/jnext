@@ -52,6 +52,12 @@ struct JnsLoadOptions {
     /// that lets a user create the silently-wrong case the design exists to
     /// prevent.
     bool force_sdcard = false;
+
+    /// GH #402: this session's fast-or-real-time setting for a tape loaded by
+    /// the same route (`--tape-realtime`; false = fast). A snapshot never
+    /// changes a setting, so a restored tape recorded in the other mode is
+    /// converted to this one at a block boundary.
+    bool tape_realtime = false;
 };
 
 /// What a load has to say for itself.

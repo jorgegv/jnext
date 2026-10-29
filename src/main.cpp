@@ -2,6 +2,7 @@
 #include "audio/dac_trace_recorder.h"
 #include "core/cli_options.h"
 #include "core/log.h"
+#include "core/program_archive.h"
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
@@ -283,6 +284,11 @@ int main(int argc, char* argv[]) {
     std::string benchmark_label;       // --benchmark-label; empty = derive
     bool        silent = false;
     bool        tape_realtime = false;
+    bool        tape_realtime_set = false;   // GH #402: --tape-realtime given
+    // GH #395 - --tape-auto-play / --no-tape-auto-play: last one wins; `_set`
+    // lets the negation override a saved GUI preference.
+    bool        tape_auto_play = true;
+    bool        tape_auto_play_set = false;
     std::string tape_save_file;
     bool        magic_breakpoint = false;
     bool        persistent_breakpoints = false;
@@ -584,6 +590,15 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::TapeRealtime:
                 tape_realtime = true;
+                tape_realtime_set = true;
+                break;
+            case cli::OptId::TapeAutoPlay:
+                tape_auto_play = true;
+                tape_auto_play_set = true;
+                break;
+            case cli::OptId::NoTapeAutoPlay:
+                tape_auto_play = false;
+                tape_auto_play_set = true;
                 break;
             case cli::OptId::TapeSave:
                 tape_save_file = v[0];
@@ -1106,6 +1121,24 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         load_file = positional_file;
+    }
+
+    // GH #392 - a program inside a .zip archive: extract the one program to a
+    // file of its own extension, and carry on with that path, so every check
+    // below (RZX rules, warm start, the pending-load dispatch) sees an ordinary
+    // file. Several programs, none, or an unreadable archive refuse with exit 1.
+#ifdef ENABLE_QT_UI
+    const std::string load_file_given = load_file;   // GH #406: File > Recent Files names the archive
+#endif
+    if (!load_file.empty() && program_archive::is_archive_path(load_file)) {
+        std::string extracted, member, why;
+        if (!program_archive::extract_single_program(load_file, extracted, why, &member)) {
+            fprintf(stderr, "--load %s: %s.\n", load_file.c_str(), why.c_str());
+            return 1;
+        }
+        Log::emulator()->info("--load {}: loading {} from the archive", load_file,
+                              program_archive::display_name(member));
+        load_file = extracted;
     }
 
     // RZX combinations that cannot do what they say. Each used to be accepted
@@ -1734,6 +1767,7 @@ int main(int argc, char* argv[]) {
         cfg.joy_device[0].id       = joy_device_id[0];   // GH #311 (CLI value; SDL-only has no config)
         cfg.joy_device[1].id       = joy_device_id[1];
         cfg.esp_enabled            = esp_enabled;     // GH #25 (CLI value)
+        cfg.tape_auto_play         = tape_auto_play;  // GH #395 (CLI value)
         cfg.esp_allowed_hosts      = esp_allow.allowed_hosts;
         // GH #210. No merge and no saved form: an unset flag leaves the
         // config's own loopback default, which is the safe value.
@@ -1817,11 +1851,25 @@ int main(int argc, char* argv[]) {
             // saved entry the user cannot get rid of from the command line.
             cfg.esp_enabled = merge_cli_precedence(esp_enabled_set, esp_enabled,
                                                    gui_app_config.data().esp_enabled);
+            // GH #395 - the same CLI-over-saved resolution; the merged value
+            // reaches the machine through cfg and the Tape menu through the
+            // saved-config mirror below.
+            cfg.tape_auto_play = merge_cli_precedence(tape_auto_play_set, tape_auto_play,
+                                                      gui_app_config.data().tape_auto_play);
+            gui_app_config.data().tape_auto_play = cfg.tape_auto_play;
+            // GH #402 - ONE fast/real-time setting, the Tape > Fast Load toggle:
+            // Tape > Open, File > Load, --load of a .tap/.tzx and a .jns restore
+            // all read it. --tape-realtime sets it for this session (CLI over
+            // saved, like --tape-auto-play); it reaches the toggle through the
+            // startup mirror below and is never written to the preferences file.
+            gui_app_config.data().tape_fast_load = merge_cli_precedence(
+                tape_realtime_set, false, gui_app_config.data().tape_fast_load);
             cfg.esp_allowed_hosts = merge_cli_precedence(
                 esp_allow_set, esp_allow.allowed_hosts,
                 gui_app_config.data().esp_allowed_hosts);
         }
 #endif
+        Log::emulator()->info("Tape automatic play/stop: {}", cfg.tape_auto_play ? "on" : "off");
         // An RZX recording replays only on the machine it was made on, so a
         // playback boots that machine (emulator_boot_machine()) — the same
         // rule every cold boot applies. An explicit --machine wins, and
@@ -2103,8 +2151,24 @@ int main(int argc, char* argv[]) {
             if (pok_request) app.set_delayed_pok(*pok_request, pok_frames);
         }
 
+        // GH #402 - the session's fast/real-time setting. Qt reads the Tape >
+        // Fast Load toggle (merged with --tape-realtime above); the SDL and
+        // headless frontends have no toggle and no saved preference, so the
+        // CLI flag is the whole setting.
+        auto note_tape_mode = [&](auto& a, bool realtime) {
+#ifdef ENABLE_QT_UI
+            if constexpr (!std::is_same_v<std::decay_t<decltype(a)>, QtApp>) a.set_tape_realtime(realtime);
+#else
+            a.set_tape_realtime(realtime);
+#endif
+        };
         // Set up pending load (auto-detect format by extension).
         if (!load_file.empty()) {
+            // GH #406 - a --load that works joins File > Recent Files.
+#ifdef ENABLE_QT_UI
+            if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>)
+                if (auto* mw = app.main_window()) mw->set_startup_load(load_file, load_file_given);
+#endif
             std::string ext;
             auto dot = load_file.rfind('.');
             if (dot != std::string::npos) {
@@ -2147,6 +2211,9 @@ int main(int argc, char* argv[]) {
                 // the machine it names wins over `--machine` (design §7.3),
                 // which `Emulator::load_jns` handles by reconfiguring.
                 app.set_pending_load(load_file, 0);
+                // GH #402 — a `.jns` puts its tape back in this session's mode
+                // (--tape-realtime or not), as a plain .tap would be attached.
+                if (ext == ".jns") note_tape_mode(app, tape_realtime);
             } else if (ext == ".tap") {
                 // Task 19: TAP loading uses the phantom typist
                 // (src/input/phantom_typist.h) — no boot-delay needed.
@@ -2154,19 +2221,19 @@ int main(int argc, char* argv[]) {
                 // first full keyboard scan from the ROM and types
                 // LOAD"" the moment BASIC is ready.
                 app.set_pending_load(load_file, 0);
-                app.set_tape_realtime(tape_realtime);
+                note_tape_mode(app, tape_realtime);
             } else if (ext == ".tzx") {
                 // TZX still uses the legacy immediate-keystroke path
                 // (Task 19 scope is .tap only). Keep the 100-frame
                 // delay so BASIC has time to reach its prompt.
                 app.set_pending_load(load_file, 100);
-                app.set_tape_realtime(tape_realtime);
+                note_tape_mode(app, tape_realtime);
             } else if (ext == ".wav") {
                 // WAV is always real-time; needs BASIC delay like tape files
                 app.set_pending_load(load_file, 100);
-                app.set_tape_realtime(true);
+                note_tape_mode(app, true);
             } else {
-                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx)", ext);
+                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx, .zip)", ext);
                 audio_recorder.stop();
                 dac_trace_recorder.stop();
                 return 1;

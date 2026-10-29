@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -155,13 +156,17 @@ public:
     /// begun — a queued response, a block being sent or received, or an open
     /// CMD18 stream.
     ///
-    /// This is the one input §11.3's last row needs and `jns::ReaderEnv::
-    /// sd_transfer_in_flight` has been waiting for since S1: when the machine
-    /// was mid-transfer at capture, a Tier-2 content drift in the card image
-    /// stops being a warning and becomes a refusal, because half a sector
-    /// read against changed bytes is the "streams garbage" failure rather
-    /// than a divergence the user can judge.
+    /// Kept as a test observable only (GH #396 removed the snapshot rule that
+    /// consumed it).
     bool transfer_in_flight() const;
+
+    /// Process-wide count of sector writes jnext itself has committed to ANY
+    /// card image (CMD24, the only write site during emulation). The warm-start cache compares
+    /// it to know the image changed under its recording (GH #396). It is
+    /// static because the device dies with the `Emulator` at every cold boot.
+    static std::uint64_t host_write_generation() {
+        return write_generation_.load(std::memory_order_relaxed);
+    }
 
     /// The two restored cursors whose only observable fault is an
     /// out-of-bounds ACCESS, which no behavioural assertion can see on a
@@ -173,6 +178,8 @@ public:
     uint32_t block_len_for_test() const { return block_len_; }
 
 private:
+    static inline std::atomic<std::uint64_t> write_generation_{0};
+
     // SD card state machine
     enum class State {
         IDLE,           // Waiting for command start byte (0x40 | cmd)

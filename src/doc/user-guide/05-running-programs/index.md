@@ -53,6 +53,47 @@ what was wrong with it. A file whose extension JNEXT does not know and that is
 not a NEX file is refused in the same way, before anything is reset, so the
 game you were playing is still there.
 
+**File > Recent Files** lists the last ten programs and tapes you loaded from
+the File and Tape menus, newest first, numbered 1 to 9 and 0; hovering an entry
+shows its full path. Choosing one loads it exactly as **File > Load NEX File…**
+does. A file that has been deleted since is dropped from the list and the status
+bar says so. A program started with **--load** is recorded once it has loaded; a
+load that failed, and Quick Load, are not. Like Load NEX File…, an entry cold-boots the machine, so a
+`.tap` or `.tzx` entry boots and auto-loads rather than just inserting the tape.
+**File > Reload Last File** (Alt+L) loads the newest entry again in one keystroke, handy
+when you rebuild a program and want to run it again. **Clear Recent Files** empties the list. The list is kept between runs in
+`~/.jnext/jnext.conf` (`[recent] files`), and **Load NEX File…** and **Open Tape
+File…** open with the file you loaded last selected when it is still in the
+folder they open in.
+
+## Programs in ZIP archives
+
+A program downloaded as `game.tap.zip` or `game.nex.zip` loads without
+unzipping it, from the command line (`jnext game.tap.zip`) and from **File >
+Load NEX File…**. JNEXT loads the one program inside the archive (a file with
+one of the extensions above) exactly as if you had given it on its own, and
+ignores the screenshots, `.scr` files and text files that usually travel with
+it. A name ending in `.zip` is always taken as an archive; a file with any other
+extension, or none, is taken as one when it starts like a ZIP file.
+
+- **Several programs** (side A and side B of a tape, say): the command line
+  refuses and lists them, so you can unzip it and name the one you want; the
+  window asks which one to load, and Cancel leaves the running game alone.
+- **Refused, with the reason:** an archive with no program in it, one that is
+  not a ZIP file, a password-protected one, one compressed with a method other
+  than the usual deflate (bzip2, LZMA and the like), a ZIP64 or multi-disk one,
+  an archive file or a member over 256 MiB, and a member whose name is an absolute path or climbs
+  out with `..`.
+- **A bundled `.pok`** (a cheat list for the game; see
+  [5.11 POK trainers](11-pok-trainers.md)): when the archive holds one named
+  like the program, or the only one, File > Load NEX File… makes it the open trainer list
+  without showing it, and says so in the status bar. Open it with **Machine ▸
+  POK Trainers…**.
+
+The program is unpacked to a temporary file in JNEXT's configuration directory
+(`~/.jnext/archive-load/`) that is deleted when JNEXT exits; leftovers of a
+crashed run are swept after a week.
+
 A program loaded either way brings its debugging files with it when they sit
 beside it: `game.sld` (an sjasmplus source map) and, for a `.nex`,
 `game.Memory.txt` (NextBuild / Boriel ZX Basic symbols). See
@@ -78,10 +119,10 @@ The status bar along the bottom tracks the session: frame rate, the emulated
 CPU clock, the emulator speed, tape state, and the current machine.
 
 **Pausing.** To freeze the machine where it is, press the Pause button on the
-toolbar, choose **Machine > Pause**, press the **Pause** key, or press **Alt+U** (for keyboards without a Pause key, such as most Mac keyboards); press it again to
+toolbar, choose **Machine > Pause**, press the **Pause** key, or press **Alt+U** (**⌘U** on a Mac, whose keyboards mostly have no Pause key); press it again to
 carry on. The button stays pressed, its icon turns into a play triangle, and a
 **Paused** cell appears in the status bar while the machine is stopped. Sound goes quiet without a click, and the
-debugger window does not open. The Pause key and Alt+U also work in fullscreen, where the menu
+debugger window does not open. The Pause key and Alt+U (⌘U) also work in fullscreen, where the menu
 and toolbar are hidden. If you open the debugger while paused it shows the same
 pause, and closing it resumes the machine, as it always does.
 
@@ -195,13 +236,15 @@ shipped with JNEXT: it contains NextZXOS's own ROM, and JNEXT does not
 redistribute firmware — which is also why it downloads the SD card image rather
 than including one.
 
-It is one file per machine type, a little over 100 KB, keyed by the contents of
-the SD card image, the machine type and the save format. Change any of those —
-replace the image, switch machine, install a JNEXT update that changes the
-format — and it re-records itself on the next load. Checking that key means
-reading the whole card image each time a NEX file is loaded, which costs about
-half a second on a 1 GB image; it is what stops a recording of one card being
-served to another.
+It is one file per machine type, a little over 100 KB, keyed by the size and
+modification time of the SD card image, the machine type and the save format.
+Change any of those — replace the image, switch machine, install a JNEXT update
+that changes the format — or let JNEXT itself write to the card, and it
+re-records itself on the next load. The card's contents are not read, so
+loading stays fast on any card size. The one case this cannot see: an image
+replaced or edited outside JNEXT that ends up with the same size and the same
+modification time (for example `cp -p`, or `touch -r`) is served the old
+recording. Use `--warm-start-regenerate` when in doubt.
 
 If you update `TBBLUE.FW` or NextZXOS on the card in a way you want re-recorded
 straight away, `--warm-start-regenerate` forces it:

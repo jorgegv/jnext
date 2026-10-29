@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3705,7 +3705,26 @@ short-circuits the ROM's loading routine and the program appears in seconds.</p>
 several minutes, loading stripes, screeching and all. Use it for authenticity,
 or for the occasional program with a custom loader that fast-load cannot
 follow. Turn it on with <strong>Tape &gt; Fast Load</strong> (uncheck it) or <code>--tape-realtime</code>.</p>
+<p>There is <strong>one</strong> fast/real-time setting, the <strong>Tape &gt; Fast Load</strong> toggle, which
+changes it for the session; the setting it starts from is <strong>Tape fast-load by default</strong> in
+<strong>Settings &gt; Preferences &gt; Startup</strong>. <strong>Tape &gt; Open Tape File…</strong>, <strong>File &gt; Load NEX File…</strong>, a <code>.tap</code>
+or <code>.tzx</code> given with <code>--load</code> and a tape restored from a snapshot all follow it.
+<code>--tape-realtime</code> switches it to real time for that run only, winning over the
+saved choice, and is never saved. The SDL build has no menu or saved choice, so
+the option is its whole setting.</p>
 <p><code>.wav</code> files are always real time; there is no ROM routine to short-circuit.</p>
+<p><strong>Automatic play/stop</strong> is on by default. A real tape deck needs a finger on
+STOP and PLAY when a program is slow between blocks (many tape conversions run
+a BASIC loader in the gaps). JNEXT does it for you: in a silent gap between
+two blocks, when no program is reading the tape port, the deck stops; it
+plays again, from the start of the next block, as soon as a program reads the
+port again. Nothing is cut or repeated, and a program that keeps listening sees
+the same tape as before. That is why tapes with slow BASIC loaders load in real
+time. It does nothing in fast load. <code>.wav</code> files are never paused. Turn it off
+with <strong>Tape &gt; Auto Play/Stop</strong>, <strong>Settings &gt; Preferences</strong>, or
+<code>--no-tape-auto-play</code> for a deck that runs straight through, like a cassette
+without a finger (a TZX "stop the tape if in 48K mode" block stops only on a 48K
+machine, as the TZX specification says, whatever this setting is).</p>
 <p><strong>Tape &gt; Open Tape File…</strong> (Alt+T) loads a tape, fast or in real time as
 <strong>Tape &gt; Fast Load</strong> shows, and <strong>Eject</strong> and <strong>Rewind</strong> do what they say (a
 <code>.wav</code> rewinds by starting again). The status bar shows the tape name and, while
@@ -3743,8 +3762,8 @@ but the pause after the last block may be shorter than it was; a save still in
 progress when JNEXT stopped is lost, as it would be on a cassette. A <code>.wav</code> keeps
 the sound up to the last change of level.</p>
 <h2 id="video">Video<a class="headerlink" href="#video" title="Permanent link">&para;</a></h2>
-<p><strong>File &gt; Record MPEG4 Video…</strong> (Ctrl+F5) starts recording video with audio to
-an MP4; <strong>Stop</strong> (Ctrl+F6) ends it. From the command line, <code>--record FILE</code>.</p>
+<p><strong>File &gt; Record MPEG4 Video…</strong> (Ctrl+F5; ⌃F5 on a Mac) starts recording video with audio to
+an MP4; <strong>Stop</strong> (Ctrl+F6; ⌃F6 on a Mac) ends it. From the command line, <code>--record FILE</code>.</p>
 <p>This needs <strong>ffmpeg</strong> installed and on your PATH — JNEXT feeds it the frames.
 If it is missing, <code>--record</code> fails immediately: JNEXT says so and exits
 non-zero without emulating anything, rather than running a session you would

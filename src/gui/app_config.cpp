@@ -1,5 +1,7 @@
 #include "gui/app_config.h"
+#include "gui/qt_ctrl_is_command.h"   // GH #403
 #include "gui/emulator_widget.h"
+#include "gui/recent_files.h"
 #include "peripheral/esp_host_policy.h"
 
 #include <QDir>
@@ -155,6 +157,7 @@ void AppConfig::load() {
         }
         data_.silent         = settings_.value("silent", data_.silent).toBool();
         data_.tape_fast_load = settings_.value("tape_fast_load", data_.tape_fast_load).toBool();
+        data_.tape_auto_play = settings_.value("tape_auto_play", data_.tape_auto_play).toBool();
 
         // Issue #35 — anything other than the two known words keeps the
         // default, the same way an unknown joy_source does: a typo in a
@@ -184,6 +187,15 @@ void AppConfig::load() {
     data_.last_load_dir  = settings_.value("last_load_dir", data_.last_load_dir).toString();
     data_.sd_card_path   = settings_.value("sd_card_path", data_.sd_card_path).toString();
     data_.screenshot_dir = settings_.value("screenshot_dir", data_.screenshot_dir).toString();
+    settings_.endGroup();
+
+    // GH #406. Its own group; cleaned of blanks and cut to the cap, so a
+    // hand-edited file cannot grow the menu.
+    settings_.beginGroup("recent");
+    data_.recent_files = settings_.value("files").toStringList();
+    data_.recent_files.removeAll(QString());
+    while (data_.recent_files.size() > static_cast<qsizetype>(recent_files::kMax))
+        data_.recent_files.removeLast();
     settings_.endGroup();
 
     // GH #19. A new group rather than more `[paths]` keys, because only one of
@@ -273,7 +285,7 @@ void AppConfig::load() {
         for (const QString& k : settings_.childKeys())
             entries.emplace_back(k.toStdString(), settings_.value(k).toString().toStdString());
         settings_.endGroup();
-        data_.debug_keys = jnext::dbgkeys::build_keymap(entries, debug_key_issues_);
+        data_.debug_keys = jnext::dbgkeys::build_keymap(entries, debug_key_issues_, kQtCtrlIsCommand);
     }
 
     settings_.beginGroup("esp");
@@ -313,6 +325,7 @@ void AppConfig::save() const {
     settings_.setValue("crt_shader_style", static_cast<int>(data_.crt_shader_style));
     settings_.setValue("silent", data_.silent);
     settings_.setValue("tape_fast_load", data_.tape_fast_load);
+    settings_.setValue("tape_auto_play", data_.tape_auto_play);
     settings_.setValue("when_slow_prefer",
                        when_slow_prefer_to_key(data_.when_slow_prefer));
     settings_.endGroup();
@@ -330,6 +343,12 @@ void AppConfig::save() const {
     settings_.setValue("last_load_dir", data_.last_load_dir);
     settings_.setValue("sd_card_path", data_.sd_card_path);
     settings_.setValue("screenshot_dir", data_.screenshot_dir);
+    settings_.endGroup();
+
+    settings_.beginGroup("recent");
+    // An empty list is not written: QSettings stores it as "@Invalid()".
+    if (data_.recent_files.isEmpty()) settings_.remove("files");
+    else settings_.setValue("files", data_.recent_files);
     settings_.endGroup();
 
     settings_.beginGroup("screenshot");   // GH #19

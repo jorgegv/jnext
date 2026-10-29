@@ -47,7 +47,10 @@ with status 1.
 
 :   Load a program. The format is detected from the extension: `.nex`,
     `.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`.
-    (`.rzx` is accepted here and plays back, as **--rzx-play**.)
+    (`.rzx` is accepted here and plays back, as **--rzx-play**.) A
+    `.zip` archive holding one of them loads that program (see the
+    [`.zip`
+    entry](../05-running-programs/index.md#programs-in-zip-archives)).
 
     `.jns` is jnext’s own whole-machine snapshot (see [5.9
     Snapshots](../05-running-programs/09-snapshots.md)). Loading one
@@ -162,13 +165,17 @@ with status 1.
     recording that will not load back — **jnext** says so on standard
     error and falls back to the machine it has always assembled.
 
-    The recording is keyed by the SD image’s contents, the machine type
-    and the state format, so it invalidates itself whenever any of those
-    change. Use this option to force the issue anyway, after replacing
-    `TBBLUE.FW` or NextZXOS on the card. It applies to `.nex` files on
-    the Next only: the other machine types run no firmware, and
-    snapshots and tapes are loaded by mechanisms a firmware-resident
-    machine does not have.
+    The recording is keyed by the SD image’s size and modification time,
+    the machine type and the state format, and it is also dropped when
+    **jnext** itself writes to the image, so it invalidates itself
+    whenever any of those change. The image’s contents are not read: an
+    image replaced or edited from outside with the same size and the
+    same modification time (`cp -p`, `touch -r`) is served the old
+    recording. Use this option to force the issue in that case, and
+    after replacing `TBBLUE.FW` or NextZXOS on the card. It applies to
+    `.nex` files on the Next only: the other machine types run no
+    firmware, and snapshots and tapes are loaded by mechanisms a
+    firmware-resident machine does not have.
 
     The recording is made on your machine from the image you mounted,
     and is never shipped with **jnext**: it contains NextZXOS and DivMMC
@@ -392,7 +399,23 @@ with status 1.
 
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of
-    fast load.
+    fast load. It sets the one fast/real-time setting (the GUI’s **Tape
+    \> Fast Load** toggle) for this run only, overriding the saved
+    preference without changing it; **Tape \> Open Tape File**, **File
+    \> Load NEX File**, **--load** of a `.tap` or `.tzx`, and the tape
+    restored by a `.jns` all follow that setting. The SDL-only build,
+    which has no menu and no saved preference, is controlled by this
+    option alone.
+
+**--tape-auto-play**, **--no-tape-auto-play**
+:   Turn automatic tape play/stop on (the default) or off for this run,
+    overriding the saved GUI preference. While on, the tape deck stops
+    in the silent gap between two blocks when no program is reading the
+    tape, and resumes when one does, so tapes whose BASIC loader is slow
+    between blocks load in real time. It does nothing in fast load mode.
+    Off, the deck runs straight through, as a real one does (a TZX “stop
+    the tape if in 48K mode” block now stops only on a 48K machine, as
+    the TZX specification says, whatever this setting is).
 
 **--tape-save** *FILE*
 :   Save to tape, appending to *FILE*; its extension picks the format. A
@@ -779,7 +802,8 @@ with status 1.
     one whose recorded ROM digests differ from the ROMs now loaded. A
     missing tape file is **not** covered — that always warns and never
     refuses, because a machine restores perfectly well without the tape
-    it was loading from.
+    it was loading from. The same goes for a tape that has changed or
+    whose position cannot be restored.
 
     `force` restores even though the mounted SD card is not the one the
     snapshot was taken on, printing a warning that names both cards.
@@ -956,9 +980,10 @@ with status 1.
 **--record-script** *FILE*
 :   Record the session as a replay script; see **Recording a session**
     under [Debugger scripting](../06-debugger/scripting/index.md). Every
-    input change is written as the frame it landed on, each Alt + 8 (or
-    **--script-key** *FRAME* `8`) captures the screen, and *FILE* is
-    written when jnext exits. Works in every frontend.
+    input change is written as the frame it landed on, each Alt + 8
+    (Command+8 on macOS) (or **--script-key** *FRAME* `8`) captures the
+    screen, and *FILE* is written when jnext exits. Works in every
+    frontend.
 
 **--map** *FILE*
 :   Load a symbol table, a z88dk `.map` or an sjasmplus `--sym` or

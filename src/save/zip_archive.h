@@ -151,6 +151,12 @@ constexpr size_t kMaxPathLen = 255;
 /// worse than a generous one that bounds the damage.
 constexpr uint64_t kMaxMemberBytes = 64ull * 1024 * 1024;
 
+/// Raw INFLATE (windowBits -15) to an EXACTLY declared length: refused if the
+/// stream wants more or produces fewer bytes. Shared with the interchange
+/// reader (zip_interchange.h), which is the only thing the two readers share.
+bool inflate_exact(const uint8_t* src, size_t src_len, uint32_t expect,
+                   std::vector<uint8_t>& out, std::string& why);
+
 // ─────────────────────────────────────────────────────────────────────────
 // Writer
 // ─────────────────────────────────────────────────────────────────────────

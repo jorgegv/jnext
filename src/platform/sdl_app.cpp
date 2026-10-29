@@ -14,6 +14,7 @@
 #include "platform/pointer_capture.h"   // GH #307 release_chord, GH #365 release_hint
 #include "platform/sdl_pointer_release.h"
 #include "platform/sdl_reset_keys.h"   // GH #380
+#include "platform/host_modifier.h"   // GH #403
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include <cmath>
@@ -118,6 +119,11 @@ bool SdlApp::init(int argc, char* argv[]) {
     // is what attach()'s latch reset is for: a release still held back refers
     // to a key of a machine that no longer exists (rows RT-08a/b/c, RT-09a/b).
     key_router_.attach(emulator_.keyboard());
+    // GH #403 - the host chords (script keys, quick snapshots, Alt+F4 quit) ride
+    // Command (SDL's GUI key) on macOS, Alt elsewhere. SDL never swaps Control
+    // and Command, so its Control is already the physical one = Symbol Shift.
+    key_router_.set_script_chord_gui(host_modifier::kIsGui);
+    quick_chords_.set_host_is_gui(host_modifier::kIsGui);
 
     // Route SDL key events into emulator keyboard matrix; intercept host
     // shortcuts. Both this and the focus-loss binding go in through ONE call

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1165,6 +1165,17 @@
     <span class="md-ellipsis">
       
         POK trainers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zip-archives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZIP archives
       
     </span>
   </a>
@@ -2473,6 +2484,13 @@ the guest's own driver talks to. Both are called out below.</p>
 <td>Input recording, not state</td>
 </tr>
 <tr>
+<td><code>.zip</code></td>
+<td>yes</td>
+<td>—</td>
+<td><code>core/program_archive.*</code>, <code>save/zip_interchange.*</code></td>
+<td>Not a format: a container resolved to one program file at the two entry points (see ZIP archives)</td>
+</tr>
+<tr>
 <td>raw binary</td>
 <td>yes</td>
 <td>—</td>
@@ -2490,9 +2508,10 @@ the guest's own driver talks to. Both are called out below.</p>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
 around line 890, and again in the GUI's file dialogs and in the headless
-snapshot writer. There is no content sniffing, and an extension jnext does not
+snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
-the file might be.</p>
+the file might be. The one exception is an archive (below), which is recognised
+by <code>.zip</code> or by its <code>PK</code> magic and resolved to a program file first.</p>
 <p>The snapshot and program loaders all follow the same two-phase shape.
 <code>load(path)</code> parses and validates into member state; <code>apply(emu)</code> writes that
 state into the machine. Splitting the two means a malformed file fails before
@@ -2557,14 +2576,91 @@ actually is. On real hardware a game takes minutes to load, the border stripes
 as it goes, and the loader chatters through the speaker. jnext can reproduce
 all of that, or it can skip it entirely and have the program in memory almost
 instantly. Those are two independent code paths that share nothing.</p>
-<p><strong>Fast load is a ROM trap.</strong> When ROM is paged into slot 0 and PC reaches the
-48K ROM's <code>LD-BYTES</code> entry at <code>0x0556</code>, the run loop hands the next block
-straight to memory and skips the routine altogether — no tape signal is ever
-generated. <code>.tap</code> and <code>.tzx</code> both support this. <code>.wav</code> cannot, because a WAV is
-just audio samples with no block structure to extract. The gate is a PC match,
-which has one consequence worth knowing: a custom or turbo loader that never
-enters the ROM routine is never intercepted, and real time is then the only way
-it will load.</p>
+<p><strong>Fast load is a ROM trap.</strong> The trap sits at <code>LD-BREAK</code>, <code>0x056B</code>, the <code>RET NZ</code>
+of the 48K ROM's <code>LD-BYTES</code> routine, not at the routine's entry <code>0x0556</code>: every
+entry converges there, including the <code>0x0562</code> one a custom block loader uses after
+doing the routine's prologue itself (FUSE traps the same spot). It fires only
+with ROM paged into slot 0, the Z flag set (the ROM's <code>RET NZ</code> is then not about
+to return) and a <strong>ROM identity check</strong> on the bytes at <code>0x056B</code> and <code>0x05DF</code>
+(<code>tape_trap::ld_bytes_rom_present</code>, like the save trap's). It then hands the next
+block to memory without generating any tape signal. <code>.tap</code> and <code>.tzx</code> both
+support this; <code>.wav</code> cannot, because a WAV is just audio samples with no block
+structure to extract.</p>
+<p>Both loaders call one helper, <code>tape_trap::rom_ld_bytes</code> (<code>src/core/tape_trap.*</code>),
+which does what the ROM does from <code>LD-START</code> to its return: the flag comes from
+A' and LOAD/VERIFY from the carry of F' (the entry's <code>EX AF,AF'</code> has run); a flag
+mismatch consumes the block and returns carry clear; LOAD stores bytes, VERIFY
+compares them; the carry reports the parity of flag, bytes and the byte after the
+last one (the checksum), and a DE longer than the block times out as the ROM does.
+The CPU is left at the routine's own <code>RET</code> (<code>0x05E2</code>), so the ROM pops whatever the
+caller pushed: <code>SA/LD-RET</code> for a <code>0x0556</code> entry (border restored, <code>EI</code>), the
+caller's return address for a <code>0x0562</code> one. The registers it leaves are those of
+the ROM run against jnext's own real-time player, except the ROM's edge-tracking
+byte C, whose value after the sync depends on the pilot phase the ROM caught and
+which the trap pins to <code>0x21</code>. A custom or turbo loader that never enters the ROM
+routine is never intercepted, and real time is then the only way it will load.</p>
+<p><strong>A fast load also runs the machine uncapped</strong>, so the BASIC between the blocks
+does not cost real time: <code>Emulator::fastload_active()</code> drops the frame pacing (the
+Qt frontend runs up to 200 frames per tick, the SDL one skips its delay) and the
+audio. Like FUSE's <code>timer_fastloading_active()</code>, it holds only while something is
+loading, never because a tape is merely attached (GH #408): while the phantom
+typist waits, for at most <code>PhantomTypist::FASTLOAD_WAIT_FRAMES</code> (1000) frames, or,
+for a fast tape with blocks left, while the keyboard auto-type is typing its
+<code>LOAD ""</code> or within <code>FASTLOAD_TAPE_IDLE_FRAMES</code> (50) frames of the last block the
+trap served. Before that bound, a tape nobody read (opened at a NextZXOS screen,
+or a second program on it) kept the sprint for the whole session: the window
+answered once a burst, and one key tap lasted a burst, long enough for the ROM to
+auto-repeat it dozens of times. Both bounds are measured (<code>tap_loader_test</code>
+TAPF-09..12): the ROM's own work between trapped blocks is 0-1 frames, and a
+loader <code>PAUSE</code> past the window runs only its tail at 1x, the next block still
+trapped at once; the typist's first fire at power-on is frame 63-92 on the
+48K/128K/+3, 92 on a Next started with <code>--load</code>, and 311 on a cold Next, which
+runs the FPGA bootloader and tbblue firmware first (<code>init()</code> overlays
+<code>nextboot.rom</code> only when no <code>load_file</code> is set). A reset, Tape &gt; Eject, a newly attached tape (<code>.tap</code>, <code>.tzx</code>
+or <code>.wav</code>) and any state restore (a rewind, a debugger state load, a <code>.jns</code>)
+each close the window.</p>
+<p><strong>Automatic play/stop (GH #395)</strong> is a host deck feature with no hardware
+counterpart (no Spectrum has tape motor control). The signal is
+<code>TapePollDetector</code> (<code>src/core/tape_poll_detector.h</code>): every CPU <code>IN</code> of the ULA
+port while <code>cpu_.executing()</code> (the debugger's port reads are not counted),
+stamped with <code>tape_sample_tstates()</code>. 32 reads in a row, each at most 1000
+T-states after the previous, with the last no more than 1000 T-states old, is
+"polling". 1000 T-states is over the shortest standard pulse (855), and 32 is
+over the ROM's keyboard scan (bursts of 8 reads 59 T apart, then about 69000
+T-states of nothing). There is no PC range (it would serve only ROM loaders
+and differ by ROM) and no register rule: FUSE's "B changes by one" start rule
+cannot see DeciLoad, which polls one address with B constant, and FUSE's own
+detect-loader fails the <code>xevious-deciload</code> tape.</p>
+<ul>
+<li><strong>Real time.</strong> The deck starts at attach as ever. It holds only at a gap
+  boundary, the instant a block and its non-zero pause have finished, and only
+  when nobody polls. It never stops mid-block and never at a zero-pause join. It
+  resumes at the first counted read once polling: the next block from its first
+  pulse. TAP: <code>TapLoader::set_gap_hold</code> / <code>resume</code>. TZX: ZOT's <code>hold_request</code>,
+  <code>held</code>, <code>tzx_resume()</code>; a stop block (0x20 pause 0, 0x2A) holds instead of
+  ending the tape, and 0x2A stops only on a 48K machine. WAV has no gaps.</li>
+<li><strong>Fast mode.</strong> Nothing happens: a polling program never starts a tape that
+  is not playing, because in fast mode the <code>0x056B</code> trap serves the loads and a
+  "press any key" wait (a tight <code>IN</code> loop, indistinguishable at the port from a
+  pure-EAR loader such as DeciLoad) would play blocks away that a later ROM load
+  needs. A custom loader in fast mode behaves as it always did.</li>
+<li><strong>State.</strong> The detector and the hold are host-deck state, not serialised, and
+  reset on every state load (tape position is excluded from rewind by design;
+  a <code>.jns</code> does carry it, see below). Off (<code>tape_auto_play</code>, <code>--no-tape-auto-play</code>) is the
+  deck as it was: no hold, stop blocks stop for good. The one exception is
+  independent of the setting: a 0x2A block now stops only on a 48K machine (the
+  TZX specification).</li>
+</ul>
+<p><strong>Deck position (GH #402).</strong> Each loader can say where it is and be put back
+there, for a <code>.jns</code>: <code>deck_state()</code> returns a plain struct (TAP: block, phase,
+pulse and byte counters; TZX: the fast-load cursor and the whole ZOT player,
+file pointers as byte offsets and the next edge as a distance from "now"; WAV:
+playing and the start as a distance from "now"), and <code>restore_deck()</code> checks
+every value against the loaded bytes before it writes any (the checks are the
+read sites of <code>tzx.c</code>), returning false with a reason otherwise. <code>sha256()</code> is
+the digest of the bytes <code>load()</code> read. <code>handover_to_fast_at_gap()</code> and
+<code>start_realtime_from_fast()</code> convert a restored deck to the session's mode
+without cutting a block. See <a href="../02-architecture/05-save-state-and-rewind.html">save state and rewind</a>.</p>
 <p>Saving works the same way in reverse. <code>--tape-save</code> (or Tape ▸ Start Saving,
 both through <code>Emulator::start_tape_save()</code>) arms one of two savers by the
 file's extension, and in both the ROM's <code>SA-BYTES</code> at <code>0x04C2</code> is trapped. That
@@ -2619,7 +2715,12 @@ file exactly — a block whose declared length runs past the end, or one stray
 byte where a length field should start — the two cases FUSE's libspectrum TAP
 reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
-when it reads that block. <code>TzxLoader::validate()</code> does the same for a <code>.tzx</code>
+when it reads that block. Those anomalies are warnings, and <code>parse_blocks()</code> reports
+only the first <code>kMaxWarnings</code> (20) plus one count of the rest: a 256 MiB tape of
+zeros is 134 million zero-length blocks (TAPC-13). A tape is also refused above
+<code>kMaxBlocks</code> (1 Mi) blocks: a <code>TapBlock</code> costs 40 bytes before its payload, so a
+file of 4-byte blocks took ~12x its size in memory (TAPC-15).
+<code>TzxLoader::validate()</code> does the same for a <code>.tzx</code>
 against libspectrum's TZX reader: the <code>ZXTape!</code> signature, then every block
 walked with that reader's length rules, so a block that runs past the end or a
 header with no block after it refuses the whole tape. ZOT's own <code>tzx_load()</code>
@@ -2759,8 +2860,8 @@ load-bearing — a firmware-less machine answers the first two exactly as a
 booted one does.</p>
 <p><strong>The cache</strong> is <code>src/core/warm_start_cache.{h,cpp}</code>: one file per machine
 type under <code>&lt;config-dir&gt;/warm-start</code>, with a 96-byte header carrying the
-identity that invalidates it — the SD image's SHA-256, the machine type, a
-state-format version, and the exact <em>uncompressed</em> stream length. Any mismatch
+identity that invalidates it — the SD image's size and mtime, the machine
+type, a state-format version, and the exact <em>uncompressed</em> stream length. Any mismatch
 discards the file and re-boots. The length is not a convenience:
 <code>Ram::load_state</code> reads a count-prefixed blob straight into the live RAM
 buffer, so refusing a stream whose length is not exactly what this build
@@ -2819,16 +2920,17 @@ bank 2 at <code>$8000</code>. Both reference loaders set them explicitly
 machine the defaults do not hold — a measured MMU3 = page 17 sent every write
 to <code>$6000-$7FFF</code> into Layer 2's bank 8. <code>apply()</code> now writes them, which is a
 no-op on the synthetic path and pinned by <code>NEXMMU-01..07</code>.</p>
-<p><strong>The cost.</strong> A miss costs a 500-frame boot, ~3.5 s headless. A hit costs the
-SD image's SHA-256 — ~0.5 s for a 1 GB image warm in the page cache, ~1.2 s
-cold — because the recording's identity is the image's <em>contents</em>. The cheap
-alternatives (a size+mtime key, a hashed prefix, a named subset of files) all
-accept a cached recording without reading the image, and any of them can serve
-a recording of a different card while reporting success; that is the worst
-failure this mechanism can have, because the machine it produces looks booted.
-Within a process the digest is paid once: the restored stream stays in
-<code>warm_start_state_</code> for the session, so a GUI <strong>File &gt; Load NEX File…</strong> after
-a CLI <code>--load</code> costs nothing.</p>
+<p><strong>The cost.</strong> A miss costs a 500-frame boot, ~3.5 s headless. A hit costs one
+<code>stat</code> of the SD image plus inflating the ~100 KB cache. The key is the image's
+(size, mtime) read after the recording, plus a process-wide write generation
+(<code>SdCardDevice::host_write_generation()</code>, bumped by every CMD24 jnext commits):
+an own write drops the in-memory state, and a memo of the last validation
+catches an own write that left the mtime unchanged. GH #396 (owner, 2026-10-22)
+replaced the whole-image SHA-256 this used to pay (0.6-1.2 s per GB on the UI
+thread at every cold boot that loads a program). <strong>Accepted residual:</strong> an
+image replaced or edited from outside with the same size and the same mtime
+(<code>cp -p</code>, <code>touch -r</code>) serves a stale recording; <code>--warm-start-regenerate</code> is the
+escape hatch. The file magic is <code>JNEXTWS3</code> (layout generation).</p>
 <p><strong>Tests.</strong> <code>test/warm_start/warm_start_test.cpp</code> (<code>WSC-*</code> for the cache file,
 its four invalidation keys and the compressed payload; <code>WSR-*</code> for the
 residency criterion, the announced fallbacks and <code>WSR-DEF-01</code>, which proves the
@@ -3355,7 +3457,62 @@ request, each bank-to-page row citing <code>zxnext.vhd</code> or the other emula
 indexing and asserting bytes the test placed itself; the rows that sweep a
 trainer's locations one at a time, POK-50..52, are there so that a rule meant for
 every location cannot pass by checking the first) and <code>pok_dialog_test</code>
-(PKD-01..16); File &gt; Load's refusal is <code>preferences_apply_test</code> PA-24e/f/g.</p>
+(PKD-01..17); File &gt; Load's refusal is <code>preferences_apply_test</code> PA-24e/f/g.</p>
+<h2 id="zip-archives">ZIP archives<a class="headerlink" href="#zip-archives" title="Permanent link">&para;</a></h2>
+<p><code>game.tap.zip</code> loads (GH #392) by being turned into <strong>an extracted file with the
+member's own extension at the two places a user names a program</strong>: the
+command-line fold in <code>main.cpp</code> (right after the bare filename becomes
+<code>load_file</code>, before the RZX checks) and <code>MainWindow::handle_load_path()</code>. Every
+decision below that, from the extension tables to the warm start, the RZX and
+snapshot rules, the V1.3 gate, <code>Debugger::load_program_sidecars</code> and the NEX
+loader that keeps its file open (<code>ExtendedNexHost::reopen()</code>, <code>run X.nex</code>
+siblings resolved beside it), then sees an ordinary path and is unchanged.
+Loading from memory per format was rejected: nine loader APIs, and a NEX needs a
+path anyway.</p>
+<p><strong>Two readers, on purpose.</strong> <code>save/zip_archive.*</code> is the <code>.jns</code> container: it
+accepts only the subset its own writer emits (flag 0, no extra field, no data
+descriptor, lower-case grammar paths) and must stay that strict, because two
+readers disagreeing about the bytes is the failure it exists to avoid.
+Real archives break every one of those rules (Info-ZIP: flag 0x0002, a 24-byte
+extra field on every entry, directory entries; streaming writers: flag 0x0008
+and zero sizes in the local header), so <code>save/zip_interchange.*</code> is a separate
+read-only reader: sizes and CRC from the CENTRAL directory, the data offset from
+the LOCAL header's own name and extra lengths, stored and deflate only, and a
+refusal naming each of: not an archive, ZIP64, multi-disk, a damaged directory
+(archive level), encryption, another method, a declared size over 256 MiB
+(checked before anything is allocated), a CRC mismatch (member level). The only
+code the two share is <code>zip::inflate_exact()</code>; the EOCD and central-directory
+walks are not shared, because a shared walk has to be the weaker of the two.
+<code>ZIPI-25</code> pins that the strict reader still refuses an Info-ZIP archive.</p>
+<p><code>core/program_archive.*</code> is the layer on top. <code>is_program_ext()</code> is the ONE table
+of loadable extensions and <code>emulator_load_routes_to_nex()</code> is defined over it, so
+they cannot drift. <code>is_archive_path()</code> is false for a program extension or
+<code>.pok</code> (a <code>.jns</code> IS a zip), true for any <code>.zip</code>, and for anything else true when
+the file starts <code>PK\3\4</code> or <code>PK\5\6</code>. <code>ProgramArchive</code> lists the members that
+are programs (not directories, <code>__MACOSX/</code> or <code>._</code> AppleDouble junk), refuses two
+with one name, and extracts to <code>&lt;config-dir&gt;/archive-load/&lt;process&gt;/&lt;n&gt;/&lt;basename&gt;</code>
+after refusing an absolute, drive-lettered or <code>..</code> name (splitting on both <code>/</code> and
+<code>\</code>, APPNOTE 4.4.17) and sanitising the basename. Several programs are refused
+on the command line (listed) and asked for in the window (<code>QInputDialog</code>;
+refused with the list when unattended, and the choice mapped back by INDEX, never
+by re-encoding the text). Duplicate names are found with a hash set (a <code>find()</code> per
+member was quadratic: 12 s for 65534 entries). A member name is untrusted bytes:
+every message that carries one goes through <code>display_name()</code>, which escapes C0, DEL,
+C1 and anything outside well-formed UTF-8 as <code>\xNN</code>, so no consumer can print an
+escape sequence. An archive file over 256 MiB is refused too, before it is read. <code>extraction_name()</code> also prefixes <code>_</code> to a Windows device name (<code>CON.TAP</code>, <code>NUL.Z80</code>, <code>COM1.NEX</code>), on every OS, because Windows 10 refuses to create those files.</p>
+<p><strong>Lifetime.</strong> One <code>ScratchDir</code> per process (<code>process_scratch()</code>, a function-local
+static, so it is destroyed on any return from <code>main()</code>, after the app objects and
+their open NEX handle, which matters on Windows): a random directory per process,
+one numbered slot per extraction (two archives both holding <code>GAME.TAP</code> never
+collide, and a refused second load never removes the file the running program has
+open). Process directories older than 7 days are swept on first use: leftovers
+of a crash, never another instance's live session. In the window, a bundled
+<code>.pok</code> (<code>matching_pok()</code>: same stem, else the only one) becomes the POK session
+without showing the dialog (<code>start_pok_session(.., show=false)</code>).</p>
+<p>The suites: <code>program_archive_test</code> (ZIPI-01..25 the reader, ZIPL-01..22 the layer;
+fixtures from foreign writers in <code>test/fixtures/zip</code> plus archives built in code
+with <code>test/zip_fixture.h</code>), <code>load_error_test</code> ZIPG-01..09 (the window) and the
+<code>zip-load-func</code> regression row.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3459,17 +3616,11 @@ instead of acting in the key callback, so a chord takes its turn behind the keys
 typed before it, keys typed during or after it reach the loaded machine, and
 <code>SdlApp::service_quick_requests()</code> / <code>QtApp::TickEffects::post_frames()</code> call
 <code>action_done()</code> however the action ended (see the input subsystem chapter).
-The cost of the stall is the Tier-2 content stamp, a SHA-256 of the WHOLE SD
-image on the UI thread: one pass per save, two per load (the probe, then the load
-itself; the Qt Quick Load passes <code>jns_probed</code> so <code>handle_load_path()</code> does not
-repeat the probe). It scales with the card size (about 0.5-2 s for 1 GB) and every
-digest logs <code>snapshot: digested SD image '&lt;path&gt;' (&lt;MB&gt; MB) in &lt;ms&gt; ms</code>, so a
-user can see what the freeze was. The digest is eager by design (the snapshot
-format's section 11.3 and <code>sd_snapshot_identity.h</code>, "cost, stated rather than
-hidden"), and a probe without it would wrongly accept a snapshot taken
-mid-transfer (section 11.3, last row of the restore matrix). The freeze
-itself (the digest on the UI thread, which grows with the card) is kept as
-designed and tracked in GH #396.</p>
+There is no whole-card read on this path (GH #396, owner 2026-10-22): a save,
+probe or load reads the MBR and the BPB sector (the Tier-1 identity) and nothing
+else; <code>.jns</code> has no Tier-2 <code>content_stamp</code> any more (old files carry one, it is
+ignored) and no mid-transfer refusal. jnext assumes the card is as the snapshot
+left it. <code>sd_no_digest_linux_test</code> (<code>NODIG-01..04</code>) pins it by bytes read.</p>
 <p>Video recording needs <strong>FFmpeg on the host</strong>. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
 encoding cost, and shells out once at stop, trying <code>libx264</code>, <code>mpeg4</code> and

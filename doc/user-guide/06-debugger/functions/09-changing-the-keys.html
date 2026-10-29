@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3807,7 +3807,8 @@ that no longer works.</p>
   typing into ever sees it — the memory panel edits hex with the bare number
   and letter keys, and the disassembly has an address box. <code>Shift+F6</code> is fine:
   the key is still a function key.</li>
-<li><strong>Alt + a letter.</strong> The debugger's menu bar owns those. <code>Alt+F5</code> is accepted (and so is <code>Alt+Shift+F6</code>), but <strong>Alt+Shift+F5</strong> and <strong>Alt+Shift+F9</strong> are refused: they are the emulator window's Quick Save and Quick Load Snapshot.</li>
+<li><strong>Alt + a letter.</strong> The debugger's menu bar owns those. <code>Alt+F5</code> is accepted (and so is <code>Alt+Shift+F6</code>), but <strong>Alt+Shift+F5</strong> and <strong>Alt+Shift+F9</strong> are refused: they are the emulator window's Quick Save and Quick Load Snapshot.
+  On a Mac the host shortcuts are Cmd chords, and the same two sets move with them: <strong>Cmd+1</strong> to <strong>Cmd+8</strong> (the script host keys) and <strong>Cmd+Shift+F5</strong> / <strong>Cmd+Shift+F9</strong> are refused there, and the Option forms are free.</li>
 <li><strong>Ctrl+C and Ctrl+A.</strong> The disassembly panel's Copy and Select All.</li>
 <li><strong>A combination another debugger command already has.</strong> Rebind that one
   first. This is refused rather than silently taken over, because Qt answers
@@ -3815,7 +3816,7 @@ that no longer works.</p>
 </ul>
 <p>Five combinations are <strong>not</strong> refused but do get a warning, because the
 emulator window already uses them: <strong>Ctrl+F5</strong> (record), <strong>Ctrl+F6</strong> (stop
-recording), <strong>F4</strong> (soft reset), <strong>F11</strong> (fullscreen) and <strong>Alt+F4</strong> (quit). You can bind them —
+recording), <strong>F4</strong> (soft reset), <strong>F11</strong> (fullscreen) and <strong>Alt+F4</strong> (quit). On a Mac the set differs: every ⌘ host shortcut (the keymap writes ⌘ as Ctrl: Ctrl+O, Ctrl+L, Ctrl+S, Ctrl+K, Ctrl+Q, Ctrl+R, Ctrl+U, Ctrl+T, Ctrl+D, Ctrl+Shift+S) warns too, the recording pair is Control+F5 / Control+F6 (written Meta+F5 / Meta+F6), the fullscreen chord Ctrl+Meta+F, and there is no Alt+F4. You can bind them —
 F11 for Step Into is a popular choice — and they will work in the debugger
 window. The emulator window keeps its own use of them, and the message under
 the table says so when you pick one.</p>

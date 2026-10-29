@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1107,6 +1107,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Alt is the host namespace, Ctrl is the guest&#39;s">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#macos-command-is-the-host-modifier-gh-403" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS: Command is the host modifier (GH #403)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2595,9 +2612,8 @@ in the machine-side class, plus a stated policy.</p>
   queued keys but keeps queued actions, so a focus loss does not cancel a save the
   user asked for. After a snapshot load wipes the matrix, <code>Router::reassert()</code>
   puts back the keys the router holds (the four windowed-frontend load sites all go through <code>emulator_apply_load_keeping_keys()</code> in <code>emulator_boot.h</code>, so none can forget it), so
-  the guest matrix is exactly what the host holds through the router. The
-  Quick Save/Load stall is the whole-card SHA-256 (see media and loaders); the
-  keys typed during it are delivered afterwards, in order.</p>
+  the guest matrix is exactly what the host holds through the router. Keys
+  typed while a Quick Save/Load is in progress are delivered afterwards, in order.</p>
 <p><code>Router::release_all()</code> is the third policy, and it answers a different
   question: <strong>what if the key-up never arrives at all?</strong> A Qt popup and a focus
   change both take the keyboard away mid-keystroke, and the key-up then goes to
@@ -2667,6 +2683,24 @@ and Alt+E, Alt+G, Alt+C and Alt+<code>`</code> are reserved for the guest's EDIT
 GRAPH, CAPS LOCK and INV VIDEO. Adding a menu on one of those would silently
 kill a guest key, so <code>host_hotkey_test</code> pins the two sets disjoint — see
 <a href="../04-testing/index.html">Testing</a>.</p>
+<h3 id="macos-command-is-the-host-modifier-gh-403">macOS: Command is the host modifier (GH #403)<a class="headerlink" href="#macos-command-is-the-host-modifier-gh-403" title="Permanent link">&para;</a></h3>
+<p>On macOS the same split sits one key over. Qt reports Command as
+<code>Key_Control</code> / <code>ControlModifier</code> / <code>Qt::CTRL</code> and the physical Control key as
+<code>Key_Meta</code> (jnext does not set <code>AA_MacDontSwapCtrlAndMeta</code>), so
+<code>gui/host_shortcuts.h</code> holds the host set for both platforms, with the
+platform as a parameter so the macOS branch is unit-tested on Linux
+(<code>host_shortcuts_test</code>): <code>sequence()</code> (Command+letter, Command+Q, Command+,;
+no Alt+F4), <code>script_sequence()</code>, <code>f1_decision()</code> / <code>f4_decision()</code> (Command for Alt, Option inert, physical Control as Ctrl), and <code>modifier_scancode()</code>,
+which maps Command to the Router as <code>LGUI</code> (the guest ignores it) and the
+physical Control key to Symbol Shift. <code>CommandChordGate</code> keeps an unbound
+Command chord from reaching the guest. The key Router's script chord
+(<code>set_script_chord_gui()</code>) and the SDL frontend's quick-snapshot / F1 / F4
+decisions (<code>platform/host_modifier.h</code>, <code>QuickChordTracker::set_host_is_gui()</code>)
+take the host modifier as a parameter whose default is Alt, so every Alt row
+keeps its meaning on a Mac build. The debugger keymap's reserved chords follow
+the same flag (<code>validate_combo(c, why, host_mod_is_ctrl)</code>). Add a host
+shortcut to the <code>host_shortcuts::Action</code> table, never as a literal <code>Qt::ALT</code>
+(<code>HS403-27</code> fails on one).</p>
 <p>The one bare non-function host key is <strong>Pause</strong>, an alternate shortcut on
 Machine &gt; Pause (GH #322, an owner-approved exception to the Alt rule; it is the
 conventional emulator pause key). It is safe because Next PS/2 Pause/Break is

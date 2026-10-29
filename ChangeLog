@@ -1,20 +1,28 @@
 # ChangeLog
 
-## Unreleased (2026-10-14)
+## v1.1.87 (2026-10-24)
 
 ### User Features
 - Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
 - Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
 - NextPi and SD-card image downloads continue where they stopped instead of starting over
 - The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
-- Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
 - POK trainer files: Machine > POK Trainers... applies and removes pokes; --delayed-pok-frames/--pok-trainers do it headless and SDL-only
+- Programs inside .zip archives load directly (--load, File > Load); a bundled .pok is offered as trainers
 - Soft scanlines, TV and PC monitor CRT looks drawn on the GPU, beside the Scanlines filter (View menu, Preferences)
+- Snapshots no longer check whether the SD card's contents changed; only a different card is refused
+- Tape auto play/stop: a real-time deck pauses between blocks while nothing listens, so slow BASIC loaders load
+- Loading a .jns snapshot puts its tape back at the saved position, zipped tapes included; your settings stay
+- One fast/real-time tape setting: Tape > Fast Load now governs File > Load and --load too; --tape-realtime overrides it per run
 
 ### Developer Features
+- Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
 - Debugger labels from sjasmplus --sym and --exp files (Map menu, --map); scripts name them as @module.label
 
 ### Bug Fixes
+- A snapshot records its tape by full path, so loading it from another folder no longer warns the tape is gone
+- Saving a snapshot no longer crashes when a tape, SD card or esxDOS folder path is not valid UTF-8
+- Rewind enabled from the debugger stays on, with its size and pause, across loads, Quick Load and Power Reset
 - NextPi checks that QEMU is installed before offering its 6 GB download
 - Windows: NextPi's finished 6 GB download was deleted as "missing"; files over 4 GB are now recognised
 - NextPi uses an archive already in its folder, and says which file or check rejected an existing setup
@@ -26,9 +34,15 @@
 - Failed SD-card and NextPi downloads name the address that failed, say why in plain words and what was kept
 - Keys typed during a Quick Save/Load or in a fast burst are no longer dropped or saved out of order
 - Layer 2 games no longer tear the top line when they change bank or scroll during vblank
+- Quick Save and Quick Load no longer freeze the window for seconds on large SD cards
+- Tape fast load handles loaders that jump into the ROM loader mid-routine (Starglider 128K); checksum and VERIFY errors are reported
+- At 28 MHz, reads from the boot ROM and DivMMC, Multiface and Layer 2 overlays wait as on the hardware
+
+### Internal JNEXT Development
+- CI uploads every package as a run artifact; regression-win captures stalled wine runs and isolates them from the host D-Bus
 
 ### Contributors in this release
-- @pavero01, @janko-jj, @jattree, @jsmolina, @Nitrowing, @shadowphiar
+- @pavero01, @janko-jj, @jattree, @jsmolina, @Nitrowing, @shadowphiar, @bleughb
 
 ## v1.1.51 (2026-10-13)
 

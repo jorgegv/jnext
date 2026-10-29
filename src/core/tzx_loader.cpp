@@ -1,6 +1,9 @@
 #include "core/tzx_loader.h"
 #include "core/emulator.h"
 #include "core/log.h"
+#include "core/host_path.h"
+#include "core/tape_trap.h"
+#include "core/sha256.h"
 
 extern "C" {
 #include "tzx.h"
@@ -40,7 +43,10 @@ TzxLoader::TzxLoader(TzxLoader&& other) noexcept
     , loaded_(other.loaded_)
     , fast_load_(other.fast_load_)
     , filename_(std::move(other.filename_))
+    , path_(std::move(other.path_))
+    , sha256_(std::move(other.sha256_))
     , fast_load_offset_(other.fast_load_offset_)
+    , handover_pending_(other.handover_pending_)
     , is_tzx_(other.is_tzx_)
 {
     other.player_ = new TZXPlayer;
@@ -61,7 +67,10 @@ TzxLoader& TzxLoader::operator=(TzxLoader&& other) noexcept {
         loaded_ = other.loaded_;
         fast_load_ = other.fast_load_;
         filename_ = std::move(other.filename_);
+        path_ = std::move(other.path_);
+        sha256_ = std::move(other.sha256_);
         fast_load_offset_ = other.fast_load_offset_;
+        handover_pending_ = other.handover_pending_;
         is_tzx_ = other.is_tzx_;
 
         other.loaded_ = false;
@@ -400,6 +409,7 @@ bool TzxLoader::load(const std::string& path) {
         Log::emulator()->warn("TZX: '{}' block {} (ID ${:02X}) is a valid block the tape "
                               "player does not play; it is skipped", path, index, id);
     }
+    const std::string digest = sdcard::sha256_hex(bytes);
     file_data_ = std::move(bytes);
 
     // Load into ZOT player. validate() has seen the signature, so ZOT takes
@@ -413,12 +423,14 @@ bool TzxLoader::load(const std::string& path) {
 
     is_tzx_ = !P()->is_tap;
     loaded_ = true;
+    sha256_ = digest;
     fast_load_offset_ = is_tzx_ ? 10 : 0;  // skip TZX header
 
     // Extract filename for UI. (std::filesystem splits on the host's own
     // separators: a Windows path from `--load C:\...` or a native dialog has
     // backslashes, which rfind('/') never saw).
     filename_ = std::filesystem::path(path).filename().string();
+    path_ = jnext::absolute_host_path(path);
 
     Log::emulator()->info("TZX: loaded '{}' - {} format, {} bytes",
                            filename_, is_tzx_ ? "TZX" : "TAP",
@@ -428,10 +440,14 @@ bool TzxLoader::load(const std::string& path) {
 
 void TzxLoader::eject() {
     tzx_stop(P());
+    P()->held = 0;
     file_data_.clear();
     loaded_ = false;
     fast_load_offset_ = 0;
+    handover_pending_ = false;
     filename_.clear();
+    path_.clear();
+    sha256_.clear();
     Log::emulator()->info("TZX: tape ejected");
 }
 
@@ -440,6 +456,11 @@ void TzxLoader::rewind() {
     // If playing, restart from beginning.
     if (is_playing()) {
         tzx_play(P(), P()->edge_clock);
+    } else if (P()->held) {
+        // A held deck stays held, at the start now.
+        P()->offset = is_tzx_ ? 10 : 0;
+        P()->phase = TZX_PHASE_IDLE;
+        P()->gap_done = 0;
     }
 }
 
@@ -447,6 +468,39 @@ void TzxLoader::start_playback(uint64_t cpu_clocks) {
     if (!loaded_) return;
     tzx_play(P(), cpu_clocks);
     Log::emulator()->debug("TZX: playback started");
+}
+
+void TzxLoader::start_playback_from_fast_position(uint64_t cpu_clocks, bool held) {
+    if (!loaded_) return;
+    tzx_play(P(), cpu_clocks);
+    P()->offset = fast_load_offset_;
+    fast_load_ = false;
+    handover_pending_ = false;
+    if (held && fast_load_offset_ < static_cast<int>(file_data_.size())) {
+        P()->playing = 0;
+        P()->held = 1;
+        P()->phase = TZX_PHASE_IDLE;
+    }
+    Log::emulator()->debug("TZX: playback started at offset {}", fast_load_offset_);
+}
+
+bool TzxLoader::handover_to_fast_at_gap() {
+    if (!loaded_) return false;
+    if (!is_playing()) {
+        P()->held = 0;
+        fast_load_offset_ = P()->offset;
+        fast_load_ = true;
+        handover_pending_ = false;
+        return true;
+    }
+    handover_pending_ = true;
+    return false;
+}
+
+void TzxLoader::hold_if_stopped() {
+    if (loaded_ && !P()->playing && !P()->held &&
+        P()->offset < static_cast<int>(file_data_.size()))
+        P()->held = 1;
 }
 
 void TzxLoader::stop_playback() {
@@ -459,7 +513,42 @@ bool TzxLoader::is_playing() const {
 
 uint8_t TzxLoader::update(uint64_t cpu_clocks) {
     if (!loaded_) return 0;
-    return tzx_update(P(), cpu_clocks);
+    const int was_held = P()->held;
+    const uint8_t level = tzx_update(P(), cpu_clocks);
+    if (P()->held && !was_held)
+        Log::emulator()->info("TZX: deck held before offset {}", P()->offset);
+    if (handover_pending_ && !P()->playing) {
+        // The gap boundary (or the end of the tape, or a stop block): the player
+        // stands at the next block. GH #402.
+        P()->held = 0;
+        fast_load_offset_ = P()->offset;
+        fast_load_ = true;
+        handover_pending_ = false;
+        Log::emulator()->info("TZX: handed over to fast loading at offset {}", fast_load_offset_);
+    }
+    return level;
+}
+
+// ---------------------------------------------------------------------------
+// Automatic play/stop (GH #395)
+// ---------------------------------------------------------------------------
+
+void TzxLoader::set_auto_policy(bool hold_at_gap, bool auto_play, bool is_48k) {
+    // A pending handover to fast loading wants the player to stop at the next gap.
+    P()->hold_request = (hold_at_gap || handover_pending_) ? 1 : 0;
+    P()->stop_holds = auto_play ? 1 : 0;
+    P()->is_48k = is_48k ? 1 : 0;
+}
+
+bool TzxLoader::is_held() const {
+    return loaded_ && static_cast<TZXPlayer*>(player_)->held != 0;
+}
+
+bool TzxLoader::resume(uint64_t cpu_clocks) {
+    if (!loaded_) return false;
+    const bool ok = tzx_resume(P(), cpu_clocks) != 0;
+    if (ok) Log::emulator()->debug("TZX: auto play resumed at offset {}", P()->offset);
+    return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -593,70 +682,166 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
 }
 
 bool TzxLoader::handle_ld_bytes_trap(Emulator& emu) {
+    // The CPU stands at LD-BREAK (0x056B): the expected flag is in A',
+    // LOAD/VERIFY in the carry of F'. The ROM's transfer, checksum and exit
+    // are tape_trap::rom_ld_bytes (shared with the TAP loader).
     auto regs = emu.cpu().get_registers();
-
-    uint8_t expected_flag = static_cast<uint8_t>(regs.AF >> 8);
-    bool is_load = (regs.AF & 0x01) != 0;
-    uint16_t dest = regs.IX;
-    uint16_t length = regs.DE;
-
     Log::emulator()->debug("TZX trap: flag={:#04x} {} IX={:#06x} DE={:#06x}",
-                            expected_flag, is_load ? "LOAD" : "VERIFY", dest, length);
+                            regs.AF2 >> 8, (regs.AF2 & 1) ? "LOAD" : "VERIFY", regs.IX, regs.DE);
 
-    // Get next data block.
     int block_len = 0;
     const uint8_t* block_data = next_data_block(block_len);
     if (!block_data || block_len < 1) {
         Log::emulator()->warn("TZX: no more data blocks on tape");
-        regs.AF &= ~0x0001;  // clear carry (error)
-        uint16_t ret_lo = emu.mmu().read(regs.SP);
-        uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-        regs.SP += 2;
-        regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
-        emu.cpu().set_registers(regs);
+        tape_trap::rom_ld_bytes(emu, nullptr, 0);
         return false;
     }
+    tape_trap::rom_ld_bytes(emu, block_data, static_cast<size_t>(block_len));
+    return true;
+}
 
-    // block_data[0] is the flag byte.
-    uint8_t block_flag = block_data[0];
-    if (block_flag != expected_flag) {
-        Log::emulator()->debug("TZX: flag mismatch (expected {:#04x}, got {:#04x})",
-                                expected_flag, block_flag);
-        regs.AF &= ~0x0001;
-        uint16_t ret_lo = emu.mmu().read(regs.SP);
-        uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-        regs.SP += 2;
-        regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
-        emu.cpu().set_registers(regs);
-        return true;
-    }
+// ---------------------------------------------------------------------------
+// The deck's position, for a `.jns` (GH #402)
+//
+// What restore_deck() checks is derived from every place tzx_next_pulse() and
+// tzx_parse_next_block() (third_party/zot/tzx.c) read through the player:
+//   offset / loop_start_offset  data[offset] only while offset < len (a parse
+//                               reads nothing at offset >= len), and the loop
+//                               end jumps to loop_start_offset;
+//   block_data[data_pos]        DATA and DIRECT phases, data_pos < data_len;
+//   r16(pulse_lengths + 2 * pulse_idx)   PULSES phase, pulse_idx < pulse_count;
+//   bit_pos                     a shift count, -1..7 (-1 after the last bit);
+//   everything else is a counter or a flag that selects a branch.
+// A position the player itself can reach satisfies all of them, so a deck the
+// loader saved always restores.
+// ---------------------------------------------------------------------------
 
-    if (is_load) {
-        // Payload is block_data[1..block_len-2], checksum is block_data[block_len-1].
-        int payload_len = block_len - 2;  // exclude flag and checksum
-        if (payload_len < 0) payload_len = 0;
-        size_t copy_len = std::min(static_cast<size_t>(length),
-                                    static_cast<size_t>(payload_len));
-        for (size_t i = 0; i < copy_len; ++i) {
-            emu.mmu().write(static_cast<uint16_t>(dest + i), block_data[1 + i]);
+static const char* const kTzxPhaseNames[] = {
+    "idle", "pilot", "sync1", "sync2", "data", "pause", "tone", "pulses", "direct", "pause2"};
+
+TzxLoader::DeckState TzxLoader::deck_state(uint64_t now) const {
+    const TZXPlayer* p = static_cast<const TZXPlayer*>(player_);
+    DeckState d;
+    d.fast_offset = fast_load_offset_;
+    d.offset = p->offset;
+    d.playing = p->playing != 0;
+    d.held = p->held != 0;
+    d.level = p->level;
+    d.edge_in = static_cast<int64_t>(p->edge_clock - now);
+    d.phase = kTzxPhaseNames[static_cast<int>(p->phase)];
+    d.pilot_pulse = p->pilot_pulse;
+    d.sync1 = p->sync1;
+    d.sync2 = p->sync2;
+    d.zero_pulse = p->zero_pulse;
+    d.one_pulse = p->one_pulse;
+    d.pilot_left = p->pilot_remaining;
+    d.block_data = p->block_data ? static_cast<int32_t>(p->block_data - p->data) : -1;
+    d.data_len = p->data_len;
+    d.data_pos = p->data_pos;
+    d.bit_pos = p->bit_pos;
+    d.pulse_half = p->pulse_half;
+    d.used_bits_last = p->used_bits_last;
+    d.pause_tstates = p->pause_tstates;
+    d.tone_pulse = p->tone_pulse;
+    d.tone_left = p->tone_remaining;
+    d.pulse_lengths = p->pulse_lengths ? static_cast<int32_t>(p->pulse_lengths - p->data) : -1;
+    d.pulse_count = p->pulse_count;
+    d.pulse_idx = p->pulse_idx;
+    d.sample_tstates = p->sample_tstates;
+    d.direct_level = static_cast<uint32_t>(p->direct_level);
+    d.loop_start = p->loop_start_offset;
+    d.loop_count = p->loop_count;
+    d.gap_done = static_cast<uint32_t>(p->gap_done);
+    return d;
+}
+
+bool TzxLoader::restore_deck(const DeckState& d, uint64_t now, std::string& why) {
+    if (!loaded_) { why = "no tape is loaded"; return false; }
+    int phase = -1;
+    for (int i = 0; i < 10; ++i) if (d.phase == kTzxPhaseNames[i]) phase = i;
+    if (phase < 0) { why = "unknown phase '" + d.phase + "'"; return false; }
+
+    const int64_t len = static_cast<int64_t>(file_data_.size());
+    const int64_t header = is_tzx_ ? 10 : 0;
+    auto bad = [&](const char* what) { why = what; return false; };
+
+    if (d.fast_offset < header || d.fast_offset > len) return bad("the fast-load offset is outside the file");
+    if (d.offset < header || d.offset > len) return bad("the offset is outside the file");
+    if (d.loop_start < 0 || d.loop_start > len) return bad("the loop start is outside the file");
+    if (d.level > 1 || d.direct_level > 1 || d.gap_done > 1) return bad("a flag is not 0 or 1");
+    if (d.playing && d.held) return bad("the deck is both playing and held");
+    if (d.pilot_pulse > 65535 || d.sync1 > 65535 || d.sync2 > 65535 || d.zero_pulse > 65535 ||
+        d.one_pulse > 65535 || d.tone_pulse > 65535 || d.sample_tstates > 65535)
+        return bad("a pulse length is over 65535");
+    if (d.pilot_left < 0 || d.pilot_left > 65535 || d.tone_left < 0 || d.tone_left > 65535 ||
+        d.loop_count < 0 || d.loop_count > 65535)
+        return bad("a pulse or loop count is out of range");
+    if (d.used_bits_last < 0 || d.used_bits_last > 8) return bad("used_bits_last is out of range");
+    if (d.pulse_half < 0 || d.pulse_half > 1) return bad("pulse_half is not 0 or 1");
+    if (d.bit_pos < -1 || d.bit_pos > 7) return bad("bit_pos is out of range");
+
+    // The data block the player is in.
+    if (d.data_len < 0 || d.data_pos < 0 || d.data_pos > d.data_len)
+        return bad("the data position is outside its block");
+    if (d.block_data < -1) return bad("the data pointer is negative");
+    if (d.block_data >= 0 && static_cast<int64_t>(d.block_data) + d.data_len > len)
+        return bad("the data block runs past the end of the file");
+    // Phases that go on to read block_data[data_pos]: PILOT and SYNC lead into DATA.
+    const bool reads_data = phase == 1 || phase == 2 || phase == 3 || phase == 4 || phase == 8;
+    if (reads_data && d.data_len > 0) {
+        if (d.block_data < 0) return bad("a data phase without a data block");
+        if (d.data_pos >= d.data_len) return bad("the data position is past its block");
+        if (phase == 4 || phase == 8) {
+            if (d.bit_pos < 0) return bad("bit_pos is out of range for a data phase");
         }
-        Log::emulator()->debug("TZX: loaded {} bytes to {:#06x}", copy_len, dest);
-        regs.IX = static_cast<uint16_t>(dest + copy_len);
-        regs.DE = 0;
-    } else {
-        Log::emulator()->debug("TZX: verify mode - auto-passing");
-        regs.IX = static_cast<uint16_t>(dest + length);
-        regs.DE = 0;
     }
 
-    regs.AF |= 0x0001;  // set carry (success)
+    // The pulse sequence the player is in.
+    if (d.pulse_count < 0 || d.pulse_count > 255 || d.pulse_idx < 0 || d.pulse_idx > d.pulse_count)
+        return bad("the pulse index is outside its sequence");
+    if (d.pulse_lengths < -1) return bad("the pulse pointer is negative");
+    if (d.pulse_lengths >= 0 &&
+        static_cast<int64_t>(d.pulse_lengths) + 2 * static_cast<int64_t>(d.pulse_count) > len)
+        return bad("the pulse sequence runs past the end of the file");
+    if (phase == 7 && d.pulse_idx < d.pulse_count && d.pulse_lengths < 0)
+        return bad("a pulse phase without a pulse sequence");
 
-    // Simulate RET: pop return address.
-    uint16_t ret_lo = emu.mmu().read(regs.SP);
-    uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-    regs.SP += 2;
-    regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
+    // The next edge is a T-state the clock can reach.
+    if ((d.edge_in < 0 && static_cast<uint64_t>(-(d.edge_in + 1)) + 1 > now) ||
+        (d.edge_in > 0 && static_cast<uint64_t>(d.edge_in) > UINT64_MAX - now))
+        return bad("the next edge is outside the clock");
 
-    emu.cpu().set_registers(regs);
+    TZXPlayer* p = P();
+    const uint8_t* base = file_data_.data();
+    fast_load_offset_ = d.fast_offset;
+    p->offset = d.offset;
+    p->playing = d.playing ? 1 : 0;
+    p->held = d.held ? 1 : 0;
+    p->level = static_cast<uint8_t>(d.level);
+    p->edge_clock = now + static_cast<uint64_t>(d.edge_in);   // modular: exact for either sign
+    p->phase = static_cast<TZXPhase>(phase);
+    p->pilot_pulse = static_cast<uint16_t>(d.pilot_pulse);
+    p->sync1 = static_cast<uint16_t>(d.sync1);
+    p->sync2 = static_cast<uint16_t>(d.sync2);
+    p->zero_pulse = static_cast<uint16_t>(d.zero_pulse);
+    p->one_pulse = static_cast<uint16_t>(d.one_pulse);
+    p->pilot_remaining = d.pilot_left;
+    p->block_data = d.block_data >= 0 ? base + d.block_data : nullptr;
+    p->data_len = d.data_len;
+    p->data_pos = d.data_pos;
+    p->bit_pos = d.bit_pos;
+    p->pulse_half = d.pulse_half;
+    p->used_bits_last = d.used_bits_last;
+    p->pause_tstates = d.pause_tstates;
+    p->tone_pulse = static_cast<uint16_t>(d.tone_pulse);
+    p->tone_remaining = d.tone_left;
+    p->pulse_lengths = d.pulse_lengths >= 0 ? base + d.pulse_lengths : nullptr;
+    p->pulse_count = d.pulse_count;
+    p->pulse_idx = d.pulse_idx;
+    p->sample_tstates = static_cast<uint16_t>(d.sample_tstates);
+    p->direct_level = static_cast<int>(d.direct_level);
+    p->loop_start_offset = d.loop_start;
+    p->loop_count = d.loop_count;
+    p->gap_done = static_cast<int>(d.gap_done);
     return true;
 }

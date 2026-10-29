@@ -72,8 +72,7 @@ bool extract_sd_rom(const std::string& sd_image_path,
 /// than none (design §11.1).
 ///
 /// So Tier 1 is the image size, the MBR partition table and the FAT32 boot
-/// sector's volume serial. The whole-image digest is Tier 2, and it WARNS
-/// rather than refuses (`read_sd_image_content_stamp`, sd_snapshot_identity.h).
+/// sector's volume serial. There is no whole-image digest (GH #396).
 struct SdImageIdentity {
     /// Size of the image file in bytes.
     uint64_t image_bytes = 0;

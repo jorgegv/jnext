@@ -66,6 +66,7 @@ Four kinds of combination are refused, and the dialog says which and why:
   and letter keys, and the disassembly has an address box. `Shift+F6` is fine:
   the key is still a function key.
 - **Alt + a letter.** The debugger's menu bar owns those. `Alt+F5` is accepted (and so is `Alt+Shift+F6`), but **Alt+Shift+F5** and **Alt+Shift+F9** are refused: they are the emulator window's Quick Save and Quick Load Snapshot.
+  On a Mac the host shortcuts are Cmd chords, and the same two sets move with them: **Cmd+1** to **Cmd+8** (the script host keys) and **Cmd+Shift+F5** / **Cmd+Shift+F9** are refused there, and the Option forms are free.
 - **Ctrl+C and Ctrl+A.** The disassembly panel's Copy and Select All.
 - **A combination another debugger command already has.** Rebind that one
   first. This is refused rather than silently taken over, because Qt answers
@@ -73,7 +74,7 @@ Four kinds of combination are refused, and the dialog says which and why:
 
 Five combinations are **not** refused but do get a warning, because the
 emulator window already uses them: **Ctrl+F5** (record), **Ctrl+F6** (stop
-recording), **F4** (soft reset), **F11** (fullscreen) and **Alt+F4** (quit). You can bind them —
+recording), **F4** (soft reset), **F11** (fullscreen) and **Alt+F4** (quit). On a Mac the set differs: every ⌘ host shortcut (the keymap writes ⌘ as Ctrl: Ctrl+O, Ctrl+L, Ctrl+S, Ctrl+K, Ctrl+Q, Ctrl+R, Ctrl+U, Ctrl+T, Ctrl+D, Ctrl+Shift+S) warns too, the recording pair is Control+F5 / Control+F6 (written Meta+F5 / Meta+F6), the fullscreen chord Ctrl+Meta+F, and there is no Alt+F4. You can bind them —
 F11 for Step Into is a popular choice — and they will work in the debugger
 window. The emulator window keeps its own use of them, and the message under
 the table says so when you pick one.

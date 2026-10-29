@@ -17,7 +17,7 @@ then open the trainers.
 1. Load and start the game.
 2. Choose **Machine ▸ POK Trainers…**, or **File ▸ Load NEX File…** (Alt+O) and
    pick the `.pok` file (the file dialog lists *POK Trainers (\*.pok)*). A
-   `.pok` opened with File ▸ Load does **not** reset the machine: it opens the
+   `.pok` opened with File ▸ Load NEX File… does **not** reset the machine: it opens the
    trainers and leaves the game exactly where it was.
 3. Pick a trainer in the list and press **Apply**. Its **Status** reads
    *applied*, and the game now behaves differently: lives stop going down,
@@ -27,6 +27,11 @@ then open the trainers.
    **File ▸ Save Snapshot…** ([5.9 Snapshots](09-snapshots.md)): the snapshot
    holds the changed bytes, so loading it later gives you the game with the
    trainer already in it.
+
+A game loaded from a ZIP archive that also holds a `.pok` gets its trainers
+without any of this: File ▸ Load NEX File… makes them the open list (not shown), the
+status bar says so, and **Machine ▸ POK Trainers…** shows them
+([5. Running programs](index.md)).
 
 **Machine ▸ POK Trainers…** with no file open asks for one; with a file open it
 shows the trainers again. **Open POK File…** in the window opens another file.

@@ -140,9 +140,9 @@ struct SdCardInfo {
     /// §11.1 exists to avoid, so this is carried and never tested.
     std::string vollab;
 
-    /// Tier 2 (§11.3): "has it changed since?". The whole-image digest.
-    std::string content_sha256;
-    std::string content_mtime_utc;
+    // There is no Tier 2 (GH #396): the card's contents are not recorded or
+    // compared. Files from jnext 1.1.0-1.1.75 carry a `content_stamp`; it is
+    // ignored on read.
 };
 
 /// §8 / §10.2 P3 — ROM identity.
@@ -203,6 +203,14 @@ struct TapeInfo {
     /// `--tape-realtime`: a fast (trapped) load and a real-time load are
     /// different machines, so the flag travels with the position.
     bool        realtime = false;
+
+    /// GH #402: a tape that was extracted from a `.zip` (GH #392) sits in a
+    /// scratch directory that dies with the process, so `path` cannot be
+    /// reopened by a later session. These name where it came from: the
+    /// archive's absolute UTF-8 path and the member inside it. Both empty for
+    /// a tape loaded from a plain file; `member` is set only with `archive`.
+    std::string archive;
+    std::string member;
 };
 
 /// §10.2 P5 — the preview image, `meta/preview.png`.
@@ -300,22 +308,12 @@ struct ReaderEnv {
     /// The card mounted RIGHT NOW (`present == false` when none is).
     SdCardInfo card;
 
-    /// Set from `SdCardDevice::transfer_in_flight()`, which GH #27 S6 added
-    /// along with the FSM it reads (§10.2 P1). It had no producer at all from
-    /// S1 to S5b, which is why the last row of §11.3 could not fire.
-    ///
-    /// §11.3's last row: when the machine was in the middle of a sector
-    /// transfer at capture, a Tier-2 content drift stops being a warning and
-    /// becomes a refusal — a half-finished sector read against changed bytes
-    /// is exactly the "streams garbage" failure. The rule is a manifest rule
-    /// and lives here; its one input arrives with S5.
-    bool sd_transfer_in_flight = false;
-
     /// §10.2 P3 — the ROMs the CURRENT machine has, for the digest
     /// comparison. Only names present in BOTH are compared.
     RomDigests roms;
 
-    /// §10.2 P4 — whether `media.tape.path` can be reopened right now.
+    /// §10.2 P4 — whether the tape can be reopened right now: `media.tape.path`,
+    /// or, for a tape that came out of a `.zip`, `media.tape.archive` (GH #402).
     /// The container does NO filesystem I/O (that is what keeps its rows
     /// cheap and its dependencies none), so the caller stats and answers.
     bool tape_file_available = false;

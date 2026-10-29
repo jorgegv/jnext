@@ -87,6 +87,7 @@ private:
     QComboBox* crt_combo_ = nullptr;
     QCheckBox* silent_check_     = nullptr;
     QCheckBox* tape_fast_check_  = nullptr;
+    QCheckBox* tape_auto_check_  = nullptr;
 
     QComboBox* joy1_source_combo_ = nullptr;   // Task 79
     QComboBox* joy2_source_combo_ = nullptr;
@@ -124,6 +125,8 @@ private:
     // GH #1 — the edited copy of the key bindings. ALWAYS present, even in a
     // build with no Debugger Keys tab, because collect() must hand it back.
     jnext::dbgkeys::Keymap debug_keys_;
+    /// GH #406 - File > Recent Files, carried through collect() untouched.
+    QStringList recent_files_;
 
     // The saved CRT-shader settings, handed back by collect() when this build
     // has no shader controls (a config shared between two builds must not lose

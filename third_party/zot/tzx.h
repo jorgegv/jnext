@@ -102,6 +102,20 @@ typedef struct {
     /* Loop support (single nesting level). */
     int loop_start_offset;
     int loop_count;
+
+    /* jnext (GH #395): automatic play/stop (the host's deck, not part of the
+     * TZX format).
+     * hold_request: set by the host before each update; when set, the player
+     * stops (held = 1) at the next gap boundary, the instant a block's
+     * non-zero pause has elapsed, with offset at the next block. is_48k: a
+     * "stop the tape if in 48K mode" block (0x2A) stops only when set.
+     * stop_holds: a stop block (0x20 with pause 0, 0x2A) holds instead of
+     * ending the tape. tzx_resume() continues a held tape at the next block. */
+    int hold_request;
+    int stop_holds;
+    int is_48k;
+    int held;
+    int gap_done;       /* the pulse just returned ended a pause */
 } TZXPlayer;
 
 /* Load a TZX or TAP file. The data pointer must remain valid while
@@ -112,6 +126,10 @@ int tzx_load(TZXPlayer *p, const uint8_t *data, int len);
 /* Start playback from the beginning. cpu_clocks is the current value
  * of cpu.clocks, used to synchronize the first edge transition. */
 void tzx_play(TZXPlayer *p, uint64_t cpu_clocks);
+
+/* jnext (GH #395): continue a held tape (held = 1) at the next block, from its first pulse.
+ * Returns 1 if the tape was held. */
+int tzx_resume(TZXPlayer *p, uint64_t cpu_clocks);
 
 /* Stop playback. Sets EAR level to 0. */
 void tzx_stop(TZXPlayer *p);

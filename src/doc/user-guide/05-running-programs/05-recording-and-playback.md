@@ -13,7 +13,28 @@ several minutes, loading stripes, screeching and all. Use it for authenticity,
 or for the occasional program with a custom loader that fast-load cannot
 follow. Turn it on with **Tape > Fast Load** (uncheck it) or `--tape-realtime`.
 
+There is **one** fast/real-time setting, the **Tape > Fast Load** toggle, which
+changes it for the session; the setting it starts from is **Tape fast-load by default** in
+**Settings > Preferences > Startup**. **Tape > Open Tape File…**, **File > Load NEX File…**, a `.tap`
+or `.tzx` given with `--load` and a tape restored from a snapshot all follow it.
+`--tape-realtime` switches it to real time for that run only, winning over the
+saved choice, and is never saved. The SDL build has no menu or saved choice, so
+the option is its whole setting.
+
 `.wav` files are always real time; there is no ROM routine to short-circuit.
+
+**Automatic play/stop** is on by default. A real tape deck needs a finger on
+STOP and PLAY when a program is slow between blocks (many tape conversions run
+a BASIC loader in the gaps). JNEXT does it for you: in a silent gap between
+two blocks, when no program is reading the tape port, the deck stops; it
+plays again, from the start of the next block, as soon as a program reads the
+port again. Nothing is cut or repeated, and a program that keeps listening sees
+the same tape as before. That is why tapes with slow BASIC loaders load in real
+time. It does nothing in fast load. `.wav` files are never paused. Turn it off
+with **Tape > Auto Play/Stop**, **Settings > Preferences**, or
+`--no-tape-auto-play` for a deck that runs straight through, like a cassette
+without a finger (a TZX "stop the tape if in 48K mode" block stops only on a 48K
+machine, as the TZX specification says, whatever this setting is).
 
 **Tape > Open Tape File…** (Alt+T) loads a tape, fast or in real time as
 **Tape > Fast Load** shows, and **Eject** and **Rewind** do what they say (a
@@ -58,8 +79,8 @@ the sound up to the last change of level.
 
 ## Video
 
-**File > Record MPEG4 Video…** (Ctrl+F5) starts recording video with audio to
-an MP4; **Stop** (Ctrl+F6) ends it. From the command line, `--record FILE`.
+**File > Record MPEG4 Video…** (Ctrl+F5; ⌃F5 on a Mac) starts recording video with audio to
+an MP4; **Stop** (Ctrl+F6; ⌃F6 on a Mac) ends it. From the command line, `--record FILE`.
 
 This needs **ffmpeg** installed and on your PATH — JNEXT feeds it the frames.
 If it is missing, `--record` fails immediately: JNEXT says so and exits

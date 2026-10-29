@@ -59,7 +59,8 @@ naming the option and the value, and exits with status 1.
 **\--load** *FILE*
 :   Load a program. The format is detected from the extension: `.nex`, `.jns`,
     `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx` is accepted
-    here and plays back, as **\--rzx-play**.)
+    here and plays back, as **\--rzx-play**.) A `.zip` archive holding one of
+    them loads that program (see the `.zip` entry of **LOADING PROGRAMS**).
 
     `.jns` is jnext's own whole-machine snapshot (see **JNEXT SNAPSHOTS**
     below). Loading one restores the machine it was taken on, including the
@@ -164,10 +165,13 @@ naming the option and the value, and exits with status 1.
     **jnext** says so on standard error and falls back to the machine it has
     always assembled.
 
-    The recording is keyed by the SD image's contents, the machine type and
-    the state format, so it invalidates itself whenever any of those change.
-    Use this option to force the issue anyway, after replacing `TBBLUE.FW` or
-    NextZXOS on the card. It applies to `.nex` files on the Next only: the
+    The recording is keyed by the SD image's size and modification time, the
+    machine type and the state format, and it is also dropped when **jnext**
+    itself writes to the image, so it invalidates itself whenever any of those
+    change. The image's contents are not read: an image replaced or edited from
+    outside with the same size and the same modification time (`cp -p`,
+    `touch -r`) is served the old recording. Use this option to force the issue
+    in that case, and after replacing `TBBLUE.FW` or NextZXOS on the card. It applies to `.nex` files on the Next only: the
     other machine types run no firmware, and snapshots and tapes are loaded by
     mechanisms a firmware-resident machine does not have.
 
@@ -371,7 +375,22 @@ naming the option and the value, and exits with status 1.
 
 **\--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of fast
-    load.
+    load. It sets the one fast/real-time setting (the GUI's **Tape > Fast
+    Load** toggle) for this run only, overriding the saved preference without
+    changing it; **Tape > Open Tape File**, **File > Load NEX File**, **\--load** of a `.tap` or
+    `.tzx`, and the tape restored by a `.jns` all follow that setting. The
+    SDL-only build, which has no menu and no saved preference, is controlled by
+    this option alone.
+
+**\--tape-auto-play**, **\--no-tape-auto-play**
+:   Turn automatic tape play/stop on (the default) or off for this run,
+    overriding the saved GUI preference. While on, the tape deck stops in the
+    silent gap between two blocks when no program is reading the tape, and
+    resumes when one does, so tapes whose BASIC loader is slow between blocks
+    load in real time. It does nothing in fast load mode. Off, the deck runs
+    straight through, as a real one does (a TZX "stop the tape if in 48K mode"
+    block now stops only on a 48K machine, as the TZX specification says,
+    whatever this setting is).
 
 **\--tape-save** *FILE*
 :   Save to tape, appending to *FILE*; its extension picks the format. A
@@ -728,7 +747,8 @@ naming the option and the value, and exits with status 1.
     by a jnext whose state model this build does not know, or one whose
     recorded ROM digests differ from the ROMs now loaded. A missing tape file
     is **not** covered — that always warns and never refuses, because a
-    machine restores perfectly well without the tape it was loading from.
+    machine restores perfectly well without the tape it was loading from. The
+    same goes for a tape that has changed or whose position cannot be restored.
 
     `force` restores even though the mounted SD card is not the one the
     snapshot was taken on, printing a warning that names both cards. This is
@@ -894,7 +914,7 @@ naming the option and the value, and exits with status 1.
 **\--record-script** *FILE*
 :   Record the session as a replay script; see **Recording a session** under
     **SCRIPTING**. Every input change is written as the frame it landed on,
-    each Alt + 8 (or **\--script-key** *FRAME* `8`) captures the screen, and
+    each Alt + 8 (Command+8 on macOS) (or **\--script-key** *FRAME* `8`) captures the screen, and
     *FILE* is written when jnext exits. Works in every frontend.
 
 **\--map** *FILE*
@@ -1150,7 +1170,24 @@ format is detected from the extension:
 `.rzx`
 :   Played back as if **\--rzx-play** had been given.
 
-`.tap` and `.tzx` load in real time instead with **\--tape-realtime**.
+`.zip`
+:   An archive holding one program (`game.tap.zip`, `game.nex.zip`): the one
+    file inside it with one of the extensions above is loaded, exactly as if
+    it had been given on its own; screenshots, `.scr` and other files in the
+    archive are ignored. An archive is recognised by its `.zip` extension, or,
+    for a name with any other extension (or none), by its contents. When it
+    holds several programs the command line refuses, listing them (unzip it and
+    name the one you want); the window's **File > Load NEX File** asks which one. An
+    archive that is encrypted, uses a method other than stored or deflate, is
+    ZIP64 or multi-disk, is itself over 256 MiB, has a member over 256 MiB, or names a member with an
+    absolute path or `..` is refused with the reason. The program is extracted
+    to a temporary file under `~/.jnext/archive-load/` (or the
+    **JNEXT_CONFIG_DIR** directory) that is removed when **jnext** exits. In
+    the window, a `.pok` file in the archive (the one named like the program,
+    else the only one) is offered under **Machine > POK Trainers...**.
+
+`.tap` and `.tzx` load in real time instead with **\--tape-realtime** (or by
+unchecking **Tape > Fast Load** in the GUI).
 
 RZX recording uses **\--rzx-record** *FILE*. The GUI's **File > Load NEX
 File...** dialog accepts all of the above.
@@ -1267,7 +1304,7 @@ NextZXOS's file commands stop working.
 A `.pok` file (the World of Spectrum trainer format: named cheats, each a few
 bytes to write) is not a program: it changes the one that is running, so
 **\--load** refuses it. The Qt window opens it from **Machine > POK Trainers...**
-or **File > Load**, lists its trainers, applies and removes them. In
+or **File > Load NEX File**, lists its trainers, applies and removes them. In
 **\--headless** and in the SDL-only window **\--delayed-pok-frames** *N* *FILE*
 with **\--pok-trainers** *LIST* applies the chosen ones *N* frames in.
 
@@ -1333,11 +1370,20 @@ is only ever taken at a frame boundary: if the debugger has stopped the machine
 part-way through a frame, that frame is completed first and the restored
 machine is up to one frame past where you stopped.
 
+The attached tape is recorded by its path, with a digest and the deck's
+position, and put back at that position on load (a tape that came out of a
+`.zip` is re-extracted from the archive). A snapshot never changes a setting: the
+tape comes back in the mode that **\--tape-realtime** (or the GUI) and
+**\--tape-auto-play** / **\--no-tape-auto-play** give this session, converted
+at a block boundary if the snapshot's tape was in the other mode. A tape that is
+missing, has changed, or was recorded by a version that did not save the
+position is not attached, with a warning.
+
 The file does **not** contain the SD card - a card image is a gigabyte, and it
 holds NextZXOS. It records the card's identity instead and checks it on load: a
-different card is refused unless **\--snapshot-mode** `force`, while the same
-card changed since (which happens on any run that writes to it) restores with a
-warning. **\--snapshot-mode** `strict` additionally turns the state-model and
+different card is refused unless **\--snapshot-mode** `force`. The card's
+contents are not checked: changing the card between saving and loading is at
+your own risk. **\--snapshot-mode** `strict` additionally turns the state-model and
 ROM-digest warnings into refusals, and **\--snapshot-compression** `off` writes
 the members stored rather than deflated, so the file can be read with
 `unzip -p`.
@@ -1701,7 +1747,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **THE KEYBOARD** below).
 
 **File**
-:   Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok opens POK Trainers instead, without a reset), Insert SD Card
+:   Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok opens POK Trainers instead, without a reset), Recent Files (the last ten loaded, newest first) and Reload Last File (Alt+L), Insert SD Card
     Image / Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
     RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
     (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9)
@@ -1740,7 +1786,8 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     the Kempston mouse can move freely (by default Ctrl+Alt releases it, Alt+Cmd on macOS; see **\--mouse-release**).
 
 **Tape**
-:   Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start Saving...,
+:   Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle), Auto Play/Stop
+    (toggle); Start Saving...,
     which saves to a TAP, TZX or WAV file as **\--tape-save** does, and Stop
     Saving.
 
@@ -1749,7 +1796,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     **View**).
 
 **View**
-:   Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), the CRT effect (CRT Scanlines,
+:   Scale 1x / 2x / 3x, Fullscreen (F11, or Control+Command+F (⌃⌘F) on macOS; letterboxed), the CRT effect (CRT Scanlines,
     CRT Soft Scanlines, CRT TV, CRT PC Monitor; one at a time, none checked = off; the last
     three only in builds with GPU support), Debugger (Alt+D).
 
@@ -1821,7 +1868,8 @@ keymap treats the shift keys as an independent overlay. Earlier releases
 dropped all nineteen of those keystrokes before the Spectrum saw them.
 
 Esc is the Spectrum's Break key, not a fullscreen shortcut. Fullscreen is
-toggled with F11 only (it used to also be exited with Esc).
+toggled with F11 only (it used to also be exited with Esc). On macOS, which takes F11 for
+Show Desktop, Control+Command+F (⌃⌘F) and the green title-bar button also toggle it.
 
 The function keys are host controls, not Spectrum keys. F1 is Power Reset (the
 same as Alt+R), F4 is Soft Reset, F9 fires the Multiface NMI, F10 fires the
@@ -1837,7 +1885,7 @@ held down for the guest while you press the chord.
 
 The Pause key (Pause/Break) pauses and resumes the machine in the GUI, the same
 as Machine > Pause; keyboards without one, such as most Mac keyboards, use
-Alt+U. On a real Next that key only resets the PS/2 keyboard interface, so no
+Alt+U (Command+U on macOS). On a real Next that key only resets the PS/2 keyboard interface, so no
 Spectrum key is lost. The SDL-only build has no pause.
 
 Ctrl is left alone for the guest. No Ctrl+letter chord of any kind is a jnext
@@ -1849,8 +1897,22 @@ menu commands and the program never saw them. The only Ctrl chords jnext still
 takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording), and function
 keys have no Spectrum meaning to lose.
 
+On macOS the two roles move one key over. The host shortcuts are Command
+instead of Alt: every Alt+X below is Command+X (⌘X), Quit is Command+Q (Command+F4, the
+Alt+F4 equivalent, quits too), Preferences is Command+, and the script host keys are Command+1
+to Command+8; the menus show the Mac form. The Spectrum's Symbol Shift is the
+physical Control key, as on a PC keyboard, Command is not a Spectrum key, and
+Option stays the guest's Alt (Option+E/G/C are EDIT, GRAPH, CAPS LOCK). A
+Command chord that jnext does not use never reaches the program. The menu-bar
+mnemonics (Alt+F, ...) do not exist on macOS, and the recording shortcuts
+Ctrl+F5 and Ctrl+F6 stay on the physical Control key there (Command+F5 is
+VoiceOver's). The SDL-only build on
+macOS follows the same rule for Command+1 to Command+8, Command+Shift+F5 and
+Command+Shift+F9 and Command+F4 (quit); Option+F1 and
+Option+F4 do nothing in either frontend.
+
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext claims
-Alt + Q/O/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S, Alt+Shift+F5 and Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H
+Alt + Q/O/L/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S, Alt+Shift+F5 and Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H
 (menu bar) and Alt + 1 to Alt + 8 (the script host keys), which leaves the
 guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1`
 (INV VIDEO). Alt + 1 to Alt + 8 no longer type their digit into the program
@@ -1942,7 +2004,8 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   debugger's Debug > Rewind > Enable Rewind menu, with no restart needed - that
   allocates 500 frames, or the last size set via Rewind Buffer Size...
   Unchecking the toggle pauses snapshotting but keeps the recorded history; set
-  the buffer size to 0 to free the memory
+  the buffer size to 0 to free the memory. The setting survives program loads
+  and resets; the recorded history does not
 
 | Key      | Action              |
 |----------|---------------------|
@@ -2379,8 +2442,9 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 `~/.jnext/warm-start/`
 :   The recorded NextZXOS-resident machine a **\--load** of a `.nex` starts
     from, one file per machine type, around 100 KB each. Written on the first
-    such load with a given SD image and re-recorded whenever the image, the
-    machine type or the state format changes - see
+    such load with a given SD image and re-recorded whenever the image's size or
+    modification time changes, or JNEXT writes to it, or the machine type or
+    the state format changes - see
     **\--warm-start-regenerate**. Deleting it costs one cold boot, nothing
     else.
 

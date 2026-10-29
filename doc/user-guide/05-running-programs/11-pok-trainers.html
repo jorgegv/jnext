@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3761,7 +3761,7 @@ then open the trainers.</p>
 <li>Load and start the game.</li>
 <li>Choose <strong>Machine ▸ POK Trainers…</strong>, or <strong>File ▸ Load NEX File…</strong> (Alt+O) and
    pick the <code>.pok</code> file (the file dialog lists <em>POK Trainers (*.pok)</em>). A
-   <code>.pok</code> opened with File ▸ Load does <strong>not</strong> reset the machine: it opens the
+   <code>.pok</code> opened with File ▸ Load NEX File… does <strong>not</strong> reset the machine: it opens the
    trainers and leaves the game exactly where it was.</li>
 <li>Pick a trainer in the list and press <strong>Apply</strong>. Its <strong>Status</strong> reads
    <em>applied</em>, and the game now behaves differently: lives stop going down,
@@ -3772,6 +3772,10 @@ then open the trainers.</p>
    holds the changed bytes, so loading it later gives you the game with the
    trainer already in it.</li>
 </ol>
+<p>A game loaded from a ZIP archive that also holds a <code>.pok</code> gets its trainers
+without any of this: File ▸ Load NEX File… makes them the open list (not shown), the
+status bar says so, and <strong>Machine ▸ POK Trainers…</strong> shows them
+(<a href="index.html">5. Running programs</a>).</p>
 <p><strong>Machine ▸ POK Trainers…</strong> with no file open asks for one; with a file open it
 shows the trainers again. <strong>Open POK File…</strong> in the window opens another file.
 While the window is open the game keeps running behind it, but the main window

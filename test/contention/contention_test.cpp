@@ -5381,12 +5381,25 @@ static void test_overshoot_counter(void) {
     }
 
     // CT-OVS-05 — a tape ROM trap's synthetic cycles move the counter with
-    // the clock. A 1-block TAP attached for fast load; PC at LD-BYTES
-    // (0x0556) with ROM paged; the trap returns to a JR $ at 0x8000. After
-    // the frame the counter equals the clock's distance from its start.
+    // the clock. A 1-block TAP attached for fast load; the machine carries the
+    // real 48K ROM (from the SD image, like every suite that executes ROM
+    // code), PC at LD-BYTES (0x0556): the ROM runs its prologue to LD-BREAK
+    // (0x056B), the trap fires there and exits through the ROM's own RET, via
+    // SA/LD-RET, to a JR $ at 0x8000. After the frame the counter equals the
+    // clock's distance from its start.
     {
         Emulator emu;
-        bool ok = make_emu(emu, MachineType::ZX48K);
+        EmulatorConfig ovs5_cfg;
+        ovs5_cfg.type = MachineType::ZX48K;
+        ovs5_cfg.rewind_buffer_frames = 0;
+        {
+            const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
+            const char* home = std::getenv("HOME");
+            ovs5_cfg.sd_card_image = env ? env
+                : std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+            ovs5_cfg.sd_card_readonly = true;
+        }
+        bool ok = emu.init(ovs5_cfg);
         std::string det;
         if (ok) {
             const uint8_t tap[] = {0x03, 0x00, 0xFF, 0xAA, 0x55};

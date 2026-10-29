@@ -2590,7 +2590,7 @@ static void test_g12_attribute_write_tags() {
             emu.mmu().write(0xFF00, 0x00);                  // the trap's return address
             emu.mmu().write(0xFF01, 0x80);
             auto regs = emu.cpu().get_registers();
-            regs.AF = static_cast<uint16_t>((0xFF << 8) | 0x01);   // A = flag, carry = LOAD
+            regs.AF2 = static_cast<uint16_t>((0xFF << 8) | 0x01);  // LD-BREAK: A' = flag, F' carry = LOAD
             regs.IX = 0x5800 + G12TAG_OFF;
             regs.DE = 1;
             regs.SP = 0xFF00;

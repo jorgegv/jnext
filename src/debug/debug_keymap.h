@@ -112,7 +112,11 @@ bool parse_combo(const std::string& text, Combo& out, std::string& why);
 
 /// Is this a combination a user is ALLOWED to bind? An unbound Combo is legal.
 /// On refusal returns false and sets `why`. See the design doc §5 for each rule.
-bool validate_combo(const Combo& c, std::string& why);
+///
+/// `host_mod_is_ctrl` (GH #403, macOS): the host shortcuts ride Command, which Qt
+/// reports as Ctrl, not Alt - so the chords reserved for the host (script keys
+/// 1..8, quick snapshots) are the Ctrl forms there. Default: the Alt forms.
+bool validate_combo(const Combo& c, std::string& why, bool host_mod_is_ctrl = false);
 
 // --- the map -------------------------------------------------------------
 
@@ -169,7 +173,7 @@ private:
 ///      among explicit overrides the action earlier in Action order wins. The
 ///      loser is left UNBOUND and reported.
 Keymap build_keymap(const std::vector<std::pair<std::string, std::string>>& entries,
-                    std::vector<LoadIssue>& issues);
+                    std::vector<LoadIssue>& issues, bool host_mod_is_ctrl = false);
 
 /// Conflict pass on an already-built map, used by the UI to describe a clash
 /// before the user can commit it. Returns the pairs that collide, loser first.

@@ -84,19 +84,20 @@ constexpr uint32_t kFormatVersion = 4;
 /// fixture is a file somebody keeps correct; a recording is one nothing can
 /// keep incorrect.
 struct Identity {
-    /// SHA-256 of the mounted SD image, lower-case hex.
+    /// The mounted SD image's size and modification time (raw `file_clock`
+    /// ticks, compared exactly), read AFTER the recording so the key matches
+    /// the card the recording leaves behind.
     ///
-    /// The whole image, not a curated subset of it. The firmware, the
-    /// NextZXOS ROM set, the DivMMC ROM, `config.ini` and the dot commands
-    /// all feed the boot, and any rule naming "the files that matter" is a
-    /// claim that would go stale the first time the boot read a file the rule
-    /// did not list. Hashing everything cannot be wrong in that direction.
-    ///
-    /// It is affordable because a boot does not write: a 600-frame NextZXOS
-    /// boot leaves the image byte-identical (measured, 2026-09-22), so the
-    /// digest of the image jnext just booted is the digest it will compute on
-    /// the next run.
-    std::string sd_image_sha256;
+    /// GH #396 (owner, 2026-10-22) replaced the whole-image SHA-256 that used
+    /// to sit here: it cost 0.6-1.2 s per GB on the UI thread at every cold
+    /// boot that loads a program. jnext's own writes are tracked outside this
+    /// struct, by `SdCardDevice::host_write_generation()` (see
+    /// `Emulator::ensure_warm_start_state`). ACCEPTED RESIDUAL: an image
+    /// replaced or edited from outside with the SAME size and the SAME mtime
+    /// (`cp -p`, `touch -r`) serves the stale recording; `--warm-start-
+    /// regenerate` is the escape hatch.
+    uint64_t sd_image_bytes = 0;
+    int64_t  sd_image_mtime = 0;
 
     /// `MachineType` ordinal. Only the Next has firmware to record; the field
     /// is here so a cache can never be served to the machine it was not taken

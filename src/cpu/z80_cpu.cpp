@@ -1522,10 +1522,10 @@ void Z80Cpu::describe_state(jnext::save::StateDesc& d)
     d.u32("int_first_ts_rel", ser_int_first_rel_);
 }
 
-void Z80Cpu::save_state(StateWriter& w) const
+void Z80Cpu::marshal_for_describe() const
 {
     // §9.5(3) — marshal the three relative values into the scratch the
-    // declaration binds. Done HERE and undone in `load_state`, so the
+    // declaration binds. Done HERE and undone in `apply_after_describe`, so the
     // conversion is visible at exactly two places rather than smeared through
     // a declaration that would then have to know which direction it is in.
     ser_ei_grace_ = (z80.interrupts_enabled_at >= 0 &&
@@ -1534,20 +1534,16 @@ void Z80Cpu::save_state(StateWriter& w) const
     ser_iff2_read_ = static_cast<uint8_t>(z80.iff2_read ? 1 : 0);
     ser_int_first_rel_ =
         static_cast<uint32_t>(int_first_ts_ - static_cast<int64_t>(tstates));
-
-    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
-void Z80Cpu::load_state(StateReader& r)
+void Z80Cpu::apply_after_describe()
 {
-    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
-
     // §9.5(3), the other direction. Push the FUSE-only fields straight into
     // the global z80 struct; sync_fuse_from_regs() does NOT touch them (they
     // have no Z80Registers mirror).
     //
     // GH #265 — 0 means the grace is pending at this boundary: stamp it with
-    // the counter as it stands (see save_state).
+    // the counter as it stands (see marshal_for_describe).
     z80.interrupts_enabled_at =
         (ser_ei_grace_ == 0) ? static_cast<libspectrum_signed_dword>(tstates) : -1;
     z80.iff2_read = (ser_iff2_read_ != 0) ? 1 : 0;
@@ -1559,6 +1555,18 @@ void Z80Cpu::load_state(StateReader& r)
     int_last_ts_  = int_first_ts_ + (machine_48_or_p3_ ? 32 : 36);
     // The FUSE global z80 struct is synced on the next execute() call via
     // sync_fuse_from_regs(regs_) — no explicit sync needed here.
+}
+
+void Z80Cpu::save_state(StateWriter& w) const
+{
+    marshal_for_describe();
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
+}
+
+void Z80Cpu::load_state(StateReader& r)
+{
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+    apply_after_describe();
 }
 
 // ══════════════════════════════════════════════════════════════════════════

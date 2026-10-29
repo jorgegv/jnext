@@ -508,16 +508,17 @@ static int fold_ula_y(int raw_y, uint8_t scroll_y)
 //   px <= i_ula_fine_scroll_x & (i_hc(7:3) + i_ula_scroll_x(7:3)) &
 //         i_ula_scroll_x(2:0);
 // with px_1 <= px(8) & (px(7:3)+1) & px(2:0) (line 216) feeding the vram_a
-// byte-column field and px(2:0) acting as the bit-within-byte phase. The
-// observable effect at output-pixel granularity is that output pixel at
-// display column X reads source pixel at
-//   src_x = (X + scroll_x + fine_scroll_x) mod 256.
-// NR 0x26 is an 8-bit pixel offset: bits(7:3) are byte-column shift
-// (scroll_x(7:3) * 8 pixels), bits(2:0) are bit-within-byte shift. Since the
-// byte-shift already multiplies by 8, the raw 8-bit value IS the pixel shift.
-static int fold_ula_x(int raw_x, uint8_t scroll_x, bool fine_scroll_x)
+// byte-column field. The shift register runs at 14 MHz, one bit per
+// framebuffer cell, and is loaded shifted left by
+//   shift_scroll = px(2:0) & px(8) = 2*scroll_x(2:0) + fine   (:354-376, :399)
+// cells. So in 14 MHz cells, display cell C (0..511) shows stream cell
+//   src = (C + 2*scroll_x + fine_scroll_x) mod 512,
+// in every screen mode. Lo-res modes double each source bit (:390-393), so
+// NR 0x26 is a lo-res pixel offset and NR 0x68 bit 2 adds HALF a lo-res pixel
+// ("ULA half pixel scroll", nextreg.txt); hi-res packs 16 cells per column.
+static int fold_ula_x(int disp_cell, uint8_t scroll_x, bool fine_scroll_x)
 {
-    return (raw_x + static_cast<int>(scroll_x) + (fine_scroll_x ? 1 : 0)) & 0xFF;
+    return (disp_cell + 2 * static_cast<int>(scroll_x) + (fine_scroll_x ? 1 : 0)) & 0x1FF;
 }
 
 // ---------------------------------------------------------------------------
@@ -858,8 +859,8 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
         if (border_dst) border_dst[x] = true;
     }
 
-    // X-scroll fold per zxula.vhd:199: source pixel for display pixel X is
-    //   src_x = (X + scroll_x + fine_scroll_x) mod 256.
+    // X-scroll fold per zxula.vhd:199 (see fold_ula_x): display cell C shows
+    // source pixel src_x = ((C + 2*scroll_x + fine_scroll_x) mod 512) / 2.
     // When there is no X scroll we keep the fast column-oriented loop so the
     // no-scroll default path is byte-for-byte identical to the pre-scroll
     // implementation.
@@ -987,12 +988,12 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
     } else {
         // Scrolled path: per-pixel source lookup. The VHDL shift-register
         // emits px(7:3) (byte column) and px(2:0) (within-byte bit phase)
-        // with px(8) adding a 1-pixel fine offset (line 199 + 216). The
-        // intrinsic source-bit doubling (VHDL zxula.vhd:390-393) becomes
-        // observable as: each pair of output pixels reads the same source
-        // bit (src_x = disp_x / 2 + scroll). Total emit = 512 cells.
+        // with px(8) adding a half-pixel fine offset (line 199 + 216). The
+        // intrinsic source-bit doubling (VHDL zxula.vhd:390-393) makes each
+        // source bit two stream cells, so src_x = fold_ula_x(cell) / 2.
+        // Total emit = 512 cells.
         for (int disp_x = 0; disp_x < 512; ++disp_x) {
-            const int src_x  = fold_ula_x(disp_x / 2, scroll_x, fine);
+            const int src_x  = fold_ula_x(disp_x, scroll_x, fine) >> 1;
             const int src_col = src_x >> 3;          // byte column 0..31
             const int src_bit = 7 - (src_x & 0x7);   // MSB-first within byte
             // The fetch instant belongs to the DISPLAY slot (16 cells of
@@ -1094,7 +1095,9 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
 void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
                                        bool* border_dst)
 {
-    const uint16_t poff = pixel_addr_offset(screen_row, 0);
+    // GH #409 — py and px feed vram_a in every screen mode (zxula.vhd:192-
+    // 252), so the NR 0x27 Y-fold applies here exactly as in STANDARD.
+    const uint16_t poff = pixel_addr_offset(fold_ula_y(screen_row, ula_scroll_y_), 0);
     // Wave D (S5.04) — VHDL zxula.vhd:218/235 shows the pixel vram_a uses
     // `screen_mode(0) & addr_p_spc_12_5 & px_1(7:3)`: in hi-colour mode the
     // pixel base follows the alt-file bit (0x4000 when alt=0, 0x6000 when
@@ -1139,12 +1142,7 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
     // ulap_en_ is set; sm2=false here because HI_COLOUR is mode 010 and
     // the screen_mode(2) bit is zero (only HI_RES sets it).
     const bool sm2 = false;
-    for (int col = 0; col < 32; ++col) {
-        const uint8_t pixels = beam_vram_read(
-            static_cast<uint16_t>(pixel_base + col), col, AttributeMux::Fetch::Pixel, mmu);
-        const uint8_t attr_raw = beam_vram_read(
-            static_cast<uint16_t>(attr_base  + col), col, AttributeMux::Fetch::Attr, mmu);
-
+    const auto colours = [&](uint8_t attr_raw, uint32_t& ink_argb, uint32_t& paper_argb) {
         // zxula.vhd:470 — flash XOR gated off when i_ulanext_en='1' or
         // i_ulap_en='1' (Waves B + C combined).
         uint8_t attr = attr_raw;
@@ -1156,8 +1154,6 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
                 (attr_raw & 0xC0) | (ink_bits << 3) | paper_bits);
         }
 
-        uint32_t ink_argb;
-        uint32_t paper_argb;
         if (ulanext_en_ && palette_) {
             // G102 — ULAnext runtime path; see render_display_line for
             // full VHDL citations.  LR-140 — select_bgnd routes to the
@@ -1188,16 +1184,46 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
             ink_argb   = lookup_colour(std_ula_ink_pixel(attr));
             paper_argb = lookup_colour(std_ula_paper_pixel(attr));
         }
+    };
+
+    // GH #409 — X scroll (zxula.vhd:199, 216, 354-399, 420-452; see
+    // fold_ula_x). Slot S fetches column c0 = S + scroll_x(7:3) (px) and
+    // c0 + 1 (px_1); the 32-cell shift_reg_32 is loaded shifted left by
+    // shift_scroll cells and the slot shows its top 16. The attribute
+    // switches to px_1's when attr_scroll_r (= shift_scroll + cell) reaches
+    // 16, i.e. it follows the source column. px_1 is only fetched when some
+    // cell of the slot reaches it, so an unscrolled line reads exactly the
+    // bytes it always did.
+    const int shift   = fold_ula_x(0, ula_scroll_x_coarse_, ula_fine_scroll_x_) & 0x0F;
+    const int col_off = ula_scroll_x_coarse_ >> 3;
+    for (int slot = 0; slot < 32; ++slot) {
+        const int c0 = (slot + col_off) & 31;
+        const int c1 = (c0 + 1) & 31;
+        uint8_t  pixels[2] = {0, 0};
+        uint32_t ink_argb[2] = {0, 0}, paper_argb[2] = {0, 0};
+        pixels[0] = beam_vram_read(
+            static_cast<uint16_t>(pixel_base + c0), slot, AttributeMux::Fetch::Pixel, mmu);
+        colours(beam_vram_read(
+            static_cast<uint16_t>(attr_base  + c0), slot, AttributeMux::Fetch::Attr, mmu),
+            ink_argb[0], paper_argb[0]);
+        if (shift != 0) {
+            pixels[1] = beam_vram_read(
+                static_cast<uint16_t>(pixel_base + c1), slot, AttributeMux::Fetch::PixelNext, mmu);
+            colours(beam_vram_read(
+                static_cast<uint16_t>(attr_base  + c1), slot, AttributeMux::Fetch::AttrNext, mmu),
+                ink_argb[1], paper_argb[1]);
+        }
 
         // VHDL zxula.vhd:390-393 — lo-res shift_reg_32 doubles each
         // shift_pbyte bit; HI_COLOUR is mode 010 (shift_screen_mode(2)='0')
         // so the same intrinsic doubling applies.  Each source bit emits
         // 2 adjacent framebuffer cells; per source byte = 16 cells emitted.
-        uint32_t* dst = row + DISP_X + col * 16;
-        for (int bit = 7; bit >= 0; --bit) {
-            const uint32_t px = (pixels >> bit) & 1 ? ink_argb : paper_argb;
-            *dst++ = px;
-            *dst++ = px;
+        uint32_t* dst = row + DISP_X + slot * 16;
+        for (int cell = 0; cell < 16; ++cell) {
+            const int q   = cell + shift;          // cell of shift_reg_32
+            const int h   = q >> 4;                // 0 = px byte, 1 = px_1 byte
+            const int bit = 7 - ((q & 0x0F) >> 1);
+            *dst++ = (pixels[h] >> bit) & 1 ? ink_argb[h] : paper_argb[h];
         }
     }
 
@@ -1328,8 +1354,9 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu,
         border_argb = paper_argb;
     }
 
-    // The interleaved pixel row offset is the same for both screens.
-    const uint16_t poff         = pixel_addr_offset(screen_row, 0);
+    // The interleaved pixel row offset is the same for both screens; NR 0x27
+    // folds it as in every mode (GH #409, zxula.vhd:192-207, 220).
+    const uint16_t poff         = pixel_addr_offset(fold_ula_y(screen_row, ula_scroll_y_), 0);
     const uint16_t screen0_base = static_cast<uint16_t>(0x4000u | poff);
     const uint16_t screen1_base = static_cast<uint16_t>(0x6000u | poff);
 
@@ -1343,19 +1370,41 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu,
     // (MSB..LSB) then 8 screen-1 pixels (MSB..LSB).  Each column contributes
     // 16 framebuffer cells at base DISP_X + col * 16; total 512 cells across
     // 32 columns fills the entire display width.
-    for (int col = 0; col < 32; ++col) {
-        const uint8_t b0 = beam_vram_read(
-            static_cast<uint16_t>(screen0_base + col), col, AttributeMux::Fetch::Pixel, mmu);
-        const uint8_t b1 = beam_vram_read(
-            static_cast<uint16_t>(screen1_base + col), col, AttributeMux::Fetch::Attr, mmu);
+    //
+    // GH #409 — X scroll, as in render_display_line_hicolour: slot S fetches
+    // column c0 = S + scroll_x(7:3) (px) and c0 + 1 (px_1, only when a cell
+    // reaches it) and shows cells shift_scroll..shift_scroll+15 of
+    // shift_reg_32 = s0[c0] & s1[c0] & s0[c1] & s1[c1] (zxula.vhd:388).
+    // Hi-res does not double bits, so NR 0x26 moves 2 hi-res pixels per
+    // unit and NR 0x68 bit 2 moves one.
+    const int shift   = fold_ula_x(0, ula_scroll_x_coarse_, ula_fine_scroll_x_) & 0x0F;
+    const int col_off = ula_scroll_x_coarse_ >> 3;
+    for (int slot = 0; slot < 32; ++slot) {
+        const int c0 = (slot + col_off) & 31;
+        const int c1 = (c0 + 1) & 31;
+        uint8_t b0[2] = {0, 0};
+        uint8_t b1[2] = {0, 0};
+        b0[0] = beam_vram_read(
+            static_cast<uint16_t>(screen0_base + c0), slot, AttributeMux::Fetch::Pixel, mmu);
+        b1[0] = beam_vram_read(
+            static_cast<uint16_t>(screen1_base + c0), slot, AttributeMux::Fetch::Attr, mmu);
+        if (shift != 0) {
+            b0[1] = beam_vram_read(
+                static_cast<uint16_t>(screen0_base + c1), slot, AttributeMux::Fetch::PixelNext, mmu);
+            b1[1] = beam_vram_read(
+                static_cast<uint16_t>(screen1_base + c1), slot, AttributeMux::Fetch::AttrNext, mmu);
+        }
 
-        uint32_t* dst = row + DISP_X + col * 16;
-        // Screen-0 byte first (VHDL shift_pbyte(15:8) lands at shift_reg_32(31:24)).
-        for (int bit = 7; bit >= 0; --bit)
-            *dst++ = (b0 >> bit) & 1 ? ink_argb : paper_argb;
-        // Then screen-1 byte (VHDL shift_abyte(15:8) lands at shift_reg_32(23:16)).
-        for (int bit = 7; bit >= 0; --bit)
-            *dst++ = (b1 >> bit) & 1 ? ink_argb : paper_argb;
+        uint32_t* dst = row + DISP_X + slot * 16;
+        // Per column: screen-0 byte first (VHDL shift_pbyte(15:8) lands at
+        // shift_reg_32(31:24)), then screen-1 byte (shift_abyte(15:8) at
+        // shift_reg_32(23:16)).
+        for (int cell = 0; cell < 16; ++cell) {
+            const int q   = cell + shift;          // cell of shift_reg_32
+            const int h   = q >> 4;                // 0 = px column, 1 = px_1
+            const uint8_t b = (q & 0x08) ? b1[h] : b0[h];
+            *dst++ = (b >> (7 - (q & 0x07))) & 1 ? ink_argb : paper_argb;
+        }
     }
 
     // Fill right border (FB_WIDTH - DISP_X - DISP_W = 64 cells under G104).

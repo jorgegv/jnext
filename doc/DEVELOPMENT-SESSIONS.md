@@ -202,4 +202,17 @@
 | 10-11/10|      | Autonomous run: #318 #317 #320 #322 #319 #326 #324 #328 #321 #316 #325. v1.1.26->1.1.38                |
 | 12/10   |      | #327 #323 #329 #330 #332 #352 #354 #355; PR #315 by takeover; #331 Pi audio on Windows                 |
 |         |      | epic #23 planned (#333-#353). v1.1.39->1.1.50; v1.1.51 PUBLIC RELEASE                                  |
+| 13-14/10|      | #359 CI package artifacts, #356 esp_socket_test, hook guards; #363 mono toolbar icons, dark mode       |
+|         |      | v1.1.52->1.1.55                                                                                        |
+| 17/10   |      | #365 mouse-release gesture; #357/#358 resumable downloads; #364 SIGTERM; #362 beam-time fetch (pavero) |
+|         |      | v1.1.56->1.1.60                                                                                        |
+| 18/10   |      | #380 Alt+F4; #382 ASCII text; PR #206 source debugging (jattree); #358 stalls; #390 --map sym/exp      |
+|         |      | #385 download errors; #381 POK trainers; team-run skill; batch gate. v1.1.61->1.1.70                   |
+| 19/10   |      | #386 keys around Quick Save/Load. v1.1.71                                                              |
+| 22/10   |      | PR #398 Layer 2 row 0 (jattree); PR #397 GPU CRT (shadowphiar) + Soft Scanlines; #391 28 MHz waits     |
+|         |      | CI Mesa fix. v1.1.72->1.1.76                                                                           |
+| 23/10   |      | #395 tape auto play/stop, Starglider; #392 .zip; #396 SD hash; #400 rewind; #401 .jns path; #383       |
+|         |      | v1.1.77->1.1.82                                                                                        |
+| 24/10   |      | #399 pok_dialog_test; #383 wine D-Bus; #402 .jns tape reattach, one fast/real-time setting             |
+|         |      | v1.1.83->1.1.86; v1.1.87 PUBLIC RELEASE                                                                |
 | TOTAL:  | 666h |                                                                                                        |

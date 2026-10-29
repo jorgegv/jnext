@@ -1,6 +1,9 @@
 #include "core/tap_loader.h"
 #include "core/emulator.h"
 #include "core/log.h"
+#include "core/host_path.h"
+#include "core/tape_trap.h"
+#include "core/sha256.h"
 
 #include <cstring>
 #include <filesystem>
@@ -59,11 +62,13 @@ bool TapLoader::load(const std::string& path) {
 
     loaded_ = true;
     current_block_ = 0;
+    sha256_ = sdcard::sha256_hex(file_data);
 
     // Extract just the filename for UI display (std::filesystem splits on the host's own
     // separators: a Windows path from `--load C:\...` or a native dialog has
     // backslashes, which rfind('/') never saw).
     filename_ = std::filesystem::path(path).filename().string();
+    path_ = jnext::absolute_host_path(path);
 
     return true;
 }
@@ -79,82 +84,27 @@ const TapBlock* TapLoader::peek_block() const {
 }
 
 bool TapLoader::handle_ld_bytes_trap(Emulator& emu) {
-    // LD-BYTES ROM routine interface:
-    //   Entry: A = flag byte expected, carry = LOAD(1)/VERIFY(0)
-    //          IX = destination address, DE = block length
-    //   Exit:  carry set = success, carry reset = error
-    //          IX advanced past loaded data, DE = 0
-
-    auto regs = emu.cpu().get_registers();
-
-    // Extract parameters from registers
-    uint8_t expected_flag = static_cast<uint8_t>(regs.AF >> 8);   // A = high byte of AF
-    bool is_load = (regs.AF & 0x01) != 0;  // carry flag = bit 0 of F
-    uint16_t dest = regs.IX;
-    uint16_t length = regs.DE;
-
-    Log::emulator()->debug("TAP trap: flag={:#04x} {} IX={:#06x} DE={:#06x} block={}",
-                            expected_flag, is_load ? "LOAD" : "VERIFY", dest, length,
-                            current_block_);
-
-    // Get next block from tape
+    // The CPU stands at LD-BREAK (0x056B): the expected flag is in A',
+    // LOAD/VERIFY in the carry of F'. The ROM's transfer, checksum and exit
+    // are tape_trap::rom_ld_bytes (shared with the TZX loader).
     const TapBlock* block = next_block();
     if (!block) {
         Log::emulator()->warn("TAP: no more blocks on tape");
-        // Set carry = 0 (error) and return
-        regs.AF &= ~0x0001;  // clear carry
-        // Pop return address and set PC
-        uint16_t ret_lo = emu.mmu().read(regs.SP);
-        uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-        regs.SP += 2;
-        regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
-        emu.cpu().set_registers(regs);
+        tape_trap::rom_ld_bytes(emu, nullptr, 0);
         return false;
     }
 
-    // Check flag byte matches
-    if (block->flag != expected_flag) {
-        Log::emulator()->debug("TAP: flag mismatch (expected {:#04x}, got {:#04x}), skipping",
-                                expected_flag, block->flag);
-        // The ROM would keep looking for the right block — we set error and let it retry
-        regs.AF &= ~0x0001;  // clear carry (error)
-        // Pop return address and set PC
-        uint16_t ret_lo = emu.mmu().read(regs.SP);
-        uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-        regs.SP += 2;
-        regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
-        emu.cpu().set_registers(regs);
-        return true;  // trap handled, but load failed
-    }
+    std::vector<uint8_t> bytes;
+    bytes.reserve(block->data.size() + 2);
+    bytes.push_back(block->flag);
+    bytes.insert(bytes.end(), block->data.begin(), block->data.end());
+    bytes.push_back(block->checksum);
 
-    if (is_load) {
-        // LOAD mode: copy data into memory at IX
-        size_t copy_len = std::min(static_cast<size_t>(length), block->data.size());
-        for (size_t i = 0; i < copy_len; ++i) {
-            emu.mmu().write(static_cast<uint16_t>(dest + i), block->data[i]);
-        }
-        Log::emulator()->debug("TAP: loaded {} bytes to {:#06x}", copy_len, dest);
-
-        // Advance IX and zero DE (as the ROM would)
-        regs.IX = static_cast<uint16_t>(dest + copy_len);
-        regs.DE = 0;
-    } else {
-        // VERIFY mode: compare data (just succeed without actually comparing)
-        Log::emulator()->debug("TAP: verify mode - auto-passing");
-        regs.IX = static_cast<uint16_t>(dest + length);
-        regs.DE = 0;
-    }
-
-    // Set carry = 1 (success)
-    regs.AF |= 0x0001;
-
-    // Pop return address from stack and set PC (simulating RET)
-    uint16_t ret_lo = emu.mmu().read(regs.SP);
-    uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-    regs.SP += 2;
-    regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
-
-    emu.cpu().set_registers(regs);
+    auto regs = emu.cpu().get_registers();
+    Log::emulator()->debug("TAP trap: flag={:#04x} {} IX={:#06x} DE={:#06x} block={}",
+                            regs.AF2 >> 8, (regs.AF2 & 1) ? "LOAD" : "VERIFY", regs.IX,
+                            regs.DE, current_block_ - 1);
+    tape_trap::rom_ld_bytes(emu, bytes.data(), bytes.size());
     return true;
 }
 
@@ -164,7 +114,11 @@ void TapLoader::eject() {
     current_block_ = 0;
     loaded_ = false;
     playing_ = false;
+    held_ = false;
+    handover_pending_ = false;
     filename_.clear();
+    path_.clear();
+    sha256_.clear();
     Log::emulator()->info("TAP: tape ejected");
 }
 
@@ -179,6 +133,7 @@ void TapLoader::start_realtime_playback() {
     if (!block) return;
 
     playing_ = true;
+    held_ = false;
     play_tstates_ = 0;
     play_byte_idx_ = 0;
     play_bit_idx_ = 7;
@@ -303,7 +258,24 @@ uint8_t TapLoader::tick_realtime(uint64_t tstates) {
             if (at_end()) {
                 play_phase_ = PlayPhase::DONE;
                 playing_ = false;
+                if (handover_pending_) { handover_pending_ = false; fast_load_ = true; }
                 Log::emulator()->info("TAP realtime: tape ended");
+            } else if (handover_pending_) {
+                // GH #402: the gap boundary a restored real-time deck hands over to
+                // fast loading at; the next LD-BYTES call is served by the trap.
+                handover_pending_ = false;
+                fast_load_ = true;
+                playing_ = false;
+                play_phase_ = PlayPhase::DONE;
+                Log::emulator()->info("TAP: handed over to fast loading before block {}", current_block_);
+                return ear_bit_;
+            } else if (gap_hold_) {
+                // Gap boundary with nobody listening: hold the deck here.
+                playing_ = false;
+                held_ = true;
+                play_phase_ = PlayPhase::DONE;
+                Log::emulator()->info("TAP: deck held before block {}", current_block_);
+                return ear_bit_;
             } else {
                 // Start next block
                 start_realtime_playback();
@@ -317,4 +289,96 @@ uint8_t TapLoader::tick_realtime(uint64_t tstates) {
     }
 
     return ear_bit_;
+}
+
+// ---------------------------------------------------------------------------
+// The deck's position, for a `.jns` (GH #402)
+// ---------------------------------------------------------------------------
+
+static const char* const names[] = {"leader", "sync1", "sync2", "data", "pause", "done"};
+
+TapLoader::DeckState TapLoader::deck_state() const {
+    DeckState d;
+    d.block       = static_cast<uint32_t>(current_block_);
+    d.playing     = playing_;
+    d.held        = held_;
+    d.phase       = names[static_cast<int>(play_phase_)];
+    d.pulse_left  = static_cast<uint32_t>(phase_tstates_);
+    d.leader_left = static_cast<uint32_t>(leader_pulses_ > 0 ? leader_pulses_ : 0);
+    d.byte        = static_cast<uint32_t>(play_byte_idx_);
+    d.bit         = static_cast<uint32_t>(play_bit_idx_ > 0 ? play_bit_idx_ : 0);
+    d.half        = static_cast<uint32_t>(play_pulse_count_ > 0 ? play_pulse_count_ : 0);
+    d.ear         = ear_bit_;
+    return d;
+}
+
+bool TapLoader::restore_deck(const DeckState& d, std::string& why) {
+    if (!loaded_) { why = "no tape is loaded"; return false; }
+    int phase = -1;
+    for (int i = 0; i < 6; ++i) if (d.phase == names[i]) phase = i;
+    if (phase < 0) { why = "unknown phase '" + d.phase + "'"; return false; }
+    if (d.block > blocks_.size()) {
+        why = "block " + std::to_string(d.block) + " is past the tape's " +
+              std::to_string(blocks_.size()) + " blocks";
+        return false;
+    }
+    const auto ph = static_cast<PlayPhase>(phase);
+    if (ph == PlayPhase::LEADER || ph == PlayPhase::SYNC1 || ph == PlayPhase::SYNC2 ||
+        ph == PlayPhase::DATA) {
+        if (d.block >= blocks_.size()) {
+            why = "phase '" + d.phase + "' with no block to play";
+            return false;
+        }
+    }
+    if (ph == PlayPhase::DATA &&
+        d.byte >= 1 + blocks_[d.block].data.size() + 1) {
+        why = "byte " + std::to_string(d.byte) + " is past the block's data";
+        return false;
+    }
+    if (d.bit > 7 || d.half > 1 || d.ear > 1) {
+        why = "bit, half or ear out of range";
+        return false;
+    }
+    if (d.pulse_left > static_cast<uint32_t>(PAUSE_TSTATES) ||
+        d.leader_left > static_cast<uint32_t>(HEADER_LEADER)) {
+        why = "pulse or leader count out of range";
+        return false;
+    }
+    if (d.playing && d.held) { why = "the deck is both playing and held"; return false; }
+
+    current_block_    = d.block;
+    playing_          = d.playing;
+    held_             = d.held;
+    play_phase_       = ph;
+    phase_tstates_    = d.pulse_left;
+    leader_pulses_    = static_cast<int>(d.leader_left);
+    play_byte_idx_    = d.byte;
+    play_bit_idx_     = static_cast<int>(d.bit);
+    play_pulse_count_ = static_cast<int>(d.half);
+    ear_bit_          = static_cast<uint8_t>(d.ear);
+    return true;
+}
+
+bool TapLoader::handover_to_fast_at_gap() {
+    if (!playing_) {
+        held_ = false;
+        handover_pending_ = false;
+        fast_load_ = true;
+        return true;
+    }
+    handover_pending_ = true;
+    return false;
+}
+
+void TapLoader::start_realtime_from_fast(bool held) {
+    fast_load_ = false;
+    handover_pending_ = false;
+    if (!loaded_ || at_end()) return;
+    if (held) {
+        playing_ = false;
+        held_ = true;
+        play_phase_ = PlayPhase::DONE;
+    } else {
+        start_realtime_playback();
+    }
 }

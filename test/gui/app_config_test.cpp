@@ -98,6 +98,8 @@ static void test_defaults_no_file(QTemporaryDir& dir) {
     check("AC-06", "crt_filter defaults to false", d.crt_filter == def.crt_filter);
     check("AC-07", "silent defaults to false", d.silent == def.silent);
     check("AC-08", "tape_fast_load defaults to true", d.tape_fast_load == def.tape_fast_load);
+    check("AC-87", "tape_auto_play (GH #395) defaults to true",
+          d.tape_auto_play && def.tape_auto_play);
     // Issue #35 — the default must be the behaviour that existed before the
     // option, or an upgrade changes how every machine degrades.
     check("AC-58", "when_slow_prefer defaults to Audio",
@@ -150,6 +152,7 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().crt_filter             = true;
         writer.data().silent                 = true;
         writer.data().tape_fast_load         = false;
+        writer.data().tape_auto_play         = false;
         writer.data().when_slow_prefer       = audio_pacing::WhenSlowPrefer::Video;
         writer.data().audio_gain_db          = -12.5f;
         writer.data().joy_source[0]          = JoySource::CursorKeys;
@@ -166,6 +169,7 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().nextpi_release         = "latest";
         writer.data().nextpi_qemu_binary     = "/opt/qemu/bin/qemu-system-arm";
         writer.data().nextpi_audio           = "wav:/tmp/pi.wav";
+        writer.data().recent_files           = {"/srv/u/b,c.nex", "/srv/u/a.tap"};   // GH #406
         writer.save();
         written = writer.data();
     }
@@ -184,6 +188,11 @@ static void test_roundtrip(QTemporaryDir& dir) {
     check("AC-18", "crt_filter round-trips", d.crt_filter == written.crt_filter);
     check("AC-19", "silent round-trips", d.silent == written.silent);
     check("AC-20", "tape_fast_load round-trips", d.tape_fast_load == written.tape_fast_load);
+    check("AC-88", "tape_auto_play round-trips (false survives)",
+          !written.tape_auto_play && d.tape_auto_play == written.tape_auto_play);
+    check("AC-89", "recent_files round-trips in order (a comma in a name included)",
+          d.recent_files == written.recent_files && d.recent_files.size() == 2,
+          d.recent_files.join('|').toStdString());
     check("AC-59", "when_slow_prefer round-trips",
           d.when_slow_prefer == written.when_slow_prefer);
     check("AC-47", "audio_gain_db round-trips",
@@ -391,6 +400,33 @@ static void test_merge_precedence() {
           merge_cli_precedence(true, 6.0f, -12.0f) == 6.0f);
     check("AC-51", "saved audio gain wins when CLI option is absent",
           merge_cli_precedence(false, 6.0f, -12.0f) == -12.0f);
+}
+
+// ── AC-90: GH #406 — [recent] files (File > Recent Files) ──────────────
+
+static void test_recent_files(QTemporaryDir& dir) {
+    set_group("AC-RECENT");
+    const QString none = fresh_ini_path(dir, "recent-none");
+    AppConfig absent(none);
+    absent.load();
+    const QString p = fresh_ini_path(dir, "recent-many");
+    {
+        QSettings raw(p, QSettings::IniFormat);
+        QStringList many;
+        for (int i = 0; i < 14; ++i) many << QString("/p/f%1.nex").arg(i);
+        many.insert(3, QString());   // a blank entry in a hand-edited file
+        raw.beginGroup("recent");
+        raw.setValue("files", many);
+        raw.endGroup();
+        raw.sync();
+    }
+    AppConfig r(p);
+    r.load();
+    check("AC-90", "recent_files defaults to empty; a hand-edited list loses blanks and is cut to ten, order kept",
+          absent.data().recent_files.isEmpty() && r.data().recent_files.size() == 10 &&
+              r.data().recent_files[0] == "/p/f0.nex" && r.data().recent_files[3] == "/p/f3.nex" &&
+              !r.data().recent_files.contains(QString()),
+          r.data().recent_files.join('|').toStdString());
 }
 
 // ── AC-80..83: GH #321 — [snapshot] quick_keep (Quick Save retention) ────
@@ -1244,6 +1280,7 @@ int main() {
     test_malformed_values(dir);
     test_merge_precedence();
     test_quick_keep(dir);
+    test_recent_files(dir);
     test_mouse_release(dir);
     test_default_path();
     test_debug_keys_defaults(dir);

@@ -88,10 +88,6 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "mtime_utc",
-                    "sha256"
-                  ],
                   "type": "object"
                 },
                 "identity": {
@@ -143,7 +139,6 @@
                 }
               },
               "required": [
-                "content_stamp",
                 "identity",
                 "informational",
                 "mounted_path",
@@ -154,6 +149,12 @@
             "tape": {
               "additionalProperties": false,
               "properties": {
+                "archive": {
+                  "type": "string"
+                },
+                "member": {
+                  "type": "string"
+                },
                 "path": {
                   "type": "string"
                 },

@@ -22,7 +22,13 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include "core/saveable.h"
+#include "core/host_path.h"
 #include "core/tap_loader.h"
+#include "core/wav_loader.h"
+#include "ld_trap_rig.h"
+#include "core/tape_poll_detector.h"
+#include "core/sha256.h"
 
 #include <spdlog/sinks/ostream_sink.h>
 
@@ -306,6 +312,1302 @@ int main() {
         check("TAPC-12", "a TAP loaded through a native-separator path reports its bare file name",
               ok && t.filename() == "native-separators.tap",
               "path=" + full + " filename=" + t.filename());
+    }
+
+
+    // ---- LD-BYTES fast-load trap (GH #395) -------------------------------
+    // The trap sits at LD-BREAK 0x056B, where every LD-BYTES entry converges
+    // (FUSE traps the same spot: opcodes_base.c RET NZ -> tape_load_trap()).
+    // Oracles: the 48K ROM listing, and the REAL ROM executed by the CPU on
+    // the same block fed by jnext's own real-time player (the CPU is pinned by
+    // FUSE's 1356 opcode tests). Fixtures are synthetic bytes of our own.
+    {
+        using namespace ldrig;
+        const Bytes pl = {1, 2, 3, 4, 5};
+        const uint8_t chk = static_cast<uint8_t>(0xFF ^ 1 ^ 2 ^ 3 ^ 4 ^ 5);
+        auto mk = [&](Case c, const char* name, const Bytes& tap) { c.path = write_file(name, tap); return c; };
+        auto both = [&](const Case& c, Result& rt, Result& fa) {
+            rt = run(c, false, 500);
+            fa = run(c, true, 20);
+        };
+        auto d = [&](const Result& rt, const Result& fa) {
+            std::string why;
+            const bool same = same_state(rt, fa, &why);
+            char b[160];
+            std::snprintf(b, sizeof(b), "rt:reached=%d f=%d AF=%04x AF'=%04x BC=%04x DE=%04x HL=%04x IX=%04x | "
+                          "fast:reached=%d AF=%04x AF'=%04x BC=%04x DE=%04x HL=%04x IX=%04x same=%d(%s)",
+                          rt.reached, rt.frames, rt.r.AF, rt.r.AF2, rt.r.BC, rt.r.DE, rt.r.HL, rt.r.IX,
+                          fa.reached, fa.r.AF, fa.r.AF2, fa.r.BC, fa.r.DE, fa.r.HL, fa.r.IX, same, why.c_str());
+            return std::string(b);
+        };
+        const Bytes good = tap_block(0xFF, pl);
+
+        {   // TAPC-13
+            Case c = mk(Case{}, "t13.tap", good);
+            Result f = run(c, true, 20);
+            check("TAPC-13", "fast load serves a caller that enters LD-BYTES at 0x0562 (past 0x0556)",
+                  f.built && f.reached && carry(f) && f.mem[0] == 1 && f.mem[4] == 5 && f.at_end,
+                  "reached=" + std::to_string(f.reached));
+        }
+        {   // TAPC-14
+            Case c; c.mt = MachineType::ZX128K; c.rom1_128 = true;
+            c = mk(c, "t14.tap", good);
+            Result f = run(c, true, 20);
+            check("TAPC-14", "same on ZX128K with ROM 1 (the 48K BASIC ROM) paged",
+                  f.built && f.reached && carry(f) && f.mem[0] == 1 && f.mem[4] == 5 && f.at_end,
+                  "reached=" + std::to_string(f.reached));
+        }
+        {   // TAPC-15
+            Case c; c.entry = 0x0556; c.bordcr = 0x10;
+            c = mk(c, "t15.tap", good);
+            Result f = run(c, true, 20);
+            check("TAPC-15", "an entry at 0x0556 returns through SA/LD-RET: EI executed, border restored from BORDCR",
+                  f.built && f.reached && carry(f) && f.mem[4] == 5 && f.r.IFF1 == 1 && f.border == 2,
+                  "iff1=" + std::to_string(f.r.IFF1) + " border=" + std::to_string(f.border));
+        }
+        {   // TAPC-16
+            Case c = mk(Case{}, "t16.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-16", "success: fast load leaves the registers the ROM leaves (AF 0093, AF' 2165, BC B021, L=checksum, DE 0)",
+                  same_state(rt, fa) && fa.r.AF == 0x0093 && fa.r.AF2 == 0x2165 && fa.r.BC == 0xB021 &&
+                  fa.r.HL == chk && fa.r.DE == 0 && fa.r.IX == 0xA005, d(rt, fa));
+        }
+        {   // TAPC-17
+            Case c = mk(Case{}, "t17.tap", tap_block(0xFF, pl, false));
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-17", "bad checksum: carry clear, payload written, same state as the ROM",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[4] == 5, d(rt, fa));
+        }
+        {   // TAPC-18
+            Case c; c.flag = 0x00; c.de = 17; c.prefill = Bytes(8, 0xEE);
+            c = mk(c, "t18.tap", concat({good, tap_block(0xFF, {9})}));
+            Result rt, fa; both(c, rt, fa);
+            Result f2 = fa;
+            check("TAPC-18", "flag mismatch: carry clear, nothing written, block consumed, same state as the ROM",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[0] == 0xEE && fa.block == 1, d(rt, fa));
+            (void)f2;
+        }
+        {   // TAPC-19
+            Case c; c.de = 3; c.prefill = Bytes(8, 0xEE);
+            c = mk(c, "t19.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-19", "DE shorter than the payload: DE bytes written, carry clear (parity takes the next byte)",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[2] == 3 && fa.mem[3] == 0xEE, d(rt, fa));
+        }
+        {   // TAPC-20
+            Case c; c.de = 8;
+            c = mk(c, "t20.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-20", "DE longer than the payload: payload+checksum written, DE reduced, carry clear, B=0, L=1",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[5] == chk && fa.r.DE == 2 &&
+                  (fa.r.BC >> 8) == 0 && (fa.r.HL & 0xFF) == 1, d(rt, fa));
+        }
+        {   // TAPC-21
+            Case c; c.load = false; c.prefill = Bytes(pl);
+            c = mk(c, "t21.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-21", "VERIFY against matching memory: carry set, memory untouched",
+                  same_state(rt, fa) && carry(fa) && fa.mem[0] == 1 && fa.mem[4] == 5, d(rt, fa));
+        }
+        {   // TAPC-22
+            Case c; c.load = false; c.prefill = Bytes{1, 2, 9, 4, 5};
+            c = mk(c, "t22.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-22", "VERIFY with one byte differing: carry clear, memory untouched",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[2] == 9, d(rt, fa));
+        }
+        {   // TAPC-23
+            Case cc; cc.mt = MachineType::ZX128K; cc = mk(cc, "t23.tap", good);
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = cc.mt; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            bool ok = emu->init(cfg) && emu->load_tap(cc.path, true);
+            emu->mmu().write(0x9000, 0x00); emu->mmu().write(0x9001, 0x80);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x056B; r.SP = 0x9000; r.AF = 0x0040; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            emu->run_frame();
+            check("TAPC-23", "ROM 0 (128 editor) paged at 0x056B: no trap, the tape is not touched",
+                  ok && emu->tape().current_block() == 0, "block=" + std::to_string(emu->tape().current_block()));
+        }
+        {   // TAPC-24
+            Case cc = mk(Case{}, "t24.tap", good);
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = cc.mt; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            bool ok = emu->init(cfg) && emu->load_tap(cc.path, true);
+            emu->mmu().write(0x8000, 0x18); emu->mmu().write(0x8001, 0xFE);
+            emu->mmu().write(0x9000, 0x00); emu->mmu().write(0x9001, 0x80);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x056B; r.SP = 0x9000; r.AF = 0x0000; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            emu->run_frame();
+            check("TAPC-24", "LD-BREAK with Z clear: the ROM's RET NZ is taken, no trap",
+                  ok && emu->tape().current_block() == 0 && emu->cpu().pc() == 0x8000,
+                  "block=" + std::to_string(emu->tape().current_block()) + " pc=" + std::to_string(emu->cpu().pc()));
+        }
+        {   // TAPC-25
+            // Only the first signature (0x056B) present, the second (0x05DF) not:
+            // an image of some other ROM that happens to match there. Control: both.
+            auto trapped = [&](bool second) {
+                auto emu = std::make_unique<Emulator>();
+                EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+                const bool ok = emu->init(cfg) && emu->load_tap(write_file("t25.tap", good), true);
+                std::vector<uint8_t> boot(0x2000, 0x00);
+                const uint8_t a[4] = {0xC0, 0xCD, 0xE7, 0x05}, b[4] = {0x7C, 0xFE, 0x01, 0xC9};
+                for (int i = 0; i < 4; ++i) { boot[0x056B + i] = a[i]; if (second) boot[0x05DF + i] = b[i]; }
+                emu->mmu().set_boot_rom(boot.data(), boot.size());
+                emu->mmu().set_boot_rom_enabled(true);
+                emu->mmu().write(0x9000, 0x00); emu->mmu().write(0x9001, 0x80);
+                auto r = emu->cpu().get_registers();
+                r.PC = 0x056B; r.SP = 0x9000; r.AF = 0x0040; r.AF2 = 0xFF01; r.IX = 0xA000; r.DE = 5;
+                r.IFF1 = r.IFF2 = 0;
+                emu->cpu().set_registers(r);
+                emu->run_frame();
+                return ok ? int(emu->tape().current_block()) : -1;
+            };
+            const int both = trapped(true), first_only = trapped(false);
+            check("TAPC-25", "the identity check needs both signatures: only the 0x056B one is not the 48K LD-BYTES",
+                  both == 1 && first_only == 0,
+                  "both=" + std::to_string(both) + " first_only=" + std::to_string(first_only));
+        }
+        {   // TAPC-26
+            // A pass through LD-BREAK with no tape must not touch memory the
+            // debugger watches: a READ watchpoint inside the 0x05DF signature
+            // (never executed by this run) stays quiet.
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            const bool ok = emu->init(cfg);
+            emu->debug_state().set_clients_attached(true);
+            emu->debug_state().set_live_raster(true);
+            emu->debug_state().breakpoints().add_watchpoint(0x05E0, WatchType::READ);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x056B; r.SP = 0x9000; r.AF = 0x0040; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            emu->run_frame();
+            check("TAPC-26", "an LD-BREAK pass with no tape attached trips no read watchpoint (no identity read)",
+                  ok && !emu->debug_state().paused(),
+                  "paused=" + std::to_string(emu->debug_state().paused()));
+        }
+        {   // TAPC-27
+            // With a fast tape attached and the load served by the trap, the identity
+            // check runs: it must not trip a READ watchpoint inside its signature
+            // (0x05E0 is never executed by this run, so only the check reads it).
+            Case c = mk(Case{}, "t27.tap", good);
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            const bool ok = emu->init(cfg) && emu->load_tap(c.path, true);
+            Bytes code = caller(c);
+            const uint16_t jr = uint16_t(0x8000 + code.size());
+            code.push_back(0x18); code.push_back(0xFE);
+            for (size_t i2 = 0; i2 < code.size(); ++i2) emu->mmu().write(uint16_t(0x8000 + i2), code[i2]);
+            emu->debug_state().set_clients_attached(true);
+            emu->debug_state().set_live_raster(true);
+            emu->debug_state().breakpoints().add_watchpoint(0x05E0, WatchType::READ);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            for (int f = 0; f < 10 && emu->cpu().pc() != jr; ++f) emu->run_frame();
+            check("TAPC-27", "a trap-served LD-BREAK pass trips no read watchpoint on the identity bytes (peek, not read)",
+                  ok && emu->tape().current_block() == 1 && emu->cpu().pc() == jr && !emu->debug_state().paused(),
+                  "blk=" + std::to_string(emu->tape().current_block()) + " paused=" + std::to_string(emu->debug_state().paused()));
+        }
+    }
+
+    // ---- Automatic tape play/stop (GH #395) ------------------------------
+    // No hardware counterpart (no Spectrum has tape motor control): a host
+    // deck feature. Oracle: the design in the plan (B2): the deck stops only
+    // at a gap boundary when no one polls the ULA port, resumes at the next
+    // block's first pilot pulse when polling starts, and a program that keeps
+    // polling never sees a difference. Fixtures: our own synthetic bytes and
+    // hand-written Z80 loops.
+    {
+        // TAPA-01..05: the detector itself.
+        {
+            TapePollDetector d; uint64_t t = 1000; bool early = false;
+            for (int i = 0; i < 31; ++i) { d.on_read(t); early = early || d.polling(t); t += 59; }
+            const bool at31 = d.polling(t - 59);
+            d.on_read(t);
+            check("TAPA-01", "31 reads 59 T apart are not polling, the 32nd is",
+                  !early && !at31 && d.polling(t));
+        }
+        {
+            TapePollDetector a, b; uint64_t t = 5000;
+            for (int i = 0; i < 40; ++i) { a.on_read(t); b.on_read(t); t += 10; }
+            a.on_read(t - 10 + 1000);      // exactly G after the last read: the run continues
+            b.on_read(t - 10 + 1001);      // G + 1: a new run of 1
+            check("TAPA-02", "a gap of exactly 1000 T continues the run, 1001 T restarts it",
+                  a.polling(t - 10 + 1000) && !b.polling(t - 10 + 1001));
+        }
+        {
+            TapePollDetector d; bool ever = false; uint64_t t = 0;
+            for (int frame = 0; frame < 200; ++frame) {
+                for (int i = 0; i < 8; ++i) { d.on_read(t + i * 59); ever = ever || d.polling(t + i * 59); }
+                ever = ever || d.polling(t + 8 * 59 + 100);
+                t += 69888;
+            }
+            check("TAPA-03", "the ROM keyboard scan (bursts of 8 reads 59 T apart, once a frame) is never polling",
+                  !ever);
+        }
+        {
+            TapePollDetector d; uint64_t t = 100;
+            for (int i = 0; i < 40; ++i) { d.on_read(t); t += 20; }
+            const uint64_t last = t - 20;
+            check("TAPA-04", "a run of 40 reads is not polling once the last read is more than 1000 T old",
+                  d.polling(last) && d.polling(last + 1000) && !d.polling(last + 1001));
+        }
+        {
+            TapePollDetector d; uint64_t t = 90000;
+            for (int i = 0; i < 40; ++i) { d.on_read(t); t += 20; }
+            const bool was = d.polling(t - 20);
+            d.on_read(50000);                  // time went backwards (a state load)
+            const bool back = d.polling(50000) || d.polling(60000);
+            for (int i = 0; i < 40; ++i) { d.on_read(t); t += 20; }
+            const bool again = d.polling(t - 20);
+            d.reset();
+            check("TAPA-05", "time going backwards and reset() both end a run; no wrap to polling",
+                  was && !back && again && !d.polling(t - 20));
+        }
+    }
+
+    {
+        using namespace ldrig;
+        // Delay without reading the port (M outer rounds of ~1.7 M T), then an
+        // edge loop. BC = 0xFFFE keeps the port address fixed.
+        auto delay_then_poll = [](uint16_t m) {
+            return Bytes{0xF3, 0x11, uint8_t(m & 0xFF), uint8_t(m >> 8),
+                         0x21, 0x00, 0x00, 0x2B, 0x7C, 0xB5, 0x20, 0xFB,
+                         0x1B, 0x7A, 0xB3, 0x20, 0xF3,
+                         0xED, 0x78, 0x18, 0xFC};
+        };
+        const Bytes poll_only = {0xF3, 0xED, 0x78, 0x18, 0xFC};
+        const Bytes blk = tap_block(0xFF, {1, 2, 3, 4, 5});
+        const std::string two = write_file("auto2.tap", concat({blk, tap_block(0xFF, {6, 7, 8, 9})}));
+        // A header block then a data block: their pilots differ (8063 / 3223 pulses).
+        const std::string hdr_two = write_file("autoh.tap",
+                                               concat({tap_block(0x00, Bytes(17, 0x20)), tap_block(0xFF, {6, 7, 8, 9})}));
+
+        auto mk = [&](const std::string& tap, bool fast, bool autop, const Bytes& prog) {
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.tape_auto_play = autop;
+            bool ok = emu->init(cfg) && emu->load_tap(tap, fast);
+            for (size_t i = 0; i < prog.size(); ++i) emu->mmu().write(uint16_t(0x8000 + i), prog[i]);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.BC = 0xFFFE; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            return std::pair<std::unique_ptr<Emulator>, bool>(std::move(emu), ok);
+        };
+        // Steps instruction by instruction to `until` T-states, recording the
+        // T-state of every change of the tape EAR level.
+        auto step_to = [](Emulator& e, uint64_t until, std::vector<uint64_t>& edges) {
+            bool last = e.beeper().tape_ear();
+            while (e.monotonic_tstates() < until) {
+                e.execute_single_instruction();
+                const bool now = e.beeper().tape_ear();
+                if (now != last) { edges.push_back(e.monotonic_tstates()); last = now; }
+            }
+        };
+
+        {   // TAPA-06
+            auto [emu, ok] = mk(hdr_two, false, true, delay_then_poll(20));
+            int f = 0;
+            for (; f < 600 && !emu->tape().is_held(); ++f) emu->run_frame();
+            const bool held = ok && emu->tape().is_held() && !emu->tape().is_playing() &&
+                              emu->tape().current_block() == 1;
+            const uint64_t t_hold = emu->monotonic_tstates();
+            std::vector<uint64_t> edges;
+            uint64_t t_res = 0;
+            bool resumed = false;
+            while (emu->monotonic_tstates() < t_hold + 40000000ULL) {
+                const bool was = emu->beeper().tape_ear();
+                emu->execute_single_instruction();
+                const bool now = emu->beeper().tape_ear();
+                if (now != was) edges.push_back(emu->monotonic_tstates());
+                if (!resumed && emu->tape().is_playing()) { resumed = true; t_res = emu->monotonic_tstates(); }
+                if (resumed && emu->monotonic_tstates() > t_res + 7500000ULL) break;
+            }
+            size_t before = 0;
+            while (before < edges.size() && edges[before] <= t_res) ++before;
+            const size_t silent_edges = before;    // edges while held (up to the resume)
+            // The first edges after the resume: a complete data pilot.
+            size_t pilot = 0;
+            for (size_t i = silent_edges; i + 1 < edges.size(); ++i) {
+                const int64_t d = int64_t(edges[i + 1]) - int64_t(edges[i]);
+                if (d >= 2168 - 40 && d <= 2168 + 40) ++pilot; else break;
+            }
+            const int64_t first = silent_edges < edges.size() ? int64_t(edges[silent_edges]) - int64_t(t_res) : -1;
+            const size_t k = silent_edges + pilot;     // index of the last pilot edge
+            const int64_t sync = (k + 1 < edges.size()) ? int64_t(edges[k + 1]) - int64_t(edges[k]) : -1;
+            char b[160];
+            std::snprintf(b, sizeof(b), "held=%d f=%d silent=%.1fM edges_while_held=%zu pilot_intervals=%zu sync=%lld",
+                          held, f, (t_res - t_hold) / 1e6, silent_edges, pilot, (long long)sync);
+            check("TAPA-06", "real time: the deck holds in the gap while the program does not poll, then resumes with a complete data pilot",
+                  held && resumed && t_res - t_hold >= 10000000ULL && silent_edges <= 1 &&
+                  pilot == 3222 && sync >= 667 - 40 && sync <= 667 + 40 && first > 0 && first <= 2168 + 60, b);
+        }
+        {   // TAPA-07
+            std::vector<uint64_t> on_edges, off_edges;
+            bool held_on = false;
+            for (int pass = 0; pass < 2; ++pass) {
+                auto [emu, ok] = mk(two, false, pass == 0, poll_only);
+                (void)ok;
+                step_to(*emu, 25000000ULL, pass == 0 ? on_edges : off_edges);
+                if (pass == 0) held_on = emu->tape().is_held();
+            }
+            check("TAPA-07", "a program that polls across every gap sees the same edge timeline with auto play on and off",
+                  !held_on && on_edges.size() > 6000 && on_edges == off_edges,
+                  "on=" + std::to_string(on_edges.size()) + " off=" + std::to_string(off_edges.size()));
+        }
+        {   // TAPA-08
+            auto [emu, ok] = mk(hdr_two, false, false, delay_then_poll(20));
+            std::vector<uint64_t> edges;
+            step_to(*emu, 26000000ULL, edges);
+            int64_t gap = 0;
+            for (size_t i = 0; i + 1 < edges.size(); ++i)
+                gap = std::max(gap, int64_t(edges[i + 1]) - int64_t(edges[i]));
+            check("TAPA-08", "auto play off: no hold, the next pilot starts exactly 1 s (3,500,000 T) after the last edge",
+                  ok && !emu->tape().is_held() && gap >= 3500000 - 50 && gap <= 3500000 + 50,
+                  "max gap=" + std::to_string(gap));
+        }
+        // A "press any key" wait: a tight loop of IN A,(C) for ~12 M T-states (longer
+        // than a data block's pilot), then a ROM load entered at 0x0562.
+        const Bytes key_wait = {0xF3, 0x01, 0xFE, 0xFF, 0x11, 0x05, 0x00, 0x21, 0x00, 0x00,
+                                0xED, 0x78, 0x2B, 0x7C, 0xB5, 0x20, 0xF9, 0x1B, 0x7A, 0xB3, 0x20, 0xF1};
+        {   // TAPA-09
+            auto [emu, ok] = mk(two, true, true, poll_only);
+            for (int f = 0; f < 300; ++f) emu->run_frame();
+            check("TAPA-09", "fast mode with the defaults: an edge loop never starts the tape (the ROM trap serves the loads)",
+                  ok && !emu->tape().is_playing() && !emu->tape().is_held() &&
+                  emu->tape().current_block() == 0);
+        }
+        {   // TAPA-10
+            Case c; c.path = two;
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            bool ok = emu->init(cfg) && emu->load_tap(two, true);
+            Bytes prog = key_wait;
+            Bytes call = caller(c);
+            prog.insert(prog.end(), call.begin(), call.end());
+            prog.push_back(0x18); prog.push_back(0xFE);
+            const uint16_t jr = uint16_t(0x8000 + prog.size() - 2);
+            for (size_t i = 0; i < prog.size(); ++i) emu->mmu().write(uint16_t(0x8000 + i), prog[i]);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            for (int f = 0; f < 400 && emu->cpu().pc() != jr; ++f) emu->run_frame();
+            const bool got = emu->cpu().pc() == jr && (emu->cpu().get_registers().AF & 1) &&
+                             emu->mmu().peek(0xA000) == 1 && emu->mmu().peek(0xA004) == 5;
+            check("TAPA-10", "fast mode: a key-wait longer than the next block's pilot, then a ROM load, still loads that block (GH #395 review F1)",
+                  ok && got && !emu->tape().is_playing() && emu->tape().current_block() == 1,
+                  "pc=" + std::to_string(emu->cpu().pc()) + " blk=" + std::to_string(emu->tape().current_block()) +
+                  " a000=" + std::to_string(emu->mmu().peek(0xA000)));
+        }
+        {   // TAPA-11
+            auto [emu, ok] = mk(two, true, false, poll_only);
+            for (int f = 0; f < 100; ++f) emu->run_frame();
+            check("TAPA-11", "fast mode, auto play off: an edge loop never starts the tape",
+                  ok && !emu->tape().is_playing() && emu->tape().current_block() == 0);
+        }
+        {   // TAPA-12
+            auto [emu, ok] = mk(two, true, true, poll_only);
+            for (int i = 0; i < 100; ++i) (void)emu->port().read(0x00FE);
+            const bool dbg = emu->tape_poll().polling(emu->monotonic_tstates());
+            for (int i = 0; i < 100; ++i) emu->execute_single_instruction();
+            const bool cpu = emu->tape_poll().polling(emu->monotonic_tstates());
+            check("TAPA-12", "reads made by the debugger do not count as polling, the CPU's IN does",
+                  ok && !dbg && cpu);
+        }
+        {   // TAPA-13
+            auto [emu, ok] = mk(two, true, true, poll_only);
+            while (emu->tape().next_block()) {}
+            for (int f = 0; f < 50; ++f) emu->run_frame();
+            check("TAPA-13", "a tape at its end is never started by a polling program",
+                  ok && emu->tape().at_end() && !emu->tape().is_playing());
+        }
+        {   // TAPA-14
+            auto [emu, ok] = mk(two, true, true, poll_only);
+            for (int f = 0; f < 3; ++f) emu->run_frame();
+            StateWriter m1; emu->save_state(m1);
+            std::vector<uint8_t> blob(m1.position());
+            StateWriter w1(blob.data(), blob.size()); emu->save_state(w1);
+            emu->run_frame();
+            const bool was = emu->tape_poll().polling(emu->monotonic_tstates());
+            StateReader r1(blob.data(), blob.size());
+            const bool loaded = emu->load_state(r1);
+            const bool after = emu->tape_poll().polling(emu->monotonic_tstates());
+            // A held real-time deck stays held across a state load.
+            auto [e2, ok2] = mk(hdr_two, false, true, delay_then_poll(20));
+            int f = 0;
+            for (; f < 600 && !e2->tape().is_held(); ++f) e2->run_frame();
+            StateWriter m2; e2->save_state(m2);
+            std::vector<uint8_t> blob2(m2.position());
+            StateWriter w2(blob2.data(), blob2.size()); e2->save_state(w2);
+            StateReader r2(blob2.data(), blob2.size());
+            const bool loaded2 = e2->load_state(r2);
+            check("TAPA-14", "a state load resets the detector and leaves a held deck held",
+                  ok && ok2 && was && loaded && !after && loaded2 && e2->tape().is_held() &&
+                  !e2->tape_poll().polling(e2->monotonic_tstates()),
+                  "was=" + std::to_string(was) + " after=" + std::to_string(after) +
+                  " held=" + std::to_string(e2->tape().is_held()));
+        }
+        {   // TAPA-16
+            // The resume re-bases the instruction to the read's sample T-state (GH #265), so
+            // the first resumed pulse ends 2168 T after that sample, not after the instruction
+            // start. A program counts IN A,(C) loops until EAR rises; NOP padding moves the
+            // loop phase, and the count changes where the sample point matters. The values
+            // are PINNED (measured with the sample point; re-basing to 0 gives 69, 61 and 58
+            // for the pads 4, 8 and 10), not derived from an outside oracle.
+            static const int want[12] = {83, 79, 75, 71, 70, 67, 65, 63, 62, 60, 59, 57};
+            std::string got_s; bool all = true;
+            for (int pad = 0; pad < 12; ++pad) {
+                Bytes prog = delay_then_poll(20);
+                prog.resize(prog.size() - 4);                              // drop the plain poll loop
+                prog.insert(prog.end(), {0x21, 0x00, 0x00});               // LD HL,0
+                const size_t loop = prog.size();
+                prog.push_back(0xED); prog.push_back(0x78);                // IN A,(C)
+                prog.push_back(0x23);                                      // INC HL
+                for (int i = 0; i < pad; ++i) prog.push_back(0x00);        // NOP padding
+                prog.push_back(0xE6); prog.push_back(0x40);                // AND 0x40
+                prog.push_back(0x28); prog.push_back(uint8_t(int(loop) - int(prog.size() + 2)));   // JR Z,loop
+                prog.push_back(0x18); prog.push_back(0xFE);                // JR $
+                auto [emu, ok] = mk(hdr_two, false, true, prog);
+                for (int f = 0; f < 900; ++f) emu->run_frame();
+                const int k = emu->cpu().get_registers().HL;
+                got_s += std::to_string(k) + " ";
+                all = all && ok && k == want[pad];
+            }
+            check("TAPA-16", "the resumed deck's first pulse is timed from the read's sample point (pinned loop counts for 12 phases)",
+                  all, "got " + got_s);
+        }
+        {   // TAPA-15
+            auto [emu, ok] = mk(hdr_two, false, true, delay_then_poll(20));
+            int f = 0;
+            for (; f < 600 && !emu->tape().is_held(); ++f) emu->run_frame();
+            const bool held = ok && emu->tape().is_held() && !emu->tape().is_playing();
+            emu->set_tape_auto_play(false);
+            check("TAPA-15", "turning auto play off while the deck is held plays it again at once",
+                  held && emu->tape().is_playing() && !emu->tape().is_held() && !emu->tape_auto_play());
+        }
+    }
+
+    // TAPW-01 / TAPW-02 (GH #392) - a tape with one anomaly per 2 bytes (a 256 MiB
+    // zip of zeros was 134 million warnings, ~10 GB of stderr). Oracle: this
+    // header's own contract that anomalies are non-fatal and reported through
+    // `warn`; the cap (TapLoader::kMaxWarnings = 20) is the new rule.
+    {
+        Bytes zeros(200000, 0);   // 100000 zero-length blocks
+        std::vector<TapBlock> blocks;
+        std::vector<std::string> warns;
+        const bool ok = TapLoader::parse_blocks(zeros, blocks,
+            [&warns](const std::string& m) { warns.push_back(m); });
+        check("TAPW-01", "100000 zero-length blocks parse, and warn 20 times plus one summary counting the rest",
+              ok && warns.size() == TapLoader::kMaxWarnings + 1 &&
+                  warns.back().find("99980 more warnings suppressed") != std::string::npos,
+              "warnings=" + std::to_string(warns.size()) + (warns.empty() ? "" : " last=" + warns.back()));
+    }
+    {
+        Bytes zeros(10, 0);   // 5 zero-length blocks
+        std::vector<TapBlock> blocks;
+        std::vector<std::string> warns;
+        const bool ok = TapLoader::parse_blocks(zeros, blocks,
+            [&warns](const std::string& m) { warns.push_back(m); });
+        check("TAPW-02", "5 zero-length blocks (under the cap) are each reported and no summary is added",
+              ok && warns.size() == 5 && warns.back().find("suppressed") == std::string::npos,
+              "warnings=" + std::to_string(warns.size()));
+    }
+
+    // TAPW-03 (GH #392) - a block-count ceiling bounds the memory a
+    // degenerate tape can take (40 bytes per TapBlock for 4 bytes of file).
+    // Oracle: TapLoader::kMaxBlocks (1 Mi); real tapes hold thousands.
+    {
+        Bytes tape;
+        tape.reserve((TapLoader::kMaxBlocks + 1) * 4);
+        for (size_t i = 0; i < TapLoader::kMaxBlocks; ++i) tape.insert(tape.end(), {2, 0, 0, 0});
+        std::vector<TapBlock> blocks;
+        std::string err;
+        const bool at_cap = TapLoader::parse_blocks(tape, blocks, {}, &err);
+        const size_t n = blocks.size();
+        tape.insert(tape.end(), {2, 0, 0, 0});
+        const bool over = TapLoader::parse_blocks(tape, blocks, {}, &err);
+        check("TAPW-03", "a tape of exactly 1 Mi blocks loads; one more block is refused naming the limit",
+              at_cap && n == TapLoader::kMaxBlocks && !over && blocks.empty() &&
+                  err.find("more than 1048576 blocks") != std::string::npos, err);
+    }
+    // TAPW-04 - the checksum-mismatch warning is capped like the zero-length one.
+    {
+        Bytes bad;   // 50000 blocks "02 00 00 01": flag 0, checksum 1 (wrong)
+        for (int i = 0; i < 50000; ++i) bad.insert(bad.end(), {2, 0, 0, 1});
+        std::vector<TapBlock> blocks;
+        std::vector<std::string> warns;
+        const bool ok = TapLoader::parse_blocks(bad, blocks,
+            [&warns](const std::string& m) { warns.push_back(m); });
+        check("TAPW-04", "50000 bad-checksum blocks warn 20 times plus one summary counting the rest",
+              ok && warns.size() == TapLoader::kMaxWarnings + 1 &&
+                  warns.back().find("49980 more warnings suppressed") != std::string::npos,
+              "warnings=" + std::to_string(warns.size()));
+    }
+
+    {   // TAPP-01..03 (GH #401): path() is the absolute host path, beside the bare filename()
+        namespace fs = std::filesystem;
+        const fs::path cwd0 = fs::current_path();
+        fs::create_directories(g_root / "sub");
+        write_file("p1.tap", concat({header_block(), data_block()}));
+        Bytes wav = {'R', 'I', 'F', 'F', 100, 0, 0, 0, 'W', 'A', 'V', 'E',
+                     'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                     0x44, 0xAC, 0, 0, 0x44, 0xAC, 0, 0, 1, 0, 8, 0,
+                     'd', 'a', 't', 'a', 64, 0, 0, 0};
+        wav.resize(wav.size() + 64, 0x80);
+        write_file("p1.wav", wav);
+        fs::current_path(g_root);
+
+        TapLoader t;
+        const bool tok = t.load("p1.tap");                       // a RELATIVE name
+        const fs::path tp = fs::u8path(t.path());
+        const bool t_abs = tok && tp.is_absolute() && fs::equivalent(tp, g_root / "p1.tap") &&
+                           t.filename() == "p1.tap";
+        t.eject();
+        check("TAPP-01", "TapLoader::path() is the absolute path of a relatively-loaded file "
+              "(filename() stays the bare name) and eject() empties it",
+              t_abs && t.path().empty(), t.path());
+
+        WavLoader w;
+        const bool wok = w.load("p1.wav");
+        const fs::path wp = fs::u8path(w.path());
+        const bool w_abs = wok && wp.is_absolute() && fs::equivalent(wp, g_root / "p1.wav") &&
+                           w.filename() == "p1.wav";
+        const bool failed_reload = !w.load("no-such-file.wav");
+        const bool cleared_by_reload = w.path().empty();
+        const bool again = w.load("p1.wav");
+        w.eject();
+        check("TAPP-02", "WavLoader::path() is absolute for a relative load, empty after a FAILED reload, "
+              "and empty after eject()",
+              w_abs && failed_reload && cleared_by_reload && again && w.path().empty(), w.path());
+
+        TapLoader n;
+        const bool nok = n.load("sub/./../p1.tap");
+        const std::string np = n.path();
+        const std::string ah = jnext::absolute_host_path("sub/./../p1.tap");
+        bool dots = false;
+        for (const auto& el : fs::u8path(ah)) {
+            if (el == "." || el == "..") dots = true;
+        }
+        check("TAPP-03", "a path with ./ and ../ components is recorded absolute and lexically normalised "
+              "(no . or .. element) and still names the file",
+              nok && np == ah && fs::u8path(ah).is_absolute() && !dots &&
+                  fs::u8path(ah) == fs::u8path(ah).lexically_normal() &&
+                  fs::equivalent(fs::u8path(ah), g_root / "p1.tap"), ah);
+        fs::current_path(cwd0);
+    }
+
+
+    // ---- The deck's position, for a .jns (GH #402) ------------------------
+    // No hardware counterpart (a host deck). Oracle for every behaviour row:
+    // the UNINTERRUPTED deck. A restored deck, ticked as the original is, must
+    // put the same level on the EAR line at every step and end in the same
+    // state. The validation rows' oracle is the bounds rule in the plan
+    // (restore_deck refuses what the player could not reach, and changes nothing).
+    {
+        const Bytes tap3 = concat({header_block(), data_block(), tap_block(0xFF, {9, 8, 7})});
+        const std::string tap3_path = write_file("deck3.tap", tap3);
+        const uint64_t steps[] = {1, 3, 7, 59, 853, 1710, 2168, 5, 400, 64};
+        auto lockstep = [&](TapLoader& a, TapLoader& b, uint64_t total, bool& same) {
+            uint64_t done = 0;
+            size_t i = 0;
+            while (done < total) {
+                const uint64_t st = steps[i++ % (sizeof(steps) / sizeof(steps[0]))];
+                if (a.tick_realtime(st) != b.tick_realtime(st)) { same = false; return; }
+                done += st;
+            }
+        };
+
+        {   // TAPD-01: mid-DATA of block 1, across the pause and the next block's pilot
+            TapLoader a, b;
+            bool ok = a.load(tap3_path) && b.load(tap3_path);
+            a.start_realtime_playback();
+            while (ok && !(a.deck_state().phase == "data" && a.current_block() == 1 &&
+                           a.deck_state().byte >= 2))
+                a.tick_realtime(997);
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(), why);
+            const bool equal_at_restore = a.deck_state() == b.deck_state();
+            bool same = true;
+            lockstep(a, b, 14000000, same);
+            check("TAPD-01", "a deck restored mid-DATA of block 1 puts the same EAR level as the original at every step "
+                  "through the pause and the next block's pilot, and ends in the same state",
+                  ok && restored && equal_at_restore && same && a.deck_state() == b.deck_state() &&
+                  a.deck_state().block == 3, why);
+        }
+        {   // TAPD-02: the pause after the last block, and a deck held at a gap
+            TapLoader a, b;
+            bool ok = a.load(tap3_path) && b.load(tap3_path);
+            a.start_realtime_playback();
+            while (ok && !(a.current_block() == 3 && a.deck_state().phase == "pause")) a.tick_realtime(997);
+            std::string why;
+            const bool r1 = ok && b.restore_deck(a.deck_state(), why);
+            bool same1 = true;
+            lockstep(a, b, 4000000, same1);
+            const bool ended = !a.is_playing() && !b.is_playing() && a.deck_state() == b.deck_state();
+
+            TapLoader c, d;
+            ok = c.load(tap3_path) && d.load(tap3_path);
+            c.set_gap_hold(true);
+            c.start_realtime_playback();
+            while (ok && !c.is_held()) c.tick_realtime(997);
+            const bool r2 = ok && d.restore_deck(c.deck_state(), why);
+            const bool held_both = c.is_held() && d.is_held() && !d.is_playing() && d.current_block() == 1;
+            c.resume();
+            d.resume();
+            bool same2 = true;
+            lockstep(c, d, 3000000, same2);
+            check("TAPD-02", "a deck restored in the pause after the last block ends like the original, and a deck "
+                  "restored held at a gap is held and, resumed, plays the same EAR timeline",
+                  ok && r1 && same1 && ended && r2 && held_both && same2 && c.deck_state() == d.deck_state(), why);
+        }
+        {   // TAPD-03..06: positions the player cannot reach are refused and change nothing
+            TapLoader t;
+            t.load(tap3_path);
+            t.start_realtime_playback();
+            for (int i = 0; i < 100; ++i) t.tick_realtime(1000);
+            const TapLoader::DeckState before = t.deck_state();
+            std::string why;
+
+            TapLoader::DeckState d = before;
+            d.phase = "pause";                             // no phase check can refuse it for another reason
+            d.block = 4;                                   // the tape has 3 blocks
+            const bool r3 = t.restore_deck(d, why);
+            check("TAPD-03", "restore_deck refuses a block past the tape (3 blocks, block 4) and leaves the deck unchanged",
+                  !r3 && t.deck_state() == before, why);
+
+            d = before;
+            d.phase = "data";
+            d.block = 3;                                   // == block_count: nothing to play
+            const bool r4 = t.restore_deck(d, why);
+            check("TAPD-04", "restore_deck refuses phase 'data' with no block left to play (block == block_count)",
+                  !r4 && t.deck_state() == before, why);
+
+            d = before;
+            d.phase = "data";
+            d.block = 1;
+            d.byte = 1 + 5 + 1;                            // flag + 5 data bytes + checksum: indices 0..6
+            const bool r5 = t.restore_deck(d, why);
+            d.byte = 6;
+            const bool r5ok = t.restore_deck(d, why);      // the last valid index is accepted
+            t.restore_deck(before, why);
+            check("TAPD-05", "restore_deck refuses a byte index past flag + data + checksum and accepts the last one",
+                  !r5 && r5ok && t.deck_state() == before, why);
+
+            d = before;
+            d.phase = "warp";
+            const bool r6a = t.restore_deck(d, why);
+            d = before;
+            d.playing = true;
+            d.held = true;
+            const bool r6b = t.restore_deck(d, why);
+            d = before;
+            d.bit = 8;
+            const bool r6c = t.restore_deck(d, why);
+            TapLoader empty;
+            const bool r6d = empty.restore_deck(before, why);
+            check("TAPD-06", "restore_deck refuses an unknown phase, a deck both playing and held, a bit past 7, "
+                  "and any state when no tape is loaded; none changes the deck",
+                  !r6a && !r6b && !r6c && !r6d && t.deck_state() == before, why);
+        }
+        {   // TAPD-07
+            TapLoader t;
+            const bool ok = t.load(tap3_path);
+            const std::string want = sdcard::sha256_hex(tap3);
+            const std::string got = t.sha256();
+            t.eject();
+            check("TAPD-07", "TapLoader::sha256() is the SHA-256 of the bytes load() parsed, and empty after eject()",
+                  ok && !want.empty() && got == want && t.sha256().empty(), got);
+        }
+        {   // WAVD-01 / WAVD-02: a WAV of 4000 samples toggling every 5 samples
+            Bytes wav = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E',
+                         'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                         0x44, 0xAC, 0, 0, 0x44, 0xAC, 0, 0, 1, 0, 8, 0,
+                         'd', 'a', 't', 'a', 0xA0, 0x0F, 0, 0};
+            for (int i = 0; i < 4000; ++i) wav.push_back(((i / 5) & 1) ? 0xC0 : 0x40);
+            const std::string wpath = write_file("deck.wav", wav);
+            WavLoader a, b;
+            const bool ok = a.load(wpath) && b.load(wpath);
+            const uint64_t t0 = 100000;
+            a.start_playback(t0 + 33);
+            const uint64_t now = t0 + 10000;                  // ~126 samples in
+            const uint64_t shift = 123457;                    // B's clock is re-based
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(now), now + shift, why);
+            bool same = true;
+            int edges = 0;
+            uint8_t prev = a.get_ear_bit(now);
+            for (int i = 0; i < 200; ++i) {
+                const uint64_t t = now + 37u * static_cast<uint64_t>(i);
+                const uint8_t ea = a.get_ear_bit(t), eb = b.get_ear_bit(t + shift);
+                if (ea != eb) same = false;
+                if (ea != prev) ++edges;
+                prev = ea;
+            }
+            check("WAVD-01", "a WAV deck restored onto a clock re-based by 123457 T returns the original's EAR level for 200 "
+                  "sample times after the restore (the playing flag and the start travel as a distance from now)",
+                  ok && restored && b.is_playing() && same && edges >= 4 && a.deck_state(now) == b.deck_state(now + shift), why);
+
+            const std::string want = sdcard::sha256_hex(wav);
+            const std::string got = a.sha256();
+            const bool failed = !a.load("no-such-deck.wav");
+            check("WAVD-02", "WavLoader::sha256() is the SHA-256 of the bytes load() read, empty after a FAILED reload "
+                  "and after eject()",
+                  ok && got == want && failed && a.sha256().empty() && (b.eject(), b.sha256().empty()), got);
+        }
+        {   // TAPD-08 (case 1 and 1b): hand over to fast loading without cutting a block
+            TapLoader a, b;
+            bool ok = a.load(tap3_path) && b.load(tap3_path);
+            a.start_realtime_playback();
+            while (ok && !(a.deck_state().phase == "data" && a.current_block() == 1 &&
+                           a.deck_state().byte >= 2))
+                a.tick_realtime(997);
+            std::string why;
+            const bool restored = ok && b.restore_deck(a.deck_state(), why);
+            b.set_fast_load(false);
+            const bool immediate = b.handover_to_fast_at_gap();      // mid-block: must wait
+            bool same = true, switched = false;
+            uint64_t guard = 0;
+            size_t i = 0;
+            while (guard < 14000000 && !switched) {
+                const uint64_t st = steps[i++ % (sizeof(steps) / sizeof(steps[0]))];
+                if (a.tick_realtime(st) != b.tick_realtime(st)) same = false;
+                guard += st;
+                switched = b.fast_load();
+            }
+            // The gap boundary: A starts block 2's pilot, B stands before block 2, fast, stopped.
+            const bool at_gap = switched && !b.is_playing() && b.current_block() == 2 &&
+                                a.is_playing() && a.current_block() == 2 &&
+                                a.deck_state().phase == "leader" && !b.handover_pending();
+
+            // 1b: a deck at a boundary (held) turns fast at once.
+            TapLoader c, d;
+            ok = c.load(tap3_path) && d.load(tap3_path);
+            c.set_gap_hold(true);
+            c.start_realtime_playback();
+            while (ok && !c.is_held()) c.tick_realtime(997);
+            const bool r2 = ok && d.restore_deck(c.deck_state(), why);
+            d.set_fast_load(false);
+            const bool now_fast = d.handover_to_fast_at_gap();
+            check("TAPD-08", "a real-time deck handed over to fast loading mid-block plays the original's EAR levels to the "
+                  "end of the block and its pause, then stands before the next block, fast and stopped, while the original "
+                  "starts that block's pilot; a deck already at a boundary (held) turns fast at once at the same block",
+                  ok && restored && !immediate && same && at_gap && r2 && now_fast && d.fast_load() &&
+                  !d.is_held() && !d.is_playing() && d.current_block() == 1, why);
+        }
+        {   // TAPD-09 (case 2)
+            TapLoader t;
+            const bool ok = t.load(tap3_path);
+            t.next_block();                                   // the fast cursor stands before block 1
+            t.start_realtime_from_fast(true);
+            const bool held = t.is_held() && !t.is_playing() && !t.fast_load() && t.current_block() == 1;
+            t.resume();
+            const bool resumed = t.is_playing() && t.deck_state().phase == "leader" && t.current_block() == 1;
+            TapLoader u;
+            u.load(tap3_path);
+            u.next_block();
+            u.start_realtime_from_fast(false);
+            const bool playing = u.is_playing() && !u.is_held() && u.deck_state().phase == "leader" &&
+                                 u.current_block() == 1 && !u.fast_load();
+            check("TAPD-09", "starting real time from the fast position at block 1: held, it waits at block 1 and resume() plays that "
+                  "block's pilot; not held, it plays that block's pilot at once",
+                  ok && held && resumed && playing, {});
+        }
+        {   // TPOL-01
+            TapePollDetector d;
+            uint64_t t = 5000;
+            for (int i = 0; i < 40; ++i) { d.on_read(t); t += 59; }
+            TapePollDetector e;
+            e.restore(d.snapshot());
+            bool same = true;
+            for (uint64_t at = t - 59; at <= t + 1200; at += 120)
+                if (d.polling(at) != e.polling(at)) same = false;
+            const bool polling_before = d.polling(t - 59) && e.polling(t - 59);
+            // The same next reads give the same answers on both.
+            uint64_t u = t + 400;
+            for (int i = 0; i < 5; ++i) {
+                d.on_read(u);
+                e.on_read(u);
+                if (d.polling(u) != e.polling(u)) same = false;
+                u += 59;
+            }
+            // A far read starts a new run on both.
+            d.on_read(u + 5000);
+            e.on_read(u + 5000);
+            const bool fresh = !d.polling(u + 5000) && !e.polling(u + 5000);
+            TapePollDetector z;
+            z.restore(TapePollDetector{}.snapshot());
+            check("TPOL-01", "a poll detector restored from a snapshot answers polling() like the original at 11 times "
+                  "and through the same next reads; a fresh snapshot restores to the idle detector",
+                  polling_before && same && fresh && !z.polling(0), {});
+        }
+    }
+
+    // ---- Fast-load pacing: a tape nobody reads stops the sprint (GH #408) ---
+    // No hardware counterpart: Emulator::fastload_active() is host pacing (the
+    // Qt frontend's 200-frame burst, the SDL frontend's skipped delay). Oracle:
+    // FUSE's timer_fastloading_active() (timer/timer.c:198), which sprints only
+    // while the tape PLAYS or the phantom typist is active - never because a
+    // tape is merely in the deck - plus the bounds jnext adds for its trap-
+    // served loads: FASTLOAD_TAPE_IDLE_FRAMES after the attach or the last
+    // trapped block, and PhantomTypist::FASTLOAD_WAIT_FRAMES of waiting.
+    {
+        using ldrig::sd_image;
+        // A BASIC program header (type 0, no autostart) + its data: `10 REM`.
+        auto basic_prog = [](const char* name10) {
+            const Bytes line = {0x00, 0x0A, 0x02, 0x00, 0xEA, 0x0D};
+            Bytes h = {0};
+            for (int i = 0; i < 10; ++i) h.push_back(static_cast<uint8_t>(name10[i]));
+            const uint8_t n = static_cast<uint8_t>(line.size());
+            h.insert(h.end(), {n, 0, 0x00, 0x80, n, 0});
+            return concat({tap_block(0x00, h), tap_block(0xFF, line)});
+        };
+        // Two programs on one tape: LOAD "" reads the first, the second stays.
+        const std::string two_progs = write_file("gh408-two.tap",
+            concat({basic_prog("PROG1     "), basic_prog("PROG2     ")}));
+        auto boot48 = [&](std::unique_ptr<Emulator>& emu) {
+            emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            return emu->init(cfg);
+        };
+        // A program that never reads the keyboard: DI; JR $.
+        auto park = [](Emulator& e) {
+            e.mmu().write(0x8000, 0xF3);
+            e.mmu().write(0x8001, 0x18);
+            e.mmu().write(0x8002, 0xFE);
+            auto r = e.cpu().get_registers();
+            r.PC = 0x8001; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+            e.cpu().set_registers(r);
+        };
+        const int idle = static_cast<int>(Emulator::FASTLOAD_TAPE_IDLE_FRAMES);
+        const auto J  = Keyboard::AutoKey{6, 3, -1, -1, 5};
+        const auto QQ = Keyboard::AutoKey{5, 0, 7, 1, 5};
+        const auto EN = Keyboard::AutoKey{6, 0, -1, -1, 5};
+
+        std::unique_ptr<Emulator> emu;
+        // TAPF-01..03: the startup --load path on a 48K, the real ROM typing.
+        bool ok = boot48(emu) && emu->load_tap(two_progs, true);
+        int f = 0, loaded_at = -1, last_trap = -1;
+        bool fast_throughout = ok && emu->fastload_active();
+        size_t blk = emu->tape().current_block();
+        for (; ok && f < 1500 && loaded_at < 0; ++f) {
+            emu->run_frame();
+            if (emu->tape().current_block() != blk) { blk = emu->tape().current_block(); last_trap = f; }
+            if (blk == 2) loaded_at = f;
+            else if (!emu->fastload_active()) fast_throughout = false;
+        }
+        {
+            char b[96];
+            std::snprintf(b, sizeof(b), "ok=%d loaded_at=%d block=%zu", ok, loaded_at, blk);
+            check("TAPF-01", "a startup LOAD \"\" of a fast tape runs uncapped on every frame from the attach "
+                  "until the program's two blocks are in", ok && loaded_at > 0 && fast_throughout, b);
+        }
+        // The second program is never asked for: the window runs out exactly
+        // FASTLOAD_TAPE_IDLE_FRAMES frames after the trap that loaded the data.
+        bool on_before = true, off_after = true;
+        int at48 = -1, at49 = -1;   // TAPF-07: the literal bound, frames after the trap's frame
+        for (int g = f; ok && g < last_trap + 600; ++g) {
+            emu->run_frame();
+            if (g < last_trap + idle - 1 && !emu->fastload_active()) on_before = false;
+            if (g >= last_trap + idle - 1 && emu->fastload_active()) off_after = false;
+            if (g == last_trap + 48) at48 = emu->fastload_active() ? 1 : 0;
+            if (g == last_trap + 49) at49 = emu->fastload_active() ? 1 : 0;
+        }
+        {
+            char b[128];
+            std::snprintf(b, sizeof(b), "last_trap=%d on_before=%d off_after=%d block=%zu at_end=%d",
+                          last_trap, on_before, off_after, emu->tape().current_block(),
+                          emu->tape().at_end() ? 1 : 0);
+            check("TAPF-02", "a fast tape with a program left that nothing reads stops holding fast loading "
+                  "FASTLOAD_TAPE_IDLE_FRAMES frames after its last trapped block, for good",
+                  ok && last_trap > 0 && on_before && off_after &&
+                  emu->tape().current_block() == 2 && !emu->tape().at_end(), b);
+        }
+        // TAPF-07: the window in absolute terms, the issue's own unit. An idle
+        // fast tape may sprint for one emulated second at most: 50 frames
+        // counting the one its last block was trapped in, so still on 48
+        // frames later and off 49 frames later. Literal on purpose: a window
+        // of 5000 frames (100 s of the GH #408 symptom) passes TAPF-02.
+        check("TAPF-07", "an idle fast tape sprints exactly 50 frames (1 emulated second) counting the "
+              "frame its last block was trapped in: on at +48, off at +49",
+              ok && at48 == 1 && at49 == 0,
+              "at48=" + std::to_string(at48) + " at49=" + std::to_string(at49));
+        // A second LOAD "" typed later sprints again, through to the tape's end.
+        emu->keyboard().queue_auto_type({J, QQ, QQ, EN});
+        bool fast_again = emu->fastload_active();
+        int h = 0;
+        for (; ok && h < 600 && !emu->tape().at_end(); ++h) {
+            emu->run_frame();
+            if (!emu->tape().at_end() && !emu->fastload_active()) fast_again = false;
+        }
+        for (int i = 0; i < 5; ++i) emu->run_frame();
+        check("TAPF-03", "a LOAD \"\" typed after the window ran out is uncapped again until the tape's end, "
+              "and the sprint stops there",
+              ok && fast_again && emu->tape().at_end() && !emu->fastload_active(),
+              "frames=" + std::to_string(h));
+
+        // TAPF-04: Tape > Open while a program that never scans the matrix
+        // runs. The typist waits for a scan that never comes; it may hold
+        // the sprint only FASTLOAD_WAIT_FRAMES frames, and stays armed.
+        ok = boot48(emu);
+        for (int i = 0; ok && i < 200; ++i) emu->run_frame();   // BASIC is up
+        park(*emu);
+        ok = ok && emu->load_tap(two_progs, true);
+        const int wait = static_cast<int>(PhantomTypist::FASTLOAD_WAIT_FRAMES);
+        bool on = true, off = true;
+        int at999 = -1, at1000 = -1;   // TAPF-08: the literal bound
+        for (int i = 1; ok && i <= wait + 300; ++i) {
+            emu->run_frame();
+            if (i < wait && !emu->fastload_active()) on = false;
+            if (i >= wait && emu->fastload_active()) off = false;
+            if (i == 999) at999 = emu->fastload_active() ? 1 : 0;
+            if (i == 1000) at1000 = emu->fastload_active() ? 1 : 0;
+        }
+        check("TAPF-04", "a typist waiting for a keyboard scan that never comes holds fast loading for "
+              "FASTLOAD_WAIT_FRAMES frames, then lets go and stays armed",
+              ok && on && off && emu->phantom_typist().is_active() &&
+              emu->tape().current_block() == 0);
+        // TAPF-08: the same bound in absolute frames: 20 emulated seconds, i.e.
+        // still sprinting after the 999th frame, not after the 1000th. The
+        // typist's measured first fire is at most 311 frames (TAPF-12).
+        check("TAPF-08", "a typist that never sees a scan sprints exactly 1000 frames (20 emulated seconds): "
+              "on after frame 999, off after frame 1000",
+              ok && at999 == 1 && at1000 == 0,
+              "at999=" + std::to_string(at999) + " at1000=" + std::to_string(at1000));
+
+        // TAPF-05: the same two programs as a fast TZX (ID 0x10 blocks) at the
+        // 48K BASIC prompt, as Tape > Open attaches one: load_tzx() types
+        // LOAD "" itself (no typist). Uncapped through the typing and the
+        // load, for FASTLOAD_TAPE_IDLE_FRAMES after its last trapped block,
+        // then not, with the second program still on the tape.
+        Bytes tzx_two = {'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 0x01, 0x14};
+        {
+            const Bytes progs = concat({basic_prog("PROG1     "), basic_prog("PROG2     ")});
+            for (size_t i = 0; i < progs.size();) {   // each TAP block as a 0x10 block
+                const size_t len = progs[i] | (progs[i + 1] << 8);
+                tzx_two.insert(tzx_two.end(), {0x10, 0xE8, 0x03});
+                tzx_two.insert(tzx_two.end(), progs.begin() + static_cast<long>(i),
+                               progs.begin() + static_cast<long>(i + 2 + len));
+                i += 2 + len;
+            }
+        }
+        ok = boot48(emu);
+        for (int i = 0; ok && i < 200; ++i) emu->run_frame();   // BASIC is up
+        ok = ok && emu->load_tzx(write_file("gh408-two.tzx", tzx_two), true);
+        auto fast_offset = [&]() { return emu->tzx_tape().deck_state(emu->monotonic_tstates()).fast_offset; };
+        int32_t pos = fast_offset();
+        int traps = 0, tzx_last_trap = -1;
+        bool tzx_on = ok && emu->fastload_active();
+        int g = 0;
+        for (; ok && g < 400 && traps < 2; ++g) {
+            emu->run_frame();
+            if (fast_offset() != pos) { pos = fast_offset(); ++traps; tzx_last_trap = g; }
+            if (traps < 2 && !emu->fastload_active()) tzx_on = false;
+        }
+        bool tzx_window = true, tzx_off = true;
+        for (; ok && g < tzx_last_trap + 400; ++g) {
+            emu->run_frame();
+            if (g < tzx_last_trap + idle - 1 && !emu->fastload_active()) tzx_window = false;
+            if (g >= tzx_last_trap + idle - 1 && emu->fastload_active()) tzx_off = false;
+        }
+        {
+            char b[128];
+            std::snprintf(b, sizeof(b), "traps=%d last_trap=%d on=%d window=%d off=%d at_end=%d",
+                          traps, tzx_last_trap, tzx_on, tzx_window, tzx_off,
+                          emu->tzx_tape().at_end() ? 1 : 0);
+            check("TAPF-05", "a fast TZX at the BASIC prompt is uncapped through its typed LOAD \"\" and the "
+                  "load, for FASTLOAD_TAPE_IDLE_FRAMES after its last trapped block, then not, "
+                  "with a program left",
+                  ok && traps == 2 && tzx_on && tzx_window && tzx_off && fast_offset() == pos &&
+                  !emu->tzx_tape().at_end(), b);
+        }
+
+        // TAPF-06: keys typed with no fast tape pending (a --delayed-keypress,
+        // the debugger's press_key) do not sprint: the typing term is the
+        // tape's, not the keyboard's. The TZX above is ejected first.
+        emu->tzx_tape().eject();
+        emu->keyboard().queue_auto_type({J, QQ});
+        bool idle_typing = !emu->fastload_active() && emu->keyboard().auto_typing();
+        for (int i = 0; i < 30 && emu->keyboard().auto_typing(); ++i) {
+            emu->run_frame();
+            if (emu->fastload_active()) idle_typing = false;
+        }
+        check("TAPF-06", "auto-typed keys with no fast tape pending run at normal speed", ok && idle_typing);
+
+        // TAPF-09..11: is the 50-frame window long enough? A multi-block load
+        // has the guest's own BASIC between its blocks; the 48K ROM serves each
+        // `LOAD ""CODE` through the trap at once, so the only gaps are what the
+        // loader itself does in between. A synthetic loader, built here:
+        //   10 LOAD ""CODE : PAUSE n : LOAD ""CODE     (autostart line 10)
+        // then two CODE blocks, 16 bytes at 0x8000 and 16 at 0x9000. Each run
+        // reports the frames from the attach to the tape's end and how many of
+        // them ran paced (fastload_active() false). PAUSE 25 is a gap inside
+        // the window, PAUSE 100 one twice as long.
+        auto code_prog = [&](uint16_t pause_n, bool as_tzx) {
+            const Bytes body = {0xEF, 0x22, 0x22, 0xAF, 0x3A, 0xF2,                    // LOAD ""CODE : PAUSE
+                                uint8_t('0' + pause_n / 100), uint8_t('0' + pause_n / 10 % 10),
+                                uint8_t('0' + pause_n % 10),
+                                0x0E, 0x00, 0x00, uint8_t(pause_n & 0xFF), uint8_t(pause_n >> 8), 0x00,
+                                0x3A, 0xEF, 0x22, 0x22, 0xAF, 0x0D};                   // : LOAD ""CODE
+            Bytes line = {0x00, 0x0A, uint8_t(body.size()), 0x00};
+            line.insert(line.end(), body.begin(), body.end());
+            const uint8_t n = static_cast<uint8_t>(line.size());
+            Bytes ph = {0};
+            for (char c : std::string("LOADER    ")) ph.push_back(static_cast<uint8_t>(c));
+            ph.insert(ph.end(), {n, 0, 10, 0, n, 0});                                   // autostart 10
+            auto code = [](const char* name10, uint16_t at, uint8_t seed) {
+                Bytes h = {3};
+                for (int i = 0; i < 10; ++i) h.push_back(static_cast<uint8_t>(name10[i]));
+                h.insert(h.end(), {16, 0, uint8_t(at & 0xFF), uint8_t(at >> 8), 0x00, 0x80});
+                Bytes d;
+                for (int i = 0; i < 16; ++i) d.push_back(static_cast<uint8_t>(seed + 7 * i));
+                return concat({tap_block(0x00, h), tap_block(0xFF, d)});
+            };
+            const Bytes tap = concat({tap_block(0x00, ph), tap_block(0xFF, line),
+                                      code("CODEA     ", 0x8000, 0x11), code("CODEB     ", 0x9000, 0x77)});
+            if (!as_tzx) return tap;
+            Bytes tzx = {'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 0x01, 0x14};
+            for (size_t i = 0; i < tap.size();) {
+                const size_t len = tap[i] | (tap[i + 1] << 8);
+                tzx.insert(tzx.end(), {0x10, 0xE8, 0x03});
+                tzx.insert(tzx.end(), tap.begin() + static_cast<long>(i),
+                           tap.begin() + static_cast<long>(i + 2 + len));
+                i += 2 + len;
+            }
+            return tzx;
+        };
+        struct GapRun { bool ok = false, loaded = false, realtime = false; int frames = -1, paced = 0;
+                        std::string gaps; };   // frames between consecutive trapped blocks
+        auto gap_run = [&](uint16_t pause_n, bool as_tzx) {
+            GapRun r;
+            r.ok = boot48(emu);
+            const std::string path = write_file(as_tzx ? "gh408-gap.tzx" : "gh408-gap.tap",
+                                                code_prog(pause_n, as_tzx));
+            if (as_tzx) {   // load_tzx() types LOAD "" at once: let BASIC come up first
+                for (int i = 0; r.ok && i < 200; ++i) emu->run_frame();
+                r.ok = r.ok && emu->load_tzx(path, true);
+            } else {
+                r.ok = r.ok && emu->load_tap(path, true);   // the startup --load path
+            }
+            auto at_end = [&]() { return as_tzx ? emu->tzx_tape().at_end() : emu->tape().at_end(); };
+            auto pos = [&]() { return as_tzx ? emu->tzx_tape().deck_state(emu->monotonic_tstates()).fast_offset
+                                             : static_cast<int32_t>(emu->tape().current_block()); };
+            int32_t p0 = pos();
+            int f2 = 0, last = -1;
+            for (; r.ok && f2 < 3000 && !at_end(); ++f2) {
+                if (!emu->fastload_active()) ++r.paced;
+                emu->run_frame();
+                if (pos() != p0) {
+                    p0 = pos();
+                    if (last >= 0) r.gaps += (r.gaps.empty() ? "" : ",") + std::to_string(f2 - last);
+                    last = f2;
+                }
+                if (emu->tape().is_playing() || emu->tzx_tape().is_playing()) r.realtime = true;
+            }
+            for (int i = 0; i < 5; ++i) emu->run_frame();   // the ROM's own LD-BYTES return
+            r.frames = at_end() ? f2 : -1;
+            r.loaded = true;
+            for (int i = 0; i < 16; ++i) {
+                if (emu->mmu().read(uint16_t(0x8000 + i)) != uint8_t(0x11 + 7 * i)) r.loaded = false;
+                if (emu->mmu().read(uint16_t(0x9000 + i)) != uint8_t(0x77 + 7 * i)) r.loaded = false;
+            }
+            return r;
+        };
+        auto gap_detail = [](const GapRun& r) {
+            return "frames=" + std::to_string(r.frames) + " paced=" + std::to_string(r.paced) +
+                   " loaded=" + std::to_string(r.loaded) + " realtime=" + std::to_string(r.realtime) +
+                   " gaps=" + r.gaps;
+        };
+        {   // TAPF-09
+            const GapRun r = gap_run(25, false);
+            check("TAPF-09", "a fast TAP whose loader pauses 25 frames between two LOAD \"\"CODE loads "
+                  "both blocks through the trap with no paced frame: the gap fits the window",
+                  r.ok && r.loaded && !r.realtime && r.frames > 0 && r.paced == 0, gap_detail(r));
+        }
+        {   // TAPF-10
+            const GapRun r = gap_run(100, false);
+            check("TAPF-10", "a fast TAP whose loader pauses 100 frames between two LOAD \"\"CODE still "
+                  "traps the later block; only the pause's tail past the 50-frame window runs paced",
+                  r.ok && r.loaded && !r.realtime && r.frames > 0 && r.paced > 0 && r.paced <= 100 - 49,
+                  gap_detail(r));
+        }
+        {   // TAPF-11
+            const GapRun r = gap_run(100, true);
+            check("TAPF-11", "the same 100-frame pause on a fast TZX: the later block is trapped, only the "
+                  "pause's tail past the window runs paced",
+                  r.ok && r.loaded && !r.realtime && r.frames > 0 && r.paced > 0 && r.paced <= 100 - 49,
+                  gap_detail(r));
+        }
+
+        // TAPF-12: the typist's first fire at a startup --load, per machine,
+        // against its 1000-frame sprint bound: no normal boot may lose its
+        // sprint. Measured (distro SD image): 48K 92, 128K 63, +3 66; Next 311
+        // on a cold init() and 92 with cfg.load_file set. The difference is
+        // the boot path: init() overlays the embedded nextboot.rom only when
+        // cfg.load_file is empty (emulator.cpp, "Auto-load gate"), so a cold
+        // Next runs the FPGA bootloader and the tbblue firmware before any
+        // ROM scans the keyboard, while `jnext --load` (main.cpp sets
+        // cfg.load_file) skips that overlay. Both are covered here.
+        {
+            const MachineType mts[] = {MachineType::ZX48K, MachineType::ZX128K, MachineType::ZX_PLUS3,
+                                       MachineType::ZXN_ISSUE2, MachineType::ZXN_ISSUE2};
+            const char* names[] = {"48k", "128k", "plus3", "next-cold", "next-load-file"};
+            bool all = true;
+            std::string d;
+            for (int m = 0; m < 5; ++m) {
+                auto e = std::make_unique<Emulator>();
+                EmulatorConfig cfg; cfg.type = mts[m]; cfg.rewind_buffer_frames = 0;
+                cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+                if (m == 4) cfg.load_file = two_progs;   // what main.cpp does for --load
+                bool mok = e->init(cfg) && e->load_tap(two_progs, true);
+                int fired = -1;
+                for (int i = 1; mok && i <= 600 && fired < 0; ++i) {
+                    e->run_frame();
+                    if (!e->phantom_typist().is_active()) fired = i;
+                }
+                d += std::string(names[m]) + "=" + std::to_string(fired) + " ";
+                if (!mok || fired < 1 || fired >= static_cast<int>(PhantomTypist::FASTLOAD_WAIT_FRAMES))
+                    all = false;
+            }
+            check("TAPF-12", "at a startup tape load the typist fires inside its 1000-frame sprint bound on "
+                  "the 48K, 128K, +3 and Next", all, d);
+        }
+
+        // TAPF-13..15: no window outlives the machine or the tape it was opened
+        // for. Each starts with a window open: the first program just trapped.
+        auto window_open = [&]() {
+            bool wok = boot48(emu) && emu->load_tap(two_progs, true);
+            for (int i = 0; wok && i < 1500 && emu->tape().current_block() < 2; ++i) emu->run_frame();
+            // The typed LOAD "" is still being released (the trap ran while ENTER
+            // was held): let it finish, so the window is the only sprint term.
+            for (int i = 0; wok && i < 50 && emu->keyboard().auto_typing(); ++i) emu->run_frame();
+            return wok && !emu->keyboard().auto_typing() && emu->tape().current_block() == 2 && emu->tape_fastload_frames_left() > 0;
+        };
+        {   // TAPF-13
+            const bool pre = window_open();
+            emu->soft_reset();
+            const bool still = emu->tape().is_loaded() && !emu->tape().at_end();
+            check("TAPF-13", "a machine reset closes the window: the tape stays in, nothing sprints",
+                  pre && still && emu->tape_fastload_frames_left() == 0 && !emu->fastload_active(),
+                  "pre=" + std::to_string(pre) + " still=" + std::to_string(still) +
+                  " left=" + std::to_string(emu->tape_fastload_frames_left()));
+        }
+        // A minimal 8-bit mono PCM WAV (44-byte header + 64 samples), as TAPC-11.
+        Bytes wav = {'R', 'I', 'F', 'F', 100, 0, 0, 0, 'W', 'A', 'V', 'E',
+                     'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                     0x44, 0xAC, 0, 0, 0x44, 0xAC, 0, 0, 1, 0, 8, 0,
+                     'd', 'a', 't', 'a', 64, 0, 0, 0};
+        wav.resize(wav.size() + 64, 0x80);
+        const std::string wav_path = write_file("gh408.wav", wav);
+        auto all_empty = [&]() {
+            return !emu->tape().is_loaded() && !emu->tzx_tape().is_loaded() && !emu->wav_tape().is_loaded();
+        };
+        {   // TAPF-14: each deck in turn (a load ejects the other two, so one at a time)
+            const bool pre = window_open();
+            emu->eject_tape();
+            const bool tap_out = all_empty() && emu->tape_fastload_frames_left() == 0 && !emu->fastload_active();
+            const bool tzx_in = emu->load_tzx(write_file("gh408-eject.tzx", tzx_two), true) &&
+                                emu->tzx_tape().is_loaded();
+            emu->eject_tape();
+            const bool tzx_out = all_empty();
+            const bool wav_in = emu->load_wav(wav_path) && emu->wav_tape().is_loaded();
+            emu->eject_tape();
+            const bool wav_out = all_empty();
+            check("TAPF-14", "Tape > Eject empties the deck whichever holds the tape (TAP with its window "
+                  "open, TZX, WAV) and closes the window",
+                  pre && tap_out && tzx_in && tzx_out && wav_in && wav_out,
+                  "tap_out=" + std::to_string(tap_out) + " tzx_out=" + std::to_string(tzx_out) +
+                  " wav_out=" + std::to_string(wav_out));
+        }
+        {   // TAPF-16: a WAV replacing a fast TAP takes the TAP's window with it.
+            // Only the accessor can see it: a WAV is never fast, so with the TAP
+            // gone nothing sprints either way.
+            const bool pre = window_open();
+            const bool ok_wav = emu->load_wav(wav_path);
+            check("TAPF-16", "load_wav() replacing a TAP whose window is open closes the window",
+                  pre && ok_wav && !emu->tape().is_loaded() && emu->tape_fastload_frames_left() == 0,
+                  "left=" + std::to_string(emu->tape_fastload_frames_left()));
+        }
+        {   // TAPF-17: a .jns restore reattaches its tape without init() (same
+            // machine): a window open before the restore must not sprint the
+            // restored tape, which nothing is reading.
+            const bool pre = window_open();
+            const std::string jns = (g_root / "gh408.jns").string();
+            const bool saved = emu->save_jns_file(jns);
+            const bool still_open = emu->tape_fastload_frames_left() > 0;
+            const bool restored = emu->load_jns_file(jns);
+            const bool pending = emu->tape().is_loaded() && emu->tape().fast_load() && !emu->tape().at_end();
+            const bool quiet = !emu->phantom_typist().is_active() && !emu->keyboard().auto_typing();
+            check("TAPF-17", "a .jns restore of a fast tape with blocks left starts with no window from "
+                  "before the restore: nothing sprints",
+                  pre && saved && still_open && restored && pending && quiet &&
+                      emu->tape_fastload_frames_left() == 0 && !emu->fastload_active(),
+                  "saved=" + std::to_string(saved) + " restored=" + std::to_string(restored) +
+                  " pending=" + std::to_string(pending) + " quiet=" + std::to_string(quiet) +
+                  " left=" + std::to_string(emu->tape_fastload_frames_left()) +
+                  " why=" + emu->last_jns_error());
+        }
+        {   // TAPF-18: a rewind restore goes through load_state() but never
+            // through a deck change: the tape stays in, only time moves back.
+            // A window opened by a block trapped after the restore point is from
+            // a timeline that is gone, and must not sprint the restored machine.
+            // Three programs: the first loads, the machine settles (window run
+            // out, nothing typing), that frame is the restore point; a second
+            // LOAD "" traps program 2 (window open, program 3 still pending);
+            // then the ring restores the settled frame.
+            emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 600;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            const std::string three = write_file("gh408-three.tap",
+                concat({basic_prog("PROG1     "), basic_prog("PROG2     "), basic_prog("PROG3     ")}));
+            bool rok = emu->init(cfg) && emu->rewind_buffer() && emu->load_tap(three, true);
+            for (int i = 0; rok && i < 1500 && emu->tape().current_block() < 2; ++i) emu->run_frame();
+            for (int i = 0; rok && i < 120; ++i) emu->run_frame();   // window out, typing done
+            const bool settled = rok && emu->tape().current_block() == 2 && !emu->fastload_active() &&
+                                 !emu->keyboard().auto_typing() && !emu->phantom_typist().is_active();
+            // The ring takes a frame's snapshot as that frame BEGINS, inside
+            // the next run_frame() (begin_new_frame()), tagged with its start
+            // cycle: run that frame before typing, so the restore point holds
+            // the settled machine and not the keys queued between frames.
+            const uint64_t point = emu->current_frame_cycle();
+            emu->run_frame();
+            emu->keyboard().queue_auto_type({J, QQ, QQ, EN});
+            for (int i = 0; rok && i < 600 && emu->tape().current_block() < 4; ++i) emu->run_frame();
+            for (int i = 0; rok && i < 50 && emu->keyboard().auto_typing(); ++i) emu->run_frame();
+            const bool open = emu->tape().current_block() == 4 && emu->tape_fastload_frames_left() > 0;
+            const uint64_t landed = emu->rewind_buffer()->restore_nearest(point, *emu);
+            const bool pending = emu->tape().is_loaded() && emu->tape().fast_load() && !emu->tape().at_end();
+            const bool quiet = !emu->keyboard().auto_typing() && !emu->phantom_typist().is_active();
+            check("TAPF-18", "a rewind to before a trapped block closes that block's window: the tape stays "
+                  "in with blocks left and nothing sprints",
+                  settled && open && landed == point && pending && quiet &&
+                      emu->tape_fastload_frames_left() == 0 && !emu->fastload_active(),
+                  "settled=" + std::to_string(settled) + " open=" + std::to_string(open) +
+                  " landed_ok=" + std::to_string(landed == point) + " pending=" + std::to_string(pending) +
+                  " quiet=" + std::to_string(quiet) +
+                  " left=" + std::to_string(emu->tape_fastload_frames_left()));
+        }
+        {   // TAPF-15
+            const bool pre_tap = window_open();
+            const bool tap_ok = emu->load_tap(write_file("gh408-new.tap", basic_prog("NEWTAPE   ")), true);
+            const uint32_t left_tap = emu->tape_fastload_frames_left();
+            emu->phantom_typist().reset();   // isolate the window from the new tape's typist
+            const bool fast_tap = emu->fastload_active();
+            const bool pre_tzx = window_open();
+            const bool tzx_ok = emu->load_tzx(write_file("gh408-two.tzx", tzx_two), true);
+            const uint32_t left_tzx = emu->tape_fastload_frames_left();
+            check("TAPF-15", "a new tape (load_tap or load_tzx) starts with no window left by the old one",
+                  pre_tap && tap_ok && left_tap == 0 && !fast_tap && pre_tzx && tzx_ok && left_tzx == 0,
+                  "left_tap=" + std::to_string(left_tap) + " fast_tap=" + std::to_string(fast_tap) +
+                  " left_tzx=" + std::to_string(left_tzx));
+        }
     }
 
     Log::emulator()->sinks().pop_back();

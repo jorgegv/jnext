@@ -279,9 +279,8 @@ in the machine-side class, plus a stated policy.
   queued keys but keeps queued actions, so a focus loss does not cancel a save the
   user asked for. After a snapshot load wipes the matrix, `Router::reassert()`
   puts back the keys the router holds (the four windowed-frontend load sites all go through `emulator_apply_load_keeping_keys()` in `emulator_boot.h`, so none can forget it), so
-  the guest matrix is exactly what the host holds through the router. The
-  Quick Save/Load stall is the whole-card SHA-256 (see media and loaders); the
-  keys typed during it are delivered afterwards, in order.
+  the guest matrix is exactly what the host holds through the router. Keys
+  typed while a Quick Save/Load is in progress are delivered afterwards, in order.
 
   `Router::release_all()` is the third policy, and it answers a different
   question: **what if the key-up never arrives at all?** A Qt popup and a focus
@@ -351,6 +350,26 @@ and Alt+E, Alt+G, Alt+C and Alt+`` ` `` are reserved for the guest's EDIT,
 GRAPH, CAPS LOCK and INV VIDEO. Adding a menu on one of those would silently
 kill a guest key, so `host_hotkey_test` pins the two sets disjoint — see
 [Testing](../04-testing/index.md).
+
+### macOS: Command is the host modifier (GH #403)
+
+On macOS the same split sits one key over. Qt reports Command as
+`Key_Control` / `ControlModifier` / `Qt::CTRL` and the physical Control key as
+`Key_Meta` (jnext does not set `AA_MacDontSwapCtrlAndMeta`), so
+`gui/host_shortcuts.h` holds the host set for both platforms, with the
+platform as a parameter so the macOS branch is unit-tested on Linux
+(`host_shortcuts_test`): `sequence()` (Command+letter, Command+Q, Command+,;
+no Alt+F4), `script_sequence()`, `f1_decision()` / `f4_decision()` (Command for Alt, Option inert, physical Control as Ctrl), and `modifier_scancode()`,
+which maps Command to the Router as `LGUI` (the guest ignores it) and the
+physical Control key to Symbol Shift. `CommandChordGate` keeps an unbound
+Command chord from reaching the guest. The key Router's script chord
+(`set_script_chord_gui()`) and the SDL frontend's quick-snapshot / F1 / F4
+decisions (`platform/host_modifier.h`, `QuickChordTracker::set_host_is_gui()`)
+take the host modifier as a parameter whose default is Alt, so every Alt row
+keeps its meaning on a Mac build. The debugger keymap's reserved chords follow
+the same flag (`validate_combo(c, why, host_mod_is_ctrl)`). Add a host
+shortcut to the `host_shortcuts::Action` table, never as a literal `Qt::ALT`
+(`HS403-27` fails on one).
 
 The one bare non-function host key is **Pause**, an alternate shortcut on
 Machine > Pause (GH #322, an owner-approved exception to the Alt rule; it is the

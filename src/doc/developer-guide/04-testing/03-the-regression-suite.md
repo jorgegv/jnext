@@ -345,6 +345,24 @@ screenshots + the admitted rows (no lints, no stamp).
    "the first child" is a shell, so the row finds the process named `jnext` /
    `jnext.exe` among the descendants (deepest one) and reads its CPU from `/proc`
    or, off Linux, `ps -o time=`.
+10. The runner sets `DBUS_SESSION_BUS_ADDRESS` and `DBUS_SYSTEM_BUS_ADDRESS` to
+    `disabled:` in every mode, next to the `DISPLAY` removal (GH #383). SDL's audio init makes
+    wine load winealsa, whose pipewire plugin makes synchronous calls to the desktop's
+    xdg-desktop-portal over the inherited session bus; a slow portal stalled a Qt `jnext.exe`
+    past its row's bound. CI's container has no D-Bus, so this makes a local run equal CI. Both
+    are overridden, not unset (libdbus falls back to the system bus). Nothing of this exists on
+    Windows.
+11. A stalled `jnext.exe` names its blocked call (GH #383). With
+    `JNEXT_WINE_CAPTURE_DIR` set (the driver exports
+    `build/regression-artifacts/wine-stall/<run>/`) the runner's watchdog fires once on a
+    process at least 20 s old whose CPU time has been flat for 10 s and totals 2 s or less, and
+    writes `wine-stall-<time>-<pid>.txt`: `/proc` threads, the prefix's processes, the
+    `winedevice.exe` threads, `winedbg info thread`, and one `Backtrace:` per thread of that
+    Windows pid (one `winedbg --file` session; never `bt all`, which real winedbg refuses). TERM
+    is forwarded at once. Before the first row the driver checks the capture on a real
+    `jnext.exe` blocked on the SD prompt and treats a capture with no `ReadFile` backtrace as a
+    harness fault. Every Windows run ends with a `wine prefix at the end:` line and lists any
+    captures.
 
 **On macOS** the SD image comes from `make sdcard-image`, the per-run clone falls
 back to a plain copy where `cp --reflink=always` does not exist (reported as

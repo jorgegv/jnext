@@ -1,4 +1,5 @@
 #include "gui/shortcut_capture_button.h"
+#include "gui/qt_ctrl_is_command.h"   // GH #403
 
 #include "qt/debug_keymap_qt.h"
 
@@ -92,7 +93,7 @@ void ShortcutCaptureButton::keyPressEvent(QKeyEvent* e) {
     }
 
     std::string why;
-    if (!validate_combo(c, why)) {
+    if (!validate_combo(c, why, kQtCtrlIsCommand)) {
         end_capture();
         emit combo_refused(tr("%1 cannot be used: %2.")
                                .arg(QString::fromStdString(render_combo(c)),

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3746,7 +3746,10 @@ that is not the one given here.</dd>
 <dd>
 <p>Load a program. The format is detected from the extension: <code>.nex</code>,
 <code>.jns</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, <code>.rzx</code>.
-(<code>.rzx</code> is accepted here and plays back, as <strong>--rzx-play</strong>.)</p>
+(<code>.rzx</code> is accepted here and plays back, as <strong>--rzx-play</strong>.) A
+<code>.zip</code> archive holding one of them loads that program (see the
+<a href="../05-running-programs/index.html#programs-in-zip-archives"><code>.zip</code>
+entry</a>).</p>
 <p><code>.jns</code> is jnext’s own whole-machine snapshot (see <a href="../05-running-programs/09-snapshots.html">5.9
 Snapshots</a>). Loading one
 restores the machine it was taken on, including the machine <em>type</em>:
@@ -3847,13 +3850,17 @@ loads restore that state instead of booting. If no recording can be
 made or used — no SD image, a card with no firmware on it, a
 recording that will not load back — <strong>jnext</strong> says so on standard
 error and falls back to the machine it has always assembled.</p>
-<p>The recording is keyed by the SD image’s contents, the machine type
-and the state format, so it invalidates itself whenever any of those
-change. Use this option to force the issue anyway, after replacing
-<code>TBBLUE.FW</code> or NextZXOS on the card. It applies to <code>.nex</code> files on
-the Next only: the other machine types run no firmware, and
-snapshots and tapes are loaded by mechanisms a firmware-resident
-machine does not have.</p>
+<p>The recording is keyed by the SD image’s size and modification time,
+the machine type and the state format, and it is also dropped when
+<strong>jnext</strong> itself writes to the image, so it invalidates itself
+whenever any of those change. The image’s contents are not read: an
+image replaced or edited from outside with the same size and the
+same modification time (<code>cp -p</code>, <code>touch -r</code>) is served the old
+recording. Use this option to force the issue in that case, and
+after replacing <code>TBBLUE.FW</code> or NextZXOS on the card. It applies to
+<code>.nex</code> files on the Next only: the other machine types run no
+firmware, and snapshots and tapes are loaded by mechanisms a
+firmware-resident machine does not have.</p>
 <p>The recording is made on your machine from the image you mounted,
 and is never shipped with <strong>jnext</strong>: it contains NextZXOS and DivMMC
 ROM content.</p>
@@ -4052,7 +4059,22 @@ QEMU listens on.</p>
 enables it.</dd>
 <dt><strong>--tape-realtime</strong></dt>
 <dd>Real-time tape loading, at the speed of an actual tape, instead of
-fast load.</dd>
+fast load. It sets the one fast/real-time setting (the GUI’s <strong>Tape
+&gt; Fast Load</strong> toggle) for this run only, overriding the saved
+preference without changing it; <strong>Tape &gt; Open Tape File</strong>, <strong>File
+&gt; Load NEX File</strong>, <strong>--load</strong> of a <code>.tap</code> or <code>.tzx</code>, and the tape
+restored by a <code>.jns</code> all follow that setting. The SDL-only build,
+which has no menu and no saved preference, is controlled by this
+option alone.</dd>
+<dt><strong>--tape-auto-play</strong>, <strong>--no-tape-auto-play</strong></dt>
+<dd>Turn automatic tape play/stop on (the default) or off for this run,
+overriding the saved GUI preference. While on, the tape deck stops
+in the silent gap between two blocks when no program is reading the
+tape, and resumes when one does, so tapes whose BASIC loader is slow
+between blocks load in real time. It does nothing in fast load mode.
+Off, the deck runs straight through, as a real one does (a TZX “stop
+the tape if in 48K mode” block now stops only on a 48K machine, as
+the TZX specification says, whatever this setting is).</dd>
 <dt><strong>--tape-save</strong> <em>FILE</em></dt>
 <dd>Save to tape, appending to <em>FILE</em>; its extension picks the format. A
 <code>.tzx</code> or <code>.wav</code> records the machine’s tape output (the MIC jack),
@@ -4392,7 +4414,8 @@ written by a jnext whose state model this build does not know, or
 one whose recorded ROM digests differ from the ROMs now loaded. A
 missing tape file is <strong>not</strong> covered — that always warns and never
 refuses, because a machine restores perfectly well without the tape
-it was loading from.</p>
+it was loading from. The same goes for a tape that has changed or
+whose position cannot be restored.</p>
 <p><code>force</code> restores even though the mounted SD card is not the one the
 snapshot was taken on, printing a warning that names both cards.
 This is the setting that lets you create exactly the silently-wrong
@@ -4550,9 +4573,10 @@ recorder’s capture).</dd>
 <dt><strong>--record-script</strong> <em>FILE</em></dt>
 <dd>Record the session as a replay script; see <strong>Recording a session</strong>
 under <a href="../06-debugger/scripting/index.html">Debugger scripting</a>. Every
-input change is written as the frame it landed on, each Alt + 8 (or
-<strong>--script-key</strong> <em>FRAME</em> <code>8</code>) captures the screen, and <em>FILE</em> is
-written when jnext exits. Works in every frontend.</dd>
+input change is written as the frame it landed on, each Alt + 8
+(Command+8 on macOS) (or <strong>--script-key</strong> <em>FRAME</em> <code>8</code>) captures the
+screen, and <em>FILE</em> is written when jnext exits. Works in every
+frontend.</dd>
 <dt><strong>--map</strong> <em>FILE</em></dt>
 <dd>Load a symbol table, a z88dk <code>.map</code> or an sjasmplus <code>--sym</code> or
 <code>--exp</code> file, told apart by its contents (z88dk’s assembler also

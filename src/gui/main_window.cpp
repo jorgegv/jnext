@@ -1,4 +1,5 @@
 #include "gui/main_window.h"
+#include "gui/recent_files.h"
 #include "version.h"
 #include "gui/emulator_widget.h"
 #include "gui/host_chords.h"
@@ -6,6 +7,9 @@
 #include "gui/preferences_apply_policy.h"
 #include "gui/pok_dialog.h"           // GH #381
 #include "gui/qt_ctrl_is_command.h"   // GH #365
+#include "gui/host_shortcuts.h"        // GH #403
+#include "gui/fullscreen_sync.h"      // GH #404
+#include "gui/mac_fullscreen.h"        // GH #404
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
@@ -13,6 +17,7 @@
 #include "core/szx_saver.h"
 #include "core/nex_saver.h"
 #include "core/nex_loader.h"          // GH #228 — probe_version + policy
+#include "core/program_archive.h"
 #include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
 #include "platform/pok_trainers.h"    // GH #381
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
@@ -87,6 +92,9 @@ pointer_capture::HostButton qt_host_button(Qt::MouseButton b) {
 }
 
 SDL_Scancode qt_key_to_sdl(int key) {
+    // GH #403: the modifier keys, which differ on macOS, are one tested helper.
+    if (const SDL_Scancode m = host_shortcuts::modifier_scancode(key); m != SDL_SCANCODE_UNKNOWN)
+        return m;
     switch (key) {
         // Letters
         case Qt::Key_A: return SDL_SCANCODE_A;
@@ -129,9 +137,7 @@ SDL_Scancode qt_key_to_sdl(int key) {
         case Qt::Key_9: return SDL_SCANCODE_9;
 
         // Modifiers
-        case Qt::Key_Shift:   return SDL_SCANCODE_LSHIFT;
-        case Qt::Key_Control: return SDL_SCANCODE_LCTRL;
-        case Qt::Key_Alt:     return SDL_SCANCODE_LALT;
+        // GH #403: Control/Command/Meta differ on macOS, see host_shortcuts.h.
 
         // Task 77 — host keys for the Spectrum compound keys wired in
         // Keyboard::init_map(). Without these the mappings are unreachable
@@ -604,13 +610,24 @@ void MainWindow::sync_joy_source_menu() {
 }
 
 void MainWindow::toggle_fullscreen() {
-    if (is_fullscreen_) {
+    // GH #404 — our own showFullScreen()/showNormal() raise WindowStateChange
+    // too; changeEvent() must not apply that as a system-initiated change.
+    applying_fullscreen_ = true;
+    apply_fullscreen_state(!is_fullscreen_, true);
+    applying_fullscreen_ = false;
+}
+
+// GH #404 — the body of View > Fullscreen. `call_show` is false when the
+// window system has ALREADY moved the window (macOS green button): only the
+// chrome, size constraints, viewport mode and menu tick follow it.
+void MainWindow::apply_fullscreen_state(bool enter, bool call_show) {
+    if (!enter) {
         // Restore chrome.
         menuBar()->show();
         for (QToolBar* tb : findChildren<QToolBar*>()) tb->show();
         statusBar()->show();
 
-        showNormal();
+        if (call_show) showNormal();
         is_fullscreen_ = false;
         emulator_widget_->set_fullscreen_mode(false);
         // GH #242 — give the viewport its fixed size back BEFORE the window is
@@ -639,7 +656,7 @@ void MainWindow::toggle_fullscreen() {
         emulator_widget_->setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
         emulator_widget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         emulator_widget_->set_fullscreen_mode(true);
-        showFullScreen();
+        if (call_show) showFullScreen();
         is_fullscreen_ = true;
     }
 
@@ -709,7 +726,21 @@ void MainWindow::apply_fixed_window_size() {
     setMinimumSize(0, 0);
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     emulator_widget_->updateGeometry();
+#ifdef Q_OS_MACOS
+    // GH #404 — Qt's Cocoa plugin disables the title-bar zoom / full-screen
+    // button on a window whose minimum size equals its maximum
+    // (QCocoaWindow::isFixedSize) and re-checks on every constraint change, so
+    // a setFixedSize() window has a dead green button. One pixel of slack keeps
+    // it enabled; see gui/fullscreen_sync.h.
+    const QSize hint = sizeHint();
+    const fullscreen_sync::SizeLock lock =
+        fullscreen_sync::size_lock(hint.width(), hint.height(), true);
+    setMinimumSize(lock.min_w, lock.min_h);
+    setMaximumSize(lock.max_w, lock.max_h);
+    resize(hint);
+#else
     setFixedSize(sizeHint());
+#endif
 }
 
 void MainWindow::cycle_scale() {
@@ -774,12 +805,20 @@ void MainWindow::create_menus() {
     // gives up ever binding the Alt keys as guest shift keys. Deliberate, not
     // an oversight — see doc/design/TASK-115-HOST-SHORTCUT-INVENTORY.md §8.
     //
+    // GH #403 - macOS: the same split, one key over. Command is the platform's
+    // shortcut modifier and is NOT a guest key there (Key_Control is mapped to
+    // the key Router's LGUI, which the guest ignores), while the physical
+    // Control key (Qt's Key_Meta) is the guest's Symbol Shift. So every
+    // "Alt+X" below is Command+X on macOS - host_shortcuts.h holds the set for
+    // both - and the guest keeps Option for its own Alt+E/G/C. Where this
+    // comment says Alt, read "the host modifier".
+    //
     // Consequence for anyone adding a menu or a shortcut here: Alt+<letter> is
     // ONE namespace shared by the QAction shortcuts below AND by the top-level
     // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
     // Qt shortcut — QAction::event() only prints a warning and does nothing, so
     // BOTH bindings break. host_hotkey_test pins the two sets disjoint.
-    // Reserved today: Alt+Q/O/S/K/R/T/D/P/U, Alt+Shift+F5 and Alt+Shift+F9 (shortcuts) and Alt+F/M/I/A/B/V/N/H
+    // Reserved today: Alt+Q/O/L/S/K/R/T/D/P/U, Alt+Shift+F5 and Alt+Shift+F9 (shortcuts) and Alt+F/M/I/A/B/V/N/H
     // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
     // (keyboard.cpp:163,172-174).
     //
@@ -816,8 +855,29 @@ void MainWindow::create_menus() {
     // thing. L is free everywhere: no menubar title, no shortcut, not a guest
     // Alt key, and unused in this popup.
     QAction* load_nex = file_menu->addAction(tr("&Load NEX File..."));
-    load_nex->setShortcut(QKeySequence(Qt::ALT | Qt::Key_O));
+    load_nex->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::LoadNex));
     connect(load_nex, &QAction::triggered, this, &MainWindow::on_load_nex);
+
+    // GH #406 - Alt+L reloads the newest recent file (the rebuild-and-retry loop
+    // the issue is about). Alt+L: free in the host shortcut set, the menubar
+    // mnemonics and the guest's Alt+E/G/C. No '&' mnemonic: every letter of the
+    // label is taken somewhere in this popup or the window-wide Alt namespace,
+    // and the shortcut is the way in.
+    reload_last_action_ = file_menu->addAction(tr("Reload Last File"));
+    reload_last_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::ReloadLast));
+    connect(reload_last_action_, &QAction::triggered, this, [this]() {
+        // A copy: on_recent_file() may rewrite the very list this names.
+        const QString newest = app_config_.data().recent_files.value(0);
+        if (!newest.isEmpty()) on_recent_file(newest);
+    });
+
+    // GH #406 - the last ten files loaded, filled by rebuild_recent_menu().
+    // F: free in this popup (the View popup's "&Fullscreen" reuses it the same
+    // way); the entries inside are numbered 1..9, 0 and live in a popup of
+    // their own, so they collide with nothing here.
+    recent_menu_ = file_menu->addMenu(tr("Recent &Files"));
+    recent_menu_->setToolTipsVisible(true);   // the full path of an entry, on hover
+    rebuild_recent_menu();
 
     // GH #93 — a live card change, for NextZXOS's REMOUNT ("Remove/insert SD
     // and press Y"). I and E are free in this popup.
@@ -835,7 +895,7 @@ void MainWindow::create_menus() {
     // (P is "Sto&p MPEG4 Recording") or is the digit; V would read better but
     // Alt+V is the View menu. So the 4 of MPEG4, underlined in place.
     record_start_action_ = file_menu->addAction(tr("Record MPEG&4 Video..."));
-    record_start_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
+    record_start_action_->setShortcut(host_shortcuts::record_sequence(true));
     connect(record_start_action_, &QAction::triggered, this, &MainWindow::on_record_start);
     // Packaging Task 67 follow-up: grey the option out entirely when ffmpeg
     // is missing, instead of only failing after the user picks a save path
@@ -853,7 +913,7 @@ void MainWindow::create_menus() {
     }
 
     record_stop_action_ = file_menu->addAction(tr("Sto&p MPEG4 Recording"));
-    record_stop_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F6));
+    record_stop_action_->setShortcut(host_shortcuts::record_sequence(false));
     record_stop_action_->setEnabled(false);
     connect(record_stop_action_, &QAction::triggered, this, &MainWindow::on_record_stop);
 
@@ -871,7 +931,7 @@ void MainWindow::create_menus() {
     file_menu->addSeparator();
 
     screenshot_action_ = file_menu->addAction(tr("Save &Screenshot..."));
-    screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_S));
+    screenshot_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::Screenshot));
     connect(screenshot_action_, &QAction::triggered, this, [this]() {
         if (!emulator_) return;
         // GH #18 — two formats, chosen by the extension, exactly as
@@ -907,7 +967,7 @@ void MainWindow::create_menus() {
     // and is the label's own mnemonic, so the menu entry and the shortcut are
     // the same letter rather than two unrelated choices.
     quick_screenshot_action_ = file_menu->addAction(tr("Quic&k Screenshot"));
-    quick_screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_K));
+    quick_screenshot_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::QuickScreenshot));
     connect(quick_screenshot_action_, &QAction::triggered,
             this, &MainWindow::on_quick_screenshot);
     // Same two fixes as the quick snapshot actions below (GH #321): reachable
@@ -927,22 +987,22 @@ void MainWindow::create_menus() {
     // other host chord lives.
     //
     // Alt+Shift+S collides with nothing: the live host set is Alt+F/M/I/A/B/V/
-    // N/H (menubar mnemonics, all PLAIN Alt+letter) plus Alt+O/S/Q/R/T/D,
+    // N/H (menubar mnemonics, all PLAIN Alt+letter) plus Alt+O/L/S/Q/R/T/D,
     // Ctrl+F5, Ctrl+F6, F4, F11 and Preferences. Its modifier set differs from
     // Alt+S's, so Qt treats the two as distinct sequences, not as one
     // ambiguous binding — pinned by host_hotkey_test H115-33.
     QAction* save_snapshot = file_menu->addAction(tr("Save S&napshot..."));
-    save_snapshot->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_S));
+    save_snapshot->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::SaveSnapshot));
     connect(save_snapshot, &QAction::triggered, this, &MainWindow::on_save_snapshot);
 
     // GH #321 — Quick Save / Quick Load: no dialog, fixed folder. No '&'
     // mnemonic (every letter is taken in some Alt namespace, #217). The chords
     // live HERE; the SDL frontend's twin is platform/quick_snapshot_chord.h.
     quick_save_action_ = file_menu->addAction(tr("Quick Save Snapshot"));
-    quick_save_action_->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_F5));
+    quick_save_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::QuickSave));
     connect(quick_save_action_, &QAction::triggered, this, &MainWindow::on_quick_save);
     quick_load_action_ = file_menu->addAction(tr("Quick Load Snapshot"));
-    quick_load_action_->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_F9));
+    quick_load_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::QuickLoad));
     connect(quick_load_action_, &QAction::triggered, this, &MainWindow::on_quick_load);
     // A held chord must act once, not once per autorepeat (35 saves in 2 s).
     quick_save_action_->setAutoRepeat(false);
@@ -961,14 +1021,17 @@ void MainWindow::create_menus() {
     // qwindowskeymapper.cpp passes it on) and closes the window; where nothing
     // does, the key reaches this window, and keyPressEvent() sends every other
     // Alt-held F4 here too. Alt+Q stays the primary: host hotkeys live on Alt (#115).
-    quit_action_->setShortcuts({QKeySequence(Qt::ALT | Qt::Key_Q), QKeySequence(Qt::ALT | Qt::Key_F4)});
+    //
+    // GH #403 - macOS: Command+Q alone (Alt+F4 is a PC convention).
+    const QList<QKeySequence> quit_keys = host_shortcuts::quit_shortcuts();
+    quit_action_->setShortcuts(quit_keys);
     // A menu draws only shortcut() — the first — unless the text carries its own
     // accelerator column after a tab (QMenu::initStyleOption), so the label names
     // both, taken from the bindings. Consumers that compare this action's text
     // look at the part before the tab (host_chords.cpp, the suites' lookups).
-    quit_action_->setText(tr("&Quit") + QLatin1Char('\t') +
-                          QKeySequence::listToString(quit_action_->shortcuts(),
-                                                     QKeySequence::NativeText));
+    // Only when there IS a second one: a single shortcut is drawn by the menu,
+    // and on macOS a tab in a Quit label would be read as a key equivalent.
+    quit_action_->setText(host_shortcuts::quit_text(tr("&Quit"), quit_keys));
     // Issue #131 — go through close() so closeEvent() actually RUNS. This used
     // to connect straight to QApplication::quit(), which skips closeEvent
     // entirely, so File > Quit and closing the window with [X] did different
@@ -1020,7 +1083,7 @@ void MainWindow::create_menus() {
     // now as Alt+R per #115; F4 matches the host soft-reset hotkey
     // (zxnext.vhd:6370).
     QAction* reset = machine_menu->addAction(tr("&Power Reset"));
-    reset->setShortcut(QKeySequence(Qt::ALT | Qt::Key_R));
+    reset->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::Reset));
     connect(reset, &QAction::triggered, this, &MainWindow::on_reset);
 
     QAction* soft_reset = machine_menu->addAction(tr("&Soft Reset"));
@@ -1041,12 +1104,12 @@ void MainWindow::create_menus() {
     // only the primary shortcut and Mac keyboards have no Pause key.
     pause_action_ = machine_menu->addAction(tr("P&ause"));
     pause_action_->setCheckable(true);
-    pause_action_->setShortcuts({QKeySequence(Qt::ALT | Qt::Key_U),
+    pause_action_->setShortcuts({host_shortcuts::sequence(host_shortcuts::Action::Pause),
                                  QKeySequence(Qt::Key_Pause)});
     // A held key re-fired the action (measured ~20 toggles in 1.5 s).
     pause_action_->setAutoRepeat(false);
     // Its icon (pause, resume while checked) is bound in create_toolbar().
-    pause_action_->setToolTip(tr("Pause / resume emulation (Alt+U or Pause)"));
+    pause_action_->setToolTip(host_shortcuts::pause_tooltip());
     connect(pause_action_, &QAction::triggered, this, [this]() { toggle_pause(); });
     addAction(pause_action_);
 
@@ -1191,7 +1254,7 @@ void MainWindow::create_menus() {
     QMenu* tape_menu = menuBar()->addMenu(tr("T&ape"));
 
     QAction* tape_open = tape_menu->addAction(tr("&Open Tape File..."));
-    tape_open->setShortcut(QKeySequence(Qt::ALT | Qt::Key_T));
+    tape_open->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::TapeOpen));
     connect(tape_open, &QAction::triggered, this, &MainWindow::on_tape_open);
 
     tape_eject_action_ = tape_menu->addAction(tr("&Eject Tape"));
@@ -1208,6 +1271,11 @@ void MainWindow::create_menus() {
     tape_fast_action_->setCheckable(true);
     tape_fast_action_->setChecked(true);  // fast load is default
     connect(tape_fast_action_, &QAction::triggered, this, &MainWindow::on_tape_fast_load);
+    // GH #395 - the deck's automatic play/stop (default on).
+    tape_auto_action_ = tape_menu->addAction(tr("Auto Play/Stop"));
+    tape_auto_action_->setCheckable(true);
+    tape_auto_action_->setChecked(true);
+    connect(tape_auto_action_, &QAction::triggered, this, &MainWindow::on_tape_auto_play);
 
     // GH #89 — what --tape-save does, from the menu. No shortcut, like the
     // rest of this menu: a host Alt shortcut takes a key from the guest, and
@@ -1265,6 +1333,15 @@ void MainWindow::create_menus() {
     // (A previous comment here claimed F11 was taken by Step Into and that
     // fullscreen moved to Ctrl+F11; neither was true of the code.)
     fullscreen_action_->setShortcut(QKeySequence(Qt::Key_F11));
+#ifdef Q_OS_MACOS
+    // GH #404 — macOS takes F11 for Show Desktop, so the key never arrives;
+    // Control+Command+F is the system's own full-screen chord (Qt::CTRL is
+    // Command and Qt::META is Control there; QKeySequence::FullScreen is this
+    // same sequence on macOS). The menu draws the first shortcut, so it leads;
+    // F11 stays for external keyboards that deliver it.
+    fullscreen_action_->setShortcuts({host_shortcuts::fullscreen_sequence(),
+                                      QKeySequence(Qt::Key_F11)});
+#endif
     fullscreen_action_->setCheckable(true);
     connect(fullscreen_action_, &QAction::triggered, this, &MainWindow::on_fullscreen);
 
@@ -1305,7 +1382,7 @@ void MainWindow::create_menus() {
 #ifdef ENABLE_DEBUGGER
     view_menu->addSeparator();
     debugger_action_ = view_menu->addAction(tr("&Debugger"));
-    debugger_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_D));
+    debugger_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::Debugger));
     debugger_action_->setCheckable(true);
 
     // GH #215: the Debug menu used to hold Magic Breakpoint and nothing else,
@@ -1332,7 +1409,7 @@ void MainWindow::create_menus() {
     // namespace (#115), and P is free in all of it: no menubar mnemonic, no
     // other shortcut, not one of the guest's Alt+E/G/C.
     QAction* preferences = settings_menu->addAction(tr("&Preferences..."));
-    preferences->setShortcut(QKeySequence(Qt::ALT | Qt::Key_P));
+    preferences->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::Preferences));
     connect(preferences, &QAction::triggered, this, &MainWindow::on_open_preferences);
 
     // --- Help menu ---
@@ -1522,9 +1599,90 @@ void MainWindow::update_status(double fps, double presented_fps,
 // Menu action handlers
 // ---------------------------------------------------------------------------
 
+// GH #406 - the recent-files list is stored as QStringList in AppConfigData
+// and edited through the toolkit-free recent_files:: helpers.
+static recent_files::List recent_list(const QStringList& l) {
+    recent_files::List out;
+    for (const QString& s : l) out.push_back(s.toStdString());
+    return out;
+}
+static QStringList recent_qlist(const recent_files::List& l) {
+    QStringList out;
+    for (const std::string& s : l) out << QString::fromStdString(s);
+    return out;
+}
+
+void MainWindow::record_recent_file(const QString& path) {
+    recent_files::List list = recent_list(app_config_.data().recent_files);
+    recent_files::push(list, path.toStdString());
+    app_config_.data().recent_files = recent_qlist(list);
+    app_config_.save();
+    rebuild_recent_menu();
+}
+
+void MainWindow::rebuild_recent_menu() {
+    if (!recent_menu_) return;
+    // Not clear(): an entry's own triggered slot lands here (a vanished file is
+    // dropped), and deleting an action inside its own signal is undefined.
+    // Removed now, deleted once the slot has returned.
+    for (QAction* a : recent_menu_->actions()) {
+        recent_menu_->removeAction(a);
+        a->deleteLater();
+    }
+    const QStringList& files = app_config_.data().recent_files;
+    if (reload_last_action_) reload_last_action_->setEnabled(!files.isEmpty());
+    if (files.isEmpty()) {
+        QAction* none = recent_menu_->addAction(tr("(empty)"));
+        none->setEnabled(false);
+    }
+    for (int i = 0; i < files.size(); ++i) {
+        QString name = QFileInfo(files[i]).fileName();
+        name.replace(QLatin1Char('&'), QStringLiteral("&&"));   // a literal '&', not a mnemonic
+        // 1..9 then 0: the digit row, in the order it is typed.
+        const QString num = i < 9 ? QStringLiteral("&%1").arg(i + 1) : QStringLiteral("1&0");
+        QAction* a = recent_menu_->addAction(QStringLiteral("%1 %2").arg(num, name));
+        a->setStatusTip(files[i]);
+        a->setToolTip(files[i]);
+        connect(a, &QAction::triggered, this, [this, p = files[i]]() { on_recent_file(p); });
+    }
+    recent_menu_->addSeparator();
+    QAction* clear = recent_menu_->addAction(tr("&Clear Recent Files"));
+    clear->setEnabled(!files.isEmpty());
+    connect(clear, &QAction::triggered, this, [this]() {
+        app_config_.data().recent_files.clear();
+        app_config_.save();
+        rebuild_recent_menu();
+    });
+}
+
+void MainWindow::on_recent_file(const QString& path) {
+    if (!QFileInfo::exists(path)) {
+        recent_files::List list = recent_list(app_config_.data().recent_files);
+        recent_files::remove(list, path.toStdString());
+        app_config_.data().recent_files = recent_qlist(list);
+        app_config_.save();
+        rebuild_recent_menu();
+        const QString msg = tr("Recent file no longer exists, removed from the list: %1").arg(path);
+        statusBar()->showMessage(msg, 8000);
+        Log::platform()->error("status bar: {}", msg.toStdString());
+        return;
+    }
+    // As Load Program: remember the directory for the next dialog, then the
+    // same route.
+    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
+    app_config_.save();
+    handle_load_path(path);
+}
+
+QString MainWindow::load_dialog_seed() const {
+    return QString::fromStdString(recent_files::dialog_seed(
+        recent_list(app_config_.data().recent_files),
+        app_config_.data().last_load_dir.toStdString()));
+}
+
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Load Program"), app_config_.data().last_load_dir,
+        this, tr("Load Program"), load_dialog_seed(),
         load_filter());
     if (!path.isEmpty()) {
         // Task 66 — remember the containing directory for the next dialog.
@@ -1570,25 +1728,132 @@ bool MainWindow::open_pok_file(const QString& path) {
         if (!unattended_) QMessageBox::warning(this, tr("POK Trainers"), msg);
         return false;
     }
-    pok_ = std::make_unique<jnext::pok::Session>(*debugger_, std::move(file), path.toStdString());
+    start_pok_session(std::move(file), path.toStdString(), true);
+    return true;
+}
+
+// Make `file` the window's POK session; `show` opens the trainers dialog on it.
+void MainWindow::start_pok_session(jnext::pok::PokFile file, const std::string& display,
+                                   bool show) {
+    pok_ = std::make_unique<jnext::pok::Session>(*debugger_, std::move(file), display);
     if (!pok_dialog_) {
         pok_dialog_ = std::make_unique<PokDialog>(this);
         connect(pok_dialog_.get(), &PokDialog::open_file_requested, this, &MainWindow::on_pok_open);
     }
     pok_dialog_->set_session(pok_.get());   // straight away: the old session is gone
+    if (!show) return;
     if (pok_dialog_->isVisible()) {
         pok_dialog_->raise();
         pok_dialog_->activateWindow();
     } else {
         pok_dialog_->open();
     }
-    return true;
+}
+
+bool MainWindow::pok_dialog_visible() const {
+    return pok_dialog_ && pok_dialog_->isVisible();
+}
+
+// GH #392 - the trainers bundled in a loaded archive: made the POK session
+// WITHOUT opening the dialog (the program has only just been handed to the cold
+// boot) and said once in the status bar. A .pok that does not parse to a
+// trainer is logged and not offered.
+void MainWindow::offer_archive_pok(const program_archive::ProgramArchive& archive,
+                                   const std::string& program, const std::string& archive_path) {
+    if (!emulator_ || !debugger_) return;
+    const std::string pok = archive.matching_pok(program);
+    if (pok.empty()) return;
+    constexpr uint64_t kMaxPok = 1024 * 1024;
+    std::vector<uint8_t> bytes;
+    std::string why;
+    if (archive.member_size(pok) > kMaxPok || !archive.read_member(pok, bytes, why)) {
+        Log::platform()->info("archive {}: trainers not offered: {}", archive_path,
+                              why.empty() ? program_archive::display_name(pok) + " is larger than 1 MiB" : why);
+        return;
+    }
+    jnext::pok::PokFile file = jnext::pok::parse_pok(
+        std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+    if (file.trainers.empty()) {
+        Log::platform()->info("archive {}: {} holds no trainers, not offered", archive_path,
+                              program_archive::display_name(pok));
+        return;
+    }
+    start_pok_session(std::move(file),
+                      archive_path + " (" + program_archive::display_name(pok) + ")", false);
+    const QString msg = tr("Trainers for this program: Machine > POK Trainers...");
+    statusBar()->showMessage(msg, 8000);
+    Log::platform()->info("status bar: {}", msg.toStdString());
 }
 
 // GH #228 — the post-picker half of a menu file-load, split out so
 // nex_v13_dialog_test can drive the REAL dialog-to-decision wiring (the
 // picker is modal and untestable; this is not).
 void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
+    const std::string file = path.toStdString();
+    // GH #406 - what load_finished() records if this load works. Quick Load is
+    // the one caller that passes jns_probed; it is a snapshot slot, not a file
+    // the user chose, and would crowd the list.
+    recent_candidate_ = jns_probed ? std::string() : file;
+
+    // GH #392 - a program inside a .zip: pick the member, extract it to a file of
+    // its own extension, and run the ordinary route on that file. Every message
+    // names "<archive> (<member>)", never the scratch path.
+    if (program_archive::is_archive_path(file)) {
+        program_archive::ProgramArchive archive;
+        std::string why;
+        if (!archive.open(file, why)) {
+            refuse_jns(path, QString::fromStdString(why));
+            return;
+        }
+        if (archive.programs().empty()) {
+            refuse_jns(path, QString::fromStdString(archive.no_program_why()));
+            return;
+        }
+        size_t chosen = 0;
+        if (archive.programs().size() > 1) {
+            if (unattended_) {   // no dialog, as every other dialog here
+                refuse_jns(path, QString::fromStdString(archive.several_why()));
+                return;
+            }
+            // Shown names are display_name()s (escaped, so valid UTF-8 and distinct);
+            // the choice is mapped back by INDEX, never by re-encoding the text (a
+            // CP437 name does not survive a QString round trip).
+            QStringList items;
+            for (const auto& m : archive.programs())
+                items << QString::fromStdString(program_archive::display_name(m));
+            bool ok = false;
+            const QString pick = QInputDialog::getItem(
+                this, tr("Load from Archive"),
+                tr("%1 holds several programs. Load which one?").arg(QFileInfo(path).fileName()),
+                items, 0, false, &ok);
+            const int idx = items.indexOf(pick);
+            if (!ok || idx < 0) return;   // Cancel: nothing loaded, nothing reset
+            chosen = static_cast<size_t>(idx);
+        }
+        const std::string member = archive.programs()[chosen];
+        const QString shown = path + QStringLiteral(" (") +
+                              QString::fromStdString(program_archive::display_name(member)) +
+                              QStringLiteral(")");
+        std::string extracted;
+        if (!archive.extract(member, extracted, why)) {
+            // extract() prefixes the member; the archive is named by `shown` here.
+            const std::string shown_member = program_archive::display_name(member);
+            const std::string tail = why.rfind(shown_member + " ", 0) == 0 ? why.substr(shown_member.size() + 1) : why;
+            refuse_jns(shown, QString::fromStdString(tail));
+            return;
+        }
+        if (handle_program_path(QString::fromStdString(extracted), shown, jns_probed))
+            offer_archive_pok(archive, member, file);
+        return;
+    }
+    handle_program_path(path, QString(), jns_probed);
+}
+
+bool MainWindow::handle_program_path(const QString& path, const QString& shown,
+                                     bool jns_probed) {
+    const std::string file = path.toStdString();
+    // What the user is told the file is called: the archive member, not the scratch path.
+    const QString name = shown.isEmpty() ? path : shown;
     // GH #228 — NEX V1.3 is an experimental format jnext does not
     // officially support: warn, and only proceed on an explicit
     // confirmation, Cancel being the default. The decision itself is the
@@ -1597,7 +1862,6 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // NEXGATE-*); this dialog is only its consumer — and even a skipped
     // dialog cannot load V1.3 silently, because Emulator::load_nex()
     // enforces the same policy and fails the load.
-    const std::string file = path.toStdString();
 
     // GH #381 - a .pok is a list of trainers for the machine that is running,
     // not a program: it opens the trainers dialog and nothing is reset. Before
@@ -1605,7 +1869,7 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // and only then failed to load it.
     if (jnext::pok::is_pok_path(file)) {
         open_pok_file(path);
-        return;
+        return false;
     }
 
     // An .rzx is checked BEFORE the cold boot below, so a file that cannot
@@ -1614,13 +1878,13 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     if (emulator_load_routes_to_rzx(file)) {
         if (emulator_ && emulator_->tape_save_active()) {
             QMessageBox::warning(this, tr("Play RZX Recording"), rzx_tape_save_refusal());
-            return;
+            return false;
         }
         std::string why;
         if (!rzx::playable(file, why)) {
             QMessageBox::warning(this, tr("Play RZX Recording"),
-                tr("Cannot play %1: %2.").arg(path, QString::fromStdString(why)));
-            return;
+                tr("Cannot play %1: %2.").arg(name, QString::fromStdString(why)));
+            return false;
         }
     }
 
@@ -1629,8 +1893,8 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     if (emulator_ && !jns_probed && jnext::is_jns_path(file)) {
         std::string why;
         if (!emulator_->probe_jns_file(file, why)) {
-            refuse_jns(path, QString::fromStdString(why));
-            return;
+            refuse_jns(name, QString::fromStdString(why));
+            return false;
         }
     }
 
@@ -1640,8 +1904,8 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     if (emulator_load_routes_to_snapshot(file)) {
         std::string why;
         if (!snapshot_file_loadable(file, why)) {
-            refuse_jns(path, QString::fromStdString(why));   // status bar, and a dialog unless unattended
-            return;
+            refuse_jns(name, QString::fromStdString(why));   // status bar, and a dialog unless unattended
+            return false;
         }
     }
 
@@ -1657,12 +1921,12 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
         // page, say), and "its extension is not one JNEXT loads" or a hint about
         // .pok would contradict its name; only the other extensions get those.
         if (!NexLoader::probe_version(file, ver_bcd, ver)) {
-            refuse_jns(path, snapshot_file_ext(file) == "nex"
+            refuse_jns(name, snapshot_file_ext(file) == "nex"
                 ? tr("it is not a NEX file (it does not start with the \"Next\" header)")
                 : tr("it is not a NEX file and its extension is not one JNEXT loads "
-                     "(.nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx); a .pok "
+                     "(.nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx, .zip); a .pok "
                      "trainer file opens from Machine > POK Trainers"));
-            return;
+            return false;
         }
         if (nex_version_needs_v13_optin(ver_bcd)) {
             QMessageBox box(QMessageBox::Warning, tr("Experimental NEX V1.3"),
@@ -1672,7 +1936,7 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
                                "misbehave, or not work at all, and no support "
                                "is provided for it.\n\n"
                                "Load it anyway?")
-                                .arg(QFileInfo(path).fileName(),
+                                .arg(shown.isEmpty() ? QFileInfo(path).fileName() : shown,
                                      QString::fromLatin1(ver)),
                             QMessageBox::NoButton, this);
             QPushButton* proceed =
@@ -1681,7 +1945,7 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
             box.setDefaultButton(QMessageBox::Cancel);  // Cancel is the default
             box.exec();
             if (box.clickedButton() != proceed) {
-                return;  // Cancel aborts: nothing is loaded, nothing reset
+                return false;  // Cancel aborts: nothing is loaded, nothing reset
             }
             allow_experimental_nex_v13 = true;
         }
@@ -1691,16 +1955,34 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // been passed with --load at startup (reset the Next to a known state,
     // then load and run). QtApp performs the reconstruct+init+load; the
     // per-format loader dispatch lives in the shared startup path.
+    bool handed = false;
     if (load_file_callback_) {
         menu_load_pending_ = file;
+        // GH #406 - armed here, where the load is really handed on, so a refused
+        // or cancelled request cannot take another pending load's place.
+        menu_load_recent_ = recent_candidate_;
+        menu_load_shown_ = shown.toStdString();
         load_file_callback_(file, allow_experimental_nex_v13);
+        handed = true;
     }
     emit load_nex_requested(path);
+    return handed;
 }
 
 void MainWindow::load_finished(const std::string& file, bool ok) {
     const bool from_menu = !menu_load_pending_.empty() && file == menu_load_pending_;
+    // GH #406 - a load the user asked for that worked joins File > Recent Files
+    // (the archive itself for a .zip member, not its scratch extraction).
+    // The startup --load counts too (the rebuild-and-run workflow). Quick Load
+    // is a snapshot slot, not a file the user picked, and is not recorded.
+    if (ok && from_menu && !menu_load_recent_.empty())
+        record_recent_file(QString::fromStdString(menu_load_recent_));
+    else if (ok && !from_menu && !startup_load_file_.empty() && file == startup_load_file_)
+        record_recent_file(QString::fromStdString(startup_load_shown_));
+    menu_load_recent_.clear();
+    const std::string shown = menu_load_shown_.empty() ? file : menu_load_shown_;
     menu_load_pending_.clear();
+    menu_load_shown_.clear();
     update_tape_status();
 
     // GH #27 S8 (§15.2) — the restore-time PROVENANCE line. A `.jns` can load
@@ -1733,7 +2015,7 @@ void MainWindow::load_finished(const std::string& file, bool ok) {
     }
 
     if (ok || !from_menu) return;
-    const QString path = QString::fromStdString(file);
+    const QString path = QString::fromStdString(shown);
     QTimer::singleShot(0, this, [this, path]() { report_load_failure(path); });
 }
 
@@ -1876,7 +2158,7 @@ void MainWindow::on_about() {
 
 void MainWindow::on_tape_open() {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Open Tape File"), app_config_.data().last_load_dir,
+        this, tr("Open Tape File"), load_dialog_seed(),
         tr("Tape Files (*.tap *.tzx *.wav);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;All Files (*)"));
     if (path.isEmpty() || !emulator_) return;
 
@@ -1889,7 +2171,7 @@ void MainWindow::handle_tape_path(const QString& path) {
     if (!emulator_) return;
     // The Tape menu's own toggle decides the mode: "Turn [real time] on with
     // Tape > Fast Load (uncheck it)" (user guide 5.5). WAV is always real time.
-    const bool fast = !tape_fast_action_ || tape_fast_action_->isChecked();
+    const bool fast = tape_fast_load();
     const std::string file = path.toStdString();
     bool ok = false;
     if (path.toLower().endsWith(".tzx")) {
@@ -1903,13 +2185,12 @@ void MainWindow::handle_tape_path(const QString& path) {
     // one aside and only swap it in on success).
     update_tape_status();
     if (!ok) report_load_failure(path);
+    else record_recent_file(path);
 }
 
 void MainWindow::on_tape_eject() {
     if (!emulator_) return;
-    emulator_->tape().eject();
-    emulator_->tzx_tape().eject();
-    emulator_->wav_tape().eject();
+    emulator_->eject_tape();
     update_tape_status();
 }
 
@@ -1930,6 +2211,11 @@ void MainWindow::on_tape_fast_load(bool checked) {
     if (!emulator_) return;
     emulator_->tape().set_fast_load(checked);
     emulator_->tzx_tape().set_fast_load(checked);
+}
+
+void MainWindow::on_tape_auto_play(bool checked) {
+    if (!emulator_) return;
+    emulator_->set_tape_auto_play(checked);
 }
 
 void MainWindow::on_tape_save_start() {
@@ -2361,11 +2647,11 @@ void MainWindow::on_quick_screenshot() {
 // closes BOOT-SNAPSAVE-01/02/03/04 in mmu_test. Format is chosen by the
 // extension the user picks (or types); defaults to .sna if none/unknown.
 QString MainWindow::load_filter() {
-    return tr("Spectrum Files (*.nex *.jns *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx);;"
+    return tr("Spectrum Files (*.nex *.jns *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx *.zip);;"
               "NEX Files (*.nex);;jnext Snapshots (*.jns);;SNA Snapshots (*.sna);;"
               "SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;"
               "TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;"
-              "POK Trainers (*.pok);;All Files (*)");
+              "ZIP Archives (*.zip);;POK Trainers (*.pok);;All Files (*)");
 }
 
 QString MainWindow::save_filter(bool next_machine) {
@@ -2578,6 +2864,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
         emulator_->nextreg().write(0x07, static_cast<uint8_t>(cfg.cpu_speed));
         emulator_->tape().set_fast_load(cfg.tape_fast_load);
         emulator_->tzx_tape().set_fast_load(cfg.tape_fast_load);
+        emulator_->set_tape_auto_play(cfg.tape_auto_play);
         emulator_->mixer().set_output_gain_db(cfg.audio_gain_db);
         emulator_->mixer().set_beeper_gain_db(cfg.audio_gain_beeper_db);
         for (int chip = 0; chip < 3; ++chip)
@@ -2585,6 +2872,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
         emulator_->mixer().set_dac_gain_db(cfg.audio_gain_dac_db);
     }
     if (tape_fast_action_) tape_fast_action_->setChecked(cfg.tape_fast_load);
+    if (tape_auto_action_) tape_auto_action_->setChecked(cfg.tape_auto_play);
 
     set_mouse_release_method(cfg.mouse_release);   // GH #365
     set_scale(cfg.window_scale);
@@ -2773,9 +3061,13 @@ void MainWindow::on_open_preferences() {
                           joy_device_provider_ ? joy_device_provider_()
                                                : std::vector<JoyDeviceInfo>{});
     connect(&dlg, &PreferencesDialog::apply_requested, this, [this](const AppConfigData& cfg) {
-        app_config_.data() = cfg;
+        // GH #406 - the recent list has no control in the dialog, so its copy is
+        // only as new as the moment it opened; a load can finish meanwhile.
+        AppConfigData merged = cfg;
+        merged.recent_files = app_config_.data().recent_files;
+        app_config_.data() = merged;
         app_config_.save();
-        apply_preferences(cfg);
+        apply_preferences(merged);
     });
     dlg.exec();
 }
@@ -2872,6 +3164,16 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         }
 #endif
 
+#ifdef Q_OS_MACOS
+        // GH #404 — Control+Command+F: the menu bar is hidden in full screen,
+        // so the action's shortcut cannot fire there (as with F11 below).
+        if (host_shortcuts::is_fullscreen_chord(key, modifiers)) {
+            toggle_fullscreen();
+            event->accept();
+            return;
+        }
+#endif
+
         switch (key) {
         case Qt::Key_F11:
             toggle_fullscreen();
@@ -2896,32 +3198,50 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         // and the modified presses: Shift/Ctrl+F4 reset nothing, and F4 with
         // Alt held is File > Quit (GH #380). Alt+F1 resets nothing either.
         case Qt::Key_F1:
-            if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
-                          && !modifiers.testFlag(Qt::ControlModifier)
-                          && !modifiers.testFlag(Qt::AltModifier)) {
-                emulator_->on_hotkey_f1_hard_reset();
+            // GH #403: the decision (reset / swallow / pass) is host_shortcuts::
+            // f1_decision, so macOS (Command for Alt, Option inert, physical
+            // Control = Ctrl) is tested on every host.
+            switch (host_shortcuts::f1_decision(modifiers)) {
+            case host_shortcuts::FKeyDecision::Reset:
+                if (emulator_) {
+                    emulator_->on_hotkey_f1_hard_reset();
+                    event->accept();
+                    return;
+                }
+                break;
+            case host_shortcuts::FKeyDecision::Swallow:
                 event->accept();
                 return;
+            default:
+                break;
             }
             break;
         case Qt::Key_F4:
-            // GH #380 — any F4 with Alt held is File > Quit, whatever else is held
-            // and with the mouse captured or not. An exact Alt+F4 in an active
-            // window is taken earlier, by the shortcut map, through the same
-            // action; what lands here is the rest: Ctrl+Alt+F4 (AltGr+F4 on
-            // Windows), Alt+Shift+F4, Meta+Alt+F4, a plain Alt+F4 with the menu
-            // bar hidden (fullscreen) or the window not active. It never reaches
-            // the guest, and needs no emulator.
-            if (modifiers.testFlag(Qt::AltModifier)) {
+            // GH #380 — any F4 with the host modifier (Alt; Command on macOS)
+            // held is File > Quit, whatever else is held and with the mouse
+            // captured or not. An exact Alt+F4 in an active window is taken
+            // earlier, by the shortcut map, through the same action; what lands
+            // here is the rest: Ctrl+Alt+F4 (AltGr+F4 on Windows),
+            // Alt+Shift+F4, Meta+Alt+F4, a plain Alt+F4 with the menu bar
+            // hidden (fullscreen) or the window not active. It never reaches
+            // the guest, and needs no emulator. Option+F4 on macOS does nothing.
+            switch (host_shortcuts::f4_decision(modifiers)) {
+            case host_shortcuts::FKeyDecision::Quit:
                 if (quit_action_) quit_action_->trigger();
                 event->accept();
                 return;
-            }
-            if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
-                          && !modifiers.testFlag(Qt::ControlModifier)) {
-                on_soft_reset();   // the same dispatcher as Machine > Soft Reset
+            case host_shortcuts::FKeyDecision::Swallow:
                 event->accept();
                 return;
+            case host_shortcuts::FKeyDecision::Reset:
+                if (emulator_) {
+                    on_soft_reset();   // the same dispatcher as Machine > Soft Reset
+                    event->accept();
+                    return;
+                }
+                break;
+            default:
+                break;
             }
             break;
         case Qt::Key_F9:
@@ -3099,6 +3419,7 @@ void MainWindow::focusOutEvent(QFocusEvent* event) {
     // three letters silently stop appearing while every other letter still
     // types. "press A I got A, press G nothing is shown", exactly.
     release_filter_.reset();   // GH #365 — a swallowed Esc's release goes elsewhere
+    command_gate_.reset();     // GH #403 - and so does a swallowed Command chord's
     if (keyboard_lost_callback_) keyboard_lost_callback_();
     QMainWindow::focusOutEvent(event);
 }
@@ -3122,6 +3443,14 @@ void MainWindow::handle_key(QKeyEvent* event, bool pressed) {
     // BASIC line with it. Feeding a press whose release cannot arrive is the
     // bug; the user is driving a menu, so dropping it is also what they meant.
     if (QApplication::activePopupWidget()) {
+        event->accept();
+        return;
+    }
+
+    // GH #403 - macOS: a key pressed with Command held is a host chord and
+    // never reaches the guest (see host_shortcuts::CommandChordGate).
+    if (pressed ? command_gate_.swallow_press(event->key(), event->modifiers())
+                : command_gate_.swallow_release(event->key())) {
         event->accept();
         return;
     }
@@ -3295,6 +3624,15 @@ void MainWindow::mouseMoveEvent(QMouseEvent* event) {
     event->accept();
 }
 
+#ifdef Q_OS_MACOS
+// GH #404 — the native window exists once shown, which is before any
+// full-screen request can arrive.
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+    mac_fullscreen::set_main_window(static_cast<std::uintptr_t>(winId()));
+}
+#endif
+
 void MainWindow::changeEvent(QEvent* event) {
     // Never hold the pointer hostage: losing focus (alt-tab, another window)
     // hands it straight back to the desktop.
@@ -3302,6 +3640,19 @@ void MainWindow::changeEvent(QEvent* event) {
         set_mouse_captured(false);
     }
     QMainWindow::changeEvent(event);
+#ifdef Q_OS_MACOS
+    // GH #404 — macOS enters / leaves full screen on its own (green button).
+    // Follow it with the same work View > Fullscreen does.
+    if (event->type() == QEvent::WindowStateChange) {
+        switch (fullscreen_sync::on_window_state_change(
+                    is_fullscreen_, windowState().testFlag(Qt::WindowFullScreen),
+                    applying_fullscreen_)) {
+        case fullscreen_sync::Action::Enter: apply_fullscreen_state(true, false);  break;
+        case fullscreen_sync::Action::Exit:  apply_fullscreen_state(false, false); break;
+        case fullscreen_sync::Action::None:  break;
+        }
+    }
+#endif
 }
 
 void MainWindow::mousePressEvent(QMouseEvent* event) {

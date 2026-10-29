@@ -6,14 +6,14 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
-# GH #27 S7 — the `.jns` snapshot's two-tier SD identity, end to end.
+# GH #27 S7 — the `.jns` snapshot's SD identity, end to end (Tier 2 retired by GH #396).
 # Design: doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3, §16.2.
 #
 # WHAT A SEPARATE PROCESS ADDS over the unit rows. `sd_identity_test`'s
 # JNSI-P* rows prove the producer and the reader agree in-process. This row
 # proves the part only a process can show: a Tier-1 mismatch EXITS NON-ZERO and
-# a Tier-2 drift does NOT — the difference between "your save will not load"
-# and "it loaded, here is what changed", which is what a user and a script both
+# a changed data sector does NOT (it is not compared, GH #396) - the difference
+# between "your save will not load" and "it loaded", which is what a user and a script both
 # act on. §16.2 names exactly that ("assert the Tier-1 refusal and a non-zero
 # exit"; "the run proceeds").
 #
@@ -72,7 +72,7 @@ if want snapshot-sdcard-mismatch-func; then
         && ! grep -q '^WARNING:' <<<"$leg0_out" \
         && ! grep -q '^REFUSAL:' <<<"$leg0_out" && leg0_ok=1
 
-    # ── LEG 1: a mutated DATA SECTOR — Tier 2 warns, the run PROCEEDS ─────
+    # ── LEG 1: a mutated DATA SECTOR — not compared (GH #396), the run PROCEEDS silently ─
     sdid_poke "$off_data" '\x5a'
     leg1_rc=1
     if leg1_out=$(timeout --foreground --kill-after=5s 60s \
@@ -81,20 +81,8 @@ if want snapshot-sdcard-mismatch-func; then
     leg1_ok=0
     [[ "$leg1_rc" -eq 0 ]] \
         && grep -q '^VERDICT: ok$' <<<"$leg1_out" \
-        && grep -q "^WARNING: the SD card's contents changed since the snapshot" <<<"$leg1_out" \
+        && ! grep -q '^WARNING:' <<<"$leg1_out" \
         && ! grep -q '^REFUSAL:' <<<"$leg1_out" && leg1_ok=1
-
-    # ── LEG 1b: the SAME drift MID-TRANSFER — refusal, non-zero exit ──────
-    # §11.3's last row. The strictness is earned exactly here: a half-finished
-    # sector read against changed bytes is the "streams garbage" failure.
-    leg1b_rc=0
-    if ! leg1b_out=$(timeout --foreground --kill-after=5s 60s \
-                       "$SDID" --verdict "$base" "$mutant" --mid-transfer 2>/dev/null)
-    then leg1b_rc=1; fi
-    leg1b_ok=0
-    [[ "$leg1b_rc" -eq 1 ]] \
-        && grep -q '^VERDICT: refused$' <<<"$leg1b_out" \
-        && grep -q 'mid-transfer' <<<"$leg1b_out" && leg1b_ok=1
 
     # ── LEG 2: a mutated BS_VolID — Tier 1 REFUSES, exit NON-ZERO ─────────
     sdid_poke "$off_volid" '\x99'
@@ -125,11 +113,8 @@ if want snapshot-sdcard-mismatch-func; then
     # authoritative root-directory entry, and several tools rewrite it, so a
     # refusal here would fire on the same physical card.
     #
-    # The Tier-2 drift warning IS expected and IS true — BS_VolLab is a byte of
-    # the image, so the whole-image digest moves with it. §16.2's "assert no
-    # warning" could never hold for an on-disk mutation; what holds, and what
-    # this leg asserts, is that NOTHING mentions the label or the identity.
-    # The design doc carries that correction (§11.3 / §16.2, S7 append).
+    # With no whole-image digest (GH #396) the original §16.2 wording holds
+    # again: no refusal and no warning at all.
     sdid_poke "$off_vollab" '\x58'
     leg3_rc=1
     if leg3_out=$(timeout --foreground --kill-after=5s 60s \
@@ -139,6 +124,7 @@ if want snapshot-sdcard-mismatch-func; then
     [[ "$leg3_rc" -eq 0 ]] \
         && grep -q '^VERDICT: ok$' <<<"$leg3_out" \
         && ! grep -q '^REFUSAL:' <<<"$leg3_out" \
+        && ! grep -q '^WARNING:' <<<"$leg3_out" \
         && ! grep -qi 'label' <<<"$leg3_out" \
         && ! grep -q 'not the one' <<<"$leg3_out" && leg3_ok=1
 
@@ -148,11 +134,11 @@ if want snapshot-sdcard-mismatch-func; then
     # every later row (GH #153 is the same lesson about `trap`).
     unset -f sdid_poke
 
-    if [[ "$leg0_ok" -eq 1 && "$leg1_ok" -eq 1 && "$leg1b_ok" -eq 1 \
+    if [[ "$leg0_ok" -eq 1 && "$leg1_ok" -eq 1 \
        && "$leg2_ok" -eq 1 && "$leg2b_ok" -eq 1 && "$leg3_ok" -eq 1 ]]; then
-        pass_row " (real card silent; data drift warns + exit 0; drift mid-transfer refuses; VolID refuses + exit!=0, --force downgrades; VolLab neither refuses nor mentions the label)"
+        pass_row " (real card silent; data drift silent + exit 0; VolID refuses + exit!=0, --force downgrades; VolLab neither refuses nor mentions the label)"
     else
-        fail_row " (leg0=$leg0_ok leg1=$leg1_ok leg1b=$leg1b_ok leg2=$leg2_ok leg2b=$leg2b_ok leg3=$leg3_ok; real_card=$([[ -f "$real_card" ]] && echo y || echo n))"
+        fail_row " (leg0=$leg0_ok leg1=$leg1_ok leg2=$leg2_ok leg2b=$leg2b_ok leg3=$leg3_ok; real_card=$([[ -f "$real_card" ]] && echo y || echo n))"
     fi
     fi
 fi

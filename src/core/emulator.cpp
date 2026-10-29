@@ -109,6 +109,11 @@ Emulator::~Emulator()
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    // GH #395 - automatic tape play/stop is a host deck setting; a polling run
+    // never outlives the machine it was counted on.
+    tape_auto_play_ = cfg.tape_auto_play;
+    tape_poll_.reset();
+    tape_fastload_frames_left_ = 0;   // GH #408
     // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
     // latch loaded only at video_frame_sync, with no reset clause
     // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
@@ -4918,12 +4923,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // brought up to it, TZX/WAV evaluated at it. It used to be the
             // level at the instruction's start (TAP) or one T-state before
             // the I/O cycle's data latch (TZX/WAV, the live FUSE counter).
+            // GH #395 - automatic tape play/stop: count the CPU's read.
+            if (tape_auto_play_ && cpu_.executing() && !rzx_player_.is_playing())
+                tape_auto_on_read_();
             bool playing = true;
             uint8_t tape_level = 0;
             if (tape_.is_playing()) {
                 tape_level = tap_ear_for_port_read();
             } else if (tzx_tape_.is_playing()) {
                 // Monotonic T-state clock (never resets across frames — G36).
+                tzx_tape_.set_auto_policy(
+                    tape_gap_hold_(tape_sample_tstates()),
+                    tape_auto_play_, config_.type == MachineType::ZX48K);
                 tape_level = tzx_tape_.update(tape_sample_tstates());
             } else if (wav_tape_.is_playing()) {
                 tape_level = wav_tape_.get_ear_bit(tape_sample_tstates());
@@ -7349,11 +7360,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Initialise rewind buffer.
     // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).
     //
-    // Hard reset only. The rewind history, its size (the debugger resizes it
-    // live) and on/off state are the host's; a soft reset (NR 0x02 bit 0,
-    // F4) is an event IN that history, not the start of a new one. Rebuilding
-    // it here discarded every snapshot at each soft reset (a NextZXOS boot
-    // performs one) and put back the command-line size (GH #263 audit).
+    // Hard init builds a new, empty ring from the config, whose size and
+    // paused state the runtime setters keep current (GH #400). A soft reset
+    // (NR 0x02 bit 0, F4) is an event IN the history, not the start of a new
+    // one, so it keeps the ring (GH #263 audit).
     if (preserve_memory) {
         // keep rewind_buffer_ / rewind_enabled_ as they are
     } else if (cfg.rewind_buffer_frames > 0) {
@@ -7362,7 +7372,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         size_t snap_bytes = measure.position();
         rewind_buffer_ = std::make_unique<RewindBuffer>(
             static_cast<size_t>(cfg.rewind_buffer_frames), snap_bytes);
-        rewind_enabled_ = true;
+        rewind_enabled_ = !cfg.rewind_paused;
         // Rewind implies the instruction trace: step_back() needs it to
         // locate the target instruction's cycle within a frame (Task 27 A2).
         trace_log_.set_enabled(true);
@@ -7687,8 +7697,53 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     return true;
 }
 
+namespace {
+
+/// The mounted SD image's (size, mtime) as the warm-start key. `file_clock`
+/// ticks are stored and compared raw: converting through the two-clock offset
+/// idiom wobbles between calls and would cause spurious misses.
+bool stat_sd_image_key(const std::string& path, uint64_t& bytes, int64_t& mtime)
+{
+    std::error_code ec;
+    bytes = std::filesystem::file_size(path, ec);
+    if (ec) return false;
+    const auto t = std::filesystem::last_write_time(path, ec);
+    if (ec) return false;
+    mtime = static_cast<int64_t>(t.time_since_epoch().count());
+    return true;
+}
+
+/// The last warm-start validation in this PROCESS. Static because the
+/// `Emulator` is reconstructed on every cold boot. It catches an own write
+/// that did not move the mtime visibly (same timestamp tick, or a host
+/// filesystem with coarse timestamps): same path, same key, but the write
+/// generation has moved since.
+struct WarmStartMemo {
+    bool        valid = false;
+    std::string path;
+    uint64_t    bytes = 0;
+    int64_t     mtime = 0;
+    uint64_t    gen   = 0;
+};
+WarmStartMemo g_warm_start_memo;
+
+}  // namespace
+
+void Emulator::reset_warm_start_memo_for_test()
+{
+    g_warm_start_memo = WarmStartMemo{};
+}
+
 bool Emulator::ensure_warm_start_state()
 {
+    // In-memory hit (GH #396): valid only while jnext has not written to a
+    // card since the state was recorded or validated.
+    if (!warm_start_state_.empty() &&
+        warm_start_gen_ != SdCardDevice::host_write_generation()) {
+        Log::emulator()->info("warm start: jnext wrote to the SD card since this "
+                              "state was taken - discarding it");
+        warm_start_state_.clear();
+    }
     if (!warm_start_state_.empty()) return true;
     if (!config_.sd_card_image.empty() &&
         warm_start_failed_image_ == config_.sd_card_image) {
@@ -7733,31 +7788,42 @@ bool Emulator::ensure_warm_start_state()
         save_state(measure);
         id.plain_bytes = measure.position();
     }
-    // The whole-image digest, on every load, is what keeps this a recording
-    // rather than a fixture — and it is the dominant cost of a warm start
-    // once the recording exists (~1.2 s for a 1 GB image; the restore itself
-    // is milliseconds). It is paid deliberately. The cheap alternatives all
-    // ACCEPT a cached recording without reading the image — a (size, mtime)
-    // key, a hashed prefix, a named subset of files — and every one of them
-    // can serve a recording of a DIFFERENT card while reporting success,
-    // which is the worst failure this mechanism can have because the machine
-    // it produces looks booted. Within a process the digest is paid once: the
-    // restored state stays in warm_start_state_ for the session.
-    id.sd_image_sha256 = sdcard::sha256_file(config_.sd_card_image);
-    if (id.sd_image_sha256.empty()) {
-        Log::emulator()->error("warm start: cannot digest SD image '{}' - this load "
+    // GH #396 (owner, 2026-10-22): the key is the image's (size, mtime) plus
+    // jnext's own write generation, NOT a content digest. The whole-image
+    // SHA-256 this replaced cost 0.6-1.2 s per GB on the UI thread at every
+    // cold boot that loads a program (the Emulator, and so the in-memory
+    // state, dies with each one). ACCEPTED RESIDUAL: an image replaced or
+    // edited from outside with the SAME size and the SAME mtime (`cp -p`,
+    // `touch -r` of another image) serves a recording of a different card
+    // while reporting success. `--warm-start-regenerate` is the escape hatch.
+    uint64_t key_bytes = 0;
+    int64_t  key_mtime = 0;
+    if (!stat_sd_image_key(config_.sd_card_image, key_bytes, key_mtime)) {
+        Log::emulator()->error("warm start: cannot stat SD image '{}' - this load "
                                "falls back to the synthetic machine",
                                config_.sd_card_image);
         warm_start_failed_image_ = config_.sd_card_image;
         return false;
     }
+    id.sd_image_bytes = key_bytes;
+    id.sd_image_mtime = key_mtime;
 
     if (config_.warm_start_regenerate) {
         Log::emulator()->info("warm start: --warm-start-regenerate - ignoring any "
                               "cached state and taking a fresh recording");
+    } else if (g_warm_start_memo.valid &&
+               g_warm_start_memo.path == config_.sd_card_image &&
+               g_warm_start_memo.bytes == key_bytes &&
+               g_warm_start_memo.mtime == key_mtime &&
+               g_warm_start_memo.gen != SdCardDevice::host_write_generation()) {
+        Log::emulator()->info("warm start: jnext wrote to this SD image since the "
+                              "recording was validated - recording again");
     } else {
         std::string why;
         if (warm_start::load(id, warm_start_state_, why)) {
+            warm_start_gen_ = SdCardDevice::host_write_generation();
+            g_warm_start_memo = {true, config_.sd_card_image, key_bytes, key_mtime,
+                                 warm_start_gen_};
             Log::emulator()->info("warm start: restored a recorded NextZXOS machine "
                                   "from {} ({} KB)",
                                   warm_start::cache_path(id.machine_type),
@@ -7788,6 +7854,21 @@ bool Emulator::ensure_warm_start_state()
         warm_start_failed_image_ = config_.sd_card_image;
         return false;
     }
+
+    // The key is read AFTER the recording, never before: if the recording boot
+    // ever wrote to the card, the stored key must match the card it leaves.
+    if (!stat_sd_image_key(config_.sd_card_image, id.sd_image_bytes,
+                           id.sd_image_mtime)) {
+        Log::emulator()->error("warm start: cannot stat SD image '{}' - this load "
+                               "falls back to the synthetic machine",
+                               config_.sd_card_image);
+        warm_start_state_.clear();
+        warm_start_failed_image_ = config_.sd_card_image;
+        return false;
+    }
+    warm_start_gen_ = SdCardDevice::host_write_generation();
+    g_warm_start_memo = {true, config_.sd_card_image, id.sd_image_bytes,
+                         id.sd_image_mtime, warm_start_gen_};
 
     std::string why;
     if (!warm_start::store(id, warm_start_state_, why)) {
@@ -8271,7 +8352,9 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     resume_from_park("a TAP tape was attached");
 
     loader.set_fast_load(fast_load);
+    tape_poll_.reset();
     tape_ = std::move(loader);
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("TAP: tape attached - {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
 
@@ -8377,7 +8460,9 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     resume_from_park("a TZX tape was attached");
 
     loader.set_fast_load(fast_load);
+    tape_poll_.reset();
     tzx_tape_ = std::move(loader);
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("TZX: tape attached, mode: {}",
                            tzx_tape_.fast_load() ? "fast" : "realtime");
 
@@ -8435,6 +8520,7 @@ bool Emulator::load_wav(const std::string& path)
     resume_from_park("a WAV tape was attached");
 
     wav_tape_ = std::move(loader);
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("WAV: tape attached (always real-time)");
 
     // Eject any other tape to avoid conflicts.
@@ -8656,7 +8742,15 @@ bool Emulator::stop_rzx_recording()
 void Emulator::rzx_suspend_tape_traps()
 {
     // The tape traps stand down while a recording runs (see the trap block in
-    // run_frame). A fast-load tape would then never load — nothing drives its
+    // run_frame). A real-time deck with a pending switch to fast loading (a
+    // restored .jns, GH #402) stays real time: the switch would fire with the
+    // traps off and the next block would never arrive.
+    if (tape_.handover_pending() || tzx_tape_.handover_pending())
+        Log::emulator()->info("RZX: the pending switch to fast loading is cancelled, the tape stays "
+                              "in real time for the recording");
+    tape_.cancel_handover();
+    tzx_tape_.cancel_handover();
+    // A fast-load tape would then never load — nothing drives its
     // EAR edges — so it is switched to real-time loading from where it is.
     if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end()) {
         tape_.set_fast_load(false);
@@ -8666,7 +8760,10 @@ void Emulator::rzx_suspend_tape_traps()
     }
     if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) {
         tzx_tape_.set_fast_load(false);
-        tzx_tape_.start_playback(monotonic_tstates());
+        // From the fast-load cursor, like the TAP deck above: tzx_play() alone
+        // restarts the tape, and every block already served would play again
+        // (GH #402).
+        tzx_tape_.start_playback_from_fast_position(monotonic_tstates());
         Log::emulator()->info("TZX: switched to real-time loading: an RZX recording "
                               "cannot capture a fast (trapped) load");
     }
@@ -9994,18 +10091,31 @@ void Emulator::run_frame()
             !rzx_player_.is_playing()) {
             uint16_t pc = cpu_.pc();
 
-            // Fast-load: intercept LD-BYTES when tape is loaded and in fast mode.
-            if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
-                pc == TapLoader::LD_BYTES_ADDR) {
+            // Fast-load: intercept LD-BYTES at LD-BREAK (0x056B), where every
+            // entry of the routine converges, when the tape is loaded and in
+            // fast mode. Z set: the ROM's `RET NZ` is not about to return (the
+            // BREAK exit). ROM identity: other ROMs run code at 0x056B too.
+            // The tape conditions come first, and the identity check peeks: a
+            // pass through LD-BREAK with no fast tape must not touch memory
+            // the debugger watches.
+            const bool tap_fast = tape_.is_loaded() && tape_.fast_load() && !tape_.at_end();
+            const bool tzx_fast = tzx_tape_.is_loaded() && tzx_tape_.fast_load() &&
+                                  !tzx_tape_.at_end();
+            const bool ld_break = pc == tape_trap::LD_BREAK_ADDR &&
+                                  (tap_fast || tzx_fast) &&
+                                  (cpu_.get_registers().AF & 0x40) &&
+                                  tape_trap::ld_bytes_rom_present(mmu_);
+            if (ld_break && tap_fast) {
                 tape_.handle_ld_bytes_trap(*this);
+                tape_fastload_frames_left_ = FASTLOAD_TAPE_IDLE_FRAMES;   // GH #408
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
             // TZX fast-load: same ROM trap, different loader.
-            if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end() &&
-                pc == TzxLoader::LD_BYTES_ADDR) {
+            if (ld_break && tzx_fast) {
                 tzx_tape_.handle_ld_bytes_trap(*this);
+                tape_fastload_frames_left_ = FASTLOAD_TAPE_IDLE_FRAMES;   // GH #408
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
@@ -10279,6 +10389,8 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // reason as FUSE: the trigger condition is "all 8 rows polled in a
     // single frame".
     phantom_typist_.tick_frame();
+    // GH #408 - the fast tape's pacing window counts emulated frames.
+    if (tape_fastload_frames_left_ > 0) --tape_fastload_frames_left_;
 
     // G133 closure — the two-scan shift hysteresis (membrane.vhd:178-191) is
     // advanced by Keyboard::tick_scan(), which is driven from on_scanline() at
@@ -10905,6 +11017,7 @@ uint64_t Emulator::step_one_instruction()
             const uint32_t done =
                 (tap_sync_valid_ && tap_sync_serial_ == cpu_.execute_serial())
                     ? tap_sync_ts_ : 0u;
+            tape_.set_gap_hold(tape_gap_hold_(monotonic_tstates()));
             tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
             beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
             // GH #89 — a playing tape is echoed to tape-out (zxnext.vhd:6503):
@@ -10916,6 +11029,9 @@ uint64_t Emulator::step_one_instruction()
             // TZX real-time: ZOT models an absolute tape timeline, so
             // it must see the monotonic clock, not the frame-relative
             // FUSE counter (G36).
+            tzx_tape_.set_auto_policy(
+                tape_gap_hold_(monotonic_tstates()),
+                tape_auto_play_, config_.type == MachineType::ZX48K);
             beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
@@ -12254,8 +12370,49 @@ uint64_t Emulator::tape_sample_tstates() const
          + tape_sample_offset();
 }
 
+bool Emulator::tape_gap_hold_(uint64_t now) const
+{
+    // Hold at a gap boundary unless the CPU is listening.
+    return tape_auto_play_ && !tape_poll_.polling(now);
+}
+
+void Emulator::set_tape_auto_play(bool on)
+{
+    config_.tape_auto_play = on;
+    if (tape_auto_play_ == on) return;
+    tape_auto_play_ = on;
+    tape_poll_.reset();
+    if (!on) {
+        // Off is today's deck: a held tape must not stay stopped for ever.
+        const uint64_t now = monotonic_tstates();
+        if (tape_.is_loaded() && tape_.is_held()) tape_.resume();
+        if (tzx_tape_.is_loaded() && tzx_tape_.is_held()) tzx_tape_.resume(now);
+    }
+}
+
+void Emulator::tape_auto_on_read_()
+{
+    const uint64_t now = tape_sample_tstates();
+    tape_poll_.on_read(now);
+    if (!tape_poll_.polling(now)) return;
+
+    // Only a deck that auto play itself stopped is resumed. A tape that is
+    // not playing is never started by a polling program: in fast mode the
+    // ROM trap serves the loads, and a key-wait must not play blocks away.
+    if (tape_.is_loaded() && tape_.is_held()) {
+        tape_.resume();
+        // The rest of this instruction runs from the sample point.
+        tap_sync_valid_  = true;
+        tap_sync_serial_ = cpu_.execute_serial();
+        tap_sync_ts_     = tape_sample_offset();
+        Log::emulator()->info("TAP: deck playing again at block {}", tape_.current_block());
+    }
+    if (tzx_tape_.is_loaded() && tzx_tape_.is_held()) tzx_tape_.resume(now);
+}
+
 uint8_t Emulator::tap_ear_for_port_read()
 {
+    tape_.set_gap_hold(tape_gap_hold_(tape_sample_tstates()));
     if (!cpu_.executing()) return tape_.tick_realtime(0);
     if (!tap_sync_valid_ || tap_sync_serial_ != cpu_.execute_serial()) {
         tap_sync_valid_  = true;
@@ -13293,6 +13450,11 @@ void Emulator::save_state(StateWriter& w) const
 
 bool Emulator::load_state(StateReader& r)
 {
+    tape_poll_.reset();   // GH #395: time may have moved backwards
+    // GH #408 - and so may the fast-load window: it was opened by a block
+    // trapped in the timeline being left (a rewind, a debugger state load, the
+    // .jns round trip). The restored machine sprints again at its next trap.
+    tape_fastload_frames_left_ = 0;
     // GH #276 B2 — THE RECONCILIATION RUNS ON EVERY EXIT, not just the
     // successful one, and this is the exit that needs it most.
     //
@@ -13822,6 +13984,8 @@ bool Emulator::load_state(StateReader& r)
 
 void Emulator::resize_rewind_buffer(int frames)
 {
+    config_.rewind_buffer_frames = frames > 0 ? frames : 0;
+    config_.rewind_paused = false;
     if (frames <= 0) {
         rewind_buffer_.reset();
         rewind_enabled_ = false;

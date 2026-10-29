@@ -112,9 +112,7 @@ boot, then the load. A `.jns` you save into that folder yourself counts too.
 - Only `.jns` is used: it is the one format that can hold a whole machine.
 - Keys you type while a quick save or load is in progress are not lost: they are
   delivered afterwards, in the order you typed them, and a quick save waits for
-  the keys you typed before it. The machine freezes for a moment while it reads
-  the SD card image to identify it, which grows with the size of the image; the
-  log shows each such pass as "digested SD image".
+  the keys you typed before it.
 
 ## Loading
 
@@ -188,9 +186,11 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
   it, and says what it is overriding. That includes a card you put in with
   **File > Insert SD Card Image** after saving: insert the original again to
   restore.
-- **The same card, changed since** — which happens constantly, because JNEXT
-  writes guest changes back to the card — **restores with one warning line**.
-  That is normal, and usually irrelevant.
+- **The same card, changed since, is not checked.** JNEXT assumes the card is as
+  you left it. If you change it between saving and loading, outside JNEXT or by
+  running other programs that write to it, loading the snapshot is at your own
+  risk: NextZXOS keeps parts of the card's file system in memory, and a restored
+  machine can write that stale picture back and corrupt files.
 - The card's **volume label** is never compared. Several tools rewrite it, and
   a snapshot that refused over a renamed card would be a snapshot nobody reads
   the warnings of.
@@ -202,6 +202,31 @@ and DivMMC ROM code paged into it. Those are not ours to redistribute and they
 are not yours either. Keep your snapshots; do not post them.
 
 If you want to hand somebody a program, hand them the `.nex`.
+
+## The tape
+
+The tape attached when you save is recorded by its full path, with a digest of
+the file, and the deck's position in it: which block, and how far through it. Loading
+the snapshot opens that tape again and puts it back **at the same place**, so
+a program that was part-way through loading carries on loading. A tape that
+came out of a `.zip` is taken from the archive again (JNEXT remembers which
+archive and which member), even in a later session.
+
+A snapshot never changes a setting. The tape comes back in whatever fast or
+real-time mode and automatic play/stop setting **this session** has: the
+`--tape-realtime`, `--tape-auto-play` and `--no-tape-auto-play` options, or the
+Tape menu. The Tape menu and your saved preferences are left exactly as they
+were. When the snapshot's tape was playing in the other mode, JNEXT converts it
+at a block boundary, so that no block is cut or repeated: a real-time tape
+saved part-way through a block and loaded in a fast session finishes that block
+in real time and loads the rest fast.
+
+The tape is **not** put back, and the load says so in the status bar, when
+the file is no longer where it was recorded (or the archive is gone), when the
+file has changed since the snapshot was saved, or when the snapshot was written
+by a version that did not record the position. The machine still restores; open
+the tape again with Tape > Open Tape File. Snapshots written by versions that recorded
+only the file name look the tape up in the folder JNEXT was started from.
 
 ## Two flags for when something is wrong
 

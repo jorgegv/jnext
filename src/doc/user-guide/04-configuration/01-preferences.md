@@ -1,6 +1,6 @@
 # Preferences
 
-**Settings > Preferences…** (Alt+P) opens a dialog with six tabs.
+**Settings > Preferences…** (Alt+P) opens a dialog with seven tabs (six in a build without the debugger).
 
 ![The Preferences dialog, Startup tab](../img/preferences-startup.png)
 
@@ -16,12 +16,16 @@
 | CRT effect | Off / Scanlines / Soft scanlines / TV / PC monitor | A pop-up; one choice, see [5.3](../05-running-programs/03-display.md). Soft scanlines, TV and PC monitor are drawn by the GPU and are absent from builds without GPU support |
 | Start muted | on / off | Takes effect on next launch only |
 | Tape fast-load by default | on / off | See [5.5](../05-running-programs/05-recording-and-playback.md) |
+| Tape: automatic play/stop | on / off | The deck stops between blocks while no program listens; see [5.5](../05-running-programs/05-recording-and-playback.md) |
 
 **Input** picks what drives each of the Next's two joystick connectors — the
 first free USB gamepad, a particular connected gamepad by name, the host cursor
 keys with Space as fire, or nothing. Only one connector can use the cursor keys
 and one gamepad can drive only one connector; the dialog enforces both for
 you. Details in [5.2](../05-running-programs/02-input.md).
+It also holds **Release captured mouse with**: Ctrl+Alt (the default), a middle click or Esc.
+The chosen click or key is not passed to the program while the mouse is captured;
+`--mouse-release` overrides it for one run.
 
 **Audio** has -24 dB to +24 dB sliders for the final master output and for the
 beeper, each of the three TurboSound AY chips, and the DAC family. Every slider
@@ -43,13 +47,16 @@ Turning the ESP on here does not put a running program on the network — see
 below — and while it *is* running with the ESP on, the status bar always
 carries an ESP cell, so it can never be on invisibly.
 
+**NextPi** starts NextPi under QEMU with JNEXT, and holds its directory, the release downloaded on first use, the QEMU program and where the Pi's sound goes; see [5.10](../05-running-programs/10-the-raspberry-pi-serial-link.md).
+
 **Paths** remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
 and where screenshots go. It also holds the two settings **File > Quick
 Screenshot** needs, since that capture never asks: the directory it writes to
 (blank means `~/.jnext/screenshots`) and whether it writes PNG or SCR. Those
 two are a deliberate choice rather than a memory of the last dialog, so the
-quick capture always lands in the same place.
+quick capture always lands in the same place. It also sets how many Quick Save snapshots to keep
+(**Unlimited** at 0); `--quick-snapshot-keep` overrides it.
 
 **Debugger Keys** rebinds the debugger's own keys — see
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md). The tab is only

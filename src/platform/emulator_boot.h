@@ -11,6 +11,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/program_archive.h"
 #include "core/snapshot_machine.h"
 
 #include "save/jns_container.h"
@@ -51,7 +52,7 @@ inline bool emulator_apply_load(Emulator& emu, const std::string& file,
     if (ext == ".z80") return snapshot(emu.load_z80(file));
     if (ext == ".wav") return emu.load_wav(file);
     if (ext == ".rzx") return emu.load_rzx(file);
-    if (ext == ".jns") return snapshot(emu.load_jns_file(file));   // GH #27 S8
+    if (ext == ".jns") return snapshot(emu.load_jns_file(file, tape_realtime));   // GH #27 S8; GH #402
     return emu.load_nex(file);   // .nex + unknown extensions
 }
 
@@ -95,15 +96,16 @@ inline bool emulator_apply_load_keeping_keys(Emulator& emu, const std::string& f
 /// V1.3 probe at all. Must mirror emulator_apply_load()'s chain: every
 /// extension with its own branch there is listed here.
 inline bool emulator_load_routes_to_nex(const std::string& file) {
-    std::string ext;
+    // One extension table (program_archive::is_program_ext), shared with the
+    // archive layer (GH #392): every extension with its own branch above is in it.
     auto dot = file.rfind('.');
+    std::string ext;
     if (dot != std::string::npos) {
         ext = file.substr(dot);
         for (auto& c : ext)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
-    return ext != ".tap" && ext != ".tzx" && ext != ".sna" && ext != ".szx" &&
-           ext != ".z80" && ext != ".wav" && ext != ".rzx" && ext != ".jns";
+    return !program_archive::is_program_ext(file) || ext == ".nex";
 }
 
 /// True when emulator_apply_load() above routes `file` to Emulator::load_rzx()
@@ -392,8 +394,9 @@ struct ColdBootHooks {
 ///
 /// Order is the contract:
 ///   1. the load file goes into the config;
-///   2. the LIVE per-connector joystick sources, the LIVE host output gain
-///      and the LIVE magic-breakpoint toggle are carried across — they are
+///   2. the LIVE per-connector joystick sources, the LIVE host output gain,
+///      the LIVE magic-breakpoint toggle and the LIVE rewind setting (size,
+///      paused) are carried across — they are
 ///      host-side settings, not machine state, so a source picked from the
 ///      Input menu, a gain set in Preferences or Magic Breakpoint ticked in
 ///      the Debug menu must survive the boot (carrying `base_cfg`'s startup
@@ -419,6 +422,13 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
         cfg.audio_gain_ay_db[chip] = emu.mixer().ay_gain_db(chip);
     cfg.audio_gain_dac_db = emu.mixer().dac_gain_db();
     cfg.magic_breakpoint  = emu.config().magic_breakpoint;
+    cfg.rewind_buffer_frames = emu.config().rewind_buffer_frames;   // GH #400
+    cfg.rewind_paused        = emu.config().rewind_paused;
+    // GH #402 - Tape > Auto Play/Stop writes only the running machine; the frontends
+    // boot from their STARTUP config, so without this every File > Load (a cold
+    // boot) put auto play back to its startup value while the menu showed the
+    // user's choice, and a .jns restored with the wrong one.
+    cfg.tape_auto_play       = emu.tape_auto_play();
 
     emulator_cold_boot(emu, cfg);
 

@@ -2969,11 +2969,13 @@ static void test_section9_scrolling() {
                   line[Ula::DISP_X + 2*248], line[Ula::DISP_X + 2*247]));
     }
 
-    // -- S9.06 fine_scroll_x=1 (NR 0x68 bit 2), scroll_x=0 → 1-pixel shift.
-    // VHDL zxula.vhd:199 — px(8) = fine_scroll_x contributes 1 pixel after
-    // px_1 merge (line 216). With marker at (row 0, col 0)=0xFF source
-    // src_x ∈ [0..7], shift=1 → display white at src_x−1 = display_x ⇒
-    // display_x ∈ [-1..6] = {255, 0..6}.
+    // -- S9.06 fine_scroll_x=1 (NR 0x68 bit 2), scroll_x=0 → HALF-pixel shift.
+    // VHDL zxula.vhd:199 — px(8) = fine_scroll_x; shift_scroll = px(2:0) &
+    // px(8) (:354-376) shifts the 14 MHz shift_reg_32 (:388-399), in which
+    // every lo-res bit is two cells (:390-393). So fine moves the picture
+    // ONE framebuffer cell = half a pixel ("ULA half pixel scroll",
+    // nextreg.txt NR 0x68 bit 2). Marker (row 0, col 0)=0xFF is stream cells
+    // 0..15; display cell C shows cell C+1 ⇒ white at cells {511, 0..14}.
     {
         UlaBed bed;
         init_attrs(bed);
@@ -2982,16 +2984,18 @@ static void test_section9_scrolling() {
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         bool ok = true;
-        for (int x = 0; x < 256; ++x) {
-            const bool should_white = (x == 255) || (x >= 0 && x <= 6);
+        int bad = -1;
+        for (int c = 0; c < 512; ++c) {
+            const bool should_white = (c == 511) || (c <= 14);
             const uint32_t exp = should_white ? WHITE : BLACK;
-            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + c] != exp) { ok = false; bad = c; break; }
         }
         check("S9.06",
-              "zxula.vhd:199,216 — fine_scroll_x=1 → 1-pixel source offset",
+              "zxula.vhd:199,354-399 - fine_scroll_x=1 -> half-pixel (1-cell) shift",
               ok,
-              fmt("line[DISP_X]=0x%08X line[DISP_X+2*255]=0x%08X line[DISP_X+2*7]=0x%08X",
-                  line[Ula::DISP_X], line[Ula::DISP_X + 2*255], line[Ula::DISP_X + 2*7]));
+              fmt("first bad cell %d; cell14=0x%08X cell15=0x%08X cell510=0x%08X cell511=0x%08X",
+                  bad, line[Ula::DISP_X + 14], line[Ula::DISP_X + 15],
+                  line[Ula::DISP_X + 510], line[Ula::DISP_X + 511]));
     }
 
     // -- S9.07 NR 0x26=255 → 255-pixel shift (= −1 mod 256).
@@ -3049,12 +3053,11 @@ static void test_section9_scrolling() {
     }
 
     // -- S9.09 combined scroll: scroll_y=2, NR 0x26=16 (2-byte/16-pixel
-    // shift), fine_scroll_x=1 — total X shift 17 pixels, Y shift 2.
-    // VHDL zxula.vhd:199: scroll_x(7:3)=2 → 16 pixels + fine=1 → 17 pixels.
-    // zxula.vhd:206 (else branch): py_s=2 → py=2. Marker at source row 2,
-    // col 1 only (src_x ∈ [8..15]) = 0xFF; display white should be at
-    // src_x − 17 = display_x mod 256 ⇒ (display_x+17)&0xFF ∈ [8..15] ⇒
-    // display_x ∈ [-9..-2] mod 256 = [247..254].
+    // shift), fine_scroll_x=1 — total X shift 16.5 pixels, Y shift 2.
+    // VHDL zxula.vhd:199: scroll_x(7:3)=2 → 16 pixels = 32 cells, fine=1 →
+    // 1 cell (see S9.06). zxula.vhd:206 (else branch): py_s=2 → py=2. Marker
+    // at source row 2, col 1 only (stream cells 16..31) = 0xFF; display cell
+    // C shows cell C+33 ⇒ white at C ∈ [-17..-2] mod 512 = [495..510].
     {
         UlaBed bed;
         init_attrs(bed);
@@ -3065,16 +3068,18 @@ static void test_section9_scrolling() {
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
         bool ok = true;
-        for (int x = 0; x < 256; ++x) {
-            const bool should_white = (x >= 247 && x <= 254);
+        int bad = -1;
+        for (int c = 0; c < 512; ++c) {
+            const bool should_white = (c >= 495 && c <= 510);
             const uint32_t exp = should_white ? WHITE : BLACK;
-            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + c] != exp) { ok = false; bad = c; break; }
         }
         check("S9.09",
-              "zxula.vhd:193-216 — scroll_y=2 + NR 0x26=16 + fine=1 compose",
+              "zxula.vhd:193-216,354-399 - scroll_y=2 + NR 0x26=16 + fine=1 compose",
               ok,
-              fmt("line[DISP_X+2*247]=0x%08X line[DISP_X+2*254]=0x%08X line[DISP_X+2*255]=0x%08X",
-                  line[Ula::DISP_X + 2*247], line[Ula::DISP_X + 2*254], line[Ula::DISP_X + 2*255]));
+              fmt("first bad cell %d; cell494=0x%08X cell495=0x%08X cell510=0x%08X cell511=0x%08X",
+                  bad, line[Ula::DISP_X + 494], line[Ula::DISP_X + 495],
+                  line[Ula::DISP_X + 510], line[Ula::DISP_X + 511]));
     }
 
     // -- S9.10 cross-third wrap: scroll_y=64 + vc=0 → py_s=64 (0x40).
@@ -3096,6 +3101,237 @@ static void test_section9_scrolling() {
               "zxula.vhd:206,223 — scroll_y=64 → py=64 (third-0→third-1 swap)",
               all_white,
               fmt("display[0]=0x%08X exp 0x%08X (white from row 64)", line[Ula::DISP_X], WHITE));
+    }
+
+    // -- S9.11..S9.16 — GH #409: NR 0x26 / 0x27 / 0x68 b2 in the Timex modes.
+    // py and px form vram_a in EVERY screen mode (zxula.vhd:192-252) and the
+    // shift_scroll shift of :399 applies to both shift_reg_32 layouts
+    // (:388-393), so hi-colour and hi-res scroll exactly like STANDARD.
+    // Each row compares all 512 display cells against the VHDL-derived
+    // expectation; an unscrolled render fails every one of them.
+    auto first_bad_cell = [](const std::array<uint32_t, Ula::FB_WIDTH>& line,
+                             auto expected) {
+        for (int c = 0; c < 512; ++c)
+            if (line[Ula::DISP_X + c] != expected(c)) return c;
+        return -1;
+    };
+    const uint32_t RED_PAPER = bed_paper_argb(fn_palette, 2);
+    // HI_RES colours for port_ff(5:3)=5 (zxula.vhd:419, see S5.10).
+    const uint32_t HR_INK   = bed_ink_argb(fn_palette, 5 | 0x08);
+    const uint32_t HR_PAPER = bed_paper_argb(fn_palette, (~5 & 0x07) | 0x08);
+
+    // -- S9.11 HI_COLOUR scroll_y=1: screen row 0 shows row 1's pixels AND
+    // row 1's 8x1 attributes (attr vram_a = '1' & addr_p_spc_12_5, :239).
+    // Row 1 col 0: pixels 0xF0, attr 0x17 (ink 7, paper 2) ⇒ cells 0..7
+    // white, 8..15 red paper, the rest black (zero RAM).
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);
+        bed.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xF0);
+        bed.poke(0x6000 + emu_pixel_addr_offset(1, 0), 0x17);
+        bed.ula.set_ula_scroll_y(1);
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
+        const int bad = first_bad_cell(line, [&](int c) {
+            return c <= 7 ? WHITE : (c <= 15 ? RED_PAPER : BLACK);
+        });
+        check("S9.11",
+              "zxula.vhd:192-207,239 - HI_COLOUR scroll_y=1 -> row 1 pixels and attributes",
+              bad < 0,
+              fmt("first bad cell %d; cell0=0x%08X cell8=0x%08X",
+                  bad, line[Ula::DISP_X], line[Ula::DISP_X + 8]));
+    }
+
+    // -- S9.12 HI_COLOUR NR 0x26=19 (column +2, shift_scroll 6 cells).
+    // Display cell C shows stream cell C+38 (fold_ula_x). Row 0: col 2 =
+    // 0xFF / attr 0x07 (stream cells 32..47), col 3 = 0x00 / attr 0x10
+    // (cells 48..63). ⇒ white at {506..511, 0..9}, red paper at 10..25,
+    // black elsewhere. Cells 10..15 of slot 0 take px_1's attribute
+    // (attr_scroll_r reaches 16, :437-452). Cells 506..511 are slot 31's
+    // px_1 byte, column 2: slot 31's px column wraps (31 + 2 = 33 -> 1, the
+    // 5-bit sum of :199) and px_1 = 1 + 1 (:216). px_1 itself wraps at slot
+    // 29 (px 31, px_1 0). S9.17 / S9.18 pin both wraps with non-zero data.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 2), 0xFF);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 2), 0x07);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 3), 0x00);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 3), 0x10);
+        bed.ula.set_ula_scroll_x_coarse(19);
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        const int bad = first_bad_cell(line, [&](int c) {
+            if (c >= 506 || c <= 9) return WHITE;
+            if (c <= 25)            return RED_PAPER;
+            return BLACK;
+        });
+        check("S9.12",
+              "zxula.vhd:199,216,399,437-452 - HI_COLOUR NR 0x26=19 shifts pixels and 8x1 attributes",
+              bad < 0,
+              fmt("first bad cell %d; cell9=0x%08X cell10=0x%08X cell506=0x%08X",
+                  bad, line[Ula::DISP_X + 9], line[Ula::DISP_X + 10],
+                  line[Ula::DISP_X + 506]));
+    }
+
+    // -- S9.13 HI_COLOUR NR 0x68 b2 fine: half-pixel (1-cell) shift.
+    // Row 0 col 0 = 0x80 / attr 0x07: bit 7 is stream cells 0..1 ⇒ white
+    // at cells {511, 0} only.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0x80);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x07);
+        bed.ula.set_ula_fine_scroll_x(true);
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        const int bad = first_bad_cell(line, [&](int c) {
+            return (c == 511 || c == 0) ? WHITE : BLACK;
+        });
+        check("S9.13",
+              "zxula.vhd:199,354-399 - HI_COLOUR fine_scroll_x=1 -> half-pixel shift",
+              bad < 0,
+              fmt("first bad cell %d; cell0=0x%08X cell1=0x%08X cell511=0x%08X",
+                  bad, line[Ula::DISP_X], line[Ula::DISP_X + 1],
+                  line[Ula::DISP_X + 511]));
+    }
+
+    // -- S9.14 HI_RES scroll_y=1: both screens fold to row 1 (:220, 236-252).
+    // Row 1 col 0: screen-0 = 0xF0, screen-1 = 0x0F ⇒ ink at cells 0..3 and
+    // 12..15, paper elsewhere.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x06 | (5 << 3));
+        bed.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xF0);
+        bed.poke(0x6000 + emu_pixel_addr_offset(1, 0), 0x0F);
+        bed.ula.set_ula_scroll_y(1);
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        const int bad = first_bad_cell(line, [&](int c) {
+            return (c <= 3 || (c >= 12 && c <= 15)) ? HR_INK : HR_PAPER;
+        });
+        check("S9.14",
+              "zxula.vhd:192-207,220 - HI_RES scroll_y=1 -> row 1 of both screens",
+              bad < 0,
+              fmt("first bad cell %d; cell0=0x%08X cell12=0x%08X",
+                  bad, line[Ula::DISP_X], line[Ula::DISP_X + 12]));
+    }
+
+    // -- S9.15 HI_RES NR 0x26=10 (column +1, shift_scroll 4 cells); hi-res
+    // does not double bits (:388), so display cell C shows stream cell
+    // C+20, where column N is screen-0 then screen-1 = cells 16N..16N+15.
+    // Row 0: s0[1]=0xFF (cells 16..23), s0[2]=0xF0 (cells 32..35 ink),
+    // s1[2]=0xFF (cells 40..47) ⇒ ink at {508..511, 0..3}, 12..15 and
+    // 20..27, paper elsewhere.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x06 | (5 << 3));
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 1), 0xFF);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 2), 0xF0);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 2), 0xFF);
+        bed.ula.set_ula_scroll_x_coarse(10);
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        const int bad = first_bad_cell(line, [&](int c) {
+            const bool ink = c >= 508 || c <= 3 || (c >= 12 && c <= 15)
+                          || (c >= 20 && c <= 27);
+            return ink ? HR_INK : HR_PAPER;
+        });
+        check("S9.15",
+              "zxula.vhd:199,216,388,399 - HI_RES NR 0x26=10 -> 20 hi-res pixel shift",
+              bad < 0,
+              fmt("first bad cell %d; cell3=0x%08X cell4=0x%08X cell508=0x%08X",
+                  bad, line[Ula::DISP_X + 3], line[Ula::DISP_X + 4],
+                  line[Ula::DISP_X + 508]));
+    }
+
+    // -- S9.16 HI_RES NR 0x68 b2 fine: one hi-res pixel. Row 0 col 0:
+    // s0=0x80 (cell 0), s1=0x01 (cell 15) ⇒ ink at cells 511 and 14 only.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x06 | (5 << 3));
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0x80);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x01);
+        bed.ula.set_ula_fine_scroll_x(true);
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        const int bad = first_bad_cell(line, [&](int c) {
+            return (c == 511 || c == 14) ? HR_INK : HR_PAPER;
+        });
+        check("S9.16",
+              "zxula.vhd:199,354-399 - HI_RES fine_scroll_x=1 -> one hi-res pixel shift",
+              bad < 0,
+              fmt("first bad cell %d; cell14=0x%08X cell15=0x%08X cell511=0x%08X",
+                  bad, line[Ula::DISP_X + 14], line[Ula::DISP_X + 15],
+                  line[Ula::DISP_X + 511]));
+    }
+
+    // -- S9.17 HI_COLOUR NR 0x26=19: both column wraps, with data in the
+    // columns the wraps reach. Slot S shows px = (S + 2) mod 32 (the 5-bit
+    // sum of :199) for its cells 0..9 and px_1 = px + 1 mod 32 (:216) for
+    // cells 10..15 (shift_scroll 6, attribute switch at attr_scroll_r = 16,
+    // :437-452). Slot 29: px 31, px_1 WRAPS to 0. Slot 30: px WRAPS to 0,
+    // px_1 1. Slot 31: px WRAPS to 1, px_1 2. Row 0: col 0 = 0xFF / attr
+    // 0x07, col 1 = 0x00 / attr 0x10, col 2 = 0xFF / attr 0x07, the rest
+    // (col 31 and the rows an unwrapped column would reach) zero. Display
+    // cell C shows stream cell C+38 mod 512 ⇒ white at 474..489 (col 0),
+    // red paper at 490..505 (col 1), white at {506..511, 0..9} (col 2).
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x02);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x07);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 1), 0x00);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 1), 0x10);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 2), 0xFF);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 2), 0x07);
+        bed.ula.set_ula_scroll_x_coarse(19);
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        const int bad = first_bad_cell(line, [&](int c) {
+            if (c >= 474 && c <= 489)  return WHITE;
+            if (c >= 490 && c <= 505)  return RED_PAPER;
+            if (c >= 506 || c <= 9)    return WHITE;
+            return BLACK;
+        });
+        check("S9.17",
+              "zxula.vhd:199,216,399,437-452 - HI_COLOUR NR 0x26=19: px wraps at slots 30/31, px_1 at slot 29",
+              bad < 0,
+              fmt("first bad cell %d; cell474=0x%08X cell480=0x%08X cell490=0x%08X cell496=0x%08X",
+                  bad, line[Ula::DISP_X + 474], line[Ula::DISP_X + 480],
+                  line[Ula::DISP_X + 490], line[Ula::DISP_X + 496]));
+    }
+
+    // -- S9.18 HI_RES NR 0x26=19: the same two wraps in the hi-res layout
+    // (column N = s0[N] then s1[N] = stream cells 16N..16N+15, :388; no bit
+    // doubling). Display cell C shows stream cell C+38 mod 512. Row 0:
+    // s0[0]=0xF0 (cells 0..3, reached by slot 29's wrapped px_1) ⇒ ink
+    // 474..477; s1[0]=0x0F (cells 12..15, slot 30's wrapped px) ⇒ 486..489;
+    // s0[1]=0xFF (16..23, slot 30 px_1 + slot 31 wrapped px) ⇒ 490..497;
+    // s1[1]=0x3C (26..29, slot 31 wrapped px) ⇒ 500..503; s0[2]=0x81
+    // (cells 32, 39: slot 31 px_1, slot 0 px) ⇒ 506 and 1. Paper elsewhere.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x06 | (5 << 3));
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xF0);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x0F);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 1), 0xFF);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 1), 0x3C);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 2), 0x81);
+        bed.ula.set_ula_scroll_x_coarse(19);
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        const int bad = first_bad_cell(line, [&](int c) {
+            const bool ink = (c >= 474 && c <= 477) || (c >= 486 && c <= 497)
+                          || (c >= 500 && c <= 503) || c == 506 || c == 1;
+            return ink ? HR_INK : HR_PAPER;
+        });
+        check("S9.18",
+              "zxula.vhd:199,216,388,399 - HI_RES NR 0x26=19: px wraps at slots 30/31, px_1 at slot 29",
+              bad < 0,
+              fmt("first bad cell %d; cell474=0x%08X cell486=0x%08X cell496=0x%08X cell506=0x%08X",
+                  bad, line[Ula::DISP_X + 474], line[Ula::DISP_X + 486],
+                  line[Ula::DISP_X + 496], line[Ula::DISP_X + 506]));
     }
 
     // S9.01 — G: no-scroll baseline already covered by §1 address tests + §2 rendering.
@@ -3186,11 +3422,11 @@ static void test_section9_scrolling() {
     }
 
     // -- S9-PSL.03 — NR 0x26 fine-scroll mid-frame flip. -------------------
-    // VHDL zxula.vhd:199 — fine_scroll_x adds 1 pixel of shift. With NR
-    // 0x26 = 0 and fine = 0, source-row col 0 byte at offset 0 (poked to
-    // 0xFF) renders as display pixels [0..7] = white. Toggling fine = 1
-    // mid-frame for line 33 shifts the white run to display pixels
-    // [1..8] (per VHDL src_x = display_x + scroll_x + (fine?1:0)).
+    // VHDL zxula.vhd:199 — fine_scroll_x adds one 14 MHz cell (half a
+    // pixel) of shift (see S9.06). With NR 0x26 = 0 and fine = 0, source-row
+    // col 0 byte at offset 0 (poked to 0xFF) renders as display cells
+    // [0..15] = white. Toggling fine = 1 mid-frame for line 33 moves the
+    // white run to cells {511, 0..14}.
     {
         UlaBed bed;
         init_attrs(bed);
@@ -3210,19 +3446,22 @@ static void test_section9_scrolling() {
         bed.ula.apply_scroll_changes_for_line(33);
         bed.ula.render_scanline(line33.data(), 33, bed.mmu);   // screen_row 1
 
-        // Without fine: white at display_x ∈ [0..7]; with fine: white at
-        // display_x ∈ [255, 0..6] — i.e. left-edge pixel 0 swaps from
-        // white to white (rotated by 1) but pixel 7 swaps white→black,
-        // pixel 255 swaps black→white. Use those two markers as the
-        // discriminator.
-        const bool no_fine_pixel7  = (line32[Ula::DISP_X + 2*7]   == WHITE);
-        const bool fine_pixel7     = (line33[Ula::DISP_X + 2*7]   == BLACK);
-        const bool fine_pixel255   = (line33[Ula::DISP_X + 2*255] == WHITE);
+        // Without fine: cell 15 white, cell 511 black; with fine: cell 15
+        // black, cell 511 white, cell 14 still white and cell 510 black
+        // (a whole-pixel shift would make cell 14 black and 510 white).
+        const bool no_fine_cell15  = (line32[Ula::DISP_X + 15]  == WHITE)
+                                  && (line32[Ula::DISP_X + 511] == BLACK);
+        const bool fine_cell15     = (line33[Ula::DISP_X + 15]  == BLACK);
+        const bool fine_cell511    = (line33[Ula::DISP_X + 511] == WHITE);
+        const bool fine_half       = (line33[Ula::DISP_X + 14]  == WHITE)
+                                  && (line33[Ula::DISP_X + 510] == BLACK);
         check("S9-PSL.03",
-              "zxula.vhd:199 — NR 0x68 b2 fine_scroll mid-frame flip per line",
-              no_fine_pixel7 && fine_pixel7 && fine_pixel255,
-              fmt("line32[DISP_X+2*7]=0x%08X line33[DISP_X+2*7]=0x%08X line33[DISP_X+2*255]=0x%08X",
-                  line32[Ula::DISP_X + 2*7], line33[Ula::DISP_X + 2*7], line33[Ula::DISP_X + 2*255]));
+              "zxula.vhd:199 - NR 0x68 b2 fine_scroll (half pixel) mid-frame flip per line",
+              no_fine_cell15 && fine_cell15 && fine_cell511 && fine_half,
+              fmt("line32 c15=0x%08X c511=0x%08X / line33 c14=0x%08X c15=0x%08X c510=0x%08X c511=0x%08X",
+                  line32[Ula::DISP_X + 15], line32[Ula::DISP_X + 511],
+                  line33[Ula::DISP_X + 14], line33[Ula::DISP_X + 15],
+                  line33[Ula::DISP_X + 510], line33[Ula::DISP_X + 511]));
     }
 
     // -- S9-PSL.04 — start_frame_scroll rewinds the log. --------------------
@@ -3959,6 +4198,8 @@ int vh_pbyte_primary(int j)   { return 16 * (j >> 1) + ((j & 1) ? 0xD : 0x9); }
 int vh_abyte_primary(int j)   { return 16 * (j >> 1) + ((j & 1) ? 0xF : 0xB); }
 int vh_pbyte_secondary(int j) { return (j & 1) ? 16 * ((j >> 1) + 1) + 0x1
                                                : 16 * (j >> 1) + 0x5; }
+int vh_abyte_secondary(int j) { return (j & 1) ? 16 * ((j >> 1) + 1) + 0x3
+                                               : 16 * (j >> 1) + 0x7; }
 int raw_hc(int hc_ula) { return hc_ula + kBeamOrigin + 1; }
 
 struct BeamBed : UlaBed {
@@ -4361,6 +4602,193 @@ static void test_section19_beam_replay() {
                   "attr %02X/%02X both %02X (expected F0/00 F0/00 F0)",
                   r[0][0], r[0][1], r[0][2], r[0][3], r[0][4],
                   r[1][0], r[1][1], r[1][2], r[1][3], r[1][4]));
+    }
+
+    // VMUX-17..20 - the Timex scrolled paths (GH #409). Hi-colour and hi-res
+    // make the same four fetches per display slot as STANDARD (zxula.vhd:
+    // 224-258: the px column's vram_a at hc(3:0) 7/B is latched as pbyte00/10
+    // @9/D (pixel, or hi-res screen 0) and at 9/D as abyte00/10 @B/F (the
+    // hi-colour colour byte or hi-res screen 1: '1' & addr_p, because
+    // screen_mode(1)='1'); the px_1 column's at F/3 and 1/5 as pbyte11/01
+    // @1/5 and abyte11/01 @3/7, :276-303), at the instants of the DISPLAY
+    // slot, not of the column a scroll makes it show. With NR 0x26 = 16 slot
+    // s shows column s+2 from its primary fetches only; NR 0x26 = 20
+    // (hi-colour) / 22 (hi-res) adds a shift_scroll of 8 / 12 cells (:399),
+    // so column s+3 comes in from the secondary fetches. Slots 4 (even) and
+    // 5 (odd) pin both parities. Every probe writes at the fetch instant
+    // (seen) and one tick later (not seen); each later write lies between the
+    // slot's own instant and that of the column it shows (16 ticks later), or
+    // between the slot's primary and secondary instants.
+    {
+        // Hi-colour bed: colour byte 0x07 (white on black) for every column
+        // of the row under test (bank 5 offset 0x2000 + addr_p, :239).
+        auto hc_bed = [](BeamBed& bed, uint8_t scroll) {
+            bed.ula.set_screen_mode(0x02);
+            bed.ula.set_ula_scroll_x_coarse(scroll);
+            for (int c = 0; c < 32; ++c)
+                bed.ram.write(11u * 8192u + emu_pixel_addr_offset(kRowY, c), 0x07);
+        };
+        auto colour_addr = [](int col) {
+            return static_cast<uint16_t>(0x6000u + emu_pixel_addr_offset(kRowY, col));
+        };
+        // what: 0 pixel c0 @P, 1 colour c0 @A, 2 pixel c1 @SP, 3 colour c1 @SA,
+        // with c0 = slot + 2 and c1 = c0 + 1.
+        auto hicolour = [&](uint8_t scroll, int slot, int what, int delta) -> uint8_t {
+            BeamBed bed;
+            hc_bed(bed, scroll);
+            const int col = slot + 2 + (what >= 2 ? 1 : 0);
+            if (what == 0 || what == 2) {
+                bed.begin();
+                bed.wr(pix_addr(col), 0xFF, kFbRow,
+                       raw_hc(what == 0 ? vh_pbyte_primary(slot)
+                                        : vh_pbyte_secondary(slot)) + delta);
+                return BeamBed::cell(bed.row(kFbRow), slot, white);
+            }
+            bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, col), 0xFF);
+            bed.begin();
+            bed.wr(colour_addr(col), 0x04, kFbRow,
+                   raw_hc(what == 1 ? vh_abyte_primary(slot)
+                                    : vh_abyte_secondary(slot)) + delta);
+            return BeamBed::cell(bed.row(kFbRow), slot, green);
+        };
+
+        // VMUX-17 - HI_COLOUR coarse scroll (NR 0x26 = 16): the pixel and the
+        // colour byte of column s+2 are fetched at slot s's P / A. A fetch
+        // timed by the shown column (P(s+2) = P(s) + 16) sees the +1 writes.
+        {
+            uint8_t r[2][4];
+            bool ok = true;
+            for (int k = 0; k < 2; ++k) {
+                const int slot = 4 + k;
+                r[k][0] = hicolour(16, slot, 0, 0); r[k][1] = hicolour(16, slot, 0, 1);
+                r[k][2] = hicolour(16, slot, 1, 0); r[k][3] = hicolour(16, slot, 1, 1);
+                ok = ok && r[k][0] == 0xFF && r[k][1] == 0x00
+                        && r[k][2] == 0xFF && r[k][3] == 0x00;
+            }
+            check("VMUX-17",
+                  "zxula.vhd:199,224-258,276-303 - HI_COLOUR coarse scroll 2 columns: "
+                  "pixel and colour byte of the shown column are fetched at the "
+                  "DISPLAY slot's P / A (seen at the instant, not one tick later), "
+                  "slots 4 and 5",
+                  ok,
+                  fmt("slot4 pix %02X/%02X colour %02X/%02X; slot5 pix %02X/%02X "
+                      "colour %02X/%02X (expected FF/00 FF/00)",
+                      r[0][0], r[0][1], r[0][2], r[0][3],
+                      r[1][0], r[1][1], r[1][2], r[1][3]));
+        }
+
+        // VMUX-18 - HI_COLOUR coarse + fine scroll (NR 0x26 = 20, shift_scroll
+        // 8 cells): slot s shows the low nibble of column s+2 (primary, P / A)
+        // then the high nibble of column s+3 (secondary, SP / SA: pbyte01/
+        // abyte01 @5/@7 for an even slot, pbyte11/abyte11 @1/@3 of the next
+        // block for an odd one). Slot 4: SP = 0x25 < P = 0x29, so the SP+1
+        // write lands between the two and must NOT reach the shifted-in
+        // pixels; slot 5: P = 0x2D < SP = 0x31, so the P+1 write lands between
+        // them and must not reach the primary pixels.
+        {
+            uint8_t r[2][8];
+            bool ok = true;
+            const uint8_t exp[8] = {0xF0, 0x00, 0xF0, 0x00, 0x0F, 0x00, 0x0F, 0x00};
+            for (int k = 0; k < 2; ++k) {
+                const int slot = 4 + k;
+                for (int w = 0; w < 4; ++w)
+                    for (int d = 0; d < 2; ++d) {
+                        r[k][w * 2 + d] = hicolour(20, slot, w, d);
+                        ok = ok && r[k][w * 2 + d] == exp[w * 2 + d];
+                    }
+            }
+            check("VMUX-18",
+                  "zxula.vhd:199,216,224-258,276-303,383-399 - HI_COLOUR coarse + "
+                  "fine scroll: primary pixel/colour at P/A, shifted-in pixel/colour "
+                  "of the px_1 column at the secondary instants, slots 4 and 5",
+                  ok,
+                  fmt("slot4 P %02X/%02X A %02X/%02X SP %02X/%02X SA %02X/%02X; "
+                      "slot5 P %02X/%02X A %02X/%02X SP %02X/%02X SA %02X/%02X "
+                      "(expected F0/00 F0/00 0F/00 0F/00)",
+                      r[0][0], r[0][1], r[0][2], r[0][3], r[0][4], r[0][5], r[0][6], r[0][7],
+                      r[1][0], r[1][1], r[1][2], r[1][3], r[1][4], r[1][5], r[1][6], r[1][7]));
+        }
+
+        // Hi-res: port FF = 6 | ink 5 << 3 (bright cyan ink, :419). The slot's
+        // 16 cells as a mask, MSB = cell 0, set where the cell is ink.
+        const uint32_t hr_ink = bed_ink_argb(BeamBed().palette, 8 | 5);
+        auto hr_cells = [&](const std::array<uint32_t, Ula::FB_WIDTH>& l, int slot) {
+            uint16_t v = 0;
+            for (int c = 0; c < 16; ++c)
+                if (l[Ula::DISP_X + slot * 16 + c] == hr_ink)
+                    v = static_cast<uint16_t>(v | (0x8000 >> c));
+            return v;
+        };
+        // what: 0 screen 0 of c0 @P, 1 screen 1 of c0 @A, 2 screen 0 of c1
+        // @SP, 3 screen 1 of c1 @SA. Screen 0 at 0x4000 + addr_p, screen 1 at
+        // 0x6000 + addr_p (:229-241).
+        auto hires = [&](uint8_t scroll, int slot, int what, int delta) -> uint16_t {
+            BeamBed bed;
+            bed.ula.set_screen_mode(static_cast<uint8_t>(0x06 | (5 << 3)));
+            bed.ula.set_ula_scroll_x_coarse(scroll);
+            const int col = slot + 2 + (what >= 2 ? 1 : 0);
+            const bool s1 = (what & 1) != 0;
+            const int at = what == 0 ? vh_pbyte_primary(slot)
+                         : what == 1 ? vh_abyte_primary(slot)
+                         : what == 2 ? vh_pbyte_secondary(slot)
+                                     : vh_abyte_secondary(slot);
+            bed.begin();
+            bed.wr(s1 ? colour_addr(col) : pix_addr(col), 0xFF, kFbRow, raw_hc(at) + delta);
+            return hr_cells(bed.row(kFbRow), slot);
+        };
+
+        // VMUX-19 - HI_RES coarse scroll (NR 0x26 = 16): slot s shows screen 0
+        // then screen 1 of column s+2 (shift_reg_32 = s0 & s1 & ..., :388),
+        // fetched at slot s's P (screen 0) and A (screen 1).
+        {
+            uint16_t r[2][4];
+            bool ok = true;
+            for (int k = 0; k < 2; ++k) {
+                const int slot = 4 + k;
+                r[k][0] = hires(16, slot, 0, 0); r[k][1] = hires(16, slot, 0, 1);
+                r[k][2] = hires(16, slot, 1, 0); r[k][3] = hires(16, slot, 1, 1);
+                ok = ok && r[k][0] == 0xFF00 && r[k][1] == 0x0000
+                        && r[k][2] == 0x00FF && r[k][3] == 0x0000;
+            }
+            check("VMUX-19",
+                  "zxula.vhd:199,224-258,276-303,388 - HI_RES coarse scroll 2 columns: "
+                  "screen 0 / screen 1 of the shown column are fetched at the DISPLAY "
+                  "slot's P / A, slots 4 and 5",
+                  ok,
+                  fmt("slot4 s0 %04X/%04X s1 %04X/%04X; slot5 s0 %04X/%04X s1 %04X/%04X "
+                      "(expected FF00/0000 00FF/0000)",
+                      r[0][0], r[0][1], r[0][2], r[0][3],
+                      r[1][0], r[1][1], r[1][2], r[1][3]));
+        }
+
+        // VMUX-20 - HI_RES coarse + fine scroll (NR 0x26 = 22, shift_scroll 12
+        // cells, :399): slot s shows cells 12..27 of s0[c0] & s1[c0] & s0[c1] &
+        // s1[c1] (c0 = s+2, c1 = s+3, :388), i.e. s1[c0] bits 3..0 (A), all of
+        // s0[c1] (SP) and s1[c1] bits 7..4 (SA); s0[c0] is shifted out. Each is
+        // seen at its instant and not one tick later; slot 4's SP+1 / SA+1
+        // writes lie between its secondary and primary instants.
+        {
+            uint16_t r[2][6];
+            bool ok = true;
+            const uint16_t exp[6] = {0xF000, 0x0000, 0x0FF0, 0x0000, 0x000F, 0x0000};
+            for (int k = 0; k < 2; ++k) {
+                const int slot = 4 + k;
+                for (int w = 1; w < 4; ++w)
+                    for (int d = 0; d < 2; ++d) {
+                        r[k][(w - 1) * 2 + d] = hires(22, slot, w, d);
+                        ok = ok && r[k][(w - 1) * 2 + d] == exp[(w - 1) * 2 + d];
+                    }
+            }
+            check("VMUX-20",
+                  "zxula.vhd:199,216,224-258,276-303,383-399 - HI_RES coarse + fine "
+                  "scroll: screen 1 of the px column at A, screens 0 and 1 of the "
+                  "px_1 column at the secondary instants, slots 4 and 5",
+                  ok,
+                  fmt("slot4 A %04X/%04X SP %04X/%04X SA %04X/%04X; slot5 A %04X/%04X "
+                      "SP %04X/%04X SA %04X/%04X (expected F000/0000 0FF0/0000 000F/0000)",
+                      r[0][0], r[0][1], r[0][2], r[0][3], r[0][4], r[0][5],
+                      r[1][0], r[1][1], r[1][2], r[1][3], r[1][4], r[1][5]));
+        }
     }
 
     // VMUX-15 — the debugger video panel walks the frame a second time AFTER

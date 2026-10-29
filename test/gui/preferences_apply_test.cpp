@@ -67,7 +67,9 @@
 #include <QSpinBox>
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <cstring>
 #include <filesystem>
 #include <cmath>
@@ -90,6 +92,19 @@
 namespace {
 
 int g_total = 0, g_pass = 0, g_fail = 0;
+
+/// Bytes this process has passed through read() syscalls (Linux
+/// /proc/self/io `rchar`); 0 when unreadable. PA-25d's instrument: a Quick
+/// Load that reads the whole 1 GB card moves it by >= 1 GiB.
+uint64_t rchar_bytes()
+{
+    std::ifstream f("/proc/self/io");
+    std::string key;
+    uint64_t v = 0;
+    while (f >> key >> v)
+        if (key == "rchar:") return v;
+    return 0;
+}
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {})
 {
@@ -975,9 +990,8 @@ void test_quick_snapshot_actions()
 /// With a host-action callback set, the File menu / chord only RAISES the
 /// request; the frontend performs it later (quick_save_now / quick_load_now),
 /// once the keys typed before it have been shown to a frame. Unset, they act
-/// at once, which PA-22 pins. PA-25c: a Quick Load digests the SD card once
-/// for its own probe, not again in handle_load_path() (the Qt freeze was 3
-/// whole-card SHA-256 passes; the oracle is the log line each digest writes).
+/// at once, which PA-22 pins. (PA-25c, the one-digest-per-Quick-Load count, was
+/// retired by GH #396 with the digest itself.)
 void test_quick_snapshot_host_actions()
 {
     QTemporaryDir home;
@@ -1033,17 +1047,35 @@ void test_quick_snapshot_host_actions()
     const bool not_loaded_yet = loaded.empty();
     const bool raised_load = raised.size() == 1 && raised[0] == jnext::QuickAction::Load;
     const size_t digests_after_raise = digests();
+    const uint64_t rchar0 = rchar_bytes();
     f.win.quick_load_now();
-    const size_t digests_after_load = digests();
+    const uint64_t quick_load_read = rchar_bytes() - rchar0;
     check("PA-25b", "with a host-action callback, Quick Load hands nothing to the load route "
                     "until the frontend services the request, then exactly once",
           load != nullptr && not_loaded_yet && raised_load && digests_after_raise == 0 &&
               loaded.size() == 1,
           "loaded_before=" + std::to_string(!not_loaded_yet) + " raised=" +
               std::to_string(raised.size()) + " loaded=" + std::to_string(loaded.size()));
-    check("PA-25c", "a Quick Load of a valid newest .jns digests the SD card once (its own probe), "
-                    "not again in handle_load_path()",
-          digests_after_load == 1, "digests=" + std::to_string(digests_after_load));
+    // PA-25d (GH #396): the frontend-level guard that replaces PA-25c's
+    // digest-count oracle. A Qt Quick Load (probe included) must not read the
+    // card: under the old code it read >= 1 GiB; the bound is 16 MiB. A
+    // positive control proves the counter moves, so an unreadable
+    // /proc/self/io fails the row instead of passing it.
+    {
+        constexpr uint64_t kControl = 32ull * 1024 * 1024;
+        std::ifstream cf(sd, std::ios::binary);
+        std::vector<char> buf(1024 * 1024);
+        const uint64_t c0 = rchar_bytes();
+        for (uint64_t got = 0; got < kControl && cf; got += buf.size())
+            cf.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+        const uint64_t control = rchar_bytes() - c0;
+        const bool instrument_ok = c0 != 0 && control >= kControl;
+        check("PA-25d", "a Qt Quick Load serviced through quick_load_now() reads under 16 MiB "
+                        "(no whole-card read), with a control read proving the counter works",
+              instrument_ok && loaded.size() == 1 && quick_load_read < 16ull * 1024 * 1024,
+              "control=" + std::to_string(control) +
+                  " quick_load_read=" + std::to_string(quick_load_read));
+    }
     Log::emulator()->sinks().pop_back();
 
     qunsetenv("JNEXT_CONFIG_DIR");
@@ -1274,6 +1306,26 @@ void test_quick_keep_control()
           untouched, std::to_string(collected.quick_snapshot_keep));
 }
 
+/// PA-27 - GH #406: File > Recent Files has no control in Preferences, and
+/// collect() rebuilds the whole struct, so the list must be carried through or
+/// pressing OK/Apply would wipe it.
+void test_recent_files_carried()
+{
+    AppConfigData initial;
+    initial.recent_files = {QStringLiteral("/srv/u/a.nex"), QStringLiteral("/srv/u/b.tap")};
+    PreferencesDialog dlg(initial);
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-27", "an untouched Preferences dialog does NOT wipe the recent-files list",
+          emitted && collected.recent_files == initial.recent_files,
+          collected.recent_files.join('|').toStdString());
+}
+
 /// PA-16 — issue #35: the policy lives in the frontend's frame sequencer, not
 /// in the emulator, so Apply must forward it. It applies live in every
 /// outcome, including the one where the user declined a machine-type restart.
@@ -1370,6 +1422,20 @@ void test_debug_keymap_passthrough()
           render_combo(passthrough.debug_keys.combo(jnext::dbgkeys::Action::Run)));
 }
 
+/// PA-26 - GH #395: the Preferences "automatic play/stop" setting reaches the
+/// machine (and Apply with it on leaves it on).
+void test_tape_auto_play_preference()
+{
+    Fixture f(MachineType::ZX48K);
+    const bool on_before = f.emu.tape_auto_play();
+    AppConfigData c = live_prefs(MachineType::ZX48K);
+    c.tape_auto_play = false;
+    f.win.apply_preferences(c);
+    check("PA-26", "Preferences automatic tape play/stop OFF reaches the machine",
+          on_before && !f.emu.tape_auto_play(),
+          "before=" + std::to_string(on_before) + " after=" + std::to_string(f.emu.tape_auto_play()));
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1399,7 +1465,9 @@ int main(int argc, char** argv)
     test_snapshot_load_refusal();
     test_quick_save_prunes();
     test_quick_keep_control();
+    test_recent_files_carried();
     test_debug_keymap_passthrough();
+    test_tape_auto_play_preference();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

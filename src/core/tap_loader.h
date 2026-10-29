@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 class Emulator;
@@ -31,7 +32,7 @@ struct TapBlock {
 /// TAP file loader for the ZX Spectrum emulator.
 ///
 /// Parses a standard .TAP file into a sequence of blocks and provides
-/// fast-load support via ROM trap interception at LD-BYTES (0x0556).
+/// fast-load support via ROM trap interception at LD-BREAK (0x056B, see tape_trap.h).
 ///
 /// Usage:
 ///   TapLoader loader;
@@ -64,11 +65,28 @@ public:
     /// the whole tape. A bad checksum or flag byte inside a complete block is
     /// NOT a container error — libspectrum loads such a tape, and the ROM
     /// reports "R Tape loading error" when it reads that block.
+    /// Most anomaly warnings parse_blocks() reports before it only counts them.
+    static constexpr size_t kMaxWarnings = 20;
+
+    /// Most blocks a tape may hold. A TapBlock costs 40 bytes before its payload,
+    /// so a file of 4-byte blocks takes ~10x its size in memory (64 MiB -> 751 MB,
+    /// and a 256 MiB zip member 3 GB). Real tapes hold a few thousand blocks;
+    /// 1 Mi blocks bounds the structures at ~40 MB and is refused above that.
+    static constexpr size_t kMaxBlocks = 1024 * 1024;
+
     static bool parse_blocks(const std::vector<uint8_t>& file_data,
                              std::vector<TapBlock>& blocks,
                              const std::function<void(const std::string&)>& warn = {},
                              std::string* error = nullptr) {
         char msg[128];
+        // A hostile or damaged tape can have one anomaly per 2 bytes (a 256 MiB
+        // file of zeros is 134 million zero-length blocks): report the first
+        // kMaxWarnings and a count of the rest, not every one.
+        size_t suppressed = 0, reported = 0;
+        auto note = [&](const char* text) {
+            if (reported < kMaxWarnings) { ++reported; warn(text); }
+            else ++suppressed;
+        };
         // Parse TAP blocks: each block is [2-byte LE length][length bytes of data]
         // The data bytes are: [flag][payload...][checksum]
         size_t pos = 0;
@@ -82,7 +100,7 @@ public:
             if (block_len == 0) {
                 if (warn) {
                     snprintf(msg, sizeof(msg), "TAP: zero-length block at offset %zu", pos - 2);
-                    warn(msg);
+                    note(msg);
                 }
                 continue;
             }
@@ -91,6 +109,13 @@ public:
                 snprintf(msg, sizeof(msg),
                          "block %zu at offset %zu declares %u bytes but only %zu remain",
                          blocks.size(), pos - 2, block_len, file_data.size() - pos);
+                if (error) *error = msg;
+                blocks.clear();
+                return false;
+            }
+
+            if (blocks.size() >= kMaxBlocks) {
+                snprintf(msg, sizeof(msg), "the tape has more than %zu blocks", kMaxBlocks);
                 if (error) *error = msg;
                 blocks.clear();
                 return false;
@@ -111,11 +136,16 @@ public:
             if (!block.verify_checksum() && warn) {
                 snprintf(msg, sizeof(msg), "TAP: checksum mismatch in block %zu (flag=0x%02x)",
                          blocks.size(), block.flag);
-                warn(msg);
+                note(msg);
             }
 
             blocks.push_back(std::move(block));
             pos += block_len;
+        }
+        if (suppressed && warn) {
+            snprintf(msg, sizeof(msg), "TAP: %zu more warnings suppressed (first %zu shown)",
+                     suppressed, static_cast<size_t>(kMaxWarnings));
+            warn(msg);
         }
 
         if (pos != file_data.size()) {
@@ -159,11 +189,10 @@ public:
     bool fast_load() const { return fast_load_; }
     void set_fast_load(bool enabled) { fast_load_ = enabled; }
 
-    /// ROM trap addresses (48K/128K ROM).
-    static constexpr uint16_t LD_BYTES_ADDR = 0x0556;
-    /// Handle a ROM trap at LD-BYTES.
-    /// Reads CPU registers (A=flag, IX=dest, DE=length, carry=LOAD/VERIFY),
-    /// feeds the next TAP block, and sets up the return state.
+    /// Handle the ROM trap at LD-BREAK (0x056B).
+    /// Reads CPU registers (A'=flag, F' carry=LOAD/VERIFY, IX=dest, DE=length),
+    /// feeds the next TAP block through tape_trap::rom_ld_bytes and leaves
+    /// the CPU at the routine's RET (0x05E2).
     /// Returns true if the trap was handled (block available), false if tape ended.
     bool handle_ld_bytes_trap(Emulator& emu);
 
@@ -181,15 +210,90 @@ public:
     /// True if real-time playback is in progress.
     bool is_playing() const { return playing_; }
 
+    // -----------------------------------------------------------------------
+    // Automatic play/stop (GH #395)
+    // -----------------------------------------------------------------------
+
+    /// The host's policy, set before each tick: stop at the next gap boundary
+    /// (a block and its pause done, the next block about to start).
+    void set_gap_hold(bool hold) { gap_hold_ = hold; }
+
+    /// True when the deck is stopped at a gap boundary; resume() continues it
+    /// at the next block, from its first pilot pulse.
+    bool is_held() const { return held_; }
+    void resume() { start_realtime_playback(); }
+
     /// Get the tape filename (for UI display).
     const std::string& filename() const { return filename_; }
+
+    /// The absolute UTF-8 host path the tape was loaded from (GH #401);
+    /// empty when nothing is loaded. filename() stays the display name.
+    const std::string& path() const { return path_; }
+
+    /// SHA-256 of the exact bytes load() parsed (GH #402); empty when nothing
+    /// is loaded. The `.jns` records THIS digest, so it describes the deck's
+    /// content and not a file edited after it was attached.
+    const std::string& sha256() const { return sha256_; }
+
+    // -----------------------------------------------------------------------
+    // The deck's position, for a `.jns` (GH #402)
+    // -----------------------------------------------------------------------
+
+    /// Everything the real-time player and the fast-load cursor hold. Host
+    /// policy (gap_hold) and the unused play_tstates_ are not part of it.
+    /// `phase`: leader sync1 sync2 data pause done.
+    struct DeckState {
+        uint32_t    block = 0;           ///< current_block_
+        bool        playing = false;
+        bool        held = false;
+        std::string phase = "done";
+        uint32_t    pulse_left = 0;      ///< T-states left in the current pulse
+        uint32_t    leader_left = 0;     ///< pilot pulses left
+        uint32_t    byte = 0;            ///< index in flag + data + checksum
+        uint32_t    bit = 0;             ///< 7..0
+        uint32_t    half = 0;            ///< 0 or 1: which half of the bit
+        uint32_t    ear = 0;
+        bool operator==(const DeckState& o) const {
+            return std::tie(block, playing, held, phase, pulse_left, leader_left,
+                            byte, bit, half, ear) ==
+                   std::tie(o.block, o.playing, o.held, o.phase, o.pulse_left,
+                            o.leader_left, o.byte, o.bit, o.half, o.ear);
+        }
+    };
+    DeckState deck_state() const;
+
+    /// Put the deck back where `d` says. False, with the reason in `why` and
+    /// the loader untouched, when `d` is not a position this tape can be in
+    /// (no tape loaded, a block or byte past the tape, an unknown phase...).
+    bool restore_deck(const DeckState& d, std::string& why);
+
+    /// Convert a real-time deck to fast loading without cutting a block (GH
+    /// #402): a deck at a block boundary (not playing: held, ended) turns fast
+    /// at once and returns true; a deck mid-block keeps playing and turns fast,
+    /// stopped, at the next gap boundary (the block, its pause done), the
+    /// way auto play holds there. `current_block()` is then the next block.
+    bool handover_to_fast_at_gap();
+    bool handover_pending() const { return handover_pending_; }
+    /// Drop a pending handover: the deck stays real time (an RZX recording runs
+    /// with the tape traps off, so a deck that turned fast would never load).
+    void cancel_handover() { handover_pending_ = false; }
+
+    /// Convert a fast deck (always at a block boundary) to real time at
+    /// `current_block()`: held there when `held` (auto play resumes it when the
+    /// program polls the tape), else playing its pilot at once.
+    void start_realtime_from_fast(bool held);
 
 private:
     std::vector<TapBlock> blocks_;
     size_t current_block_ = 0;
     bool loaded_ = false;
     bool fast_load_ = true;
+    bool gap_hold_ = false;
+    bool handover_pending_ = false;   ///< not serialised: re-derived on restore
+    bool held_ = false;
     std::string filename_;
+    std::string path_;
+    std::string sha256_;
 
     // Real-time playback state
     bool     playing_ = false;

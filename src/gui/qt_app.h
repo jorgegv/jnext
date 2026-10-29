@@ -48,7 +48,10 @@ public:
     /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
     void set_pending_load(const std::string& file, int delay_frames);
 
-    void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
+    /// GH #402 - the session's one fast/real-time setting: the Tape > Fast Load
+    /// toggle (--tape-realtime has set it for the session, main.cpp). Read by
+    /// File > Load, --load and the debugger's load, as Tape > Open reads it.
+    bool tape_realtime() const;
     /// --rzx-play / --rzx-record. Acted on at the start of run(), so they may
     /// be called before or after init() (see emulator_start_rzx()).
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
@@ -261,7 +264,6 @@ private:
     // Emulator config
     EmulatorConfig config_;
     bool           config_set_ = false;
-    bool           tape_realtime_ = false;
     std::string    rzx_play_file_;
     std::string    rzx_record_file_;
     bool           rzx_record_started_ = false;

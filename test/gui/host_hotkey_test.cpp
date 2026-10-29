@@ -59,6 +59,7 @@
 // ===========================================================================
 #include <QAction>
 #include <QApplication>
+#include <QTemporaryDir>
 #include <QImage>
 #include <QToolBar>
 #include <QFile>
@@ -653,6 +654,16 @@ void test_quick_screenshot_chord(MainWindow& w) {
         if (quick) QObject::disconnect(quick, nullptr, nullptr, nullptr);
         w.set_key_callback(nullptr);
     }
+}
+
+// GH #406 - File > Reload Last File is a host chord too: Alt+L, free in the host
+// set, the menu bar and the guest's Alt+E/G/C. Its firing, and its being
+// disabled with nothing to reload, are driven in recent_files_menu_test.
+void test_reload_last_chord(MainWindow& w) {
+    QAction* a = find_action(w, "Reload Last File");
+    check("H406-01", "action \"Reload Last File\" is bound to exactly Alt+L",
+          a != nullptr && seq_of(a) == QStringLiteral("Alt+L"),
+          a ? ("got='" + seq_of(a) + "'").toStdString() : "action not found");
 }
 
 // ---------------------------------------------------------------------------
@@ -1505,6 +1516,15 @@ void test_script_keys(MainWindow& w) {
 
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    // MainWindow reads (and may write) jnext.conf: keep it off the user's real
+    // ~/.jnext, whether or not the harness has already isolated $HOME.
+    QTemporaryDir cfg_dir;
+    if (!cfg_dir.isValid()) {
+        std::printf("  FAIL: could not create a temporary config directory\n");
+        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+        return 1;
+    }
+    qputenv("JNEXT_CONFIG_DIR", cfg_dir.path().toUtf8());
     QApplication app(argc, argv);
 
     std::printf("Issue #115 part 2 - host hotkeys on Alt, Ctrl left to the guest\n");
@@ -1524,6 +1544,7 @@ int main(int argc, char** argv) {
     test_snapshot_chord(w);
     test_preferences_chord(w);
     test_quick_screenshot_chord(w);
+    test_reload_last_chord(w);
     test_quick_snapshot_chords(w);
     test_alt_f4_quit(w);
     test_alt_namespace(w);

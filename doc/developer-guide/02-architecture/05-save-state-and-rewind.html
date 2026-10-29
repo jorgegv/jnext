@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2471,7 +2471,41 @@ identity of every external resource the machine was using — the SD card, the
 ROMs, the tape. None of those are <em>copied</em>: an SD image is a gigabyte of
 somebody else's firmware. They are recorded so a mismatch is <strong>detected</strong>
 rather than silently wrong, which is the same shape the esxDOS handles already
-used.</p>
+used.
+The tape is recorded by the loaders' absolute path (<code>TapLoader::path()</code> and
+its two siblings, built by <code>jnext::absolute_host_path()</code>), beside the display
+name <code>filename()</code>, with the digest of the bytes the loader read (<code>sha256()</code>).
+A host path that is not UTF-8 is written with U+FFFD instead of aborting the
+save. A tape extracted from a <code>.zip</code> also records <code>media.tape.archive</code> and
+<code>media.tape.member</code>: <code>ProgramArchive::extract()</code> registers every file it writes
+(<code>program_archive::extracted_from()</code>), so all load routes are covered, and the
+scratch copy dies with the process.</p>
+<p>The deck's position is the hand-written member <code>state/tape.json</code> (outside the
+generated schema, like <code>esxdos_hostfs</code>), written and listed in <code>subsystems</code> only
+when a tape is attached. <code>TapLoader</code>, <code>TzxLoader</code> and <code>WavLoader</code> each expose a
+<code>DeckState</code> (<code>deck_state()</code> / <code>restore_deck()</code>); times are signed distances from
+the save instant and file pointers are byte offsets. The member also carries
+the poll detector, the phantom typist and the recorded auto play. On load,
+<code>Emulator::reattach_jns_tape_()</code> runs last (the state round trip resets the
+detector and, like every <code>load_state()</code>, a rewind's included, closes the
+fast-load pacing window, GH #408): it re-opens the tape (from the archive when there is one), checks
+the digest, and has the loader validate every value against the file before
+installing it. Any failure is ONE warning and the deck stays as it was. A file
+without the member (older jnext) is not reattached either, since attaching at
+the start would hand block 0 to a program waiting for a later one.</p>
+<p>A snapshot changes no setting (owner, GH #402). The session's mode reaches
+the core as <code>JnsLoadOptions::tape_realtime</code> (the one fast/real-time setting:
+the Tape &gt; Fast Load toggle, which <code>--tape-realtime</code> overrides for the run in
+<code>main.cpp</code>; <code>QtApp::tape_realtime()</code> reads the toggle, SDL and headless take the
+flag) and <code>tape_auto_play_</code>; a deck recorded in the other mode is
+converted at a block boundary: <code>handover_to_fast_at_gap()</code> (finish the block in
+real time, then fast at the next gap), <code>start_realtime_from_fast()</code> /
+<code>start_playback_from_fast_position()</code> (real time from the fast cursor, held
+under auto play), and the auto play rules of <code>set_tape_auto_play</code>. Tests:
+<code>rewind_test</code> S6-EMU-TAPE-*, the loaders' <code>TAPD</code>/<code>TZXD</code>/<code>WAVD</code> rows,
+<code>snapshot_test</code> JNSN-31, S6-MEDIA-02 and S6-TAPE-03, and the Linux-only
+<code>jns_host_path_linux_test</code>. All the machines in one process share one live
+T-state counter, so a test runs A to its end before it builds B.</p>
 <p>The test that matters is in <code>rewind_test</code>: save a running machine to a <code>.jns</code>,
 load it into a second machine, and require the two machines' <strong>binary</strong> state
 streams to be byte-identical. A subsystem missing from the one list is never
