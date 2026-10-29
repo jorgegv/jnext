@@ -25,6 +25,16 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/version.yaml")
 include(cmake/GenerateVersion.cmake)
 project(jnext VERSION "${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" LANGUAGES C CXX)
+
+# Fedora's %mingw64_cmake (mingw64-cmake) and %cmake (the rpm spec) pass these
+# -D variables to every project; jnext uses none of them, and CMake then prints
+# "Manually-specified variables were not used" on every configure (GH #416).
+# Reading a variable marks it used. The list is exactly the macros' names, so a
+# typo in one of jnext's own -D options is still reported.
+foreach(_jnext_fedora_var INCLUDE_INSTALL_DIR SHARE_INSTALL_PREFIX SYSCONF_INSTALL_DIR
+        LIB_INSTALL_DIR LIB_SUFFIX CMAKE_INSTALL_DO_STRIP CMAKE_Fortran_FLAGS_RELEASE)
+    set(_jnext_fedora_unused "${${_jnext_fedora_var}}")
+endforeach()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
