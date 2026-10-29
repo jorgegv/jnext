@@ -2415,6 +2415,176 @@ static void test_nextpi_console_rows() {
     }
 }
 
+// GH #407 - the user's extra QEMU arguments: the splitter, the placement in argv, the real spawn.
+using Strs = std::vector<std::string>;
+
+std::string strs_str(const Strs& v) {
+    std::string s;
+    for (const auto& a : v) s += "<" + a + ">";
+    return s;
+}
+
+struct SplitCase {
+    std::string text;
+    Strs        want;
+};
+
+/// The cases that did not split to exactly `want` with a true return ("" if all did).
+std::string split_cases_failed(const std::vector<SplitCase>& cases) {
+    std::string bad;
+    for (const auto& c : cases) {
+        Strs out{"stale"};
+        std::string err;
+        const bool ok = PiQemu::split_extra_args(c.text, out, err);
+        if (!ok || out != c.want)
+            bad += "[" + c.text + "] ok=" + std::to_string(ok) + " got " + strs_str(out) + "; ";
+    }
+    return bad;
+}
+
+void test_nextpi_extra_args_rows() {
+    // PIT-57 - no quotes: runs of blanks separate, blank text is no argument.
+    {
+        const std::string bad = split_cases_failed({
+            {"-serial telnet::2357,server,nowait", {"-serial", "telnet::2357,server,nowait"}},
+            {"  -a \t -b\n-c  ", {"-a", "-b", "-c"}},
+            {"-a\r-b", {"-a", "-b"}},
+            {"", {}},
+            {" \t ", {}},
+        });
+        check("PIT-57",
+              "the extra-arguments text splits on runs of space, tab, CR and LF: one box holding "
+              "'-serial telnet::2357,server,nowait' is two arguments, leading and trailing blanks make "
+              "none, and blank text is no argument (GH #407; jnext-only, no VHDL counterpart)",
+              bad.empty(), bad);
+    }
+
+    // PIT-58 - quoting, joining, empty arguments.
+    {
+        const std::string bad = split_cases_failed({
+            {"-name 'my pi'", {"-name", "my pi"}},
+            {"-name \"my pi\"", {"-name", "my pi"}},
+            {"'a\"b'", {"a\"b"}},
+            {"\"a'b\"", {"a'b"}},
+            {"ab'c d'\"e\"f", {"abc def"}},
+            {"'' x \"\"", {"", "x", ""}},
+            {"x''", {"x"}},
+        });
+        check("PIT-58",
+              "'...' and \"...\" keep spaces in one argument and are literal, a quote of the other kind "
+              "inside opens nothing, adjacent pieces join into one argument, and a lone '' or \"\" is "
+              "one empty argument while x'' is x (GH #407; jnext-only, no VHDL counterpart)",
+              bad.empty(), bad);
+    }
+
+    // PIT-59 - no escapes, no expansion.
+    {
+        const std::string bad = split_cases_failed({
+            {"C:\\Users\\Jo Doe\\pi.img", {"C:\\Users\\Jo", "Doe\\pi.img"}},
+            {"'C:\\Users\\Jo Doe\\'", {"C:\\Users\\Jo Doe\\"}},
+            {"a\\ b", {"a\\", "b"}},
+            {"$HOME ~ ;|* `id`", {"$HOME", "~", ";|*", "`id`"}},
+        });
+        check("PIT-59",
+              "a backslash is an ordinary character (a pasted Windows path is not changed, a trailing "
+              "backslash inside quotes is kept) and nothing is expanded: $HOME, ~, ;, |, * and a "
+              "backtick pass verbatim (GH #407; jnext-only, no VHDL counterpart)",
+              bad.empty(), bad);
+    }
+
+    // PIT-60 - an unterminated quote is refused with the position named; a quote inside the other kind is fine.
+    {
+        Strs o1{"stale"}, o2{"stale"}, o3{"stale"}, o4{"stale"}, o5{"stale"};
+        std::string e1, e2, e3, e4, e5;
+        const bool r1 = PiQemu::split_extra_args("-name 'my pi", o1, e1);
+        const bool r2 = PiQemu::split_extra_args("a \"b", o2, e2);
+        const bool r3 = PiQemu::split_extra_args("'a' 'b", o3, e3);
+        const bool r4 = PiQemu::split_extra_args("'\"'", o4, e4);
+        const bool r5 = PiQemu::split_extra_args("\"'\"", o5, e5);
+        check("PIT-60",
+              "an unterminated ' or \" quote is refused: false, the output emptied, and the error names the "
+              "quote and the 1-based character where it opens; a quote inside the other kind opens "
+              "nothing (GH #407; jnext-only, no VHDL counterpart)",
+              !r1 && o1.empty() && e1 == "unterminated ' quote (it opens at character 7)" &&
+                  !r2 && o2.empty() && e2 == "unterminated \" quote (it opens at character 3)" &&
+                  !r3 && o3.empty() && e3 == "unterminated ' quote (it opens at character 5)" &&
+                  r4 && o4 == Strs{"\""} && r5 && o5 == Strs{"'"},
+              fmt("e1='%s' e2='%s' e3='%s' o4=%s o5=%s", e1.c_str(), e2.c_str(), e3.c_str(),
+                  strs_str(o4).c_str(), strs_str(o5).c_str()));
+    }
+
+    // PIT-61 - build_args puts the extras after jnext's own, in order, on both transports.
+    {
+        PiQemu::Spec spec;
+        spec.dir   = "n";
+        spec.audio = "none";
+        const Strs plain_fifo = PiQemu::build_args(spec, "base");
+        const Strs plain_sock = PiQemu::build_args(spec, std::uint16_t{40123}, "ab");
+        const Strs extras = {"-serial", "telnet:127.0.0.1:2357,server,nowait", "-name", "my pi"};
+        spec.extra_args   = extras;
+        bool all_ok = true;
+        std::string why;
+        for (int t = 0; t < 2; ++t) {
+            const Strs got  = t == 0 ? PiQemu::build_args(spec, "base")
+                                     : PiQemu::build_args(spec, std::uint16_t{40123}, "ab");
+            const Strs& own = t == 0 ? plain_fifo : plain_sock;
+            const bool sized = got.size() == own.size() + extras.size();
+            const bool tail  = sized && Strs(got.end() - 4, got.end()) == extras;
+            const bool head  = sized && Strs(got.begin(), got.end() - 4) == own;
+            std::size_t pi = got.size(), extra_serial = got.size();
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (got[i] == "chardev:pi" && pi == got.size()) pi = i;
+                if (i >= got.size() - 4 && got[i] == "-serial") extra_serial = i;
+            }
+            const bool order = pi < extra_serial;
+            if (!(tail && head && order)) {
+                all_ok = false;
+                why += fmt("t%d sized=%d tail=%d head=%d order=%d; ", t, sized, tail, head, order);
+            }
+        }
+        check("PIT-61",
+              "build_args, on the FIFO and the socket transport, appends Spec::extra_args after jnext's own "
+              "arguments, in order and unchanged, so a user -serial comes after the console's "
+              "-serial chardev:pi; with none set the list is the 22 arguments it was (GH #407; jnext-only, "
+              "no VHDL counterpart)",
+              all_ok && plain_fifo.size() == 22 && plain_sock.size() == 22,
+              why + fmt("plain sizes %zu %zu", plain_fifo.size(), plain_sock.size()));
+    }
+
+    // PIT-62 - end to end through the real spawn (POSIX watchdog + posix_spawn; Windows CreateProcessW +
+    // quote_arg, parsed by the stand-in's own CRT): the hard arguments reach the child byte for byte.
+    {
+        Fixture fx("extra");
+        EnvVar path("PATH", prepend_path(fx.bin_dir()));
+        PiQemu::Spec spec;
+        spec.dir         = fx.dir();
+        spec.qemu_binary = "qemu-system-arm";
+        spec.audio       = "none";
+        spec.transport   = PiQemu::Transport::Socket;
+        // No -chardev here: the stand-in takes the LAST one.
+        const Strs extras = {"-name", "jnext \"pi\" $HOME;* `id`", "C:\\Jo Doe\\", "",
+                             "-serial", "telnet:127.0.0.1:2357,server,nowait"};
+        spec.extra_args = extras;
+        auto qemu = std::make_unique<PiQemu>();
+        std::string error;
+        const bool started = fx.ok() && qemu->start(spec, error);
+        const unsigned long pid = started ? fx.child_pid() : 0;
+        const Strs lines = fx.arg_lines();
+        const bool tail  = lines.size() >= extras.size() &&
+                           Strs(lines.end() - extras.size(), lines.end()) == extras;
+        const bool whole = started && lines == PiQemu::build_args(spec, qemu->tcp_port());
+        qemu.reset();
+        check("PIT-62",
+              "started for real, QEMU receives the extra arguments after jnext's own, byte for byte, "
+              "including a space, an embedded double quote, $HOME ; * and a backtick, a trailing "
+              "backslash and an empty argument: no shell, and on Windows the CreateProcessW quoting "
+              "(GH #407; jnext-only, no VHDL counterpart)",
+              started && pid != 0 && tail && whole,
+              fmt("started=%d (%s) tail=%d whole=%d got %s", started ? 1 : 0, error.c_str(), tail, whole,
+                  strs_str(lines).c_str()));
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "--holder") == 0) return holder_main(argc, argv);
     const std::string self = fs::absolute(argv[0]).string();
@@ -3437,6 +3607,7 @@ int main(int argc, char** argv) {
     test_nextpi_console_rows();
     test_nextpi_review_rows();
     test_nextpi_review2_rows();
+    test_nextpi_extra_args_rows();
     test_pi_audio_pipe();
 
     std::printf("\n====================================\n");

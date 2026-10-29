@@ -1601,6 +1601,7 @@ int main(int argc, char* argv[]) {
         bool gui = false, saved_enabled = false;
         nextpi::ProvisionOptions popts;
         PiQemu::Spec spec;
+        std::string qemu_args_text;   // [nextpi] qemu_args (GH #407); GUI sessions only, like the rest
 #ifdef ENABLE_QT_UI
         if (!headless) {
             const AppConfigData& saved = gui_app_config.data();
@@ -1609,6 +1610,7 @@ int main(int argc, char* argv[]) {
             popts.dir         = saved.nextpi_dir.toStdString();
             popts.release     = saved.nextpi_release.toStdString();
             spec.audio        = saved.nextpi_audio.toStdString();
+            qemu_args_text    = saved.nextpi_qemu_args.toStdString();
             if (!saved.nextpi_qemu_binary.isEmpty())
                 spec.qemu_binary = saved.nextpi_qemu_binary.toStdString();
         }
@@ -1661,10 +1663,24 @@ int main(int argc, char* argv[]) {
             std::string error, qemu_path, qemu_img_path;
             nextpi::ProvisionResult res;   // status Failed unless provision() runs
             spec.dir = popts.dir.empty() ? nextpi::default_dir() : popts.dir;
-            if (PiQemu::find_programs(spec, qemu_path, qemu_img_path, error))
-                res = nextpi::provision(popts);
-            else
-                res.error = error;
+            // The extra QEMU arguments are split BEFORE anything is looked up or downloaded: a
+            // malformed value refuses the start (no download is offered for a start that would be
+            // refused) and says so, rather than starting without what the user asked for.
+            std::string split_error;
+            if (!PiQemu::split_extra_args(qemu_args_text, spec.extra_args, split_error)) {
+                res.error = "extra QEMU arguments (Settings > Preferences > NextPi): " + split_error;
+            } else {
+                if (!spec.extra_args.empty()) {
+                    std::string shown;
+                    for (const std::string& a : spec.extra_args) shown += " \"" + a + "\"";
+                    Log::uart()->info("NextPi: {} extra QEMU arguments, after jnext's own:{}",
+                                      spec.extra_args.size(), shown);
+                }
+                if (PiQemu::find_programs(spec, qemu_path, qemu_img_path, error))
+                    res = nextpi::provision(popts);
+                else
+                    res.error = error;
+            }
             if (res.status == sdcard::ProvisionStatus::Ok) {
                 if (!res.warning.empty()) {
                     Log::uart()->warn("NextPi: {}", res.warning);

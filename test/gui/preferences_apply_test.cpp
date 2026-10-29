@@ -617,6 +617,51 @@ void test_nextpi_preference_controls()
               passthrough.nextpi_audio == initial.nextpi_audio);
 }
 
+/// PA-28a/b — GH #407: the NextPi tab's "Extra QEMU arguments" box.
+void test_nextpi_qemu_args_control()
+{
+    AppConfigData initial;
+    initial.nextpi_enabled   = true;
+    initial.nextpi_qemu_args = QStringLiteral("-serial telnet::2357,server,nowait");
+
+    PreferencesDialog dlg(initial);
+    auto* enable = dlg.findChild<QCheckBox*>(QStringLiteral("nextpiEnabledCheck"));
+    auto* args   = dlg.findChild<QLineEdit*>(QStringLiteral("nextpiQemuArgsEdit"));
+    bool follows = false;
+    if (enable && args) {
+        enable->setChecked(false);
+        const bool off = !args->isEnabled();
+        enable->setChecked(true);
+        follows = off && args->isEnabled();
+    }
+    check("PA-28a", "the NextPi tab has an Extra QEMU arguments box that starts from the saved text and "
+                    "follows the enable tick",
+          args && follows && args->text() == initial.nextpi_qemu_args);
+    if (!args) return;
+
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    args->setText(QStringLiteral("  -name 'my pi' -serial telnet::2357,server,nowait  "));
+    if (auto* b = dlg.findChild<QDialogButtonBox*>(); b && b->button(QDialogButtonBox::Apply))
+        b->button(QDialogButtonBox::Apply)->click();
+
+    PreferencesDialog untouched(initial);
+    AppConfigData passthrough;
+    bool passthrough_emitted = false;
+    QObject::connect(&untouched, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { passthrough_emitted = true; passthrough = cfg; });
+    if (auto* b = untouched.findChild<QDialogButtonBox*>(); b && b->button(QDialogButtonBox::Apply))
+        b->button(QDialogButtonBox::Apply)->click();
+    check("PA-28b", "Apply returns the extra QEMU arguments trimmed, with quotes and commas kept and NOT split; "
+                    "an untouched dialog hands the saved text back unchanged",
+          emitted &&
+              collected.nextpi_qemu_args == QStringLiteral("-name 'my pi' -serial telnet::2357,server,nowait") &&
+              passthrough_emitted && passthrough.nextpi_qemu_args == initial.nextpi_qemu_args,
+          collected.nextpi_qemu_args.toStdString());
+}
+
 /// PA-13 — GH #25: the ESP cannot be toggled on a running machine, so Apply
 /// must hand the new values to the frontend (which owns the EmulatorConfig
 /// every later cold boot is built from) rather than drop them on the floor.
@@ -1454,6 +1499,7 @@ int main(int argc, char** argv)
     test_esp_preference_controls();
     test_pentagon_preference();
     test_nextpi_preference_controls();
+    test_nextpi_qemu_args_control();
     test_esp_settings_reach_the_frontend();
     test_esp_forward_precedes_the_reboot();
     test_when_slow_prefer_control();
