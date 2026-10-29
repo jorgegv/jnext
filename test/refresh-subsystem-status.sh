@@ -162,6 +162,7 @@ BEGIN {
     M["quit_cleanup_test"]             = "Quit runs closeEvent cleanup"
     M["toolbar_icons_test"]            = "Toolbar SVG icon set + icon lint"
     M["color_scheme_test"]             = "GUI light/dark scheme (GH #363)"
+    M["color_scheme_linux_test"]       = "GUI scheme: private bus dies with the suite (GH #414)"
     M["nex_v13_dialog_test"]           = "NEX V1.3 GUI warning dialog"
     M["pok_trainers_test"]             = "POK trainers (.pok, GH #381)"
     M["pok_dialog_test"]               = "POK Trainers GUI dialog (GH #381)"

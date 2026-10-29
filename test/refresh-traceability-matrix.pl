@@ -1084,6 +1084,7 @@ my %NO_MATRIX_SECTION = (
     'crt_shader_widget_test' => 'OpenGL CRT shader widget, settings and menu (host GUI)',
     'window_title_test'   => 'main-window title carries the version (host GUI)',
     'color_scheme_test'   => 'GUI light/dark scheme from the desktop portal (host GUI, GH #363)',
+    'color_scheme_linux_test' => 'GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart',
     'sdcard_dialog_test'  => 'SD-card/NextPi download dialog through a dropped network (host GUI, GH #358)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',

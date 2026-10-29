@@ -18,9 +18,9 @@
 // SettingChanged subscription. CS-23/24: QtApp and the SD-card dialogs call
 // install() (source checks, as MWP-12: no suite can construct a QtApp).
 // CS-25/26: both arms of the Qt 6.8 setColorScheme() guard. CS-27: the
-// Preferences dialog's problems label on a dark palette. CS-28: the private
-// bus dies with the suite, even when the harness SIGKILLs it; CS-29: and at
-// once when the suite exits normally.
+// Preferences dialog's problems label on a dark palette. CS-30: a --bus-guard
+// copy is only the guard. (CS-28/29, the private bus dying with the suite, are
+// Linux-only and live in color_scheme_linux_test.)
 //
 // Run: ./build/test/color_scheme_test
 // ===========================================================================
@@ -60,6 +60,7 @@
 #include <sstream>
 #include <string>
 #include "../row_id.h"
+#include "private_bus.h"
 
 #ifdef JNEXT_HAVE_QTDBUS
 // The mock portal: org.freedesktop.portal.Settings as version 2 (ReadOne and
@@ -299,9 +300,13 @@ void test_glue() {
     }
 }
 
-// The private bus main() starts; empty when dbus-daemon could not be started.
-QByteArray g_bus_address;
-std::string g_bus_error;
+using private_bus::g_bus_address;
+using private_bus::g_bus_error;
+using private_bus::g_self;
+using private_bus::PrivateBus;
+#ifndef _WIN32
+using private_bus::bus_guard;
+#endif
 
 std::string code_of(const char* path) {   // a source file, line comments removed
     std::ifstream in(path);
@@ -532,170 +537,6 @@ void test_wiring_and_arms() {
     }
 }
 
-// A private session bus for CS-18..22: a dbus-daemon with a minimal config
-// (no service directories, so nothing is ever activated), its socket in a
-// temporary directory, its environment explicit (LANG=C, CLAUDE.md).
-//
-// The daemon runs --nofork under a GUARD: this binary re-run as --bus-guard,
-// which starts the daemon and SIGKILLs it as soon as its stdin reaches EOF.
-// Its stdin is a pipe whose only writer is this suite, so the daemon goes
-// with the suite however the suite ends — including a SIGKILL from the
-// harness on a timeout, when no destructor runs. (PR_SET_PDEATHSIG on the
-// daemon does not survive: measured on dbus-daemon 1.16, a --nofork daemon
-// with PDEATHSIG=SIGKILL outlives its SIGKILLed parent.) CS-28 pins it.
-const char* g_self = nullptr;
-
-struct PrivateBus {
-    QTemporaryDir dir;
-    QProcess guard;
-    qint64 daemon_pid = 0;
-    PrivateBus() {
-        if (!dir.isValid()) { g_bus_error = "no temporary directory"; return; }
-        const QString conf = dir.filePath("bus.conf");
-        QFile f(conf);
-        if (!f.open(QIODevice::WriteOnly)) { g_bus_error = "cannot write bus.conf"; return; }
-        f.write(QStringLiteral(
-                    "<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN\" "
-                    "\"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n"
-                    "<busconfig><type>session</type><listen>unix:dir=%1</listen>"
-                    "<auth>EXTERNAL</auth><policy context=\"default\"><allow send_destination=\"*\"/>"
-                    "<allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>\n")
-                    .arg(dir.path()).toUtf8());
-        f.close();
-        QProcessEnvironment env;
-        env.insert("LANG", "C");
-        env.insert("PATH", qEnvironmentVariable("PATH"));
-        guard.setProcessEnvironment(env);
-        guard.start(QString::fromLocal8Bit(g_self), {"--bus-guard", conf});
-        if (!guard.waitForStarted(5000)) { g_bus_error = "the bus guard did not start"; return; }
-        QElapsedTimer t;
-        t.start();
-        do {   // at least one poll, however late this thread is first scheduled (GH #399)
-            guard.waitForReadyRead(100);
-            const QByteArray err = guard.readAllStandardError();
-            if (const int i = err.indexOf("pid="); i >= 0) daemon_pid = err.mid(i + 4).trimmed().toLongLong();
-        } while (!(guard.canReadLine() && daemon_pid > 0) && t.elapsed() < 5000);
-        g_bus_address = guard.readLine().trimmed();
-        if (g_bus_address.isEmpty()) g_bus_error = "dbus-daemon did not start (is it installed?)";
-    }
-    ~PrivateBus() {
-        guard.closeWriteChannel();   // EOF: the guard kills the daemon and exits
-        if (!guard.waitForFinished(5000)) { guard.kill(); guard.waitForFinished(3000); }
-    }
-};
-
-#ifndef _WIN32
-// --bus-guard CONF: run dbus-daemon on CONF (its address on our stdout), print
-// "pid=N" on stderr, and SIGKILL it when stdin reaches EOF. Plain POSIX: it
-// must not depend on anything a dying parent could leave half-done.
-int bus_guard(const char* conf) {
-    const pid_t d = fork();
-    if (d < 0) return 1;
-    if (d == 0) {
-        const int devnull = open("/dev/null", O_RDONLY);
-        if (devnull >= 0) dup2(devnull, 0);   // the daemon must not hold the guard's stdin
-        const std::string cfg = std::string("--config-file=") + conf;
-        execlp("dbus-daemon", "dbus-daemon", cfg.c_str(), "--nofork", "--print-address=1",
-               static_cast<char*>(nullptr));
-        _exit(127);
-    }
-    std::fprintf(stderr, "pid=%d\n", static_cast<int>(d));
-    std::fflush(stderr);
-    char buf[64];
-    while (read(0, buf, sizeof buf) > 0) {}
-    kill(d, SIGKILL);
-    waitpid(d, nullptr, 0);
-    return 0;
-}
-#endif
-
-// Is `pid` gone: no such process, or a zombie no one has reaped yet (a
-// container's PID 1 may never reap it; it is dead either way).
-bool process_gone(qint64 pid) {
-    QFile stat(QStringLiteral("/proc/%1/stat").arg(pid));
-    if (!stat.open(QIODevice::ReadOnly)) return true;
-    const QByteArray line = stat.readAll();
-    const int close = line.lastIndexOf(')');
-    return close < 0 || line.mid(close + 2, 1) == "Z";
-}
-
-// CS-28 — a suite SIGKILLed by the harness (a timeout) takes its private
-// dbus-daemon with it. A copy of this binary, run as --bus-child FILE, starts
-// the bus and writes the daemon's pid to FILE; it is then SIGKILLed.
-void test_bus_cleanup() {
-#ifdef __linux__
-    QTemporaryDir dir;
-    const QString pidfile = dir.filePath("daemon.pid");
-    QProcess child;
-    QProcessEnvironment env;
-    env.insert("LANG", "C");
-    env.insert("PATH", qEnvironmentVariable("PATH"));
-    child.setProcessEnvironment(env);
-    child.start(QString::fromLocal8Bit(g_self), {"--bus-child", pidfile});
-    qint64 daemon = 0;
-    QElapsedTimer t;
-    t.start();
-    do {   // at least one poll, however late this thread is first scheduled (GH #399)
-        if (!dir.isValid() || !child.waitForStarted(5000)) break;
-        QFile f(pidfile);
-        if (f.open(QIODevice::ReadOnly)) daemon = f.readAll().trimmed().toLongLong();
-        if (daemon <= 0) QThread::msleep(20);
-    } while (t.elapsed() < 10000 && daemon <= 0);
-    const bool alive_before = daemon > 0 && !process_gone(daemon);
-    child.kill();                                   // SIGKILL: no destructor runs
-    child.waitForFinished(5000);
-    bool gone = false;
-    t.restart();
-    while (daemon > 0 && !(gone = process_gone(daemon)) && t.elapsed() < 5000) QThread::msleep(20);
-    if (daemon > 0 && !gone) ::kill(static_cast<pid_t>(daemon), SIGKILL);   // never leave it behind
-    check("CS-28", "a suite SIGKILLed by the harness takes its private dbus-daemon with it (the bus "
-                   "guard sees its stdin close), within 5 s",
-          alive_before && gone,
-          daemon > 0 ? "daemon " + std::to_string(daemon) + (alive_before ? " was alive" : " not alive") +
-                           (gone ? ", gone after the kill" : ", STILL RUNNING after the kill")
-                     : std::string("the child reported no daemon"));
-#else
-    check("CS-28", "a suite SIGKILLed by the harness takes its private dbus-daemon with it (Linux only)",
-          false, "not a Linux build");
-#endif
-}
-
-// CS-29 — the normal end: a suite that EXITS takes its daemon with it, at
-// once (~PrivateBus closes the guard's stdin). A --bus-child-exit copy starts
-// the bus, writes the daemon's pid and returns from main().
-void test_bus_normal_exit() {
-#ifdef __linux__
-    QTemporaryDir dir;
-    const QString pidfile = dir.filePath("daemon.pid");
-    QProcess child;
-    QProcessEnvironment env;
-    env.insert("LANG", "C");
-    env.insert("PATH", qEnvironmentVariable("PATH"));
-    child.setProcessEnvironment(env);
-    QElapsedTimer t;
-    t.start();
-    child.start(QString::fromLocal8Bit(g_self), {"--bus-child-exit", pidfile});
-    const bool exited = child.waitForFinished(15000);
-    const qint64 ms = t.elapsed();
-    if (!exited) { child.kill(); child.waitForFinished(5000); }   // SIGKILL past the bound
-    QFile f(pidfile);
-    const qint64 daemon = f.open(QIODevice::ReadOnly) ? f.readAll().trimmed().toLongLong() : 0;
-    bool gone = false;
-    t.restart();
-    while (daemon > 0 && !(gone = process_gone(daemon)) && t.elapsed() < 2000) QThread::msleep(20);
-    if (daemon > 0 && !gone) ::kill(static_cast<pid_t>(daemon), SIGKILL);   // never leave it behind
-    check("CS-29", "a suite that exits normally takes its private dbus-daemon with it (the destructor "
-                   "closes the guard's stdin), with no wait: exit within 3 s, daemon gone within 2 s",
-          exited && child.exitCode() == 0 && ms < 3000 && daemon > 0 && gone,
-          daemon > 0 ? "exit after " + std::to_string(ms) + " ms (code " + std::to_string(child.exitCode()) +
-                           "), daemon " + std::to_string(daemon) + (gone ? " gone" : " STILL RUNNING")
-                     : std::string("the child reported no daemon"));
-#else
-    check("CS-29", "a suite that exits normally takes its private dbus-daemon with it (Linux only)", false,
-          "not a Linux build");
-#endif
-}
-
 // CS-30 — a --bus-guard copy is only ever the guard: it never runs the suite.
 // PrivateBus re-runs this binary as --bus-guard; a platform whose main() did
 // not dispatch the flag ran the whole suite in the child, which built its own
@@ -722,20 +563,6 @@ void test_bus_guard_is_not_the_suite() {
               (ran_suite ? ", RAN THE SUITE" : ""));
 }
 
-// --bus-child FILE: start the private bus, publish the daemon's pid, then
-// wait to be killed (bounded: 60 s); with `stay` false, return at once, so
-// the caller's exit runs ~PrivateBus.
-int bus_child(const char* pidfile, bool stay) {
-    PrivateBus bus;
-    QFile tmp(QString::fromLocal8Bit(pidfile) + ".tmp");
-    if (bus.daemon_pid <= 0 || !tmp.open(QIODevice::WriteOnly)) return 1;
-    tmp.write(QByteArray::number(bus.daemon_pid));
-    tmp.close();
-    if (!tmp.rename(QString::fromLocal8Bit(pidfile))) return 1;
-    if (stay) QThread::sleep(60);
-    return 0;
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
@@ -750,8 +577,6 @@ int main(int argc, char** argv) {
         return 1;   // no POSIX guard here: PrivateBus reports "dbus-daemon did not start"
 #endif
     }
-    if (argc == 3 && std::string(argv[1]) == "--bus-child") return bus_child(argv[2], true);
-    if (argc == 3 && std::string(argv[1]) == "--bus-child-exit") return bus_child(argv[2], false);
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("JNEXT_COLOR_SCHEME");
     QTemporaryDir cfg;
@@ -777,10 +602,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: CS portal      - done\n");
     test_wiring_and_arms();
     std::printf("  Group: CS wiring      - done\n");
-    test_bus_cleanup();
-    test_bus_normal_exit();
     test_bus_guard_is_not_the_suite();
-    std::printf("  Group: CS bus cleanup - done\n");
+    std::printf("  Group: CS bus guard   - done\n");
     std::printf("\n==================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
