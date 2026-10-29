@@ -4216,10 +4216,16 @@ int main() {
             const fs::path plain = dir / "sym12-plain.sld";
             write_text(plain, program_sld(p80, p90));
             const auto none = m.dbg->load_source_map(plain.string(), false);
+            // Cleared, they are nobody's: the next program's sidecar symbols attach again.
+            const fs::path d12 = sub("sym12");
+            write_text(d12 / "m12.Memory.txt", "8000: ._Main\n");
+            const auto next = m.dbg->load_program_sidecars((d12 / "m12.nex").string());
             check("SRCDBG-SYM-12", "a later hand SLD replaces an earlier hand SLD's labels; one with none "
-                                   "clears them",
-                  replaced && none.count == 6 && none.labels == 0 && m.dbg->symbols().empty(),
-                  "two.labels=" + std::to_string(two.labels) + " none.labels=" + std::to_string(none.labels));
+                                   "clears them, and leaves the store free for a program's sidecar",
+                  replaced && none.count == 6 && none.labels == 0 && next.symbols == 1 &&
+                      m.dbg->lookup_name("Main") == 0x8000,
+                  "two.labels=" + std::to_string(two.labels) + " none.labels=" + std::to_string(none.labels) +
+                      " next=" + std::to_string(next.symbols));
 
             const fs::path d = sub("sym13");
             write_text(d / "m13.Memory.txt", "8000: ._Main\n");
