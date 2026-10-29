@@ -2538,9 +2538,8 @@ void test_nextpi_extra_args_rows() {
         c.qemu_args = "-serial x";
         ok = ok && same(nextpi::merge_settings(saved, c), {"/s/dir", "1_100", "/s/qemu", "wav:/s.wav", "-serial x"});
         c = {};
-        c.audio = "";
-        c.qemu_args = "";
-        ok = ok && same(nextpi::merge_settings(saved, c), {"/s/dir", "1_100", "/s/qemu", "", ""});
+        c.dir = c.release = c.qemu_binary = c.audio = c.qemu_args = "";
+        ok = ok && same(nextpi::merge_settings(saved, c), {"", "", "", "", ""});
         check("PIT-63",
               "the --nextpi-dir/-release/-qemu/-audio/-qemu-args flags replace their own saved setting and "
               "no other, an empty value means the default (it replaces a saved one), and with no flag the "
