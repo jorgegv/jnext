@@ -2,6 +2,10 @@
 
 ## Unreleased (2026-10-29)
 
+### User Features
+- File > Recent Files and Reload Last File (Alt+L); load dialogs open on the last file loaded
+- macOS: host shortcuts use Command, Control acts as Symbol Shift; Command never reaches the guest
+
 ### Bug Fixes
 - JNEXT no longer becomes unresponsive after loading a tape: fast load only sprints while the tape is read
 - ULA scrolling (NR 0x26/0x27/0x68) now works in Timex hi-colour and hi-res modes
