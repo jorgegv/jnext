@@ -110,8 +110,9 @@ if want nextpi-link-func; then
             cn=${#cl[@]}
             (( cn >= 4 )) && [[ "${cl[cn-4]}|${cl[cn-3]}|${cl[cn-2]}|${cl[cn-1]}" == "-name|cli pi|-serial|telnet:127.0.0.1:2357,server,nowait" ]] \
                 || fails+=("--nextpi-qemu-args did not reach QEMU as its last four arguments")
-            printf '%s\n' "${cl[@]}" | grep -qx 'none,id=snd0' || fails+=("--nextpi-audio none did not reach QEMU")
-            printf '%s\n' "${cl[@]}" | grep -q 'nextpi-cli-dir.*kernel\.img' || fails+=("--nextpi-dir did not reach QEMU (-kernel)")
+            cl_all=$(printf '%s\n' "${cl[@]}")
+            grep -qx 'none,id=snd0' <<<"$cl_all" || fails+=("--nextpi-audio none did not reach QEMU")
+            grep -q 'nextpi-cli-dir.*kernel\.img' <<<"$cl_all" || fails+=("--nextpi-dir did not reach QEMU (-kernel)")
         fi
         [[ -f "$cdir/overlay.qcow2" ]] || fails+=("--nextpi-dir: the overlay was not created in that directory")
         rm -rf "$bindir" "$cdir"
