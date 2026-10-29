@@ -49,4 +49,5 @@ symbol as `@name`, an sjasmplus label with its dots as `@main.loop`: see
 
 NextBuild / Boriel ZX Basic programs come with a `Memory.txt` instead, which
 JNEXT loads by itself when the program is loaded: see
-[Source-level debugging](14-source-level-debugging.md).
+[Source-level debugging](14-source-level-debugging.md). So do the labels of an
+sjasmplus SLD source map, which come with it.

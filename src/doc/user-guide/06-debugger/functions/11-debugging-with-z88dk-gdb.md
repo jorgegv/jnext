@@ -102,7 +102,7 @@ reaches what the GDB protocol itself cannot express:
 | `monitor nextreg [REG [VALUE]]` | all NextREGs, one, or writes one |
 | `monitor page N OFF [LEN]` | a hex dump of physical 8 KB page N |
 | `monitor in PORT` / `monitor out PORT VALUE` | a real port access — it can change the device's state, so both are refused while an RZX recording or playback is running |
-| `monitor sym NAME\|ADDR` | JNEXT's own symbol table (the debugger window's map) |
+| `monitor sym NAME\|ADDR` | JNEXT's own symbol table (the debugger window's map); an address is named only by a label that is visible in the page mapped there now |
 | `monitor time` | frame, cycle, T-states and the raster position |
 | `monitor reset [soft\|hard]` | resets the machine; it stays stopped |
 | `monitor bp` | every breakpoint and watchpoint, and who set it |

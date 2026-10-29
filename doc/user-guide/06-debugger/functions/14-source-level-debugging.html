@@ -3693,8 +3693,9 @@ source statement at a time — including over and out of calls, and backwards
 with rewind.</p>
 <p>JNEXT reads source maps in the <strong>sjasmplus SLD</strong> format (<code>.sld</code>), which
 sjasmplus writes with <code>--sld</code>, and which a Boriel ZX Basic / NextBuild build
-can produce too. Symbols come from the <strong>NextBuild <code>Memory.txt</code></strong> the NextBuild
-toolchain writes beside a program, as well as from the MAP files in
+can produce too. An SLD also lists the program's <strong>labels</strong>, and they join the
+symbols. Symbols come from them, from the <strong>NextBuild <code>Memory.txt</code></strong> the
+NextBuild toolchain writes beside a program, and from the MAP files in
 <a href="05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>.</p>
 <h2 id="loading-them">Loading them<a class="headerlink" href="#loading-them" title="Permanent link">&para;</a></h2>
 <p><strong>Automatically.</strong> When a program is loaded — on the command line with
@@ -3702,10 +3703,11 @@ toolchain writes beside a program, as well as from the MAP files in
 for:</p>
 <ul>
 <li><code>&lt;name&gt;.Memory.txt</code>, else <code>Memory.txt</code>, beside a <code>.nex</code>: the symbols;</li>
-<li><code>&lt;name&gt;.sld</code>, else <code>&lt;name&gt;.sld.txt</code>: the source map.</li>
+<li><code>&lt;name&gt;.sld</code>, else <code>&lt;name&gt;.sld.txt</code>: the source map and its labels.</li>
 </ul>
 <p>Each one found is loaded and named in the log (<code>Loaded 2 NextBuild symbols
-from …</code>, <code>Loaded 812 SLD source traces from …</code>). This happens in every
+from …</code>, <code>Loaded 12 SLD labels from …</code>, <code>Loaded 812 SLD source traces from …</code>).
+When both a <code>Memory.txt</code> and an SLD have a label, the <code>Memory.txt</code> one wins. This happens in every
 frontend, with or without the debugger window open, but only the Qt debugger
 shows the source map: with <code>--headless</code>, and in the SDL-only build, it is
 attached and logged and nothing reads it yet (a remote debugger can still look
@@ -3724,9 +3726,11 @@ itself, such as one chosen in the NextZXOS browser or started with <code>LOAD ""
 is not seen by JNEXT: load its source map by hand (below). With
 <code>--esxdos-stub</code>, a <code>.RUN</code> of a sibling NEX is a load like any other: the
 machine cold-boots with it, which drops the old ones, and the new program's
-are attached. A tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) is not attached automatically:
-its program is not in memory until the tape has loaded, so load its source map
-by hand (below) once it has.</p>
+are attached. A tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) has its labels attached at once,
+but its source map is not attached automatically: its program is not in memory
+until the tape has loaded, so load the source map by hand (below) once it has.
+An SLD built for another binary, or one you did not load because you had loaded
+a source map yourself, brings no labels either.</p>
 <p>Symbols you loaded by hand (below), or a MAP given with <code>--map</code>, are kept: they
 are your choice, not the program's. A source map you loaded by hand is yours too
 (a program's map never replaces it), but at each of those landings it is checked
@@ -3736,7 +3740,9 @@ again (<strong>Load SLD...</strong>) to use it.</p>
 <p><strong>By hand.</strong> The <strong>Source</strong> tab has <strong>Load SLD...</strong> and <strong>Load Memory.txt...</strong>
 buttons, also in <strong>Debug ▸ Source ▸ Load Source Map…</strong> and <strong>Load Symbols
 (Memory.txt)…</strong>. The symbols replace whatever was loaded before, as the
-<strong>Map ▸ Load MAP File</strong> formats do.</p>
+<strong>Map ▸ Load MAP File</strong> formats do. <strong>Load SLD...</strong> loads the SLD's labels too and
+replaces the symbols the same way, unless they came from <strong>Map ▸ Load MAP File</strong>
+or <code>--map</code>, which are kept; a later SLD replaces an earlier SLD's labels.</p>
 <p><strong>Binary identity.</strong> An SLD may record the SHA-256 of the program's bytes as it
 was built (<code>||program.sha256:</code>, <code>||program.org:</code> and <code>||program.size:</code> comment
 records, which other SLD readers ignore). An SLD found beside a program whose
@@ -3756,7 +3762,10 @@ code that is not the one in memory. Code supplied by ROM or by an overlay
 (DivMMC — including the instruction at which its automatic paging switches on
 or off —, the Multiface, the Layer 2 read mapping, the boot ROM) is not any RAM
 page, so page-tagged records never describe it; the Source tab says "ROM or
-overlay" there.</p>
+overlay" there. Labels follow the page too: a label assembled for a bank names
+its address only while that bank is mapped there, in the disassembly, the
+Breakpoints and Call Stack panels, and a remote debugger's <code>monitor sym</code>; a label
+assembled for no bank names it always.</p>
 <p>A statement covers every byte up to the next one: the data of a
 <code>DB</code> after an instruction belongs to that instruction's statement, and so does everything after the last
 statement of a page up to the end of that 8K page. Only addresses below a

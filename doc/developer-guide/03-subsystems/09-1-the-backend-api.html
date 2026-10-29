@@ -2886,6 +2886,9 @@ loads neither, a bad trace refuses only the source half. The name is
 records (a struct's offsets and size) are name-only, while a <code>+sizeof</code> record only
 says SIZEOF(label) was used, and is an ordinary label; a value past 0xFFFF or a page the device lacks is skipped
 (rows SYMPG-<em>, SLDL-</em>).
+<code>SymbolTable::merge(other)</code> is the one way to combine two tables: it adds the other's
+labels whose key is still free, its names and its name-only values not yet taken, so
+the first table wins throughout (row SYMPG-12).
 The <code>-debug</code> records (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or <code>__CDBINFO__</code>)
 are dropped by the loader, so they never name an address or resolve by name.
 <code>MapFormat::NextBuild</code> reads a NextBuild / Boriel ZX Basic <code>Memory.txt</code> (<code>8000: ._Main</code>): the shown name drops the <code>.</code> and the
@@ -2965,7 +2968,19 @@ non-throwing filesystem calls; only a regular file counts (a FIFO would block th
 load), and one that cannot be read is reported. Both loaders refuse a file that is
 not regular, or is over 64 MiB, before opening it (<code>debug/source_file.h</code>). Every frontend calls it after a successful <code>--load</code> or File ▸
 Open, and <code>load()</code> calls it for a remote client; a tape program gets no
-automatic map. Ownership is explicit (<code>Impl::StoreOwner</code>: None, Sidecar, User)
+automatic map. The SLD sidecar is parsed once (<code>load_sld_sidecar()</code> with a label
+table) and judged before the symbols: its labels attach when the file is not
+refused as a whole, its identity does not mismatch and the user's source map is not
+kept, also beside a tape and when only its <code>T</code> records are refused (an SLD with no
+label is not a symbol source). The sidecar symbol store is assembled in one block, in
+order, first wins: <code>Memory.txt</code>, then the SLD's labels (<code>SymbolTable::merge()</code>); the
+log has <code>Loaded N SLD labels from '&lt;file&gt;'</code>. Labels live in the Sidecar store, so
+the attachment cache and the lifetime rules below treat them like <code>Memory.txt</code>.
+<code>load_source_map()</code> fills the same table from a hand-loaded SLD
+(<code>Impl::attach_hand_labels()</code>, count in <code>SourceMapLoad::labels</code>): the labels become
+the user's symbols (<code>Impl::symbols_from_sld</code>), unless the user loaded a MAP
+(<code>labels == -1</code>, kept); a hand SLD without labels clears only an earlier hand SLD's
+labels (rows SRCDBG-SYM-*). Ownership is explicit (<code>Impl::StoreOwner</code>: None, Sidecar, User)
 and changes only on a successful load: a sidecar never touches the user's
 store, and a previous program's sidecar data is replaced or cleared — also when
 the new sidecar cannot be read.</p>

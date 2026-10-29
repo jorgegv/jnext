@@ -86,8 +86,10 @@ naming the option and the value, and exits with status 1.
     ignored bytes also logs a warning.
 
     The debugger's source map and symbols attach from beside the program:
-    *NAME*`.sld` (or *NAME*`.sld.txt`), an sjasmplus source map, beside any
-    program but a tape, and *NAME*`.Memory.txt` (or `Memory.txt`), NextBuild /
+    *NAME*`.sld` (or *NAME*`.sld.txt`), an sjasmplus source map whose labels join
+    the symbols (a label assembled for a page names its address only while that
+    page is mapped), beside any program but a tape (beside a tape only its labels
+    attach), and *NAME*`.Memory.txt` (or `Memory.txt`), NextBuild /
     Boriel ZX Basic symbols, beside a `.nex`. A map given with **\--map** or
     loaded by hand is kept over them. An SLD built for another binary, or a
     file over 64 MiB, is refused, with the reason in the log.
@@ -1995,8 +1997,8 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
 - **Trace log** - circular instruction trace buffer, exportable to a file. Off
   by default; enable with **\--trace**, the debugger's Enable Trace menu item,
   or implicitly by enabling rewind, which needs it for Step Back
-- **Symbol table** - Z88DK MAP files and sjasmplus `--sym` / `--exp` files;
-  symbols appear inline in the disassembly and in watches
+- **Symbol table** - Z88DK MAP files, sjasmplus `--sym` / `--exp` files and
+  sjasmplus SLD labels (per page); symbols appear inline in the disassembly and in watches
 - **Backwards execution (rewind)** - frame-snapshot ring buffer, with Step
   Back, Frame Back and a rewind slider. Opt-in, because rewind takes a
   full-machine snapshot every frame: start jnext with
