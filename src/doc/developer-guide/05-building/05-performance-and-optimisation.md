@@ -238,8 +238,15 @@ A binary labelled PGO is PGO in every unit, or there is no binary:
   which non-PGO target to use instead. No platform falls back to a non-PGO
   binary on its own.
 
-clang (macOS) has no per-unit equivalent of `missing-profile`: there a stale
-profile is an error, but a unit without one is not detected.
+clang (macOS) has no `missing-profile` error: there a stale profile is an
+error (`-Werror=profile-instr-out-of-date`), but a unit with no profile is only
+a warning (`-Wprofile-instr-unprofiled`), so a naming mismatch in a linked unit
+is reported, not fatal. clang gets the same unlinked-member exemption by the
+same mechanism: the instrumented link writes ld64's map (`-map`, a different
+format from GNU ld's), `tools/pgo-train.sh` files it as `jnext.map` for both
+compilers, and `cmake/JnextPgo.cmake` parses either format (and fails the
+configure when it finds no archive member) to add
+`-Wno-profile-instr-unprofiled` to exactly the members `jnext` never links.
 
 ### Retraining only when something changed
 

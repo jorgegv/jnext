@@ -10,8 +10,9 @@
 # uses its own instrumentation, -fprofile-instr-generate / -fprofile-instr-use
 # with the merged JNEXT_PGO_DIR/jnext.profdata; there a stale profile is an
 # error (-Wprofile-instr-out-of-date) but a translation unit with no profile at
-# all is not detected per unit — ld64's link map has another format, so the
-# unlinked-member exemption below is gcc-only.
+# all is only a warning (-Wprofile-instr-unprofiled), not an error. Both
+# compilers exempt the members jnext never links (see below): gcc reads GNU ld's
+# -Map, clang reads ld64's -map, which has another format.
 #
 # The flags go ONLY on the sources of the jnext executable and of the in-tree
 # static libraries it links (its transitive closure), never on anything else
@@ -105,17 +106,26 @@ endfunction()
 # libraries, same objects) says which members those are; they alone are
 # exempted. The map, not the presence of a .gcda, decides: a naming mismatch
 # between the two trees must still fail every TU jnext does link.
-function(_jnext_pgo_linked_members out_var)
+# GNU ld lists a member as `path/libX.a(member.o)` at the start of a line; ld64
+# (clang, macOS) under `# Object files:` as `[  12] /abs/path/libX.a(member.o)`.
+function(_jnext_pgo_linked_members out_var clang)
     set(map "${JNEXT_PGO_DIR}/jnext.map")
     if(NOT EXISTS "${map}")
         message(FATAL_ERROR "JNEXT_PGO=USE: ${map} missing — the profile is incomplete (retrain)")
     endif()
     # A retrain rewrites the map; re-read it then (the exempt set may change).
     set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${map}")
-    file(STRINGS "${map}" lines REGEX "^[^ \t(]+\\.a\\([^)]+\\)")
+    if(clang)
+        set(lead "\\[ *[0-9]+\\] ")
+        set(pathre "(.+\\.a)")
+    else()
+        set(lead "")
+        set(pathre "([^ \t(]+)")
+    endif()
+    file(STRINGS "${map}" lines REGEX "^${lead}${pathre}\\([^)]+\\)")
     set(linked "")
     foreach(l IN LISTS lines)
-        string(REGEX MATCH "^([^ \t(]+)\\(([^)]+)\\)" _ "${l}")
+        string(REGEX MATCH "^${lead}${pathre}\\(([^)]+)\\)" _ "${l}")
         get_filename_component(archive "${CMAKE_MATCH_1}" NAME)
         list(APPEND linked "${archive}(${CMAKE_MATCH_2})")
     endforeach()
@@ -175,8 +185,8 @@ function(jnext_apply_pgo exe)
     set(targets "")
     _jnext_pgo_collect(${exe} targets)
     set(linked "")
-    if(JNEXT_PGO STREQUAL "USE" AND NOT clang)
-        _jnext_pgo_linked_members(linked)
+    if(JNEXT_PGO STREQUAL "USE")
+        _jnext_pgo_linked_members(linked ${clang})
     endif()
     set(exempt "")
     set(nsrc 0)
@@ -201,9 +211,13 @@ function(jnext_apply_pgo exe)
             endif()
             set(opts ${cflags})
             get_filename_component(name "${src}" NAME)
-            if(JNEXT_PGO STREQUAL "USE" AND NOT clang AND type STREQUAL "STATIC_LIBRARY"
+            if(JNEXT_PGO STREQUAL "USE" AND type STREQUAL "STATIC_LIBRARY"
                AND NOT "${archive}(${name}${CMAKE_C_OUTPUT_EXTENSION})" IN_LIST linked)
-                list(APPEND opts -Wno-missing-profile)
+                if(clang)
+                    list(APPEND opts -Wno-profile-instr-unprofiled)
+                else()
+                    list(APPEND opts -Wno-missing-profile)
+                endif()
                 list(APPEND exempt "${name}")
             endif()
             set_property(SOURCE "${src}" DIRECTORY "${dir}" APPEND PROPERTY COMPILE_OPTIONS ${opts})
@@ -211,11 +225,15 @@ function(jnext_apply_pgo exe)
         endforeach()
     endforeach()
     target_link_options(${exe} PRIVATE ${lflags})
-    if(JNEXT_PGO STREQUAL "GENERATE" AND NOT clang)
+    if(JNEXT_PGO STREQUAL "GENERATE")
         # The link map records which library members the linker pulled into
         # jnext; tools/pgo-train.sh files it with the profile for USE.
-        target_link_options(${exe} PRIVATE "LINKER:-Map=${CMAKE_BINARY_DIR}/jnext-pgo.map")
-    elseif(JNEXT_PGO STREQUAL "USE" AND NOT clang)
+        if(clang)
+            target_link_options(${exe} PRIVATE "LINKER:-map,${CMAKE_BINARY_DIR}/jnext-pgo.map")
+        else()
+            target_link_options(${exe} PRIVATE "LINKER:-Map=${CMAKE_BINARY_DIR}/jnext-pgo.map")
+        endif()
+    elseif(JNEXT_PGO STREQUAL "USE")
         message(STATUS "PGO USE: not linked into jnext, no profile required: ${exempt}")
     endif()
     # Any OTHER executable linking an instrumented library (gen-snapshot-schema

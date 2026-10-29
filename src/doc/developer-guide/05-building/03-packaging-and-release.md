@@ -51,7 +51,8 @@ some platforms need more:
   under LTO, so its output gets that extra check;
 - **macOS** uses clang's instrumentation (`-fprofile-instr-generate`, merged
   with `llvm-profdata` from Xcode). There a stale profile is an error but a
-  translation unit with no profile at all is not detected per unit.
+  translation unit with no profile at all is only a warning, and the library
+  members `jnext` never links are exempted from it via ld64's link map.
 
 `package-test` matters more than its name suggests. It does not merely build
 each package: it then looks inside and checks what is there — that the rpm and
