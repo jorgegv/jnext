@@ -59,6 +59,7 @@ Everything else has a default, and lives in the `[nextpi]` section of
 | `dir` | NextPi directory | `~/.jnext/nextpi` (`$JNEXT_CONFIG_DIR/nextpi`) |
 | `release` | NextPi release (editable: a release name, or `latest`) | `1_93D` |
 | `qemu_binary` | QEMU | `qemu-system-arm` on `PATH`; `qemu-img` beside it |
+| `qemu_args` | Extra QEMU arguments (a text box) | none; split on spaces, `'...'`/`"..."` literal, appended after jnext's own (§2.3) |
 | `audio` | Pi audio (editable: empty, a QEMU `-audiodev` driver, `none`, `wav:FILE`) | the Next's mixer (§3.7, on every OS); `host` is the host output; a driver plays it straight to the host |
 
 An empty value means the default, so a config file never pins a home directory.
@@ -88,6 +89,16 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
 - **No CLI for the settings, only the enabler** — per review: jnext gives a
   feature one switch and defaults the rest. The other settings are a
   Preferences tab and a config section.
+- **Extra QEMU arguments: a Preferences box and `[nextpi] qemu_args`, no CLI flag**
+  (GH #407). Split by `PiQemu::split_extra_args`: whitespace, `'...'` and
+  `"..."` literal, adjacent pieces joined, backslash ordinary (a pasted Windows
+  path is not changed), no expansion, no shell. Rejected: POSIX backslash escapes
+  (they would turn `C:\Users\x` into `C:Usersx`), `QProcess::splitCommand`
+  (Qt-only, no single quotes, accepts an unterminated quote), `wordexp` (expands).
+  The arguments go AFTER jnext's own, so a user `-serial` is the Pi's second UART
+  and the console stays on the first (verified with QEMU 10.2.2); overrides are
+  neither policed nor promised. An unterminated quote refuses the start before
+  the QEMU lookup and any download, through the usual start outcome.
 - **A pinned release, with `latest` as an opt-in.** The default `1_93D` changes
   only when jnext does, so what a user runs is reproducible; `latest` follows
   the mirror's newest release, checked at each start, falling back to the
@@ -495,6 +506,7 @@ NextPi image is needed.
 | PI-62 | a restore taken while the comparator was 1 leaves it 0, and the relaxed MIC level reads at once |
 | PI-63 | under `--silent` a rewind replay does not consume the Pi's sound; a live run does |
 | PI-64 | a tape save made with the Pi on the EAR input records the comparator's edges (the MIC jack carries it) |
+| PIT-57..62 | `nextpi_test` (every OS): the extra-arguments splitter, their place in `build_args`, and the real spawn (GH #407) |
 | PIT-01..25 | `nextpi_test` (every OS): `md5_file`, the socket command line, the host audio back-end per OS, what an empty audio setting means (the mixer, PIT-16/17/18), the Pi audio pipe (writers coming and going, a full ring, a prompt `close()`, no spinning, an uncreatable pipe: PIT-19..23), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale, the stop grace and the startup window are elapsed time, not a count of sleeps (PIT-24/25, GH #355) |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
@@ -544,6 +556,16 @@ Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
 controls, their enable-follows-tick behaviour, Apply, and an untouched dialog
 handing every field back unchanged).
+
+Extra QEMU arguments (GH #407): PIT-57..60 (the splitter: blanks, quotes, no
+escapes and no expansion, the unterminated-quote error and its position),
+PIT-61 (`build_args` puts them after jnext's own on both transports), PIT-62
+(the real spawn delivers the hard ones byte for byte, no shell; on Windows
+through `quote_arg`), AC-91..93 (default, round-trip, and an unquoted comma in
+any free-text key is read whole) and PA-28a/b (the box follows the tick and is
+collected trimmed, unsplit). `nextpi-audio-func` fact 2 shows `main.cpp`
+copying the preference into the start; `nextpi-func` fact 14 shows a malformed
+value refusing the start before the QEMU lookup.
 
 Discrimination (all measured): removing `setup_pi_uart()` from `init()` fails
 PI-01..05; removing the NR 0xA0 probe fails PI-02; in `PiQemu`, swapping the FIFO

@@ -414,10 +414,11 @@ without data) is kept as \f[CR]NextPi\-<release>.tar.gz.part\f[R] and
 continues on the next run.
 NextPi then takes about a minute to reach its Supervisor prompt
 (\f[CR]SUP>\f[R]).
-The release, the directory, the QEMU binary and where the Pi\(cqs sound
-goes are set under \f[B]Settings > Preferences > NextPi\f[R] (the
-\f[CR][nextpi]\f[R] section of \f[CR]\(ti/.jnext/jnext.conf\f[R]); their
-defaults are release \f[CR]1_93D\f[R], \f[CR]\(ti/.jnext/nextpi\f[R],
+The release, the directory, the QEMU binary, where the Pi\(cqs sound
+goes and any extra QEMU arguments are set under \f[B]Settings >
+Preferences > NextPi\f[R] (the \f[CR][nextpi]\f[R] section of
+\f[CR]\(ti/.jnext/jnext.conf\f[R]); their defaults are release
+\f[CR]1_93D\f[R], \f[CR]\(ti/.jnext/nextpi\f[R],
 \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R], and the Next\(cqs
 mixer.
 .PP
@@ -3189,6 +3190,15 @@ it straight to the host, or \f[CR]wav:\f[R]\f[I]FILE\f[R] to record it
 on its own).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
+\f[CR]qemu_args\f[R] holds extra QEMU arguments (empty means none),
+added after jnext\(cqs own when NextPi starts.
+It is split into arguments on spaces; \f[CR]\(aq...\(aq\f[R] and
+\f[CR]\(dq...\(dq\f[R] keep spaces in one argument; a backslash is an
+ordinary character; nothing is expanded and no shell is involved.
+An unterminated quote stops NextPi from starting, with a message.
+Write the value in double quotes in the file, as jnext saves it: an
+unquoted value holding commas is read whole, but the spaces beside its
+commas are lost.
 The joystick ports are stored under \f[CR][input]\f[R]:
 \f[CR]joy1_source\f[R] and \f[CR]joy2_source\f[R] (\f[CR]sdl\f[R],
 \f[CR]keys\f[R] or \f[CR]none\f[R]), \f[CR]joy1_device\f[R] and

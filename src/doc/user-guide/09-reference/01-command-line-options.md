@@ -363,11 +363,11 @@ with status 1.
     30 seconds without data) is kept as `NextPi-<release>.tar.gz.part`
     and continues on the next run. NextPi then takes about a minute to
     reach its Supervisor prompt (`SUP>`). The release, the directory,
-    the QEMU binary and where the Pi’s sound goes are set under
-    **Settings \> Preferences \> NextPi** (the `[nextpi]` section of
-    `~/.jnext/jnext.conf`); their defaults are release `1_93D`,
-    `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s
-    mixer.
+    the QEMU binary, where the Pi’s sound goes and any extra QEMU
+    arguments are set under **Settings \> Preferences \> NextPi** (the
+    `[nextpi]` section of `~/.jnext/jnext.conf`); their defaults are
+    release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and
+    the Next’s mixer.
 
     On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S,
     as on the real machine: it is mixed with the beeper, the AY chips

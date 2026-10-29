@@ -368,7 +368,7 @@ inline constexpr Option OPTIONS[] = {
       "as DeZog opens, since it wants one serial device rather than\n"
       "a pair of pipes. Both are POSIX-only" },
     // NextPi on UART 1: one enabler, defaults for the rest (directory,
-    // release, QEMU, audio), which live in the [nextpi] config section and the
+    // release, QEMU, audio, extra QEMU arguments), which live in the [nextpi] config section and the
     // Preferences > NextPi tab. jnext does not emulate the Pi; it runs NextPi
     // under QEMU, downloading it on first use like the SD card image.
     { "--nextpi", 0, Doc::Documented, OptId::Nextpi,

@@ -426,11 +426,11 @@ reported with the missing file, in the question and in the log. An
 interrupted download (Cancel, a dropped connection, or 30 seconds
 without data) is kept as `NextPi-<release>.tar.gz.part` and continues on
 the next run. NextPi then takes about a minute to reach its Supervisor
-prompt (`SUP>`). The release, the directory, the QEMU binary and where
-the Pi’s sound goes are set under **Settings \> Preferences \> NextPi**
-(the `[nextpi]` section of `~/.jnext/jnext.conf`); their defaults are
-release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the
-Next’s mixer.
+prompt (`SUP>`). The release, the directory, the QEMU binary, where the
+Pi’s sound goes and any extra QEMU arguments are set under **Settings \>
+Preferences \> NextPi** (the `[nextpi]` section of
+`~/.jnext/jnext.conf`); their defaults are release `1_93D`,
+`~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s mixer.
 
 On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S, as
 on the real machine: it is mixed with the beeper, the AY chips and the
@@ -2583,8 +2583,15 @@ on this computer’s default output, `coreaudio` on macOS, `dsound` on
 Windows and `pa` elsewhere; otherwise a QEMU `-audiodev` driver such as
 `coreaudio`, `pa` or `none` to play it straight to the host, or
 `wav:`*FILE* to record it on its own). Changing the release makes the
-next start offer to download it, replacing the installed one. The
-joystick ports are stored under `[input]`: `joy1_source` and
+next start offer to download it, replacing the installed one.
+`qemu_args` holds extra QEMU arguments (empty means none), added after
+jnext’s own when NextPi starts. It is split into arguments on spaces;
+`'...'` and `"..."` keep spaces in one argument; a backslash is an
+ordinary character; nothing is expanded and no shell is involved. An
+unterminated quote stops NextPi from starting, with a message. Write the
+value in double quotes in the file, as jnext saves it: an unquoted value
+holding commas is read whole, but the spaces beside its commas are lost.
+The joystick ports are stored under `[input]`: `joy1_source` and
 `joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
 (the controller’s id: 32 hex digits, optionally `#N`; empty means
 Automatic) and `joy1_device_name` and `joy2_device_name` (the name shown

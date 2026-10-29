@@ -5,6 +5,7 @@
 ### User Features
 - File > Recent Files and Reload Last File (Alt+L); load dialogs open on the last file loaded
 - macOS: host shortcuts use Command, Control acts as Symbol Shift; Command never reaches the guest
+- NextPi: extra QEMU arguments in Preferences, e.g. a second telnet serial port for the Pi
 
 ### Bug Fixes
 - JNEXT no longer becomes unresponsive after loading a tape: fast load only sprints while the tape is read
@@ -13,7 +14,7 @@
 - Debugger Video panel shows the just-finished frame after Break instead of a dark placeholder
 
 ### Contributors in this release
-- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar
+- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj
 
 ## v1.1.87 (2026-10-24)
 
