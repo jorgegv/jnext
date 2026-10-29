@@ -250,7 +250,7 @@ if want nextpi-func; then
             --delayed-automatic-exit-frames 2 </dev/null 2>&1) || rc=$?
         [[ $rc -eq 0 ]] || fails+=("a --nextpi-* flag with NextPi not enabled (${nf16:-no flag}) exited $rc, want 0")
         for f in --nextpi-qemu-args --nextpi-dir; do
-            grep -qF "$f is ignored: NextPi is not enabled (use --nextpi, or enable it in Settings > Preferences > NextPi)" <<<"$out" \
+            grep -qF -- "$f is ignored: NextPi is not enabled (use --nextpi, or enable it in Settings > Preferences > NextPi)" <<<"$out" \
                 || fails+=("$f with NextPi not enabled (${nf16:-no flag}) was not warned about")
         done
     done
