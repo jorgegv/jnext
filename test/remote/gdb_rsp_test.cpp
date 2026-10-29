@@ -1888,6 +1888,31 @@ static void monitor_rows() {
               f1 == "OK" && rig.dbg->state().paused);
         rig.dbg->detach(other);
     }
+    {
+        // GDB-MON-13 (GH #375): the labels of an SLD loaded the way the GUI loads one, named
+        // by `monitor sym ADDR` per the page mapped at the address.
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        const auto loaded = rig.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        Client c(rig);
+        open_session(c);
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 4, 4);
+        const bool premise = rig.dbg->source_page(0x8018) == jnext::dbg::MemSpace::page(4);
+        std::string f;
+        const auto byname = c.monitor("sym banked", f);
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 6, 20);
+        const auto in20 = c.monitor("sym $C004", f);
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 6, 30);
+        const auto in30 = c.monitor("sym $C004", f);
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 6, 21);
+        const auto in21 = c.monitor("sym $C004", f);
+        check("GDB-MON-13", "monitor sym names an address by the SLD label of the page mapped there now "
+                            "(banked, other_bank, else the page-4 label below it)",
+              loaded.labels == 12 && premise && byname.size() == 1 && byname[0] == "banked = $C000\n" &&
+                  in20.size() == 1 && in20[0] == "$C004 = banked+4\n" && in30.size() == 1 &&
+                  in30[0] == "$C004 = other_bank+4\n" && in21.size() == 1 &&
+                  in21[0] == "$C004 = gfx.draw.loop+16364\n",
+              join(byname) + join(in20) + join(in30) + join(in21));
+    }
 }
 
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────

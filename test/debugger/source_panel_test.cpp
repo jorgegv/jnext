@@ -2367,6 +2367,84 @@ void test_source_menu() {
     }
 }
 
+// ── SLD labels through the real load paths (GH #375 stage 2) ───────────
+// equlabels.sld is sjasmplus's own output: `banked` is $C000 on page 20, `SCREEN` unpaged
+// at $4000; 18 source traces and 12 labels.
+
+QAction* find_action(QMenu* menu, const QString& text) {
+    for (QAction* a : menu->actions()) {
+        if (a->text() == text) return a;
+        if (a->menu())
+            if (QAction* sub = find_action(a->menu(), text)) return sub;
+    }
+    return nullptr;
+}
+
+QAction* menu_action(DebuggerWindow* w, const QString& text) {
+    for (QAction* a : w->menuBar()->actions())
+        if (a->menu())
+            if (QAction* found = find_action(a->menu(), text)) return found;
+    return nullptr;
+}
+
+// QSYM-06: Source > Load Source Map... fills the labels, and the Breakpoints panel names a row by them.
+void test_sld_labels_menu() {
+    Fixture fx;
+    fx.enable();
+    BreakpointModel& m = fx.mgr->breakpoints();
+    BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
+    QAction* load = fx.dbg() ? menu_action(fx.dbg(), QStringLiteral("Load Source &Map...")) : nullptr;
+    if (!bp || !load) {
+        check("QSYM-06", "panel and menu item", false);
+        return;
+    }
+    m.add(BreakpointModel::Execute, 0xC000, MemSpace::page(20));
+    bp->refresh();
+    const bool premise = cell(bp, 0, 3).isEmpty();
+    const QString sld = QStringLiteral(JNEXT_SJASMEQU_DIR "/equlabels.sld");
+    QString box;
+    drive_modals(
+        [&](QWidget* w, int) {
+            if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+            choose_file(w, sld);
+        },
+        [&]() { load->trigger(); });
+    check("QSYM-06", "Load Source Map... with an sjasmplus SLD reports its traces and labels, and the "
+                     "Breakpoints panel names a page-20 row by the label at once",
+          premise && box.contains(QStringLiteral("18 source traces and 12 labels")) &&
+              cell(bp, 0, 3) == QStringLiteral("banked"),
+          "premise=" + std::to_string(premise) + " box='" + s(box) + "' cell=" + s(cell(bp, 0, 3)));
+    m.clear_all();
+}
+
+// QSYM-13 (closes R08): Add Execute Breakpoint with a name from a loaded SLD keeps that name's page.
+void test_sld_labels_add_execute() {
+    Fixture fx;
+    fx.enable();
+    BreakpointModel& m = fx.mgr->breakpoints();
+    const auto loaded = fx.backend->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+    QAction* add_exec = fx.dbg() ? menu_action(fx.dbg(), QStringLiteral("Add &Execute Breakpoint...")) : nullptr;
+    if (!add_exec) {
+        check("QSYM-13", "menu item", false);
+        return;
+    }
+    const bool seen = answer_modal(QStringLiteral("banked"), [&]() { add_exec->trigger(); });
+    const auto paged = m.rows();
+    const bool ok_paged = seen && paged.size() == 1 && paged[0].addr == 0xC000 &&
+                          paged[0].space == MemSpace::page(20) && paged[0].group == jnext::dbg::GROUP_NONE;
+    m.clear_all();
+    const bool seen2 = answer_modal(QStringLiteral("SCREEN"), [&]() { add_exec->trigger(); });
+    const auto plain = m.rows();
+    const bool ok_plain = seen2 && plain.size() == 1 && plain[0].addr == 0x4000 &&
+                          plain[0].space == MemSpace::cpu();
+    check("QSYM-13", "Add Execute Breakpoint with a label of a loaded SLD sets the row on that label's page; "
+                     "an unpaged label gets no page",
+          loaded.labels == 12 && ok_paged && ok_plain,
+          "labels=" + std::to_string(loaded.labels) + " paged=" + std::to_string(ok_paged) +
+              " plain=" + std::to_string(ok_plain));
+    m.clear_all();
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -2408,6 +2486,8 @@ int main(int argc, char** argv) {
     test_source_messages();
     test_call_stack_pages();
     test_paged_symbols();
+    test_sld_labels_menu();
+    test_sld_labels_add_execute();
     test_call_stack_non_page_caller();
     test_source_menu();
 

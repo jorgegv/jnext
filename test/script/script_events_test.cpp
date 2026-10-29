@@ -2292,6 +2292,19 @@ static void host_rows() {
               g.sink.tail(4));
     }
     {
+        // SCRIPT-SLD-01 (GH #375): the labels of an SLD loaded into the backend are the one table the
+        // DSL's `@name` reads, as 16-bit addresses (a name's page does not reach the script).
+        HostRig g;
+        const auto loaded = g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("sld.jds", "on frame do log \"S ${@banked} ${@gfx.draw.loop}\" end\n")};
+        const bool ok = g.start(o);
+        g.run(1);
+        check("SCRIPT-SLD-01", "a hand-loaded SLD's labels are the DSL's `@name`: banked is 49152, "
+                               "gfx.draw.loop 32792",
+              loaded.labels == 12 && ok && g.sink.count("S 49152 32792") == 1, g.sink.tail(4));
+    }
+    {
         // The CONTENTS decide, never the name: z88dk's assembler writes a
         // `.sym` in the map format (z80asm -s), and sjasmplus names its files
         // freely (--sym=<filename>).

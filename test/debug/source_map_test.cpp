@@ -726,6 +726,31 @@ int main() {
             check("SYMPG-11", "the first value of a name wins", t.lookup_name("v") == std::optional<uint16_t>(1));
         }
         {
+            // merge(): a Memory.txt table first, the SLD's labels after it; first wins across tables.
+            const fs::path mem = dir / "sympg12.Memory.txt";
+            write_text(mem, "8000: ._Main\n4000: ._Scr\nC000: .banked\n");
+            SymbolTable a;
+            a.load_nextbuild_memory(mem.string());
+            SymbolTable b;
+            SourceMap sm;
+            load_sld(sm, JNEXT_SJASMEQU_DIR "/equlabels.sld", &b);
+            a.merge(b);
+            SymbolTable c;
+            c.merge(b);
+            using Key = SymbolNameKey;
+            check("SYMPG-12", "merge() adds a table's entries after this one's, first wins per key, name and value, "
+                              "and takes an empty loaded_file",
+                  a.lookup(MemSpace::page(4), 0x8000) == name("main") && a.lookup(MemSpace::cpu(), 0x8000) == name("Main") &&
+                      a.symbols().count(0x4000) == 1 && a.lookup(MemSpace::cpu(), 0x4000) == name("Scr") &&
+                      a.find_name("SCREEN") == std::optional<Key>(Key{0x4000, std::nullopt}) &&
+                      a.find_name("banked") == std::optional<Key>(Key{0xC000, std::nullopt}) &&
+                      a.lookup(p20, 0xC000) == name("banked") && a.find_name("_Main") &&
+                      a.find_name("_Main")->addr == 0x8000 &&
+                      a.find_name("pos.x") == std::optional<Key>(Key{0x8014, MemSpace::page(4)}) &&
+                      a.lookup_name("point.y") == std::optional<uint16_t>(1) && a.loaded_file() == mem.string() &&
+                      c.loaded_file() == b.loaded_file() && !c.loaded_file().empty() && c.size() == 11);
+        }
+        {
             SymbolTable t;
             t.add_label("banked", 0xC000, p20);
             t.add_value("sz", 5);
