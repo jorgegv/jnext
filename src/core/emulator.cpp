@@ -10114,6 +10114,7 @@ void Emulator::run_frame()
                                   tape_trap::ld_bytes_rom_present(mmu_);
             if (ld_break && tap_fast) {
                 tape_.handle_ld_bytes_trap(*this);
+                tape_fastload_frames_left_ = FASTLOAD_TAPE_IDLE_FRAMES;   // GH #408
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
@@ -10121,6 +10122,7 @@ void Emulator::run_frame()
             // TZX fast-load: same ROM trap, different loader.
             if (ld_break && tzx_fast) {
                 tzx_tape_.handle_ld_bytes_trap(*this);
+                tape_fastload_frames_left_ = FASTLOAD_TAPE_IDLE_FRAMES;   // GH #408
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
@@ -10394,6 +10396,8 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // reason as FUSE: the trigger condition is "all 8 rows polled in a
     // single frame".
     phantom_typist_.tick_frame();
+    // GH #408 - the fast tape's pacing window counts emulated frames.
+    if (tape_fastload_frames_left_ > 0) --tape_fastload_frames_left_;
 
     // G133 closure — the two-scan shift hysteresis (membrane.vhd:178-191) is
     // advanced by Keyboard::tick_scan(), which is driven from on_scanline() at

@@ -677,33 +677,39 @@ public:
 
     /// Task 19 fastload follow-up — true when the emulator should
     /// run uncapped (no frame-pacing sleep, audio paused) to make
-    /// TAP loading visually "instant" like FUSE. Mirrors FUSE's
-    /// `timer_fastloading_active()` (timer/timer.c:178): asserted
-    /// while EITHER the phantom typist is armed/firing OR a
-    /// fast-load tape (TAP or TZX) is loaded and not yet at end —
-    /// the load itself races through the ROM trap so a brief
-    /// `tape_is_playing()` window also benefits from uncapped pacing.
-    /// The platform layer (SdlApp::run, QtApp::on_frame_tick) reads
-    /// this and skips its frame-rate delay while true; once both
-    /// signals clear the platform re-engages normal 50 Hz pacing
-    /// (and re-resumes audio output).
+    /// TAP loading visually "instant" like FUSE. FUSE's
+    /// `timer_fastloading_active()` (timer/timer.c:198) is
+    /// `tape_is_playing() || phantom_typist_is_active()`: it sprints only
+    /// while something is LOADING, never because a tape is merely in the
+    /// deck. The platform layer (SdlApp::run, QtApp::on_frame_tick) reads
+    /// this and skips its frame-rate delay while true; once it clears the
+    /// platform re-engages normal 50 Hz pacing (and re-resumes audio output).
+    ///
+    /// GH #408 - it used to be true for as long as a fast-load tape was
+    /// attached and not at its end. A tape nothing reads (opened from the
+    /// Tape menu at a NextZXOS screen, the blocks a program never asks for,
+    /// a loader the ROM trap cannot serve) then kept the Qt frontend in its
+    /// 200-frame burst for the rest of the session: the window answered
+    /// once a burst, and one key tap was held for a whole burst, so the
+    /// ROM's auto-repeat typed it dozens of times. Now the tape keeps the
+    /// sprint only while it is being typed for or read:
+    ///   * the phantom typist is armed (bounded: PhantomTypist::wants_fastload());
+    ///   * a fast tape still has blocks AND either the keyboard auto-type is
+    ///     typing (the `LOAD ""` the typist or load_tzx() queued), or the
+    ///     ROM trap served it a block within the last
+    ///     FASTLOAD_TAPE_IDLE_FRAMES frames: the gap between a header and
+    ///     its data, or a BASIC loader's next `LOAD ""CODE`.
     bool fastload_active() const {
-        // Phantom-typist armed/firing OR fast-load tape with data
-        // still to deliver. The tape side uses `is_loaded() &&
-        // fast_load() && !at_end()` to mirror FUSE's signal — a
-        // fast-load TAP/TZX trap fires at ROM-load address and
-        // empties at most a few KB per second of wall-clock time
-        // when frame pacing is uncapped, so this window is brief
-        // (sub-second in practice).
-        if (phantom_typist_.is_active()) return true;
-        if (tape_.is_loaded()     && tape_.fast_load()     && !tape_.at_end())     return true;
-        // TZX path note: load_tzx() does NOT arm the phantom typist (Task
-        // 19 scope is .tap only). For TZX the tape-side condition is the
-        // sole signal, true from the moment load_tzx() runs (covers the
-        // legacy ~26-frame auto-type window too).
-        if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) return true;
-        return false;
+        if (phantom_typist_.wants_fastload()) return true;
+        const bool fast_tape_pending =
+            (tape_.is_loaded()     && tape_.fast_load()     && !tape_.at_end()) ||
+            (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end());
+        if (!fast_tape_pending) return false;
+        return keyboard_.auto_typing() || tape_fastload_frames_left_ > 0;
     }
+    /// GH #408 - frames a fast tape keeps the emulator uncapped after a
+    /// ROM-trap load (one emulated second at 50 Hz).
+    static constexpr uint32_t FASTLOAD_TAPE_IDLE_FRAMES = 50;
     Joystick&       joystick()       { return joystick_; }
 
     // --- Task 79: per-connector host input source ---------------------------
@@ -2449,6 +2455,11 @@ private:
     // snapshots by design).
     bool             tape_auto_play_ = true;
     TapePollDetector tape_poll_;
+    // GH #408 - fast-load pacing window (fastload_active()): set on every
+    // trap-served block, counted down once per frame.
+    // Host pacing only: not serialised (a restored machine sprints again at
+    // its next trapped block).
+    uint32_t         tape_fastload_frames_left_ = 0;
     /// One CPU read of the ULA port: count it, and resume a deck that auto play
     /// itself held (never start one that is not playing).
     void tape_auto_on_read_();

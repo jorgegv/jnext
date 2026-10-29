@@ -109,6 +109,27 @@ public:
     /// Useful for UI status display.
     bool is_active() const { return state_ != State::INACTIVE; }
 
+    /// GH #408 - how many frames an armed typist may keep the emulator
+    /// uncapped while it WAITS for a full keyboard scan. Every machine's ROM
+    /// reaches one within 100 frames of a startup `--load` (measured: 48K,
+    /// 128K, +3, Next), so this is 5x that. A tape attached while a program
+    /// that never scans the whole matrix runs (a game's own key routine, a
+    /// `DI` loop) would otherwise keep the typist waiting, and the machine
+    /// sprinting, for the rest of the session. Only the pacing gives up: the
+    /// typist stays armed and still types once a scan comes.
+    static constexpr uint32_t FASTLOAD_WAIT_FRAMES = 500;
+
+    /// True while the typist should keep the emulator uncapped: armed, and
+    /// either about to fire or not yet waiting longer than
+    /// FASTLOAD_WAIT_FRAMES (`Emulator::fastload_active()`).
+    bool wants_fastload() const {
+        return state_ == State::POST_DELAY ||
+               (state_ == State::WAITING && frames_waiting_ < FASTLOAD_WAIT_FRAMES);
+    }
+
+    /// Frames spent WAITING since the last arm()/reset()/restore().
+    uint32_t frames_waiting() const { return frames_waiting_; }
+
     /// The typist's whole state, for a `.jns` (GH #402): a snapshot taken
     /// between `load_tap` and the typed `LOAD ""` must carry on typing.
     /// `state`: 0 inactive, 1 waiting, 2 post_delay. `mode`: 0 jpp, 1 enter.
@@ -131,6 +152,7 @@ public:
         mode_ = static_cast<Mode>(s.mode);
         keyboard_ports_read_ = s.ports_read;
         post_delay_frames_ = s.post_delay;
+        frames_waiting_ = 0;   // pacing only, not in the snapshot (GH #408)
         return true;
     }
 
@@ -191,4 +213,7 @@ private:
     ///   modern host — visually "instant" like FUSE.
     static constexpr uint8_t POST_TRIGGER_DELAY_FRAMES = 8;
     uint8_t  post_delay_frames_ = 0;
+
+    /// GH #408 - frames spent WAITING (saturating); see wants_fastload().
+    uint32_t frames_waiting_ = 0;
 };

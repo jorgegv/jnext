@@ -1149,6 +1149,177 @@ int main() {
         }
     }
 
+    // ---- Fast-load pacing: a tape nobody reads stops the sprint (GH #408) ---
+    // No hardware counterpart: Emulator::fastload_active() is host pacing (the
+    // Qt frontend's 200-frame burst, the SDL frontend's skipped delay). Oracle:
+    // FUSE's timer_fastloading_active() (timer/timer.c:198), which sprints only
+    // while the tape PLAYS or the phantom typist is active - never because a
+    // tape is merely in the deck - plus the bounds jnext adds for its trap-
+    // served loads: FASTLOAD_TAPE_IDLE_FRAMES after the attach or the last
+    // trapped block, and PhantomTypist::FASTLOAD_WAIT_FRAMES of waiting.
+    {
+        using ldrig::sd_image;
+        // A BASIC program header (type 0, no autostart) + its data: `10 REM`.
+        auto basic_prog = [](const char* name10) {
+            const Bytes line = {0x00, 0x0A, 0x02, 0x00, 0xEA, 0x0D};
+            Bytes h = {0};
+            for (int i = 0; i < 10; ++i) h.push_back(static_cast<uint8_t>(name10[i]));
+            const uint8_t n = static_cast<uint8_t>(line.size());
+            h.insert(h.end(), {n, 0, 0x00, 0x80, n, 0});
+            return concat({tap_block(0x00, h), tap_block(0xFF, line)});
+        };
+        // Two programs on one tape: LOAD "" reads the first, the second stays.
+        const std::string two_progs = write_file("gh408-two.tap",
+            concat({basic_prog("PROG1     "), basic_prog("PROG2     ")}));
+        auto boot48 = [&](std::unique_ptr<Emulator>& emu) {
+            emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            return emu->init(cfg);
+        };
+        // A program that never reads the keyboard: DI; JR $.
+        auto park = [](Emulator& e) {
+            e.mmu().write(0x8000, 0xF3);
+            e.mmu().write(0x8001, 0x18);
+            e.mmu().write(0x8002, 0xFE);
+            auto r = e.cpu().get_registers();
+            r.PC = 0x8001; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+            e.cpu().set_registers(r);
+        };
+        const int idle = static_cast<int>(Emulator::FASTLOAD_TAPE_IDLE_FRAMES);
+        const auto J  = Keyboard::AutoKey{6, 3, -1, -1, 5};
+        const auto QQ = Keyboard::AutoKey{5, 0, 7, 1, 5};
+        const auto EN = Keyboard::AutoKey{6, 0, -1, -1, 5};
+
+        std::unique_ptr<Emulator> emu;
+        // TAPF-01..03: the startup --load path on a 48K, the real ROM typing.
+        bool ok = boot48(emu) && emu->load_tap(two_progs, true);
+        int f = 0, loaded_at = -1, last_trap = -1;
+        bool fast_throughout = ok && emu->fastload_active();
+        size_t blk = emu->tape().current_block();
+        for (; ok && f < 1500 && loaded_at < 0; ++f) {
+            emu->run_frame();
+            if (emu->tape().current_block() != blk) { blk = emu->tape().current_block(); last_trap = f; }
+            if (blk == 2) loaded_at = f;
+            else if (!emu->fastload_active()) fast_throughout = false;
+        }
+        {
+            char b[96];
+            std::snprintf(b, sizeof(b), "ok=%d loaded_at=%d block=%zu", ok, loaded_at, blk);
+            check("TAPF-01", "a startup LOAD \"\" of a fast tape runs uncapped on every frame from the attach "
+                  "until the program's two blocks are in", ok && loaded_at > 0 && fast_throughout, b);
+        }
+        // The second program is never asked for: the window runs out exactly
+        // FASTLOAD_TAPE_IDLE_FRAMES frames after the trap that loaded the data.
+        bool on_before = true, off_after = true;
+        for (int g = f; ok && g < last_trap + 600; ++g) {
+            emu->run_frame();
+            if (g < last_trap + idle - 1 && !emu->fastload_active()) on_before = false;
+            if (g >= last_trap + idle - 1 && emu->fastload_active()) off_after = false;
+        }
+        {
+            char b[128];
+            std::snprintf(b, sizeof(b), "last_trap=%d on_before=%d off_after=%d block=%zu at_end=%d",
+                          last_trap, on_before, off_after, emu->tape().current_block(),
+                          emu->tape().at_end() ? 1 : 0);
+            check("TAPF-02", "a fast tape with a program left that nothing reads stops holding fast loading "
+                  "FASTLOAD_TAPE_IDLE_FRAMES frames after its last trapped block, for good",
+                  ok && last_trap > 0 && on_before && off_after &&
+                  emu->tape().current_block() == 2 && !emu->tape().at_end(), b);
+        }
+        // A second LOAD "" typed later sprints again, through to the tape's end.
+        emu->keyboard().queue_auto_type({J, QQ, QQ, EN});
+        bool fast_again = emu->fastload_active();
+        int h = 0;
+        for (; ok && h < 600 && !emu->tape().at_end(); ++h) {
+            emu->run_frame();
+            if (!emu->tape().at_end() && !emu->fastload_active()) fast_again = false;
+        }
+        for (int i = 0; i < 5; ++i) emu->run_frame();
+        check("TAPF-03", "a LOAD \"\" typed after the window ran out is uncapped again until the tape's end, "
+              "and the sprint stops there",
+              ok && fast_again && emu->tape().at_end() && !emu->fastload_active(),
+              "frames=" + std::to_string(h));
+
+        // TAPF-04: Tape > Open while a program that never scans the matrix
+        // runs. The typist waits for a scan that never comes; it may hold
+        // the sprint only FASTLOAD_WAIT_FRAMES frames, and stays armed.
+        ok = boot48(emu);
+        for (int i = 0; ok && i < 200; ++i) emu->run_frame();   // BASIC is up
+        park(*emu);
+        ok = ok && emu->load_tap(two_progs, true);
+        const int wait = static_cast<int>(PhantomTypist::FASTLOAD_WAIT_FRAMES);
+        bool on = true, off = true;
+        for (int i = 1; ok && i <= wait + 300; ++i) {
+            emu->run_frame();
+            if (i < wait && !emu->fastload_active()) on = false;
+            if (i >= wait && emu->fastload_active()) off = false;
+        }
+        check("TAPF-04", "a typist waiting for a keyboard scan that never comes holds fast loading for "
+              "FASTLOAD_WAIT_FRAMES frames, then lets go and stays armed",
+              ok && on && off && emu->phantom_typist().is_active() &&
+              emu->tape().current_block() == 0);
+
+        // TAPF-05: the same two programs as a fast TZX (ID 0x10 blocks) at the
+        // 48K BASIC prompt, as Tape > Open attaches one: load_tzx() types
+        // LOAD "" itself (no typist). Uncapped through the typing and the
+        // load, for FASTLOAD_TAPE_IDLE_FRAMES after its last trapped block,
+        // then not, with the second program still on the tape.
+        Bytes tzx_two = {'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 0x01, 0x14};
+        {
+            const Bytes progs = concat({basic_prog("PROG1     "), basic_prog("PROG2     ")});
+            for (size_t i = 0; i < progs.size();) {   // each TAP block as a 0x10 block
+                const size_t len = progs[i] | (progs[i + 1] << 8);
+                tzx_two.insert(tzx_two.end(), {0x10, 0xE8, 0x03});
+                tzx_two.insert(tzx_two.end(), progs.begin() + static_cast<long>(i),
+                               progs.begin() + static_cast<long>(i + 2 + len));
+                i += 2 + len;
+            }
+        }
+        ok = boot48(emu);
+        for (int i = 0; ok && i < 200; ++i) emu->run_frame();   // BASIC is up
+        ok = ok && emu->load_tzx(write_file("gh408-two.tzx", tzx_two), true);
+        auto fast_offset = [&]() { return emu->tzx_tape().deck_state(emu->monotonic_tstates()).fast_offset; };
+        int32_t pos = fast_offset();
+        int traps = 0, tzx_last_trap = -1;
+        bool tzx_on = ok && emu->fastload_active();
+        int g = 0;
+        for (; ok && g < 400 && traps < 2; ++g) {
+            emu->run_frame();
+            if (fast_offset() != pos) { pos = fast_offset(); ++traps; tzx_last_trap = g; }
+            if (traps < 2 && !emu->fastload_active()) tzx_on = false;
+        }
+        bool tzx_window = true, tzx_off = true;
+        for (; ok && g < tzx_last_trap + 400; ++g) {
+            emu->run_frame();
+            if (g < tzx_last_trap + idle - 1 && !emu->fastload_active()) tzx_window = false;
+            if (g >= tzx_last_trap + idle - 1 && emu->fastload_active()) tzx_off = false;
+        }
+        {
+            char b[128];
+            std::snprintf(b, sizeof(b), "traps=%d last_trap=%d on=%d window=%d off=%d at_end=%d",
+                          traps, tzx_last_trap, tzx_on, tzx_window, tzx_off,
+                          emu->tzx_tape().at_end() ? 1 : 0);
+            check("TAPF-05", "a fast TZX at the BASIC prompt is uncapped through its typed LOAD \"\" and the "
+                  "load, for FASTLOAD_TAPE_IDLE_FRAMES after its last trapped block, then not, "
+                  "with a program left",
+                  ok && traps == 2 && tzx_on && tzx_window && tzx_off && fast_offset() == pos &&
+                  !emu->tzx_tape().at_end(), b);
+        }
+
+        // TAPF-06: keys typed with no fast tape pending (a --delayed-keypress,
+        // the debugger's press_key) do not sprint: the typing term is the
+        // tape's, not the keyboard's. The TZX above is ejected first.
+        emu->tzx_tape().eject();
+        emu->keyboard().queue_auto_type({J, QQ});
+        bool idle_typing = !emu->fastload_active() && emu->keyboard().auto_typing();
+        for (int i = 0; i < 30 && emu->keyboard().auto_typing(); ++i) {
+            emu->run_frame();
+            if (emu->fastload_active()) idle_typing = false;
+        }
+        check("TAPF-06", "auto-typed keys with no fast tape pending run at normal speed", ok && idle_typing);
+    }
+
     Log::emulator()->sinks().pop_back();
     std::filesystem::remove_all(g_root, ec);
 
