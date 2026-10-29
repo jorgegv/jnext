@@ -4236,6 +4236,52 @@ int main() {
                   r.symbols == 1 && h.labels == 0 && n.dbg->lookup_name("Main") == 0x8000,
                   "labels=" + std::to_string(h.labels));
         }
+        {   // SYM-15: an unreadable Memory.txt beside an SLD with labels
+            const fs::path d = sub("sym15");
+            write_text(d / "lab15.sld", equ);
+            write_text(d / "lab15.Memory.txt", "8000: ._Main\n");
+            std::error_code ec;
+            fs::resize_file(d / "lab15.Memory.txt", SOURCE_FILE_MAX_BYTES + 1, ec);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab15.nex").string());
+            const bool attached = m.dbg->lookup_name("banked") == 0xC000;
+            fs::create_directories(d / "next");
+            m.dbg->load_program_sidecars((d / "next" / "plain15.nex").string());
+            check("SRCDBG-SYM-15", "an unreadable Memory.txt is reported and the SLD's labels still attach, "
+                                   "counted alone, as the program's symbols",
+                  !ec && r.symbols_unreadable && r.symbols == 12 && attached &&
+                      r.problem.find("NextBuild symbols '") != std::string::npos &&
+                      r.problem.find("rejected") != std::string::npos && m.dbg->symbols().empty(),
+                  "symbols=" + std::to_string(r.symbols) + " " + r.problem);
+        }
+        {   // SYM-16: beside a tape, an SLD with an identity is not checked against memory
+            const fs::path d = sub("sym16");
+            write_text(d / "lab16.tap", "");
+            write_text(d / "lab16.sld", "|SLD.data.version|1\n||program.name:x\n"
+                       "||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a\n"
+                       "||program.org:32768\n||program.size:4\n" + equ.substr(20));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "lab16.tap").string());
+            check("SRCDBG-SYM-16", "beside a tape program the labels of an SLD that carries a binary identity "
+                                   "attach too: the tape is not in memory to check it against",
+                  r.symbols == 12 && m.dbg->lookup_name("banked") == 0xC000 && r.problem.empty(),
+                  "symbols=" + std::to_string(r.symbols) + " " + r.problem);
+        }
+        {   // SYM-17: a hand SLD's labels replace a program's sidecar symbols
+            const fs::path d = sub("sym17");
+            write_text(d / "m17.Memory.txt", "8000: ._Main\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto first = m.dbg->load_program_sidecars((d / "m17.nex").string());
+            const auto h = m.dbg->load_source_map((fixtures / "equlabels.sld").string(), false);
+            const bool replaced = h.labels == 12 && m.dbg->lookup_name("banked") == 0xC000 &&
+                                  !m.dbg->lookup_name("Main");
+            write_text(d / "m17b.Memory.txt", "8000: ._Other\n");
+            const auto next = m.dbg->load_program_sidecars((d / "m17b.nex").string());
+            check("SRCDBG-SYM-17", "a hand SLD with labels replaces a program's sidecar symbols, and they "
+                                   "are then the user's: the next program's Memory.txt is kept out",
+                  first.symbols == 1 && replaced && next.symbols == -1 && !m.dbg->lookup_name("Other"),
+                  "labels=" + std::to_string(h.labels) + " next=" + std::to_string(next.symbols));
+        }
         {   // SYM-14
             const fs::path d = sub("sym14");
             write_text(d / "lab14.sld", equ);

@@ -2409,11 +2409,25 @@ void test_sld_labels_menu() {
             choose_file(w, sld);
         },
         [&]() { load->trigger(); });
+    const QString named = cell(bp, 0, 3);
+    const bool box_named = named == QStringLiteral("banked");
+    // An SLD with no labels reports the old text, with no mention of labels.
+    const QString plain = QString::fromStdString(fx.sld);
+    QString plain_box;
+    drive_modals(
+        [&](QWidget* w, int) {
+            if (auto* mb = qobject_cast<QMessageBox*>(w)) plain_box = mb->text();
+            choose_file(w, plain);
+        },
+        [&]() { load->trigger(); });
     check("QSYM-06", "Load Source Map... with an sjasmplus SLD reports its traces and labels, and the "
-                     "Breakpoints panel names a page-20 row by the label at once",
+                     "Breakpoints panel names a page-20 row by the label at once; one with no labels "
+                     "reports its traces only",
           premise && box.contains(QStringLiteral("18 source traces and 12 labels")) &&
-              cell(bp, 0, 3) == QStringLiteral("banked"),
-          "premise=" + std::to_string(premise) + " box='" + s(box) + "' cell=" + s(cell(bp, 0, 3)));
+              box_named && plain_box.startsWith(QStringLiteral("Loaded 5 source traces from:")) &&
+              !plain_box.contains(QStringLiteral("label")),
+          "premise=" + std::to_string(premise) + " box='" + s(box) + "' cell=" + s(named) +
+              " plain='" + s(plain_box) + "'");
     m.clear_all();
 }
 

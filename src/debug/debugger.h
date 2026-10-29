@@ -975,14 +975,15 @@ public:
         /// map carries none, else whether it matched.
         std::optional<bool> identity;
         /// SLD labels put in the symbol table; 0 none in the file; -1 refused, or
-        /// the symbols you loaded (Load MAP, --map) kept.
+        /// the symbols you loaded (Load MAP, Load Memory.txt, --map) kept.
         int labels = -1;
     };
 
     /// CAP-SRC — load an sjasmplus SLD file, replacing the current map only on
-    /// success. Its labels replace the symbol table unless that holds a MAP the
-    /// user loaded; a file with no labels clears only an earlier SLD's. A map that carries a binary identity which no longer matches
-    /// memory is refused unless `accept_identity_mismatch` (a program may have
+    /// success. Its labels replace the symbol table unless that holds symbols the
+    /// user loaded (a MAP, a Memory.txt); a file with no labels clears only an
+    /// earlier SLD's. A map that carries a binary identity which no longer
+    /// matches memory is refused unless `accept_identity_mismatch` (a program may have
     /// legitimately changed variables inside its own image since it loaded).
     SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch);
 

@@ -60,8 +60,8 @@ again (**Load SLD...**) to use it.
 buttons, also in **Debug ▸ Source ▸ Load Source Map…** and **Load Symbols
 (Memory.txt)…**. The symbols replace whatever was loaded before, as the
 **Map ▸ Load MAP File** formats do. **Load SLD...** loads the SLD's labels too and
-replaces the symbols the same way, unless they came from **Map ▸ Load MAP File**
-or `--map`, which are kept; a later SLD replaces an earlier SLD's labels.
+replaces the symbols the same way, unless you loaded symbols yourself (**Map ▸ Load MAP
+File**, **Load Memory.txt...** or `--map`), which are kept; a later SLD replaces an earlier SLD's labels.
 
 **Binary identity.** An SLD may record the SHA-256 of the program's bytes as it
 was built (`||program.sha256:`, `||program.org:` and `||program.size:` comment

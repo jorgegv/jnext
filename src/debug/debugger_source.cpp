@@ -206,7 +206,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
 
     // The SLD sidecar is read ONCE (design 9.1: one file, two transactions) and
     // judged here, before the symbols, because its labels join them; it is logged
-    // below, in the order of old.
+    // below, in today's order.
     const auto memory = nextbuild_sidecar(program);
     SourceMap candidate;
     SymbolTable sld_labels;
