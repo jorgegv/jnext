@@ -1029,6 +1029,46 @@ void test_line_starts() {
           shown2 == 2 && reason2.contains(QStringLiteral("no code at main.bas:5")) &&
               m.rows().empty(),
           "shown=" + std::to_string(shown2) + " reason=" + s(reason2));
+
+    // QBPM-12 (GH #341): a line compiled to two places is one row, "main.bas:11 (2 locations)",
+    // and Remove on it takes both places and leaves the GUI client with no subscription.
+    const bool seen3 = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_add(); });
+    bp->refresh();
+    const auto listed = m.rows();
+    const QString shown_cell = cell(bp, 0, 3);
+    table->setCurrentCell(0, 1);
+    bp->on_remove();
+    bool own_left = false;
+    for (const auto& si : fx.backend->subscriptions(false))
+        if (si.owner == m.client()) own_left = true;
+    check("QBPM-12", "a two-place source line is ONE Breakpoints row reading \"main.bas:11 "
+                     "(2 locations)\"; Remove on it leaves no row and no subscription of the GUI",
+          seen3 && listed.size() == 1 && listed[0].locations == 2 &&
+              shown_cell == QStringLiteral("main.bas:11 (2 locations)") && m.rows().empty() &&
+              !own_left,
+          "rows=" + std::to_string(listed.size()) + " cell=" + s(shown_cell) +
+              " own_left=" + std::to_string(own_left));
+
+    // QBPM-13 (D6): a gutter click on one place's dot removes that location only.
+    {
+        GutterView g(*fx.backend, m);
+        if (auto* sb = g.panel->findChild<QScrollBar*>()) sb->setValue(0x8002);
+        QApplication::processEvents();
+        const bool added = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_add(); });
+        g.panel->refresh();
+        const bool dot_before = g.red_dot();
+        g.click_gutter();
+        bp->refresh();
+        const auto left = m.rows();
+        check("QBPM-13", "a gutter click on the $8002 dot of a two-place source line removes that "
+                         "place only: one row remains, at $9000 on its page, reading \"main.bas:11\" "
+                         "with no count",
+              added && dot_before && left.size() == 1 && left[0].addr == 0x9000 &&
+                  left[0].space == p90 && left[0].locations == 1 &&
+                  cell(bp, 0, 3) == QStringLiteral("main.bas:11"),
+              "rows=" + std::to_string(left.size()) + " cell=" + s(cell(bp, 0, 3)));
+        m.clear_all();
+    }
 }
 
 // ── QBPM-10: Edit never cancels silently ──────────────────────────────
