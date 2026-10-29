@@ -2910,7 +2910,7 @@ static void test_cat27_memactive_page_sentinel() {
             // The final mem_active_page set is the MR cycle for 0x0000.
             emu.cpu().execute();   // LD A,(0x0000) — last set is for 0x0000
             const uint8_t got = emu.contention().mem_active_page();
-            char buf[64];
+            char buf[128];
             std::snprintf(buf, sizeof(buf),
                           "contention.mem_active_page=0x%02X "
                           "(exp 0xFF; pre-fix would yield 0x02 = sram_rom*2+0)",
