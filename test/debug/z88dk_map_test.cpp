@@ -308,6 +308,48 @@ int main() {
         const SourceMap::SpaceReader all22 = [](FetchSource, uint16_t) -> std::optional<uint8_t> { return 0x22; };
         SourceMap md;
         const auto rd = load(md, decoy);
+        // Self-modifying code is data (D6): `smc_*` / `SMC_*` ranges are covered by the binary but
+        // never checked, while the code range beside them is.
+        const fs::path smc = dir / "smc" / "prog.map";
+        fs::create_directories(smc.parent_path());
+        write_text(smc,
+            rec("__CODE_head", 0x9000, "", "", "", "const") +
+            rec("__C_LINE_3_a", 0x9000, "a_c", "code_compiler", "a.c:3") +
+            rec("__C_LINE_4_a", 0x9010, "a_c", "smc_patch", "a.c:4") +
+            rec("__C_LINE_5_a", 0x9020, "a_c", "SMC_PATCH", "a.c:5") +
+            rec("__C_LINE_6_a", 0x9030, "a_c", "code_compiler", "a.c:6"));
+        write_text(smc.parent_path() / "prog_CODE.bin", std::string(0x400, '\x11'));
+        SourceMap ms;
+        const auto rs = load(ms, smc);
+        std::vector<uint8_t> smc_mem(0x2000, 0x11);
+        const auto smc_reader = [&smc_mem]() -> SourceMap::SpaceReader {
+            return [&smc_mem](FetchSource sp, uint16_t a) -> std::optional<uint8_t> {
+                if (!(sp == P4)) return std::nullopt;
+                return smc_mem[a & 0x1FFF];
+            };
+        };
+        const bool smc_intact = ms.verify_program(logical_junk, smc_reader()) == true;
+        for (int i = 0x1010; i < 0x1030; ++i) smc_mem[i] = 0x99;   // the patched bytes
+        const bool smc_patched_ok = ms.verify_program(logical_junk, smc_reader()) == true;
+        smc_mem[0x1000] = 0x99;                                     // a code byte
+        const bool smc_code_bad = ms.verify_program(logical_junk, smc_reader()) == false;
+        // A section binary that fails source_file_problem() refuses the half and is named: over the
+        // cap, and a directory (a FIFO would block the load, the reason the check is made).
+        const fs::path badbin = dir / "badbin" / "prog.map";
+        fs::create_directories(badbin.parent_path());
+        fs::copy_file(v24 / "sccz80-debug" / "prog.map", badbin);
+        SourceMap kept;
+        load(kept, v24 / "sccz80-debug" / "prog.map");
+        const std::string kept_file = kept.loaded_file();
+        write_text(badbin.parent_path() / "prog_CODE.bin", "x");
+        fs::resize_file(badbin.parent_path() / "prog_CODE.bin", SOURCE_FILE_MAX_BYTES + 1);
+        const auto rbig = load(kept, badbin);
+        fs::remove(badbin.parent_path() / "prog_CODE.bin");
+        fs::create_directories(badbin.parent_path() / "prog_CODE.bin");
+        const auto rdir = load(kept, badbin);
+        const bool bins_refused = !rbig && rbig.error.find("prog_CODE.bin") != std::string::npos &&
+            !rdir && rdir.error.find("prog_CODE.bin") != std::string::npos && rdir.error.find("not a regular file") != std::string::npos &&
+            kept.size() == 46 && kept.loaded_file() == kept_file;
         check("Z88MAP-14", "the identity is the section binaries against the range's own page: code is checked, data and bss are not, no binary is unverified, a bank not mapped is checked",
               nex.ok && nex20.ok && r && verdict(original) == true && verdict(a) == false &&
                   verdict(b) == true && verdict(c) == true &&
@@ -318,7 +360,8 @@ int main() {
                   m20.verify_program(logical_junk, no20.reader()) == false &&   // page 20 unreadable
                   m20.verify_program(logical_junk).value_or(true) == false &&
                   rd && !md.verify_program(logical_junk, original.reader()).has_value() &&
-                  rf && mf.lookup(P20, 0x8100) && !mf.verify_program(logical_junk, all22).has_value());
+                  rf && mf.lookup(P20, 0x8100) && !mf.verify_program(logical_junk, all22).has_value() &&
+                  rs && smc_intact && smc_patched_ok && smc_code_bad && bins_refused);
     }
 
     // ── Z88MAP-15: the symbol half is the symbol loader's ──
@@ -363,9 +406,21 @@ int main() {
     {
         SourceMap m20;
         const auto r = load(m20, v24 / "sccz80-page20" / "prog.map");
+        // A record exactly AT its section's tail is not bounded by it (D3: the tail counts when it is
+        // above the start). Oracle, v2.4 sccz80-debug: `__ASM_LINE_9496 = $800C ; CODE`, `__CODE_tail =
+        // $800C`, `__code_crt_init_head = $800C`, `__ASM_LINE_9535 = $8035`; prog_CODE.bin holds real
+        // crt-init code at $800C-$8034 (`ld hl,$8F8E` ...), so that line owns those 41 bytes.
+        const SourceLocation* const at_tail = sc.lookup(P4, 0x800C);
+        const SourceLocation* const before_next = sc.lookup(P4, 0x8034);
+        const auto ends_with = [](const std::string& text, const std::string& tail) {
+            return text.size() >= tail.size() && text.compare(text.size() - tail.size(), tail.size(), tail) == 0;
+        };
+        const bool crt_line_9496 = at_tail && before_next && at_tail->line == 9496 && before_next->line == 9496 &&
+            ends_with(at_tail->file, "zxn_crt.asm.m4") && sc.lookup(P4, 0x8035) && sc.lookup(P4, 0x8035)->line == 9535;
         check("Z88MAP-20", "a last line ends at its section's tail: asmfn.asm:10 at $8D6C (__code_user_tail $8D6D), banked.c:9 at $C023 (__PAGE_20_tail $C024)",
               is_at(sc.lookup(P4, 0x8D6C), "asmfn.asm", 10) && !sc.lookup(P4, 0x8D6D) &&
-                  r && is_at(m20.lookup(P20, 0xC023), "banked.c", 9) && !m20.lookup(P20, 0xC024));
+                  r && is_at(m20.lookup(P20, 0xC023), "banked.c", 9) && !m20.lookup(P20, 0xC024) &&
+                  crt_line_9496);
     }
 
     // ── Z88MAP-21..22: the extent caps ──
@@ -434,7 +489,20 @@ int main() {
             const auto r = load(m, synth("z24.map", body[i]));
             all = all && !r && r.count == -1 && r.error.find("line 1") != std::string::npos && m.empty();
         }
-        check("Z88MAP-24", "a DIV section, a PAGE section with no __PAGE_n_head and a page out of range each refuse the half, naming the line",
+        // A PAGE line below its section's head, one that runs on past page 223, and numbers past
+        // the limits (BANK 111, DIV 15) refuse the half too.
+        const char* const more[] = {
+            "__PAGE_16_head = $C100 ; const, public, def, , ,\n__C_LINE_3_a = $C000 ; addr, local, , a_c, PAGE_16, a.c:3\n",
+            "__PAGE_223_head = $C000 ; const, public, def, , ,\n__C_LINE_3_a = $E000 ; addr, local, , a_c, PAGE_223, a.c:3\n",
+            "__C_LINE_3_a = $C000 ; addr, local, , a_c, BANK_112, a.c:3\n",
+            "__C_LINE_3_a = $C000 ; addr, local, , a_c, DIV_16, a.c:3\n",
+        };
+        for (const char* text : more) {
+            SourceMap m;
+            const auto r = load(m, synth("z24b.map", text));
+            all = all && !r && r.count == -1 && r.error.find("line ") != std::string::npos && m.empty();
+        }
+        check("Z88MAP-24", "a DIV section, a PAGE section with no __PAGE_n_head or below it or running past page 223, and a number out of range each refuse the half, naming the line",
               all);
     }
     {
@@ -447,6 +515,13 @@ int main() {
         SourceMap bad_bank;
         const auto rb = load(bad_bank, synth("z25c.map",
             rec("__x", 1, "a_c", "", "", "const") + rec("__C_LINE_3_a", 0x1000000, "a_c", "BANK_10", "a.c:3")));
+        // Records that do not tokenize at all (no `$` value, no `;`) refuse the half too.
+        SourceMap bad_tok1;
+        SourceMap bad_tok2;
+        const auto rt1 = load(bad_tok1, synth("z25d.map",
+            rec("__x", 1, "a_c", "", "", "const") + "__C_LINE_3_a = 9000 ; addr, local, , a_c, code_compiler, a.c:3\n"));
+        const auto rt2 = load(bad_tok2, synth("z25e.map",
+            rec("__x", 1, "a_c", "", "", "const") + "__ASM_LINE_3_a = $9000\n"));
         SourceMap loaded;
         load(loaded, v24 / "sccz80-debug" / "prog.map");
         const std::string before = loaded.loaded_file();
@@ -455,6 +530,8 @@ int main() {
               !rl && rl.error.find("line 2") != std::string::npos && !rv && rv.error.find("line 2") != std::string::npos &&
                   !rb && rb.error.find("line 2") != std::string::npos && bad_bank.empty() &&
                   bad_loc.empty() && bad_value.empty() &&
+                  !rt1 && rt1.error.find("line 2") != std::string::npos && bad_tok1.empty() &&
+                  !rt2 && rt2.error.find("line 2") != std::string::npos && bad_tok2.empty() &&
                   rn && rn.count == 0 && rn.error.empty() && loaded.size() == 46 && loaded.loaded_file() == before);
     }
     {
@@ -505,6 +582,15 @@ int main() {
                   bank("BANK_10_H", 0xE000) == 21 && bank("CODE_10", 0xC000) == 20 &&
                   bank("RODATA_10_align_256", 0xD000) == 20 &&
                   z88dk_section_space("DIV_3", 0x2000, no_head).kind == Z88dkSpace::Kind::Unpaged &&
+                  bank("BANK_111", 0xC000) == 222 && bank("BANK_111", 0xE000) == 223 &&
+                  z88dk_section_space("BANK_112", 0xC000, no_head).kind == Z88dkSpace::Kind::Unpaged &&
+                  z88dk_section_space("BANK_112", 0x1C000, no_head).kind == Z88dkSpace::Kind::Refused &&
+                  z88dk_section_space("DIV_15", 0x2000, no_head).why.find("out of range") == std::string::npos &&
+                  z88dk_section_space("DIV_16", 0x2000, no_head).why.find("out of range") != std::string::npos &&
+                  z88dk_section_space("DIV_16", 0x12000, no_head).kind == Z88dkSpace::Kind::Refused &&
+                  z88dk_section_space("PAGE_16", 0xC000, with(0xC100)).kind == Z88dkSpace::Kind::Unpaged &&
+                  z88dk_section_space("PAGE_223", 0xE000, with(0xC000)).kind == Z88dkSpace::Kind::Unpaged &&
+                  page("PAGE_223", 0xC000, 0xDFFF) == 223 &&
                   z88dk_section_space("code_compiler", 0x8000, no_head).kind == Z88dkSpace::Kind::BindAtLoad);
     }
 
