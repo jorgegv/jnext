@@ -340,7 +340,10 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   replay never generates audio at all.
 
 `main()` wires them: it merges `--nextpi`/`--no-nextpi` over the saved
-preference (GUI sessions only, as for the ESP), splits the extra QEMU
+preference (GUI sessions only, as for the ESP), puts the `--nextpi-dir`,
+`--nextpi-release`, `--nextpi-qemu`, `--nextpi-audio` and `--nextpi-qemu-args`
+flags over the saved text settings (`nextpi::merge_settings`, any session),
+splits the extra QEMU
 arguments (before anything else, so a malformed value is reported with no download
 offered), checks the QEMU programs
 (`PiQemu::find_programs`, so nobody is offered 6 GB for a Pi that cannot run),

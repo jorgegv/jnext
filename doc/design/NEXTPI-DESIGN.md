@@ -49,9 +49,11 @@ an external tool jnext drives, not code it contains.
 |------|--------|
 | `--nextpi` | Start NextPi for this run. |
 | `--no-nextpi` | Do not start it this run, whatever the saved preference says. |
+| `--nextpi-dir DIR`, `--nextpi-release NAME`, `--nextpi-qemu PROGRAM`, `--nextpi-audio SPEC`, `--nextpi-qemu-args "ARGS"` | Optional (GH #407): set that setting for this run, over the saved one; given in any session, headless included. An empty value means the default. |
 
 Everything else has a default, and lives in the `[nextpi]` section of
-`~/.jnext/jnext.conf`, edited under **Settings > Preferences > NextPi**:
+`~/.jnext/jnext.conf`, edited under **Settings > Preferences > NextPi** (each key
+below also has its optional flag above):
 
 | Key | Control | Default |
 |-----|---------|---------|
@@ -86,11 +88,14 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
 
 ### 2.3 Choices made, and the alternatives
 
-- **No CLI for the settings, only the enabler** — per review: jnext gives a
-  feature one switch and defaults the rest. The other settings are a
-  Preferences tab and a config section.
+- **The enabler alone starts NextPi with defaults; every setting of the
+  Preferences tab also has an optional CLI flag** (owner, 2026-10-29): `--nextpi`
+  is the minimal switch, and `--nextpi-dir`, `--nextpi-release`, `--nextpi-qemu`,
+  `--nextpi-audio` and `--nextpi-qemu-args` each set one setting for that run.
+  (An earlier line here read "no CLI for the settings, only the enabler"; it
+  misread the owner's review of PR #310.)
 - **Extra QEMU arguments: a Preferences box and `[nextpi] qemu_args`, no CLI flag**
-  (GH #407). Split by `PiQemu::split_extra_args`: whitespace, `'...'` and
+  (GH #407, also `--nextpi-qemu-args`). Split by `PiQemu::split_extra_args`: whitespace, `'...'` and
   `"..."` literal, adjacent pieces joined, backslash ordinary (a pasted Windows
   path is not changed), no expansion, no shell. Rejected: POSIX backslash escapes
   (they would turn `C:\Users\x` into `C:Usersx`), `QProcess::splitCommand`
@@ -559,7 +564,8 @@ handing every field back unchanged).
 
 Extra QEMU arguments (GH #407): PIT-57..60 (the splitter: blanks, quotes, no
 escapes and no expansion, the unterminated-quote error and its position),
-PIT-61 (`build_args` puts them after jnext's own on both transports), PIT-62
+PIT-61 (`build_args` puts them after jnext's own on both transports), PIT-63
+(`merge_settings`: a `--nextpi-*` flag replaces its own saved setting only), PIT-62
 (the real spawn delivers the hard ones byte for byte, no shell; on Windows
 through `quote_arg`), AC-91..93 (default, round-trip, and an unquoted comma in
 any free-text key is read whole) and PA-28a/b (the box follows the tick and is

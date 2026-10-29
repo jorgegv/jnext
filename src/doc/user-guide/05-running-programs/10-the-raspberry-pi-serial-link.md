@@ -105,7 +105,13 @@ the Preferences tab means that default:
 | Pi audio | the Next's mixer | or `host` to play it on your computer's default output (`pa` on Linux, `coreaudio` on macOS, `dsound` on Windows), a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
 | Extra QEMU arguments | none | added after JNEXT's own when NextPi starts |
 
-Changes take effect the next time JNEXT starts. Changing the release makes the
+Each setting also has an optional command-line flag, for one run and over the
+saved value, in a headless session too: `--nextpi-dir DIR`, `--nextpi-release
+NAME`, `--nextpi-qemu PROGRAM`, `--nextpi-audio SPEC` and `--nextpi-qemu-args
+"ARGS"`. An empty value means the default. They go with `--nextpi` (or a saved
+preference that starts NextPi), which alone starts NextPi with the defaults.
+
+Changes made in Preferences take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With
 `latest`, JNEXT checks the mirror each time it starts; if it cannot reach it, it
 carries on with the release it has, and says so, with the address it tried.
@@ -117,7 +123,7 @@ place to look if the Pi never answers.
 
 ### Extra QEMU arguments
 
-The box under *Extra QEMU arguments* is added to the end of the QEMU command
+The box under *Extra QEMU arguments* (or `--nextpi-qemu-args "..."`) is added to the end of the QEMU command
 line when NextPi starts. It is split into arguments on spaces, so one box
 holding `-serial telnet:127.0.0.1:2357,server,nowait` is two arguments,
 `-serial` and the address. Single or double quotes keep spaces inside one

@@ -365,9 +365,12 @@ with status 1.
     reach its Supervisor prompt (`SUP>`). The release, the directory,
     the QEMU binary, where the Pi’s sound goes and any extra QEMU
     arguments are set under **Settings \> Preferences \> NextPi** (the
-    `[nextpi]` section of `~/.jnext/jnext.conf`); their defaults are
-    release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and
-    the Next’s mixer.
+    `[nextpi]` section of `~/.jnext/jnext.conf`) or, for one run, with
+    **--nextpi-dir**, **--nextpi-release**, **--nextpi-qemu**,
+    **--nextpi-audio** and **--nextpi-qemu-args**, which work in a
+    headless session too; their defaults are release `1_93D`,
+    `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s
+    mixer.
 
     On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S,
     as on the real machine: it is mixed with the beeper, the AY chips
@@ -396,6 +399,37 @@ with status 1.
 **--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
     enables it.
+
+**--nextpi-dir** *DIR*
+:   The NextPi directory for this run (default `~/.jnext/nextpi`), over
+    the value saved under **Settings \> Preferences \> NextPi**. An
+    empty value means the default. It is used when NextPi starts, so it
+    goes with **--nextpi** (or a saved preference that enables it).
+
+**--nextpi-release** *NAME*
+:   The NextPi release for this run: a release name on the mirror, or
+    `latest` for the newest one listed there (default `1_93D`). Over the
+    saved value; an empty value means the default.
+
+**--nextpi-qemu** *PROGRAM*
+:   The QEMU program for this run (default `qemu-system-arm` on `PATH`;
+    with a path, `qemu-img` is expected beside it). Over the saved
+    value; an empty value means the default.
+
+**--nextpi-audio** *SPEC*
+:   Where the Pi’s sound goes for this run: empty for the Next’s mixer
+    (the default), `host`, a QEMU `-audiodev` driver such as `pa` or
+    `none`, or `wav:`*FILE*. Over the saved value.
+
+**--nextpi-qemu-args** *“ARGS”*
+:   Extra QEMU arguments for this run, added after jnext’s own. The text
+    is split into arguments on spaces; `'...'` and `"..."` keep spaces
+    in one argument; a backslash is an ordinary character; nothing is
+    expanded and no shell is involved. Over the saved `qemu_args`. An
+    unterminated quote stops NextPi from starting, with a message (an
+    error when **--nextpi** asked for it). For example, a second serial
+    port for the Pi, on `ttyS0`:
+    `--nextpi-qemu-args "-serial telnet:127.0.0.1:2357,server,nowait"`.
 
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of

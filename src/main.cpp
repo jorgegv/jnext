@@ -341,6 +341,7 @@ int main(int argc, char* argv[]) {
     // saved preference, as --no-esp does for the ESP.
     bool        nextpi_enabled = false;
     bool        nextpi_enabled_set = false;
+    nextpi::CliSettings nextpi_cli;   // --nextpi-dir/-release/-qemu/-audio/-qemu-args (GH #407)
     // NextPi under QEMU. Owned here, by the process, rather than by the
     // Emulator: a hard reset rebuilds the Emulator and must not reboot the Pi
     // (core/pi_qemu.h). Reset explicitly before spdlog shuts down.
@@ -958,6 +959,11 @@ int main(int argc, char* argv[]) {
                 nextpi_enabled = false;
                 nextpi_enabled_set = true;
                 break;
+            case cli::OptId::NextpiDir:      nextpi_cli.dir = v[0]; break;
+            case cli::OptId::NextpiRelease:  nextpi_cli.release = v[0]; break;
+            case cli::OptId::NextpiQemu:     nextpi_cli.qemu_binary = v[0]; break;
+            case cli::OptId::NextpiAudio:    nextpi_cli.audio = v[0]; break;
+            case cli::OptId::NextpiQemuArgs: nextpi_cli.qemu_args = v[0]; break;
             case cli::OptId::JoyUartRxDelayFrames: {
                 // Parsed here so a typo is a usage error, not a stream that
                 // starts at frame 0 and is spent before the guest is listening
@@ -1601,20 +1607,26 @@ int main(int argc, char* argv[]) {
         bool gui = false, saved_enabled = false;
         nextpi::ProvisionOptions popts;
         PiQemu::Spec spec;
-        std::string qemu_args_text;   // [nextpi] qemu_args (GH #407); GUI sessions only, like the rest
+        nextpi::Settings np_saved;   // the [nextpi] text settings; GUI sessions only
 #ifdef ENABLE_QT_UI
         if (!headless) {
             const AppConfigData& saved = gui_app_config.data();
             gui               = true;
             saved_enabled     = saved.nextpi_enabled;
-            popts.dir         = saved.nextpi_dir.toStdString();
-            popts.release     = saved.nextpi_release.toStdString();
-            spec.audio        = saved.nextpi_audio.toStdString();
-            qemu_args_text    = saved.nextpi_qemu_args.toStdString();
-            if (!saved.nextpi_qemu_binary.isEmpty())
-                spec.qemu_binary = saved.nextpi_qemu_binary.toStdString();
+            np_saved.dir         = saved.nextpi_dir.toStdString();
+            np_saved.release     = saved.nextpi_release.toStdString();
+            np_saved.audio       = saved.nextpi_audio.toStdString();
+            np_saved.qemu_binary = saved.nextpi_qemu_binary.toStdString();
+            np_saved.qemu_args   = saved.nextpi_qemu_args.toStdString();
         }
 #endif
+        // A --nextpi-* flag replaces the saved value for this run, in any kind of session.
+        const nextpi::Settings np = nextpi::merge_settings(np_saved, nextpi_cli);
+        popts.dir     = np.dir;
+        popts.release = np.release;
+        spec.audio    = np.audio;
+        if (!np.qemu_binary.empty()) spec.qemu_binary = np.qemu_binary;
+        const std::string& qemu_args_text = np.qemu_args;
         // The decision (nextpi::start_request) and what follows a failed start
         // (nextpi::start_outcome) are pure functions, so both are tested; the
         // one `asked_on_cli` drives the report, the policy and the exit.
@@ -1668,7 +1680,7 @@ int main(int argc, char* argv[]) {
             // refused) and says so, rather than starting without what the user asked for.
             std::string split_error;
             if (!PiQemu::split_extra_args(qemu_args_text, spec.extra_args, split_error)) {
-                res.error = "extra QEMU arguments (Settings > Preferences > NextPi): " + split_error;
+                res.error = "extra QEMU arguments (--nextpi-qemu-args or Settings > Preferences > NextPi): " + split_error;
             } else {
                 if (!spec.extra_args.empty()) {
                     std::string shown;

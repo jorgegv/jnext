@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# FOURTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
+# FIFTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
 # playing a tone into the audio pipe):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
@@ -63,6 +63,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      QEMU arguments, NextPi is not started and the log says why with the position
 #      (exit 0, the Preferences-only path). The check runs BEFORE the QEMU lookup:
 #      "qemu-system-arm not found" is NOT logged, so no download would be offered.
+#  15. (GH #407) The same from the command line, headless: `--nextpi --nextpi-qemu-args`
+#      with an unterminated quote exits 1 with the same message and position, and does not
+#      get as far as looking for QEMU.
 # Facts 3, 4, 10-12 and 14 run the GUI on Qt's offscreen platform, where the warning
 # dialogs are not shown (nobody could dismiss them); SdcardGuiProvisioner writes
 # the title and text it would have shown to the platform log at debug level
@@ -218,10 +221,22 @@ if want nextpi-func; then
     gui_run
     gui_extra_conf=""
     [[ $rc -eq 0 ]] || fails+=("a Preferences-only NextPi with an unterminated quote in its extra QEMU arguments exited $rc, want 0")
-    grep -qF "NextPi: extra QEMU arguments (Settings > Preferences > NextPi): unterminated ' quote (it opens at character 7)" <<<"$out" \
+    grep -qF "NextPi: extra QEMU arguments (--nextpi-qemu-args or Settings > Preferences > NextPi): unterminated ' quote (it opens at character 7)" <<<"$out" \
         || fails+=("an unterminated quote in the extra QEMU arguments was not reported with its position")
     if grep -q 'qemu-system-arm not found' <<<"$out"; then
         fails+=("the extra QEMU arguments were checked AFTER the QEMU lookup (an install hint or a download would be offered)")
+    fi
+
+    # Fact 15 - the same refusal from --nextpi-qemu-args, in a headless session (exit 1, the --nextpi path).
+    rc=0
+    out=$(timeout --foreground --kill-after=5s 60s \
+        env PATH="$no_qemu_path" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+        --nextpi --nextpi-qemu-args "-name 'my pi" --delayed-automatic-exit-frames 2 </dev/null 2>&1) || rc=$?
+    [[ $rc -eq 1 ]] || fails+=("--nextpi-qemu-args with an unterminated quote exited $rc, want 1")
+    grep -qF "NextPi: extra QEMU arguments (--nextpi-qemu-args or Settings > Preferences > NextPi): unterminated ' quote (it opens at character 7)" <<<"$out" \
+        || fails+=("--nextpi-qemu-args with an unterminated quote was not reported with its position")
+    if grep -q 'qemu-system-arm not found' <<<"$out"; then
+        fails+=("--nextpi-qemu-args was checked AFTER the QEMU lookup")
     fi
 
     # nf_text <fixed text> <file> <what>: the text is in that file (CR removed: Windows writes CRLF).

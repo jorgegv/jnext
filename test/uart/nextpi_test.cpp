@@ -2513,6 +2513,41 @@ void test_nextpi_extra_args_rows() {
                   strs_str(o4).c_str(), strs_str(o5).c_str()));
     }
 
+    // PIT-63 - the command line over the saved settings: a flag given replaces ITS setting only, an empty
+    // one means the default, a flag not given leaves the saved value.
+    {
+        const nextpi::Settings saved{"/s/dir", "1_100", "/s/qemu", "wav:/s.wav", "-name saved"};
+        auto same = [](const nextpi::Settings& a, const nextpi::Settings& b) {
+            return a.dir == b.dir && a.release == b.release && a.qemu_binary == b.qemu_binary &&
+                   a.audio == b.audio && a.qemu_args == b.qemu_args;
+        };
+        bool ok = same(nextpi::merge_settings(saved, {}), saved);
+        nextpi::CliSettings c;
+        c.dir = "/c/dir";
+        ok = ok && same(nextpi::merge_settings(saved, c), {"/c/dir", "1_100", "/s/qemu", "wav:/s.wav", "-name saved"});
+        c = {};
+        c.release = "latest";
+        ok = ok && same(nextpi::merge_settings(saved, c), {"/s/dir", "latest", "/s/qemu", "wav:/s.wav", "-name saved"});
+        c = {};
+        c.qemu_binary = "q2";
+        ok = ok && same(nextpi::merge_settings(saved, c), {"/s/dir", "1_100", "q2", "wav:/s.wav", "-name saved"});
+        c = {};
+        c.audio = "none";
+        ok = ok && same(nextpi::merge_settings(saved, c), {"/s/dir", "1_100", "/s/qemu", "none", "-name saved"});
+        c = {};
+        c.qemu_args = "-serial x";
+        ok = ok && same(nextpi::merge_settings(saved, c), {"/s/dir", "1_100", "/s/qemu", "wav:/s.wav", "-serial x"});
+        c = {};
+        c.audio = "";
+        c.qemu_args = "";
+        ok = ok && same(nextpi::merge_settings(saved, c), {"/s/dir", "1_100", "/s/qemu", "", ""});
+        check("PIT-63",
+              "the --nextpi-dir/-release/-qemu/-audio/-qemu-args flags replace their own saved setting and "
+              "no other, an empty value means the default (it replaces a saved one), and with no flag the "
+              "saved settings stand (GH #407; jnext-only, no VHDL counterpart)",
+              ok);
+    }
+
     // PIT-61 - build_args puts the extras after jnext's own, in order, on both transports.
     {
         PiQemu::Spec spec;

@@ -196,6 +196,16 @@ StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_en
     return r;
 }
 
+Settings merge_settings(const Settings& saved, const CliSettings& cli) {
+    Settings s = saved;
+    if (cli.dir) s.dir = *cli.dir;
+    if (cli.release) s.release = *cli.release;
+    if (cli.qemu_binary) s.qemu_binary = *cli.qemu_binary;
+    if (cli.audio) s.audio = *cli.audio;
+    if (cli.qemu_args) s.qemu_args = *cli.qemu_args;
+    return s;
+}
+
 StartOutcome start_outcome(bool asked_on_cli, sdcard::ProvisionStatus provisioned, bool started) {
     if (started) return StartOutcome::Started;
     if (provisioned == sdcard::ProvisionStatus::Declined) return StartOutcome::Declined;

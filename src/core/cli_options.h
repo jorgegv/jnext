@@ -125,6 +125,11 @@ enum class OptId {
     JoyUartPty,
     Nextpi,
     NoNextpi,
+    NextpiDir,
+    NextpiRelease,
+    NextpiQemu,
+    NextpiAudio,
+    NextpiQemuArgs,
     DelayedKeypress,
     DelayedKeypressFrames,
     DelayedNmi,
@@ -367,9 +372,9 @@ inline constexpr Option OPTIONS[] = {
       "the slave device path. This is the form a serial client such\n"
       "as DeZog opens, since it wants one serial device rather than\n"
       "a pair of pipes. Both are POSIX-only" },
-    // NextPi on UART 1: one enabler, defaults for the rest (directory,
-    // release, QEMU, audio, extra QEMU arguments), which live in the [nextpi] config section and the
-    // Preferences > NextPi tab. jnext does not emulate the Pi; it runs NextPi
+    // NextPi on UART 1: one enabler with defaults, and one optional flag for each
+    // other setting of the Preferences > NextPi tab (directory, release, QEMU,
+    // audio, extra QEMU arguments), which also live in the [nextpi] config section. jnext does not emulate the Pi; it runs NextPi
     // under QEMU, downloading it on first use like the SD card image.
     { "--nextpi", 0, Doc::Documented, OptId::Nextpi,
       "",
@@ -381,6 +386,26 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Do not start NextPi this run, overriding a saved\n"
       "GUI preference that enables it" },
+    { "--nextpi-dir", 1, Doc::Documented, OptId::NextpiDir,
+      "DIR",
+      "NextPi directory for this run (default ~/.jnext/nextpi),\n"
+      "overriding the saved Preferences value. Used when NextPi starts" },
+    { "--nextpi-release", 1, Doc::Documented, OptId::NextpiRelease,
+      "NAME",
+      "NextPi release for this run: a release name on the mirror\n"
+      "or latest (default 1_93D), overriding the saved value" },
+    { "--nextpi-qemu", 1, Doc::Documented, OptId::NextpiQemu,
+      "PROGRAM",
+      "QEMU program for this run (default qemu-system-arm on PATH),\n"
+      "overriding the saved value" },
+    { "--nextpi-audio", 1, Doc::Documented, OptId::NextpiAudio,
+      "SPEC",
+      "Where the Pi's sound goes for this run: empty (the Next's\n"
+      "mixer), host, a QEMU audio driver, none, or wav:FILE" },
+    { "--nextpi-qemu-args", 1, Doc::Documented, OptId::NextpiQemuArgs,
+      "\"ARGS\"",
+      "Extra QEMU arguments for this run, added after jnext's own;\n"
+      "split on spaces, with '...' and \"...\" keeping spaces" },
     { "--tape-realtime", 0, Doc::Documented, OptId::TapeRealtime,
       "",
       "Use real-time tape loading (simulates actual loading speed)" },
