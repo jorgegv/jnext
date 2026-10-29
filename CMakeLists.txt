@@ -361,6 +361,12 @@ add_subdirectory(tools/gen-snapshot-schema)
 #     first so it always wins when installed; Qt5 is only ever picked as a
 #     fallback on a host with no Qt6 at all.
 if(ENABLE_QT_UI OR ENABLE_DEBUGGER)
+    # Qt6's CMake macros warn, when cross-compiling for Windows, that no
+    # host-runnable qtpaths exists "for deployment purposes" (Fedora's
+    # mingw64-qt6-qtbase ships none). That only concerns Qt's deployment API
+    # (qt_generate_deploy_app_script, windeployqt), which jnext does not use:
+    # packaging/windows/bundle-dlls.sh bundles the DLLs. Qt's own switch.
+    set(QT_NO_QTPATHS_DEPLOYMENT_WARNING ON)
     if(JNEXT_FORCE_QT5)
         set(JNEXT_QT_MAJOR 5)
     else()
