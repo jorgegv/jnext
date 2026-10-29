@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.92</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.92</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.95</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2487,7 +2487,8 @@ when a tape is attached. <code>TapLoader</code>, <code>TzxLoader</code> and <cod
 the save instant and file pointers are byte offsets. The member also carries
 the poll detector, the phantom typist and the recorded auto play. On load,
 <code>Emulator::reattach_jns_tape_()</code> runs last (the state round trip resets the
-detector): it re-opens the tape (from the archive when there is one), checks
+detector and, like every <code>load_state()</code>, a rewind's included, closes the
+fast-load pacing window, GH #408): it re-opens the tape (from the archive when there is one), checks
 the digest, and has the loader validate every value against the file before
 installing it. Any failure is ONE warning and the deck stays as it was. A file
 without the member (older jnext) is not reattached either, since attaching at

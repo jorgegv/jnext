@@ -113,6 +113,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // never outlives the machine it was counted on.
     tape_auto_play_ = cfg.tape_auto_play;
     tape_poll_.reset();
+    tape_fastload_frames_left_ = 0;   // GH #408
     // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
     // latch loaded only at video_frame_sync, with no reset clause
     // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
@@ -8364,6 +8365,7 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     loader.set_fast_load(fast_load);
     tape_poll_.reset();
     tape_ = std::move(loader);
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("TAP: tape attached - {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
 
@@ -8471,6 +8473,7 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     loader.set_fast_load(fast_load);
     tape_poll_.reset();
     tzx_tape_ = std::move(loader);
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("TZX: tape attached, mode: {}",
                            tzx_tape_.fast_load() ? "fast" : "realtime");
 
@@ -8528,6 +8531,7 @@ bool Emulator::load_wav(const std::string& path)
     resume_from_park("a WAV tape was attached");
 
     wav_tape_ = std::move(loader);
+    tape_deck_changed_();   // GH #408
     Log::emulator()->info("WAV: tape attached (always real-time)");
 
     // Eject any other tape to avoid conflicts.
@@ -10114,6 +10118,7 @@ void Emulator::run_frame()
                                   tape_trap::ld_bytes_rom_present(mmu_);
             if (ld_break && tap_fast) {
                 tape_.handle_ld_bytes_trap(*this);
+                tape_fastload_frames_left_ = FASTLOAD_TAPE_IDLE_FRAMES;   // GH #408
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
@@ -10121,6 +10126,7 @@ void Emulator::run_frame()
             // TZX fast-load: same ROM trap, different loader.
             if (ld_break && tzx_fast) {
                 tzx_tape_.handle_ld_bytes_trap(*this);
+                tape_fastload_frames_left_ = FASTLOAD_TAPE_IDLE_FRAMES;   // GH #408
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
@@ -10394,6 +10400,8 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // reason as FUSE: the trigger condition is "all 8 rows polled in a
     // single frame".
     phantom_typist_.tick_frame();
+    // GH #408 - the fast tape's pacing window counts emulated frames.
+    if (tape_fastload_frames_left_ > 0) --tape_fastload_frames_left_;
 
     // G133 closure — the two-scan shift hysteresis (membrane.vhd:178-191) is
     // advanced by Keyboard::tick_scan(), which is driven from on_scanline() at
@@ -13428,6 +13436,10 @@ void Emulator::save_state(StateWriter& w) const
 bool Emulator::load_state(StateReader& r)
 {
     tape_poll_.reset();   // GH #395: time may have moved backwards
+    // GH #408 - and so may the fast-load window: it was opened by a block
+    // trapped in the timeline being left (a rewind, a debugger state load, the
+    // .jns round trip). The restored machine sprints again at its next trap.
+    tape_fastload_frames_left_ = 0;
     // GH #276 B2 — THE RECONCILIATION RUNS ON EVERY EXIT, not just the
     // successful one, and this is the exit that needs it most.
     //

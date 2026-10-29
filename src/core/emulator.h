@@ -677,32 +677,58 @@ public:
 
     /// Task 19 fastload follow-up — true when the emulator should
     /// run uncapped (no frame-pacing sleep, audio paused) to make
-    /// TAP loading visually "instant" like FUSE. Mirrors FUSE's
-    /// `timer_fastloading_active()` (timer/timer.c:178): asserted
-    /// while EITHER the phantom typist is armed/firing OR a
-    /// fast-load tape (TAP or TZX) is loaded and not yet at end —
-    /// the load itself races through the ROM trap so a brief
-    /// `tape_is_playing()` window also benefits from uncapped pacing.
-    /// The platform layer (SdlApp::run, QtApp::on_frame_tick) reads
-    /// this and skips its frame-rate delay while true; once both
-    /// signals clear the platform re-engages normal 50 Hz pacing
-    /// (and re-resumes audio output).
+    /// TAP loading visually "instant" like FUSE. FUSE's
+    /// `timer_fastloading_active()` (timer/timer.c:198) is
+    /// `tape_is_playing() || phantom_typist_is_active()`: it sprints only
+    /// while something is LOADING, never because a tape is merely in the
+    /// deck. The platform layer (SdlApp::run, QtApp::on_frame_tick) reads
+    /// this and skips its frame-rate delay while true; once it clears the
+    /// platform re-engages normal 50 Hz pacing (and re-resumes audio output).
+    ///
+    /// GH #408 - it used to be true for as long as a fast-load tape was
+    /// attached and not at its end. A tape nothing reads (opened from the
+    /// Tape menu at a NextZXOS screen, the blocks a program never asks for,
+    /// a loader the ROM trap cannot serve) then kept the Qt frontend in its
+    /// 200-frame burst for the rest of the session: the window answered
+    /// once a burst, and one key tap was held for a whole burst, so the
+    /// ROM's auto-repeat typed it dozens of times. Now the tape keeps the
+    /// sprint only while it is being typed for or read:
+    ///   * the phantom typist is armed (bounded: PhantomTypist::wants_fastload());
+    ///   * a fast tape still has blocks AND either the keyboard auto-type is
+    ///     typing (the `LOAD ""` the typist or load_tzx() queued), or the
+    ///     ROM trap served it a block within the last
+    ///     FASTLOAD_TAPE_IDLE_FRAMES frames: the gap between a header and
+    ///     its data, or a BASIC loader's next `LOAD ""CODE`.
     bool fastload_active() const {
-        // Phantom-typist armed/firing OR fast-load tape with data
-        // still to deliver. The tape side uses `is_loaded() &&
-        // fast_load() && !at_end()` to mirror FUSE's signal — a
-        // fast-load TAP/TZX trap fires at ROM-load address and
-        // empties at most a few KB per second of wall-clock time
-        // when frame pacing is uncapped, so this window is brief
-        // (sub-second in practice).
-        if (phantom_typist_.is_active()) return true;
-        if (tape_.is_loaded()     && tape_.fast_load()     && !tape_.at_end())     return true;
-        // TZX path note: load_tzx() does NOT arm the phantom typist (Task
-        // 19 scope is .tap only). For TZX the tape-side condition is the
-        // sole signal, true from the moment load_tzx() runs (covers the
-        // legacy ~26-frame auto-type window too).
-        if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) return true;
-        return false;
+        if (phantom_typist_.wants_fastload()) return true;
+        const bool fast_tape_pending =
+            (tape_.is_loaded()     && tape_.fast_load()     && !tape_.at_end()) ||
+            (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end());
+        if (!fast_tape_pending) return false;
+        return keyboard_.auto_typing() || tape_fastload_frames_left_ > 0;
+    }
+    /// GH #408 - frames a fast tape keeps the emulator uncapped after a
+    /// ROM-trap load (one emulated second at 50 Hz). Measured on a synthetic
+    /// `10 LOAD ""CODE : PAUSE n : LOAD ""CODE` loader (tap_loader_test
+    /// TAPF-09..11): the ROM's own work between trapped blocks is 0-1 frames
+    /// (header and data share a frame; the program to the first CODE is 1),
+    /// so 50 covers that 50 times over and any loader pause up to 1 s. A
+    /// longer pause runs its tail past the window at 1x (PAUSE 100: 51 of the
+    /// load's 221 frames) and the next block is still trapped at once. Too
+    /// high is the GH #408 symptom: an idle tape keeps the sprint that long.
+    static constexpr uint32_t FASTLOAD_TAPE_IDLE_FRAMES = 50;
+    /// GH #408 - what is left of that window (0: none). Diagnostic only.
+    uint32_t tape_fastload_frames_left() const { return tape_fastload_frames_left_; }
+    /// GH #408 - Tape > Eject: empty all three decks. Closing the window
+    /// here is invisible to fastload_active() (with no deck loaded nothing
+    /// sprints, and the next attach closes it anyway); it keeps the one rule
+    /// of tape_deck_changed_() true at every deck change, so the diagnostic
+    /// accessor above never reports a window for a tape that is gone.
+    void eject_tape() {
+        tape_.eject();
+        tzx_tape_.eject();
+        wav_tape_.eject();
+        tape_deck_changed_();
     }
     Joystick&       joystick()       { return joystick_; }
 
@@ -2449,6 +2475,20 @@ private:
     // snapshots by design).
     bool             tape_auto_play_ = true;
     TapePollDetector tape_poll_;
+    // GH #408 - fast-load pacing window (fastload_active()): set on every
+    // trap-served block, counted down once per frame, and zeroed by init()
+    // (every in-place reset or load), by load_state() (every state restore:
+    // rewind, a debugger state load, the .jns round trip) and by
+    // tape_deck_changed_(), so no window outlives the tape, the machine or the
+    // timeline it was opened in.
+    // Host pacing only: not serialised (a restored machine sprints again at
+    // its next trapped block).
+    uint32_t         tape_fastload_frames_left_ = 0;
+    /// GH #408 - the one rule for a deck change: whatever replaces or empties
+    /// the decks outside a state restore (load_tap, load_tzx, load_wav,
+    /// eject_tape) calls this, and the old tape's window goes with it. A .jns
+    /// tape reattach needs no call: load_jns runs load_state() first.
+    void tape_deck_changed_() { tape_fastload_frames_left_ = 0; }
     /// One CPU read of the ULA port: count it, and resume a deck that auto play
     /// itself held (never start one that is not playing).
     void tape_auto_on_read_();

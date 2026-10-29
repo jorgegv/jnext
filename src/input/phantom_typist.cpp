@@ -51,6 +51,7 @@ void PhantomTypist::arm(MachineType machine, bool needs_code)
     state_               = State::WAITING;
     keyboard_ports_read_ = 0x00;
     post_delay_frames_   = 0;
+    frames_waiting_      = 0;
 
     Log::input()->info("PhantomTypist: armed for machine={} mode={}",
                        static_cast<int>(machine),
@@ -62,6 +63,7 @@ void PhantomTypist::reset()
     state_               = State::INACTIVE;
     keyboard_ports_read_ = 0x00;
     post_delay_frames_   = 0;
+    frames_waiting_      = 0;
 }
 
 void PhantomTypist::notice_keyboard_row_read(uint8_t port_high)
@@ -112,6 +114,12 @@ void PhantomTypist::tick_frame()
                 Log::input()->info("PhantomTypist: full scan observed; "
                                    "deferring fire for {} frames",
                                    post_delay_frames_);
+            } else if (frames_waiting_ < FASTLOAD_WAIT_FRAMES) {
+                // GH #408 - the pacing bound (wants_fastload()); saturates.
+                if (++frames_waiting_ == FASTLOAD_WAIT_FRAMES)
+                    Log::input()->info("PhantomTypist: no full keyboard scan in {} frames; "
+                                       "still armed, no longer holding fast loading",
+                                       FASTLOAD_WAIT_FRAMES);
             }
             break;
 
