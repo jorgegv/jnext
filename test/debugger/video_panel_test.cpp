@@ -2452,11 +2452,38 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
           fmt("paused=%d fb_row=%d every_row_drawn=%d",
               emu.debug_state().paused(), boundary_row, every_row_drawn));
 
+    // The line as painted: it spans the full widget width, so the left
+    // margin column is red only where the raster line is drawn. A view's first
+    // paint can only fix its size (paintEvent), so render until it is stable.
+    auto painted_line = [](VideoLayerView* v) {
+        QImage img;
+        do {
+            img = QImage(v->size(), QImage::Format_ARGB32);
+            img.fill(Qt::black);
+            v->render(&img);
+        } while (img.size() != v->size());
+        for (int y = 0; y < img.height(); ++y)
+            if (img.pixel(0, y) == qRgb(255, 0, 0)) return true;
+        return false;
+    };
+    // Every layer tab passes the same show_raster: check all six, not just
+    // All layers.
+    int tabs_with_line = 0, tabs_checked = 0;
+    for (int i = 0; tabs && i < tabs->count(); ++i) {
+        tabs->setCurrentIndex(i);
+        panel.refresh();
+        auto* v = tabs->widget(i)->findChild<VideoLayerView*>();
+        if (!v) continue;
+        ++tabs_checked;
+        if (v->raster_line_shown() || painted_line(v)) ++tabs_with_line;
+    }
+    if (tabs) tabs->setCurrentIndex(0);
+    panel.refresh();
     auto* composite = tabs ? tabs->widget(0)->findChild<VideoLayerView*>() : nullptr;
     check("QVT-04",
-          "…and draws no red raster line over that whole-frame picture",
-          composite && !composite->raster_line_shown(),
-          fmt("line shown=%d", composite ? composite->raster_line_shown() : -1));
+          "…and no layer tab draws a red raster line over that whole-frame picture",
+          tabs_checked == 6 && tabs_with_line == 0,
+          fmt("tabs checked=%d with line=%d", tabs_checked, tabs_with_line));
 
     // QVT-05 — an ordinary mid-frame pause still draws its raster line.
     emu.debug_state().resume();
@@ -2467,8 +2494,9 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
     panel.refresh();
     check("QVT-05",
           "paused mid-frame the red raster line is still drawn",
-          composite && composite->raster_line_shown(),
-          fmt("line shown=%d", composite ? composite->raster_line_shown() : -1));
+          composite && composite->raster_line_shown() && painted_line(composite),
+          fmt("line shown=%d painted=%d", composite ? composite->raster_line_shown() : -1,
+              composite ? painted_line(composite) : -1));
 
     // QVT-06 — paused inside the top vblank of a frame in progress (raw VC 10):
     // begin_new_frame() has re-baselined the logs, so nothing of the previous

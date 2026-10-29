@@ -417,7 +417,7 @@ void VideoLayerView::paintEvent(QPaintEvent*)
     // Red scanline indicator when paused.
     // Spans the full widget width so it's visible in the margins even when
     // image content is red or the scanline is at the very bottom.
-    if (last_vc_ >= 0 && show_raster_) {
+    if (raster_line_shown()) {
         // Logical y: top of image + (vc * logical image height / 256)
         const int log_img_h = qRound(phys_h / dpr);
         const int y_line    = TITLE_H + MARGIN + (last_vc_ + 1) * log_img_h / NATIVE_H;
@@ -742,8 +742,9 @@ void VideoPanel::refresh()
     int vc = -1;
     // Break between frames lands at raw VC 0, above the framebuffer (row < 0),
     // before begin_new_frame() has run: the change logs still hold the frame
-    // that just ended, so draw all of it (no raster line) rather than a
-    // placeholder for every ordinary Break.  A pause inside the top vblank of a
+    // that just ended (or, right after a state restore, the restored state),
+    // so draw all of it (no raster line) rather than a placeholder for every
+    // ordinary Break.  A pause inside the top vblank of a
     // frame in progress keeps the placeholder: its logs were re-baselined.
     bool show_raster = true;
     {
