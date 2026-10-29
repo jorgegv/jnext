@@ -1036,18 +1036,29 @@ void test_line_starts() {
     bp->refresh();
     const auto listed = m.rows();
     const QString shown_cell = cell(bp, 0, 3);
+    // The row is enabled only while every location is: disable ONE member through the backend.
+    jnext::dbg::EventId first_member = jnext::dbg::EVENT_NONE;
+    for (const auto& si : fx.backend->subscriptions(false))
+        if (si.owner == m.client() && first_member == jnext::dbg::EVENT_NONE) first_member = si.id;
+    fx.backend->set_enabled(m.client(), first_member, false);
+    m.add(BreakpointModel::Execute, 0x8000);    // the model re-reads the listing on its own mutations
+    m.remove(BreakpointModel::Execute, 0x8000);
+    const auto mixed = m.rows();
+    const bool mixed_off = mixed.size() == 1 && !mixed[0].enabled && mixed[0].live &&
+                           mixed[0].locations == 2;
     table->setCurrentCell(0, 1);
     bp->on_remove();
     bool own_left = false;
     for (const auto& si : fx.backend->subscriptions(false))
         if (si.owner == m.client()) own_left = true;
     check("QBPM-12", "a two-place source line is ONE Breakpoints row reading \"main.bas:11 "
-                     "(2 locations)\"; Remove on it leaves no row and no subscription of the GUI",
+                     "(2 locations)\", enabled only while every location is; Remove on it leaves "
+                     "no row and no subscription of the GUI",
           seen3 && listed.size() == 1 && listed[0].locations == 2 &&
-              shown_cell == QStringLiteral("main.bas:11 (2 locations)") && m.rows().empty() &&
-              !own_left,
+              shown_cell == QStringLiteral("main.bas:11 (2 locations)") && mixed_off &&
+              m.rows().empty() && !own_left,
           "rows=" + std::to_string(listed.size()) + " cell=" + s(shown_cell) +
-              " own_left=" + std::to_string(own_left));
+              " mixed_off=" + std::to_string(mixed_off) + " own_left=" + std::to_string(own_left));
 
     // QBPM-13 (D6): a gutter click on one place's dot removes that location only.
     {
