@@ -1,5 +1,16 @@
 # ChangeLog
 
+## Unreleased (2026-10-29)
+
+### Bug Fixes
+- JNEXT no longer becomes unresponsive after loading a tape: fast load only sprints while the tape is read
+- ULA scrolling (NR 0x26/0x27/0x68) now works in Timex hi-colour and hi-res modes
+- macOS: the green full-screen button works and fills the screen; no duplicate Enter Full Screen menu item
+- Debugger Video panel shows the just-finished frame after Break instead of a dark placeholder
+
+### Contributors in this release
+- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar
+
 ## v1.1.87 (2026-10-24)
 
 ### User Features

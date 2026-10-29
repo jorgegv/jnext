@@ -38,12 +38,17 @@ public:
     /// Re-render the layer for the given scanline position.
     /// @param vc  Current vertical counter (0-255).  Pass -1 when running
     ///            (shows dim placeholder).
-    void refresh(int vc);
+    /// @param show_raster  draw the red raster line at `vc`; false when `vc`
+    ///            stands for "the whole previous frame" (paused in the top vblank).
+    void refresh(int vc, bool show_raster = true);
 
     /// Force re-render on the next refresh() call (e.g. after a tab switch).
     /// -2, never -1: -1 means "the running placeholder is shown", the one
     /// state refresh() may skip.
     void invalidate() { last_vc_ = -2; }
+
+    /// Whether the red raster line is drawn (test seam, like image()).
+    bool raster_line_shown() const { return show_raster_ && last_vc_ >= 0; }
 
     /// The rendered layer image (test seam — see test/debugger/video_panel_test.cpp).
     /// Width is 640 (`jnext::dbg::RENDER_WIDTH`) for every layer; height is NATIVE_H.
@@ -71,6 +76,7 @@ private:
     Layer                        layer_;
     QString                      title_;
     const jnext::dbg::Debugger*  dbg_;
+    bool                         show_raster_ = true;
     QImage                       image_;     ///< RENDER_WIDTH × NATIVE_H, ARGB32
     int                          last_vc_ = -2;
 };
