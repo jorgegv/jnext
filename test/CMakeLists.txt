@@ -1671,6 +1671,15 @@ if(ENABLE_QT_UI)
         JNEXT_SDCARD_DIALOG_CPP="${CMAKE_SOURCE_DIR}/src/gui/sdcard_download_dialog.cpp")
     add_test(NAME color_scheme_tests COMMAND color_scheme_test)
 
+    # GH #414 - CS-28/29: the private dbus-daemon dies with the suite (SIGKILLed or
+    # exiting). Linux only (a guard process + /proc), so a suite of its own.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(color_scheme_linux_test gui/color_scheme_linux_test.cpp)
+        target_link_libraries(color_scheme_linux_test PRIVATE Qt6::Core)
+        target_include_directories(color_scheme_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        add_test(NAME color_scheme_linux_tests COMMAND color_scheme_linux_test)
+    endif()
+
     # GH #358 point 2 - the SD-card / NextPi download dialog through a dropped
     # network: the "Stalled" notice on a fake clock (SDD-01/02), the real backend
     # against a loopback server that goes silent while the event loop keeps

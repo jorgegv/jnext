@@ -145,8 +145,12 @@ not.
 **The Video panel draws through the backend.** Each layer view is
 `render_layer()` ([3.9.1](09-1-the-backend-api.md)). The panel keeps the
 presentation: the `QImage`, the dark "not yet rendered" rows, the checkerboard
-under every alpha-0 cell, the scaling, the red raster line and the titles. Its
-raster block shows `hc`/`vc`, `hc_ula`/`vc_ula`, `cvc` and `phc` side by side,
+under every alpha-0 cell, the scaling, the red raster line and the titles.
+Paused at a frame boundary (`Debugger::at_frame_boundary()`, raster row < 0) it
+renders all 256 rows with no raster line: `begin_new_frame()` has not yet
+re-baselined the per-scanline change logs, so they still hold the frame that just
+ended. Paused in the top vblank of a frame in progress, it shows the placeholder.
+Its raster block shows `hc`/`vc`, `hc_ula`/`vc_ula`, `cvc` and `phc` side by side,
 each labelled with the VHDL signal it mirrors; `cvc` is labelled as what NR
 0x1E/0x1F report. The derivation lives in `src/debug/raster_state.*` and takes
 the live `VideoTiming` by reference, so there is no second table of raster
