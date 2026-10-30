@@ -7,6 +7,17 @@ if(WIN32)
     add_link_options(-Wl,--stack,8388608)
 endif()
 
+# GH #416: a compiler warning in a test is a test defect (it hid which side of
+# a row failed, truncated a failure message, narrowed a constant by accident),
+# so the test executables are built with -Werror (GNU and Clang, incl. MinGW
+# gcc). Directory-scoped like the link option above: jnext and the libraries
+# are unaffected. -Wall/-Wextra are deliberately NOT enabled (GH #418): only the
+# compiler's default warnings are errors. Production .cpp files compiled
+# straight into a test (wav_loader, sdl_input, quit_signal) are covered too.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Werror)
+endif()
+
 # FUSE Z80 opcode test runner (standalone, no GoogleTest required)
 add_executable(fuse_z80_test fuse/fuse_z80_test.cpp)
 target_link_libraries(fuse_z80_test PRIVATE jnext_cpu)
