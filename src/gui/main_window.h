@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <QMainWindow>
 #include <QLabel>
 #include <QActionGroup>
@@ -225,7 +226,9 @@ public:
     void on_recent_file(const QString& path);
     QString load_dialog_seed() const;
     /// GH #417 - where File > Save Screenshot... opens: this session's directory.
-    QString screenshot_dialog_seed() const { return session_.screenshot_dir; }
+    QString screenshot_dialog_seed() const {
+        return session_.screenshot_dir.value_or(app_config_.data().screenshot_dir);
+    }
 
     /// GH #392 - the window's POK session and whether its dialog is showing
     /// (an archive's bundled trainers make a session without opening it).
@@ -719,14 +722,15 @@ private:
     // from app_config_ so a command-line value (`--set paths.last_load_dir=...`)
     // governs the run without ever reaching jnext.conf: any unrelated app_config_
     // save (the recent-file list, a joystick toggle) would persist it otherwise.
-    // Started from the file in the constructor, from apply_startup_config() (so
-    // from the command line at start-up and from Preferences OK/Apply), and moved
-    // by the dialogs that remember a directory.
+    // Empty until apply_startup_config() sets them (the command line's values at
+    // start-up, the dialog's from Preferences OK/Apply); empty means "what
+    // app_config_ holds". A dialog that remembers a directory writes app_config_ and
+    // empties the override: the GUI change takes over.
     struct SessionPaths {
-        QString          last_load_dir;
-        QString          screenshot_dir;
-        QString          quick_dir;
-        ScreenshotFormat quick_format = ScreenshotFormat::Png;
+        std::optional<QString>          last_load_dir;
+        std::optional<QString>          screenshot_dir;
+        std::optional<QString>          quick_dir;
+        std::optional<ScreenshotFormat> quick_format;
     } session_;
 
     void remember_load_dir(const QString& dir);

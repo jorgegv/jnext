@@ -286,8 +286,6 @@ MainWindow::MainWindow(QWidget* parent)
             issue.action_id, issue.text, issue.reason);
     }
     debug_keys_ = app_config_.data().debug_keys;
-    session_ = { app_config_.data().last_load_dir, app_config_.data().screenshot_dir,
-                 app_config_.data().quick_screenshot_dir, app_config_.data().quick_screenshot_format };   // GH #417
 
     // Central widget: the emulator display (fixed-size, pixel-perfect).
     emulator_widget_ = new EmulatorWidget(this);
@@ -1687,19 +1685,19 @@ void MainWindow::on_recent_file(const QString& path) {
 QString MainWindow::load_dialog_seed() const {
     return QString::fromStdString(recent_files::dialog_seed(
         recent_list(app_config_.data().recent_files),
-        session_.last_load_dir.toStdString()));
+        session_.last_load_dir.value_or(app_config_.data().last_load_dir).toStdString()));
 }
 
 // GH #417 - a directory the user just picked: remembered for the session AND saved
 // (the GUI change takes over from a command-line value).
 void MainWindow::remember_load_dir(const QString& dir) {
-    session_.last_load_dir = dir;
+    session_.last_load_dir.reset();
     app_config_.data().last_load_dir = dir;
     app_config_.save();
 }
 
 void MainWindow::remember_screenshot_dir(const QString& dir) {
-    session_.screenshot_dir = dir;
+    session_.screenshot_dir.reset();
     app_config_.data().screenshot_dir = dir;
     app_config_.save();
 }
@@ -1732,7 +1730,7 @@ void MainWindow::on_pok_trainers() {
 
 void MainWindow::on_pok_open() {
     const QString path = QFileDialog::getOpenFileName(
-        this, tr("Open POK File"), session_.last_load_dir,
+        this, tr("Open POK File"), session_.last_load_dir.value_or(app_config_.data().last_load_dir),
         tr("POK Trainers (*.pok *.POK);;All Files (*)"));
     if (path.isEmpty()) return;
     remember_load_dir(QFileInfo(path).absolutePath());
@@ -2243,7 +2241,7 @@ void MainWindow::on_tape_save_start() {
     if (!emulator_) return;
     QString filter;
     QString path = QFileDialog::getSaveFileName(
-        this, tr("Save to Tape File"), session_.last_load_dir,
+        this, tr("Save to Tape File"), session_.last_load_dir.value_or(app_config_.data().last_load_dir),
         tr("TZX Files (*.tzx);;WAV Files (*.wav);;TAP Files (*.tap)"), &filter,
         // Saving appends to an existing file, so there is nothing to confirm.
         QFileDialog::DontConfirmOverwrite);
@@ -2648,12 +2646,14 @@ void MainWindow::on_quick_screenshot() {
     // An empty setting means the built-in default rather than the current
     // working directory: a capture with no dialog must still land somewhere
     // the user can find, and "wherever jnext was started from" is not that.
-    const QString dir = session_.quick_dir.isEmpty()
+    const QString quick_dir = session_.quick_dir.value_or(app_config_.data().quick_screenshot_dir);
+    const QString dir = quick_dir.isEmpty()
         ? QString::fromStdString(default_quick_screenshot_dir())
-        : session_.quick_dir;
+        : quick_dir;
 
     const std::string path = auto_screenshot_path(
-        dir.toStdString(), session_.quick_format, std::time(nullptr));
+        dir.toStdString(),
+        session_.quick_format.value_or(app_config_.data().quick_screenshot_format), std::time(nullptr));
     if (path.empty()) {
         // auto_screenshot_path() has already logged the reason (a directory
         // it could not create, or 99 names taken inside one second).
