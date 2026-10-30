@@ -1098,6 +1098,7 @@ my %NO_MATRIX_SECTION = (
     'log_gate_test'                 => 'jnext log-level gating',
     'profiler_test'                 => 'jnext profiler output format (a developer tool)',
     'app_config_test'               => 'jnext.conf schema/precedence (host settings file)',
+    'config_keys_test'              => 'the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle)',
     'warm_start_test'               => 'warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify',
     'preferences_apply_test'        => 'Preferences dialog wiring (host GUI)',
     'preferences_apply_policy_test' => 'Preferences apply/revert policy (host GUI)',

@@ -49,7 +49,7 @@
 //
 // Run: ./build/test/debugger_window_size_test
 
-#include "core/config_keys.h"
+#include "platform/config_keys.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debugger/debugger_manager.h"
@@ -677,7 +677,7 @@ static void test_one_file(const QString& dir)
     }
 }
 
-// ── DWK: GH #417 - the [debugger] key names come from core/config_keys.h ───
+// ── DWK: GH #417 - the [debugger] key names come from platform/config_keys.h ───
 // Oracle: the table's DebuggerWindow-owned rows (size, position, attached),
 // compared with the keys the real window writes to the real file. No VHDL: a
 // host configuration file.

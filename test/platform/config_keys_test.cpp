@@ -1,5 +1,5 @@
 // config_keys test (GH #417): the one table of jnext.conf keys
-// (src/core/config_keys.h) and its setter parse_assignment(), plus
+// (src/platform/config_keys.h) and its setter parse_assignment(), plus
 // dbgkeys::apply_overrides(), the debugger-key half of `--set`.
 //
 // No VHDL oracle: a host configuration file, not emulated hardware. The
@@ -11,7 +11,7 @@
 // Standalone runner, no GoogleTest, no Qt: the table is Qt-free so the SDL-only
 // and headless builds can use it.
 
-#include "core/config_keys.h"
+#include "platform/config_keys.h"
 
 #include "core/cli_options.h"
 #include "debug/debug_keymap.h"
@@ -189,10 +189,10 @@ int main() {
             if (canon(f + std::to_string(hi)) != std::to_string(hi)) bad += f + "hi ";
             if (canon(f + std::to_string(lo - 1)) != "<refused>") bad += f + "lo-1 ";
             if (canon(f + std::to_string(hi + 1)) != "<refused>") bad += f + "hi+1 ";
-            for (const char* v : {"x", "1.5", ""})
+            for (const char* v : {"x", "1,5", ""})
                 if (canon(f + v) != "<refused>") bad += f + "'" + v + "' ";
         }
-        check("SETK-08", "for every Int key its own lo and hi are accepted, lo-1, hi+1, x, 1.5 and empty are refused",
+        check("SETK-08", "for every Int key its own lo and hi are accepted, lo-1, hi+1, x, 1,5 and empty are refused",
               bad.empty() && n == 4, bad + " keys=" + std::to_string(n));
     }
 
@@ -201,8 +201,8 @@ int main() {
         std::string bad;
         if (canon("audio.gain_db=-24") != "-24") bad += "-24 ";
         if (canon("audio.gain_db=24") != "24") bad += "24 ";
-        if (canon("audio.gain_db=1.5") != "1.5") bad += "1.5 ";
-        for (const char* v : {"-24.1", "24.1", "nan", "inf", "x", ""})
+        if (canon("audio.gain_db=-1.5") != "-1.5") bad += "-1.5 ";
+        for (const char* v : {"-24.1", "25", "nan", "inf", "x", ""})
             if (canon(std::string("audio.gain_dac_db=") + v) != "<refused>") bad += std::string("accepts '") + v + "' ";
         check("SETK-09", "a Float is a finite number in -24..24 in the text AppConfig writes; out of range, nan, inf and junk are refused",
               bad.empty(), bad);

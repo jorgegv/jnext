@@ -119,7 +119,7 @@ Adding a flag is therefore four edits: an `OptId`, a table row, a `case` in
 
 ## The table of `jnext.conf` keys
 
-`src/core/config_keys.h` (GH #417) is the one place the keys of `jnext.conf` are
+`src/platform/config_keys.h` (GH #417) is the one place the keys of `jnext.conf` are
 named: section, key, value type, bounds, accepted words, the dedicated flag with
 the same effect, and the frontends where it takes effect. It is Qt-free, so the
 SDL-only and headless builds can parse the same names. `AppConfig` and

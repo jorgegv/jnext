@@ -1,7 +1,7 @@
 #include "gui/app_config.h"
 #include "gui/qt_ctrl_is_command.h"   // GH #403
 #include "gui/emulator_widget.h"
-#include "core/config_keys.h"
+#include "platform/config_keys.h"
 #include "gui/recent_files.h"
 #include "peripheral/esp_host_policy.h"
 

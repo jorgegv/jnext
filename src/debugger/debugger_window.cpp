@@ -22,7 +22,7 @@
 #include "debugger/debugger_manager.h"
 #include "debug/debugger.h"
 #include "debugger/window_attach.h"
-#include "core/config_keys.h"
+#include "platform/config_keys.h"
 
 #include <QCloseEvent>
 #include <QGuiApplication>
@@ -57,7 +57,7 @@
 
 namespace {
 
-// GH #417: the [debugger] key names live in core/config_keys.h.
+// GH #417: the [debugger] key names live in platform/config_keys.h.
 QString config_key(config_keys::KeyId id) {
     return QString::fromStdString(config_keys::path(id));
 }

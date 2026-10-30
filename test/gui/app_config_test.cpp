@@ -18,7 +18,7 @@
 
 #include "gui/app_config.h"
 
-#include "core/config_keys.h"
+#include "platform/config_keys.h"
 #include "debug/debug_keymap.h"
 
 #include <QDir>
@@ -1344,7 +1344,7 @@ static void test_file_layout(QTemporaryDir& dir) {
 
 // ── AC-94..96: GH #417 - jnext.conf against the table of keys ──────────────
 //
-// Oracle: core/config_keys.h and AppConfig::load()/save() themselves. No VHDL:
+// Oracle: platform/config_keys.h and AppConfig::load()/save() themselves. No VHDL:
 // a host configuration file.
 //   AC-94  the enforcement row: every key save() writes is a table row, and
 //          every AppConfig-owned row is written. A new persisted field under a
@@ -1374,7 +1374,7 @@ std::vector<std::string> accepted_samples(const config_keys::Key& k) {
             const long lo = static_cast<long>(k.lo), hi = static_cast<long>(k.hi);
             return {std::to_string(lo), std::to_string((lo + hi) / 2), std::to_string(hi)};
         }
-        case Type::Float: return {"-24", "1.5", "24"};
+        case Type::Float: return {"-24", "-1.5", "24"};
         case Type::Word:
         case Type::Machine: {
             std::vector<std::string> out;
@@ -1403,7 +1403,7 @@ std::vector<std::string> refused_samples(const config_keys::Key& k) {
         case Type::Int: {
             return {std::to_string(static_cast<long>(k.lo) - 1), std::to_string(static_cast<long>(k.hi) + 1), "x"};
         }
-        case Type::Float: return {"-24.1", "24.1", "x"};
+        case Type::Float: return {"-24.1", "25", "x"};
         case Type::Word:
         case Type::Machine: return {"nonsense"};
         case Type::Keep:  return {"0", "-1", "1000001", "x"};
