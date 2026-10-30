@@ -18,6 +18,7 @@
 
 #include "gui/app_config.h"
 
+#include "core/config_keys.h"
 #include "debug/debug_keymap.h"
 
 #include <QDir>
@@ -25,6 +26,7 @@
 #include <QFile>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QSet>
 #include <QTemporaryDir>
 
 #include <cstdio>
@@ -1340,6 +1342,200 @@ static void test_file_layout(QTemporaryDir& dir) {
           slurp(p14).toStdString());
 }
 
+// ── AC-94..96: GH #417 - jnext.conf against the table of keys ──────────────
+//
+// Oracle: core/config_keys.h and AppConfig::load()/save() themselves. No VHDL:
+// a host configuration file.
+//   AC-94  the enforcement row: every key save() writes is a table row, and
+//          every AppConfig-owned row is written. A new persisted field under a
+//          key with no row fails here.
+//   AC-95  a value `--set` accepts means the same in the file: the canonical
+//          text survives load() then save().
+//   AC-96  a value `--set` refuses is one load() keeps at the default.
+
+namespace {
+
+// The raw text of `path` in the file (a list joined with ',').
+std::string raw_text(const QString& file, const std::string& path, bool* present = nullptr) {
+    QSettings s(file, QSettings::IniFormat);
+    const QString k = QString::fromStdString(path);
+    if (present) *present = s.contains(k);
+    const QVariant v = s.value(k);
+    if (v.userType() == QMetaType::QStringList) return v.toStringList().join(QLatin1Char(',')).toStdString();
+    return v.toString().toStdString();
+}
+
+// Per-key sample values `--set` accepts, in the user's spelling.
+std::vector<std::string> accepted_samples(const config_keys::Key& k) {
+    using config_keys::Type;
+    switch (k.type) {
+        case Type::Bool:  return {"true", "false"};
+        case Type::Int: {
+            const long lo = static_cast<long>(k.lo), hi = static_cast<long>(k.hi);
+            return {std::to_string(lo), std::to_string((lo + hi) / 2), std::to_string(hi)};
+        }
+        case Type::Float: return {"-24", "1.5", "24"};
+        case Type::Word:
+        case Type::Machine: {
+            std::vector<std::string> out;
+            for (int i = 0;; ++i) {
+                const std::string w(config_keys::word_at(k.values, i));
+                if (w.empty()) break;
+                out.push_back(w);
+            }
+            return out;
+        }
+        case Type::Text:
+        case Type::Path:  return {"a b", "x, y", ""};
+        case Type::TrimmedText: return {"a b", "x, y", "  padded ", ""};
+        case Type::HostList: return {"a.example,B.example", ""};
+        case Type::DeviceId: return {"0123456789ABCDEF0123456789abcdef#2", ""};
+        case Type::Keep:  return {"unlimited", "1", "20", "1000000"};
+        case Type::Combo: return {"Ctrl+Shift+F10", "none"};
+    }
+    return {};
+}
+
+// Per-key sample values `--set` refuses.
+std::vector<std::string> refused_samples(const config_keys::Key& k) {
+    using config_keys::Type;
+    switch (k.type) {
+        case Type::Int: {
+            return {std::to_string(static_cast<long>(k.lo) - 1), std::to_string(static_cast<long>(k.hi) + 1), "x"};
+        }
+        case Type::Float: return {"-24.1", "24.1", "x"};
+        case Type::Word:
+        case Type::Machine: return {"nonsense"};
+        case Type::Keep:  return {"0", "-1", "1000001", "x"};
+        case Type::DeviceId: return {"xyz"};
+        case Type::Combo: return {"Ctrl+"};
+        // The file reader is more permissive than `--set` for these (a QVariant
+        // bool reads 1/yes; blank hosts are dropped), and the text types take
+        // anything: nothing to compare.
+        case Type::Bool:
+        case Type::HostList:
+        case Type::Text:
+        case Type::TrimmedText:
+        case Type::Path: return {};
+    }
+    return {};
+}
+
+// "section/name" of `k`, or of its family member `family`.
+std::string key_path(const config_keys::Key& k, const std::string& family = {}) {
+    return std::string(k.section) + "/" + (family.empty() ? k.name : family.c_str());
+}
+
+} // namespace
+
+static void test_config_keys(QTemporaryDir& dir) {
+    set_group("AC-KEYS");
+    using namespace config_keys;
+
+    // AC-94
+    {
+        const QString p = fresh_ini_path(dir, "keys-94");
+        {
+            AppConfig w(p);
+            w.load();
+            w.data().recent_files = QStringList{QStringLiteral("x")};
+            w.data().joy_device[0] = QStringLiteral("0123456789abcdef0123456789abcdef");
+            w.data().joy_device_name[0] = QStringLiteral("Pad");
+            for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i)
+                w.data().debug_keys.set(static_cast<jnext::dbgkeys::Action>(i),
+                    jnext::dbgkeys::Combo{static_cast<uint8_t>(jnext::dbgkeys::MOD_CTRL | jnext::dbgkeys::MOD_SHIFT),
+                        static_cast<jnext::dbgkeys::Key>(static_cast<int>(jnext::dbgkeys::Key::F1) + i)});
+            w.save();
+        }
+        QSet<QString> in_file;
+        {
+            QSettings s(p, QSettings::IniFormat);
+            for (const QString& k : s.allKeys()) in_file.insert(k);
+        }
+        std::string bad;
+        QSet<QString> expect;
+        for (const Key& k : KEYS) {
+            if (k.owner != Owner::AppConfig) continue;
+            if (k.id == KeyId::DebuggerKey) {
+                for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i)
+                    expect.insert(QString::fromStdString(
+                        key_path(k, jnext::dbgkeys::action_table()[i].id)));
+            } else {
+                expect.insert(QString::fromStdString(key_path(k)));
+            }
+        }
+        for (const QString& k : in_file)
+            if (!expect.contains(k)) bad += "written but not in the table: " + k.toStdString() + "; ";
+        for (const QString& k : expect)
+            if (!in_file.contains(k)) bad += "in the table but not written: " + k.toStdString() + "; ";
+        check("AC-94", "every key save() writes is a config_keys row owned by AppConfig, and every such row is written (the debugger_keys family with all 12 actions)",
+              bad.empty() && in_file.size() == expect.size(), bad);
+    }
+
+    // AC-95 / AC-96
+    std::string bad95, bad96;
+    int n95 = 0;
+    int idx = 0;
+    // The default file's raw text, per key, for AC-96.
+    const QString defp = fresh_ini_path(dir, "keys-default");
+    { AppConfig d(defp); d.load(); d.save(); }
+
+    for (const Key& k : KEYS) {
+        if (k.owner != Owner::AppConfig || k.not_setting) continue;
+        const bool fam = k.id == KeyId::DebuggerKey;
+        const std::string fam_id = fam ? "run" : std::string();
+        const std::string sec_key = std::string(k.section) + "." + (fam ? fam_id.c_str() : k.name);
+        const std::string path = key_path(k, fam_id);
+
+        for (const std::string& v : accepted_samples(k)) {
+            Assignment a;
+            std::string why;
+            if (!parse_assignment((sec_key + "=" + v).c_str(), a, why)) {
+                bad95 += sec_key + "=" + v + " refused (" + why + "); ";
+                continue;
+            }
+            const QString p1 = fresh_ini_path(dir, ("keys-a1-" + std::to_string(++idx)).c_str());
+            {
+                QSettings raw(p1, QSettings::IniFormat);
+                raw.setValue(QString::fromStdString(path), QString::fromStdString(v));
+                raw.sync();
+            }
+            { AppConfig c(p1); c.load(); c.save(); }
+            bool present = false;
+            const std::string got = raw_text(p1, path, &present);
+            ++n95;
+            if (!present || got != a.text)
+                bad95 += sec_key + "=" + v + " -> '" + got + "' wanted '" + a.text + "'; ";
+        }
+
+        for (const std::string& v : refused_samples(k)) {
+            Assignment a;
+            std::string why;
+            if (parse_assignment((sec_key + "=" + v).c_str(), a, why)) {
+                bad96 += sec_key + "=" + v + " accepted by --set; ";
+                continue;
+            }
+            const QString p1 = fresh_ini_path(dir, ("keys-r1-" + std::to_string(++idx)).c_str());
+            {
+                QSettings raw(p1, QSettings::IniFormat);
+                raw.setValue(QString::fromStdString(path), QString::fromStdString(v));
+                raw.sync();
+            }
+            { AppConfig c(p1); c.load(); c.save(); }
+            // save() rewrote p1; compare the key with the default file's.
+            bool present_got = false, present_def = false;
+            const std::string got = raw_text(p1, path, &present_got);
+            const std::string def = raw_text(defp, path, &present_def);
+            if (present_got != present_def || got != def)
+                bad96 += sec_key + "=" + v + " kept '" + got + "' not the default '" + def + "'; ";
+        }
+    }
+    check("AC-95", "every value --set accepts for an AppConfig key survives the file: load() then save() writes the canonical text",
+          bad95.empty() && n95 > 100, bad95 + " samples=" + std::to_string(n95));
+    check("AC-96", "every sample value --set refuses for an AppConfig key leaves load() at the default (Bool, HostList and the text types excluded: the file reader is more permissive there)",
+          bad96.empty(), bad96);
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -1367,6 +1563,7 @@ int main() {
     test_debug_keys_conflicts();
     test_file_layout(dir);
     test_gh311_joy_device(dir);
+    test_config_keys(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

@@ -49,12 +49,14 @@
 //
 // Run: ./build/test/debugger_window_size_test
 
+#include "core/config_keys.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/window_attach.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QDataStream>
 #include <QDir>
@@ -66,6 +68,7 @@
 #include <QScreen>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSet>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -674,6 +677,53 @@ static void test_one_file(const QString& dir)
     }
 }
 
+// ── DWK: GH #417 - the [debugger] key names come from core/config_keys.h ───
+// Oracle: the table's DebuggerWindow-owned rows (size, position, attached),
+// compared with the keys the real window writes to the real file. No VHDL: a
+// host configuration file.
+
+static void test_key_names(const QString& dir)
+{
+    set_group("DWK");
+    const QString conf = dir + QStringLiteral("/jnext.conf");
+    wipe_dir(dir);
+
+    QSet<QString> written;
+    {
+        Fixture fx;
+        QAction* attach = nullptr;
+        if (fx.ok)
+            for (QAction* a : fx.dbg->findChildren<QAction*>())
+                if (a->text().remove(QLatin1Char('&')) == QLatin1String("Attach to Emulator Window")) attach = a;
+        if (fx.ok && attach) {
+            attach->setChecked(false);
+            QFile::remove(conf);
+            fx.dbg->save_position();   // detached: size, attached and position
+            {
+                QSettings s(conf, QSettings::IniFormat);
+                s.beginGroup(QStringLiteral("debugger"));
+                for (const QString& k : s.allKeys()) written.insert(QStringLiteral("debugger/") + k);
+            }
+            attach->setChecked(true);
+            fx.dbg->save_position();   // attached
+            {
+                QSettings s(conf, QSettings::IniFormat);
+                s.beginGroup(QStringLiteral("debugger"));
+                for (const QString& k : s.allKeys()) written.insert(QStringLiteral("debugger/") + k);
+            }
+        }
+        QSet<QString> want;
+        for (const config_keys::Key& k : config_keys::KEYS)
+            if (k.owner == config_keys::Owner::DebuggerWindow)
+                want.insert(QString::fromStdString(config_keys::path(k.id)));
+        QStringList w(written.begin(), written.end());
+        w.sort();
+        check("DWK-01", "the keys DebuggerWindow writes under [debugger] (detached, then attached) are exactly the table's DebuggerWindow-owned keys",
+              fx.ok && attach && written == want && want.size() == 3, w.join(',').toStdString());
+    }
+    wipe_dir(dir);
+}
+
 int main(int argc, char** argv)
 {
     // The debugger window owns QWidgets, so a QApplication is required — but
@@ -698,6 +748,8 @@ int main(int argc, char** argv)
     std::printf("  Group: DW             — done\n");
     test_one_file(cfg.path());
     std::printf("  Group: DCF            — done\n");
+    test_key_names(cfg.path());
+    std::printf("  Group: DWK            - done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

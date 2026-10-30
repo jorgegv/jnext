@@ -1,6 +1,7 @@
 #include "gui/app_config.h"
 #include "gui/qt_ctrl_is_command.h"   // GH #403
 #include "gui/emulator_widget.h"
+#include "core/config_keys.h"
 #include "gui/recent_files.h"
 #include "peripheral/esp_host_policy.h"
 
@@ -10,6 +11,30 @@
 #include <cmath>
 
 namespace {
+
+using config_keys::KeyId;
+
+// Section and key names come from the one table (GH #417).
+const char* S(KeyId id) { return config_keys::section(id); }
+const char* N(KeyId id) { return config_keys::name(id); }
+
+// The table's bounds are the file reader's bounds; the ones it cannot include
+// are tied to their owners here.
+static_assert(config_keys::info(KeyId::StartupWindowScale).lo == EmulatorWidget::MIN_SCALE &&
+              config_keys::info(KeyId::StartupWindowScale).hi == EmulatorWidget::MAX_SCALE,
+              "config_keys window_scale bounds must match EmulatorWidget");
+static_assert(config_keys::info(KeyId::StartupCrtShaderStyle).hi == crt_shader::STYLE_COUNT - 1,
+              "config_keys crt_shader_style bound must match crt_shader::STYLE_COUNT");
+static_assert(config_keys::word_at(config_keys::info(KeyId::StartupWhenSlowPrefer).values,
+                  static_cast<int>(audio_pacing::WhenSlowPrefer::Audio)) == "audio" &&
+              config_keys::word_at(config_keys::info(KeyId::StartupWhenSlowPrefer).values,
+                  static_cast<int>(audio_pacing::WhenSlowPrefer::Video)) == "video",
+              "config_keys when_slow_prefer words must follow the enum order");
+static_assert(config_keys::word_at(config_keys::info(KeyId::ScreenshotQuickFormat).values,
+                  static_cast<int>(ScreenshotFormat::Png)) == "png" &&
+              config_keys::word_at(config_keys::info(KeyId::ScreenshotQuickFormat).values,
+                  static_cast<int>(ScreenshotFormat::Scr)) == "scr",
+              "config_keys quick_format words must follow the enum order");
 
 // A free-text value read from the INI. QSettings IniFormat reads an UNQUOTED value
 // containing a comma as a QStringList, and toString() of a multi-element list is "":
@@ -31,22 +56,26 @@ QString machine_type_to_key(MachineType t) {
 // same two words the CLI accepts, so `--when-slow-prefer video` and
 // `when_slow_prefer=video` are one vocabulary rather than two.
 QString when_slow_prefer_to_key(audio_pacing::WhenSlowPrefer p) {
-    return p == audio_pacing::WhenSlowPrefer::Video ? QStringLiteral("video")
-                                                    : QStringLiteral("audio");
+    const std::string_view w = config_keys::word_at(
+        config_keys::info(KeyId::StartupWhenSlowPrefer).values, static_cast<int>(p));
+    return QString::fromLatin1(w.data(), static_cast<qsizetype>(w.size()));
 }
 
 // GH #19 — on-disk spelling of the quick-screenshot format. The same two
 // words a filename extension uses, so `.scr` and `quick_format=scr` are one
 // vocabulary rather than two.
 QString quick_screenshot_format_to_key(ScreenshotFormat f) {
-    return f == ScreenshotFormat::Scr ? QStringLiteral("scr") : QStringLiteral("png");
+    const std::string_view w = config_keys::word_at(
+        config_keys::info(KeyId::ScreenshotQuickFormat).values, static_cast<int>(f));
+    return QString::fromLatin1(w.data(), static_cast<qsizetype>(w.size()));
 }
 
-void load_gain(QSettings& settings, const char* key, float& target)
+void load_gain(QSettings& settings, KeyId id, float& target)
 {
     bool ok = false;
-    const double db = settings.value(key, static_cast<double>(target)).toDouble(&ok);
-    if (ok && std::isfinite(db) && db >= -24.0 && db <= 24.0)
+    const config_keys::Key& k = config_keys::info(id);
+    const double db = settings.value(k.name, static_cast<double>(target)).toDouble(&ok);
+    if (ok && std::isfinite(db) && db >= k.lo && db <= k.hi)
         target = static_cast<float>(db);
 }
 
@@ -94,24 +123,28 @@ void AppConfig::normalise_legacy_layout() const {
         const QVariant v = settings_.value(k);
         settings_.remove(k);
         // config_version -> [config] version; any other root key keeps its name.
-        settings_.setValue(QStringLiteral("config/")
-                           + (k == QLatin1String("config_version")
-                                  ? QStringLiteral("version") : k), v);
+        // The pre-#312 root key `config_version` is the one name the table does
+        // not carry: it is a legacy spelling, not a key jnext writes.
+        settings_.setValue(k == QLatin1String("config_version")
+                               ? QString::fromStdString(config_keys::path(KeyId::ConfigVersion))
+                               : QString::fromLatin1(S(KeyId::ConfigVersion)) + QLatin1Char('/') + k,
+                           v);
         changed = true;
     }
     // A gain written as a float QVariant by a Qt5 build is "@Variant(...)":
     // rewrite it as text.
-    static const char* const gain_keys[] = {
-        "audio/gain_db", "audio/gain_beeper_db", "audio/gain_ay0_db",
-        "audio/gain_ay1_db", "audio/gain_ay2_db", "audio/gain_dac_db"};
-    for (const char* k : gain_keys) {
-        const QVariant v = settings_.value(QLatin1String(k));
+    static const KeyId gain_keys[] = {
+        KeyId::AudioGainDb, KeyId::AudioGainBeeperDb, KeyId::AudioGainAy0Db,
+        KeyId::AudioGainAy1Db, KeyId::AudioGainAy2Db, KeyId::AudioGainDacDb};
+    for (const KeyId id : gain_keys) {
+        const QString k = QString::fromStdString(config_keys::path(id));
+        const QVariant v = settings_.value(k);
         if (v.userType() == QMetaType::Float || v.userType() == QMetaType::Double) {
-            settings_.setValue(QLatin1String(k), gain_text(v.toFloat()));
+            settings_.setValue(k, gain_text(v.toFloat()));
             changed = true;
         }
     }
-    const QString hosts_key = QStringLiteral("esp/allowed_hosts");
+    const QString hosts_key = QString::fromStdString(config_keys::path(KeyId::EspAllowedHosts));
     if (settings_.contains(hosts_key)) {
         const QVariant v = settings_.value(hosts_key);
         if (!v.isValid() || (v.userType() == QMetaType::QStringList && v.toStringList().isEmpty())) {
@@ -130,79 +163,82 @@ void AppConfig::load() {
     // not leave stale values in fields it didn't touch.
     data_ = AppConfigData{};
 
-    settings_.beginGroup("startup");
+    settings_.beginGroup(S(KeyId::StartupMachineType));
     {
         bool ok = false;
 
         const QString mt_key = settings_.value(
-            "machine_type", machine_type_to_key(data_.machine_type)).toString();
+            N(KeyId::StartupMachineType), machine_type_to_key(data_.machine_type)).toString();
         MachineType parsed_mt;
         if (parse_machine_type(mt_key.toStdString(), parsed_mt))
             data_.machine_type = parsed_mt;
 
         const int speed_idx = settings_.value(
-            "cpu_speed", static_cast<int>(data_.cpu_speed)).toInt(&ok);
-        if (ok && speed_idx >= 0 && speed_idx <= 3)
+            N(KeyId::StartupCpuSpeed), static_cast<int>(data_.cpu_speed)).toInt(&ok);
+        if (ok && speed_idx >= config_keys::info(KeyId::StartupCpuSpeed).lo
+               && speed_idx <= config_keys::info(KeyId::StartupCpuSpeed).hi)
             data_.cpu_speed = static_cast<CpuSpeed>(speed_idx);
 
         const int pct = settings_.value(
-            "emulator_speed_percent", data_.emulator_speed_percent).toInt(&ok);
-        if (ok && pct >= 10 && pct <= 1000)
+            N(KeyId::StartupEmulatorSpeedPercent), data_.emulator_speed_percent).toInt(&ok);
+        if (ok && pct >= config_keys::info(KeyId::StartupEmulatorSpeedPercent).lo
+               && pct <= config_keys::info(KeyId::StartupEmulatorSpeedPercent).hi)
             data_.emulator_speed_percent = pct;
 
         const int scale = settings_.value(
-            "window_scale", data_.window_scale).toInt(&ok);
-        if (ok && scale >= EmulatorWidget::MIN_SCALE && scale <= EmulatorWidget::MAX_SCALE)
+            N(KeyId::StartupWindowScale), data_.window_scale).toInt(&ok);
+        if (ok && scale >= config_keys::info(KeyId::StartupWindowScale).lo
+               && scale <= config_keys::info(KeyId::StartupWindowScale).hi)
             data_.window_scale = scale;
 
-        data_.crt_filter     = settings_.value("crt_filter", data_.crt_filter).toBool();
-        data_.crt_shader     = settings_.value("crt_shader", data_.crt_shader).toBool();
+        data_.crt_filter     = settings_.value(N(KeyId::StartupCrtFilter), data_.crt_filter).toBool();
+        data_.crt_shader     = settings_.value(N(KeyId::StartupCrtShader), data_.crt_shader).toBool();
         {
             // An unreadable or out-of-range style keeps the default.
             bool style_ok = false;
-            const int style = settings_.value("crt_shader_style",
+            const int style = settings_.value(N(KeyId::StartupCrtShaderStyle),
                 static_cast<int>(data_.crt_shader_style)).toInt(&style_ok);
             data_.crt_shader_style = style_ok ? crt_shader::style_from_int(style)
                                               : crt_shader::STYLE_DEFAULT;
         }
-        data_.silent         = settings_.value("silent", data_.silent).toBool();
-        data_.tape_fast_load = settings_.value("tape_fast_load", data_.tape_fast_load).toBool();
-        data_.tape_auto_play = settings_.value("tape_auto_play", data_.tape_auto_play).toBool();
+        data_.silent         = settings_.value(N(KeyId::StartupSilent), data_.silent).toBool();
+        data_.tape_fast_load = settings_.value(N(KeyId::StartupTapeFastLoad), data_.tape_fast_load).toBool();
+        data_.tape_auto_play = settings_.value(N(KeyId::StartupTapeAutoPlay), data_.tape_auto_play).toBool();
 
         // Issue #35 — anything other than the two known words keeps the
         // default, the same way an unknown joy_source does: a typo in a
         // hand-edited file must not silently change how the emulator degrades.
         const QString prefer = settings_.value(
-            "when_slow_prefer", when_slow_prefer_to_key(data_.when_slow_prefer))
+            N(KeyId::StartupWhenSlowPrefer), when_slow_prefer_to_key(data_.when_slow_prefer))
                                    .toString().trimmed().toLower();
-        if (prefer == QLatin1String("video"))
-            data_.when_slow_prefer = audio_pacing::WhenSlowPrefer::Video;
-        else if (prefer == QLatin1String("audio"))
-            data_.when_slow_prefer = audio_pacing::WhenSlowPrefer::Audio;
+        const int prefer_idx = config_keys::word_index(
+            config_keys::info(KeyId::StartupWhenSlowPrefer).values, prefer.toStdString());
+        if (prefer_idx >= 0)
+            data_.when_slow_prefer = static_cast<audio_pacing::WhenSlowPrefer>(prefer_idx);
     }
     settings_.endGroup();
 
-    settings_.beginGroup("audio");
+    settings_.beginGroup(S(KeyId::AudioGainDb));
     {
-        load_gain(settings_, "gain_db", data_.audio_gain_db);
-        load_gain(settings_, "gain_beeper_db", data_.audio_gain_beeper_db);
-        load_gain(settings_, "gain_ay0_db", data_.audio_gain_ay_db[0]);
-        load_gain(settings_, "gain_ay1_db", data_.audio_gain_ay_db[1]);
-        load_gain(settings_, "gain_ay2_db", data_.audio_gain_ay_db[2]);
-        load_gain(settings_, "gain_dac_db", data_.audio_gain_dac_db);
+        load_gain(settings_, KeyId::AudioGainDb, data_.audio_gain_db);
+        load_gain(settings_, KeyId::AudioGainBeeperDb, data_.audio_gain_beeper_db);
+        load_gain(settings_, KeyId::AudioGainAy0Db, data_.audio_gain_ay_db[0]);
+        load_gain(settings_, KeyId::AudioGainAy1Db, data_.audio_gain_ay_db[1]);
+        load_gain(settings_, KeyId::AudioGainAy2Db, data_.audio_gain_ay_db[2]);
+        load_gain(settings_, KeyId::AudioGainDacDb, data_.audio_gain_dac_db);
     }
     settings_.endGroup();
 
-    settings_.beginGroup("paths");
-    data_.last_load_dir  = ini_text(settings_.value("last_load_dir", data_.last_load_dir));
-    data_.sd_card_path   = ini_text(settings_.value("sd_card_path", data_.sd_card_path));
-    data_.screenshot_dir = ini_text(settings_.value("screenshot_dir", data_.screenshot_dir));
+    settings_.beginGroup(S(KeyId::PathsLastLoadDir));
+    data_.last_load_dir  = ini_text(settings_.value(N(KeyId::PathsLastLoadDir), data_.last_load_dir));
+    data_.sd_card_path   = ini_text(settings_.value(N(KeyId::PathsSdCardPath), data_.sd_card_path));
+    data_.screenshot_dir = ini_text(settings_.value(N(KeyId::PathsScreenshotDir), data_.screenshot_dir));
     settings_.endGroup();
 
     // GH #406. Its own group; cleaned of blanks and cut to the cap, so a
     // hand-edited file cannot grow the menu.
-    settings_.beginGroup("recent");
-    data_.recent_files = settings_.value("files").toStringList();
+    settings_.beginGroup(S(KeyId::RecentFiles));
+    data_.recent_files = settings_.value(N(KeyId::RecentFiles)).toStringList();
     data_.recent_files.removeAll(QString());
     while (data_.recent_files.size() > static_cast<qsizetype>(recent_files::kMax))
         data_.recent_files.removeLast();
@@ -212,33 +248,34 @@ void AppConfig::load() {
     // the two is a path. No CONFIG_VERSION bump: both keys are absent from a
     // v1 file and both fall back to their defaults, which is the behaviour
     // that file already had.
-    settings_.beginGroup("screenshot");
+    settings_.beginGroup(S(KeyId::ScreenshotQuickDir));
     data_.quick_screenshot_dir = ini_text(settings_.value(
-        "quick_dir", data_.quick_screenshot_dir));
+        N(KeyId::ScreenshotQuickDir), data_.quick_screenshot_dir));
     {
         // Anything other than the two known words keeps the default, the same
         // way when_slow_prefer and joy_source do: a typo in a hand-edited file
         // must not silently change what a capture produces.
         const QString fmt = settings_.value(
-            "quick_format", quick_screenshot_format_to_key(data_.quick_screenshot_format))
+            N(KeyId::ScreenshotQuickFormat), quick_screenshot_format_to_key(data_.quick_screenshot_format))
                                .toString().trimmed().toLower();
-        if (fmt == QLatin1String("scr"))
-            data_.quick_screenshot_format = ScreenshotFormat::Scr;
-        else if (fmt == QLatin1String("png"))
-            data_.quick_screenshot_format = ScreenshotFormat::Png;
+        const int fmt_idx = config_keys::word_index(
+            config_keys::info(KeyId::ScreenshotQuickFormat).values, fmt.toStdString());
+        if (fmt_idx >= 0)
+            data_.quick_screenshot_format = static_cast<ScreenshotFormat>(fmt_idx);
     }
     settings_.endGroup();
 
     // GH #321 — Quick Save retention. A number >= 1 or the word `unlimited`;
     // anything else keeps the default, so a typo cannot silently turn pruning
     // off (or delete more than the user asked).
-    settings_.beginGroup("snapshot");
+    settings_.beginGroup(S(KeyId::SnapshotQuickKeep));
     {
-        const QString v = settings_.value("quick_keep").toString().trimmed().toLower();
+        const QString v = settings_.value(N(KeyId::SnapshotQuickKeep)).toString().trimmed().toLower();
         bool ok = false;
         const int n = v.toInt(&ok);
         if (v == QLatin1String("unlimited"))     data_.quick_snapshot_keep = 0;
-        else if (ok && n >= 1 && n <= 1000000)   data_.quick_snapshot_keep = n;
+        else if (ok && n >= config_keys::info(KeyId::SnapshotQuickKeep).lo
+                 && n <= config_keys::info(KeyId::SnapshotQuickKeep).hi) data_.quick_snapshot_keep = n;
     }
     settings_.endGroup();
 
@@ -246,8 +283,8 @@ void AppConfig::load() {
     // default (Sdl). The one-cursor rule is enforced by the UI and by the
     // Emulator coordinator, so a hand-edited both-"keys" file resolves cleanly
     // at wire-up time rather than being rejected here.
-    settings_.beginGroup("input");
-    const char* keys[2] = { "joy1_source", "joy2_source" };
+    settings_.beginGroup(S(KeyId::InputJoy1Source));
+    const char* keys[2] = { N(KeyId::InputJoy1Source), N(KeyId::InputJoy2Source) };
     for (int i = 0; i < 2; ++i) {
         const QString v = settings_.value(keys[i], joy_source_str(data_.joy_source[i])).toString();
         JoySource parsed;
@@ -257,14 +294,14 @@ void AppConfig::load() {
     // GH #365 — an unknown word keeps the default, as joy_source does.
     {
         pointer_capture::ReleaseMethod m;
-        const QString v = settings_.value("mouse_release").toString().trimmed();
+        const QString v = settings_.value(N(KeyId::InputMouseRelease)).toString().trimmed();
         if (pointer_capture::parse_release_method(v.toStdString(), m))
             data_.mouse_release = m;
     }
     // GH #311 — assigned controller. An id that does not parse is dropped
     // together with its name, so a hand-edit cannot leave a name with no id.
-    const char* dev_keys[2]  = { "joy1_device", "joy2_device" };
-    const char* name_keys[2] = { "joy1_device_name", "joy2_device_name" };
+    const char* dev_keys[2]  = { N(KeyId::InputJoy1Device), N(KeyId::InputJoy2Device) };
+    const char* name_keys[2] = { N(KeyId::InputJoy1DeviceName), N(KeyId::InputJoy2DeviceName) };
     for (int i = 0; i < 2; ++i) {
         std::string canon;
         const QString raw = settings_.value(dev_keys[i], data_.joy_device[i]).toString().trimmed();
@@ -289,7 +326,7 @@ void AppConfig::load() {
     debug_key_issues_.clear();
     {
         std::vector<std::pair<std::string, std::string>> entries;
-        settings_.beginGroup("debugger_keys");
+        settings_.beginGroup(S(KeyId::DebuggerKey));
         // childKeys() preserves the file's order, which is what makes the
         // "first entry wins" tie-breaks in build_keymap() reproducible.
         for (const QString& k : settings_.childKeys())
@@ -298,23 +335,23 @@ void AppConfig::load() {
         data_.debug_keys = jnext::dbgkeys::build_keymap(entries, debug_key_issues_, kQtCtrlIsCommand);
     }
 
-    settings_.beginGroup("esp");
-    data_.esp_enabled = settings_.value("enabled", data_.esp_enabled).toBool();
+    settings_.beginGroup(S(KeyId::EspEnabled));
+    data_.esp_enabled = settings_.value(N(KeyId::EspEnabled), data_.esp_enabled).toBool();
     {
         EspHostPolicy policy;
-        const QStringList saved = settings_.value("allowed_hosts").toStringList();
+        const QStringList saved = settings_.value(N(KeyId::EspAllowedHosts)).toStringList();
         for (const QString& host : saved) policy.add(host.toStdString());
         data_.esp_allowed_hosts = policy.allowed_hosts;
     }
     settings_.endGroup();
 
-    settings_.beginGroup("nextpi");
-    data_.nextpi_enabled     = settings_.value("enabled", data_.nextpi_enabled).toBool();
-    data_.nextpi_dir         = ini_text(settings_.value("dir", data_.nextpi_dir)).trimmed();
-    data_.nextpi_release     = ini_text(settings_.value("release", data_.nextpi_release)).trimmed();
-    data_.nextpi_qemu_binary = ini_text(settings_.value("qemu_binary", data_.nextpi_qemu_binary)).trimmed();
-    data_.nextpi_audio       = ini_text(settings_.value("audio", data_.nextpi_audio)).trimmed();
-    data_.nextpi_qemu_args   = ini_text(settings_.value("qemu_args", data_.nextpi_qemu_args)).trimmed();
+    settings_.beginGroup(S(KeyId::NextpiEnabled));
+    data_.nextpi_enabled     = settings_.value(N(KeyId::NextpiEnabled), data_.nextpi_enabled).toBool();
+    data_.nextpi_dir         = ini_text(settings_.value(N(KeyId::NextpiDir), data_.nextpi_dir)).trimmed();
+    data_.nextpi_release     = ini_text(settings_.value(N(KeyId::NextpiRelease), data_.nextpi_release)).trimmed();
+    data_.nextpi_qemu_binary = ini_text(settings_.value(N(KeyId::NextpiQemuBinary), data_.nextpi_qemu_binary)).trimmed();
+    data_.nextpi_audio       = ini_text(settings_.value(N(KeyId::NextpiAudio), data_.nextpi_audio)).trimmed();
+    data_.nextpi_qemu_args   = ini_text(settings_.value(N(KeyId::NextpiQemuArgs), data_.nextpi_qemu_args)).trimmed();
     settings_.endGroup();
 }
 
@@ -324,63 +361,64 @@ void AppConfig::save() const {
     QDir().mkpath(QFileInfo(settings_.fileName()).absolutePath());
 
     normalise_legacy_layout();
-    settings_.setValue("config/version", AppConfigData::CONFIG_VERSION);
+    settings_.setValue(QString::fromStdString(config_keys::path(KeyId::ConfigVersion)),
+                       AppConfigData::CONFIG_VERSION);
 
-    settings_.beginGroup("startup");
-    settings_.setValue("machine_type", machine_type_to_key(data_.machine_type));
-    settings_.setValue("cpu_speed", static_cast<int>(data_.cpu_speed));
-    settings_.setValue("emulator_speed_percent", data_.emulator_speed_percent);
-    settings_.setValue("window_scale", data_.window_scale);
-    settings_.setValue("crt_filter", data_.crt_filter);
-    settings_.setValue("crt_shader", data_.crt_shader);
-    settings_.setValue("crt_shader_style", static_cast<int>(data_.crt_shader_style));
-    settings_.setValue("silent", data_.silent);
-    settings_.setValue("tape_fast_load", data_.tape_fast_load);
-    settings_.setValue("tape_auto_play", data_.tape_auto_play);
-    settings_.setValue("when_slow_prefer",
+    settings_.beginGroup(S(KeyId::StartupMachineType));
+    settings_.setValue(N(KeyId::StartupMachineType), machine_type_to_key(data_.machine_type));
+    settings_.setValue(N(KeyId::StartupCpuSpeed), static_cast<int>(data_.cpu_speed));
+    settings_.setValue(N(KeyId::StartupEmulatorSpeedPercent), data_.emulator_speed_percent);
+    settings_.setValue(N(KeyId::StartupWindowScale), data_.window_scale);
+    settings_.setValue(N(KeyId::StartupCrtFilter), data_.crt_filter);
+    settings_.setValue(N(KeyId::StartupCrtShader), data_.crt_shader);
+    settings_.setValue(N(KeyId::StartupCrtShaderStyle), static_cast<int>(data_.crt_shader_style));
+    settings_.setValue(N(KeyId::StartupSilent), data_.silent);
+    settings_.setValue(N(KeyId::StartupTapeFastLoad), data_.tape_fast_load);
+    settings_.setValue(N(KeyId::StartupTapeAutoPlay), data_.tape_auto_play);
+    settings_.setValue(N(KeyId::StartupWhenSlowPrefer),
                        when_slow_prefer_to_key(data_.when_slow_prefer));
     settings_.endGroup();
 
-    settings_.beginGroup("audio");
-    settings_.setValue("gain_db", gain_text(data_.audio_gain_db));
-    settings_.setValue("gain_beeper_db", gain_text(data_.audio_gain_beeper_db));
-    settings_.setValue("gain_ay0_db", gain_text(data_.audio_gain_ay_db[0]));
-    settings_.setValue("gain_ay1_db", gain_text(data_.audio_gain_ay_db[1]));
-    settings_.setValue("gain_ay2_db", gain_text(data_.audio_gain_ay_db[2]));
-    settings_.setValue("gain_dac_db", gain_text(data_.audio_gain_dac_db));
+    settings_.beginGroup(S(KeyId::AudioGainDb));
+    settings_.setValue(N(KeyId::AudioGainDb), gain_text(data_.audio_gain_db));
+    settings_.setValue(N(KeyId::AudioGainBeeperDb), gain_text(data_.audio_gain_beeper_db));
+    settings_.setValue(N(KeyId::AudioGainAy0Db), gain_text(data_.audio_gain_ay_db[0]));
+    settings_.setValue(N(KeyId::AudioGainAy1Db), gain_text(data_.audio_gain_ay_db[1]));
+    settings_.setValue(N(KeyId::AudioGainAy2Db), gain_text(data_.audio_gain_ay_db[2]));
+    settings_.setValue(N(KeyId::AudioGainDacDb), gain_text(data_.audio_gain_dac_db));
     settings_.endGroup();
 
-    settings_.beginGroup("paths");
-    settings_.setValue("last_load_dir", data_.last_load_dir);
-    settings_.setValue("sd_card_path", data_.sd_card_path);
-    settings_.setValue("screenshot_dir", data_.screenshot_dir);
+    settings_.beginGroup(S(KeyId::PathsLastLoadDir));
+    settings_.setValue(N(KeyId::PathsLastLoadDir), data_.last_load_dir);
+    settings_.setValue(N(KeyId::PathsSdCardPath), data_.sd_card_path);
+    settings_.setValue(N(KeyId::PathsScreenshotDir), data_.screenshot_dir);
     settings_.endGroup();
 
-    settings_.beginGroup("recent");
+    settings_.beginGroup(S(KeyId::RecentFiles));
     // An empty list is not written: QSettings stores it as "@Invalid()".
-    if (data_.recent_files.isEmpty()) settings_.remove("files");
-    else settings_.setValue("files", data_.recent_files);
+    if (data_.recent_files.isEmpty()) settings_.remove(N(KeyId::RecentFiles));
+    else settings_.setValue(N(KeyId::RecentFiles), data_.recent_files);
     settings_.endGroup();
 
-    settings_.beginGroup("screenshot");   // GH #19
-    settings_.setValue("quick_dir", data_.quick_screenshot_dir);
-    settings_.setValue("quick_format",
+    settings_.beginGroup(S(KeyId::ScreenshotQuickDir));   // GH #19
+    settings_.setValue(N(KeyId::ScreenshotQuickDir), data_.quick_screenshot_dir);
+    settings_.setValue(N(KeyId::ScreenshotQuickFormat),
                        quick_screenshot_format_to_key(data_.quick_screenshot_format));
     settings_.endGroup();
 
-    settings_.beginGroup("snapshot");   // GH #321
-    if (data_.quick_snapshot_keep <= 0) settings_.setValue("quick_keep", "unlimited");
-    else settings_.setValue("quick_keep", data_.quick_snapshot_keep);
+    settings_.beginGroup(S(KeyId::SnapshotQuickKeep));   // GH #321
+    if (data_.quick_snapshot_keep <= 0) settings_.setValue(N(KeyId::SnapshotQuickKeep), "unlimited");
+    else settings_.setValue(N(KeyId::SnapshotQuickKeep), data_.quick_snapshot_keep);
     settings_.endGroup();
 
-    settings_.beginGroup("input");   // Task 79
-    settings_.setValue("joy1_source", QString::fromLatin1(joy_source_str(data_.joy_source[0])));
-    settings_.setValue("joy2_source", QString::fromLatin1(joy_source_str(data_.joy_source[1])));
-    settings_.setValue("joy1_device", data_.joy_device[0]);        // GH #311
-    settings_.setValue("joy1_device_name", data_.joy_device_name[0]);
-    settings_.setValue("joy2_device", data_.joy_device[1]);
-    settings_.setValue("joy2_device_name", data_.joy_device_name[1]);
-    settings_.setValue("mouse_release",                            // GH #365
+    settings_.beginGroup(S(KeyId::InputJoy1Source));   // Task 79
+    settings_.setValue(N(KeyId::InputJoy1Source), QString::fromLatin1(joy_source_str(data_.joy_source[0])));
+    settings_.setValue(N(KeyId::InputJoy2Source), QString::fromLatin1(joy_source_str(data_.joy_source[1])));
+    settings_.setValue(N(KeyId::InputJoy1Device), data_.joy_device[0]);        // GH #311
+    settings_.setValue(N(KeyId::InputJoy1DeviceName), data_.joy_device_name[0]);
+    settings_.setValue(N(KeyId::InputJoy2Device), data_.joy_device[1]);
+    settings_.setValue(N(KeyId::InputJoy2DeviceName), data_.joy_device_name[1]);
+    settings_.setValue(N(KeyId::InputMouseRelease),                          // GH #365
                        QString::fromLatin1(pointer_capture::release_method_name(data_.mouse_release)));
     settings_.endGroup();
 
@@ -388,9 +426,9 @@ void AppConfig::save() const {
     // that resetting an action back to its default REMOVES its line rather
     // than leaving a stale one, and a file whose every action is at its
     // default has no [debugger_keys] section at all.
-    settings_.remove("debugger_keys");
+    settings_.remove(S(KeyId::DebuggerKey));
     {
-        settings_.beginGroup("debugger_keys");
+        settings_.beginGroup(S(KeyId::DebuggerKey));
         for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i) {
             const auto a = static_cast<jnext::dbgkeys::Action>(i);
             if (data_.debug_keys.is_default(a)) continue;
@@ -406,26 +444,26 @@ void AppConfig::save() const {
         settings_.endGroup();
     }
 
-    settings_.beginGroup("esp");     // GH #25
-    settings_.setValue("enabled", data_.esp_enabled);
+    settings_.beginGroup(S(KeyId::EspEnabled));     // GH #25
+    settings_.setValue(N(KeyId::EspEnabled), data_.esp_enabled);
     {
         QStringList hosts;
         for (const std::string& host : data_.esp_allowed_hosts)
             hosts << QString::fromStdString(host);
         // Empty -> a plain empty string: QSettings writes an empty
         // QStringList as "@Invalid()" (GH #312).
-        if (hosts.isEmpty()) settings_.setValue("allowed_hosts", QString());
-        else                 settings_.setValue("allowed_hosts", hosts);
+        if (hosts.isEmpty()) settings_.setValue(N(KeyId::EspAllowedHosts), QString());
+        else                 settings_.setValue(N(KeyId::EspAllowedHosts), hosts);
     }
     settings_.endGroup();
 
-    settings_.beginGroup("nextpi");
-    settings_.setValue("enabled", data_.nextpi_enabled);
-    settings_.setValue("dir", data_.nextpi_dir);
-    settings_.setValue("release", data_.nextpi_release);
-    settings_.setValue("qemu_binary", data_.nextpi_qemu_binary);
-    settings_.setValue("audio", data_.nextpi_audio);
-    settings_.setValue("qemu_args", data_.nextpi_qemu_args);
+    settings_.beginGroup(S(KeyId::NextpiEnabled));
+    settings_.setValue(N(KeyId::NextpiEnabled), data_.nextpi_enabled);
+    settings_.setValue(N(KeyId::NextpiDir), data_.nextpi_dir);
+    settings_.setValue(N(KeyId::NextpiRelease), data_.nextpi_release);
+    settings_.setValue(N(KeyId::NextpiQemuBinary), data_.nextpi_qemu_binary);
+    settings_.setValue(N(KeyId::NextpiAudio), data_.nextpi_audio);
+    settings_.setValue(N(KeyId::NextpiQemuArgs), data_.nextpi_qemu_args);
     settings_.endGroup();
 
     settings_.sync();

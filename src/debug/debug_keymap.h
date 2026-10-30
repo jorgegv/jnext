@@ -177,4 +177,15 @@ struct Conflict {
 };
 std::vector<Conflict> find_conflicts(const Keymap& map);
 
+/// GH #417 - apply command-line `--set debugger_keys.ACTION=COMBO` entries
+/// (id, combo text) over `map` for one run. Refuses (false, `why` set, `map`
+/// untouched) when an id is unknown, a combo does not parse or is not legal
+/// (`validate_combo`), or the FINAL map has a conflict that involves one of the
+/// actions the command line set. The Preferences tab refuses a clash the same
+/// way; here nothing is silently unbound. Freeing a combo in the same list
+/// works, because only the final map is checked. A later entry for the same
+/// action replaces an earlier one.
+bool apply_overrides(Keymap& map, const std::vector<std::pair<std::string, std::string>>& cli,
+                     std::string& why, bool host_mod_is_ctrl = false);
+
 } // namespace jnext::dbgkeys

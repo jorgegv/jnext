@@ -117,6 +117,26 @@ Adding a flag is therefore four edits: an `OptId`, a table row, a `case` in
 `main.cpp` — which the compiler enforces through `-Wswitch` — and an entry in
 `doc/man/jnext.1.md`. Skip the last one and `cli-check` fails.
 
+## The table of `jnext.conf` keys
+
+`src/core/config_keys.h` (GH #417) is the one place the keys of `jnext.conf` are
+named: section, key, value type, bounds, accepted words, the dedicated flag with
+the same effect, and the frontends where it takes effect. It is Qt-free, so the
+SDL-only and headless builds can parse the same names. `AppConfig` and
+`DebuggerWindow` read their section and key names, bounds and word lists from
+it; the one literal left is the legacy root key `config_version` that
+`normalise_legacy_layout()` migrates. `config_keys::parse_assignment()` turns a
+typed `SECTION.KEY=VALUE` into the canonical text `AppConfig::save()` writes.
+
+**Adding a Preferences field is adding a row to that table.** The rule is held
+by tests, not by review: `AC-94` saves a fully populated `AppConfig` and fails
+when the file holds a key with no `AppConfig`-owned row, or a row is not written;
+`AC-95` and `AC-96` hold the setter and the file reader to one meaning of every
+value; `DWK-01` does the same for the keys `DebuggerWindow` writes. A key that
+is not a setting (the remembered geometry, the recent-files history, derived
+names, the file format version) is declared in the table with its reason, and
+`SETK-03` pins that list.
+
 ## The residual gap, stated plainly
 
 `cli-check` covers the **flag set**, not the **prose**. The wrong scale range
