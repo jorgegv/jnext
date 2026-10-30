@@ -629,6 +629,29 @@ fps; the host was loaded throughout (1-min load 7 to 11 on 12 CPUs), so the spre
 No consistent difference in either direction beyond the noise; a quiet-host `make bench` is still the
 arbiter.
 
+**The verify window (E23-13 (#344) stage 3, 6.2).** `DebugState::verify_hold_` is one more `armed()` term,
+folded into `refresh_gates_()` when a window is set or cleared (never per instruction), and one test in the
+armed block, `verify_window_hit(pc)`: a bool and two compares, before the breakpoint tests. With no client
+and no tape map the machine is unarmed and nothing runs; a client already armed it, and then the cost is
+that bool. A headless run with a map pending pays the armed block's tests only from the tape load call to
+the program's first instruction in its code, then nothing. Measured on the non-PGO build, base (stage 2's
+tip e17a21b79) against branch, on a shared host (two qemu guests ran throughout, 1-min load 5 to 13 on 12
+CPUs): `make bench` was VOID for four of five workloads on spread (16% to 77% between runs of one binary),
+so the figures are the user-space instruction counts of `perf stat -e instructions:u`, which load does not
+move, pinned to core 0, `--headless --benchmark`:
+
+| workload | base | branch |
+|---|---|---|
+| `48k` 600 frames | 14,005,972,689 | 14,001,665,685 (-0.03%) |
+| `next` 400 frames | 25,572,238,574 | 25,567,440,750 (-0.02%) |
+
+A pending-case figure, for information: `bifrost.tap` with a map beside it that arms a window (dropped
+by its first mismatch about 130 frames in), 48K, 600 frames: 14,198,198,778 instructions against
+14,157,419,521 with no map (+0.29%, window armed for the first part of the run only). An interleaved
+throughput A/B (9 runs each) gave best-of-9 differences of -1.9% to +5.0% tstates/s in both directions on
+the four unarmed workloads, which is the noise of that host; the medians swung up to 25% between two runs of
+the same code.
+
 ## 5. The source map and the backend API
 
 ### 5.1 The store (D2)
