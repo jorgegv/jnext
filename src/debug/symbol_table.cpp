@@ -8,8 +8,12 @@
 #include <cctype>
 #include <charconv>
 
-int SymbolTable::load_z88dk_map(const std::string& path)
+int SymbolTable::load_z88dk_map(const std::string& path, std::string* why)
 {
+    if (std::string problem = source_file_problem(path); !problem.empty()) {
+        if (why) *why = problem;
+        return -1;
+    }
     std::ifstream file(path);
     if (!file.is_open())
         return -1;
@@ -119,8 +123,12 @@ int SymbolTable::read_z88dk_map(std::istream& file)
     return count;
 }
 
-int SymbolTable::load_simple_map(const std::string& path)
+int SymbolTable::load_simple_map(const std::string& path, std::string* why)
 {
+    if (std::string problem = source_file_problem(path); !problem.empty()) {
+        if (why) *why = problem;
+        return -1;
+    }
     std::ifstream file(path);
     if (!file.is_open())
         return -1;

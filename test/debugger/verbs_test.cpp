@@ -41,6 +41,7 @@
 #include "debug/debug_state.h"
 #include "debug/disasm_text.h"
 #include "debug/rewind_buffer.h"
+#include "debug/source_file.h"
 #include "debug/symbol_table.h"
 #include "debug/trace.h"
 #include "debugger/breakpoint_model.h"
@@ -81,6 +82,7 @@
 #include <QToolBar>
 
 #include <cstdarg>
+#include <filesystem>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -2251,7 +2253,7 @@ static void test_map_load() {
 
     Fixture fx;
     if (!fx.ok) {
-        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06"})
+        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07"})
             check(id, "fixture", false);
         return;
     }
@@ -2357,6 +2359,39 @@ static void test_map_load() {
                                       .arg(QString::fromStdString(empty_path)),
               fmt("ok: %s bad: %s empty: %s", ok.describe().c_str(), bad.describe().c_str(),
                   empty.describe().c_str()));
+    }
+
+    {
+        // QMAP-07 (GH #344): a file over the size cap is refused by both loaders with the
+        // reason, not the bare "Could not load"; the table is untouched.
+        const std::string big_z88dk = write_file("big_z88dk.map", "_x = $1234 ; addr\n");
+        const std::string big_simple = write_file("big_simple.map", "X = $1234\n");
+        std::error_code ec;
+        std::filesystem::resize_file(big_z88dk, SOURCE_FILE_MAX_BYTES + 1, ec);    // sparse
+        std::filesystem::resize_file(big_simple, SOURCE_FILE_MAX_BYTES + 1, ec);
+        const size_t before = fx.backend->symbols().size();
+        Modals z;
+        z.file_path = QString::fromStdString(big_z88dk);
+        if (QAction* a = item_named(load_menu, "Z88DK Format...")) a->trigger();
+        z.timer.stop();
+        Modals sm;
+        sm.file_path = QString::fromStdString(big_simple);
+        if (QAction* a = item_named(load_menu, "Simple Format (48K ROM)...")) a->trigger();
+        sm.timer.stop();
+        const Modals::Seen* zb = z.first("box");
+        const Modals::Seen* sb = sm.first("box");
+        const QString why = QString::fromStdString(source_file_problem(big_z88dk));
+        check("QMAP-07",
+              "Z88DK Format... and Simple Format... with a file over the size cap: \"Load "
+              "Failed\" / \"Could not load MAP file:\\n<path>\\n\\n<why>\", the table untouched",
+              !why.isEmpty() && zb && zb->title == "Load Failed" &&
+                  zb->text == QStringLiteral("Could not load MAP file:\n%1\n\n%2")
+                                  .arg(QString::fromStdString(big_z88dk), why) &&
+                  sb && sb->title == "Load Failed" &&
+                  sb->text == QStringLiteral("Could not load MAP file:\n%1\n\n%2")
+                                  .arg(QString::fromStdString(big_simple), why) &&
+                  fx.backend->symbols().size() == before,
+              fmt("z: %s simple: %s", z.describe().c_str(), sm.describe().c_str()));
     }
 
     {

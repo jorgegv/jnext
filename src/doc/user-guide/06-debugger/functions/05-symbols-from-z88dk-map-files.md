@@ -31,6 +31,12 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
   different banks the first names the address, and both resolve by name. A
   Windows file, with CRLF line ends, loads as it is.
 
+A file that is over 64 MiB, or is not a regular file (a named pipe, say), is
+refused, and the box says why. A z88dk `.map` that sits beside a program you load
+(`<name>.map` next to a `.nex`, `.tap` or `.sna`) is loaded for you, with the
+program's source lines: see
+[Source-level debugging](14-source-level-debugging.md).
+
 Once loaded, symbols appear wherever an address is shown and a name is known:
 the disassembly replaces a matching 16-bit immediate with the symbol name, the
 Call Stack names call targets, the Breakpoints panel gains a Symbol column, and

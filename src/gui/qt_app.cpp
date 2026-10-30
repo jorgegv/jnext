@@ -17,6 +17,7 @@
 #include "platform/speed_report.h"
 #include "platform/sdl_audio.h"
 #include "core/log.h"
+#include "debug/source_file.h"   // GH #344: program_loads_later
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #endif
@@ -686,13 +687,41 @@ bool QtApp::TickEffects::pre_frames() {
             if (!sidecars.problem.empty())
                 Log::platform()->warn("load: {}", sidecars.problem);
 #endif
+            // --source-map: attached once, as the user's map, on top of them.
+            if (!a.config_.source_map_file.empty()) {
+                const auto sm = emulator_attach_cli_source_map(
+                    *a.debugger_, a.config_.source_map_file,
+                    program_loads_later(a.load_file_));
+                if (sm.ok) {
+                    Log::platform()->info("{}", sm.line);
+                    a.source_map_watch_ = sm.pending;
+                } else {
+                    Log::platform()->error("{}", sm.line);
+                    a.exit_code_ = 1;
+                }
+            }
         }
+        a.config_.source_map_file.clear();
         // A File > Open load that failed gets its dialog (deferred to the
         // event loop by the window; this is inside the frame tick).
         if (a.main_window_) a.main_window_->load_finished(a.load_file_, loaded);
         a.load_countdown_ = -1;
     } else if (a.load_countdown_ > 0) {
         --a.load_countdown_;
+    }
+
+    // A --source-map still waiting for its tape program: dropped by a mismatch exits 1.
+    if (a.source_map_watch_) {
+        std::string why;
+        switch (emulator_poll_cli_source_map(*a.debugger_, &why)) {
+            case CliSourceMapWatch::Waiting: break;
+            case CliSourceMapWatch::Done: a.source_map_watch_ = false; break;
+            case CliSourceMapWatch::Failed:
+                Log::platform()->error("--source-map: dropped: {}", why);
+                a.exit_code_ = 1;
+                a.source_map_watch_ = false;
+                break;
+        }
     }
 
     // --rzx-record, once the load/inject above is in the machine.

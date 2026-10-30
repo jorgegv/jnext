@@ -198,6 +198,7 @@ BEGIN {
     M["debug_qt_free_test"]            = "src/debug Qt-free lint (GH #278)"
     M["step_out_test"]                 = "Debugger Step Out"
     M["source_map_test"]               = "Source maps + symbols"
+    M["z88dk_map_test"]                = "z88dk -debug map adapter"
     M["source_debug_test"]             = "Source debugging (backend)"
     M["source_debug_posix_test"]       = "Source debugging (POSIX file types)"
     M["debugger_backend_test"]         = "Debugger Backend (GH #276)"

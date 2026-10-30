@@ -51,6 +51,7 @@ BAD=0
 # build <install> <instdir> <name> <kind> <zcc flags...>   (EXPECT_FAIL=1: recorded failure)
 #   kind = plain  : main.c util.c asmfn.asm
 #          subdir : main.c game/util.c asmfn.asm
+#          tape   : main.c util.c asmfn.asm for +zx (a .tap, GH #344 stage 3)
 #          banked:<SEG>[:kw] : banked.c -c --codeseg<SEG>, then bmain.c bankin.asm banked.o
 build() {
     local Z=$1 inst=$2 name=$3 kind=$4; shift 4
@@ -61,6 +62,7 @@ build() {
     {
     case $kind in
         plain)  files=(main.c util.c asmfn.asm) ;;
+        tape)   files=(main.c util.c asmfn.asm); zcc[${#zcc[@]}-1]=+zx; link=(-m --list -o prog -create-app) ;;
         subdir) mkdir -p "$b/game"; mv "$b/util.c" "$b/game/util.c"; files=(main.c game/util.c asmfn.asm); set -- "$@" -I. ;;
         banked:*) local seg=${kind#banked:} kw=; [[ $seg == *:kw ]] && { kw=-DUSE_BANKED_KW; seg=${seg%:kw}; }
                   echo "+ zcc +zxn $* $kw --codeseg$seg --list -c banked.c -o banked.o"
@@ -68,7 +70,7 @@ build() {
                   set -- "$@" $kw; files=(bmain.c bankin.asm banked.o) ;;
     esac
     if (( rc == 0 )); then
-        echo "+ zcc +zxn $* ${link[*]} ${files[*]}"
+        echo "+ zcc ${zcc[${#zcc[@]}-1]} $* ${link[*]} ${files[*]}"
         (cd "$b" && "${zcc[@]}" "$@" "${link[@]}" "${files[@]}") || rc=$?
     fi
     } > "$b/build.log" 2>&1
@@ -83,7 +85,7 @@ build() {
     trim_map "$b/prog.map" | normalise "$Z" > "$out/prog.map"
     (cd "$b" && for l in *.c.lis *.asm.lis game/*.c.lis; do [[ -f $l ]] || continue
         mkdir -p "$out/$(dirname "$l")"; normalise "$Z" < "$l" > "$out/$l"; done)
-    cp "$b/prog.nex" "$out/"
+    for f in "$b"/prog.nex "$b"/prog.tap; do [[ -f $f ]] && cp "$f" "$out/"; done
     for f in "$b"/prog_*.bin; do [[ -f $f ]] && cp "$f" "$out/"; done
     [[ -s $b/prog ]] && cp "$b/prog" "$out/prog"        # classic: the main binary has no group suffix
     echo "built: $inst/$name"
@@ -117,6 +119,7 @@ build "$Z24" v2.4 sdcc-banked   banked:PAGE_20:kw -clib=sdcc_iy --c-code-in-asm
 build "$Z24" v2.4 classic-bank10 banked:BANK_10 -clib=classic
 EXPECT_FAIL=1 build "$Z24" v2.4 classic-debug plain          -clib=classic -debug
 build "$Z24" v2.4 sccz80-subdir subdir         -clib=new -debug
+build "$Z24" v2.4 sccz80-tape   tape           -clib=new -debug
 
 provenance "$ZM" master
 build "$ZM" master sccz80-debug plain          -clib=new -debug

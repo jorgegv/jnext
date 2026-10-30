@@ -52,6 +52,9 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     // the restore, so its own reason still wins. CAP-SRC: the same place drops
     // a previous program's sidecars (`Impl::machine_replaced()`).
     impl_->ds().set_machine_replaced_hook([this]() { impl_->machine_replaced(); });
+    // GH #344 stage 3 - the tape-identity verify window's hook. No window is set until a
+    // map is attached pending (sync_verify_window()), so this costs nothing by itself.
+    impl_->ds().set_verify_hook([this](uint16_t pc) { impl_->verify_hook(pc); });
 
     // §6.1 — SEED THE EIGHT LIVE PAGES. `DebugState::on_slot_remapped()`
     // early-returns while the table is null, so every `rebuild_ptr()` during
@@ -96,6 +99,9 @@ Debugger::~Debugger() {
     impl_->ds().set_event_table(nullptr);
     impl_->ds().set_event_hooks(nullptr, nullptr);
     impl_->ds().set_machine_replaced_hook(nullptr);
+    // GH #344 stage 3 - and the verify window: its hook points into this object.
+    impl_->ds().set_verify_hook(nullptr);
+    impl_->ds().clear_verify_window();
     // The masks are `BreakpointSet`'s, so they survive this object, and the event
     // half has to be zeroed or a retired subscription keeps the gate open for
     // ever. `refresh_event_gates()` DOES that — the table pointer was retired
@@ -238,8 +244,8 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
     impl_->recheck();   // a writer first (CAP-SRC)
     int n = -1;
     switch (format) {
-        case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path); break;
-        case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path); break;
+        case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path, why); break;
+        case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path, why); break;
         case MapFormat::NextBuild: n = impl_->symbols.load_nextbuild_memory(path, why); break;
         case MapFormat::SjasmplusEqu: n = impl_->symbols.load_sjasmplus_equ(path); break;
         case MapFormat::Z88dkOrSjasmplus: n = impl_->symbols.load_z88dk_or_sjasmplus(path); break;

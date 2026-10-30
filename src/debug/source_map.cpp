@@ -47,7 +47,8 @@ std::optional<int> decimal(std::string_view text)
 void SourceMap::replace(std::vector<SourceRange> ranges,
                         std::vector<SourceAlias> aliases,
                         std::optional<SourceProgramIdentity> identity,
-                        std::string loaded_file)
+                        std::string loaded_file,
+                        std::string format)
 {
     SourceMap next;
     std::map<std::tuple<std::string, int, int>, size_t> location_ids;
@@ -116,6 +117,7 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
 
     next.identity_ = std::move(identity);
     next.loaded_file_ = std::move(loaded_file);
+    next.format_ = std::move(format);
     *this = std::move(next);
 }
 
@@ -206,16 +208,100 @@ SourceResolution SourceMap::resolve(std::string_view expression) const
     return out;
 }
 
-std::optional<bool> SourceMap::verify_program(
-    const std::function<uint8_t(uint16_t)>& read) const
+namespace {
+
+// The SHA-256 of an SLD identity against logical memory.
+bool sha_matches(const SourceProgramIdentity& id, const std::function<uint8_t(uint16_t)>& read)
 {
-    if (!identity_) return std::nullopt;
-    if (identity_->size > 0x10000u - identity_->org) return false;
-    std::vector<uint8_t> bytes(identity_->size);
-    for (uint32_t i = 0; i < identity_->size; ++i)
-        bytes[i] = read(static_cast<uint16_t>(identity_->org + i));
+    if (id.size > 0x10000u - id.org) return false;
+    std::vector<uint8_t> bytes(id.size);
+    for (uint32_t i = 0; i < id.size; ++i)
+        bytes[i] = read(static_cast<uint16_t>(id.org + i));
     const std::string actual = sdcard::sha256_hex(bytes);
-    return !actual.empty() && actual == identity_->sha256;
+    return !actual.empty() && actual == id.sha256;
+}
+
+bool check_matches(const SourceByteCheck& check, const SourceMap::SpaceReader& read_space)
+{
+    if (!read_space || check.bytes.size() > 0x10000u - check.lo) return false;
+    for (size_t i = 0; i < check.bytes.size(); ++i) {
+        const auto actual = read_space(check.space, static_cast<uint16_t>(check.lo + i));
+        if (!actual || *actual != check.bytes[i]) return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool SourceMap::has_identity() const
+{
+    return identity_ && (!identity_->sha256.empty() || !identity_->bytes.empty());
+}
+
+std::optional<bool> SourceMap::verify_program(
+    const std::function<uint8_t(uint16_t)>& read,
+    const SpaceReader& read_space) const
+{
+    if (!has_identity()) return std::nullopt;
+    if (!identity_->sha256.empty() && !sha_matches(*identity_, read)) return false;
+    for (const SourceByteCheck& check : identity_->bytes)
+        if (!check_matches(check, read_space)) return false;
+    return true;
+}
+
+std::optional<bool> SourceMap::verify_unit(
+    FetchSource unit,
+    const std::function<uint8_t(uint16_t)>& read,
+    const SpaceReader& read_space) const
+{
+    if (!has_identity()) return std::nullopt;
+    if (unit.kind == MemSpace::Kind::Cpu) {
+        if (identity_->sha256.empty()) return std::nullopt;
+        return sha_matches(*identity_, read);
+    }
+    bool any = false;
+    for (const SourceByteCheck& check : identity_->bytes) {
+        if (space_key(check.space) != space_key(unit)) continue;
+        any = true;
+        if (!check_matches(check, read_space)) return false;
+    }
+    if (!any) return std::nullopt;
+    return true;
+}
+
+std::vector<SourceMap::VerifySpan> SourceMap::verify_spans() const
+{
+    std::vector<VerifySpan> out;
+    if (!has_identity()) return out;
+    const FetchSource cpu = MemSpace::cpu();
+    for (const SourceByteCheck& check : identity_->bytes) {
+        if (check.bytes.empty()) continue;
+        out.push_back({check.space, check.lo,
+                       std::min<uint32_t>(check.lo + static_cast<uint32_t>(check.bytes.size()),
+                                          0x10000u),
+                       check.space});
+    }
+    if (!identity_->sha256.empty()) {
+        for (const Range& r : ranges_) {
+            if (r.hi == r.lo) continue;
+            out.push_back({key_space(r.space_key), static_cast<uint16_t>(r.lo), r.hi, cpu});
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const VerifySpan& a, const VerifySpan& b) {
+        return std::make_tuple(space_key(a.unit), space_key(a.space), a.lo) <
+               std::make_tuple(space_key(b.unit), space_key(b.space), b.lo);
+    });
+    std::vector<VerifySpan> merged;
+    for (const VerifySpan& v : out) {
+        if (!merged.empty() && space_key(merged.back().unit) == space_key(v.unit) &&
+            space_key(merged.back().space) == space_key(v.space) &&
+            v.lo <= merged.back().hi_excl) {
+            merged.back().hi_excl = std::max(merged.back().hi_excl, v.hi_excl);
+        } else {
+            merged.push_back(v);
+        }
+    }
+    return merged;
 }
 
 void SourceMap::clear()
@@ -228,5 +314,6 @@ void SourceMap::clear()
     aliases_.clear();
     files_.clear();
     loaded_file_.clear();
+    format_ = "SLD";
     identity_.reset();
 }

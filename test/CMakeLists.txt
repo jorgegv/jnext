@@ -1171,6 +1171,19 @@ target_compile_definitions(source_map_test PRIVATE
 target_compile_definitions(source_map_test PRIVATE
     JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME source_map_tests COMMAND source_map_test)
+
+# GH #344 — the z88dk -debug map adapter (pure): the committed z88dk fixtures,
+# and nodebug.map (a map with no line records).
+add_executable(z88dk_map_test debug/z88dk_map_test.cpp)
+target_link_libraries(z88dk_map_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(z88dk_map_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(z88dk_map_test PRIVATE
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk"
+    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
+add_test(NAME z88dk_map_tests COMMAND z88dk_map_test)
 add_executable(source_debug_test debug/source_debug_test.cpp)
 target_link_libraries(source_debug_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
@@ -1178,8 +1191,11 @@ target_link_libraries(source_debug_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(source_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # SRCDBG-SYM-* (GH #375) load the committed sjasmplus SLD fixtures.
+# SRCDBG-Z88-* (GH #344) load the committed z88dk fixtures and nodebug.map.
 target_compile_definitions(source_debug_test PRIVATE
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk"
+    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
 add_test(NAME source_debug_tests COMMAND source_debug_test)
 # The rows whose sidecar fixtures are POSIX file types (a socket, a symlink,
 # a FIFO): Windows has none of them, so they live apart (GH #214).
@@ -1958,9 +1974,11 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
         Qt${JNEXT_QT_MAJOR}::Test)
     target_include_directories(debugger_source_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    # QSYM-13 (GH #375) loads the committed sjasmplus SLD fixture.
+    # QSYM-13 (GH #375) loads the committed sjasmplus SLD fixture; QSRC-62..64
+    # (GH #344) the committed z88dk ones.
     target_compile_definitions(debugger_source_panel_test PRIVATE
-        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
+        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+        JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
     add_test(NAME debugger_source_panel_tests COMMAND debugger_source_panel_test)
 
     # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered

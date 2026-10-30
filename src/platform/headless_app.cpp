@@ -10,6 +10,7 @@
 #include "input/keyboard.h"
 #include "debug/inspect.h"
 #include "debug/debugger.h"
+#include "debug/source_file.h"   // GH #344: program_loads_later
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -641,10 +642,38 @@ void HeadlessApp::run() {
                 const auto sidecars = debugger_->load_program_sidecars(load_file_);
                 if (!sidecars.problem.empty())
                     Log::platform()->warn("--load: {}", sidecars.problem);
+                // --source-map: attached once, as the user's map, on top of them.
+                if (!config_.source_map_file.empty()) {
+                    const auto sm = emulator_attach_cli_source_map(
+                        *debugger_, config_.source_map_file,
+                        program_loads_later(load_file_));
+                    if (sm.ok) {
+                        Log::platform()->info("{}", sm.line);
+                        source_map_watch_ = sm.pending;
+                    } else {
+                        Log::platform()->error("{}", sm.line);
+                        exit_code_ = 1;
+                    }
+                }
             }
+            config_.source_map_file.clear();
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {
             --load_countdown_;
+        }
+
+        // A --source-map still waiting for its tape program: dropped by a mismatch exits 1.
+        if (source_map_watch_) {
+            std::string why;
+            switch (emulator_poll_cli_source_map(*debugger_, &why)) {
+                case CliSourceMapWatch::Waiting: break;
+                case CliSourceMapWatch::Done: source_map_watch_ = false; break;
+                case CliSourceMapWatch::Failed:
+                    Log::platform()->error("--source-map: dropped: {}", why);
+                    exit_code_ = 1;
+                    source_map_watch_ = false;
+                    break;
+            }
         }
 
         // --rzx-record, once the load/inject above is in the machine.

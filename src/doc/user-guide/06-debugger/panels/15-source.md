@@ -4,7 +4,7 @@ The source line the CPU is running, read from the program's source map
 ([Source-level debugging](../functions/14-source-level-debugging.md)).
 
 At the top, the source steps — **Into**, **Over**, **Out**, **Back** and
-**Reverse** — and **Load SLD...** / **Load Memory.txt...** to load a source map
+**Reverse** — and **Load Source Map...** / **Load Memory.txt...** to load a source map (an SLD or a z88dk map)
 or NextBuild symbols by hand. The steps are available while the machine is
 paused and a source map is loaded; **Back** and **Reverse** also need the trace
 log and rewind. The same steps and loads are also in **Debug ▸ Source**.
@@ -14,6 +14,11 @@ Under them, a line naming the position — `main.bas:120  $8A3C  page 2E`, or
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.
+
+A tape program's map is attached before the program has loaded, and the tab adds
+*Source map not verified yet: it is checked when the program first runs its code*
+under the position line until it has; if the program then does not match, the map
+is dropped and the tab says why.
 
 While the machine runs the tab says **Running**; the next pause shows the line
 again. While it is paused you can scroll the file: the view goes back to the

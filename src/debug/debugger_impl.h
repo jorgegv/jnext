@@ -103,12 +103,54 @@ struct Debugger::Impl {
     bool        pause_verify_user    = false;
     uint64_t    pause_verify_clock   = 0;
 
+    /// GH #344 stage 3 - an identity check still to be made, for a map attached before
+    /// its program is in memory (a tape's). The map is judged space by space (its
+    /// UNITS, `SourceMap::verify_spans()`): each unit the first time the CPU is about to
+    /// execute inside one of its spans (`DebugState`'s verify window, `verify_hook()`),
+    /// the window staying armed for the units not run yet. The hook only records the
+    /// verdict; `recheck()` applies it (design 6.5), so a reader never sees a map
+    /// that has been judged wrong.
+    ///
+    /// A check owns a COPY of the map it judges (the store may be replaced under it) and
+    /// says which stores answer for the verdict: the live source store (`guards_sources`,
+    /// the user's or a sidecar's) and/or the sidecar symbols that came with the map
+    /// (`guards_symbols`, so a sidecar's symbols go with a map that is another build's
+    /// even when the user's source map is the one kept). At most one per owner.
+    struct DeferredCheck {
+        std::shared_ptr<const SourceMap>      map;
+        std::vector<SourceMap::VerifySpan>    spans;    ///< of the units not judged yet
+        std::vector<FetchSource>              units;    ///< not judged yet
+        std::vector<FetchSource>              judged;   ///< matched since the last report
+        bool user           = false;   ///< the user's source map (else a program's sidecar)
+        bool guards_sources = false;
+        bool guards_symbols = false;
+        bool mismatch       = false;   ///< a unit did not match: drop on the next recheck()
+    };
+    std::vector<DeferredCheck> checks;
+    bool verify_due = false;           ///< the hook judged a unit since recheck() last ran
+    void add_check(const SourceMap& map, bool user, bool sources, bool symbols);
+    /// The live source store was replaced or cleared: no check answers for it any more.
+    void drop_source_guards();
+    /// A program's sidecars were replaced or dropped: so are their checks.
+    void drop_sidecar_checks();
+    /// Arm `DebugState`'s verify window over the units still to judge, or disarm it.
+    void sync_verify_window();
+    /// The window's hook (hot loop, inside guest execution, never pauses).
+    void verify_hook(uint16_t pc);
+    /// Apply the verdicts the hook recorded (keep, log, or drop).
+    void apply_deferred();
+    /// A live source map whose identity is still to be judged.
+    bool sources_pending() const;
+
     /// The attachment of one generation. At most `ATTACH_CACHE_MAX` are kept.
     struct Attachment {
         uint64_t                         generation = 0;
         std::shared_ptr<const SourceMap>   sources;   ///< null: none
         std::shared_ptr<const SymbolTable> symbols;   ///< null: none
         std::string                      source_reason;
+        /// The sidecar checks still to make (GH #344 stage 3), per unit: the state
+        /// a rewind into this generation finds.
+        std::vector<DeferredCheck>       checks;
     };
     static constexpr size_t ATTACH_CACHE_MAX = 4;
     std::deque<Attachment> attach_cache;
@@ -133,6 +175,15 @@ struct Debugger::Impl {
     }
     /// Drop the stores a program's sidecars filled, never the user's.
     void drop_sidecars(const std::string& why);
+    /// A source map's identity against the machine as it is now: the one place
+    /// that builds BOTH readers, so a z88dk byte check and an SLD hash are judged
+    /// the same way at the hand load, the sidecar attach and every landing. The
+    /// logical reader is `Mmu::peek`; the space reader goes through `Debugger::peek`
+    /// (a `Page` is read whatever the MMU maps over it; any other space is
+    /// unreadable, so a byte check in one fails).
+    std::optional<bool> verify_identity(const SourceMap& map) const;
+    /// One unit of `map`'s identity (see `DeferredCheck`), through the same two readers.
+    std::optional<bool> verify_identity_unit(const SourceMap& map, FetchSource unit) const;
     /// The machine this backend describes was reset or replaced: both the
     /// hook `DebugState` calls and the re-application after a cold boot
     /// end here. Reconciles the stop evidence and marks the landing.

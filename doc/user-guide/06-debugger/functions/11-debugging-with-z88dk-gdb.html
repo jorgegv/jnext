@@ -3732,7 +3732,9 @@ line:</p>
 <pre><code class="language-console">$ zcc +zxn -vn -startup=31 -clib=sdcc_ix -SO3 mygame.c -o mygame \
       -subtype=nex -create-app -m
 </code></pre>
-<p>That writes <code>mygame.map</code> next to <code>mygame.nex</code>.</p>
+<p>That writes <code>mygame.map</code> next to <code>mygame.nex</code>. (With <code>-debug</code> as well, JNEXT's own
+Source tab steps through the C source too: see
+<a href="14-source-level-debugging.html#debugging-z88dk-c-programs">Debugging z88dk C programs</a>.)</p>
 <h2 id="start-jnext-then-connect">Start JNEXT, then connect<a class="headerlink" href="#start-jnext-then-connect" title="Permanent link">&para;</a></h2>
 <p>Give JNEXT a TCP port:</p>
 <pre><code class="language-console">$ jnext --gdb-port 3333 --load mygame.nex

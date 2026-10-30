@@ -47,13 +47,17 @@ public:
     /// The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or
     /// `__CDBINFO__`) are skipped entirely: they are not symbols, and would
     /// otherwise name the function labels' addresses (GH #352).
-    /// Returns the number of "; addr" symbols loaded, or -1 on error.
-    int load_z88dk_map(const std::string& path);
+    /// Returns the number of "; addr" symbols loaded, or -1 on error. A file that
+    /// is not a regular file or is over the size cap is refused before it is
+    /// opened, the table untouched, and `why`, when given, says so; a file that
+    /// simply cannot be opened leaves `why` empty.
+    int load_z88dk_map(const std::string& path, std::string* why = nullptr);
 
     /// Load symbols from a simple map file (SYMBOL = $ADDR format).
     /// Lines starting with ';' are comments. No metadata filtering.
-    /// Returns number of symbols loaded, or -1 on error.
-    int load_simple_map(const std::string& path);
+    /// Returns number of symbols loaded, or -1 on error; `why` as for
+    /// `load_z88dk_map()`.
+    int load_simple_map(const std::string& path, std::string* why = nullptr);
 
     /// Load symbols from a NextBuild / Boriel ZX Basic `Memory.txt` (lines of
     /// the form `8000: ._Main`, hexadecimal address then label). The label is

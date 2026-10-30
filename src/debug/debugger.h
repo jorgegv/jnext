@@ -938,7 +938,9 @@ public:
     /// dialect: z88dk, simple, NextBuild `Memory.txt`, or sjasmplus `--sym` /
     /// `--exp` (GH #390); `Z88dkOrSjasmplus`, which `--map` uses, tells those
     /// two by the file's first line. Returns the number of symbols loaded. A
-    /// refused NextBuild file sets `why` to the reason.
+    /// refused z88dk, simple or NextBuild file (not a regular file, over the
+    /// size cap) sets `why` to the reason; a file that simply cannot be opened
+    /// leaves it empty.
     Expected<int> load_map(const std::string& path, MapFormat format,
                            std::string* why = nullptr);
 
@@ -974,18 +976,38 @@ public:
         /// The map's binary identity checked against memory: nullopt when the
         /// map carries none, else whether it matched.
         std::optional<bool> identity;
+        /// What to append to a report of the attach, for a frontend that logs one:
+        /// " (program identity verified)", or for a z88dk map the way it was not
+        /// (" (program identity not verified: no section binaries beside it)", or
+        /// verified with some code ranges unchecked); empty for an SLD with none.
+        std::string identity_note;
         /// SLD labels put in the symbol table; 0 none in the file; -1 refused, or
         /// the symbols you loaded (Load MAP, Load Memory.txt, --map) kept.
         int labels = -1;
+        /// Attached, its identity not yet judged: it was loaded with
+        /// `verify_at_first_execution` and carries one (see `load_source_map`).
+        bool pending = false;
     };
 
-    /// CAP-SRC — load an sjasmplus SLD file, replacing the current map only on
-    /// success. Its labels replace the symbol table unless that holds symbols the
-    /// user loaded (a MAP, a Memory.txt); a file with no labels clears only an
+    /// CAP-SRC - load a source map, an sjasmplus SLD file or a z88dk `-debug` map
+    /// (told by its first line), replacing the current map only on success. A
+    /// z88dk map fills the source half only (its symbols stay with Load MAP and
+    /// `--map`) and is refused when it has no line records. An SLD's labels
+    /// replace the symbol table unless that holds symbols the user loaded (a MAP, a Memory.txt); a file with no labels clears only an
     /// earlier SLD's. A map that carries a binary identity which no longer
     /// matches memory is refused unless `accept_identity_mismatch` (a program may have
     /// legitimately changed variables inside its own image since it loaded).
-    SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch);
+    ///
+    /// GH #344 stage 3 - `verify_at_first_execution` is for a program that is not in
+    /// memory yet (a tape): a map that carries an identity attaches at once, PENDING,
+    /// and `accept_identity_mismatch` is not consulted. Each memory space the identity
+    /// covers (main memory for an SLD's hash, each page a z88dk section binary lies
+    /// in) is judged the first time the CPU is about to execute inside it; the check
+    /// stays armed for the spaces not run yet. A space that does not match drops the
+    /// map (`source_map_status()` is then `None`, with the reason, and the error is
+    /// logged). A map with no identity attaches unverified, not pending.
+    SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch,
+                                  bool verify_at_first_execution = false);
 
     /// CAP-SRC — forget the source map.
     Result clear_source_map();
@@ -1006,6 +1028,9 @@ public:
         bool by_user = false;      ///< loaded by hand (only that one can go Stale)
         std::string file;          ///< Attached / Stale: the map's file
         std::string reason;        ///< None: the last refusal or drop; Stale: why
+        /// Attached, its identity is judged the first time the CPU runs the code it
+        /// describes, space by space (a tape program's map). `state` stays `Attached`.
+        bool pending = false;
     };
     SourceMapStatus source_map_status() const;
 
@@ -1030,11 +1055,16 @@ public:
     MemSpace source_page(uint16_t addr) const;
 
     /// CAP-SRC — attach the debug sidecars of a program that was just loaded:
-    /// `<stem>.Memory.txt` (or `Memory.txt`) beside a `.nex` for symbols, and
-    /// `<stem>.sld` / `<stem>.sld.txt` for the source map — except beside a
-    /// tape program (`.tap`, `.tzx`, `.wav`), which is not in memory when
-    /// its load call returns: its map must be loaded by hand once it has
-    /// loaded. The sidecars belong to that load, a LOAD GENERATION this call
+    /// `<stem>.Memory.txt` (or `Memory.txt`) beside a `.nex` for symbols,
+    /// `<stem>.sld` / `<stem>.sld.txt` for the source map, and `<stem>.map` (a
+    /// z88dk map, beside a `.nex`, `.tap` or `.sna`) for both: its symbols join
+    /// the program's last, and only when no Memory.txt exists; its source lines
+    /// are used only when no SLD sidecar exists; a `.map` with neither is not a
+    /// z88dk map and is ignored. A tape program (`.tap`, `.tzx`, `.wav`) is not in
+    /// memory when its load call returns, so a source map that carries an identity
+    /// attaches PENDING (`SidecarLoad::sources_pending`): each memory space it
+    /// covers is judged the first time the CPU runs inside it, a mismatch drops the
+    /// map and the symbols that came with it. The sidecars belong to that load, a LOAD GENERATION this call
     /// opens (design §6.5): a reset, a cold boot, or a state restored from
     /// outside the rewind ring (a snapshot, a bookmark, a remote client's, an
     /// RZX start) keeps them only if the source map's binary identity matches
@@ -1057,6 +1087,9 @@ public:
         /// A Memory.txt was found and could not be read (the previous
         /// program's sidecar symbols are cleared all the same).
         bool symbols_unreadable = false;
+        /// The source map attached (`sources` >= 0) and its identity is still to be
+        /// judged: a tape program's map that carries one.
+        bool sources_pending = false;
         /// What was found and refused, in one line for a frontend to show:
         /// "NextBuild symbols 'p.Memory.txt' rejected: <reason>" and/or
         /// "source map 'p.sld' rejected: <reason>" (the file is named, not the

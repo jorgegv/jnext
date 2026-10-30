@@ -301,6 +301,7 @@ int main(int argc, char* argv[]) {
     std::vector<std::string>              script_files;   // GH #26 WP4
     std::vector<std::pair<uint32_t, int>> script_keys;
     std::string                           map_file;
+    std::string                           source_map_file;
     std::string                           record_script_file;   // GH #26 WP6
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
@@ -656,6 +657,9 @@ int main(int argc, char* argv[]) {
             }
             case cli::OptId::Map:
                 map_file = v[0];
+                break;
+            case cli::OptId::SourceMap:
+                source_map_file = v[0];
                 break;
             case cli::OptId::RecordScript:
                 record_script_file = v[0];
@@ -1261,6 +1265,8 @@ int main(int argc, char* argv[]) {
               "--delayed-pok-frames N FILE" },
             { pok_frames_count > 0,         "--delayed-pok-frames",        pok_trainers_count > 0,
               "--pok-trainers LIST" },
+            { !source_map_file.empty(),     "--source-map",                !load_file.empty(),
+              "--load FILE" },
         };
         for (const Needs& n : needs) {
             if (n.given && !n.base) {
@@ -1735,6 +1741,7 @@ int main(int argc, char* argv[]) {
         cfg.script_files = script_files;   // GH #26 WP4
         cfg.script_keys  = script_keys;
         cfg.map_file     = map_file;
+        cfg.source_map_file = source_map_file;
         cfg.record_script_file = record_script_file;   // GH #26 WP6
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;

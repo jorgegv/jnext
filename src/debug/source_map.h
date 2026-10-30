@@ -48,12 +48,23 @@ struct SourceResolution {
                          // the map but no start; empty otherwise
 };
 
+/// `bytes` as they must read from `space` at the 16-bit logical addresses
+/// `lo`, `lo + 1`, ... (a z88dk section binary, design 9.7).
+struct SourceByteCheck {
+    jnext::dbg::FetchSource space;
+    uint16_t lo = 0;
+    std::vector<uint8_t> bytes;
+};
+
 /// Optional binary identity a source map may carry: the SHA-256 of `size`
-/// bytes of logical memory from `org`, as they were right after the load.
+/// bytes of logical memory from `org`, as they were right after the load
+/// (SLD), and/or bytes of named memory spaces (z88dk). Present when `sha256`
+/// or `bytes` is not empty.
 struct SourceProgramIdentity {
     std::string sha256;
     uint16_t org = 0;
     uint32_t size = 0;
+    std::vector<SourceByteCheck> bytes;
 };
 
 /// Compiler-neutral source ranges indexed by the memory space that supplied
@@ -64,10 +75,13 @@ struct SourceProgramIdentity {
 class SourceMap {
 public:
     /// `ranges` in emission order (the tie-break between equal-length ranges).
+    /// `format` names the file format the map came from, for messages
+    /// ("SLD", "z88dk").
     void replace(std::vector<SourceRange> ranges,
                  std::vector<SourceAlias> aliases,
                  std::optional<SourceProgramIdentity> identity,
-                 std::string loaded_file);
+                 std::string loaded_file,
+                 std::string format = "SLD");
 
     /// The primary location of the ranges containing `address` in `space`: the
     /// shortest, on a tie the later emitted. Null when none. No allocation.
@@ -83,10 +97,42 @@ public:
     /// entries: a range that continues another of the same line is not one.
     SourceResolution resolve(std::string_view expression) const;
 
-    /// Verify optional identity metadata against live logical memory: nullopt
-    /// when the map carries none, else whether the bytes still match.
+    /// One byte of a memory space at a 16-bit logical address; nullopt when the
+    /// space cannot be read.
+    using SpaceReader = std::function<std::optional<uint8_t>(jnext::dbg::FetchSource, uint16_t)>;
+
+    /// Verify optional identity metadata against live memory: nullopt when the
+    /// map carries none, else whether it all still matches. The SHA-256 reads
+    /// logical memory through `read`; each byte check reads its own space through
+    /// `read_space`, and a missing reader, an unreadable byte or a different
+    /// one fails.
     std::optional<bool> verify_program(
-        const std::function<uint8_t(uint16_t)>& read) const;
+        const std::function<uint8_t(uint16_t)>& read,
+        const SpaceReader& read_space = {}) const;
+
+    /// Whether the map carries a binary identity (a SHA-256 or byte checks).
+    bool has_identity() const;
+
+    /// GH #344 stage 3 - the memory a tape program's map is judged against, split into
+    /// the UNITS the identity is verified in: each memory space a z88dk byte check lies
+    /// in, and, for an SLD's SHA-256 (which hashes logical memory as one), the single
+    /// unit `MemSpace::cpu()`. A span is the code the CPU is about to run: `[lo,
+    /// hi_excl)` of `space` (adjacent or overlapping spans of one unit and space
+    /// merged), the trigger for verifying `unit`. Empty when the map has no identity.
+    struct VerifySpan {
+        jnext::dbg::FetchSource space;
+        uint16_t lo = 0;
+        uint32_t hi_excl = 0;
+        jnext::dbg::FetchSource unit;
+    };
+    std::vector<VerifySpan> verify_spans() const;
+
+    /// The identity of ONE unit (see `verify_spans()`) against live memory: the SHA-256
+    /// for `MemSpace::cpu()`, the byte checks of that space otherwise. nullopt when the
+    /// map has nothing to check in it.
+    std::optional<bool> verify_unit(jnext::dbg::FetchSource unit,
+                                    const std::function<uint8_t(uint16_t)>& read,
+                                    const SpaceReader& read_space) const;
 
     /// Same file, line and column (one statement can emit several ranges).
     static bool same_position(const SourceLocation& a, const SourceLocation& b) {
@@ -97,6 +143,8 @@ public:
     bool empty() const { return ranges_.empty(); }
     size_t size() const { return ranges_.size(); }   // ranges, zero-width included
     const std::string& loaded_file() const { return loaded_file_; }
+    /// The format the contents came from ("SLD", "z88dk").
+    const std::string& format() const { return format_; }
 
 private:
     struct Range {
@@ -123,5 +171,6 @@ private:
     std::map<FileLine, size_t> aliases_;
     std::set<std::string> files_;
     std::string loaded_file_;
+    std::string format_ = "SLD";
     std::optional<SourceProgramIdentity> identity_;
 };

@@ -276,9 +276,9 @@ scripts) sees the same source map and symbols.
 | `prog.sld` `L` records | SLD labels | `SymbolTable` | E23-23 (#375) |
 | `Memory.txt` | NextBuild symbols | `SymbolTable` | done |
 | `prog.map` (`-m`) | z88dk map symbols | `SymbolTable` | done (#352) |
-| `prog.map` (`-m -debug`) | z88dk debug map | `SourceMap`, `SymbolTable` | E23-13 (#344) |
+| `prog.map` (`-m -debug`) | z88dk debug map | `SourceMap`, `SymbolTable` | done (E23-13 (#344)) |
 | `*.lis` and `prog.map` | z88dk listings | `SourceMap` | E23-17 (#348) |
-| `prog_<GROUP>.bin` | program identity | `SourceMap` | E23-13 (#344) |
+| `prog_<GROUP>.bin` | program identity | `SourceMap` | done (E23-13 (#344)) |
 | `--sym` / `--exp` files | EQU symbols | `SymbolTable` | #390 |
 | `.cdb` / `.adb` | CDB | `SourceMap` | E23-20 (#350), if the files exist |
 | project file | annotations reader and writer | user annotations | E23-24 (#387) |
@@ -344,7 +344,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
-| z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
+| z88dk | DONE (E23-13 (#344), stages 1 to 3): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs attach at once and are judged per space where the CPU first runs them (6.2, stage 3) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | DONE (E23-23 (#375) stages 1 and 2): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages: stage 3 | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
@@ -629,6 +629,29 @@ fps; the host was loaded throughout (1-min load 7 to 11 on 12 CPUs), so the spre
 No consistent difference in either direction beyond the noise; a quiet-host `make bench` is still the
 arbiter.
 
+**The verify window (E23-13 (#344) stage 3, 6.2).** `DebugState::verify_hold_` is one more `armed()` term,
+folded into `refresh_gates_()` when a window is set or cleared (never per instruction), and one test in the
+armed block, `verify_window_hit(pc)`: a bool and two compares, before the breakpoint tests. With no client
+and no tape map the machine is unarmed and nothing runs; a client already armed it, and then the cost is
+that bool. A headless run with a map pending pays the armed block's tests only from the tape load call to
+the program's first instruction in its code, then nothing. Measured on the non-PGO build, base (stage 2's
+tip e17a21b79) against branch, on a shared host (two qemu guests ran throughout, 1-min load 5 to 13 on 12
+CPUs): `make bench` was VOID for four of five workloads on spread (16% to 77% between runs of one binary),
+so the figures are the user-space instruction counts of `perf stat -e instructions:u`, which load does not
+move, pinned to core 0, `--headless --benchmark`:
+
+| workload | base | branch |
+|---|---|---|
+| `48k` 600 frames | 14,005,972,689 | 14,001,665,685 (-0.03%) |
+| `next` 400 frames | 25,572,238,574 | 25,567,440,750 (-0.02%) |
+
+A pending-case figure, for information: `bifrost.tap` with a map beside it that arms a window (dropped
+by its first mismatch about 130 frames in), 48K, 600 frames: 14,198,198,778 instructions against
+14,157,419,521 with no map (+0.29%, window armed for the first part of the run only). An interleaved
+throughput A/B (9 runs each) gave best-of-9 differences of -1.9% to +5.0% tstates/s in both directions on
+the four unarmed workloads, which is the noise of that host; the medians swung up to 25% between two runs of
+the same code.
+
 ## 5. The source map and the backend API
 
 ### 5.1 The store (D2)
@@ -664,14 +687,14 @@ frames name the code's `FetchSource` (E23-08, section 4.3).
 
 | Verb | Meaning | Changes in |
 |---|---|---|
-| `load_source_map(path, accept_identity_mismatch)` | load a source map by hand; refused on a parse error, or on an identity mismatch unless accepted; the path is stored absolute | accepts `.map` (E23-13 (#344)) |
+| `load_source_map(path, accept_identity_mismatch, verify_at_first_execution = false)` | load a source map by hand; refused on a parse error, or on an identity mismatch unless accepted; the path is stored absolute | DONE (E23-13 (#344)): the format is told by content, a z88dk map fills the source half only; the third parameter (stage 3, a tape program) attaches a map with an identity pending, judged per space where the CPU first runs it (6.2); `SourceMapStatus::pending`, `SidecarLoad::sources_pending` |
 | `clear_source_map()`, `source_map()` | the store | |
 | `source_location(addr)`, `source_location()` | the primary position of `addr` or of the PC, by pointer into the store (done, E23-06 (#338)); every location there: `source_map().lookup_all()` | |
 | `source_page(addr)`, `effective_page(addr)` | the `FetchSource` that supplies the M1 at `addr` (done, E23-07); the MMU's page | `effective_page` stays, as the MMU's page for the legacy qualifier |
-| `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | `<stem>.map` (E23-13); lifetime (E23-10 (#342)) |
+| `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | DONE: `<stem>.map` (E23-13 (#344)); lifetime (E23-10 (#342)) |
 | `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (done, E23-06); recorded identity (done, E23-08) |
 | `load_map(path, MapFormat::NextBuild)` | `Memory.txt` by hand (CAP-SYM gains a format) | |
-| `--source-map FILE` (command line) | a source map at startup | new (OD-15, E23-13) |
+| `--source-map FILE` (command line) | a source map, attached right after the first `--load` | DONE (OD-15, E23-13 (#344)); requires `--load`, a mismatch exits 1 |
 
 `debugger.h` is a frozen public header: the sub-issue that needs an addition makes it, under
 the owner decisions recorded on #23 and #378.
@@ -684,7 +707,9 @@ After a successful program load every frontend calls `load_program_sidecars(path
 from their load tick, headless from `--load`, and `Debugger::load()` for a remote client). It
 looks for `<stem>.Memory.txt`, else `Memory.txt`, beside a `.nex`; for `<stem>.sld`, else
 `<stem>.sld.txt`; and, with E23-13 (#344) (OD-5), for `<stem>.map` beside a `.nex`, `.tap` or
-`.sna`.
+`.sna`. As built (E23-13): `<stem>.map` fills the symbols last (not when a `Memory.txt`
+exists) and the source lines only when no SLD sidecar exists; a map with neither is ignored; a map
+whose section binaries do not match the program is rejected whole.
 
 Only a regular file under the 64 MiB cap is a sidecar (`source_file_problem()`); a FIFO would
 block the load. Today `load_sld()` and `load_nextbuild_memory()` call it, and E23-13 applies it
@@ -696,17 +721,42 @@ headless and SDL.
 
 ### 6.2 Tapes
 
-`.tap`, `.tzx` and `.wav` get no automatic source map. The machine loads them over the frames
-after the load call returns, and neither the tape loader nor the backend has a point at which
-"the program has loaded" (a program may also run, and change its own image, before any check
-could match). This holds for every source format, the source half of `<stem>.map` included; its
-symbol half attaches, and so do an SLD's labels (E23-23 stage 2). An SLD's labels attach with its
-sidecar unit: not when the file is refused as a whole or its identity does not match, and not
-when the user's source map is kept (the SLD is then not loaded at all); they do attach when only
-its source records are refused. A tape's map is loaded by hand once the program is in memory. **Open,
-settled in E23-23 (#375):** once z88dk symbols are paged by the rules of 9.4, rule 4 (the MMU
-mapping with the program in memory) has no load point for a tape program either, so E23-23
-states when the symbols of a tape's `<stem>.map` take their spaces.
+`.tap`, `.tzx` and `.wav` programs load over the frames after the load call returns, so there
+is no point at which the program is in memory when the sidecars are attached. Owner decision
+2026-10-29 (E23-13 (#344) stage 3): a source map attaches to a tape program **at once**, and
+its identity is judged **per memory space, the first time the CPU is about to execute inside
+that space**. This holds for the three ways a tape gets a map: `<stem>.sld`, the source half
+of `<stem>.map`, and `--source-map` with a tape `--load`. (The hand load is unchanged: it
+checks at once, with the program already in memory.) Symbols and an SLD's labels attach with
+their map, as ever.
+
+- **Attach.** A map that carries an identity (an SLD hash, z88dk byte checks) is attached
+  PENDING: it works at once (the Source tab, `file:line` breakpoints before the tape has
+  loaded), `SourceMapStatus::pending` is set, the Source tab says it is not verified yet, and
+  the log line ends `(identity check pending: the program loads from tape)`. A map with no
+  identity attaches unverified and nothing is waited for (OD-6). Rule-4 sections (9.4) bind at
+  the attach, to the page the MMU maps at the load call: that is where the ROM loader puts the
+  bytes (48K fixed; Next MMU2-5 = 10, 11, 4, 5). A program that pages its code elsewhere
+  fails its identity and is dropped, with the reason.
+- **Units.** The identity is split into units: each memory space a z88dk byte check lies in,
+  and, for an SLD's SHA-256 (which hashes logical memory as one), a single unit. The spans of a
+  unit are the code the check covers. A unit is judged the first time the CPU is about to
+  execute an instruction inside one of its spans **in that span's own space**
+  (`predict_fetch(pc)`), so a bank the tape loads after the program has started is judged when it
+  first runs, not before, and a page that merely shares the logical address does not trigger it.
+- **Verdict.** The unit is judged with the bytes exactly as they are about to run. A match
+  clears it; when the last unit matches the log says `Verified ...`. A mismatch in ANY space
+  drops the map with an error (`Rejected ... does not match its binary identity`): a sidecar
+  with the symbols that came with it, the user's map to `None` (not `Stale`) with the reason
+  kept. A sidecar z88dk map's symbols answer to the map's identity even when the user's source map is the one
+  kept. With `--source-map` the run exits 1.
+- **Why not one check.** A tape whose own code loads a further bank after it has started would
+  have the whole identity fail at the first execution, which is the owner's per-space rule.
+- **A reset before the program arrived** drops the pending map: the program will not arrive.
+
+How it runs is 4.7 (the window) and 6.5 (the lifetime). The symbols of a tape's `<stem>.map`
+are still unpaged until E23-23 (#375) states how they take their spaces with no program in
+memory at the load point.
 
 ### 6.3 Ownership
 
@@ -767,6 +817,15 @@ How it is built:
   to, so a detached map does not come back by a rewind within that generation. A failure at
   the landing itself erases nothing: the record belongs to the previous generation, whose
   history a rewind still returns to.
+- **Pending checks (E23-13 (#344) stage 3).** The units of a tape map still to judge
+  (`Impl::DeferredCheck`, 6.2) are part of the attachment: the cache records them
+  (`Attachment::checks`), updated at every unit judged, so a rewind into the generation finds the
+  map with the spaces judged so far and the window re-armed for the rest, and a rewind to before
+  the load clears both. A landing that is not a ring restore judges a pending map WHOLE
+  against the memory now (a match clears it; a mismatch, or a reset before the program arrived,
+  drops it or makes the user's stale, as for any carried map). A user's pending map is carried
+  into the next program's load still pending. The verdict the hook records is applied by
+  `recheck()` before it does anything else.
 - The next-pause check applies to a map **carried** across a landing and verified there, once,
   at the first recheck while paused after the clock moved. It is not set by a fresh attach.
 - Every lifetime transition is announced to the listeners as an Info line, the existing
@@ -942,7 +1001,9 @@ gives its symbols, as v1.1.45 does today.
 
 - SLD: to the next record in the same space, capped at the 8K page end.
 - z88dk map: to the next line start in the same space, or the next `addr` symbol of a different
-  module, or start + 0x400, or the 8K page end, whichever is first. This is DeZog's rule
+  module in that space, or the record's own `__<section>_tail` (the linker's end of the section,
+  when the map has it), or start + 0x400, or the 8K page end, whichever is first. The tail bound
+  is ours; the rest is DeZog's rule
   (`z88dklabelparserv2.ts`, `addCLineDebugInfo`, `MAX_C_LINE_SIZE = 0x400`): library code has
   no lines and must not inherit a module's last C line.
 - `.lis`: exact, from the bytes column.
@@ -963,8 +1024,10 @@ Symbols only, with no page (10.4).
 
 ### 9.4 z88dk `-debug` map (E23-13 (#344))
 
-Input: `prog.map`. One read fills both stores: symbols through `load_z88dk_map`, and ranges from
-`__C_LINE_` and `__ASM_LINE_`. The parser accepts the three location forms of 2.3 (the same
+Input: `prog.map`. One file fills both stores, each its own transaction: symbols through
+`load_z88dk_map`, and ranges from `__C_LINE_` and `__ASM_LINE_` through
+`load_z88dk_source_map()` (`src/debug/z88dk_source_map.*`, rules 1 to 5 in
+`z88dk_section_space()`, `src/debug/z88dk_space.*`). The parser accepts the three location forms of 2.3 (the same
 that DeZog's `z88dkmapfile.ts` accepts). Lines in an empty section are dropped (G2).
 
 **Space derivation**, in this order. The section name comes first, because the meaning of a
@@ -1012,15 +1075,23 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    0 and 1 for $4000-$FFFF, so $8000-$9FFF is `Page{4}`. A map read before the program is in
    memory (`--map`, `--source-map`) takes its rule-4 spaces at the program load, not when it is
    read: `--map` is read when the script host starts, before the `--load` countdown applies
-   the program.
+   the program. The adapter binds a rule-4 record with the `space_of` function its caller
+   gives (the backend passes `source_page()`, the identity lookups compare against), and the
+   space must be a `Page`: an address the MMU maps to ROM refuses the half.
 5. A DivMMC dot command (org $2000), and the `DIV_<n>` and `<KIND>_DIV_<n>` sections of the
    memory maps: `DivMmcRam{bank}` (E23-21 (#351), OD-14). E23-21 establishes how a dot
-   command's sections map to a bank.
+   command's sections map to a bank. Until then a record in such a section refuses the source
+   half (there is no unqualified record, D3), as does a `PAGE_<n>` section with no
+   `__PAGE_<n>_head` and a section number out of range.
 
 **Zero-width lines** (G3). A line whose address equals the next line's start is an alias of
 that line if both are in the same function: sccz80 and 80cc give the function; for sdcc, which
 writes `x`, the test is the same module and no function-entry `addr` symbol of another
-function at that address. Otherwise the line has no code (`main.c:14` in the fixture, the line
+function at that address. "Which writes `x`" is read from the location's form: sdcc's carries a
+TAB before the colon of the line (`main.c::x::10000::11<TAB>:11`), and a function named `x` under
+sccz80 keeps its name. Without a function on either side, a line is not an alias of the owner if
+a `_`-named `addr` symbol of its module sits at that address and is located at a later line of the
+same file (the entry of a function declared after it). Otherwise the line has no code (`main.c:14` in the fixture, the line
 of `int main(void)`, which carries `square`'s scope). Toolchain mis-attributions are reported
 as the map says (G4 on 2.4, master sdcc's `util.h:9`).
 
@@ -1054,7 +1125,16 @@ evidence (commands, z88dk commits, outputs).
 - z88dk: the section binaries `prog_<GROUP>.bin`, compared with memory over every line range
   through `MemSpace` peeks of the range's own space. A bank that is not mapped is still
   checked, and data sections are not compared (a program changes its variables). No binaries
-  means unverified: the map attaches and the log says so (OD-6).
+  means unverified: the map attaches and the log says so (OD-6). As built
+  (`load_z88dk_source_map()`): the binaries are `<map stem>_<GROUP>.bin` for each upper-case
+  group with a `__<GROUP>_head` in the map; a binary covers a range when the range lies in
+  `[head, head + file size)` and the group's own space rule puts both ends of the range in the
+  range's space; each non-data range (a section not starting with `data`, `bss` or `smc`, any
+  case) that a binary covers becomes one byte check `{space, lo, bytes}`, and a range no binary
+  covers is not checked. `SourceMap::verify_program(read, read_space)` reads them through
+  `read_space`. Beside a tape the same bytes are judged later, one memory space at a time
+  (`SourceMap::verify_spans()`, `verify_unit()`: the spans of a space are its byte checks
+  merged), the first time the CPU is about to run inside it (6.2).
 - The `.lis` bytes are a secondary check only: references to other modules are unrelocated in
   a listing (`cd0000`), so they verify only the bytes the listing marks as final.
 
@@ -1211,7 +1291,8 @@ assembles again.
 - Toolchain mis-attributions (G4 on 2.4, master sdcc's `util.h:9`, G7) are shown as the
   toolchain wrote them, with the primary line and the "also" list (OD-7), and documented in the
   user guide.
-- Tapes and programs the guest loads for itself (6.2, 6.6).
+- Programs the guest loads for itself (6.6). A tape's map is judged where the program first runs
+  (6.2); a program that rewrites its own code before running it fails its identity.
 
 ## 13. Tests
 
@@ -1262,7 +1343,23 @@ call, `load()` reporting, Back across a landing, purity of the check), RB-GEN-01
 (`rewind_test`), TRACE-SEQ-01 (`debugger_backend_test`) and QSRC-58 to QSRC-61
 (`debugger_source_panel_test`).
 
-**Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
+E23-13 (#344) stage 2 added SRCDBG-Z88-01 to SRCDBG-Z88-14 and 18 to 32 (`source_debug_test`: the
+sidecar, the hand load, precedence, identity, lifetime, real code), SRCDBG-Z88-15 to 17
+(`source_debug_posix_test`: a FIFO), QSRC-62 to QSRC-64 (`debugger_source_panel_test`), QMAP-07
+(`debugger_verbs_test`) and the functional row `z88dk-source-map-func`.
+
+E23-13 (#344) stage 3 added SRCDBG-TAPE-03 to SRCDBG-TAPE-27 (`source_debug_test`: attach pending
+and the verdict, the space and not the address, inertness and the hold, rewind and reset, an SLD hash,
+`--source-map`, the verdict before a stop, two spaces in either order, a partial state across a rewind,
+the live purity row with its control, who answers for a verdict), QSRC-65 (`debugger_source_panel_test`)
+and the functional row `z88dk-tape-source-func` over the new `v2.4/sccz80-tape` fixture; SRCDBG-TAPE-01
+and SRCDBG-Z88-03 follow the owner's tape decision.
+
+E23-13 (#344) added Z88MAP-01 to Z88MAP-28 (`z88dk_map_test`: the section rules against where
+`appmake` put the bytes in each fixture's `.nex`, extents, zero-width lines, strict refusal,
+identity from the section binaries, the symbol loaders' file-type refusal).
+
+**Planned.** `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
 `z88dk-source-func` (E23-15).
 
 **Oracles.**

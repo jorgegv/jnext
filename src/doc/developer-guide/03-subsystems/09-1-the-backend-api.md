@@ -293,6 +293,10 @@ labels whose key is still free, its names and its name-only values not yet taken
 the first table wins throughout (row SYMPG-12).
 The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or `__CDBINFO__`)
 are dropped by the loader, so they never name an address or resolve by name.
+`load_z88dk_map()` and `load_simple_map()` refuse a file that is not regular or is
+over the size cap before opening it, with the table untouched, and say why
+through their optional `why` argument; a file that merely fails to open leaves it
+empty (rows Z88MAP-27).
 `MapFormat::NextBuild` reads a NextBuild / Boriel ZX Basic `Memory.txt` (`8000: ._Main`): the shown name drops the `.` and the
 compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
 turns an address field's text into an address: hex first (`4000`, `$4000`,
@@ -368,19 +372,72 @@ An SLD may carry a SHA-256 of the program's bytes (`||program.*` comment
 records); `load_source_map(path, accept_mismatch)` checks it against memory and
 stores the path absolute.
 
+The second source adapter is `load_z88dk_source_map()` (`src/debug/z88dk_source_map.*`,
+GH #344), which reads the `__C_LINE_` and `__ASM_LINE_` records of a z88dk
+`-debug` map. The symbols of the same file stay the symbol table's. Its rules
+(design 9.1, 9.4, 9.7) live in two places. `z88dk_section_space()` and
+`parse_z88dk_map_line()` (`src/debug/z88dk_space.*`, std-only) are the one derivation
+of a section's page (`PAGE_n` and `BANK_n` and their siblings name it; any other
+section binds to the RAM page the MMU maps, which the caller supplies as
+`space_of`; a DIV section, a PAGE section with no head or a number out of range is
+unpaged and refused) and the one tokenizer of a map line. The adapter is strict (a
+record it cannot place refuses the half, the reason naming the map line, the
+store untouched) and extends each range to the first of the next line start in
+its space, the next `addr` symbol of another module, the section's
+`__<section>_tail`, start + 0x400 and the 8K page end. Lines sharing an address:
+the highest line owns the range, a lower one of the same module and function is an
+alias (`resolve()` finds it), else it has no code. The program identity is a set of
+byte checks (`SourceProgramIdentity::bytes`): each non-data line range that a
+section binary `<map stem>_<GROUP>.bin` beside the map covers, in the range's own
+space. `SourceMap::verify_program(read, read_space)` reads those through
+`read_space`, never through logical memory; data, bss and smc sections are not
+checked, and no binary means no identity. `SourceMap::format()` ("SLD" or
+"z88dk") is set by `replace()`.
+
+The identity is judged in one place, `Impl::verify_identity(map)`, which builds both
+readers: the logical one over `Mmu::peek()` for an SLD's hash, and the space one over
+`Debugger::peek(Page{n}, ...)` for z88dk byte checks (a page is read whatever the MMU
+maps over it; any other space reads nothing, so a byte check in it fails). The hand
+load, the sidecar attach and every landing (`recheck()`) call it, so a z88dk map is
+re-verified exactly as an SLD is.
+
+`load_source_map(path, accept_mismatch)` tells the format by content, after
+`source_file_problem()` (a FIFO is never read to find out): a first line starting
+`|SLD.data.version|` is an SLD, anything else a z88dk map. A hand z88dk map fills the
+source half only (its symbols stay with `load_map()`), and one with no line records is
+refused ("no source lines in ..."). `SourceMapLoad::identity_note` is the suffix a
+frontend appends to its report of the load: verified, not verified for lack of section
+binaries, or verified for the code the binaries cover (`SourceMapLoadResult::unchecked`
+counts the ranges they do not). `--source-map FILE` (`EmulatorConfig::source_map_file`)
+is this load, made once by each frontend right after the first successful `--load` and
+its sidecars (`emulator_attach_cli_source_map()` in `platform/emulator_boot.h`); a
+refusal logs an error and the run exits 1. `main.cpp` refuses it without `--load`. With a tape
+`--load` the helper passes `deferred` (`program_loads_later()`), the map attaches pending
+(*Tapes*), and the frontend watches it with `emulator_poll_cli_source_map()` once per tick
+(`source_map_watch_` in `HeadlessApp`, `SdlApp` and `QtApp`): a map dropped by the check
+sets exit code 1.
+
 `load_program_sidecars(path)` attaches `<stem>.Memory.txt` (or `Memory.txt`,
-beside a `.nex`) and `<stem>.sld` / `<stem>.sld.txt`, searching with the
+beside a `.nex`), `<stem>.sld` / `<stem>.sld.txt` and `<stem>.map` (a z88dk map, beside
+a `.nex`, `.tap` or `.sna`), searching with the
 non-throwing filesystem calls; only a regular file counts (a FIFO would block the
 load), and one that cannot be read is reported. Both loaders refuse a file that is
 not regular, or is over 64 MiB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
-Open, and `load()` calls it for a remote client; a tape program gets no
-automatic map. The SLD sidecar is parsed once (`load_sld_sidecar()` with a label
+Open, and `load()` calls it for a remote client; a tape program's map attaches at
+once but its identity waits for the program (*Tapes*, below; `program_loads_later()`,
+`debug/source_file.h`, is the one table of such formats). The SLD sidecar is parsed once (`load_sld_sidecar()` with a label
 table) and judged before the symbols: its labels attach when the file is not
 refused as a whole, its identity does not mismatch and the user's source map is not
 kept, also beside a tape and when only its `T` records are refused (an SLD with no
 label is not a symbol source). The sidecar symbol store is assembled in one block, in
 order, first wins: `Memory.txt`, then the SLD's labels (`SymbolTable::merge()`); the
-log has `Loaded N SLD labels from '<file>'`. Labels live in the Sidecar store, so
+log has `Loaded N SLD labels from '<file>'`. The z88dk map is read once for its two
+halves (`SymbolTable::load_z88dk_map()` and `load_z88dk_source_map()`, two
+transactions): its symbols are merged last, and only when no `Memory.txt` exists
+(`Loaded N z88dk symbols from '<file>'`); its source lines are used only when no SLD
+sidecar exists, and a map with neither
+symbols nor line records is ignored without a word. A map whose section binaries do not
+match memory is rejected whole (symbols included), as an SLD is. Labels live in the Sidecar store, so
 the attachment cache and the lifetime rules below treat them like `Memory.txt`.
 `load_source_map()` fills the same table from a hand-loaded SLD
 (`Impl::attach_hand_labels()`, count in `SourceMapLoad::labels`): the labels become
@@ -418,6 +475,42 @@ loads for itself (the NextZXOS browser, `LOAD ""`) is invisible to the backend,
 so its predecessor's sidecars stay until a reset or a load. Back counts a trace
 entry only if it belongs to the current generation (`TraceLog::recorded()` plus
 `(sequence, generation)` markers in `Impl`).
+
+**Tapes (deferred, per-space identity).** A tape's program is not in memory when
+`load_program_sidecars()` returns, so a map that carries an identity (an SLD hash, z88dk
+byte checks) attaches at once and PENDING (`SidecarLoad::sources_pending`,
+`SourceMapStatus::pending`, `load_source_map(path, accept, verify_at_first_execution)` for
+the user's), the attach line ending `(identity check pending: the program loads from
+tape)`. Rule-4 sections bind at the attach, with `predict_fetch()`, because that is where
+the loader puts the bytes. The identity is split into UNITS (`SourceMap::verify_spans()`):
+one per memory space a z88dk byte check lies in, and `MemSpace::cpu()` for an SLD's hash,
+which hashes logical memory as one. `Impl::DeferredCheck` holds a copy of the map, the
+units and spans still to judge, and which stores answer for the verdict: the live source
+store (`guards_sources`, the user's or a sidecar's) and/or the sidecar symbols that came with
+the map (`guards_symbols`, so they go with a map of another build even when the user's
+source map is the one kept). The trigger is `DebugState`'s one-shot VERIFY WINDOW, not an
+`Execute` subscription: `Impl::sync_verify_window()` sets `[min lo, max hi)` over the
+pending spans (`set_verify_window()`), which is an `armed()` contributor of its own
+(`verify_hold_`, in `refresh_gates_()` and `SuspendScope`, like `magic_hold_`). The
+emulator asks `verify_window_hit(pc)` first in `run_frame()`'s armed block, before
+`consume_step_off()`, the legacy breakpoint test and the execute gate, and in
+`step_frame_slot()` for a debugger Step; on a hit `Impl::verify_hook()` (installed beside the
+event hooks, in the constructor and after a cold boot) takes `predict_fetch(pc)`, finds the
+span in that exact space, judges the unit now with `verify_identity_unit()` (through
+`Debugger::peek`, so it reads page 20 while it is unmapped and touches no watchpoint,
+latch or ring) and only RECORDS the verdict; it never pauses and does nothing in
+`replay_mode()`. `Impl::recheck()` applies it first thing (`apply_deferred()`: an
+Info line per space judged, `Verified ...` when the last matches, and a mismatch drops the
+sidecar map with its symbols through `drop_sidecars()`, or the user's map to `None`, not
+`Stale`, with `Rejected ... does not match its binary identity` at error level), so a
+reader, or a stop on the very instruction that triggered it, sees the map already judged. The
+window stays armed for the spaces not run yet. A landing that is not a ring restore
+judges a pending map WHOLE, as it does any carried map (a match clears it, a mismatch or a
+reset before the program arrived drops it); a ring restore brings back the generation's
+`Attachment::checks` (updated at every judged space, so a rewind keeps what was
+verified); a user's pending map is carried into the next program's load and across
+rewinds still pending. With nothing attached pending the window is off, and an unattended
+run is unarmed again (rows SRCDBG-TAPE-*).
 
 `SidecarLoad::problem` is the one-line account of what was found and refused:
 `NextBuild symbols '<file>' rejected: <reason>` and/or `source map '<file>'

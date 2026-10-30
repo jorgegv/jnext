@@ -26,6 +26,14 @@
 #include <QMessageBox>
 #include <QStatusBar>
 
+namespace {
+// The reason a loader gave for refusing a file (empty when it only could not open
+// it), set off from the message above it.
+QString load_failure_reason(const std::string& why) {
+    return why.empty() ? QString() : QStringLiteral("\n\n") + QString::fromStdString(why);
+}
+}  // namespace
+
 DebuggerManager::DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger& dbg,
                                  QObject* parent)
     : QObject(parent)
@@ -555,7 +563,8 @@ void DebuggerManager::on_load_map_z88dk() {
     // (GH #278 WP0): a readable map with no `; addr` symbols loads 0 and is
     // still "MAP Loaded"; a failed read never reports success over the old
     // table.
-    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Z88dk)) {
+    std::string why;
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Z88dk, &why)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
@@ -563,7 +572,7 @@ void DebuggerManager::on_load_map_z88dk() {
         refresh_panels();   // GH #390: the Breakpoints / Call Stack names are computed there
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load MAP file:\n%1").arg(path));
+            QObject::tr("Could not load MAP file:\n%1").arg(path) + load_failure_reason(why));
     }
 }
 
@@ -574,7 +583,8 @@ void DebuggerManager::on_load_map_simple() {
     if (path.isEmpty())
         return;
 
-    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Simple)) {
+    std::string why;
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Simple, &why)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
@@ -582,7 +592,7 @@ void DebuggerManager::on_load_map_simple() {
         refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load MAP file:\n%1").arg(path));
+            QObject::tr("Could not load MAP file:\n%1").arg(path) + load_failure_reason(why));
     }
 }
 
@@ -629,7 +639,8 @@ void DebuggerManager::on_load_nextbuild_memory() {
 void DebuggerManager::on_load_sld() {
     QString path = QFileDialog::getOpenFileName(
         main_window_, QObject::tr("Load Source Map"), QString(),
-        QObject::tr("SLD Source Map (*.sld *.sld.txt);;All Files (*)"));
+        QObject::tr("Source Maps (*.sld *.sld.txt *.map);;SLD Source Map (*.sld *.sld.txt);;"
+                    "z88dk Map (*.map);;All Files (*)"));
     if (path.isEmpty())
         return;
 
@@ -643,8 +654,8 @@ void DebuggerManager::on_load_sld() {
             main_window_, QObject::tr("Source Map Identity Mismatch"),
             QObject::tr("The program in memory no longer matches this source map. "
                         "This can happen when the program stores variables in its "
-                        "binary address range, but it can also mean the SLD belongs "
-                        "to another build.\n\nLoad it anyway?"),
+                        "binary address range, but it can also mean the source map "
+                        "belongs to another build.\n\nLoad it anyway?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes) return;
         r = dbg_.load_source_map(path.toStdString(), /*accept_identity_mismatch=*/true);
@@ -659,7 +670,7 @@ void DebuggerManager::on_load_sld() {
         update_actions();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load SLD source map:\n%1\n\n%2")
+            QObject::tr("Could not load source map:\n%1\n\n%2")
                 .arg(path, QString::fromStdString(r.error)));
     }
 }

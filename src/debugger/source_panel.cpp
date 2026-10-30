@@ -57,8 +57,8 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
 
     auto* loads = new QHBoxLayout();
     loads->setSpacing(4);
-    auto* load_sld = new QPushButton(tr("Load SLD..."), this);
-    load_sld->setToolTip(tr("Load an sjasmplus SLD source map"));
+    auto* load_sld = new QPushButton(tr("Load Source Map..."), this);
+    load_sld->setToolTip(tr("Load a source map: an sjasmplus SLD or a z88dk -debug map"));
     connect(load_sld, &QPushButton::clicked, this, &SourcePanel::load_sld_requested);
     loads->addWidget(load_sld);
     auto* load_symbols = new QPushButton(tr("Load Memory.txt..."), this);
@@ -176,6 +176,12 @@ void SourcePanel::refresh()
         return;
     }
 
+    // GH #344 stage 3 - a tape program's map is attached and works, but its identity is
+    // judged where the program first runs its code: say so until it is.
+    const QString note = status.pending
+        ? tr("\nSource map not verified yet: it is checked when the program first runs its code")
+        : QString();
+
     const uint16_t pc = dbg_->registers().PC;
     const uint8_t page = ram_page_of(dbg_->source_page(pc));
     // Upper-case hex, as the rest of the debugger and the user guide print it.
@@ -185,7 +191,7 @@ void SourcePanel::refresh()
     const SourceLocation* location = dbg_->source_location(pc);
     if (!location) {
         show_message(tr("$%1 (%2): no source mapping; use the disassembly")
-                         .arg(pc_text).arg(where));
+                         .arg(pc_text).arg(where) + note);
         return;
     }
 
@@ -193,7 +199,7 @@ void SourcePanel::refresh()
     if (source_path.isEmpty()) {
         show_message(tr("%1:%2 - source file not found")
                          .arg(QString::fromStdString(location->file))
-                         .arg(location->line));
+                         .arg(location->line) + note);
         return;
     }
     // Reloaded when the file changes on disk, so an edit-and-rebuild cycle
@@ -215,7 +221,7 @@ void SourcePanel::refresh()
                                  .arg(QString::fromStdString(location->file))
                                  .arg(location->line)
                                  .arg(pc_text)
-                                 .arg(where));
+                                 .arg(where) + note);
     const QTextBlock block = editor_->document()->findBlockByNumber(location->line - 1);
     if (!block.isValid()) {
         editor_->setExtraSelections({});

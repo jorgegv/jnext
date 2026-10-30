@@ -2376,7 +2376,7 @@ breakpoint and the magic port.</p>
 <tbody>
 <tr>
 <td><code>armed()</code></td>
-<td><code>clients_attached_ \|\| persistent_ \|\| replay_armed_ \|\| magic_hold_</code></td>
+<td><code>clients_attached_ \|\| persistent_ \|\| replay_armed_ \|\| magic_hold_ \|\| verify_hold_</code></td>
 <td>the per-instruction breakpoint and event tests, the boundary drain</td>
 </tr>
 <tr>
@@ -2396,6 +2396,11 @@ breakpoint and the magic port.</p>
 </tr>
 </tbody>
 </table>
+<p><code>verify_hold_</code> is held while a source map attached to a tape program is waiting for its
+program (<code>set_verify_window()</code>, <a href="09-1-the-backend-api.html">3.9.1</a>): it arms the machine
+only for that, so a headless run with a tape map pays the armed block's tests until the
+program first runs its code, then nothing. <code>SuspendScope</code> saves and clears it like
+<code>magic_hold_</code>.</p>
 <p><a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a> describes where the arm bits
 come from. Unarmed, the default configuration executes one load and one branch
 per instruction, so "the debugger costs nothing when closed" is a claim about a

@@ -47,6 +47,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic bank prefix |
 | v2.4/classic-debug | `-clib=classic -debug` | **fails rc=1** | Z1 |
 | v2.4/sccz80-subdir | `-clib=new -debug -I.`, `game/util.c` | ok | G10 |
+| v2.4/sccz80-tape | `zcc +zx -clib=new -debug -m --list -o prog -create-app` | ok, a `.tap` | GH #344 stage 3 (tape programs) |
 | master/sccz80-debug | `-clib=new -debug` | ok | G4 fixed |
 | master/sdcc-debug | `-clib=sdcc_iy -debug` | ok | sdcc map lines, Z2 |
 | master/80cc-debug | `-clib=new -compiler=80cc -debug` | ok | 80cc map |
@@ -54,8 +55,11 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix |
 | master/classic-debug | `-clib=classic -debug`, `BANK_10` | **fails rc=1** | Z1 |
 
+`sccz80-tape` is the one `+zx` build (a 48K tape: `prog.tap` holds a BASIC loader and one
+CODE block at $8000 that equals `prog_CODE.bin`; link flags without `-subtype=nex`).
+
 Kept per successful build: `prog.map` (trimmed), every user `*.c.lis` / `*.asm.lis`,
-`prog.nex`, every `prog_<GROUP>.bin` (classic: `prog`). Not kept: `prog.lis` (crt0
+`prog.nex` (`prog.tap` for the tape build), every `prog_<GROUP>.bin` (classic: `prog`). Not kept: `prog.lis` (crt0
 listing), `.sym`, `.o`.
 
 ### Not producible (recorded, `build.log` only)

@@ -3776,12 +3776,22 @@ the program. More than 16 KB of ignored bytes also logs a warning.</p>
 <p>The debugger’s source map and symbols attach from beside the
 program: <em>NAME</em><code>.sld</code> (or <em>NAME</em><code>.sld.txt</code>), an sjasmplus source map
 whose labels join the symbols (a label assembled for a page names
-its address only while that page is mapped), beside any program but
-a tape (beside a tape only its labels attach), and
+its address only while that page is mapped), beside any program,
 <em>NAME</em><code>.Memory.txt</code> (or <code>Memory.txt</code>), NextBuild / Boriel ZX Basic
-symbols, beside a <code>.nex</code>. A map given with <strong>--map</strong> or loaded by
-hand is kept over them. An SLD built for another binary, or a file
-over 64 MiB, is refused, with the reason in the log.</p>
+symbols, beside a <code>.nex</code>, and <em>NAME</em><code>.map</code>, a z88dk map (<code>-m</code>),
+beside a <code>.nex</code>, <code>.tap</code> or <code>.sna</code>: its symbols join the others (not
+when a <code>Memory.txt</code> exists), and with <code>-debug</code> also its source
+lines, which attach when there is no SLD. z88dk’s <strong>-create-app</strong>
+also writes the section binaries (<em>NAME</em><code>_CODE.bin</code>, …) that the map
+is checked against; without them it attaches unverified. Beside a
+tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>), whose program is not in memory yet, a
+map that carries a binary identity attaches at once and each memory
+space it covers is checked the first time the program runs its code
+there; a space that does not match drops the map and the symbols
+that came with it, with the reason in the log. A map given with
+<strong>--map</strong> or loaded by hand is kept over them. A map built for
+another binary, or a file over 64 MiB, is refused, with the reason
+in the log.</p>
 </dd>
 <dt><strong>--nex-args</strong> <em>LINE</em></dt>
 <dd>Argument line for a NEX <strong>V1.3</strong> program. <em>LINE</em> is placed, verbatim
@@ -4586,6 +4596,16 @@ writes a <code>.sym</code>, in the map format), so a script can name an address
 as <code>@symbol</code> (an sjasmplus label is <code>@main.loop</code>), and the debugger
 shows the names (the same table <strong>Map &gt; Load MAP</strong> fills). A file
 that cannot be loaded, or holds no symbols, is a startup error.</dd>
+<dt><strong>--source-map</strong> <em>FILE</em></dt>
+<dd>Attach a source map, an sjasmplus SLD or a z88dk <code>-debug</code> <code>.map</code>
+(told apart by its contents), to the program <strong>--load</strong> loads, as if
+loaded by hand with <strong>Debug &gt; Source &gt; Load Source Map…</strong>. A z88dk
+map gives source lines only; its symbols stay with <strong>--map</strong>.
+Requires <strong>--load</strong>. A map whose binary identity does not match the
+program, or that cannot be loaded, is a startup error (exit status
+1). With a tape program (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) the map attaches at
+once and is checked the first time the program runs its code; a
+mismatch then drops it, and the run exits with status 1.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
 for example <code>0x00FF</code>).</dd>

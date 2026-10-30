@@ -11,6 +11,8 @@
 #include "debug/debugger.h"
 #include "debug/debugger_impl.h"
 #include "debug/sld_loader.h"
+#include "debug/source_file.h"
+#include "debug/z88dk_source_map.h"
 
 #include "core/log.h"
 #include "debug/ram_page.h"
@@ -18,16 +20,36 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
 
 namespace jnext {
 namespace dbg {
 
 namespace {
 
-// `read` for `SourceMap::verify_program`: logical memory as the CPU sees it,
-// without touching watchpoints or the floating-bus latch.
-std::function<uint8_t(uint16_t)> peek_reader(Emulator& emu) {
-    return [&emu](uint16_t addr) { return emu.mmu().peek(addr); };
+// Whether `path` is an sjasmplus SLD: its first line starts `|SLD.data.version|`.
+// Anything else that opens is read as a z88dk map. A file that does not open is
+// handed to the SLD loader, whose error names it. The caller has run
+// `source_file_problem()`: a FIFO is never opened here.
+bool looks_like_sld(const std::string& path) {
+    std::ifstream in(path);
+    std::string first;
+    if (!in.is_open() || !std::getline(in, first)) return true;
+    if (first.compare(0, 3, "\xEF\xBB\xBF") == 0) first.erase(0, 3);
+    return first.rfind("|SLD.data.version|", 0) == 0;
+}
+
+// The suffix of an attach line: what was done about the program's identity.
+// An SLD without one says nothing, as it always has; a z88dk map always says.
+std::string identity_note(const SourceMap& map, const SourceMapLoadResult& parsed,
+                          std::optional<bool> identity) {
+    if (map.format() != "z88dk") return identity ? " (program identity verified)" : "";
+    if (!identity) return " (program identity not verified: no section binaries beside it)";
+    if (parsed.unchecked > 0)
+        return " (program identity verified; " + std::to_string(parsed.unchecked) +
+               (parsed.unchecked == 1 ? " code range has no section binary and was not checked)"
+                                      : " code ranges have no section binary and were not checked)");
+    return " (program identity verified)";
 }
 
 std::string lower_extension(const std::filesystem::path& p) {
@@ -56,16 +78,38 @@ std::optional<std::filesystem::path> nextbuild_sidecar(const std::filesystem::pa
     return std::nullopt;
 }
 
-// A program whose bytes are not in memory when its load call returns: the tape
-// formats, which the machine loads over the following frames.
-bool loads_later(const std::filesystem::path& p) {
-    const std::string ext = lower_extension(p);
-    return ext == ".tap" || ext == ".tzx" || ext == ".wav";
+// `<stem>.map` beside a `.nex`, `.tap` or `.sna` (design 6.1): the z88dk map a
+// build leaves next to its program. Regular files only (a FIFO would block the
+// load on open).
+std::optional<std::filesystem::path> z88dk_map_sidecar(const std::filesystem::path& program) {
+    namespace fs = std::filesystem;
+    if (!program_has_z88dk_map(program.string())) return std::nullopt;
+    const fs::path p = program.parent_path() / (program.stem().string() + ".map");
+    std::error_code ec;
+    const auto st = fs::status(p, ec);
+    if (!ec && fs::is_regular_file(st)) return p;
+    return std::nullopt;
 }
 
 // Both sidecars can be refused in one load: the second reason is appended.
 void add_problem(Debugger::SidecarLoad& out, const std::string& problem) {
     out.problem += (out.problem.empty() ? "" : "; ") + problem;
+}
+
+// What an attach line says of a map whose identity waits for the program (a tape).
+constexpr const char* kPendingNote = " (identity check pending: the program loads from tape)";
+
+// The reason a tape program's map is dropped when a space does not match.
+constexpr const char* kTapeMismatch =
+    "the program loaded from tape does not match its binary identity";
+
+// A memory space, for a progress line.
+std::string space_name(FetchSource s) {
+    switch (s.kind) {
+        case MemSpace::Kind::Page: return "page " + std::to_string(s.index);
+        case MemSpace::Kind::Rom:  return "ROM " + std::to_string(s.index);
+        default:                   return "main memory";
+    }
 }
 
 }  // namespace
@@ -74,30 +118,245 @@ void add_problem(Debugger::SidecarLoad& out, const std::string& problem) {
 // The store
 // ---------------------------------------------------------------------------
 
+std::optional<bool> Debugger::Impl::verify_identity(const SourceMap& map) const {
+    return map.verify_program(
+        [this](uint16_t addr) { return emu.mmu().peek(addr); },
+        [this](FetchSource space, uint16_t addr) -> std::optional<uint8_t> {
+            if (space.kind != MemSpace::Kind::Page) return std::nullopt;
+            uint8_t b = 0;
+            if (!self->peek(space, addr & 0x1FFF, 1, &b)) return std::nullopt;
+            return b;
+        });
+}
+
+std::optional<bool> Debugger::Impl::verify_identity_unit(const SourceMap& map,
+                                                         FetchSource unit) const {
+    return map.verify_unit(
+        unit,
+        [this](uint16_t addr) { return emu.mmu().peek(addr); },
+        [this](FetchSource space, uint16_t addr) -> std::optional<uint8_t> {
+            if (space.kind != MemSpace::Kind::Page) return std::nullopt;
+            uint8_t b = 0;
+            if (!self->peek(space, addr & 0x1FFF, 1, &b)) return std::nullopt;
+            return b;
+        });
+}
+
+// ---------------------------------------------------------------------------
+// GH #344 stage 3 - deferred identity checks (a tape program's maps)
+// ---------------------------------------------------------------------------
+
+void Debugger::Impl::add_check(const SourceMap& map, bool user, bool sources, bool symbols) {
+    DeferredCheck c;
+    c.spans = map.verify_spans();
+    for (const auto& sp : c.spans)
+        if (std::find(c.units.begin(), c.units.end(), sp.unit) == c.units.end())
+            c.units.push_back(sp.unit);
+    if (c.units.empty()) return;   // no identity, or nothing it covers: unverified, not pending
+    c.map            = std::make_shared<const SourceMap>(map);
+    c.user           = user;
+    c.guards_sources = sources;
+    c.guards_symbols = symbols;
+    checks.push_back(std::move(c));
+}
+
+void Debugger::Impl::drop_source_guards() {
+    for (auto& c : checks) {
+        c.guards_sources = false;
+        c.user           = false;
+    }
+    checks.erase(std::remove_if(checks.begin(), checks.end(),
+                                [](const DeferredCheck& c) { return !c.guards_symbols; }),
+                 checks.end());
+    sync_verify_window();
+}
+
+void Debugger::Impl::drop_sidecar_checks() {
+    checks.erase(std::remove_if(checks.begin(), checks.end(),
+                                [](const DeferredCheck& c) { return !c.user; }),
+                 checks.end());
+}
+
+bool Debugger::Impl::sources_pending() const {
+    for (const auto& c : checks) {
+        if (!c.guards_sources || c.units.empty()) continue;
+        if (c.user ? (sources_owner == StoreOwner::User && !user_sources_stale)
+                   : sources_owner == StoreOwner::Sidecar)
+            return true;
+    }
+    return false;
+}
+
+void Debugger::Impl::sync_verify_window() {
+    uint32_t lo = 0x10000, hi = 0;
+    for (const auto& c : checks) {
+        if (!c.guards_sources && !c.guards_symbols) continue;
+        for (const auto& sp : c.spans) {
+            lo = std::min<uint32_t>(lo, sp.lo);
+            hi = std::max<uint32_t>(hi, sp.hi_excl);
+        }
+    }
+    if (hi > lo) ds().set_verify_window(static_cast<uint16_t>(lo), static_cast<uint16_t>(hi - 1));
+    else if (ds().verify_hold()) ds().clear_verify_window();
+}
+
+// Hot loop, the first time the CPU is about to execute an instruction in the window:
+// judge the unit it runs in, NOW, while memory is exactly what is about to run. Only
+// records: the verdict is applied by recheck() (before any reader or stop sees it).
+void Debugger::Impl::verify_hook(uint16_t pc) {
+    if (emu.replay_mode()) return;   // a replay re-runs history, it does not load programs
+    const MemSpace here = emu.predict_fetch(pc);
+    bool any = false;
+    for (auto& c : checks) {
+        std::vector<FetchSource> hit;
+        for (const auto& sp : c.spans)
+            if (sp.space == here && pc >= sp.lo && pc < sp.hi_excl &&
+                std::find(hit.begin(), hit.end(), sp.unit) == hit.end())
+                hit.push_back(sp.unit);
+        for (const FetchSource unit : hit) {
+            const std::optional<bool> id = verify_identity_unit(*c.map, unit);
+            c.units.erase(std::remove(c.units.begin(), c.units.end(), unit), c.units.end());
+            c.spans.erase(std::remove_if(c.spans.begin(), c.spans.end(),
+                                         [&](const SourceMap::VerifySpan& sp) {
+                                             return sp.unit == unit;
+                                         }),
+                          c.spans.end());
+            if (id && !*id) {
+                c.mismatch = true;
+                c.units.clear();   // the map is going: nothing more to judge
+                c.spans.clear();
+                break;
+            }
+            c.judged.push_back(unit);
+        }
+        any = any || !hit.empty();
+    }
+    if (any) {
+        verify_due = true;
+        sync_verify_window();
+    }
+}
+
+void Debugger::Impl::apply_deferred() {
+    verify_due = false;
+    bool erased = false;   // the generation's record was erased with a dropped sidecar
+    std::vector<DeferredCheck> work;
+    work.swap(checks);
+    auto log = Log::debugger();
+    for (auto& c : work) {
+        const std::string file   = c.map->loaded_file();
+        const std::string format = c.map->format();
+        if (c.mismatch) {
+            if (c.guards_sources)
+                log->error("Rejected {} source map '{}': {}", format, file, kTapeMismatch);
+            else   // only the symbols that came with the map wait on it
+                log->error("Rejected the symbols of {} map '{}': {}", format, file, kTapeMismatch);
+            const std::string why = "source map '" + file + "' rejected: " + kTapeMismatch;
+            if (c.guards_sources && c.user && sources_owner == StoreOwner::User) {
+                // The user's map is dropped, not marked stale: it was refused, as a
+                // mismatch at load time refuses it.
+                source_map.clear();
+                sources_owner      = StoreOwner::None;
+                user_sources_stale = false;
+                pause_verify_user  = false;
+                source_reason      = why;
+                ++source_drops;
+                pending_log.push_back("Dropped the loaded " + format + " source map: " +
+                                      kTapeMismatch);
+            } else if (c.guards_sources && !c.user && sources_owner == StoreOwner::Sidecar) {
+                cache_erase(attach_gen);
+                erased = true;
+                drop_sidecars(kTapeMismatch);   // the symbols that came with it, too
+                source_reason = why;
+            }
+            if (c.guards_symbols && symbols_owner == StoreOwner::Sidecar) {
+                cache_erase(attach_gen);
+                erased = true;
+                symbols.clear();
+                symbols_owner = StoreOwner::None;
+                pending_log.push_back(std::string("Dropped the program's symbols: ") +
+                                      kTapeMismatch);
+            }
+            continue;
+        }
+        if (c.units.empty()) {
+            pending_log.push_back("Verified " + format + " source map '" + file +
+                                  "': the program loaded from tape matches its binary identity");
+            continue;
+        }
+        for (const FetchSource unit : c.judged)
+            pending_log.push_back("Verified " + format + " source map '" + file + "' in " +
+                                  space_name(unit) + "; " + std::to_string(c.units.size()) +
+                                  (c.units.size() == 1 ? " memory space" : " memory spaces") +
+                                  " still to check");
+        c.judged.clear();
+        checks.push_back(std::move(c));
+    }
+    // What is left (the checks that finished are gone) is what a rewind into this
+    // generation finds, unless a sidecar went with a mismatch.
+    if (!erased && attach_gen == ds().load_generation()) cache_push_current();
+    sync_verify_window();
+}
+
 Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
-                                                  bool accept_identity_mismatch) {
+                                                  bool accept_identity_mismatch,
+                                                  bool verify_at_first_execution) {
     impl_->recheck();   // a writer first: a pending landing must not undo it later
     SourceMapLoad out;
     SourceMap candidate;
     SymbolTable labels;
-    const SourceMapLoadResult parsed = load_sld(candidate, path, &labels);
+    SourceMapLoadResult parsed;
+    // The format is told by the content, after the file is known safe to open (a
+    // FIFO must not be read to find out). A z88dk map fills the source half only
+    // (design 6.1, D10): its symbols stay with Load MAP and --map.
+    if (const std::string why = source_file_problem(path); !why.empty()) {
+        out.error = why;
+        return out;
+    }
+    const bool sld = looks_like_sld(path);
+    if (sld) {
+        parsed = load_sld(candidate, path, &labels);
+    } else {
+        parsed = load_z88dk_source_map(candidate, path, [this](uint16_t a) {
+            return impl_->emu.predict_fetch(a);
+        });
+        if (parsed && parsed.count == 0) {
+            parsed.count = -1;
+            parsed.error = "no source lines in '" + path +
+                           "' (a z88dk map built without -debug?)";
+        }
+    }
     if (!parsed) {
         out.error = parsed.error;
         return out;
     }
-    out.identity = candidate.verify_program(peek_reader(impl_->emu));
-    if (out.identity && !*out.identity && !accept_identity_mismatch) {
-        out.error = "the program in memory does not match the source map's binary identity";
-        return out;
+    // A tape's program is not in memory yet: a map with an identity attaches pending and
+    // is judged where the CPU first runs its code (design 6.2).
+    const bool defer = verify_at_first_execution && !candidate.verify_spans().empty();
+    if (!defer) {
+        out.identity = impl_->verify_identity(candidate);
+        if (out.identity && !*out.identity && !accept_identity_mismatch) {
+            out.error = "the program in memory does not match the source map's binary identity";
+            return out;
+        }
     }
+    out.identity_note = defer ? kPendingNote : identity_note(candidate, parsed, out.identity);
+    impl_->drop_source_guards();
     impl_->source_map         = std::move(candidate);
     impl_->sources_owner      = Impl::StoreOwner::User;
     impl_->user_sources_gen   = impl_->ds().load_generation();
     impl_->user_sources_stale = false;
     impl_->pause_verify_user  = false;
     impl_->source_reason.clear();
+    if (defer) {
+        impl_->add_check(impl_->source_map, /*user=*/true, /*sources=*/true, /*symbols=*/false);
+        impl_->sync_verify_window();
+    }
+    out.pending = impl_->sources_pending();
     out.count  = parsed.count;
-    out.labels = impl_->attach_hand_labels(std::move(labels), parsed.labels);
+    // A z88dk map fills the source half only (D10): it leaves the symbols alone, an
+    // earlier hand SLD's labels included, and reports none.
+    out.labels = sld ? impl_->attach_hand_labels(std::move(labels), parsed.labels) : 0;
     return out;
 }
 
@@ -121,6 +380,7 @@ int Debugger::Impl::attach_hand_labels(SymbolTable&& labels, int n) {
 
 Result Debugger::clear_source_map() {
     impl_->recheck();
+    impl_->drop_source_guards();
     impl_->source_map.clear();
     impl_->sources_owner      = Impl::StoreOwner::None;
     impl_->user_sources_stale = false;
@@ -154,6 +414,7 @@ Debugger::SourceMapStatus Debugger::source_map_status() const {
     } else {
         st.reason = impl_->source_reason;
     }
+    st.pending = impl_->sources_pending();
     return st;
 }
 
@@ -200,9 +461,12 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         ~Attached() {
             impl->attach_gen            = gen;
             impl->pause_verify_sidecar  = false;
+            impl->sync_verify_window();
             impl->cache_push_current();
         }
     } attached{impl_.get(), gen};
+    // The previous program's identity checks went with its sidecars.
+    impl_->drop_sidecar_checks();
 
     // The SLD sidecar is read ONCE (design 9.1: one file, two transactions) and
     // judged here, before the symbols, because its labels join them; it is logged
@@ -212,11 +476,40 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     SymbolTable sld_labels;
     const SourceMapLoadResult parsed = load_sld_sidecar(candidate, program_path, &sld_labels);
     const bool user_sources = impl_->sources_owner == Owner::User;
-    const bool tape         = loads_later(program);
+    const bool tape         = program_loads_later(program_path);
     std::optional<bool> identity;   // only a source half that loaded, from memory
     if (parsed && !tape && !user_sources)
-        identity = candidate.verify_program(peek_reader(impl_->emu));
+        identity = impl_->verify_identity(candidate);
     const bool mismatch = identity && !*identity;
+
+    // `<stem>.map`, a z88dk map (design 6.1, D10), is read ONCE for its two halves
+    // (two transactions, design 9.1). Its source half is used only when no SLD
+    // sidecar exists at all; its symbols only when no Memory.txt exists, last of
+    // the program's symbol sources. A file with no symbol and no line record is not
+    // a z88dk map: ignored, nothing reported. When the user's source map is kept only
+    // its source half is skipped (logged, as for the SLD); its symbols follow D10's own
+    // rules (not when the user owns the symbols or a Memory.txt exists).
+    const auto zpath = z88dk_map_sidecar(program);
+    SymbolTable zsyms;
+    SourceMap zsrc;
+    SourceMapLoadResult zparsed;
+    int zn = -1;
+    if (zpath) {
+        zn = zsyms.load_z88dk_map(zpath->string());
+        if (parsed.file.empty())
+            zparsed = load_z88dk_source_map(zsrc, zpath->string(), [this](uint16_t a) {
+                return impl_->emu.predict_fetch(a);
+            });
+        else
+            zparsed.count = 0;   // the SLD speaks for the source half
+    }
+    std::optional<bool> zidentity;
+    if (zpath && zparsed.count > 0 && !tape) zidentity = impl_->verify_identity(zsrc);
+    const bool zmismatch = zidentity && !*zidentity;
+    // A tape's maps are judged where the CPU first runs their code (design 6.2).
+    const bool sld_pending = parsed && tape && !user_sources && !candidate.verify_spans().empty();
+    const bool z_pending   = zpath && zparsed.count > 0 && tape && !zsrc.verify_spans().empty();
+    const bool zsyms_attach = zn > 0 && !memory && !zmismatch;
     // Its labels go with it (D7): not when the file is refused whole (labels < 0),
     // not when its identity is another build's, not when the user's source map is
     // kept (the SLD is then not loaded at all); yes when only its source records
@@ -233,6 +526,9 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         else if (sld_labels_attach)
             log->info("Kept the loaded symbols '{}'; not loading '{}'",
                       impl_->symbols.loaded_file(), parsed.file);
+        else if (zsyms_attach)
+            log->info("Kept the loaded symbols '{}'; not loading '{}'",
+                      impl_->symbols.loaded_file(), zpath->string());
     } else {
         // The program's symbols: each sidecar in order, first wins.
         SymbolTable store;
@@ -257,6 +553,12 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             attached_symbols = true;
             log->info("Loaded {} SLD labels from '{}'", parsed.labels, parsed.file);
         }
+        if (zsyms_attach) {
+            store.merge(zsyms);
+            n += zn;
+            attached_symbols = true;
+            log->info("Loaded {} z88dk symbols from '{}'", zn, zpath->string());
+        }
         if (attached_symbols) {
             impl_->symbols       = std::move(store);
             impl_->symbols_owner = Owner::Sidecar;
@@ -272,6 +574,21 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         if (parsed)
             log->info("Kept the loaded source map '{}'; not loading '{}'",
                       impl_->source_map.loaded_file(), candidate.loaded_file());
+        else if (zpath && zmismatch) {
+            // Its binaries are another build's: the whole map is rejected, symbols included,
+            // whether or not its source lines would have been used.
+            log->error("Rejected z88dk source map '{}': the loaded program's bytes differ "
+                       "from its binary identity", zsrc.loaded_file());
+            add_problem(out, "source map '" + zsrc.loaded_file() +
+                                 "' rejected: the loaded program's bytes differ from its "
+                                 "binary identity");
+        } else if (zpath && zparsed.count > 0) {
+            log->info("Kept the loaded source map '{}'; not loading the source lines of '{}'",
+                      impl_->source_map.loaded_file(), zpath->string());
+            // Its symbols are still its own, and wait for its program like its lines would.
+            if (z_pending && zsyms_attach && impl_->symbols_owner == Owner::Sidecar)
+                impl_->add_check(zsrc, /*user=*/false, /*sources=*/false, /*symbols=*/true);
+        }
         return out;
     }
     if (impl_->sources_owner == Owner::Sidecar) {
@@ -284,18 +601,43 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             const std::string why = "source map '" + parsed.file + "' rejected: " + parsed.error;
             add_problem(out, why);
             impl_->source_reason = why;
+            return out;
         }
+        // No SLD sidecar: the z88dk map's source half, under the same rules.
+        if (!zpath || zparsed.count == 0) return out;
+        const std::string zfile = zpath->string();
+        if (zparsed.count < 0) {
+            log->error("Rejected z88dk source map '{}': {}", zfile, zparsed.error);
+            const std::string why = "source map '" + zfile + "' rejected: " + zparsed.error;
+            add_problem(out, why);
+            impl_->source_reason = why;
+            return out;
+        }
+        if (zmismatch) {
+            log->error("Rejected z88dk source map '{}': the loaded program's bytes differ "
+                       "from its binary identity", zsrc.loaded_file());
+            const std::string why = "source map '" + zsrc.loaded_file() +
+                                    "' rejected: the loaded program's bytes differ from its "
+                                    "binary identity";
+            add_problem(out, why);
+            impl_->source_reason = why;
+            return out;
+        }
+        impl_->source_map    = std::move(zsrc);
+        impl_->sources_owner = Owner::Sidecar;
+        out.sources = zparsed.count;
+        out.sources_pending = z_pending;
+        log->info("Loaded {} z88dk source lines from '{}'{}", zparsed.count,
+                  impl_->source_map.loaded_file(),
+                  z_pending ? std::string(kPendingNote)
+                            : identity_note(impl_->source_map, zparsed, zidentity));
+        if (z_pending)
+            impl_->add_check(impl_->source_map, /*user=*/false, /*sources=*/true,
+                             /*symbols=*/zsyms_attach && impl_->symbols_owner == Owner::Sidecar);
         return out;
     }
-    // A tape is loaded by the machine over the frames that follow, so there
-    // is nothing in memory yet to match the map against, and no single point
-    // at which the program "has loaded". Not attached automatically.
-    if (tape) {
-        log->info("Not attaching SLD source map '{}' automatically: '{}' loads from tape "
-                  "after this point; load the map by hand once it has loaded",
-                  candidate.loaded_file(), program_path);
-        return out;
-    }
+    // A tape is loaded by the machine over the frames that follow: its map attaches at
+    // once, and is judged where the CPU first runs its code (sld_pending).
     if (mismatch) {
         log->error("Rejected SLD source map '{}': the loaded program's bytes differ "
                    "from its binary identity", candidate.loaded_file());
@@ -309,9 +651,13 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     impl_->source_map    = std::move(candidate);
     impl_->sources_owner = Owner::Sidecar;
     out.sources = parsed.count;
+    out.sources_pending = sld_pending;
     log->info("Loaded {} SLD source traces from '{}'{}", parsed.count,
               impl_->source_map.loaded_file(),
-              identity ? " (program identity verified)" : "");
+              sld_pending ? kPendingNote : identity ? " (program identity verified)" : "");
+    if (sld_pending)
+        impl_->add_check(impl_->source_map, /*user=*/false, /*sources=*/true,
+                         /*symbols=*/impl_->symbols_owner == Owner::Sidecar);
     return out;
 }
 
@@ -330,6 +676,8 @@ void Debugger::Impl::cache_push_current() {
         a.sources = std::make_shared<const SourceMap>(source_map);
     if (symbols_owner == StoreOwner::Sidecar)
         a.symbols = std::make_shared<const SymbolTable>(symbols);
+    for (const auto& c : checks)
+        if (!c.user) a.checks.push_back(c);
     cache_erase(attach_gen);
     attach_cache.push_back(std::move(a));
     while (attach_cache.size() > ATTACH_CACHE_MAX) attach_cache.pop_front();
@@ -379,23 +727,32 @@ void Debugger::Impl::drop_sidecars(const std::string& why) {
         pending_log.push_back("Dropped the program's symbols: " + why);
     }
     if (sources_owner == StoreOwner::Sidecar) {
+        const std::string format = source_map.format();
         source_map.clear();
         sources_owner = StoreOwner::None;
         source_reason = why;
         ++source_drops;
-        pending_log.push_back("Dropped the program's SLD source map: " + why);
+        pending_log.push_back("Dropped the program's " + format + " source map: " + why);
     }
 }
 
 // The one place the lifetime rules run (design §6.5). Pending flags are
 // cleared before anything is logged: a listener may call a reader back.
 void Debugger::Impl::recheck() {
-    if (!landing_pending && !ring_pending && !pause_verify_sidecar && !pause_verify_user)
+    if (!landing_pending && !ring_pending && !pause_verify_sidecar && !pause_verify_user &&
+        !verify_due)
         return;
+    // GH #344 stage 3 - the verdicts the verify hook recorded in guest execution come
+    // first: a landing below is judged against the map as that verdict left it.
+    if (verify_due) apply_deferred();
     const uint64_t g = ds().load_generation();
-    auto identity = [this]() { return source_map.verify_program(peek_reader(emu)); };
+    auto identity = [this]() { return verify_identity(source_map); };
     auto verify_user = [&](bool carried_by_landing) {
         const std::optional<bool> id = identity();
+        // Judged whole now: whatever was still to be checked is settled by this.
+        checks.erase(std::remove_if(checks.begin(), checks.end(),
+                                    [](const DeferredCheck& c) { return c.user; }),
+                     checks.end());
         if (id && *id) {
             user_sources_gen   = g;
             user_sources_stale = false;
@@ -427,7 +784,9 @@ void Debugger::Impl::recheck() {
                 if (id && *id) {
                     pause_verify_sidecar = true;
                     pause_verify_clock   = emu.clock().get();
+                    drop_sidecar_checks();   // judged whole: nothing left to wait for
                 } else {
+                    drop_sidecar_checks();
                     // attach_gen is the PREVIOUS generation here: its cached record
                     // is still right for that history, so a rewind into it brings
                     // the map back. (The landing's own generation has no record.)
@@ -467,23 +826,35 @@ void Debugger::Impl::recheck() {
                     if (rec && rec->sources) {
                         source_map    = *rec->sources;
                         sources_owner = StoreOwner::Sidecar;
-                        pending_log.push_back("Restored the program's SLD source map of this "
-                                              "point in the history");
+                        pending_log.push_back("Restored the program's " + source_map.format() +
+                                              " source map of this point in the history");
                     } else {
+                        const std::string format = source_map.format();
                         source_map.clear();
                         sources_owner = StoreOwner::None;
                         if (had) {
                             ++source_drops;
-                            pending_log.push_back("Dropped the program's SLD source map: " +
-                                                  std::string(before));
+                            pending_log.push_back("Dropped the program's " + format +
+                                                  " source map: " + std::string(before));
                         }
                     }
                     source_reason = rec ? rec->source_reason : (had ? before : "");
                 }
+                // The sidecar checks still to make are that generation's, too.
+                drop_sidecar_checks();
+                if (rec)
+                    for (const auto& c : rec->checks) checks.push_back(c);
                 attach_gen = g;
                 pause_verify_sidecar = false;   // it described the generation left
             }
-            if (sources_owner == StoreOwner::User && g != user_sources_gen) verify_user(false);
+            if (sources_owner == StoreOwner::User && g != user_sources_gen) {
+                // A user's map still waiting for its program is not judged by landing
+                // somewhere else: it is judged where its code first runs.
+                const bool waiting = std::any_of(checks.begin(), checks.end(),
+                                                 [](const DeferredCheck& c) { return c.user; });
+                if (waiting) user_sources_gen = g;
+                else verify_user(false);
+            }
         }
     }
 
@@ -496,6 +867,7 @@ void Debugger::Impl::recheck() {
             if (id && !*id) {
                 cache_erase(attach_gen);
                 drop_sidecars("its binary identity no longer matches the program in memory");
+                drop_sidecar_checks();
             }
         }
         if (us && sources_owner == StoreOwner::User) {
@@ -509,6 +881,7 @@ void Debugger::Impl::recheck() {
         }
     }
 
+    sync_verify_window();
     std::vector<std::string> lines;
     lines.swap(pending_log);
     for (const auto& l : lines) self->log(CLIENT_NONE, LogLevel::Info, l);

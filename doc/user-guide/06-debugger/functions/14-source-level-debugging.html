@@ -2747,6 +2747,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#debugging-z88dk-c-programs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging z88dk C programs
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3691,11 +3702,14 @@
 of BASIC or assembly the CPU is running and step through the program one
 source statement at a time — including over and out of calls, and backwards
 with rewind.</p>
-<p>JNEXT reads source maps in the <strong>sjasmplus SLD</strong> format (<code>.sld</code>), which
+<p>JNEXT reads source maps in two formats: the <strong>sjasmplus SLD</strong> (<code>.sld</code>), which
 sjasmplus writes with <code>--sld</code>, and which a Boriel ZX Basic / NextBuild build
-can produce too. An SLD also lists the program's <strong>labels</strong>, and they join the
-symbols. Symbols come from them, from the <strong>NextBuild <code>Memory.txt</code></strong> the
-NextBuild toolchain writes beside a program, and from the MAP files in
+can produce too; and the <strong>z88dk <code>-debug</code> map</strong> (<code>.map</code>), which z88dk writes
+for a C program built with <code>-debug -m</code> (see
+<a href="#debugging-z88dk-c-programs">Debugging z88dk C programs</a> below). An SLD also
+lists the program's <strong>labels</strong>, and they join the symbols. Symbols come from
+them, from the <strong>NextBuild <code>Memory.txt</code></strong> the NextBuild toolchain writes beside
+a program, from a z88dk map, and from the MAP files in
 <a href="05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>.</p>
 <h2 id="loading-them">Loading them<a class="headerlink" href="#loading-them" title="Permanent link">&para;</a></h2>
 <p><strong>Automatically.</strong> When a program is loaded — on the command line with
@@ -3703,11 +3717,20 @@ NextBuild toolchain writes beside a program, and from the MAP files in
 for:</p>
 <ul>
 <li><code>&lt;name&gt;.Memory.txt</code>, else <code>Memory.txt</code>, beside a <code>.nex</code>: the symbols;</li>
-<li><code>&lt;name&gt;.sld</code>, else <code>&lt;name&gt;.sld.txt</code>: the source map and its labels.</li>
+<li><code>&lt;name&gt;.sld</code>, else <code>&lt;name&gt;.sld.txt</code>: the source map and its labels;</li>
+<li><code>&lt;name&gt;.map</code>, a z88dk map, beside a <code>.nex</code>, <code>.tap</code> or <code>.sna</code>: its source lines
+  and its symbols. Beside a tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) they attach at once,
+  and are checked when the program first runs (see <strong>Tapes</strong> below).</li>
 </ul>
 <p>Each one found is loaded and named in the log (<code>Loaded 2 NextBuild symbols
-from …</code>, <code>Loaded 12 SLD labels from …</code>, <code>Loaded 812 SLD source traces from …</code>).
-When both a <code>Memory.txt</code> and an SLD have a label, the <code>Memory.txt</code> one wins. This happens in every
+from …</code>, <code>Loaded 12 SLD labels from …</code>, <code>Loaded 812 SLD source traces from …</code>,
+<code>Loaded 19 z88dk symbols from …</code>, <code>Loaded 46 z88dk source lines from …</code>).
+When both a <code>Memory.txt</code> and an SLD have a label, the <code>Memory.txt</code> one wins. A
+z88dk map's source lines are used only when there is no SLD; its symbols come
+last, after an SLD's labels, and are not used at all when a <code>Memory.txt</code> exists
+(a <code>.map</code> with no symbols and no source lines is not a z88dk map, and is
+ignored; a plain <code>-m</code> map gives its symbols, <code>-debug</code> adds the source lines). If the map is refused, say for a malformed line, its symbols still
+attach and the log and the status bar say why the source lines did not. This happens in every
 frontend, with or without the debugger window open, but only the Qt debugger
 shows the source map: with <code>--headless</code>, and in the SDL-only build, it is
 attached and logged and nothing reads it yet (a remote debugger can still look
@@ -3726,31 +3749,71 @@ itself, such as one chosen in the NextZXOS browser or started with <code>LOAD ""
 is not seen by JNEXT: load its source map by hand (below). With
 <code>--esxdos-stub</code>, a <code>.RUN</code> of a sibling NEX is a load like any other: the
 machine cold-boots with it, which drops the old ones, and the new program's
-are attached. A tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) has its labels attached at once,
-but its source map is not attached automatically: its program is not in memory
-until the tape has loaded, so load the source map by hand (below) once it has.
-An SLD built for another binary, or one you did not load because you had loaded
-a source map yourself, brings no labels either.</p>
+are attached. An SLD or a z88dk map built for another binary brings no labels or symbols either, and an SLD you
+did not load because you had loaded a source map yourself brings no labels. A z88dk map beside the
+program still brings its symbols then (the log says its source lines were not loaded).</p>
 <p>Symbols you loaded by hand (below), or a MAP given with <code>--map</code>, are kept: they
 are your choice, not the program's. A source map you loaded by hand is yours too
 (a program's map never replaces it), but at each of those landings it is checked
 the same way: if it has no SHA-256, or the memory no longer matches it, it goes
 <strong>stale</strong>. The Source tab then says so and why, and the steps are off; load it
-again (<strong>Load SLD...</strong>) to use it.</p>
-<p><strong>By hand.</strong> The <strong>Source</strong> tab has <strong>Load SLD...</strong> and <strong>Load Memory.txt...</strong>
+again (<strong>Load Source Map...</strong>) to use it.</p>
+<p><strong>By hand.</strong> The <strong>Source</strong> tab has <strong>Load Source Map...</strong> and <strong>Load Memory.txt...</strong>
 buttons, also in <strong>Debug ▸ Source ▸ Load Source Map…</strong> and <strong>Load Symbols
 (Memory.txt)…</strong>. The symbols replace whatever was loaded before, as the
-<strong>Map ▸ Load MAP File</strong> formats do. <strong>Load SLD...</strong> loads the SLD's labels too and
-replaces the symbols the same way, unless you loaded symbols yourself (<strong>Map ▸ Load MAP
-File</strong>, <strong>Load Memory.txt...</strong> or <code>--map</code>), which are kept; a later SLD replaces an earlier SLD's labels.</p>
+<strong>Map ▸ Load MAP File</strong> formats do. <strong>Load Source Map...</strong> takes an SLD or a
+z88dk <code>.map</code> (told apart by what the file holds). An SLD's labels are loaded too and
+replace the symbols the same way, unless you loaded symbols yourself (<strong>Map ▸ Load MAP
+File</strong>, <strong>Load Memory.txt...</strong> or <code>--map</code>), which are kept; a later SLD replaces an earlier SLD's labels.
+A z88dk map loaded this way gives source lines only (the labels of an SLD loaded before it stay): load its symbols with
+<strong>Map ▸ Load MAP File ▸ Z88DK Format…</strong>, or <code>--map</code>. One built without <code>-debug</code>
+has no source lines and is refused, saying so.</p>
+<p><strong>On the command line.</strong> <code>--source-map FILE</code> does the same load of a source map
+(an SLD or a z88dk map) right after the program given with <code>--load</code> is in memory,
+in every frontend. It needs <code>--load</code>; a map whose binary identity does not match
+the program is refused, and the run exits with status 1 (the log says why). The
+map is yours, like one loaded by hand. With a tape program the map attaches at
+once and is checked when the program first runs its code (see <strong>Tapes</strong> above); a
+mismatch drops it then, and the run exits with status 1.</p>
+<p><strong>Tapes.</strong> A program loaded from tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) is not in memory
+when the load call returns: the machine loads it over the frames that follow. So
+a tape's source map, whether it is <code>&lt;name&gt;.sld</code>, <code>&lt;name&gt;.map</code> or the map of
+<code>--source-map</code>, attaches <strong>at once</strong> and works at once (the Source tab shows its
+files, <code>main.c:19</code> can be set as a breakpoint before the tape has loaded), but
+its binary identity is checked later, <strong>the first time the CPU is about to run
+inside the memory the map describes</strong>. Until then the Source tab says <em>Source map
+not verified yet: it is checked when the program first runs its code</em> and the log
+line ends <code>(identity check pending: the program loads from tape)</code>. The check is
+made <strong>per memory space</strong>: a program with code in the main page and in a bank
+that the tape loads after it has started has each checked when it first runs
+there, and the others stay pending. When the last one matches the log says
+<code>Verified z88dk source map …</code>. If any space does not match, the map is
+<strong>dropped</strong> with an error (<code>Rejected z88dk source map …: the program loaded from
+tape does not match its binary identity</code>), and so are the symbols that came with
+it; with <code>--source-map</code> the run then exits with status 1. A map with no binary
+identity (no section binaries, an SLD without a hash) attaches unverified, as for
+any program, and nothing is waited for. A reset before the program has arrived
+drops a program's pending map, since the program will not, and makes the one you
+loaded yourself stale (load it again once the program is in memory).</p>
 <p><strong>Binary identity.</strong> An SLD may record the SHA-256 of the program's bytes as it
 was built (<code>||program.sha256:</code>, <code>||program.org:</code> and <code>||program.size:</code> comment
 records, which other SLD readers ignore). An SLD found beside a program whose
 bytes in memory do not match is <strong>rejected</strong> — it belongs to another build.
 One loaded by hand that does not match asks first, because a running
 program may have changed variables stored inside its own image since it started.</p>
-<p>A sidecar that is found and refused, for any reason (an SLD built for another
-binary, a file that is not an SLD, not a regular file, or over 64 MiB), says
+<p>A z88dk map has no hash in the map itself. Its identity is the <strong>section
+binaries</strong> next to it: z88dk's <code>-create-app</code> writes <code>&lt;name&gt;_CODE.bin</code> (and one
+<code>&lt;name&gt;_&lt;SECTION&gt;.bin</code> for every banked section) beside the map, and JNEXT
+compares the bytes of every line range of non-data code with the program in
+memory, in the page the line was built for, whether or not that page is mapped.
+Variables (data, bss) are not compared, since the program writes to them. A map
+with no binaries beside it attaches unverified, and the log says so (<code>program
+identity not verified</code>); when only some of the binaries are there, the log says
+the identity is verified for the code they cover and how many code ranges had no
+binary and were not checked. Only upper-case section names are looked for
+(<code>_CODE</code>, <code>_PAGE_20</code>, <code>_BANK_10</code>).</p>
+<p>A sidecar that is found and refused, for any reason (an SLD or a z88dk map built for another
+binary, a file that is not an SLD or a map, not a regular file, or over 64 MiB), says
 why: the reason is in the log, in the main window's status bar for ten
 seconds, and in the Source tab in place of "No source map loaded".</p>
 <h2 id="banked-code">Banked code<a class="headerlink" href="#banked-code" title="Permanent link">&para;</a></h2>
@@ -3818,6 +3881,71 @@ while that memory supplies the address, and the disassembly gutter shows it only
 in the other address fields: the other <strong>Breakpoints ▸ Add …</strong> dialogs,
 <strong>Watches ▸ Add</strong> (a watch added by name is labelled with it) and the Go to
 Address box of the Disassembly and Memory panels.</p>
+<h2 id="debugging-z88dk-c-programs">Debugging z88dk C programs<a class="headerlink" href="#debugging-z88dk-c-programs" title="Permanent link">&para;</a></h2>
+<p>Build with z88dk's <code>-debug</code> and <code>-m</code> and let it write the application files
+(<code>-create-app</code>), so the map and the section binaries land next to the program:</p>
+<pre><code>zcc +zxn -clib=new -debug -m -create-app -subtype=nex -o prog main.c util.c
+</code></pre>
+<p>For a 48K Spectrum tape build for <code>+zx</code> instead (<code>zcc +zx -clib=new -debug -m
+-create-app -o prog main.c util.c</code> writes <code>prog.tap</code>, <code>prog.map</code> and
+<code>prog_CODE.bin</code>) and load <code>prog.tap</code>: the map attaches while the tape loads and is
+verified when the program starts.</p>
+<p>Load <code>prog.nex</code>. The <code>prog.map</code> beside it attaches by itself (see above): the
+Source tab shows <code>main.c</code> with the current line, <strong>Into / Over / Out</strong> step by C
+statement, and <code>main.c:19</code> works in the Breakpoints panel. Each line of the
+map becomes a range that runs to the next line, the next function of another
+module, the end of its section, 1 KB or the end of its 8K page, whichever comes
+first. Two lines that start at the same address are one range owned by the
+later line, and the earlier one is its alias if both are in the same function
+(the compiler put them there); otherwise the earlier line has no code.</p>
+<p>What z88dk and the library can do changes the result:</p>
+<table>
+<thead>
+<tr>
+<th>compiler / library</th>
+<th>z88dk 2.4</th>
+<th>z88dk master (from 2026-04)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>sccz80 newlib</td>
+<td><code>zcc +zxn -clib=new -debug -m -create-app -subtype=nex</code>: works, but part of a statement can show on the next line</td>
+<td>works</td>
+</tr>
+<tr>
+<td>sdcc newlib</td>
+<td><code>-debug</code> fails to build: no source lines from the map</td>
+<td><code>-clib=sdcc_iy -debug -m -create-app</code>: works, header code may show the wrong line</td>
+</tr>
+<tr>
+<td>80cc</td>
+<td>not available</td>
+<td><code>-compiler=80cc -clib=new -debug</code>: works (some lines are shared, e.g. 19 and 20 in the fixture)</td>
+</tr>
+<tr>
+<td>classic</td>
+<td><code>-debug</code> fails</td>
+<td>fails</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong><code>-debug</code> changes the program</strong> (it adds <code>l_debug_push_frame</code> and
+  <code>l_debug_pop_frame</code> around functions): debug with the build that has it.</li>
+<li><strong>Optimisation moves code across lines</strong>: with <code>-SO3</code> or <code>-O2</code> the stepping
+  order follows the machine code, not the source.</li>
+<li><strong>Banked code</strong>: a function in a <code>PAGE_n</code> or <code>BANK_n</code> section is found only
+  while its 8K page is mapped where it runs (the Source tab, Call Stack and
+  Breakpoints panels all follow the page). The map's address for a <code>BANK_n</code>
+  section carries the bank in its high bits; JNEXT reads the page from the
+  section and the address.</li>
+<li><strong>DivMMC sections</strong> (<code>DIV_n</code>) are not supported yet: a map with a line in one
+  is refused, with the line named, rather than attached half.</li>
+<li>Code in a section that names no page (<code>CODE</code>, <code>code_compiler</code>, the program
+  itself) is tied to the RAM page the MMU maps at that address when the program
+  is in memory (page 4 at $8000 for a NEX).</li>
+</ul>
 
 
 

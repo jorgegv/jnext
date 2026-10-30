@@ -2631,7 +2631,15 @@ the PC changed or the text was loaded since (a user who scrolled stays put).
 it, and <code>apply_pause_state(true)</code> runs that at every stop and every step, as it
 does for the disassembly, so a stop at the very PC and line already shown still
 puts the view back. While the machine runs the tab says "Running" and drops the
-highlight. The Debug &gt; Source actions
+highlight. The Source tab's <strong>Load Source Map...</strong> button and the Debug &gt; Source &gt; Load
+Source Map... item are one slot, <code>DebuggerManager::on_load_sld()</code>; its file dialog offers
+<code>*.sld</code>, <code>*.sld.txt</code> and <code>*.map</code>, and the backend tells the format by content, so a z88dk
+map loads as source lines only. Its mismatch box and failure title do not name a format. While
+<code>source_map_status().pending</code> is set (a tape program's map, waiting for its program) the panel
+appends a note line, <em>Source map not verified yet: it is checked when the program first runs its
+code</em>, to whatever it shows.
+Load MAP (<code>on_load_map_z88dk()</code>, <code>on_load_map_simple()</code>) appends the backend's reason to
+its failure box when the file was refused rather than unreadable. The Debug &gt; Source actions
 connect to the same <code>DebuggerManager</code> slots as its buttons, and their enabled
 state comes from <code>SourcePanel::update_buttons()</code> through the <code>steps_available()</code>
 signal, so the buttons and the actions share one predicate. The menu tree and
