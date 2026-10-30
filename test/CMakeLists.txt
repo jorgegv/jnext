@@ -825,6 +825,11 @@ add_test(NAME pok_trainers_tests COMMAND pok_trainers_test)
 # (ctest runs it from the build tree). It also shells out to the built jnext
 # binary, which `cmake --build build` always produces alongside it.
 add_executable(cli_options_test core/cli_options_test.cpp)
+# GH #417: CLI-SET-01/02 read the key table (src/platform/config_keys.h).
+target_link_libraries(cli_options_test PRIVATE
+    jnext_platform jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(cli_options_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(cli_options_test PRIVATE
     JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"

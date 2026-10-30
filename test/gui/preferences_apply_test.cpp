@@ -54,6 +54,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QLineEdit>
+#include <QMenu>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -1628,6 +1629,58 @@ void test_session_paths_not_persisted()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+// ── PA-33: GH #417 - an Input-menu pick persists what it changed, not a command-line value ──
+//
+// persist_joy_config() used to copy BOTH connectors' live state into the file, so
+// picking Joy 1's source wrote a `--joy2-source keys` of the same run into
+// jnext.conf. Now the connector picked is saved, and the other only when the
+// emulator's one-cursor rule moved it. Oracle: the contract (man page: "never
+// written to jnext.conf"); the real menu action and the real file.
+void test_joy_menu_persists_only_the_pick()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    const QString conf = home.path() + QStringLiteral("/jnext.conf");
+    const auto pick = [](Fixture& f, const char* menu_prefix, const char* item) {
+        for (QMenu* m : f.win.findChildren<QMenu*>()) {
+            if (!m->title().remove('&').startsWith(QString::fromLatin1(menu_prefix))) continue;
+            for (QAction* a : m->actions())
+                if (a->text().remove('&').startsWith(QString::fromLatin1(item))) { a->trigger(); return true; }
+        }
+        return false;
+    };
+    // (a) Joy 2 runs a command-line value; picking Joy 1 None must not save it.
+    bool picked_a = false;
+    QString j1_a, j2_a;
+    {
+        Fixture f;
+        f.emu.set_joystick_source(1, JoySource::CursorKeys);   // `--joy2-source keys`
+        picked_a = pick(f, "Joy 1 Source", "None");
+        j1_a = ini_value(home.path(), "input/joy1_source");
+        j2_a = ini_value(home.path(), "input/joy2_source");
+    }
+    // (b) Picking Cursor Keys on Joy 1 takes the keys away from Joy 2 (the emulator's rule): that
+    // change is the pick's doing and is saved.
+    bool picked_b = false;
+    QString j1_b, j2_b;
+    JoySource live_j2 = JoySource::CursorKeys;
+    {
+        Fixture f;
+        f.emu.set_joystick_source(1, JoySource::CursorKeys);
+        picked_b = pick(f, "Joy 1 Source", "Cursor");
+        live_j2 = f.emu.joystick_source(1);
+        j1_b = ini_value(home.path(), "input/joy1_source");
+        j2_b = ini_value(home.path(), "input/joy2_source");
+    }
+    check("PA-33", "an Input-menu pick saves its own connector and not the other connector's command-line "
+                   "value; a change the pick forced on the other one is saved with it",
+          picked_a && picked_b && j1_a == QLatin1String("none") && j2_a != QLatin1String("keys")
+              && j1_b == QLatin1String("keys") && live_j2 != JoySource::CursorKeys
+              && j2_b == QString::fromLatin1(joy_source_str(live_j2)),
+          (j1_a + "|" + j2_a + "|" + j1_b + "|" + j2_b).toStdString());
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1662,6 +1715,7 @@ int main(int argc, char** argv)
     test_debug_keymap_passthrough();
     test_tape_auto_play_preference();
     test_session_paths_not_persisted();
+    test_joy_menu_persists_only_the_pick();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

@@ -6,6 +6,7 @@
 - File > Recent Files and Reload Last File (Alt+L); load dialogs open on the last file loaded
 - macOS: host shortcuts use Command, Control acts as Symbol Shift; Command never reaches the guest
 - NextPi: extra QEMU arguments (e.g. a second telnet serial port); every NextPi setting has a --nextpi-* flag
+- Every Preferences setting can be set from the command line: --set section.key=value, plus --cpu-speed, --scale and --crt
 
 ### Bug Fixes
 - JNEXT no longer becomes unresponsive after loading a tape: fast load only sprints while the tape is read

@@ -1170,6 +1170,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#the-same-settings-from-the-command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The same settings from the command line
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#apply-ok-and-cancel" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3748,6 +3759,14 @@ quick capture always lands in the same place. It also sets how many Quick Save s
 <p><strong>Debugger Keys</strong> rebinds the debugger's own keys — see
 <a href="../06-debugger/functions/09-changing-the-keys.html">6.3.9</a>. The tab is only
 present in a build with the debugger compiled in.</p>
+<h2 id="the-same-settings-from-the-command-line">The same settings from the command line<a class="headerlink" href="#the-same-settings-from-the-command-line" title="Permanent link">&para;</a></h2>
+<p>Every setting in this dialog can be given for one run with <code>--set
+section.key=value</code>, using the keys of <a href="02-the-configuration-file.html">the configuration
+file</a>; <code>--cpu-speed</code>, <code>--scale</code> and <code>--crt</code> are
+the shorter forms of the Startup tab's CPU speed, Window scale and CRT effect.
+The dialog always shows the <em>saved</em> values, never the command line's, and
+nothing from the command line is saved. How the two combine is in
+<a href="03-what-wins-the-command-line.html">what wins</a>.</p>
 <h2 id="apply-ok-and-cancel">Apply, OK and Cancel<a class="headerlink" href="#apply-ok-and-cancel" title="Permanent link">&para;</a></h2>
 <p><strong>Apply</strong> pushes the settings to the <em>running</em> machine — change the window
 scale or a joystick source and it happens immediately, with nothing lost.

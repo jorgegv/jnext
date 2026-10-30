@@ -118,13 +118,40 @@
 //   Oracle for CLI-DLY: no VHDL (a host CLI). The arithmetic of the definition
 //   above: nominal 1/50 s and 1/60 s per frame.
 //
+//   CLI-SET-01..12  (GH #417) `--set SECTION.KEY=VALUE` and the flags --cpu-speed,
+//               --scale and --crt. Oracle for all: no VHDL (a host CLI); the man page's
+//               "Settings for --set" and the key table (platform/config_keys.h). CLI-SET-06
+//               and CLI-SET-07's start value are checked against the machine itself:
+//               NextREG 0x07 reads back the programmed speed in bits 1:0 and the actual
+//               speed in bits 5:4 (zxnext.vhd:5785-5791, 5817, 5903), so a write of 3
+//               reads 0x33.
+//   CLI-SET-01  the man page's Settings subsection lists every settable key (the
+//               debugger_keys family with its twelve action ids).
+//   CLI-SET-02  ...and nothing else: no unknown key, no key that is not a setting, no repeat.
+//   CLI-SET-03  `--help` lists every settable key on its own entry line.
+//   CLI-SET-04  a refusal table: exit 1, the key and the value named, stdout clean, no crash.
+//   CLI-SET-05  the later of `--set startup.tape_auto_play` and its flag wins, both orders.
+//   CLI-SET-06  the CPU speed reaches the machine (headless): --cpu-speed, --set, and the
+//               later of the two wins.
+//   CLI-SET-07  --cpu-speed takes 3.5, 7, 14 and 28 and nothing else.
+//   CLI-SET-08  a key the running frontend has no use for warns and the run goes on.
+//   CLI-SET-09  --set startup.silent=false undoes --silent, and true is refused with a WAV
+//               recording as --silent is.
+//   CLI-SET-10  --scale takes 1..3; --crt takes its five effects and refuses others.
+//   CLI-SET-11  --set nextpi.* reaches the NextPi settings (the "is ignored" warning names
+//               the flag).
+//   CLI-SET-12  a flag and --set accept the same values of the same key.
+//
 // Every row above was mutation-tested: the thing it protects was broken, the
 // suite rebuilt, and the row confirmed to fail. CLI-BIN-01's timeout guard
 // exists BECAUSE of that exercise (it hung rather than failed).
 
 #include "core/cli_options.h"
+#include "debug/debug_keymap.h"
 #include "platform/cli_delay.h"
+#include "platform/config_keys.h"
 
+#include <algorithm>
 #include <cctype>
 #include <climits>
 #include <cstdio>
@@ -245,6 +272,32 @@ bool scrape_man(const std::string& path, std::map<std::string, ManEntry>& out,
             ManEntry& e = out[name];
             e.metavars = static_cast<int>(italic.size());
             e.seen     = true;
+        }
+    }
+    return true;
+}
+
+// GH #417 - the man page's `## Settings for \--set` subsection: the backtick runs on the
+// column-0 term lines (`section.key`, several to a line allowed; the debugger-key family is
+// `debugger_keys.` followed by an italic ACTION), and the text of the whole subsection.
+bool scrape_settings(const std::string& path, std::vector<std::string>& names,
+                     std::string& text, std::string& err) {
+    std::ifstream in(path);
+    if (!in) { err = "cannot open " + path; return false; }
+    bool in_sub = false;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.compare(0, 3, "## ") == 0) { in_sub = (line == "## Settings for \\--set"); continue; }
+        if (line.compare(0, 2, "# ") == 0) { in_sub = false; continue; }
+        if (!in_sub) continue;
+        text += line + "\n";
+        if (line.empty() || line[0] != '`') continue;
+        for (size_t i = 0; i < line.size();) {
+            if (line[i] != '`') { if (line[i] == ' ' && i + 1 < line.size() && line[i + 1] == '*') break; ++i; continue; }
+            const size_t end = line.find('`', i + 1);
+            if (end == std::string::npos) break;
+            names.push_back(line.substr(i + 1, end - (i + 1)));
+            i = end + 1;
         }
     }
     return true;
@@ -509,6 +562,50 @@ int main() {
             check("CLI-DOC-06", "user guide option page lists every documented flag",
                   missing.empty(), "missing from the guide: " + join(missing));
         }
+    }
+
+    // -----------------------------------------------------------------
+    // GH #417: the man page's "Settings for --set" against the key table, BOTH ways.
+    // -----------------------------------------------------------------
+    {
+        std::vector<std::string> names;
+        std::string text, serr;
+        const bool read = scrape_settings(man_path, names, text, serr);
+        std::vector<std::string> want;
+        for (const config_keys::Key& k : config_keys::KEYS) {
+            if (k.not_setting) continue;
+            want.push_back(k.id == config_keys::KeyId::DebuggerKey
+                               ? std::string(k.section) + "."
+                               : std::string(k.section) + "." + k.name);
+        }
+        std::vector<std::string> missing;
+        for (const std::string& w : want)
+            if (std::find(names.begin(), names.end(), w) == names.end()) missing.push_back(w);
+        // The family entry names every action id, or a twelfth could go undocumented.
+        for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i) {
+            const std::string id = jnext::dbgkeys::info(static_cast<jnext::dbgkeys::Action>(i)).id;
+            if (text.find("`" + id + "`") == std::string::npos) missing.push_back("debugger_keys." + id);
+        }
+        check("CLI-SET-01", "the man page's Settings for --set lists every settable key, and every debugger action id",
+              read && !names.empty() && missing.empty(), read ? "missing: " + join(missing) : serr);
+
+        std::vector<std::string> extra;
+        std::set<std::string> seen;
+        for (const std::string& n : names) {
+            if (!seen.insert(n).second) { extra.push_back(n + " (listed twice)"); continue; }
+            if (!n.empty() && n.back() == '.') {   // the family
+                if (n != std::string(config_keys::section(config_keys::KeyId::DebuggerKey)) + ".")
+                    extra.push_back(n);
+                continue;
+            }
+            const size_t dot = n.find('.');
+            const config_keys::Key* k = dot == std::string::npos ? nullptr
+                : config_keys::find(n.substr(0, dot), n.substr(dot + 1));
+            if (!k) extra.push_back(n + " (no such key)");
+            else if (k->not_setting) extra.push_back(n + " (not a setting)");
+        }
+        check("CLI-SET-02", "...and nothing else: no unknown key, no key that is not a setting, no repeat",
+              read && names.size() >= want.size() && extra.empty(), read ? "extra: " + join(extra) : serr);
     }
 
     // -----------------------------------------------------------------
@@ -851,6 +948,26 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-NUM-07", "an empty --delayed-keypress KEY is not dropped",
                  "jnext binary not built at " + bin);
+            skip("CLI-SET-03", "`jnext --help` lists every settable key",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-04", "a refused --set names the key and the value",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-05", "the later of --set and its flag wins",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-06", "the CPU speed reaches the machine",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-07", "--cpu-speed takes the four speeds",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-08", "a key the frontend has no use for warns and goes on",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-09", "--set startup.silent undoes --silent",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-10", "--scale and --crt vocabularies",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-11", "--set nextpi.* reaches the NextPi settings",
+                 "jnext binary not built at " + bin);
+            skip("CLI-SET-12", "a flag and --set accept the same values",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -869,6 +986,26 @@ int main() {
             skip("CLI-NUM-06", "every numeric option refuses a bad value by name and value",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-NUM-07", "an empty --delayed-keypress KEY is not dropped",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-03", "`jnext --help` lists every settable key",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-04", "a refused --set names the key and the value",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-05", "the later of --set and its flag wins",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-06", "the CPU speed reaches the machine",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-07", "--cpu-speed takes the four speeds",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-08", "a key the frontend has no use for warns and goes on",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-09", "--set startup.silent undoes --silent",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-10", "--scale and --crt vocabularies",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-11", "--set nextpi.* reaches the NextPi settings",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-12", "a flag and --set accept the same values",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -1188,6 +1325,7 @@ int main() {
                 {"--audio-gain-ay1-db",    "", "", "-24", "24", {"24.1", "loud"}},
                 {"--audio-gain-ay2-db",    "", "", "-24", "24", {"24.1", "loud"}},
                 {"--audio-gain-dac-db",    "", "", "-24", "24", {"24.1", "loud"}},
+                {"--scale",                "", "", "1", "3", {"0", "4", "x"}},   // GH #417
             };
             std::map<std::string, bool> numeric_names;
             for (const auto& c : num_cases) numeric_names[c.name] = true;
@@ -1290,6 +1428,277 @@ int main() {
             }
             check("CLI-NUM-07", "an empty --delayed-keypress KEY is queued and refused loudly, not "
                                 "silently dropped", ek.empty(), join(ek));
+
+            // --- CLI-SET-03..12 (GH #417): --set, --cpu-speed, --scale, --crt --------
+            // CLI-SET-03: every settable key has its own entry line in `--help`: two
+            // spaces, then section.key= (the family as debugger_keys.ACTION=), as
+            // CLI-BIN-04 requires of a flag; a mention in another entry's text is not one.
+            {
+                std::vector<std::string> nohelp;
+                if (help_text.empty()) nohelp.push_back("--help produced no stdout");
+                for (const config_keys::Key& k : config_keys::KEYS) {
+                    if (k.not_setting || help_text.empty()) continue;
+                    const std::string entry = "\n  " + std::string(k.section) + "." +
+                        (k.id == config_keys::KeyId::DebuggerKey ? "ACTION" : k.name) + "=";
+                    if (help_text.find(entry) == std::string::npos)
+                        nohelp.push_back(std::string(k.section) + "." + k.name);
+                }
+                check("CLI-SET-03", "`jnext --help` lists every settable key on its own entry line",
+                      nohelp.empty(), "missing from --help: " + join(nohelp));
+            }
+
+            // CLI-SET-04: the refusals.
+            {
+                struct Refuse { const char* args; std::vector<const char*> named; bool version; };
+                const std::vector<Refuse> cases = {
+                    {"--set foo", {"foo"}, true},
+                    {"--set startup.nope=1", {"startup.nope"}, true},
+                    {"--set debugger.size=1,1", {"debugger.size", "1,1"}, true},
+                    {"--set startup.silent=maybe", {"startup.silent", "maybe"}, true},
+                    {"--set startup.cpu_speed=4", {"startup.cpu_speed", "\"4\""}, true},
+                    {"--set startup.when_slow_prefer=fast", {"startup.when_slow_prefer", "fast"}, true},
+                    {"--set debugger_keys.run=Ctrl+", {"debugger_keys.run", "Ctrl+"}, true},
+                    {"--set debugger_keys.nope=F5", {"debugger_keys.nope"}, true},
+                    {"--set esp.allowed_hosts=a,,b", {"esp.allowed_hosts", "a,,b"}, true},
+                    {"--set", {"--set"}, false},   // a trailing --set with no value
+                };
+                std::vector<std::string> bad;
+                for (const Refuse& c : cases) {
+                    const std::string args = std::string(c.args) + (c.version ? " --version" : "");
+                    const int rc = run(args);
+                    run_split(args);
+                    const std::string o = slurp(out_path), e = slurp(err_path);
+                    if (rc == 0) bad.push_back(std::string("accepted: ") + c.args);
+                    if (crashed(e)) bad.push_back(std::string("crash: ") + c.args);
+                    if (!o.empty()) bad.push_back(std::string("stdout not clean: ") + c.args);
+                    for (const char* n : c.named)
+                        if (e.find(n) == std::string::npos)
+                            bad.push_back(std::string("`") + c.args + "` does not name " + n);
+                }
+                check("CLI-SET-04", "a refused --set exits non-zero naming the key and the value, with stdout "
+                                    "clean and no crash", bad.empty(), join(bad));
+            }
+
+            // CLI-SET-05: the later of --set and the flag wins, both orders.
+            {
+                const std::string a = auto_play_line("--set startup.tape_auto_play=false");
+                const std::string b = auto_play_line("--set startup.tape_auto_play=false --tape-auto-play");
+                const std::string c = auto_play_line("--tape-auto-play --set startup.tape_auto_play=false");
+                const std::string d = auto_play_line("--no-tape-auto-play --set startup.tape_auto_play=true");
+                check("CLI-SET-05", "--set startup.tape_auto_play=false turns it off; the later of that and "
+                                    "--tape-auto-play wins, in both orders",
+                      a == "off" && b == "on" && c == "off" && d == "on",
+                      "alone=" + a + " then-flag=" + b + " flag-then=" + c + " nofl-then-true=" + d);
+            }
+
+            // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not
+            // write NR 0x07 itself (it does on the Next, which is the documented limit of a
+            // "starting value"); read at frame 10, by the machine's own register.
+            const std::string jds = bin + tag + ".jds";
+            {
+                { std::ofstream f(jds); f << "on frame 10 once do log \"NR07=${nextreg[0x07]:x2}\" end\n"; }
+                auto nr07 = [&](const std::string& flags) {
+                    run_split("--headless --machine 48k" + sd_arg + " " + flags + " --script \"" + jds +
+                              "\" --delayed-automatic-exit-frames 15");
+                    const std::string all = slurp(out_path) + slurp(err_path);
+                    const size_t at = all.find("NR07=");
+                    return at == std::string::npos ? std::string("none") : all.substr(at + 5, 2);
+                };
+                const std::string d0 = nr07(""), d1 = nr07("--cpu-speed 28"), d2 = nr07("--set startup.cpu_speed=1"),
+                                  d3 = nr07("--cpu-speed 28 --set startup.cpu_speed=0"),
+                                  d4 = nr07("--set startup.cpu_speed=0 --cpu-speed 14"),
+                                  d5 = nr07("--cpu-speed 7"), d6 = nr07("--cpu-speed 14");
+                check("CLI-SET-06", "NR 0x07 reads the programmed speed (bits 1:0) and the actual one (5:4): "
+                                    "default 00, --cpu-speed 28 33, --set 1 11, 7 11, 14 22, the later of flag and --set wins",
+                      d0 == "00" && d1 == "33" && d2 == "11" && d3 == "00" && d4 == "22" && d5 == "11" && d6 == "22",
+                      "default=" + d0 + " 28=" + d1 + " set1=" + d2 + " 28-then-set0=" + d3 +
+                          " set0-then-14=" + d4 + " 7=" + d5 + " 14=" + d6);
+                std::remove(jds.c_str());
+            }
+
+            // CLI-SET-07: --cpu-speed's vocabulary (3.5 spelled in two pieces: a lone "3.5" literal
+            // would read as a row ID to traceability-dup-ids).
+            {
+                std::vector<std::string> bad;
+                const std::string three_five = std::string("3") + "." + "5";
+                for (const std::string v : { three_five, std::string("7"), std::string("14"), std::string("28") })
+                    if (run("--cpu-speed " + v + " --version") != 0) bad.push_back("rejected " + v);
+                for (const char* v : { "3", "5", "x", "" , "3.50", "07", " 7" }) {
+                    const std::string args = std::string("--cpu-speed \"") + v + "\" --version";
+                    run_split(args);
+                    const std::string e = slurp(err_path);
+                    if (run(args) == 0) bad.push_back(std::string("accepted `") + v + "`");
+                    if (e.find("--cpu-speed") == std::string::npos ||
+                        e.find(std::string("\"") + v + "\"") == std::string::npos)
+                        bad.push_back(std::string("refusal of `") + v + "` omits option or value");
+                }
+                check("CLI-SET-07", "--cpu-speed accepts 3.5, 7, 14 and 28 and refuses anything else naming the "
+                                    "option and the value", bad.empty(), join(bad));
+            }
+
+            // CLI-SET-08: a key the running frontend has no use for warns and goes on (headless).
+            {
+                struct Warn { const char* args; const char* spelling; };
+                const std::vector<Warn> cases = {
+                    {"--set startup.window_scale=2", "--set startup.window_scale"},
+                    {"--scale 2", "--scale"},
+                    {"--crt tv", "--crt"},
+                    {"--set paths.last_load_dir=/x", "--set paths.last_load_dir"},
+                    {"--set screenshot.quick_format=scr", "--set screenshot.quick_format"},
+                    {"--set debugger_keys.run=F5", "--set debugger_keys.run"},
+                    {"--set debugger.attached=false", "--set debugger.attached"},
+                    {"--set startup.emulator_speed_percent=50", "--set startup.emulator_speed_percent"},
+                    {"--speed 50", "--speed"},
+                    {"--set snapshot.quick_keep=3", "--set snapshot.quick_keep"},
+                };
+                std::vector<std::string> bad;
+                for (const Warn& c : cases) {
+                    const std::string args = std::string("--headless --machine 48k") + sd_arg + " " + c.args +
+                                             " --delayed-automatic-exit-frames 1";
+                    const int rc = run(args);
+                    run_split(args);
+                    const std::string e = slurp(err_path);
+                    const std::string want = std::string("warning: ") + c.spelling + " has no effect with --headless";
+                    if (rc != 0) bad.push_back(std::string("exit non-zero: ") + c.args);
+                    if (e.find(want) == std::string::npos) bad.push_back(std::string("no `") + want + "`");
+                }
+                // A key the frontend DOES use does not warn.
+                const std::string quiet = std::string("--headless --machine 48k") + sd_arg +
+                    " --set startup.cpu_speed=1 --set audio.gain_db=-3 --delayed-automatic-exit-frames 1";
+                run_split(quiet);
+                if (slurp(err_path).find("has no effect") != std::string::npos)
+                    bad.push_back("a key headless uses warned");
+                check("CLI-SET-08", "under --headless a key only the windows use warns \"<spelling> has no effect "
+                                    "with --headless\" and the run exits 0; one it uses does not warn",
+                      bad.empty(), join(bad));
+            }
+
+            // CLI-SET-09: --set startup.silent=false undoes --silent; true is refused with --wav-record.
+            {
+                const std::string wav = bin + tag + ".wav";
+                std::remove(wav.c_str());
+                std::vector<std::string> bad;
+                run_split("--headless --machine 48k" + sd_arg + " --set startup.silent=true --wav-record \"" + wav + "\"");
+                const std::string e1 = slurp(err_path);
+                if (run("--headless --machine 48k" + sd_arg + " --set startup.silent=true --wav-record \"" + wav + "\"") == 0)
+                    bad.push_back("silent=true + --wav-record accepted");
+                if (e1.find("--wav-record cannot be combined with --silent") == std::string::npos)
+                    bad.push_back("not the --silent refusal: " + e1);
+                const int rc = run("--headless --machine 48k" + sd_arg + " --silent --set startup.silent=false --wav-record \"" +
+                                   wav + "\" --delayed-automatic-exit-frames 5");
+                std::ifstream w(wav, std::ios::binary | std::ios::ate);
+                if (rc != 0) bad.push_back("--silent then silent=false + --wav-record failed");
+                if (!w || w.tellg() <= 44) bad.push_back("no WAV written");
+                std::remove(wav.c_str());
+                check("CLI-SET-09", "--set startup.silent=true is refused with --wav-record as --silent is; "
+                                    "--silent then silent=false is not, and the WAV is written",
+                      bad.empty(), join(bad));
+            }
+
+            // CLI-SET-10: --scale and --crt.
+            {
+                std::vector<std::string> bad;
+                for (const char* v : { "1", "2", "3" })
+                    if (run(std::string("--scale ") + v + " --version") != 0) bad.push_back(std::string("--scale rejected ") + v);
+                for (const char* v : { "0", "4", "x", "2x" }) {
+                    const std::string args = std::string("--scale ") + v + " --version";
+                    run_split(args);
+                    const std::string e = slurp(err_path);
+                    if (run(args) == 0) bad.push_back(std::string("--scale accepted ") + v);
+                    if (e.find("--scale") == std::string::npos || e.find(std::string("\"") + v + "\"") == std::string::npos)
+                        bad.push_back(std::string("--scale refusal omits option or value: ") + v);
+                }
+                for (const char* v : { "off", "scanlines" })
+                    if (run(std::string("--crt ") + v + " --version") != 0) bad.push_back(std::string("--crt rejected ") + v);
+                // The three GPU looks: accepted, or - in a Qt build without the shader - refused
+                // saying so (a build with it, and every other build, takes them).
+                for (const char* v : { "soft", "tv", "pc" }) {
+                    const std::string args = std::string("--crt ") + v + " --version";
+                    run_split(args);
+                    if (run(args) != 0 && slurp(err_path).find("GPU shader") == std::string::npos)
+                        bad.push_back(std::string("--crt ") + v + " refused without saying why");
+                }
+                for (const char* v : { "crt", "", "TV", "scanline" }) {
+                    const std::string args = std::string("--crt \"") + v + "\" --version";
+                    run_split(args);
+                    const std::string e = slurp(err_path);
+                    if (run(args) == 0) bad.push_back(std::string("--crt accepted `") + v + "`");
+                    if (e.find("--crt") == std::string::npos || e.find(std::string("\"") + v + "\"") == std::string::npos)
+                        bad.push_back(std::string("--crt refusal omits option or value: `") + v + "`");
+                }
+                check("CLI-SET-10", "--scale takes 1..3; --crt takes off and scanlines, the GPU looks where the build "
+                                    "has them, and refuses anything else; refusals name the option and the value",
+                      bad.empty(), join(bad));
+            }
+
+            // CLI-SET-11: --set nextpi.* is the --nextpi-* flag: without NextPi the warning names it.
+            {
+                run_split("--headless --machine 48k" + sd_arg +
+                          " --set nextpi.qemu_args=-a=b --delayed-automatic-exit-frames 1");
+                const std::string all = slurp(out_path) + slurp(err_path);
+                check("CLI-SET-11", "--set nextpi.qemu_args=-a=b (split at the first =) without --nextpi gives "
+                                    "the NextPi \"is ignored\" warning for --nextpi-qemu-args",
+                      all.find("--nextpi-qemu-args is ignored: NextPi is not enabled") != std::string::npos, all);
+            }
+
+            // CLI-SET-12: a flag and --set accept the same values of the same key.
+            {
+                struct Pair { const char* flag; const char* key; std::vector<const char*> ok, no; };
+                const std::string guid = "0123456789abcdef0123456789ABCDEF";
+                const std::vector<Pair> pairs = {
+                    {"--machine", "startup.machine_type", {"48k", "128K", " next ", "plus3", "p3", "+3", "pent"}, {"x", ""}},
+                    {"--when-slow-prefer", "startup.when_slow_prefer", {"audio", "VIDEO", " video "}, {"fast", ""}},
+                    {"--joy1-source", "input.joy1_source", {"sdl", "KEYS", "none", "pad", "off", " none "}, {"x", ""}},
+                    {"--joy2-source", "input.joy2_source", {"sdl", "none"}, {"x", ""}},
+                    {"--joy1-device", "input.joy1_device", {guid.c_str(), "", " 0123456789abcdef0123456789abcdef#3 "}, {"xyz", "zz"}},
+                    {"--mouse-release", "input.mouse_release", {"ctrl-alt", "ESC", "middle-click"}, {"right", ""}},
+                    {"--quick-snapshot-keep", "snapshot.quick_keep", {"unlimited", "1", "1000000"}, {"0", "1000001", "x", ""}},
+                    {"--audio-gain-db", "audio.gain_db", {"-24", "24", "-1.5", "+3", "1e1", ".5"}, {"24.1", "x", "", "0x10", "inf", "nan"}},
+                    {"--audio-gain-beeper-db", "audio.gain_beeper_db", {"0"}, {"loud"}},
+                    {"--audio-gain-ay0-db", "audio.gain_ay0_db", {"0"}, {"loud"}},
+                    {"--audio-gain-ay1-db", "audio.gain_ay1_db", {"0"}, {"loud"}},
+                    {"--audio-gain-ay2-db", "audio.gain_ay2_db", {"0"}, {"loud"}},
+                    {"--audio-gain-dac-db", "audio.gain_dac_db", {"0"}, {"loud"}},
+                    {"--nextpi-dir", "nextpi.dir", {"/a b", "", "  /x  "}, {}},
+                    {"--sdcard", "paths.sd_card_path", {"/a b/c.img"}, {}},
+                };
+                std::vector<std::string> bad;
+                for (const Pair& p : pairs) {
+                    for (int ok = 1; ok >= 0; --ok) {
+                        for (const char* v : ok ? p.ok : p.no) {
+                            const std::string q = std::string("\"") + v + "\"";
+                            const bool f = run(std::string(p.flag) + " " + q + " --version") == 0;
+                            const bool k = run(std::string("--set ") + p.key + "=" + q + " --version") == 0;
+                            if (f != static_cast<bool>(ok) || k != static_cast<bool>(ok))
+                                bad.push_back(std::string(p.flag) + "/" + p.key + " on `" + v + "`: flag " +
+                                              (f ? "accepts" : "refuses") + ", --set " + (k ? "accepts" : "refuses"));
+                        }
+                    }
+                }
+                // Keys with no flag: one accepted and one refused value each, by type.
+                const std::vector<std::pair<const char*, bool>> setonly = {
+                    {"startup.silent=true", true}, {"startup.silent=FALSE", true}, {"startup.silent=1", false},
+                    {"startup.cpu_speed=3", true}, {"startup.cpu_speed=4", false},
+                    {"startup.window_scale=2", true}, {"startup.window_scale=0", false},
+                    {"startup.crt_shader_style=2", true}, {"startup.crt_shader_style=3", false},
+                    {"startup.crt_filter=true", true}, {"startup.crt_shader=maybe", false},
+                    {"paths.last_load_dir=/a b, c", true}, {"screenshot.quick_format=SCR", true},
+                    {"screenshot.quick_format=jpg", false},
+                    {"debugger_keys.run=Ctrl+Shift+F10", true}, {"debugger_keys.run=none", true},
+                    {"debugger_keys.run=Ctrl+", false},
+                    {"debugger.attached=false", true}, {"debugger.attached=2", false},
+                    {"esp.allowed_hosts=a.example, b.example", true}, {"esp.allowed_hosts=", true},
+                    {"esp.allowed_hosts=a.example,,b", false},
+                };
+                for (const auto& c : setonly) {
+                    const std::string args = std::string("--set \"") + c.first + "\" --version";
+                    if ((run(args) == 0) != c.second)
+                        bad.push_back(std::string("--set ") + c.first + (c.second ? " refused" : " accepted"));
+                }
+                check("CLI-SET-12", "a flag and --set accept and refuse the same values of the same key (one per "
+                                    "type: bool, int, float, word, machine, device id, keep, host list, combo, text)",
+                      bad.empty(), join(bad));
+            }
 
             std::remove(out_path.c_str());
             std::remove(err_path.c_str());

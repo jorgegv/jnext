@@ -113,6 +113,7 @@
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)
 - Preferences dialog (Settings → Preferences…, Alt+P): configure startup defaults, input sources, live host audio gain, remembered paths and the quick-screenshot directory/format; saved to `~/.jnext/jnext.conf` — CLI flags always override saved settings
+- Every Preferences setting can be set for one run from the command line: `--set section.key=value` (the `jnext.conf` keys, listed in `--help` and jnext(1)), plus `--cpu-speed`, `--scale` and `--crt`; the later of a flag and `--set` of one key wins, an unusable key for the frontend warns, and nothing given on the command line is written back to the file
 
 ## Distribution / packaging
 - Native Linux packages via CMake CPack: TGZ, DEB, RPM; plus a Fedora `packaging/rpm/jnext.spec` and a Debian/Ubuntu `packaging/debian/` source package

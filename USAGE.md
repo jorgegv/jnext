@@ -22,6 +22,7 @@ the two can never disagree. For building jnext from source, see
   - [Headless and automation](#headless-and-automation)
   - [Debugging](#debugging)
   - [Misc](#misc)
+  - [Settings for --set](#settings-for---set)
 - [MACHINES](#machines)
 - [SD CARD AND ROMS](#sd-card-and-roms)
   - [CHANGING THE CARD WHILE RUNNING](#changing-the-card-while-running)
@@ -257,6 +258,61 @@ by mechanisms a firmware-resident machine does not have.
 The recording is made on your machine from the image you mounted, and is
 never shipped with **jnext**: it contains NextZXOS and DivMMC ROM
 content.
+
+**--set** *SECTION.KEY=VALUE*  
+Set one setting of `~/.jnext/jnext.conf` for this run. Every Preferences
+setting can be given this way: the key is the file’s `[section]` and key
+name joined with a dot, the value is what the file holds, and the keys
+are listed under **Settings for --set** below. Repeat it for more
+(`--set audio.gain_db=-6 --set startup.silent=false`). The split is at
+the first `=`, so a value may contain one.
+
+A value that is not accepted, or a key that does not exist, is a usage
+error naming both, and **jnext** exits with status 1. A key the running
+frontend has no use for (a window setting under **--headless**, say) is
+reported with a warning and ignored, so one command line can serve all
+three frontends.
+
+**Precedence.** The command line wins over the saved `jnext.conf`, which
+wins over the built-in default; a flag and **--set** are the same thing,
+and the later of two settings of one key wins whichever way it is
+spelled (`--cpu-speed 28 --set startup.cpu_speed=0` starts at 3.5 MHz).
+Nothing given on the command line is ever written to `jnext.conf`. A
+change made in the window during the run takes over from then on (a
+**Preferences** OK or Apply, a menu, a file dialog that moves the last
+directory), and **Preferences** shows the saved values, not the command
+line’s.
+
+A boolean is `true` or `false`. It also reaches what a flag cannot:
+`--set startup.silent=false` plays sound for one run although the file
+says muted, `--set startup.tape_fast_load=true` forces fast loading over
+a saved real-time setting, `--set input.joy1_device=` (empty) chooses
+Automatic over a saved controller, and `--set esp.allowed_hosts=`
+(empty) allows any host over a saved list.
+
+**--cpu-speed** *MHZ*  
+The CPU speed the machine starts at: `3.5`, `7`, `14` or `28`, exactly.
+The same as `--set startup.cpu_speed=0..3`, and like it a *starting*
+value: the speed is programmed through NextREG 0x07 when the machine has
+started, as **Preferences** does. NextZXOS then sets its own speed while
+it boots, as the hardware’s firmware does, so on the Next machine a
+program that waits for the firmware sees the firmware’s speed, not this
+one. On the other machines it holds. Works in the Qt window, the
+SDL-only build and **--headless**.
+
+**--scale** *N*  
+Window scale 1 to 3 for this run, over the saved **Preferences** value.
+The same as `--set startup.window_scale`. Qt window only: elsewhere
+**jnext** warns and ignores it.
+
+**--crt** *EFFECT*  
+CRT effect for this run: `off`, `scanlines`, `soft`, `tv` or `pc`, the
+choices of the **Preferences** CRT effect pop-up. The same as setting
+`startup.crt_filter`, `startup.crt_shader` and
+`startup.crt_shader_style` together. `soft`, `tv` and `pc` need the GPU
+shader; a build without it refuses them (exit status 1) and offers `off`
+and `scanlines`. Qt window only: elsewhere **jnext** warns and ignores
+it.
 
 **--speed** *PERCENT*  
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x. Clamped
@@ -1091,6 +1147,129 @@ Print the built-in help and exit.
 
 **--version**, **-V**  
 Print the version and exit.
+
+### Settings for --set
+
+Each entry below is a key of `~/.jnext/jnext.conf`, written
+`section.key`, with the values it takes. Where the setting has a flag of
+its own, the entry names it: the flag and **--set** are the same
+setting, and the later one given wins. The entries say which frontends
+use the key: the Qt window, the SDL-only build (both interactive) or
+**--headless**. Booleans are `true` or `false`.
+
+`startup.machine_type` *48k\|128k\|plus3\|pentagon\|next*  
+The machine type; **--machine**. All frontends.
+
+`startup.cpu_speed` *0..3*  
+The CPU speed at start: 0 is 3.5 MHz, 1 is 7, 2 is 14, 3 is 28;
+**--cpu-speed** takes the MHz. A starting value: NextZXOS sets its own
+speed while it boots. All frontends.
+
+`startup.emulator_speed_percent` *10..1000*  
+The emulation speed as a percentage of real time; **--speed**. Where
+**--speed** clamps a value outside the range, **--set** refuses it. The
+Qt window and the SDL-only build.
+
+`startup.window_scale` *1..3*  
+The window scale; **--scale**. The Qt window.
+
+`startup.crt_filter` *true\|false*  
+The software scanlines effect; **--crt scanlines**. The Qt window.
+
+`startup.crt_shader` *true\|false*  
+The GPU CRT shader; **--crt**. The Qt window.
+
+`startup.crt_shader_style` *0..2*  
+The shader’s look: 0 is `tv`, 1 is `pc`, 2 is `soft`; **--crt**. The Qt
+window.
+
+`startup.silent` *true\|false*  
+Start with the sound muted; **--silent**. All frontends.
+
+`startup.tape_fast_load` *true\|false*  
+Tape fast-load; `false` is real time, which is **--tape-realtime**. All
+frontends.
+
+`startup.tape_auto_play` *true\|false*  
+Automatic tape play and stop; **--tape-auto-play** and
+**--no-tape-auto-play**. All frontends.
+
+`startup.when_slow_prefer` *audio\|video*  
+What a host too slow for real time sacrifices; **--when-slow-prefer**.
+The Qt window and the SDL-only build.
+
+`audio.gain_db`, `audio.gain_beeper_db`, `audio.gain_ay0_db`, `audio.gain_ay1_db`, `audio.gain_ay2_db`, `audio.gain_dac_db` *-24..24*  
+The master, beeper, AY \#0, \#1, \#2 and DAC gains in dB;
+**--audio-gain-db**, **--audio-gain-beeper-db**,
+**--audio-gain-ay0-db**, **--audio-gain-ay1-db**,
+**--audio-gain-ay2-db** and **--audio-gain-dac-db**. All frontends.
+
+`paths.last_load_dir` *PATH*  
+The directory the Load dialogs open in. The Qt window.
+
+`paths.sd_card_path` *FILE*  
+The SD card image; **--sdcard**. Empty means none given. All frontends.
+
+`paths.screenshot_dir` *PATH*  
+The directory the Save Screenshot dialog opens in. The Qt window.
+
+`screenshot.quick_dir` *PATH*  
+The Quick Screenshot directory; empty means `~/.jnext/screenshots`. The
+Qt window.
+
+`screenshot.quick_format` *png\|scr*  
+The Quick Screenshot format. The Qt window.
+
+`snapshot.quick_keep` *1..1000000\|unlimited*  
+How many quick snapshots Quick Save keeps; **--quick-snapshot-keep**.
+The Qt window and the SDL-only build.
+
+`input.joy1_source`, `input.joy2_source` *sdl\|keys\|none*  
+The host source for Joy 1 and Joy 2; **--joy1-source** and
+**--joy2-source**. The Qt window and the SDL-only build.
+
+`input.joy1_device`, `input.joy2_device` *ID*  
+The controller assigned to Joy 1 and Joy 2 (32 hex digits, optionally
+`#N`); empty is Automatic, which **--joy1-device** and **--joy2-device**
+cannot say. The Qt window and the SDL-only build.
+
+`input.mouse_release` *ctrl-alt\|middle-click\|esc*  
+How a captured mouse is released; **--mouse-release**. The Qt window and
+the SDL-only build.
+
+`debugger_keys.`*ACTION* *COMBO*  
+The key combination of a debugger action, like the **Preferences**
+Debugger Keys tab: *ACTION* is `run`, `pause`, `step_into`, `step_over`,
+`step_out`, `step_back`, `frame_back`, `run_to_cursor`, `run_to_eof`,
+`run_to_eosl`, `trace_toggle` or `trace_export`, and `none` unbinds it.
+A combination that is not legal there, or that another action already
+holds (unless the same command line frees it), is refused with exit
+status 1 before the window opens. The Qt window with the debugger.
+
+`esp.enabled` *true\|false*  
+The emulated ESP-01 WiFi module; **--esp** and **--no-esp**. All
+frontends.
+
+`esp.allowed_hosts` *HOST,HOST,…*  
+The hosts the ESP may connect to, comma-separated; empty means any;
+**--esp-allow** gives one host per option and is appended to this list.
+All frontends.
+
+`nextpi.enabled` *true\|false*  
+NextPi under QEMU on UART 1; **--nextpi** and **--no-nextpi**. All
+frontends.
+
+`nextpi.dir`, `nextpi.release`, `nextpi.qemu_binary`, `nextpi.audio`, `nextpi.qemu_args` *TEXT*  
+The NextPi directory, release, QEMU binary, Pi audio and extra QEMU
+arguments; **--nextpi-dir**, **--nextpi-release**, **--nextpi-qemu**,
+**--nextpi-audio** and **--nextpi-qemu-args**. Surrounding blanks are
+removed. All frontends.
+
+`debugger.attached` *true\|false*  
+Whether the debugger window follows the emulator window. The window
+opens as told for this run; the file keeps its value until the **Attach
+to Emulator Window** menu item is toggled. The Qt window with the
+debugger.
 
 ## MACHINES
 
@@ -2652,7 +2831,9 @@ The debugger window’s layout is stored under `[debugger]`: `size`
 and `attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is
 merged into this section once and removed. All section names are
 lowercase. CLI options always take precedence over saved values, and
-headless runs never read it.
+headless runs never read it. Every key above can also be set for one
+run, without touching the file, with **--set** *section.key=value* (see
+**Settings for --set**).
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless

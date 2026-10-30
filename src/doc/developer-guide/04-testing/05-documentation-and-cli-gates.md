@@ -137,6 +137,27 @@ is not a setting (the remembered geometry, the recent-files history, derived
 names, the file format version) is declared in the table with its reason, and
 `SETK-03` pins that list.
 
+### `--set`, the other half of the same table
+
+`--set SECTION.KEY=VALUE` (stage 2 of GH #417) is parsed by
+`config_keys::parse_assignment()` and applied in `main.cpp` by one lambda,
+`apply_assignment`, whose `switch (a.id)` over `config_keys::KeyId` has **no
+`default`**: the `jnext` target builds with `-Werror=switch`, so a row added to
+the table with no arm there is a compile error. The man page's `## Settings for
+\--set` subsection is diffed against the table both ways (`CLI-SET-01` lists
+every settable key and every debugger action id, `CLI-SET-02` finds nothing
+else), and `--help` prints the same list from the table (`CLI-SET-03`). A
+dedicated flag that has a key (`flag` in the row, checked by `SETK-04`) asks the
+table for its value too, so the flag and `--set` accept the same values
+(`CLI-SET-12`).
+
+The Qt session must never save a command-line value. `main.cpp` merges `--set`
+into its own copy of the saved values (`merge_cli_assignments`, `AC-97`), which
+is never saved; `MainWindow` keeps a *session* copy of the four settings it
+reads live (`PA-29`..`PA-32`), the debugger window keeps `attach_saved_` apart
+from `attach_enabled_` (`DWK-02`), and the debugger keymap of the run is
+`set_session_debug_keys` (`DWK-03`).
+
 ## The residual gap, stated plainly
 
 `cli-check` covers the **flag set**, not the **prose**. The wrong scale range

@@ -226,14 +226,16 @@ static bool hex16_arg(const std::string& arg, const cli::Option* opt, const char
     return true;
 }
 
-// GH #417 - `--set` trims a word value (config_keys.cpp), so the flags that
-// have the same key trim it too: one vocabulary, two spellings.
-static std::string trim_arg(const char* v) {
-    std::string s = v;
-    size_t b = 0, e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
-    return s.substr(b, e - b);
+// GH #417 - a flag that has a jnext.conf key (--machine, --when-slow-prefer,
+// --joyN-source/-device, --mouse-release, --quick-snapshot-keep, --audio-gain-*-db)
+// accepts exactly the values `--set` accepts for that key, because both ask the
+// key table: one vocabulary, two spellings. On true, `out.text` is the canonical
+// value; on false the caller prints the flag's own message (they are pinned).
+static bool via_table(config_keys::KeyId id, const char* value, config_keys::Assignment& out) {
+    const config_keys::Key& k = config_keys::info(id);
+    std::string why;
+    return config_keys::parse_assignment(
+        (std::string(k.section) + "." + k.name + "=" + (value ? value : "")).c_str(), out, why);
 }
 
 int main(int argc, char* argv[]) {
@@ -763,7 +765,9 @@ int main(int argc, char* argv[]) {
                 }
                 break;
             case cli::OptId::Machine:
-                if (!parse_machine_type(trim_arg(v[0]), machine_type)) {
+                if (config_keys::Assignment a;
+                    !via_table(config_keys::KeyId::StartupMachineType, v[0], a) ||
+                    !parse_machine_type(a.text, machine_type)) {
                     fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", v[0]);
                     return 1;
                 }
@@ -1058,21 +1062,24 @@ int main(int argc, char* argv[]) {
             case cli::OptId::AudioGainAy1Db:
             case cli::OptId::AudioGainAy2Db:
             case cli::OptId::AudioGainDacDb: {
-                const std::string value = v[0];
-                float parsed = 0.0f;
-                try {
-                    size_t consumed = 0;
-                    parsed = std::stof(value, &consumed);
-                    if (consumed != value.size() || !std::isfinite(parsed) ||
-                        parsed < -24.0f || parsed > 24.0f) {
-                        throw std::invalid_argument("range");
-                    }
-                } catch (const std::exception&) {
+                // The same values --set audio.gain_*_db takes (the key table).
+                config_keys::KeyId gk = config_keys::KeyId::AudioGainDb;
+                switch (opt->id) {
+                case cli::OptId::AudioGainBeeperDb: gk = config_keys::KeyId::AudioGainBeeperDb; break;
+                case cli::OptId::AudioGainAy0Db:    gk = config_keys::KeyId::AudioGainAy0Db; break;
+                case cli::OptId::AudioGainAy1Db:    gk = config_keys::KeyId::AudioGainAy1Db; break;
+                case cli::OptId::AudioGainAy2Db:    gk = config_keys::KeyId::AudioGainAy2Db; break;
+                case cli::OptId::AudioGainDacDb:    gk = config_keys::KeyId::AudioGainDacDb; break;
+                default: break;
+                }
+                config_keys::Assignment ga;
+                if (!via_table(gk, v[0], ga)) {
                     fprintf(stderr, "%s: expected a number from -24 to +24 dB, not \"%s\".\n",
                             arg.c_str(), v[0]);
                     return 1;
                 }
-                (void)cli::assign_audio_gain(opt->id, parsed, audio_gain);
+                (void)cli::assign_audio_gain(opt->id, static_cast<float>(std::strtod(ga.text.c_str(), nullptr)),
+                                             audio_gain);
                 break;
             }
             case cli::OptId::RzxPlay:
@@ -1098,13 +1105,10 @@ int main(int argc, char* argv[]) {
                 note_given(config_keys::KeyId::StartupEmulatorSpeedPercent, arg);
                 break;
             case cli::OptId::WhenSlowPrefer: {
-                std::string what = trim_arg(v[0]);
-                for (auto& c : what)
-                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (what == "audio") {
-                    when_slow_prefer = audio_pacing::WhenSlowPrefer::Audio;
-                } else if (what == "video") {
-                    when_slow_prefer = audio_pacing::WhenSlowPrefer::Video;
+                config_keys::Assignment wa;
+                if (via_table(config_keys::KeyId::StartupWhenSlowPrefer, v[0], wa)) {
+                    when_slow_prefer = wa.text == "video" ? audio_pacing::WhenSlowPrefer::Video
+                                                          : audio_pacing::WhenSlowPrefer::Audio;
                 } else {
                     fprintf(stderr,
                             "Unknown --when-slow-prefer value: %s (valid: audio, video)\n",
@@ -1119,7 +1123,10 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Joy2Source: {
                 const int idx = (opt->id == cli::OptId::Joy1Source) ? 0 : 1;
                 JoySource src;
-                if (!parse_joy_source(trim_arg(v[0]).c_str(), src)) {
+                config_keys::Assignment ja;
+                if (!via_table(idx == 0 ? config_keys::KeyId::InputJoy1Source
+                                        : config_keys::KeyId::InputJoy2Source, v[0], ja) ||
+                    !parse_joy_source(ja.text.c_str(), src)) {
                     std::fprintf(stderr, "Invalid %s value '%s' (expected 'sdl', 'keys' or 'none')\n",
                                  arg.c_str(), v[0]);
                     return 1;
@@ -1133,19 +1140,24 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Joy1Device:
             case cli::OptId::Joy2Device: {
                 const int idx = (opt->id == cli::OptId::Joy1Device) ? 0 : 1;
-                if (!normalize_joy_device_id(trim_arg(v[0]), joy_device_id[idx])) {
+                config_keys::Assignment da;
+                if (!via_table(idx == 0 ? config_keys::KeyId::InputJoy1Device
+                                        : config_keys::KeyId::InputJoy2Device, v[0], da)) {
                     std::fprintf(stderr,
                         "Invalid %s value '%s' (expected the 32-hex-digit controller id "
                         "jnext logs, optionally followed by #N)\n", arg.c_str(), v[0]);
                     return 1;
                 }
+                joy_device_id[idx]  = da.text;   // empty = Automatic, as --set input.joyN_device= says
                 joy_device_set[idx] = true;
                 note_given(idx == 0 ? config_keys::KeyId::InputJoy1Device
                                     : config_keys::KeyId::InputJoy2Device, arg);
                 break;
             }
             case cli::OptId::MouseRelease:
-                if (!pointer_capture::parse_release_method(trim_arg(v[0]), mouse_release)) {
+                if (config_keys::Assignment ma;
+                    !via_table(config_keys::KeyId::InputMouseRelease, v[0], ma) ||
+                    !pointer_capture::parse_release_method(ma.text, mouse_release)) {
                     std::fprintf(stderr,
                         "Unknown --mouse-release value: %s (valid: ctrl-alt, middle-click, esc)\n",
                         v[0]);

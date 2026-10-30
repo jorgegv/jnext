@@ -517,8 +517,16 @@ void MainWindow::resync_input_dispatchers() {
     if (mouse_dispatcher_) mouse_dispatcher_->resync();
 }
 
-void MainWindow::persist_joy_config() {
+// GH #417: only what this menu pick CHANGED reaches the file: the connector picked and, when the
+// emulator's one-cursor / one-controller rules moved the other, that one. A connector the pick did
+// not touch may be running a command-line value (`--joy2-source keys`), which must stay out of
+// jnext.conf.
+void MainWindow::persist_joy_config(int connector, const JoySource before_source[2],
+                                    const JoyDeviceRef before_device[2]) {
     for (int i = 0; i < 2; ++i) {
+        if (i != connector && emulator_->joystick_source(i) == before_source[i] &&
+            emulator_->joystick_device(i).id == before_device[i].id)
+            continue;
         app_config_.data().joy_source[i] = emulator_->joystick_source(i);
         app_config_.data().joy_device[i] =
             QString::fromStdString(emulator_->joystick_device(i).id);
@@ -530,6 +538,8 @@ void MainWindow::persist_joy_config() {
 
 void MainWindow::on_joy_choice_selected(int connector, const JoyChoice& choice) {
     if (!emulator_) return;
+    const JoySource before_source[2] = { emulator_->joystick_source(0), emulator_->joystick_source(1) };
+    const JoyDeviceRef before_device[2] = { emulator_->joystick_device(0), emulator_->joystick_device(1) };
     // The emulator enforces the one-cursor-connector and one-controller-per-
     // connector rules (it may reset the other connector), so read the
     // effective state back for both the menu and the persisted config.
@@ -560,7 +570,7 @@ void MainWindow::on_joy_choice_selected(int connector, const JoyChoice& choice) 
         break;
     }
     sync_joy_source_menu();
-    persist_joy_config();
+    persist_joy_config(connector, before_source, before_device);
 }
 
 void MainWindow::sync_joy_source_menu() {

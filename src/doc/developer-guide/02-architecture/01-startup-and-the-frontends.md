@@ -36,6 +36,26 @@ throw on `x`, which aborts the process, and read `5x` as 5. A value that is not
 a whole number in the option's range is a usage error: `main.cpp` prints the
 option and the offending value and exits 1.
 
+`--set SECTION.KEY=VALUE` (GH #417) is one more row of the table, and its value
+is checked at parse time against a second table, `config_keys::KEYS` in
+`src/platform/config_keys.h`: the keys of `jnext.conf`. A key with a dedicated
+flag (`--cpu-speed`, `--scale`, `--crt`, `--silent`, `--machine`, ...) and the
+same key given with `--set` land in the **same variables**, in argument order,
+so the later of the two wins. Where they take effect differs by frontend, and
+the row of the table says where:
+
+- **headless and the SDL-only build** read no `jnext.conf`; the command-line
+  value is the whole setting. The CPU speed is programmed with the NR 0x07
+  write `apply_startup_config()` does for the Qt window, right after
+  `app.init()`. A key the frontend has no use for prints
+  `warning: <spelling> has no effect ...` and the run goes on.
+- **the Qt window** merges the Qt-only keys (`merge_cli_assignments`) and the
+  CPU speed into its own copy of the saved values, then hands that copy to
+  `MainWindow::apply_startup_config()`. The debugger keys of the run go to
+  `set_session_debug_keys()` after `dbgkeys::apply_overrides()` has refused a
+  clash, and `debugger.attached` to `DebuggerManager::set_attach_override()`.
+  None of it reaches `MainWindow::app_config_`, the object that is saved.
+
 Two argument shapes bypass the table lookup, both on purpose.
 `--log-level=VALUE` is the one inline-value form and is matched by prefix
 before the lookup happens, because scripts using that spelling predate the

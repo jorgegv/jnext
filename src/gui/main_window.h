@@ -693,8 +693,10 @@ private:
     std::function<std::vector<JoyDeviceInfo>()> joy_device_provider_;
     // Live-apply + persist a pick from a connector's submenu.
     void on_joy_choice_selected(int connector, const JoyChoice& choice);
-    // Copy the emulator's effective sources and assignments into the config and save.
-    void persist_joy_config();
+    // Copy the emulator's effective source and assignment of the connector just picked, and of the
+    // other one if the pick changed it, into the config and save (GH #417).
+    void persist_joy_config(int connector, const JoySource before_source[2],
+                            const JoyDeviceRef before_device[2]);
 
     // Screenshot actions
     QAction* screenshot_action_ = nullptr;

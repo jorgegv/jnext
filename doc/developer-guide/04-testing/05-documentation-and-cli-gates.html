@@ -1863,6 +1863,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The table of jnext.conf keys">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-set-the-other-half-of-the-same-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --set, the other half of the same table
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2466,6 +2483,24 @@ value; <code>DWK-01</code> does the same for the keys <code>DebuggerWindow</code
 is not a setting (the remembered geometry, the recent-files history, derived
 names, the file format version) is declared in the table with its reason, and
 <code>SETK-03</code> pins that list.</p>
+<h3 id="-set-the-other-half-of-the-same-table"><code>--set</code>, the other half of the same table<a class="headerlink" href="#-set-the-other-half-of-the-same-table" title="Permanent link">&para;</a></h3>
+<p><code>--set SECTION.KEY=VALUE</code> (stage 2 of GH #417) is parsed by
+<code>config_keys::parse_assignment()</code> and applied in <code>main.cpp</code> by one lambda,
+<code>apply_assignment</code>, whose <code>switch (a.id)</code> over <code>config_keys::KeyId</code> has <strong>no
+<code>default</code></strong>: the <code>jnext</code> target builds with <code>-Werror=switch</code>, so a row added to
+the table with no arm there is a compile error. The man page's <code>## Settings for
+\--set</code> subsection is diffed against the table both ways (<code>CLI-SET-01</code> lists
+every settable key and every debugger action id, <code>CLI-SET-02</code> finds nothing
+else), and <code>--help</code> prints the same list from the table (<code>CLI-SET-03</code>). A
+dedicated flag that has a key (<code>flag</code> in the row, checked by <code>SETK-04</code>) asks the
+table for its value too, so the flag and <code>--set</code> accept the same values
+(<code>CLI-SET-12</code>).</p>
+<p>The Qt session must never save a command-line value. <code>main.cpp</code> merges <code>--set</code>
+into its own copy of the saved values (<code>merge_cli_assignments</code>, <code>AC-97</code>), which
+is never saved; <code>MainWindow</code> keeps a <em>session</em> copy of the four settings it
+reads live (<code>PA-29</code>..<code>PA-32</code>), the debugger window keeps <code>attach_saved_</code> apart
+from <code>attach_enabled_</code> (<code>DWK-02</code>), and the debugger keymap of the run is
+<code>set_session_debug_keys</code> (<code>DWK-03</code>).</p>
 <h2 id="the-residual-gap-stated-plainly">The residual gap, stated plainly<a class="headerlink" href="#the-residual-gap-stated-plainly" title="Permanent link">&para;</a></h2>
 <p><code>cli-check</code> covers the <strong>flag set</strong>, not the <strong>prose</strong>. The wrong scale range
 and the phantom status-bar indicator were both narrative text in the man page,
