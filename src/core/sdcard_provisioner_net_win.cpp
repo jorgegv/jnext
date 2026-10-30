@@ -35,13 +35,21 @@
 // so the only way out of a blocked read is its own timeout. In async mode this
 // thread waits on an event for the next completion, one tick at a time, and a
 // cancel or a stall is simply "close the request handle and return". That holds
-// only if the waiting thread makes no WinHTTP call that can wait on the network.
-// WinHttpReceiveResponse is one that may: Microsoft documents that even in async
-// mode it "can operate either synchronously or asynchronously", and wine >= 11.7
-// reads the headers inside the call, in its caller (GH #415: no tick, no stall
-// note, no cancel for the whole header wait). So the receive is started from the
-// SENDREQUEST_COMPLETE completion callback, Microsoft's reentrant pattern, and the
-// waiting thread only waits and ticks.
+// only while no WinHTTP call made on this thread waits on the network.
+// WinHttpReceiveResponse may: wine >= 11.7 reads the headers inside the call, in
+// its caller (GH #415: no tick, no stall note, no cancel for the whole header
+// wait). Microsoft says the same of WinHttpSendRequest and WinHttpQueryDataAvailable
+// ("can operate either synchronously or asynchronously"), and this thread still
+// calls those and WinHttpReadData; what makes them safe is wine's source and
+// measurement, not the documentation: SendRequest is always queued (wine 11.0 and
+// 11.20), and QueryDataAvailable and ReadData complete in the caller only with data
+// already buffered. So the receive is started from the SENDREQUEST_COMPLETE
+// completion callback, Microsoft's reentrant pattern, and this thread no longer
+// waits for the server's answer inside a WinHTTP call. Established: wine 11.0 and
+// 11.20 (source and tests); Windows only by inference from the documentation.
+// Remaining gap: a SendRequest that completed synchronously and delivered
+// SENDREQUEST_COMPLETE on the calling thread would run the receive on this thread
+// again. Impossible under wine; unknown on Windows.
 //
 // Behaviour replicated from the curl path (only what it actually USED):
 //   - follow redirects (WinHTTP follows them inside

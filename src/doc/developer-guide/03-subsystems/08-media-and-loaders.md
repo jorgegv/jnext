@@ -1267,13 +1267,22 @@ synchronous request's handle from another thread as a race. With the cable pulle
 the GUI thread sat inside that read for its 120 s, and Windows ghosted the window as
 "Not Responding". In async mode the thread waits on an event for the next completion,
 one tick at a time, and a cancel or a stall is "close the request handle and return".
-That holds only while the waiting thread makes no WinHTTP call that can wait on the
-network, and `WinHttpReceiveResponse` is one that may: Microsoft documents that even in
-async mode it "can operate either synchronously or asynchronously", and wine 11.7 and
-later read the headers inside the call, in its caller (GH #415: no tick, no stall note
-and no cancel for the whole header wait, up to 21 s, until the server closed). So the
-sequence is "send; the receive is started from the `SENDREQUEST_COMPLETE` callback,
-Microsoft's reentrant pattern; the waiting thread only waits and ticks". The callback
+That holds only while no WinHTTP call made on that thread waits on the network.
+`WinHttpReceiveResponse` may: wine 11.7 and later read the headers inside the call, in its
+caller (GH #415: no tick, no stall note and no cancel for the whole header wait, up to
+21 s, until the server closed). Microsoft's sentence that even in async mode a function
+"can operate either synchronously or asynchronously" is on `WinHttpSendRequest` and
+`WinHttpQueryDataAvailable` too, and the waiting thread still calls those and
+`WinHttpReadData`. What makes them safe is wine's source and measurement, not the
+documentation: `SendRequest` is always queued (wine 11.0 and 11.20), and
+`QueryDataAvailable` and `ReadData` complete in the caller only with data already
+buffered (the reads ask for no more than was reported available). So the sequence is
+"send; the receive is started from the `SENDREQUEST_COMPLETE` callback, Microsoft's
+reentrant pattern; the waiting thread no longer waits for the server's answer inside a
+WinHTTP call". Established: wine 11.0 and 11.20, by source and by the rows; Windows only
+by inference from the documentation. The remaining gap: a `SendRequest` that completed
+synchronously and delivered `SENDREQUEST_COMPLETE` on the calling thread would run the
+receive on the waiting thread again; impossible under wine, unknown on Windows. The callback
 returns without signalling after a successful call (`HEADERS_AVAILABLE` or
 `REQUEST_ERROR` may be delivered nested inside it and set the state themselves), and the
 waiting thread treats `HEADERS_AVAILABLE` as done only once that call has returned
