@@ -21,6 +21,29 @@ void CallStack::pop_frames_to_sp(uint16_t sp) {
     }
 }
 
+// GH #345 (E23-14): which frame a taken RET ends. SP alone is wrong for a
+// routine that moves its own return address: l_debug_push_frame (every sccz80
+// -debug function) re-pushes it 2 bytes LOWER, so the frame survives the RET
+// by the SP rule; a __z88dk_callee routine moves it UP, so the RET of a call
+// it makes pops its frame too. So a RET that lands on the newest CALL frame's
+// return address ends exactly that frame; any other RET (a computed jump, an
+// INT/NMI/RST frame, whose return address the frame does not record reliably)
+// keeps the SP rule.
+void CallStack::return_to(uint16_t sp, uint16_t pc) {
+    if (!frames_.empty() && frames_.back().type == CallType::CALL &&
+        static_cast<uint16_t>(frames_.back().caller_pc + 3) == pc) {
+        frames_.pop_back();
+        return;
+    }
+    pop_frames_to_sp(sp);
+}
+
+void CallStack::on_slot_without_fetch(uint16_t new_sp) {
+    if (!enabled_ || !have_pre_) return;
+    have_pre_ = false;   // the captured opcode did not run in this slot
+    pop_frames_to_sp(new_sp);
+}
+
 void CallStack::on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uint8_t op2, uint8_t op3,
                                    jnext::dbg::MemSpace pc_space) {
     if (!enabled_) return;
@@ -80,13 +103,13 @@ void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc,
         // RET (unconditional + conditional)
         if (op == 0xC9 || op == 0xC0 || op == 0xC8 || op == 0xD0 || op == 0xD8 ||
             op == 0xE0 || op == 0xE8 || op == 0xF0 || op == 0xF8) {
-            pop_frames_to_sp(new_sp);
+            return_to(new_sp, new_pc);
             return;
         }
 
         // RETI (ED 4D) / RETN (ED 45)
         if (op == 0xED && (pre_op2_ == 0x4D || pre_op2_ == 0x45)) {
-            pop_frames_to_sp(new_sp);
+            return_to(new_sp, new_pc);
             return;
         }
     }

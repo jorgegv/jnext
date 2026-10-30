@@ -185,8 +185,10 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
 
     const auto page_head = [&](int n) -> std::optional<uint16_t> {
         const auto it = bounds.find("__PAGE_" + std::to_string(n) + "_head");
-        if (it == bounds.end() || it->second > 0xFFFF) return std::nullopt;
-        return static_cast<uint16_t>(it->second);
+        if (it == bounds.end() || it->second > 0xFFFFFF) return std::nullopt;
+        // Design 9.4 rule 1: in a numbered section the head's bits above 16 are
+        // not read (newlib puts the page there for __banked; GH #345).
+        return static_cast<uint16_t>(it->second & 0xFFFF);
     };
 
     // Pass 2: place every line record, in file order, so the first refusal is

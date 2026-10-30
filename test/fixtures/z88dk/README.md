@@ -44,6 +44,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sdcc-debug | `-clib=sdcc_iy -debug` | **fails rc=1** | G12 |
 | v2.4/sccz80-page20, sccz80-bank10 | `-clib=new -debug`, `PAGE_20` / `BANK_10` | ok | G8 |
 | v2.4/sccz80-banked, sdcc-banked | `-DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
+| v2.4/sccz80-banked-run | `-clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000`, `PAGE_20` | ok | G9 runnable: Into/Over/Out across `banked_call` (GH #345) |
 | v2.4/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic bank prefix |
 | v2.4/classic-debug | `-clib=classic -debug` | **fails rc=1** | Z1 |
 | v2.4/sccz80-subdir | `-clib=new -debug -I.`, `game/util.c` | ok | G10 |
@@ -52,6 +53,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | master/sdcc-debug | `-clib=sdcc_iy -debug` | ok | sdcc map lines, Z2 |
 | master/80cc-debug | `-clib=new -compiler=80cc -debug` | ok | 80cc map |
 | master/sdcc-banked | `-clib=sdcc_iy -debug -DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
+| master/sdcc-banked-run | `-clib=sdcc_iy -debug -DUSE_BANKED_KW` + the same two pragmas, `PAGE_20` | ok | G9 runnable (GH #345) |
 | master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix |
 | master/classic-debug | `-clib=classic -debug`, `BANK_10` | **fails rc=1** | Z1 |
 
@@ -88,6 +90,17 @@ listing), `.sym`, `.o`.
 - G12 see above.
 - Classic `BANK_10`: `_banked_add` is `$AC000` on 2.4 and `$14C000` on master
   (`memory_map.asm`: `ORG 0x140000 + CRT_ORG_BANK_10`; commit 72ea9d221b).
+- Z3 (candidate upstream bug, GH #345): newlib `+zxn` `__banked` programs built with the
+  defaults cannot run. `CRT_ORG_PAGE_20` is 16-bit ($C000), but `banked_call` reads the page
+  from bits 16-23, so `defq _banked_add` is `00 C0 00 00` and it pages in page 0; and the
+  default stack ($FF58) is in the banking segment (MMU7), so `banked_call`'s `ret` pops from
+  the wrong page and returns to $FFFF. The `-run` builds pass `CRT_ORG_PAGE_20=0x14C000` and
+  `REGISTER_SP=0xC000` and run on both installs (`__PAGE_20_head` is then 24-bit, read by its
+  low 16 bits, design 9.4). `sccz80-page20`, `sccz80-bank10`, `sccz80-banked`, `sdcc-banked`
+  (and `bankin.asm`'s `bank_in`) are map/identity fixtures only and do not run.
+- Z4 (candidate upstream bug, GH #345): z88dk-gdb (2.4 and master) segfaults loading a map
+  with a 24-bit `__C_LINE_` value (the `-run` maps).
+  Z3/Z4 are for the owner to decide on; nothing is filed by this work.
 - Z1 (candidate upstream bug): `-debug` makes zcc forward ALIAS options to the compiler.
   `zcc +zx --vt100 -c util.c -o u.o` succeeds, `zcc +zx --vt100 -debug -c util.c -o u.o`
   fails with `Unknown option2 --vt100`, on both installs.
