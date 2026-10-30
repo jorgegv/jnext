@@ -17,6 +17,7 @@
 - macOS: the green full-screen button works and fills the screen; no duplicate Enter Full Screen menu item
 - Debugger Video panel shows the just-finished frame after Break instead of a dark placeholder
 - Windows build under wine 11.7+: downloads no longer freeze waiting for a slow server; progress, stall note and cancel work
+- NextPi enabled in Preferences no longer starts QEMU when jnext starts a non-Next machine
 
 ### Contributors in this release
 - @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj
