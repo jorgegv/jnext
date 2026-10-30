@@ -2450,7 +2450,7 @@ form's entry.</p>
 <code>main.cpp</code> — which the compiler enforces through <code>-Wswitch</code> — and an entry in
 <code>doc/man/jnext.1.md</code>. Skip the last one and <code>cli-check</code> fails.</p>
 <h2 id="the-table-of-jnextconf-keys">The table of <code>jnext.conf</code> keys<a class="headerlink" href="#the-table-of-jnextconf-keys" title="Permanent link">&para;</a></h2>
-<p><code>src/core/config_keys.h</code> (GH #417) is the one place the keys of <code>jnext.conf</code> are
+<p><code>src/platform/config_keys.h</code> (GH #417) is the one place the keys of <code>jnext.conf</code> are
 named: section, key, value type, bounds, accepted words, the dedicated flag with
 the same effect, and the frontends where it takes effect. It is Qt-free, so the
 SDL-only and headless builds can parse the same names. <code>AppConfig</code> and
