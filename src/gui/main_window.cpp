@@ -3051,7 +3051,7 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     if (emulator_ && (emulator_->pi_uart() != nullptr) != cfg.nextpi_enabled) {
         Log::platform()->info(
             "Preferences: NextPi {} saved but NOT applied to the running "
-            "machine; it takes effect the next time jnext starts.",
+            "machine; it takes effect the next time jnext starts on the ZX Next.",
             cfg.nextpi_enabled ? "enabled" : "disabled");
     }
 

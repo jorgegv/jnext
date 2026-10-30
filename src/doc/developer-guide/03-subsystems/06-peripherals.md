@@ -261,7 +261,12 @@ which a debugger closing its end would kill the emulator outright.
 ## NextPi on the Raspberry Pi
 
 `--nextpi` (or the `[nextpi]` preference) runs a real NextPi under QEMU on
-UART 1, the Pi GPIO header's UART. Three pieces:
+UART 1, the Pi GPIO header's UART. `main()` starts it once, at launch: the
+preference only when the startup machine is the ZX Next (`nextpi::start_request`;
+the startup machine is `emulator_startup_machine` over the CLI/saved merge, the
+same value that becomes `cfg.type`), `--nextpi` on any machine, since NR 0x83
+bit 4 keeps UART 1 decoded in the standalone personalities. A machine change
+while jnext runs neither starts nor stops it. Three pieces:
 
 * **`peripheral/pi_uart_device.{h,cpp}`** is the far end of UART 1. Unlike the
   joystick cable it **is** a `UartDevice`: the Pi has a channel of its own, so it
