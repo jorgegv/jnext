@@ -130,6 +130,10 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     ds().set_event_hooks([this]() { return drain_boundary(); },
                          [this](uint16_t pc) { return execute_gate(pc); });
     ds().set_machine_replaced_hook([this]() { machine_replaced(); });
+    // GH #344 stage 3 - the verify window belonged to the DebugState the cold boot replaced:
+    // the hook and the window follow the checks, which live here.
+    ds().set_verify_hook([this](uint16_t pc) { verify_hook(pc); });
+    sync_verify_window();
 
     //     THE MASTER SWITCH'S LEGACY MIRROR (GH #278 WP4c). The switch is the
     //     `EventTable`'s and survived; the rebuilt `BreakpointSet` starts with

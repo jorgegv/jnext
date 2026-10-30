@@ -984,6 +984,9 @@ public:
         /// SLD labels put in the symbol table; 0 none in the file; -1 refused, or
         /// the symbols you loaded (Load MAP, Load Memory.txt, --map) kept.
         int labels = -1;
+        /// Attached, its identity not yet judged: it was loaded with
+        /// `verify_at_first_execution` and carries one (see `load_source_map`).
+        bool pending = false;
     };
 
     /// CAP-SRC - load a source map, an sjasmplus SLD file or a z88dk `-debug` map
@@ -994,7 +997,17 @@ public:
     /// earlier SLD's. A map that carries a binary identity which no longer
     /// matches memory is refused unless `accept_identity_mismatch` (a program may have
     /// legitimately changed variables inside its own image since it loaded).
-    SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch);
+    ///
+    /// GH #344 stage 3 - `verify_at_first_execution` is for a program that is not in
+    /// memory yet (a tape): a map that carries an identity attaches at once, PENDING,
+    /// and `accept_identity_mismatch` is not consulted. Each memory space the identity
+    /// covers (main memory for an SLD's hash, each page a z88dk section binary lies
+    /// in) is judged the first time the CPU is about to execute inside it; the check
+    /// stays armed for the spaces not run yet. A space that does not match drops the
+    /// map (`source_map_status()` is then `None`, with the reason, and the error is
+    /// logged). A map with no identity attaches unverified, not pending.
+    SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch,
+                                  bool verify_at_first_execution = false);
 
     /// CAP-SRC — forget the source map.
     Result clear_source_map();
@@ -1015,6 +1028,9 @@ public:
         bool by_user = false;      ///< loaded by hand (only that one can go Stale)
         std::string file;          ///< Attached / Stale: the map's file
         std::string reason;        ///< None: the last refusal or drop; Stale: why
+        /// Attached, its identity is judged the first time the CPU runs the code it
+        /// describes, space by space (a tape program's map). `state` stays `Attached`.
+        bool pending = false;
     };
     SourceMapStatus source_map_status() const;
 
@@ -1044,10 +1060,11 @@ public:
     /// z88dk map, beside a `.nex`, `.tap` or `.sna`) for both: its symbols join
     /// the program's last, and only when no Memory.txt exists; its source lines
     /// are used only when no SLD sidecar exists; a `.map` with neither is not a
-    /// z88dk map and is ignored. The source half is not attached beside a tape
-    /// program (`.tap`, `.tzx`, `.wav`), which is not in memory when
-    /// its load call returns: its map must be loaded by hand once it has
-    /// loaded. The sidecars belong to that load, a LOAD GENERATION this call
+    /// z88dk map and is ignored. A tape program (`.tap`, `.tzx`, `.wav`) is not in
+    /// memory when its load call returns, so a source map that carries an identity
+    /// attaches PENDING (`SidecarLoad::sources_pending`): each memory space it
+    /// covers is judged the first time the CPU runs inside it, a mismatch drops the
+    /// map and the symbols that came with it. The sidecars belong to that load, a LOAD GENERATION this call
     /// opens (design §6.5): a reset, a cold boot, or a state restored from
     /// outside the rewind ring (a snapshot, a bookmark, a remote client's, an
     /// RZX start) keeps them only if the source map's binary identity matches
@@ -1070,6 +1087,9 @@ public:
         /// A Memory.txt was found and could not be read (the previous
         /// program's sidecar symbols are cleared all the same).
         bool symbols_unreadable = false;
+        /// The source map attached (`sources` >= 0) and its identity is still to be
+        /// judged: a tape program's map that carries one.
+        bool sources_pending = false;
         /// What was found and refused, in one line for a frontend to show:
         /// "NextBuild symbols 'p.Memory.txt' rejected: <reason>" and/or
         /// "source map 'p.sld' rejected: <reason>" (the file is named, not the

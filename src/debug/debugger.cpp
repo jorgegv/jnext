@@ -52,6 +52,9 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     // the restore, so its own reason still wins. CAP-SRC: the same place drops
     // a previous program's sidecars (`Impl::machine_replaced()`).
     impl_->ds().set_machine_replaced_hook([this]() { impl_->machine_replaced(); });
+    // GH #344 stage 3 - the tape-identity verify window's hook. No window is set until a
+    // map is attached pending (sync_verify_window()), so this costs nothing by itself.
+    impl_->ds().set_verify_hook([this](uint16_t pc) { impl_->verify_hook(pc); });
 
     // §6.1 — SEED THE EIGHT LIVE PAGES. `DebugState::on_slot_remapped()`
     // early-returns while the table is null, so every `rebuild_ptr()` during
@@ -96,6 +99,9 @@ Debugger::~Debugger() {
     impl_->ds().set_event_table(nullptr);
     impl_->ds().set_event_hooks(nullptr, nullptr);
     impl_->ds().set_machine_replaced_hook(nullptr);
+    // GH #344 stage 3 - and the verify window: its hook points into this object.
+    impl_->ds().set_verify_hook(nullptr);
+    impl_->ds().clear_verify_window();
     // The masks are `BreakpointSet`'s, so they survive this object, and the event
     // half has to be zeroed or a retired subscription keeps the gate open for
     // ever. `refresh_event_gates()` DOES that — the table pointer was retired

@@ -10024,6 +10024,12 @@ void Emulator::run_frame()
             if (debug_state_.paused())
                 return;
             uint16_t pc = cpu_.pc();
+            // GH #344 stage 3 - the tape-identity verify window: the first time the CPU
+            // is about to run inside the memory a pending source map describes, the
+            // backend judges the map (it never pauses). BEFORE the breakpoint tests, so
+            // a stop on this very instruction already sees the verdict. Two compares
+            // (one bool, while no window is set).
+            if (debug_state_.verify_window_hit(pc)) debug_state_.run_verify_hook(pc);
             // GH #221 — step OFF the breakpoint we are standing on.
             //
             // This test runs before the instruction at `pc`. The arm is raised
@@ -11435,6 +11441,10 @@ uint64_t Emulator::step_frame_slot()
         frame_in_progress_ = true;
     }
     const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
+
+    // GH #344 stage 3 - a debugger Step is an execution too: the verify window sees
+    // the instruction about to run, as run_frame()'s armed block does.
+    if (debug_state_.verify_window_hit(cpu_.pc())) debug_state_.run_verify_hook(cpu_.pc());
 
     const uint64_t master_cycles = step_one_instruction();
 

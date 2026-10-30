@@ -110,6 +110,30 @@ public:
         const std::function<uint8_t(uint16_t)>& read,
         const SpaceReader& read_space = {}) const;
 
+    /// Whether the map carries a binary identity (a SHA-256 or byte checks).
+    bool has_identity() const;
+
+    /// GH #344 stage 3 - the memory a tape program's map is judged against, split into
+    /// the UNITS the identity is verified in: each memory space a z88dk byte check lies
+    /// in, and, for an SLD's SHA-256 (which hashes logical memory as one), the single
+    /// unit `MemSpace::cpu()`. A span is the code the CPU is about to run: `[lo,
+    /// hi_excl)` of `space` (adjacent or overlapping spans of one unit and space
+    /// merged), the trigger for verifying `unit`. Empty when the map has no identity.
+    struct VerifySpan {
+        jnext::dbg::FetchSource space;
+        uint16_t lo = 0;
+        uint32_t hi_excl = 0;
+        jnext::dbg::FetchSource unit;
+    };
+    std::vector<VerifySpan> verify_spans() const;
+
+    /// The identity of ONE unit (see `verify_spans()`) against live memory: the SHA-256
+    /// for `MemSpace::cpu()`, the byte checks of that space otherwise. nullopt when the
+    /// map has nothing to check in it.
+    std::optional<bool> verify_unit(jnext::dbg::FetchSource unit,
+                                    const std::function<uint8_t(uint16_t)>& read,
+                                    const SpaceReader& read_space) const;
+
     /// Same file, line and column (one statement can emit several ranges).
     static bool same_position(const SourceLocation& a, const SourceLocation& b) {
         return a.file == b.file && a.line == b.line && a.column == b.column;

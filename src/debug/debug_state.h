@@ -39,6 +39,33 @@ public:
     void hold_for_magic_stop() { magic_hold_ = true; refresh_gates_(); }
     bool magic_hold() const { return magic_hold_; }
 
+    /// GH #344 stage 3 - the one-shot VERIFY WINDOW: a source map attached to a tape
+    /// program is judged the first time the CPU is about to execute inside the memory
+    /// it describes. While a window is set the machine is armed (an armed_
+    /// contributor of its own, like magic_hold_), and the hot loop's armed block
+    /// asks `verify_window_hit(pc)` - two compares - before anything else, ahead of
+    /// the breakpoint tests, so a stop on that very instruction already sees the
+    /// verdict. The hook is the backend's; it never pauses. Set and cleared by the
+    /// backend (`Debugger::Impl::sync_verify_window()`), never by the hot path.
+    void set_verify_window(uint16_t lo, uint16_t hi) {
+        verify_lo_ = lo;
+        verify_hi_ = hi;
+        verify_hold_ = true;
+        refresh_gates_();
+    }
+    void clear_verify_window() {
+        verify_hold_ = false;
+        refresh_gates_();
+    }
+    bool verify_hold() const { return verify_hold_; }
+    bool verify_window_hit(uint16_t pc) const {
+        return verify_hold_ && pc >= verify_lo_ && pc <= verify_hi_;
+    }
+    void set_verify_hook(std::function<void(uint16_t)> fn) { verify_hook_ = std::move(fn); }
+    void run_verify_hook(uint16_t pc) {
+        if (verify_hook_) verify_hook_(pc);
+    }
+
     /// GH #219 — `--persistent-breakpoints`: keep breakpoints live for the
     /// whole run, not just while the debugger window is open. Set once from
     /// EmulatorConfig at init(); the UI never touches it.
@@ -187,12 +214,15 @@ public:
     public:
         explicit SuspendScope(DebugState& ds)
             : ds_(ds), paused_(ds.paused_), magic_hold_(ds.magic_hold_),
+              verify_hold_(ds.verify_hold_),
               clients_(ds.clients_attached_), live_raster_(ds.live_raster_),
               persistent_(ds.persistent_), replay_(ds.replay_armed_),
               step_(ds.step_mode_), step_off_(ds.step_off_pending_) {
             ds_.paused_     = false;
             // GH #278 WP4c — the magic hold, which replaced active_ here.
             ds_.magic_hold_ = false;
+            // GH #344 - and the tape-identity verify window's hold.
+            ds_.verify_hold_ = false;
             // GH #276 B3 — EVERY armed_ contributor, not just the two that
             // existed when this scope was written. The comment above promises
             // "disarms breakpoints"; leaving clients_attached_ standing would
@@ -214,6 +244,7 @@ public:
         ~SuspendScope() {
             ds_.paused_     = paused_;
             ds_.magic_hold_ = magic_hold_;
+            ds_.verify_hold_ = verify_hold_;
             ds_.clients_attached_ = clients_;
             ds_.live_raster_ = live_raster_;
             ds_.persistent_ = persistent_;
@@ -229,6 +260,7 @@ public:
         DebugState& ds_;
         bool        paused_;
         bool        magic_hold_;
+        bool        verify_hold_;
         bool        clients_;
         bool        live_raster_;
         bool        persistent_;
@@ -624,7 +656,7 @@ private:
     /// the machine entered or left execution (twice per frame, or twice per
     /// debugger Step). Never from the hot path.
     void refresh_gates_() {
-        armed_ = clients_attached_ || persistent_ || replay_armed_ || magic_hold_;
+        armed_ = clients_attached_ || persistent_ || replay_armed_ || magic_hold_ || verify_hold_;
         attached_    = clients_attached_;
         raster_live_ = live_raster_;
         wp_live_ = armed_ && guest_access_;
@@ -674,6 +706,12 @@ private:
     // GH #278 WP4c — the magic stop's hold (hold_for_magic_stop()), in the slot
     // the retired active_ occupied. Read only by refresh_gates_().
     bool magic_hold_ = false;
+    // GH #344 stage 3 - the verify window's hold and bounds (set_verify_window()),
+    // an armed_ contributor read only by refresh_gates_() and verify_window_hit().
+    bool verify_hold_ = false;
+    uint16_t verify_lo_ = 0;
+    uint16_t verify_hi_ = 0;
+    std::function<void(uint16_t)> verify_hook_;
     // GH #276 B3 — the third armed_ contributor. APPENDED next to its siblings
     // rather than at the end of the class: all three are read only by
     // refresh_gates_(), never by the hot path (which reads armed_).
