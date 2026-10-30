@@ -451,6 +451,15 @@ void MainWindow::set_emulator(Emulator* emu) {
                 [this](const QString& dir) {
             // Only the saved list: the located directory is in force through the manager's
             // own list, and a command-line list stays in force.
+            // A directory holding the list separator would load back as two: refused,
+            // as --source-dir refuses it. It stays searched for this session.
+            if (dir.contains(QChar(QLatin1Char(source_search::kListSeparator)))) {
+                QMessageBox::warning(this, tr("Source search path"),
+                                     tr("The directory \"%1\" contains '%2', which separates directories "
+                                        "in the saved list, so it is not saved. It stays searched for "
+                                        "this session.").arg(dir, QChar(QLatin1Char(source_search::kListSeparator))));
+                return;
+            }
             QStringList& saved = app_config_.data().source_dirs;
             if (saved.contains(dir)) return;
             saved << dir;

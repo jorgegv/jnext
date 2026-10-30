@@ -1674,6 +1674,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // GH #420 - a --set / --source-dir list goes to the session copy, like the other Qt keys.
+    if (source_dirs_text)
+        qt_assignments.push_back({ config_keys::KeyId::PathsSourceDirs, {}, *source_dirs_text });
+
     // Task 66 (Configurability) — load saved GUI preferences once, early
     // enough to seed the SD-card resolution below. Only ever done for the
     // real (non-headless) Qt GUI path: HeadlessApp never runs through here
@@ -1682,8 +1686,6 @@ int main(int argc, char* argv[]) {
     // given (sd_card_image still empty at this point). The regression suite
     // sets $JNEXT_CONFIG_DIR so this never reads a developer's real
     // ~/.jnext/jnext.conf during automated non-headless runs.
-    if (source_dirs_text)
-        qt_assignments.push_back({ config_keys::KeyId::PathsSourceDirs, {}, *source_dirs_text });
 #ifdef ENABLE_QT_UI
     AppConfig gui_app_config;
     // GH #417 - the debugger keys of THIS run: the saved ones with the --set

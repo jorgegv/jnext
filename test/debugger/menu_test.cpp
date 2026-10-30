@@ -123,6 +123,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QImage>
@@ -2807,6 +2808,90 @@ static void test_source_dirs_wiring()
               found && shown == QStringLiteral("/saved/one\n/saved/two") && took_over &&
                   saved == QStringLiteral("/x/one") + sep + QStringLiteral("/y/two") &&
                   after_add == QStringLiteral("/x/one\n\n  /y/two  \n/x/one\n") + picked.path(),
+              detail);
+    }
+    // MWSRC-05 - a directory holding the list separator is not saved (it would load back as two).
+    {
+        write_saved(QStringLiteral("/saved/one"));
+        const QString bad = QStringLiteral("/data/a") + sep + QStringLiteral("b");
+        QString warning;
+        bool refused = false, session_kept = false, plain_saved = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                QTimer dismiss;
+                QObject::connect(&dismiss, &QTimer::timeout, [&]() {
+                    auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                    if (!mb) return;
+                    warning = mb->text();
+                    mb->button(QMessageBox::Ok)->click();
+                });
+                dismiss.start(1);
+                mgr->on_source_dir_located(bad);
+                emit mgr->source_dir_save_requested(bad);
+                dismiss.stop();
+                refused = saved_text() == QLatin1String("/saved/one") &&
+                          fx.win.app_config().data().source_dirs == QStringList{QStringLiteral("/saved/one")};
+                session_kept = mgr->source_dirs().contains(bad);
+                emit mgr->source_dir_save_requested(QStringLiteral("/fine/dir"));
+                plain_saved = saved_text() == QStringLiteral("/saved/one") + sep + QStringLiteral("/fine/dir");
+                detail = "file=" + saved_text().toStdString() + " warning=" + warning.toStdString();
+            }
+        }
+        check("MWSRC-05", "a Yes to saving a located directory that contains the list separator is refused "
+                          "in a box and nothing is written, the directory stays searched for the session, "
+                          "and an ordinary directory is still saved",
+              refused && session_kept && plain_saved && warning.contains(bad), detail);
+    }
+
+    // MWSRC-06 - Preferences refuses the same directory and neither applies nor saves.
+    {
+        write_saved(QStringLiteral("/saved/one"));
+        const QString bad = QStringLiteral("/data/a") + sep + QStringLiteral("b");
+        QString warning;
+        bool found = false, nothing_applied = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData session = fx.win.app_config().data();
+                session.source_dirs = QStringList{QStringLiteral("/cli/one")};
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* edit = dlg ? dlg->findChild<QPlainTextEdit*>(QStringLiteral("sourceDirsEdit")) : nullptr;
+                    if (!edit) { if (dlg) dlg->reject(); return; }
+                    found = true;
+                    edit->setPlainText(QStringLiteral("/ok/dir\n") + bad);
+                    QTimer dismiss;
+                    QObject::connect(&dismiss, &QTimer::timeout, [&]() {
+                        auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                        if (!mb) return;
+                        warning = mb->text();
+                        mb->button(QMessageBox::Ok)->click();
+                    });
+                    dismiss.start(1);
+                    dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+                    dismiss.stop();
+                    nothing_applied = mgr->source_dirs() == session.source_dirs;
+                    dlg->reject();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                detail = "file=" + saved_text().toStdString() + " warning=" + warning.toStdString();
+            }
+        }
+        check("MWSRC-06", "Preferences > Paths refuses a directory that contains the list separator in a "
+                          "box: Apply neither pushes the list nor writes jnext.conf",
+              found && nothing_applied && saved_text() == QLatin1String("/saved/one") && warning.contains(bad),
               detail);
     }
     if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);

@@ -9,6 +9,8 @@
 
 #include "core/nextpi_provisioner.h"
 #include "peripheral/esp_host_policy.h"
+#include "debug/source_search.h"   // GH #420
+#include <QMessageBox>
 
 #include <QComboBox>
 #include <QSpinBox>
@@ -126,11 +128,13 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
     connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
+        if (!source_dirs_ok()) return;
         emit apply_requested(collect());
         accept();
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(buttons->button(QDialogButtonBox::Apply), &QPushButton::clicked, this, [this]() {
+        if (!source_dirs_ok()) return;
         emit apply_requested(collect());
     });
 
@@ -613,6 +617,23 @@ void PreferencesDialog::browse_sd_image(QLineEdit* target) {
         this, tr("Select SD Card Image"), target->text(),
         tr("Disk Images (*.img *.bin);;All Files (*)"));
     if (!path.isEmpty()) target->setText(path);
+}
+
+// GH #420 - jnext.conf and --set hold the list as ONE string joined by the platform
+// separator, so a directory that contains it would load back as two. Refused here as
+// --source-dir refuses it.
+bool PreferencesDialog::source_dirs_ok() {
+    if (!source_dirs_edit_) return true;
+    const QChar sep(QLatin1Char(source_search::kListSeparator));
+    for (const QString& line : source_dirs_edit_->toPlainText().split(QLatin1Char('\n'))) {
+        if (!line.contains(sep)) continue;
+        QMessageBox::warning(this, tr("Source search path"),
+                             tr("The directory \"%1\" contains '%2', which separates directories in "
+                                "the saved list and in --set. Rename the directory or reach it through "
+                                "a link.").arg(line.trimmed(), sep));
+        return false;
+    }
+    return true;
 }
 
 AppConfigData PreferencesDialog::collect() const {

@@ -74,6 +74,7 @@ private:
     void refresh_key_row(int index);
 #endif
     AppConfigData collect() const;
+    bool source_dirs_ok();   // GH #420 - refuses a directory holding the list separator
     void browse_directory(QLineEdit* target);
     void browse_sd_image(QLineEdit* target);
 

@@ -2816,6 +2816,94 @@ void test_source_search() {
                   sp->search_dirs() == std::vector<std::string>({"/b", "/c"}),
               s(fx.mgr->source_dirs().join("|")));
     }
+    {   // QSRC-75
+        // The same past-the-end rule for a file WITHOUT a final newline: its last line is still
+        // line 9, so line 9 is highlighted and line 10 says "has only 9 lines".
+        const std::string root = tmp + "/q75";
+        std::string text = numbered_lines(9, "REM ");
+        while (!text.empty() && text.back() == '\n') text.pop_back();
+        put_file(root + "/nowhere.bas", text);
+        auto sld_at = [&](Fixture& f, int line) {
+            put_file(root + "/prog.sld",
+                       std::string("|SLD.data.version|1\nnowhere.bas|") + std::to_string(line) + "||0" +
+                           kNextDevice + "nowhere.bas|" + std::to_string(line) + "||0|" +
+                           std::to_string(f.p80) + "|32768|T|\n");
+            f.backend->load_source_map(root + "/prog.sld", false);
+            f.mgr->refresh_panels();
+        };
+        Fixture fx;
+        fx.enable();
+        sld_at(fx, 10);
+        const QString past = fx.dbg()->source_panel()->location_text();
+        Fixture fy;
+        fy.enable();
+        sld_at(fy, 9);
+        check("QSRC-75", "a file with no final newline still has its last line counted: line 9 of 9 is "
+                         "highlighted and line 10 says the file has only 9 lines",
+              past == QString::fromStdString("nowhere.bas:10 - " + root + "/nowhere.bas has only 9 lines; "
+                                             "it is not the text the build used") &&
+                  fx.dbg()->source_panel()->highlighted_line() == 0 && fy.dbg()->source_panel()->highlighted_line() == 9,
+              s(past) + " | " + std::to_string(fy.dbg()->source_panel()->highlighted_line()));
+    }
+    {   // QSRC-76
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q76";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        bool asked = false, no_default = false;
+        drive_modals(
+            [&](QWidget* w, int) {
+                if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+                    asked = true;
+                    no_default = mb->defaultButton() && mb->defaultButton() == mb->button(QMessageBox::No);
+                    click_box(w, QMessageBox::No);
+                    return;
+                }
+                choose_file(w, QString::fromStdString(root + "/src/main.c"));
+            },
+            [&]() { button(sp, QStringLiteral("Locate File..."))->click(); });
+        check("QSRC-76", "the 'save this directory?' question of Locate File... has No as its default button",
+              asked && no_default, std::to_string(asked) + std::to_string(no_default));
+    }
+    {   // QSRC-77
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q77";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const bool shown = s(sp->location_tooltip()) == root + "/src/main.c";
+        fx.mgr->set_source_dirs({});   // the file is no longer found: a message replaces it
+        fx.mgr->refresh_panels();
+        check("QSRC-77", "the location tooltip names the file found, and is empty once the tab shows a "
+                         "message instead",
+              shown && sp->location_text() == QStringLiteral("main.c:19 - source file not found") &&
+                  sp->location_tooltip().isEmpty(),
+              s(sp->location_text()) + " | " + s(sp->location_tooltip()));
+    }
+    {   // QSRC-78
+        Fixture fx;
+        fx.enable();
+        QSignalSpy changed(fx.mgr, &DebuggerManager::source_dirs_changed);
+        fx.mgr->on_source_dir_located(QStringLiteral("/b"));
+        const int after_first = changed.count();
+        fx.mgr->on_source_dir_located(QStringLiteral("/b"));   // the same directory again
+        const int after_again = changed.count();
+        fx.mgr->set_source_dirs({QStringLiteral("/a")});       // /a, /b
+        const int after_set = changed.count();
+        fx.mgr->set_source_dirs({QStringLiteral("/a")});       // unchanged
+        fx.mgr->set_source_dirs({QStringLiteral("/a"), QStringLiteral("/b")});   // /b was located: same list
+        check("QSRC-78", "the search path is announced once per real change: a directory located twice, "
+                         "and a configured list that leaves the effective list as it was, announce nothing",
+              after_first == 1 && after_again == 1 && after_set == 2 && changed.count() == 2,
+              std::to_string(after_first) + std::to_string(after_again) + std::to_string(after_set) +
+                  std::to_string(changed.count()));
+    }
 }
 
 int main(int argc, char** argv) {
