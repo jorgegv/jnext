@@ -148,6 +148,7 @@
 
 #include "core/cli_options.h"
 #include "debug/debug_keymap.h"
+#include "peripheral/esp_host_policy.h"
 #include "platform/cli_delay.h"
 #include "platform/config_keys.h"
 
@@ -606,6 +607,43 @@ int main() {
         }
         check("CLI-SET-02", "...and nothing else: no unknown key, no key that is not a setting, no repeat",
               read && names.size() >= want.size() && extra.empty(), read ? "extra: " + join(extra) : serr);
+    }
+
+    // CLI-SET-13: a host list written for --set (blanks after the commas included) builds the same
+    // allowlist as the same hosts given one per --esp-allow. main.cpp splits the canonical text at
+    // the commas and adds each part to an EspHostPolicy, as --esp-allow adds each of its values.
+    {
+        struct Case { const char* set_text; std::vector<const char*> flags; };
+        const std::vector<Case> cases = {
+            {"a.example, b.example", {"a.example", " b.example"}},
+            {"A.example,b.example , a.example", {"A.example", "b.example ", " a.example"}},
+            {" x , y", {" x ", " y"}},
+            {"one.example", {"one.example"}},
+        };
+        std::vector<std::string> bad;
+        for (const Case& c : cases) {
+            config_keys::Assignment a;
+            std::string why;
+            if (!config_keys::parse_assignment((std::string("esp.allowed_hosts=") + c.set_text).c_str(), a, why)) {
+                bad.push_back(std::string("refused: ") + c.set_text + " (" + why + ")");
+                continue;
+            }
+            EspHostPolicy via_set;
+            for (size_t begin = 0; !a.text.empty();) {
+                const size_t comma = a.text.find(',', begin);
+                via_set.add(a.text.substr(begin, comma == std::string::npos ? std::string::npos : comma - begin));
+                if (comma == std::string::npos) break;
+                begin = comma + 1;
+            }
+            EspHostPolicy via_flag;
+            for (const char* f : c.flags) via_flag.add(f);
+            if (via_set.allowed_hosts != via_flag.allowed_hosts)
+                bad.push_back(std::string(c.set_text) + ": --set gives [" + join(via_set.allowed_hosts) +
+                              "], --esp-allow gives [" + join(via_flag.allowed_hosts) + "]");
+        }
+        check("CLI-SET-13", "a host list given to --set esp.allowed_hosts (blanks after the commas included) "
+                            "builds the same allowlist as the hosts given one per --esp-allow",
+              bad.empty(), join(bad));
     }
 
     // -----------------------------------------------------------------
@@ -1694,6 +1732,23 @@ int main() {
                     const std::string args = std::string("--set \"") + c.first + "\" --version";
                     if ((run(args) == 0) != c.second)
                         bad.push_back(std::string("--set ") + c.first + (c.second ? " refused" : " accepted"));
+                }
+                // An allowlist with the ESP off is refused naming the spelling used; an EMPTY list
+                // restricts nothing, claims nothing, and is accepted.
+                {
+                    const std::string base = std::string("--headless --machine 48k") + sd_arg;
+                    run_split(base + " --set esp.allowed_hosts=a.example --delayed-automatic-exit-frames 1");
+                    const std::string e1 = slurp(err_path);
+                    run_split(base + " --esp-allow a.example --delayed-automatic-exit-frames 1");
+                    const std::string e2 = slurp(err_path);
+                    if (run(base + " --set esp.allowed_hosts=a.example --delayed-automatic-exit-frames 1") == 0 ||
+                        e1.find("--set esp.allowed_hosts requires the ESP to be enabled") == std::string::npos)
+                        bad.push_back("--set esp.allowed_hosts=a.example without the ESP: " + e1);
+                    if (run(base + " --esp-allow a.example --delayed-automatic-exit-frames 1") == 0 ||
+                        e2.find("--esp-allow requires the ESP to be enabled") == std::string::npos)
+                        bad.push_back("--esp-allow without the ESP: " + e2);
+                    if (run(base + " --set esp.allowed_hosts= --delayed-automatic-exit-frames 1") != 0)
+                        bad.push_back("--set esp.allowed_hosts= (empty) refused with the ESP off");
                 }
                 check("CLI-SET-12", "a flag and --set accept and refuse the same values of the same key (one per "
                                     "type: bool, int, float, word, machine, device id, keep, host list, combo, text)",
