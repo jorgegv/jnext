@@ -247,7 +247,10 @@ void Debugger::Impl::apply_deferred() {
         const std::string file   = c.map->loaded_file();
         const std::string format = c.map->format();
         if (c.mismatch) {
-            log->error("Rejected {} source map '{}': {}", format, file, kTapeMismatch);
+            if (c.guards_sources)
+                log->error("Rejected {} source map '{}': {}", format, file, kTapeMismatch);
+            else   // only the symbols that came with the map wait on it
+                log->error("Rejected the symbols of {} map '{}': {}", format, file, kTapeMismatch);
             const std::string why = "source map '" + file + "' rejected: " + kTapeMismatch;
             if (c.guards_sources && c.user && sources_owner == StoreOwner::User) {
                 // The user's map is dropped, not marked stale: it was refused, as a
