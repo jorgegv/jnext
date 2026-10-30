@@ -130,6 +130,48 @@ binary, a file that is not an SLD or a map, not a regular file, or over 64 MiB),
 why: the reason is in the log, in the main window's status bar for ten
 seconds, and in the Source tab in place of "No source map loaded".
 
+## Where the Source tab finds the files
+
+A map names its files as the compiler saw them, and the build may have run
+somewhere else: in a `build/` directory beside the sources, on another machine,
+or in a container. The Source tab looks for each file in this order:
+
+1. the name as recorded, when it is an absolute path that exists;
+2. beside the map, then in each of its parent directories;
+3. your **source search path**: for each directory in it, the whole recorded
+   name, then the name without its first directory, and so on down to the file
+   name alone. The longest matching part of the name wins over the order of the
+   directories, so `game/util.c` is `game/util.c` in the second directory rather
+   than `util.c` in the first. A `..` at the start of a name is ignored, so a
+   search never leaves the directory it was given.
+
+Add to the search path with **Preferences ▸ Paths ▸ Source search path** (one
+directory per line, saved), with `--source-dir DIR` (repeat it; for that run
+only, `paths.source_dirs` with `--set`), or with **Locate File...**. When the
+tab says `main.c:19 - source file not found`, **Locate File...** asks for the
+file the map names; the directory it is in is searched from then on, and JNEXT
+asks whether to save it in Preferences too (the default is No). Choosing a file
+of another name is refused.
+
+z88dk records its own library files too: the headers (`stdint.h`) and the
+`.inc` files, with absolute names. A map built on this machine finds them where
+the compiler left them. For a map built elsewhere, add the z88dk install
+directory (the one holding `libsrc/` and `include/`) to the search path, or
+locate one of its files: one pick covers every file under it.
+
+The start-up code (`zxn_crt.asm.m4`, which holds the program's first
+instruction) cannot be shown. z88dk numbers its lines in the output of the `m4`
+macro processor, which the build does not keep, so no file on disk has them. The
+tab says so and you use the disassembly there. For the same reason, a program
+loaded or reloaded (**Alt+L**) while the machine is paused stops at its first
+instruction, which for z88dk is that start-up code and not yet `main`: press
+**Continue**, or set a breakpoint on `main` first.
+
+When the file is found but is shorter than the line the map names, the tab says
+so (`main.c:19 - /path/main.c has only 12 lines; it is not the text the build
+used`): it is not the file the program was built from. The label's tooltip
+shows the path of the file that was found.
+
 ## Banked code
 
 A Next program pages code in and out, so one address can hold different code

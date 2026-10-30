@@ -2715,6 +2715,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-the-source-tab-finds-the-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the Source tab finds the files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#banked-code" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3816,6 +3827,43 @@ binary and were not checked. Only upper-case section names are looked for
 binary, a file that is not an SLD or a map, not a regular file, or over 64 MiB), says
 why: the reason is in the log, in the main window's status bar for ten
 seconds, and in the Source tab in place of "No source map loaded".</p>
+<h2 id="where-the-source-tab-finds-the-files">Where the Source tab finds the files<a class="headerlink" href="#where-the-source-tab-finds-the-files" title="Permanent link">&para;</a></h2>
+<p>A map names its files as the compiler saw them, and the build may have run
+somewhere else: in a <code>build/</code> directory beside the sources, on another machine,
+or in a container. The Source tab looks for each file in this order:</p>
+<ol>
+<li>the name as recorded, when it is an absolute path that exists;</li>
+<li>beside the map, then in each of its parent directories;</li>
+<li>your <strong>source search path</strong>: for each directory in it, the whole recorded
+   name, then the name without its first directory, and so on down to the file
+   name alone. The longest matching part of the name wins over the order of the
+   directories, so <code>game/util.c</code> is <code>game/util.c</code> in the second directory rather
+   than <code>util.c</code> in the first. A <code>..</code> at the start of a name is ignored, so a
+   search never leaves the directory it was given.</li>
+</ol>
+<p>Add to the search path with <strong>Preferences ▸ Paths ▸ Source search path</strong> (one
+directory per line, saved), with <code>--source-dir DIR</code> (repeat it; for that run
+only, <code>paths.source_dirs</code> with <code>--set</code>), or with <strong>Locate File...</strong>. When the
+tab says <code>main.c:19 - source file not found</code>, <strong>Locate File...</strong> asks for the
+file the map names; the directory it is in is searched from then on, and JNEXT
+asks whether to save it in Preferences too (the default is No). Choosing a file
+of another name is refused.</p>
+<p>z88dk records its own library files too: the headers (<code>stdint.h</code>) and the
+<code>.inc</code> files, with absolute names. A map built on this machine finds them where
+the compiler left them. For a map built elsewhere, add the z88dk install
+directory (the one holding <code>libsrc/</code> and <code>include/</code>) to the search path, or
+locate one of its files: one pick covers every file under it.</p>
+<p>The start-up code (<code>zxn_crt.asm.m4</code>, which holds the program's first
+instruction) cannot be shown. z88dk numbers its lines in the output of the <code>m4</code>
+macro processor, which the build does not keep, so no file on disk has them. The
+tab says so and you use the disassembly there. For the same reason, a program
+loaded or reloaded (<strong>Alt+L</strong>) while the machine is paused stops at its first
+instruction, which for z88dk is that start-up code and not yet <code>main</code>: press
+<strong>Continue</strong>, or set a breakpoint on <code>main</code> first.</p>
+<p>When the file is found but is shorter than the line the map names, the tab says
+so (<code>main.c:19 - /path/main.c has only 12 lines; it is not the text the build
+used</code>): it is not the file the program was built from. The label's tooltip
+shows the path of the file that was found.</p>
 <h2 id="banked-code">Banked code<a class="headerlink" href="#banked-code" title="Permanent link">&para;</a></h2>
 <p>A Next program pages code in and out, so one address can hold different code
 at different times. Each source record names the 8K RAM page its code was built

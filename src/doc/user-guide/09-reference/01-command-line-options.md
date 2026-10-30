@@ -1111,6 +1111,19 @@ with status 1.
     once and is checked the first time the program runs its code; a
     mismatch then drops it, and the run exits with status 1.
 
+**--source-dir** *DIR*
+:   Also search *DIR* for the source files a source map names, in the
+    Source tab of the debugger (the Qt window with the debugger;
+    elsewhere a warning, and ignored). One directory per option, repeat
+    it for more; the list separator (`:`, `;` on Windows) is refused.
+    The Source tab tries a file beside the source map and in its parent
+    directories first, then these directories, the longest matching
+    trailing part of the recorded name first and the directories in the
+    order given. For this run only, like **--set** `paths.source_dirs`,
+    whose list it appends to (a later **--set** of that key replaces
+    what came before). The saved list is edited under **Preferences \>
+    Paths**, and **Locate File…** in the Source tab adds a directory.
+
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional,
     for example `0x00FF`).
@@ -1212,6 +1225,11 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 
 `paths.screenshot_dir` *PATH*
 :   The directory the Save Screenshot dialog opens in. The Qt window.
+
+`paths.source_dirs` *DIRS*
+:   The directories the debugger’s Source tab also searches for source
+    files, separated by `:` (`;` on Windows); **--source-dir** appends
+    one. Empty means none. The Qt window with the debugger.
 
 `screenshot.quick_dir` *PATH*
 :   The Quick Screenshot directory; empty means `~/.jnext/screenshots`.

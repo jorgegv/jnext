@@ -56,7 +56,11 @@ Screenshot** needs, since that capture never asks: the directory it writes to
 (blank means `~/.jnext/screenshots`) and whether it writes PNG or SCR. Those
 two are a deliberate choice rather than a memory of the last dialog, so the
 quick capture always lands in the same place. It also sets how many Quick Save snapshots to keep
-(**Unlimited** at 0); `--quick-snapshot-keep` overrides it.
+(**Unlimited** at 0); `--quick-snapshot-keep` overrides it. In a build with the
+debugger it also holds the **Source search path**: the directories, one per line,
+where the Source tab looks for the files a source map names when they are not
+beside the map ([6.1.14](../06-debugger/functions/14-source-level-debugging.md));
+`--source-dir` adds to it for one run.
 
 **Debugger Keys** rebinds the debugger's own keys — see
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md). The tab is only
