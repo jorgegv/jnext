@@ -4,6 +4,7 @@
 #include "platform/config_keys.h"
 #include "gui/recent_files.h"
 #include "peripheral/esp_host_policy.h"
+#include "debug/source_search.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -88,6 +89,22 @@ QString gain_text(float db) {
     return QString::number(static_cast<double>(db), 'g', 6);
 }
 
+// GH #420 - the one-string spelling of paths.source_dirs and the list it stands for.
+QStringList source_dirs_from_text(const QString& text)
+{
+    QStringList out;
+    for (const std::string& d : source_search::split_list(text.toStdString()))
+        out << QString::fromStdString(d);
+    return out;
+}
+
+QString source_dirs_to_text(const QStringList& dirs)
+{
+    std::vector<std::string> list;
+    for (const QString& d : dirs) list.push_back(d.toStdString());
+    return QString::fromStdString(source_search::join_list(list));
+}
+
 } // namespace
 
 void merge_cli_assignments(AppConfigData& d, const std::vector<config_keys::Assignment>& list)
@@ -102,6 +119,7 @@ void merge_cli_assignments(AppConfigData& d, const std::vector<config_keys::Assi
         case KeyId::PathsLastLoadDir:       d.last_load_dir = text; break;
         case KeyId::PathsScreenshotDir:     d.screenshot_dir = text; break;
         case KeyId::ScreenshotQuickDir:     d.quick_screenshot_dir = text; break;
+        case KeyId::PathsSourceDirs:        d.source_dirs = source_dirs_from_text(text); break;
         case KeyId::ScreenshotQuickFormat: {
             const int i = config_keys::word_index(config_keys::info(KeyId::ScreenshotQuickFormat).values, a.text);
             if (i >= 0) d.quick_screenshot_format = static_cast<ScreenshotFormat>(i);
@@ -255,6 +273,7 @@ void AppConfig::load() {
     data_.last_load_dir  = ini_text(settings_.value(N(KeyId::PathsLastLoadDir), data_.last_load_dir));
     data_.sd_card_path   = ini_text(settings_.value(N(KeyId::PathsSdCardPath), data_.sd_card_path));
     data_.screenshot_dir = ini_text(settings_.value(N(KeyId::PathsScreenshotDir), data_.screenshot_dir));
+    data_.source_dirs    = source_dirs_from_text(ini_text(settings_.value(N(KeyId::PathsSourceDirs))));
     settings_.endGroup();
 
     // GH #406. Its own group; cleaned of blanks and cut to the cap, so a
@@ -414,6 +433,9 @@ void AppConfig::save() const {
     settings_.setValue(N(KeyId::PathsLastLoadDir), data_.last_load_dir);
     settings_.setValue(N(KeyId::PathsSdCardPath), data_.sd_card_path);
     settings_.setValue(N(KeyId::PathsScreenshotDir), data_.screenshot_dir);
+    // One string, not a QStringList: a path may hold a comma, and QSettings would
+    // split the unquoted form of a list at it. An empty list is an empty value.
+    settings_.setValue(N(KeyId::PathsSourceDirs), source_dirs_to_text(data_.source_dirs));
     settings_.endGroup();
 
     settings_.beginGroup(S(KeyId::RecentFiles));

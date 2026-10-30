@@ -63,6 +63,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSignalSpy>
 #include <QScrollBar>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -2576,6 +2577,241 @@ void test_z88dk_source_map() {
     }
 }
 
+// ── QSRC-66..74: the source search path and Locate File... (GH #420) ─────────
+// Oracle: the issue (the committed z88dk fixture map in a build/ directory with the
+// sources in a sibling src/ is found through a search path, and Locate File... adds the
+// directory), the z88dk fixtures' recorded names, and the design doc (SOURCE-LEVEL-
+// DEBUGGING.md 2.3 G4: PC $8CB5 is main.c:19).
+std::string numbered_lines(int n, const char* prefix = "/* line ") {
+    std::string out;
+    for (int i = 1; i <= n; ++i) out += prefix + std::to_string(i) + " */\n";
+    return out;
+}
+
+/// The z88dk fixture map copied to <root>/build/prog.map and loaded, with the PC on main.c:19.
+std::string z88dk_in_build(Fixture& fx, const std::string& root, uint16_t pc = 0x8CB5) {
+    const std::string map = root + "/build/prog.map";
+    copy_z88dk("v2.4/sccz80-debug", "prog.map", map);
+    fx.backend->load_source_map(map, true);
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = pc;
+    fx.emu.cpu().set_registers(r);
+    return map;
+}
+
+/// Click Locate File... and answer its dialogs: pick `picked`, then `answer` the question.
+/// Returns what the warning box said, when there was one.
+QString locate(SourcePanel* sp, const std::string& picked, QMessageBox::StandardButton answer,
+               int* modals = nullptr) {
+    QString warning;
+    const int n = drive_modals(
+        [&](QWidget* w, int) {
+            if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+                if (mb->icon() == QMessageBox::Warning) { warning = mb->text(); click_box(w, QMessageBox::Ok); }
+                else click_box(w, answer);
+                return;
+            }
+            choose_file(w, QString::fromStdString(picked));
+        },
+        [&]() { button(sp, QStringLiteral("Locate File..."))->click(); });
+    if (modals) *modals = n;
+    return warning;
+}
+
+void test_source_search() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-66
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q66";
+        write_text(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-66", "the z88dk fixture map in build/ and its sources in a sibling src/: with src/ on the "
+                         "search path the Source tab shows main.c with line 19 highlighted, and the label's "
+                         "tooltip names the file found",
+              sp->highlighted_line() == 19 && sp->location_text().startsWith(QStringLiteral("main.c:19")) &&
+                  s(sp->location_tooltip()) == root + "/src/main.c",
+              s(sp->location_text()) + " | " + s(sp->location_tooltip()));
+    }
+    {   // QSRC-67
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q67";
+        write_text(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QPushButton* loc = button(sp, QStringLiteral("Locate File..."));
+        const bool off_before = loc && !loc->isEnabled();   // nothing shown yet: disabled
+        fx.mgr->refresh_panels();
+        const bool missing = sp->location_text() == QStringLiteral("main.c:19 - source file not found");
+        const bool on_when_missing = loc && loc->isEnabled();
+        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});
+        fx.mgr->refresh_panels();
+        check("QSRC-67", "with the file missing the tab says 'main.c:19 - source file not found' and Locate "
+                         "File... is enabled; once a search directory finds it, the button is disabled",
+              loc && missing && on_when_missing && !loc->isEnabled() && sp->highlighted_line() == 19,
+              std::to_string(off_before) + " " + s(sp->location_text()));
+    }
+    {   // QSRC-68
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q68";
+        write_text(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QSignalSpy saved(fx.mgr, &DebuggerManager::source_dir_save_requested);
+        int modals = 0;
+        locate(sp, root + "/src/main.c", QMessageBox::No, &modals);
+        check("QSRC-68", "Locate File... with a pick and No: the file shows at once (line 19), the manager "
+                         "searches the picked file's directory, and nothing is asked to be saved",
+              modals == 2 && sp->highlighted_line() == 19 &&
+                  fx.mgr->source_dirs() == QStringList{QString::fromStdString(root + "/src")} &&
+                  saved.count() == 0,
+              std::to_string(modals) + " " + s(sp->location_text()));
+    }
+    {   // QSRC-69
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q69";
+        write_text(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QSignalSpy saved(fx.mgr, &DebuggerManager::source_dir_save_requested);
+        QString question;
+        drive_modals(
+            [&](QWidget* w, int) {
+                if (auto* mb = qobject_cast<QMessageBox*>(w)) { question = mb->text(); click_box(w, QMessageBox::Yes); return; }
+                choose_file(w, QString::fromStdString(root + "/src/main.c"));
+            },
+            [&]() { button(sp, QStringLiteral("Locate File..."))->click(); });
+        check("QSRC-69", "Locate File... answered Yes asks once for the directory to be saved, and the question "
+                         "names it",
+              saved.count() == 1 && saved.value(0).value(0).toString() == QString::fromStdString(root + "/src") &&
+                  question.contains(QString::fromStdString(root + "/src")) &&
+                  question.contains(QStringLiteral("Paths > Source search path")),
+              s(question));
+    }
+    {   // QSRC-70
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q70";
+        write_text(root + "/src/main.c", numbered_lines(25));
+        write_text(root + "/src/other.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QSignalSpy located(sp, &SourcePanel::source_dir_located);
+        int modals = 0;
+        const QString warning = locate(sp, root + "/src/other.c", QMessageBox::Yes, &modals);
+        check("QSRC-70", "Locate File... with a file of another name is refused in a box ('other.c is not "
+                         "main.c'), and nothing is added",
+              modals == 2 && warning.startsWith(QStringLiteral("other.c is not main.c")) &&
+                  located.count() == 0 && fx.mgr->source_dirs().isEmpty() &&
+                  sp->location_text() == QStringLiteral("main.c:19 - source file not found"),
+              s(warning));
+    }
+    {   // QSRC-71
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q71";
+        const std::string inst = root + "/inst";
+        write_text(inst + "/libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4", numbered_lines(1051, "; crt "));
+        z88dk_in_build(fx, root, 0x8000);
+        fx.mgr->set_source_dirs({QString::fromStdString(inst)});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const SourceLocation* loc = fx.backend->source_location(0x8000);
+        const QString want = loc ? QString::fromStdString(loc->file) + ":" + QString::number(loc->line) +
+                                       QStringLiteral(" - the line counts the m4 output of this file, which "
+                                                      "the build did not keep; use the disassembly")
+                                 : QString();
+        const bool z88_ok = loc && loc->line == 9462 && sp->location_text() == want &&
+                            sp->highlighted_line() == 0 &&
+                            !button(sp, QStringLiteral("Locate File..."))->isEnabled();
+        // The rule is the z88dk format's: an SLD naming x.m4 shows the file.
+        Fixture fy;
+        fy.enable();
+        write_text(root + "/sld/x.m4", numbered_lines(12));
+        write_text(root + "/sld/prog.sld",
+                   std::string("|SLD.data.version|1\nx.m4|10||0") + kNextDevice + "x.m4|10||0|" +
+                       std::to_string(fy.p80) + "|32768|T|\n");
+        fy.backend->load_source_map(root + "/sld/prog.sld", false);
+        fy.mgr->refresh_panels();
+        SourcePanel* sy = fy.dbg()->source_panel();
+        check("QSRC-71", "a z88dk record in a .m4 file (the CRT's line 9462 at $8000) says the line counts the "
+                         "m4 output the build did not keep, with no highlight and no Locate; an SLD record in "
+                         "x.m4 is shown and highlighted",
+              z88_ok && sy->highlighted_line() == 10,
+              s(sp->location_text()) + " | " + s(sy->location_text()));
+    }
+    {   // QSRC-72
+        const std::string root = tmp + "/q72";
+        write_text(root + "/nowhere.bas", numbered_lines(9, "REM "));
+        auto sld_at = [&](Fixture& f, int line) {
+            write_text(root + "/prog.sld",
+                       std::string("|SLD.data.version|1\nnowhere.bas|") + std::to_string(line) + "||0" +
+                           kNextDevice + "nowhere.bas|" + std::to_string(line) + "||0|" +
+                           std::to_string(f.p80) + "|32768|T|\n");
+            f.backend->load_source_map(root + "/prog.sld", false);
+            f.mgr->refresh_panels();
+        };
+        Fixture fx;
+        fx.enable();
+        sld_at(fx, 10);
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const QString past = sp->location_text();
+        const int past_line = sp->highlighted_line();
+        Fixture fy;
+        fy.enable();
+        sld_at(fy, 9);
+        SourcePanel* sy = fy.dbg()->source_panel();
+        check("QSRC-72", "a record past the end of the file found says the file has only 9 lines and is not "
+                         "the text the build used, with no highlight; the last line (9) is highlighted",
+              past == QString::fromStdString("nowhere.bas:10 - " + root + "/nowhere.bas has only 9 lines; "
+                                             "it is not the text the build used") &&
+                  past_line == 0 && sy->highlighted_line() == 9,
+              s(past) + " | " + s(sy->location_text()));
+    }
+    {   // QSRC-73
+        Fixture fx;
+        const std::string root = tmp + "/q73";
+        write_text(root + "/src/main.c", numbered_lines(25));
+        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});   // no window yet
+        const bool none_yet = fx.dbg() == nullptr;
+        fx.enable();
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-73", "a search path set before the debugger window exists reaches the Source tab when "
+                         "the window is built",
+              none_yet && sp->highlighted_line() == 19 &&
+                  sp->search_dirs() == std::vector<std::string>{root + "/src"},
+              s(sp->location_text()));
+    }
+    {   // QSRC-74
+        Fixture fx;
+        fx.enable();
+        fx.mgr->on_source_dir_located(QStringLiteral("/b"));
+        fx.mgr->on_source_dir_located(QStringLiteral("/b"));   // twice: kept once
+        fx.mgr->set_source_dirs({QStringLiteral("/a")});
+        const QStringList both = fx.mgr->source_dirs();
+        fx.mgr->set_source_dirs({QStringLiteral("/b"), QStringLiteral("/c")});   // /b is configured now
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-74", "a directory Locate File... added survives a change of the configured list: "
+                         "configured then located, an exact duplicate dropped",
+              both == QStringList({QStringLiteral("/a"), QStringLiteral("/b")}) &&
+                  fx.mgr->source_dirs() == QStringList({QStringLiteral("/b"), QStringLiteral("/c")}) &&
+                  sp->search_dirs() == std::vector<std::string>({"/b", "/c"}),
+              s(fx.mgr->source_dirs().join("|")));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -2622,6 +2858,7 @@ int main(int argc, char** argv) {
     test_call_stack_non_page_caller();
     test_source_menu();
     test_z88dk_source_map();
+    test_source_search();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

@@ -458,6 +458,7 @@ int main(int argc, char* argv[]) {
     std::vector<config_keys::Assignment> qt_assignments;        // the keys only the Qt window has
     std::vector<std::pair<std::string, std::string>> debug_key_assignments;   // debugger_keys.ID=COMBO
     std::optional<bool> debugger_attached_opt;                  // debugger.attached
+    std::optional<std::string> source_dirs_text;                // paths.source_dirs / --source-dir (GH #420)
     // How each key was spelled on the command line, for the "has no effect" warnings.
     std::vector<std::pair<config_keys::KeyId, std::string>> given_as;
     auto note_given = [&](config_keys::KeyId id, const std::string& spelling) {
@@ -537,6 +538,9 @@ int main(int argc, char* argv[]) {
         case KeyId::AudioGainDacDb:    gain(cli::OptId::AudioGainDacDb); break;
         case KeyId::PathsSdCardPath:
             sd_card_image = t;
+            break;
+        case KeyId::PathsSourceDirs:
+            source_dirs_text = t;   // a later --set replaces everything before it; --source-dir appends
             break;
         case KeyId::SnapshotQuickKeep:
             quick_snapshot_keep = (t == "unlimited") ? 0 : static_cast<int>(num);
@@ -869,6 +873,20 @@ int main(int argc, char* argv[]) {
             case cli::OptId::SourceMap:
                 source_map_file = v[0];
                 break;
+            case cli::OptId::SourceDir: {
+                // ONE directory per occurrence, appended to the list --set may have
+                // given (the esp-allow semantics). Merged into the Qt session's copy
+                // below; never written to jnext.conf.
+                std::string list = source_dirs_text.value_or(std::string());
+                std::string why;
+                if (!config_keys::append_list_entry(list, v[0], why)) {
+                    fprintf(stderr, "%s\n", why.c_str());
+                    return 1;
+                }
+                source_dirs_text = list;
+                note_given(config_keys::KeyId::PathsSourceDirs, arg);
+                break;
+            }
             case cli::OptId::RecordScript:
                 record_script_file = v[0];
                 break;
@@ -1664,6 +1682,8 @@ int main(int argc, char* argv[]) {
     // given (sd_card_image still empty at this point). The regression suite
     // sets $JNEXT_CONFIG_DIR so this never reads a developer's real
     // ~/.jnext/jnext.conf during automated non-headless runs.
+    if (source_dirs_text)
+        qt_assignments.push_back({ config_keys::KeyId::PathsSourceDirs, {}, *source_dirs_text });
 #ifdef ENABLE_QT_UI
     AppConfig gui_app_config;
     // GH #417 - the debugger keys of THIS run: the saved ones with the --set

@@ -36,6 +36,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
                                      const std::vector<JoyDeviceInfo>& joy_devices)
     : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
       recent_files_(current.recent_files),
+      source_dirs_saved_(current.source_dirs),
       crt_filter_saved_(current.crt_filter),
       crt_shader_saved_(current.crt_shader),
       crt_shader_style_saved_(current.crt_shader_style),
@@ -115,6 +116,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     last_load_dir_edit_->setText(current.last_load_dir);
     sd_card_path_edit_->setText(current.sd_card_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
+    if (source_dirs_edit_) source_dirs_edit_->setPlainText(current.source_dirs.join(QLatin1Char('\n')));
     quick_screenshot_dir_edit_->setText(current.quick_screenshot_dir);
     quick_screenshot_fmt_combo_->setCurrentIndex(
         quick_screenshot_fmt_combo_->findData(
@@ -538,6 +540,35 @@ QWidget* PreferencesDialog::build_paths_tab() {
     add_path_row(tr("Screenshot directory:"), screenshot_dir_edit_,
                  &PreferencesDialog::browse_directory);
 
+#ifdef ENABLE_DEBUGGER
+    // GH #420 - where the debugger's Source tab looks for the files a source map names.
+    // One directory per line, as the ESP hosts are edited.
+    {
+        auto* row = new QWidget(tab);
+        auto* v = new QVBoxLayout(row);
+        v->setContentsMargins(0, 0, 0, 0);
+        source_dirs_edit_ = new QPlainTextEdit(row);
+        source_dirs_edit_->setObjectName(QStringLiteral("sourceDirsEdit"));
+        source_dirs_edit_->setToolTip(
+            tr("One directory per line. The Source tab tries them after the source map's own "
+               "directory and its parents, longest matching part of the file name first. "
+               "--source-dir overrides this list for a single run."));
+        source_dirs_edit_->setFixedHeight(4 * source_dirs_edit_->fontMetrics().lineSpacing() + 12);
+        auto* add = new QPushButton(tr("Add Directory..."), row);
+        add->setObjectName(QStringLiteral("sourceDirsAddButton"));
+        connect(add, &QPushButton::clicked, this, [this]() {
+            const QString dir = QFileDialog::getExistingDirectory(this, tr("Select Directory"));
+            if (dir.isEmpty()) return;
+            QString text = source_dirs_edit_->toPlainText();
+            if (!text.isEmpty() && !text.endsWith(QLatin1Char('\n'))) text += QLatin1Char('\n');
+            source_dirs_edit_->setPlainText(text + dir);
+        });
+        v->addWidget(source_dirs_edit_);
+        v->addWidget(add, 0, Qt::AlignLeft);
+        form->addRow(tr("Source search path:"), row);
+    }
+#endif
+
     // GH #19 — File > Quick Screenshot. Its own directory, not the one above:
     // that one FOLLOWS the Save Screenshot dialog around, this one is chosen.
     add_path_row(tr("Quick screenshot directory:"), quick_screenshot_dir_edit_,
@@ -667,6 +698,16 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();
+    // GH #420 - trimmed, blank lines and exact duplicates dropped, order kept. No
+    // existence check: a missing directory just finds nothing.
+    cfg.source_dirs = source_dirs_saved_;
+    if (source_dirs_edit_) {
+        cfg.source_dirs.clear();
+        for (const QString& line : source_dirs_edit_->toPlainText().split(QLatin1Char('\n'))) {
+            const QString dir = line.trimmed();
+            if (!dir.isEmpty() && !cfg.source_dirs.contains(dir)) cfg.source_dirs << dir;
+        }
+    }
     cfg.recent_files = recent_files_;   // GH #406 - kept by File > Recent Files, no control here
     cfg.debug_keys = debug_keys_;   // GH #1 — including the preserved unknowns
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();

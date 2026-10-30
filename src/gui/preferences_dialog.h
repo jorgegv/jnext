@@ -119,6 +119,11 @@ private:
     QLineEdit* sd_card_path_edit_   = nullptr;
     QLineEdit* screenshot_dir_edit_ = nullptr;
 
+    // GH #420 - Paths > Source search path (a debugger build only); one directory per
+    // line. source_dirs_saved_ is what collect() hands back when there is no control.
+    QPlainTextEdit* source_dirs_edit_ = nullptr;
+    QStringList     source_dirs_saved_;
+
     QLineEdit* quick_screenshot_dir_edit_  = nullptr;   // GH #19
     QComboBox* quick_screenshot_fmt_combo_ = nullptr;
     QSpinBox*  quick_keep_spin_ = nullptr;   // GH #321: 0 = Unlimited

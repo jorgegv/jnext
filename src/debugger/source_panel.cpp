@@ -2,6 +2,7 @@
 
 #include "debug/debugger.h"
 #include "debug/ram_page.h"
+#include "debug/source_search.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -9,14 +10,17 @@
 #include <QFont>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
+#include <QFileDialog>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTextBlock>
 #include <QTextCursor>
+#include <QTextDocument>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
-#include <filesystem>
+#include <utility>
 
 SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent), dbg_(dbg)
@@ -65,6 +69,11 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     load_symbols->setToolTip(tr("Load NextBuild / Boriel ZX Basic symbols"));
     connect(load_symbols, &QPushButton::clicked, this, &SourcePanel::load_symbols_requested);
     loads->addWidget(load_symbols);
+    locate_btn_ = new QPushButton(tr("Locate File..."), this);
+    locate_btn_->setToolTip(tr("Find the source file the map names; its directory is searched from now on"));
+    locate_btn_->setEnabled(false);
+    connect(locate_btn_, &QPushButton::clicked, this, &SourcePanel::locate_file);
+    loads->addWidget(locate_btn_);
     loads->addStretch();
     layout->addLayout(loads);
 
@@ -88,36 +97,59 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
 
 QString SourcePanel::location_text() const { return location_label_->text(); }
 
+QString SourcePanel::location_tooltip() const { return location_label_->toolTip(); }
+
 QString SourcePanel::resolve_source_file(const std::string& source_name) const
 {
-    // A record names its file as the assembler saw it: absolute, or relative
-    // to wherever the build ran. Relative names are tried against the map's
-    // own directory and each of its parents, which covers the usual layouts
-    // (the SLD beside the binary in a build directory under the sources).
-    namespace fs = std::filesystem;
-    const fs::path source(source_name);
-    std::error_code ec;
-    if (source.is_absolute())
-        return fs::is_regular_file(source, ec) ? QString::fromStdString(source.string())
-                                               : QString();
-    if (!dbg_ || dbg_->source_map().loaded_file().empty()) return {};
+    // GH #420 - the walk is source_search::resolve's: an absolute name, then the
+    // map's directory and its parents, then the search path.
+    const std::string map = dbg_ ? dbg_->source_map().loaded_file() : std::string();
+    return QString::fromStdString(source_search::resolve(source_name, map, search_dirs_));
+}
 
-    fs::path root = fs::path(dbg_->source_map().loaded_file()).parent_path();
-    while (!root.empty()) {
-        const fs::path candidate = root / source;
-        ec.clear();
-        if (fs::is_regular_file(candidate, ec))
-            return QString::fromStdString(candidate.string());
-        const fs::path parent = root.parent_path();
-        if (parent == root) break;
-        root = parent;
+void SourcePanel::set_search_dirs(std::vector<std::string> dirs)
+{
+    search_dirs_ = std::move(dirs);
+    refresh();
+}
+
+void SourcePanel::set_unresolved(const std::string& name)
+{
+    unresolved_name_ = name;
+    locate_btn_->setEnabled(!name.empty());
+}
+
+void SourcePanel::locate_file()
+{
+    if (unresolved_name_.empty()) return;
+    const QString base = QFileInfo(QString::fromStdString(unresolved_name_)).fileName();
+    const QString start = QFileInfo(QString::fromStdString(dbg_->source_map().loaded_file())).absolutePath();
+    const QString picked = QFileDialog::getOpenFileName(
+        this, tr("Locate %1").arg(base), start, tr("%1 (%1);;All files (*)").arg(base));
+    if (picked.isEmpty()) return;
+    const QString root = QString::fromStdString(
+        source_search::root_for(unresolved_name_, picked.toStdString()));
+    if (root.isEmpty()) {
+        QMessageBox::warning(this, tr("Locate File"),
+                             tr("%1 is not %2. Choose the file the source map names.")
+                                 .arg(QFileInfo(picked).fileName(), base));
+        return;
     }
-    return {};
+    emit source_dir_located(root);
+    refresh();
+    const auto keep = QMessageBox::question(
+        this, tr("Locate File"),
+        tr("Source files are now also searched for in:\n%1\n\n"
+           "Save this directory in Preferences (Paths > Source search path) for later sessions?")
+            .arg(root),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (keep == QMessageBox::Yes) emit source_dir_save_requested(root);
 }
 
 void SourcePanel::show_message(const QString& message)
 {
     location_label_->setText(message);
+    location_label_->setToolTip(QString());
     if (!loaded_source_.isEmpty()) {
         editor_->clear();
         loaded_source_.clear();
@@ -130,6 +162,7 @@ void SourcePanel::show_message(const QString& message)
 void SourcePanel::show_running()
 {
     location_label_->setText(tr("Running"));
+    location_label_->setToolTip(QString());
     editor_->setExtraSelections({});
     highlighted_line_ = 0;
 }
@@ -153,6 +186,7 @@ void SourcePanel::update_buttons(bool paused)
 void SourcePanel::refresh()
 {
     if (!dbg_) return;
+    set_unresolved({});
     const bool paused = dbg_->state().paused;
     update_buttons(paused);
     if (!paused) {
@@ -195,11 +229,21 @@ void SourcePanel::refresh()
         return;
     }
 
+    // GH #420 - a z88dk record in a `.m4` file (the CRT): the assembler numbered the
+    // lines of the m4 OUTPUT, which the build did not keep, so no file on disk has them.
+    if (dbg_->source_map().format() == "z88dk" &&
+        QString::fromStdString(location->file).endsWith(QLatin1String(".m4"), Qt::CaseInsensitive)) {
+        show_message(tr("%1:%2 - the line counts the m4 output of this file, which the build "
+                        "did not keep; use the disassembly")
+                         .arg(QString::fromStdString(location->file)).arg(location->line) + note);
+        return;
+    }
     const QString source_path = resolve_source_file(location->file);
     if (source_path.isEmpty()) {
         show_message(tr("%1:%2 - source file not found")
                          .arg(QString::fromStdString(location->file))
                          .arg(location->line) + note);
+        set_unresolved(location->file);
         return;
     }
     // Reloaded when the file changes on disk, so an edit-and-rebuild cycle
@@ -217,6 +261,18 @@ void SourcePanel::refresh()
         placed_ = false;   // a new text, or another file, starts at its top
     }
 
+    location_label_->setToolTip(source_path);
+    // GH #420 - a line past the end of the file found: it is not the text the build used.
+    const QTextDocument* doc = editor_->document();
+    const int file_lines = doc->blockCount() - (doc->lastBlock().length() <= 1 ? 1 : 0);
+    if (location->line > file_lines) {
+        location_label_->setText(tr("%1:%2 - %3 has only %4 lines; it is not the text the build used")
+                                     .arg(QString::fromStdString(location->file))
+                                     .arg(location->line).arg(source_path).arg(file_lines) + note);
+        editor_->setExtraSelections({});
+        highlighted_line_ = 0;
+        return;
+    }
     location_label_->setText(tr("%1:%2  $%3  %4")
                                  .arg(QString::fromStdString(location->file))
                                  .arg(location->line)

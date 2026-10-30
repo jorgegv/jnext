@@ -96,6 +96,7 @@ enum class OptId {
     RecordScript,
     Map,
     SourceMap,
+    SourceDir,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -858,6 +859,14 @@ inline constexpr Option OPTIONS[] = {
       "map's binary identity (exit 1). With a tape program the map\n"
       "attaches at once and is checked the first time the program\n"
       "runs its code; a mismatch then drops it (exit 1)." },
+    // Repeatable: each occurrence appends one directory (GH #420).
+    { "--source-dir", 1, Doc::Documented, OptId::SourceDir,
+      "DIR",
+      "Also search DIR for the source files a source map names\n"
+      "(Qt window with the debugger). ONE directory per option,\n"
+      "repeat it for more; a path-list separator is rejected.\n"
+      "Tried after the map's own directory and its parents.\n"
+      "The same as --set paths.source_dirs=DIRS." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

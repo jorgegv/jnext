@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QActionGroup>
 #include <QPoint>
+#include <QStringList>
 #include <functional>
 #include <memory>
 #include <string>
@@ -354,6 +355,11 @@ public:
     /// exists. Called when the debugger is created and again from
     /// apply_preferences(), so a rebind applies live rather than at next launch.
     void push_debug_keymap();
+
+    /// GH #420 - hand the Source tab's search directories (source_dirs_) to the
+    /// debugger manager. No-op without ENABLE_DEBUGGER or before the manager exists;
+    /// called when the manager is created and from apply_startup_config().
+    void push_source_dirs();
 
     /// Update status bar information.  Called once per second from the frame timer.
     /// Refresh the status bar. `fps` is the EMULATED frame rate (run_frame()
@@ -723,6 +729,11 @@ private:
     // persist it. Both the emulator window's own forwarding and the push into
     // the debugger window read THIS, so the two windows can never disagree.
     jnext::dbgkeys::Keymap debug_keys_;
+
+    // GH #420 - the Source tab's search directories IN EFFECT (the command line's, else
+    // the saved list; Preferences takes over). Not app_config_'s, for the same reason
+    // as session_ below: a command-line list must never reach jnext.conf.
+    QStringList source_dirs_;
 
     // GH #417 - the four paths/format settings this session reads LIVE, kept apart
     // from app_config_ so a command-line value (`--set paths.last_load_dir=...`)
