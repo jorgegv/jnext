@@ -92,6 +92,7 @@ const char kLd64Map[] =
     "[  3] /Users/a b/build/src/platform/libjnext_platform.a(sdl_app.cpp.o)\n"
     "[  4] /Applications/Xcode.app/SDKs/MacOSX.sdk/usr/lib/libSystem.tbd\n"
     "[  5] /var/folders/xx/T/lto.o\n"
+    "[  6] /Users/a b/build (1)/obj.cpp.o\n"
     "# Sections:\n"
     "# Address\tSize\tSegment\tSection\n"
     "0x100000F00\t0x00000010\t__TEXT\t__text\n"
@@ -105,6 +106,7 @@ const char kLd64NoMembers[] =
     "[  0] linker synthesized\n"
     "[  1] /Users/a b/build/main.cpp.o\n"
     "[  2] /var/folders/xx/T/lto.o\n"
+    "[  3] /Users/a b/build (1)/obj.cpp.o\n"
     "# Symbols:\n"
     "0x100000F00\t0x00000010\t[  1] _main\n";
 
