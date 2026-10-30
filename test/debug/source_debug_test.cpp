@@ -5277,6 +5277,296 @@ int main() {
         }
     }
 
+    // ── GH #344 stage 3: per memory space (owner decision 2026-10-29) ─────────
+    // v2.4/sccz80-page20: prog_CODE.bin is page 4 ($8000..), prog_PAGE_20.bin is page 20
+    // ($C000..$C023; banked.c:8 is $C003). Two spaces, two checks.
+    {
+        const fs::path tape = dir / "tape";
+        const char* kFx = "v2.4/sccz80-page20";
+        auto verified_lines = [](const Z88Log& l) {
+            std::vector<std::string> out;
+            for (const auto& x : l.lines)
+                if (x.rfind("Verified ", 0) == 0) out.push_back(x);
+            return out;
+        };
+        {   // TAPE-15, -16
+            const fs::path d = tape / "t15";
+            const std::string tap = tape_copy(kFx, d);
+            const std::string map = (d / "prog.map").string();
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            Z88Log lc;
+            m.dbg->set_listener(m.a, &lc);
+            park(m);
+            m.dbg->nextreg_write(m.a, 0x54, 4);
+            m.dbg->nextreg_write(m.a, 0x56, 8);
+            const auto r = m.dbg->load_program_sidecars(tap);
+            // Page 4 has its program; page 20 holds nothing yet (a bank the tape loads later).
+            tape_bytes(m, MemSpace::page(4), d / "prog_CODE.bin");
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const auto mid = m.dbg->source_map_status();
+            const bool mid_hold = m.emu.debug_state().verify_hold();
+            const auto lines1 = verified_lines(lc);
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);   // the same space again: not judged twice
+            const size_t lines_again = verified_lines(lc).size();
+            check("SRCDBG-TAPE-15", "the first space run (page 4) is judged and the map kept, still pending "
+                                    "for page 20, which holds nothing yet and is not judged; the window "
+                                    "stays armed, and page 4 is not judged twice",
+                  r.sources_pending && mid.state == Debugger::SourceMapStatus::State::Attached &&
+                      mid.pending && mid_hold && !m.dbg->source_map().empty() &&
+                      lines1.size() == 1 &&
+                      has(lines1[0], "Verified z88dk source map '" + map +
+                                         "' in page 4; 1 memory space still to check") &&
+                      lines_again == 1,
+                  "state=" + std::to_string(int(mid.state)) + " empty=" + std::to_string(m.dbg->source_map().empty()) + " src_pending=" + std::to_string(r.sources_pending) + " mid.pending=" +
+                      std::to_string(mid.pending) + " hold=" + std::to_string(mid_hold) + " lines1=" +
+                      std::to_string(lines1.size()) + " again=" + std::to_string(lines_again) + " " +
+                      (lines1.empty() ? "no Verified line" : lines1[0]));
+            tape_bytes(m, MemSpace::page(20), d / "prog_PAGE_20.bin");
+            m.dbg->nextreg_write(m.a, 0x56, 20);
+            m.set_pc(0xC003);
+            m.dbg->step_into(m.a);
+            const auto end = m.dbg->source_map_status();
+            const auto lines2 = verified_lines(lc);
+            check("SRCDBG-TAPE-16", "the second space (page 20), loaded after the first was judged and run "
+                                    "later, is judged then: the map is verified whole, the window off",
+                  end.state == Debugger::SourceMapStatus::State::Attached && !end.pending &&
+                      !m.emu.debug_state().verify_hold() && lines2.size() == 2 &&
+                      has(lines2[1], "Verified z88dk source map '" + map +
+                                         "': the program loaded from tape matches its binary identity"),
+                  std::to_string(lines2.size()) + " lines; pending=" + std::to_string(end.pending) +
+                      " hold=" + std::to_string(m.emu.debug_state().verify_hold()) + " state=" +
+                      std::to_string(int(end.state)) + " reason=" + end.reason);
+        }
+        {   // TAPE-17: the later space does not match
+            const fs::path d = tape / "t17";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            park(m);
+            m.dbg->nextreg_write(m.a, 0x54, 4);
+            m.dbg->nextreg_write(m.a, 0x56, 8);
+            const auto r = m.dbg->load_program_sidecars(tap);
+            tape_bytes(m, MemSpace::page(4), d / "prog_CODE.bin");
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const bool kept_after_first = m.dbg->source_map_status().pending && !m.dbg->source_map().empty();
+            tape_bytes(m, MemSpace::page(20), d / "prog_PAGE_20.bin", /*flip=*/5);
+            m.dbg->nextreg_write(m.a, 0x56, 20);
+            m.set_pc(0xC003);
+            Debugger::SourceMapStatus st;
+            const std::string log = debugger_log_of([&] {
+                run_frames(m, 1);
+                st = m.dbg->source_map_status();
+            });
+            check("SRCDBG-TAPE-17", "page 4 matched and was judged; a wrong byte in page 20, judged when it "
+                                    "first runs, still drops the whole map and its symbols",
+                  r.sources > 0 && r.symbols > 0 && kept_after_first &&
+                      st.state == Debugger::SourceMapStatus::State::None && m.dbg->source_map().empty() &&
+                      !m.emu.debug_state().verify_hold() &&
+                      has(log, "Rejected z88dk source map '" + (d / "prog.map").string() +
+                                   "': the program loaded from tape does not match its binary identity") &&
+                      has(log, "Dropped the program's symbols"),
+                  log);
+        }
+        {   // TAPE-18: the other order
+            const fs::path d = tape / "t18";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            Z88Log lc;
+            m.dbg->set_listener(m.a, &lc);
+            park(m);
+            m.dbg->nextreg_write(m.a, 0x54, 4);
+            m.dbg->nextreg_write(m.a, 0x56, 8);
+            m.dbg->load_program_sidecars(tap);
+            // Page 20 first; page 4 holds nothing yet.
+            tape_bytes(m, MemSpace::page(20), d / "prog_PAGE_20.bin");
+            m.dbg->nextreg_write(m.a, 0x56, 20);
+            m.set_pc(0xC003);
+            m.dbg->step_into(m.a);
+            const auto mid = m.dbg->source_map_status();
+            const auto lines1 = verified_lines(lc);
+            tape_bytes(m, MemSpace::page(4), d / "prog_CODE.bin");
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const auto end = m.dbg->source_map_status();
+            check("SRCDBG-TAPE-18", "the spaces are judged in the order they first run: page 20 first (page "
+                                    "4 still empty and not judged), then page 4",
+                  mid.state == Debugger::SourceMapStatus::State::Attached && mid.pending &&
+                      lines1.size() == 1 && has(lines1[0], "in page 20; 1 memory space still to check") &&
+                      end.state == Debugger::SourceMapStatus::State::Attached && !end.pending &&
+                      verified_lines(lc).size() == 2);
+        }
+        {   // TAPE-19: a rewind with a space judged and the other not, compared over the replayed run
+            struct Run {
+                std::vector<std::string> verified;
+                bool mid_pending = false, mid_hold = false, end_pending = true, end_hold = true;
+                bool end_attached = false;
+                std::string rewind_note;
+            };
+            auto scenario = [&](bool with_rewind, const fs::path& d) {
+                const std::string tap = tape_copy(kFx, d);
+                Run out;
+                Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+                Z88Log lc;
+                m.dbg->set_listener(m.a, &lc);
+                park(m);
+                m.dbg->nextreg_write(m.a, 0x54, 4);
+                m.dbg->nextreg_write(m.a, 0x56, 8);
+                run_frames(m, 1);
+                const uint32_t f_pre = m.dbg->time().frame;
+                m.dbg->load_program_sidecars(tap);
+                run_frames(m, 1);
+                const uint32_t f_attach = m.dbg->time().frame;
+                tape_bytes(m, MemSpace::page(4), d / "prog_CODE.bin");
+                m.set_pc(0x8000);
+                m.dbg->step_into(m.a);   // page 4 judged here
+                park(m);
+                run_frames(m, 2);
+                const uint32_t f_late = m.dbg->time().frame;
+                if (with_rewind) {
+                    const Result back = m.dbg->rewind_to_frame(m.a, f_attach);
+                    const auto st = m.dbg->source_map_status();   // before page 4 was judged: still judged
+                    const bool st_hold = m.emu.debug_state().verify_hold();
+                    // Before the load there is no map and no window; coming forward again, the
+                    // generation's record brings the map back with one space judged and one to come.
+                    const Result before = m.dbg->rewind_to_frame(m.a, f_pre);
+                    const bool none_then = m.dbg->source_map().empty() && !m.emu.debug_state().verify_hold();
+                    const Result fwd = m.dbg->rewind_to_frame(m.a, f_late);
+                    out.rewind_note = "back=" + std::to_string(int(back)) + " before=" + std::to_string(int(before)) +
+                                      " fwd=" + std::to_string(int(fwd)) + " pend=" + std::to_string(st.pending) +
+                                      " hold=" + std::to_string(st_hold) + " none=" + std::to_string(none_then);
+                    if (back != Result::Ok || before != Result::Ok || fwd != Result::Ok || !st.pending ||
+                        !st_hold || !none_then)
+                        out.rewind_note += " BAD";
+                }
+                const auto mid = m.dbg->source_map_status();
+                out.mid_pending = mid.pending;
+                out.mid_hold = m.emu.debug_state().verify_hold();
+                tape_bytes(m, MemSpace::page(20), d / "prog_PAGE_20.bin");
+                m.dbg->nextreg_write(m.a, 0x56, 20);
+                m.set_pc(0xC003);
+                m.dbg->step_into(m.a);
+                const auto end = m.dbg->source_map_status();
+                out.end_pending = end.pending;
+                out.end_hold = m.emu.debug_state().verify_hold();
+                out.end_attached = end.state == Debugger::SourceMapStatus::State::Attached;
+                out.verified = verified_lines(lc);
+                return out;
+            };
+            const Run control = scenario(false, tape / "t19a");
+            const Run rewound = scenario(true, tape / "t19b");
+            auto strip_map = [](std::vector<std::string> v) {
+                for (auto& s : v) {   // the two runs use two directories
+                    const size_t a = s.find('\''), b = s.find('\'', a + 1);
+                    if (a != std::string::npos && b != std::string::npos) s.erase(a, b - a + 1);
+                }
+                return v;
+            };
+            check("SRCDBG-TAPE-19", "with one space judged and one to come, a rewind back past the judged "
+                                    "space's first run and forward again leaves the check as it was: the "
+                                    "replayed run produces the same Verified lines, the same pending state "
+                                    "and window as the run without a rewind",
+                  rewound.rewind_note.find("BAD") == std::string::npos && control.mid_pending &&
+                      control.mid_hold && rewound.mid_pending == control.mid_pending &&
+                      rewound.mid_hold == control.mid_hold && !control.end_pending && !control.end_hold &&
+                      rewound.end_pending == control.end_pending && rewound.end_hold == control.end_hold &&
+                      control.end_attached && rewound.end_attached &&
+                      control.verified.size() == 2 &&
+                      strip_map(rewound.verified) == strip_map(control.verified),
+                  rewound.rewind_note + " control=" + std::to_string(control.verified.size()) +
+                      " rewound=" + std::to_string(rewound.verified.size()));
+        }
+        {   // TAPE-20, -21: the check, run by the guest, touches nothing (PURE-01's live fixture)
+            const fs::path d = tape / "t20";
+            const std::string tap = tape_copy(kFx, d);
+            struct Side {
+                std::unique_ptr<Machine> m;
+                std::vector<uint8_t> mem;
+                size_t ring = 0;
+                bool hit = false;
+                uint8_t latch = 0;
+                uint64_t clock = 0;
+                Z80Registers regs;
+                bool pending = false;
+            };
+            auto build = [&](bool with_map) {
+                Side s;
+                s.m = std::make_unique<Machine>(false, MachineType::ZXN_ISSUE2);
+                Machine& m = *s.m;
+                park(m);
+                m.dbg->nextreg_write(m.a, 0x54, 4);
+                m.dbg->nextreg_write(m.a, 0x56, 8);
+                if (with_map) m.dbg->load_program_sidecars(tap);
+                tape_bytes(m, MemSpace::page(4), d / "prog_CODE.bin");
+                tape_bytes(m, MemSpace::page(20), d / "prog_PAGE_20.bin");
+                m.emu.mmu().set_machine_timing(MachineTimingMode::TimingPlus3);
+                m.emu.mmu().set_p3_floating_bus_dat(0x3C);
+                for (uint16_t at : {0x8CB5, 0xC010, 0xC020, 0x8E0E})
+                    m.emu.debug_state().breakpoints().add_watchpoint(at, WatchType::READ);
+                Subscription sub;
+                sub.kind = EventKind::Mem;
+                sub.access = Access::Read;
+                sub.filter.lo = 0x0000;
+                sub.filter.hi = 0xFFFF;
+                sub.action = Action::Continue;
+                m.dbg->subscribe(m.a, sub);
+                return s;
+            };
+            auto settle = [&](Side& s) {
+                Machine& m = *s.m;
+                s.mem.clear();
+                for (uint32_t a = 0x4000; a < 0x10000; ++a)
+                    s.mem.push_back(m.emu.mmu().peek(static_cast<uint16_t>(a)));
+                s.ring = m.emu.debug_state().event_table()->size();
+                s.hit = m.emu.debug_state().data_bp_hit();
+                s.latch = m.emu.mmu().p3_floating_bus_dat();
+                s.clock = m.emu.clock().get();
+                s.regs = m.emu.cpu().get_registers();
+                s.pending = m.dbg->source_map_status().pending;
+            };
+            Side with = build(true), without = build(false);
+            for (Side* s : {&with, &without}) {
+                Machine& m = *s->m;
+                m.set_pc(0x8000);
+                m.dbg->step_into(m.a);                 // page 4 judged inside the guest's scope
+                m.dbg->nextreg_write(m.a, 0x56, 20);
+                m.set_pc(0xC003);
+                m.dbg->step_into(m.a);                 // page 20 judged
+                settle(*s);
+            }
+            const bool same = with.mem == without.mem && with.ring == without.ring &&
+                              with.hit == without.hit && with.latch == without.latch &&
+                              with.clock == without.clock && with.regs.PC == without.regs.PC &&
+                              with.regs.SP == without.regs.SP && with.regs.AF == without.regs.AF;
+            check("SRCDBG-TAPE-20", "a check made by the guest's own execution (two steps, one in each "
+                                    "space) leaves the machine as the same steps without a map: same "
+                                    "memory, event ring, watch flag, floating-bus latch, clock and "
+                                    "registers; and both spaces were judged",
+                  same && !with.pending && !with.hit && with.latch == 0x3C,
+                  "mem=" + std::to_string(with.mem == without.mem) + " ring=" + std::to_string(with.ring) +
+                      "/" + std::to_string(without.ring) + " hit=" + std::to_string(with.hit) + "/" +
+                      std::to_string(without.hit) + " latch=" + hex(with.latch) + "/" + hex(without.latch) +
+                      " clock=" + std::to_string(with.clock) + "/" + std::to_string(without.clock) +
+                      " pending=" + std::to_string(with.pending));
+            // Control: ONE guest read of a checked, watched byte in the same fixture moves all of it.
+            Side ctl = build(true);
+            settle(ctl);
+            const size_t ring_before = ctl.ring;
+            {
+                DebugState::GuestExecutionScope guest(ctl.m->emu.debug_state());
+                (void)ctl.m->emu.mmu().read(0xC010);
+            }
+            settle(ctl);
+            check("SRCDBG-TAPE-21", "control for TAPE-20: ONE guest read of $C010 in the same fixture "
+                                    "raises the watchpoint, enters the event ring and moves the latch, "
+                                    "so the row above cannot pass because nothing here is live",
+                  ctl.hit && ctl.ring > ring_before && ctl.latch != 0x3C,
+                  "hit=" + std::to_string(ctl.hit) + " ring=" + std::to_string(ctl.ring) + " latch=" +
+                      hex(ctl.latch));
+        }
+    }
+
     fs::remove_all(dir);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
