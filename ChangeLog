@@ -5,6 +5,7 @@
 ### User Features
 - File > Recent Files and Reload Last File (Alt+L); load dialogs open on the last file loaded
 - macOS: host shortcuts use Command, Control acts as Symbol Shift; Command never reaches the guest
+- NextPi: extra QEMU arguments (e.g. a second telnet serial port); every NextPi setting has a --nextpi-* flag
 
 ### Bug Fixes
 - JNEXT no longer becomes unresponsive after loading a tape: fast load only sprints while the tape is read
@@ -14,7 +15,7 @@
 - Windows build under wine 11.7+: downloads no longer freeze waiting for a slow server; progress, stall note and cancel work
 
 ### Contributors in this release
-- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar
+- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj
 
 ## v1.1.87 (2026-10-24)
 

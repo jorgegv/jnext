@@ -11,6 +11,16 @@
 
 namespace {
 
+// A free-text value read from the INI. QSettings IniFormat reads an UNQUOTED value
+// containing a comma as a QStringList, and toString() of a multi-element list is "":
+// a hand-edited `qemu_args=-serial telnet::2357,server,nowait` was silently dropped
+// (GH #407). Join it back. A value jnext saves is quoted and arrives as a string.
+QString ini_text(const QVariant& v)
+{
+    if (v.userType() == QMetaType::QStringList) return v.toStringList().join(QLatin1Char(','));
+    return v.toString();
+}
+
 // On-disk machine type: core/emulator_config.h's machine_type_key(), the
 // spelling parse_machine_type() reads back (older files wrote "+3"; both parse).
 QString machine_type_to_key(MachineType t) {
@@ -184,9 +194,9 @@ void AppConfig::load() {
     settings_.endGroup();
 
     settings_.beginGroup("paths");
-    data_.last_load_dir  = settings_.value("last_load_dir", data_.last_load_dir).toString();
-    data_.sd_card_path   = settings_.value("sd_card_path", data_.sd_card_path).toString();
-    data_.screenshot_dir = settings_.value("screenshot_dir", data_.screenshot_dir).toString();
+    data_.last_load_dir  = ini_text(settings_.value("last_load_dir", data_.last_load_dir));
+    data_.sd_card_path   = ini_text(settings_.value("sd_card_path", data_.sd_card_path));
+    data_.screenshot_dir = ini_text(settings_.value("screenshot_dir", data_.screenshot_dir));
     settings_.endGroup();
 
     // GH #406. Its own group; cleaned of blanks and cut to the cap, so a
@@ -203,8 +213,8 @@ void AppConfig::load() {
     // v1 file and both fall back to their defaults, which is the behaviour
     // that file already had.
     settings_.beginGroup("screenshot");
-    data_.quick_screenshot_dir = settings_.value(
-        "quick_dir", data_.quick_screenshot_dir).toString();
+    data_.quick_screenshot_dir = ini_text(settings_.value(
+        "quick_dir", data_.quick_screenshot_dir));
     {
         // Anything other than the two known words keeps the default, the same
         // way when_slow_prefer and joy_source do: a typo in a hand-edited file
@@ -260,7 +270,7 @@ void AppConfig::load() {
         const QString raw = settings_.value(dev_keys[i], data_.joy_device[i]).toString().trimmed();
         if (!raw.isEmpty() && normalize_joy_device_id(raw.toStdString(), canon)) {
             data_.joy_device[i]      = QString::fromStdString(canon);
-            data_.joy_device_name[i] = settings_.value(name_keys[i], data_.joy_device_name[i]).toString();
+            data_.joy_device_name[i] = ini_text(settings_.value(name_keys[i], data_.joy_device_name[i]));
         } else {
             data_.joy_device[i].clear();
             data_.joy_device_name[i].clear();
@@ -300,10 +310,11 @@ void AppConfig::load() {
 
     settings_.beginGroup("nextpi");
     data_.nextpi_enabled     = settings_.value("enabled", data_.nextpi_enabled).toBool();
-    data_.nextpi_dir         = settings_.value("dir", data_.nextpi_dir).toString().trimmed();
-    data_.nextpi_release     = settings_.value("release", data_.nextpi_release).toString().trimmed();
-    data_.nextpi_qemu_binary = settings_.value("qemu_binary", data_.nextpi_qemu_binary).toString().trimmed();
-    data_.nextpi_audio       = settings_.value("audio", data_.nextpi_audio).toString().trimmed();
+    data_.nextpi_dir         = ini_text(settings_.value("dir", data_.nextpi_dir)).trimmed();
+    data_.nextpi_release     = ini_text(settings_.value("release", data_.nextpi_release)).trimmed();
+    data_.nextpi_qemu_binary = ini_text(settings_.value("qemu_binary", data_.nextpi_qemu_binary)).trimmed();
+    data_.nextpi_audio       = ini_text(settings_.value("audio", data_.nextpi_audio)).trimmed();
+    data_.nextpi_qemu_args   = ini_text(settings_.value("qemu_args", data_.nextpi_qemu_args)).trimmed();
     settings_.endGroup();
 }
 
@@ -414,6 +425,7 @@ void AppConfig::save() const {
     settings_.setValue("release", data_.nextpi_release);
     settings_.setValue("qemu_binary", data_.nextpi_qemu_binary);
     settings_.setValue("audio", data_.nextpi_audio);
+    settings_.setValue("qemu_args", data_.nextpi_qemu_args);
     settings_.endGroup();
 
     settings_.sync();

@@ -414,12 +414,16 @@ without data) is kept as \f[CR]NextPi\-<release>.tar.gz.part\f[R] and
 continues on the next run.
 NextPi then takes about a minute to reach its Supervisor prompt
 (\f[CR]SUP>\f[R]).
-The release, the directory, the QEMU binary and where the Pi\(cqs sound
-goes are set under \f[B]Settings > Preferences > NextPi\f[R] (the
-\f[CR][nextpi]\f[R] section of \f[CR]\(ti/.jnext/jnext.conf\f[R]); their
-defaults are release \f[CR]1_93D\f[R], \f[CR]\(ti/.jnext/nextpi\f[R],
-\f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R], and the Next\(cqs
-mixer.
+The release, the directory, the QEMU binary, where the Pi\(cqs sound
+goes and any extra QEMU arguments are set under \f[B]Settings >
+Preferences > NextPi\f[R] (the \f[CR][nextpi]\f[R] section of
+\f[CR]\(ti/.jnext/jnext.conf\f[R]) or, for one run, with
+\f[B]\-\-nextpi\-dir\f[R], \f[B]\-\-nextpi\-release\f[R],
+\f[B]\-\-nextpi\-qemu\f[R], \f[B]\-\-nextpi\-audio\f[R] and
+\f[B]\-\-nextpi\-qemu\-args\f[R], which work in a headless session too;
+their defaults are release \f[CR]1_93D\f[R],
+\f[CR]\(ti/.jnext/nextpi\f[R], \f[CR]qemu\-system\-arm\f[R] on
+\f[CR]PATH\f[R], and the Next\(cqs mixer.
 .PP
 On Linux and macOS the Pi\(cqs sound reaches the Next\(cqs mixer over
 I2S, as on the real machine: it is mixed with the beeper, the AY chips
@@ -455,6 +459,45 @@ loopback TCP socket QEMU listens on.
 \f[B]\-\-no\-nextpi\f[R]
 Do not start NextPi this run, overriding a saved preference that enables
 it.
+.TP
+\f[B]\-\-nextpi\-dir\f[R] \f[I]DIR\f[R]
+The NextPi directory for this run (default
+\f[CR]\(ti/.jnext/nextpi\f[R]), over the value saved under \f[B]Settings
+> Preferences > NextPi\f[R].
+An empty value means the default.
+It is used when NextPi starts, so it goes with \f[B]\-\-nextpi\f[R] (or
+a saved preference that enables it); given when NextPi is not enabled
+for the run, this and the four options below are ignored, with a warning
+naming each.
+.TP
+\f[B]\-\-nextpi\-release\f[R] \f[I]NAME\f[R]
+The NextPi release for this run: a release name on the mirror, or
+\f[CR]latest\f[R] for the newest one listed there (default
+\f[CR]1_93D\f[R]).
+Over the saved value; an empty value means the default.
+.TP
+\f[B]\-\-nextpi\-qemu\f[R] \f[I]PROGRAM\f[R]
+The QEMU program for this run (default \f[CR]qemu\-system\-arm\f[R] on
+\f[CR]PATH\f[R]; with a path, \f[CR]qemu\-img\f[R] is expected beside
+it).
+Over the saved value; an empty value means the default.
+.TP
+\f[B]\-\-nextpi\-audio\f[R] \f[I]SPEC\f[R]
+Where the Pi\(cqs sound goes for this run: empty for the Next\(cqs mixer
+(the default), \f[CR]host\f[R], a QEMU \f[CR]\-audiodev\f[R] driver such
+as \f[CR]pa\f[R] or \f[CR]none\f[R], or \f[CR]wav:\f[R]\f[I]FILE\f[R].
+Over the saved value.
+.TP
+\f[B]\-\-nextpi\-qemu\-args\f[R] \f[I]\(lqARGS\(rq\f[R]
+Extra QEMU arguments for this run, added after jnext\(cqs own.
+The text is split into arguments on spaces; \f[CR]\(aq...\(aq\f[R] and
+\f[CR]\(dq...\(dq\f[R] keep spaces in one argument; a backslash is an
+ordinary character; nothing is expanded and no shell is involved.
+Over the saved \f[CR]qemu_args\f[R].
+An unterminated quote stops NextPi from starting, with a message (an
+error when \f[B]\-\-nextpi\f[R] asked for it).
+For example, a second serial port for the Pi, on \f[CR]ttyS0\f[R]:
+\f[CR]\-\-nextpi\-qemu\-args \(dq\-serial telnet:127.0.0.1:2357,server,nowait\(dq\f[R].
 .TP
 \f[B]\-\-tape\-realtime\f[R]
 Real\-time tape loading, at the speed of an actual tape, instead of fast
@@ -3189,6 +3232,22 @@ it straight to the host, or \f[CR]wav:\f[R]\f[I]FILE\f[R] to record it
 on its own).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
+\f[CR]qemu_args\f[R] holds extra QEMU arguments (empty means none;
+\f[B]\-\-nextpi\-qemu\-args\f[R] sets it for one run), added after
+jnext\(cqs own when NextPi starts.
+It is split into arguments on spaces; \f[CR]\(aq...\(aq\f[R] and
+\f[CR]\(dq...\(dq\f[R] keep spaces in one argument; a backslash is an
+ordinary character; nothing is expanded and no shell is involved.
+An unterminated quote stops NextPi from starting, with a message.
+Set it in Preferences or with \f[B]\-\-nextpi\-qemu\-args\f[R] rather
+than by hand: jnext writes the file value correctly itself.
+If you edit the file, remember that its INI reader (Qt\(cqs) has its own
+rules, applied before the text above: write the whole value in double
+quotes, write each \f[CR]\(rs\f[R] as \f[CR]\(rs\(rs\f[R] and each
+\f[CR]\(dq\f[R] as \f[CR]\(rs\(dq\f[R]; otherwise a backslash is an
+escape (\f[CR]C:\(rspi\(rsx.img\f[R] reads as \f[CR]C:i.img\f[R]), a
+bare \f[CR]\(dq\f[R] is swallowed, a \f[CR];\f[R] ends an unquoted
+value, and the spaces beside a comma are lost.
 The joystick ports are stored under \f[CR][input]\f[R]:
 \f[CR]joy1_source\f[R] and \f[CR]joy2_source\f[R] (\f[CR]sdl\f[R],
 \f[CR]keys\f[R] or \f[CR]none\f[R]), \f[CR]joy1_device\f[R] and

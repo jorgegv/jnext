@@ -380,13 +380,13 @@ if [[ $CLANG -eq 1 ]]; then
 else
     n=$(find "$PROFILE_DIR" -name '*.gcda' | wc -l | tr -d ' ')
     [[ $n -gt 0 ]] || die "training wrote no .gcda files into $PROFILE_DIR — is $BIN instrumented for that directory?"
-    # The instrumented link's map goes with the profile: cmake/JnextPgo.cmake
-    # reads it to tell the members jnext links (profile REQUIRED) from those
-    # it never links (no profile can exist).
-    MAP="$TREE/jnext-pgo.map"
-    [[ -s "$MAP" ]] || die "no link map at $MAP — the instrumented build did not write one"
-    cp "$MAP" "$PROFILE_DIR/jnext.map"
 fi
+# The instrumented link's map goes with the profile (both compilers):
+# cmake/JnextPgo.cmake reads it to tell the members jnext links (profile
+# REQUIRED) from those it never links (no profile can exist).
+MAP="$TREE/jnext-pgo.map"
+[[ -s "$MAP" ]] || die "no link map at $MAP — the instrumented build did not write one"
+cp "$MAP" "$PROFILE_DIR/jnext.map"
 fingerprint > "$PROFILE_DIR/.fingerprint"
 touch "$PROFILE_DIR/.trained"
 printf 'pgo-train: %d profiles in %.1f s\n' "$n" "$(elapsed "$t0")"
