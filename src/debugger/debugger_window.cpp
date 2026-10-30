@@ -125,7 +125,8 @@ int title_bar_height(const QWidget* w) {
 }
 } // namespace
 
-DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
+DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
+                               std::optional<bool> attach_override)
     : QMainWindow(parent)
     , dbg_(dbg)
 {
@@ -176,7 +177,8 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
         jnext::clamp_window_size_to_screen(want_w, want_h, work, deco_h);
     resize(fit.w, fit.h);
 
-    attach_enabled_ = settings.value(config_key(config_keys::KeyId::DebuggerAttached), true).toBool();
+    attach_saved_   = settings.value(config_key(config_keys::KeyId::DebuggerAttached), true).toBool();
+    attach_enabled_ = attach_override.value_or(attach_saved_);
 
     if (!attach_enabled_ || !attach_supported_) {
         // Detached (by choice or by platform): honour the saved position so a
@@ -850,7 +852,9 @@ void DebuggerWindow::save_geometry() {
     settings.setValue(config_key(config_keys::KeyId::DebuggerSize),
                       QStringList{QString::number(width()), QString::number(height())});
 
-    settings.setValue(config_key(config_keys::KeyId::DebuggerAttached), attach_enabled_);
+    // GH #417: the saved value, not this run's: a closed window must not write a
+    // command-line override into the file.
+    settings.setValue(config_key(config_keys::KeyId::DebuggerAttached), attach_saved_);
 
     // Issue #39: only a DETACHED window owns its position. An attached one
     // derives it from the emulator window, so saving it would pin a stale
@@ -1180,6 +1184,7 @@ void DebuggerWindow::give_up_on_attachment() {
 
 void DebuggerWindow::set_attach_enabled(bool on) {
     attach_enabled_ = on;
+    attach_saved_   = on;   // the toggle IS a change of the saved setting (written below)
 
     if (on && !attach_platform_blocked_) {
         // An explicit re-enable is the recovery path from a measured give-up:

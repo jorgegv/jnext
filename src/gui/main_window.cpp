@@ -286,6 +286,8 @@ MainWindow::MainWindow(QWidget* parent)
             issue.action_id, issue.text, issue.reason);
     }
     debug_keys_ = app_config_.data().debug_keys;
+    session_ = { app_config_.data().last_load_dir, app_config_.data().screenshot_dir,
+                 app_config_.data().quick_screenshot_dir, app_config_.data().quick_screenshot_format };   // GH #417
 
     // Central widget: the emulator display (fixed-size, pixel-perfect).
     emulator_widget_ = new EmulatorWidget(this);
@@ -941,7 +943,7 @@ void MainWindow::create_menus() {
         const QString scr_filter = tr("ZX Screen Dumps (*.scr)");
         QString selected = png_filter;
         QString path = QFileDialog::getSaveFileName(
-            this, tr("Save Screenshot"), app_config_.data().screenshot_dir,
+            this, tr("Save Screenshot"), session_.screenshot_dir,
             png_filter + QStringLiteral(";;") + scr_filter
                 + QStringLiteral(";;") + tr("All Files (*)"),
             &selected);
@@ -955,8 +957,7 @@ void MainWindow::create_menus() {
                                              : QStringLiteral(".png");
         }
         // Task 66 — remember the containing directory for the next dialog.
-        app_config_.data().screenshot_dir = QFileInfo(path).absolutePath();
-        app_config_.save();
+        remember_screenshot_dir(QFileInfo(path).absolutePath());
         write_screenshot(path);
     });
 
@@ -1669,15 +1670,28 @@ void MainWindow::on_recent_file(const QString& path) {
     }
     // As Load Program: remember the directory for the next dialog, then the
     // same route.
-    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
-    app_config_.save();
+    remember_load_dir(QFileInfo(path).absolutePath());
     handle_load_path(path);
 }
 
 QString MainWindow::load_dialog_seed() const {
     return QString::fromStdString(recent_files::dialog_seed(
         recent_list(app_config_.data().recent_files),
-        app_config_.data().last_load_dir.toStdString()));
+        session_.last_load_dir.toStdString()));
+}
+
+// GH #417 - a directory the user just picked: remembered for the session AND saved
+// (the GUI change takes over from a command-line value).
+void MainWindow::remember_load_dir(const QString& dir) {
+    session_.last_load_dir = dir;
+    app_config_.data().last_load_dir = dir;
+    app_config_.save();
+}
+
+void MainWindow::remember_screenshot_dir(const QString& dir) {
+    session_.screenshot_dir = dir;
+    app_config_.data().screenshot_dir = dir;
+    app_config_.save();
 }
 
 void MainWindow::on_load_nex() {
@@ -1686,8 +1700,7 @@ void MainWindow::on_load_nex() {
         load_filter());
     if (!path.isEmpty()) {
         // Task 66 — remember the containing directory for the next dialog.
-        app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
-        app_config_.save();
+        remember_load_dir(QFileInfo(path).absolutePath());
         handle_load_path(path);
     }
 }
@@ -1709,11 +1722,10 @@ void MainWindow::on_pok_trainers() {
 
 void MainWindow::on_pok_open() {
     const QString path = QFileDialog::getOpenFileName(
-        this, tr("Open POK File"), app_config_.data().last_load_dir,
+        this, tr("Open POK File"), session_.last_load_dir,
         tr("POK Trainers (*.pok *.POK);;All Files (*)"));
     if (path.isEmpty()) return;
-    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
-    app_config_.save();
+    remember_load_dir(QFileInfo(path).absolutePath());
     open_pok_file(path);
 }
 
@@ -2162,8 +2174,7 @@ void MainWindow::on_tape_open() {
         tr("Tape Files (*.tap *.tzx *.wav);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;All Files (*)"));
     if (path.isEmpty() || !emulator_) return;
 
-    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
-    app_config_.save();
+    remember_load_dir(QFileInfo(path).absolutePath());
     handle_tape_path(path);
 }
 
@@ -2222,7 +2233,7 @@ void MainWindow::on_tape_save_start() {
     if (!emulator_) return;
     QString filter;
     QString path = QFileDialog::getSaveFileName(
-        this, tr("Save to Tape File"), app_config_.data().last_load_dir,
+        this, tr("Save to Tape File"), session_.last_load_dir,
         tr("TZX Files (*.tzx);;WAV Files (*.wav);;TAP Files (*.tap)"), &filter,
         // Saving appends to an existing file, so there is nothing to confirm.
         QFileDialog::DontConfirmOverwrite);
@@ -2623,16 +2634,16 @@ bool MainWindow::write_screenshot(const QString& path) {
 
 void MainWindow::on_quick_screenshot() {
     if (!emulator_) return;
-    const AppConfigData& cfg = app_config_.data();
+    // GH #417: the session's values (the command line's, or Preferences'), not the file's.
     // An empty setting means the built-in default rather than the current
     // working directory: a capture with no dialog must still land somewhere
     // the user can find, and "wherever jnext was started from" is not that.
-    const QString dir = cfg.quick_screenshot_dir.isEmpty()
+    const QString dir = session_.quick_dir.isEmpty()
         ? QString::fromStdString(default_quick_screenshot_dir())
-        : cfg.quick_screenshot_dir;
+        : session_.quick_dir;
 
     const std::string path = auto_screenshot_path(
-        dir.toStdString(), cfg.quick_screenshot_format, std::time(nullptr));
+        dir.toStdString(), session_.quick_format, std::time(nullptr));
     if (path.empty()) {
         // auto_screenshot_path() has already logged the reason (a directory
         // it could not create, or 99 names taken inside one second).
@@ -2855,6 +2866,11 @@ void MainWindow::on_save_snapshot() {
 // ---------------------------------------------------------------------------
 
 void MainWindow::apply_startup_config(const AppConfigData& cfg) {
+    // GH #417 - the session's paths and quick-screenshot format. At start-up cfg is the
+    // saved file with the command line's values over it; from Preferences it is the
+    // dialog's. Either way app_config_ (what is saved) is not touched here.
+    session_ = { cfg.last_load_dir, cfg.screenshot_dir, cfg.quick_screenshot_dir,
+                 cfg.quick_screenshot_format };
     // Machine type and silent are deliberately NOT applied here: main.cpp
     // already merged them into the EmulatorConfig used for Emulator::init()
     // (CLI wins when given), so re-applying the raw AppConfigData value here
@@ -3041,6 +3057,12 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     // only, applied on next launch. Host output gain is deliberately different:
     // apply_startup_config() updates the mixer immediately.
 }
+
+#ifdef ENABLE_DEBUGGER
+void MainWindow::set_debugger_attach_override(bool attached) {
+    if (debugger_mgr_) debugger_mgr_->set_attach_override(attached);
+}
+#endif
 
 void MainWindow::push_debug_keymap() {
 #ifdef ENABLE_DEBUGGER

@@ -146,6 +146,10 @@ enum class OptId {
     Rtc,
     Help,
     Version,
+    Set,        // GH #417
+    CpuSpeed,
+    Scale,
+    Crt,
 };
 
 // Parsed gain values plus the independent "CLI supplied this value" bits used
@@ -293,6 +297,23 @@ inline constexpr Option OPTIONS[] = {
       "recording of a real firmware boot (nextboot.rom -> TBBLUE.FW\n"
       "-> NextZXOS) by default; use this after changing the firmware\n"
       "or NextZXOS on the card." },
+    // GH #417 - the three Startup settings that have a menu of their own
+    // (Machine > CPU Speed, View > Scale, View > CRT) and so get a flag; every
+    // other jnext.conf setting is reached with --set.
+    { "--cpu-speed", 1, Doc::Documented, OptId::CpuSpeed,
+      "MHZ",
+      "CPU speed the machine starts at: 3.5, 7, 14 or 28 (the\n"
+      "same as --set startup.cpu_speed=0..3). A starting value:\n"
+      "NextZXOS sets its own speed while it boots" },
+    { "--scale", 1, Doc::Documented, OptId::Scale,
+      "N",
+      "Window scale 1..3 for this run, overriding the saved\n"
+      "Preferences value (Qt window only)" },
+    { "--crt", 1, Doc::Documented, OptId::Crt,
+      "EFFECT",
+      "CRT effect for this run: off, scanlines, soft, tv or pc\n"
+      "(the Preferences pop-up's choices; soft, tv and pc need\n"
+      "the GPU shader). Qt window only" },
     { "--speed", 1, Doc::Documented, OptId::Speed,
       "PERCENT",
       "Emulator speed as % (50=half, 100=normal, 200=2x, 400=4x)" },
@@ -844,6 +865,15 @@ inline constexpr Option OPTIONS[] = {
       "Output path for --profile (default: profile.dat)" },
 
     // Misc
+    // GH #417 - the generic form: every jnext.conf key, for one run. The keys
+    // are the rows of config_keys::KEYS (src/platform/config_keys.h), listed at
+    // the end of `--help` and in the man page's "Settings for --set".
+    { "--set", 1, Doc::Documented, OptId::Set,
+      "SECTION.KEY=VALUE",
+      "Set one jnext.conf setting for this run, e.g. --set\n"
+      "audio.gain_db=-6. Repeatable; the later of two settings of\n"
+      "one key wins, whether by --set or by its own flag. Never\n"
+      "written to jnext.conf. The keys are listed below" },
     { "--log-level", 1, Doc::Documented, OptId::LogLevel,
       "SPEC",
       "Log levels: a bare level sets all subsystems (e.g. warn),\n"
@@ -961,6 +991,36 @@ inline bool parse_quick_snapshot_keep(const char* s, int& out) {
     if (errno != 0 || end == s || *end != '\0' || n < 1 || n > 1000000) return false;
     out = static_cast<int>(n);
     return true;
+}
+
+/// `--cpu-speed MHZ` -> the NR 0x07 / `startup.cpu_speed` index: 3.5 -> 0, 7 -> 1,
+/// 14 -> 2, 28 -> 3. The four speeds exactly, nothing else (GH #417). Returns false
+/// and leaves `index` UNTOUCHED otherwise.
+inline bool parse_cpu_speed_mhz(const char* s, int& index) {
+    if (s == nullptr) return false;
+    static const char* const MHZ[4] = { "3.5", "7", "14", "28" };
+    for (int i = 0; i < 4; ++i)
+        if (std::strcmp(s, MHZ[i]) == 0) { index = i; return true; }
+    return false;
+}
+
+/// `--crt EFFECT` -> the three `startup.crt_*` settings, as the Preferences
+/// pop-up's choices set them (GH #417). `style` is -1 for "leave it" (off,
+/// scanlines); `needs_shader` is true for the three GPU looks.
+struct CrtEffect {
+    bool filter = false;
+    bool shader = false;
+    int  style  = -1;
+    bool needs_shader = false;
+};
+inline bool parse_crt_effect(const char* s, CrtEffect& out) {
+    if (s == nullptr) return false;
+    if (std::strcmp(s, "off") == 0)       { out = { false, false, -1, false }; return true; }
+    if (std::strcmp(s, "scanlines") == 0) { out = { true,  false, -1, false }; return true; }
+    if (std::strcmp(s, "tv") == 0)        { out = { false, true,  0,  true  }; return true; }
+    if (std::strcmp(s, "pc") == 0)        { out = { false, true,  1,  true  }; return true; }
+    if (std::strcmp(s, "soft") == 0)      { out = { false, true,  2,  true  }; return true; }
+    return false;
 }
 
 /// A whole decimal number, ALL of `s`, in [lo, hi] (GH #317). Returns false and

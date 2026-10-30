@@ -19,6 +19,7 @@
 // included unconditionally because the parsed value is declared alongside the
 // other options, before the frontend type is known.
 #include "platform/audio_pacing.h"
+#include "platform/config_keys.h"       // GH #417 --set
 #include "platform/pointer_capture.h"   // GH #365 --mouse-release
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "platform/quit_signal.h"      // SIGINT/SIGTERM as a quit request (GH #364)
@@ -26,6 +27,7 @@
 #include "core/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
 #include "version.h"
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <climits>
@@ -68,6 +70,8 @@
 #include "gui/sdcard_download_dialog.h"
 #include "gui/main_window.h"
 #include "gui/app_config.h"
+#include "gui/emulator_widget.h"      // crt_shader_built_in() for --crt
+#include "gui/qt_ctrl_is_command.h"   // GH #417 debugger-key --set
 #else
 #include "platform/sdl_app.h"
 #endif
@@ -155,6 +159,37 @@ static void print_usage(const char* prog) {
         }
         if (first) fprintf(stdout, "  %s\n", left.c_str());   // no help text at all
     }
+
+    // GH #417 - the keys --set accepts, GENERATED from config_keys::KEYS (a key
+    // that is not a setting is not listed). Entry lines have the same shape as the
+    // options above: two spaces, then `section.name=VALUES`, then the help.
+    fprintf(stdout,
+        "\n"
+        "  Settings for --set SECTION.KEY=VALUE (the keys of ~/.jnext/jnext.conf;\n"
+        "  where a key has a flag of its own it is named after the description):\n"
+        "\n");
+    for (const config_keys::Key& k : config_keys::KEYS) {
+        if (k.not_setting) continue;
+        const std::string left = std::string(k.section) + "." + k.name + "=" + k.values;
+        std::string text = k.help;
+        if (k.flag) text += std::string(" (") + k.flag + ")";
+        // The help is wrapped at 60 columns, under the first line's text.
+        std::string line = left.size() <= 40 ? left : std::string();
+        if (left.size() > 40) fprintf(stdout, "  %s\n", left.c_str());
+        bool first = true;
+        while (!text.empty()) {
+            std::size_t cut = text.size();
+            if (cut > 60) {
+                cut = text.rfind(' ', 60);
+                if (cut == std::string::npos) cut = text.find(' ');
+                if (cut == std::string::npos) cut = text.size();
+            }
+            const std::string piece = text.substr(0, cut);
+            text.erase(0, std::min(text.size(), cut + 1));
+            fprintf(stdout, "  %-40s  %s\n", first ? line.c_str() : "", piece.c_str());
+            first = false;
+        }
+    }
 }
 
 // GH #317 — numeric option values go through cli::parse_int / cli::parse_hex16,
@@ -189,6 +224,16 @@ static bool hex16_arg(const std::string& arg, const cli::Option* opt, const char
         return false;
     }
     return true;
+}
+
+// GH #417 - `--set` trims a word value (config_keys.cpp), so the flags that
+// have the same key trim it too: one vocabulary, two spellings.
+static std::string trim_arg(const char* v) {
+    std::string s = v;
+    size_t b = 0, e = s.size();
+    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
+    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
+    return s.substr(b, e - b);
 }
 
 int main(int argc, char* argv[]) {
@@ -283,6 +328,7 @@ int main(int argc, char* argv[]) {
     int         benchmark_frames = 0;  // --benchmark N; 0 = disabled
     std::string benchmark_label;       // --benchmark-label; empty = derive
     bool        silent = false;
+    bool        silent_set = false;          // GH #417: --silent or --set startup.silent given
     bool        tape_realtime = false;
     bool        tape_realtime_set = false;   // GH #402: --tape-realtime given
     // GH #395 - --tape-auto-play / --no-tape-auto-play: last one wins; `_set`
@@ -381,6 +427,9 @@ int main(int argc, char* argv[]) {
     bool        joy_source_set[2] = { false, false };
     // GH #311 — --joyN-device: the canonical controller id, empty = not given.
     std::string joy_device_id[2];
+    // GH #417 - `--set input.joyN_device=` (empty) is a GIVEN Automatic, which an
+    // empty joy_device_id could not say.
+    bool        joy_device_set[2] = { false, false };
     struct DelayedKeyArg { int delay; std::string key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
     struct DelayedNmiArg { int delay; std::string button; bool in_frames; };
@@ -395,6 +444,158 @@ int main(int argc, char* argv[]) {
     int         pok_frames_count = 0;
     std::string pok_trainers_text;
     int         pok_trainers_count = 0;
+
+    // GH #417 - `--set SECTION.KEY=VALUE` and the flags --cpu-speed, --scale and
+    // --crt. Every one is translated AT PARSE TIME into the same variables the
+    // older flags set, in argument order, so the later of two settings of one key
+    // wins whatever its spelling. Nothing here ever reaches jnext.conf: the Qt
+    // session merges these into its own copy of the saved values (below), which
+    // is never saved.
+    std::optional<int> cpu_speed_opt;                           // startup.cpu_speed, an index 0..3
+    std::vector<config_keys::Assignment> qt_assignments;        // the keys only the Qt window has
+    std::vector<std::pair<std::string, std::string>> debug_key_assignments;   // debugger_keys.ID=COMBO
+    std::optional<bool> debugger_attached_opt;                  // debugger.attached
+    // How each key was spelled on the command line, for the "has no effect" warnings.
+    std::vector<std::pair<config_keys::KeyId, std::string>> given_as;
+    auto note_given = [&](config_keys::KeyId id, const std::string& spelling) {
+        given_as.emplace_back(id, spelling);
+    };
+    auto spelled = [&](config_keys::KeyId id, const char* fallback) {
+        for (auto it = given_as.rbegin(); it != given_as.rend(); ++it)
+            if (it->first == id) return it->second;
+        return std::string(fallback);
+    };
+    auto apply_assignment = [&](const config_keys::Assignment& a) {
+        using config_keys::KeyId;
+        const std::string& t = a.text;
+        const bool on  = (t == "true");
+        const long num = std::strtol(t.c_str(), nullptr, 10);
+        auto gain = [&](cli::OptId id) {
+            (void)cli::assign_audio_gain(id, static_cast<float>(std::strtod(t.c_str(), nullptr)), audio_gain);
+        };
+        auto host_list = [&]() {
+            esp_allow = EspHostPolicy{};
+            size_t begin = 0;
+            while (!t.empty()) {
+                const size_t comma = t.find(',', begin);
+                esp_allow.add(t.substr(begin, comma == std::string::npos ? std::string::npos : comma - begin));
+                if (comma == std::string::npos) break;
+                begin = comma + 1;
+            }
+            esp_allow_set = true;
+        };
+        // No `default`: the jnext target builds with -Werror=switch, so a row added
+        // to config_keys::KEYS fails to compile until it has an arm here.
+        switch (a.id) {
+        case KeyId::StartupMachineType:
+            parse_machine_type(t, machine_type);
+            machine_type_set = true;
+            machine_arg = t;
+            break;
+        case KeyId::StartupCpuSpeed:
+            cpu_speed_opt = static_cast<int>(num);
+            break;
+        case KeyId::StartupEmulatorSpeedPercent:
+            speed_percent = static_cast<int>(num);
+            speed_percent_set = true;
+            break;
+        case KeyId::StartupWindowScale:
+        case KeyId::StartupCrtFilter:
+        case KeyId::StartupCrtShader:
+        case KeyId::StartupCrtShaderStyle:
+        case KeyId::PathsLastLoadDir:
+        case KeyId::PathsScreenshotDir:
+        case KeyId::ScreenshotQuickDir:
+        case KeyId::ScreenshotQuickFormat:
+            qt_assignments.push_back(a);   // merged into the Qt session's copy (merge_cli_assignments)
+            break;
+        case KeyId::StartupSilent:
+            silent = on;
+            silent_set = true;
+            break;
+        case KeyId::StartupTapeFastLoad:
+            tape_realtime = !on;
+            tape_realtime_set = true;
+            break;
+        case KeyId::StartupTapeAutoPlay:
+            tape_auto_play = on;
+            tape_auto_play_set = true;
+            break;
+        case KeyId::StartupWhenSlowPrefer:
+            when_slow_prefer = (t == "video") ? audio_pacing::WhenSlowPrefer::Video
+                                              : audio_pacing::WhenSlowPrefer::Audio;
+            when_slow_prefer_set = true;
+            break;
+        case KeyId::AudioGainDb:       gain(cli::OptId::AudioGainDb); break;
+        case KeyId::AudioGainBeeperDb: gain(cli::OptId::AudioGainBeeperDb); break;
+        case KeyId::AudioGainAy0Db:    gain(cli::OptId::AudioGainAy0Db); break;
+        case KeyId::AudioGainAy1Db:    gain(cli::OptId::AudioGainAy1Db); break;
+        case KeyId::AudioGainAy2Db:    gain(cli::OptId::AudioGainAy2Db); break;
+        case KeyId::AudioGainDacDb:    gain(cli::OptId::AudioGainDacDb); break;
+        case KeyId::PathsSdCardPath:
+            sd_card_image = t;
+            break;
+        case KeyId::SnapshotQuickKeep:
+            quick_snapshot_keep = (t == "unlimited") ? 0 : static_cast<int>(num);
+            quick_snapshot_keep_set = true;
+            break;
+        case KeyId::InputJoy1Source:
+        case KeyId::InputJoy2Source: {
+            const int idx = (a.id == KeyId::InputJoy1Source) ? 0 : 1;
+            parse_joy_source(t.c_str(), joy_source[idx]);
+            joy_source_set[idx] = true;
+            break;
+        }
+        case KeyId::InputJoy1Device:
+        case KeyId::InputJoy2Device: {
+            const int idx = (a.id == KeyId::InputJoy1Device) ? 0 : 1;
+            joy_device_id[idx]  = t;
+            joy_device_set[idx] = true;
+            break;
+        }
+        case KeyId::InputMouseRelease:
+            pointer_capture::parse_release_method(t, mouse_release);
+            mouse_release_set = true;
+            break;
+        case KeyId::DebuggerKey: {
+            // A later entry for one action replaces the earlier one.
+            bool replaced = false;
+            for (auto& e : debug_key_assignments)
+                if (e.first == a.family_name) { e.second = t; replaced = true; }
+            if (!replaced) debug_key_assignments.emplace_back(a.family_name, t);
+            break;
+        }
+        case KeyId::EspEnabled:
+            esp_enabled = on;
+            esp_enabled_set = true;
+            break;
+        case KeyId::EspAllowedHosts:
+            host_list();
+            break;
+        case KeyId::NextpiEnabled:
+            nextpi_enabled = on;
+            nextpi_enabled_set = true;
+            break;
+        case KeyId::NextpiDir:        nextpi_cli.dir = t; break;
+        case KeyId::NextpiRelease:    nextpi_cli.release = t; break;
+        case KeyId::NextpiQemuBinary: nextpi_cli.qemu_binary = t; break;
+        case KeyId::NextpiAudio:      nextpi_cli.audio = t; break;
+        case KeyId::NextpiQemuArgs:   nextpi_cli.qemu_args = t; break;
+        case KeyId::DebuggerAttached:
+            debugger_attached_opt = on;
+            break;
+        // Not settings (parse_assignment refuses them before they get here):
+        // history, derived names, the file format version, remembered geometry.
+        case KeyId::RecentFiles:
+        case KeyId::InputJoy1DeviceName:
+        case KeyId::InputJoy2DeviceName:
+        case KeyId::ConfigVersion:
+        case KeyId::DebuggerSize:
+        case KeyId::DebuggerPosition:
+        case KeyId::Count:
+            break;
+        }
+    };
 
     // Parse command-line arguments.
     //
@@ -545,6 +746,7 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 quick_snapshot_keep_set = true;
+                note_given(config_keys::KeyId::SnapshotQuickKeep, arg);
                 break;
             case cli::OptId::SnapshotMode:
                 // The mapping lives in `cli_options.h` so a test can assert it
@@ -561,7 +763,7 @@ int main(int argc, char* argv[]) {
                 }
                 break;
             case cli::OptId::Machine:
-                if (!parse_machine_type(v[0], machine_type)) {
+                if (!parse_machine_type(trim_arg(v[0]), machine_type)) {
                     fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", v[0]);
                     return 1;
                 }
@@ -588,6 +790,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::Silent:
                 silent = true;
+                silent_set = true;
                 break;
             case cli::OptId::TapeRealtime:
                 tape_realtime = true;
@@ -739,6 +942,7 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 esp_allow_set = true;
+                note_given(config_keys::KeyId::EspAllowedHosts, arg);
                 break;
             case cli::OptId::EspListenAddress: {
                 // Validated HERE rather than at bind time, because a typo in a
@@ -891,9 +1095,10 @@ int main(int argc, char* argv[]) {
                 if (speed_percent < 10) speed_percent = 10;
                 if (speed_percent > 1000) speed_percent = 1000;
                 speed_percent_set = true;
+                note_given(config_keys::KeyId::StartupEmulatorSpeedPercent, arg);
                 break;
             case cli::OptId::WhenSlowPrefer: {
-                std::string what = v[0];
+                std::string what = trim_arg(v[0]);
                 for (auto& c : what)
                     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
                 if (what == "audio") {
@@ -907,40 +1112,47 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 when_slow_prefer_set = true;
+                note_given(config_keys::KeyId::StartupWhenSlowPrefer, arg);
                 break;
             }
             case cli::OptId::Joy1Source:
             case cli::OptId::Joy2Source: {
                 const int idx = (opt->id == cli::OptId::Joy1Source) ? 0 : 1;
                 JoySource src;
-                if (!parse_joy_source(v[0], src)) {
+                if (!parse_joy_source(trim_arg(v[0]).c_str(), src)) {
                     std::fprintf(stderr, "Invalid %s value '%s' (expected 'sdl', 'keys' or 'none')\n",
                                  arg.c_str(), v[0]);
                     return 1;
                 }
                 joy_source[idx]     = src;
                 joy_source_set[idx] = true;
+                note_given(idx == 0 ? config_keys::KeyId::InputJoy1Source
+                                    : config_keys::KeyId::InputJoy2Source, arg);
                 break;
             }
             case cli::OptId::Joy1Device:
             case cli::OptId::Joy2Device: {
                 const int idx = (opt->id == cli::OptId::Joy1Device) ? 0 : 1;
-                if (!normalize_joy_device_id(v[0], joy_device_id[idx])) {
+                if (!normalize_joy_device_id(trim_arg(v[0]), joy_device_id[idx])) {
                     std::fprintf(stderr,
                         "Invalid %s value '%s' (expected the 32-hex-digit controller id "
                         "jnext logs, optionally followed by #N)\n", arg.c_str(), v[0]);
                     return 1;
                 }
+                joy_device_set[idx] = true;
+                note_given(idx == 0 ? config_keys::KeyId::InputJoy1Device
+                                    : config_keys::KeyId::InputJoy2Device, arg);
                 break;
             }
             case cli::OptId::MouseRelease:
-                if (!pointer_capture::parse_release_method(v[0], mouse_release)) {
+                if (!pointer_capture::parse_release_method(trim_arg(v[0]), mouse_release)) {
                     std::fprintf(stderr,
                         "Unknown --mouse-release value: %s (valid: ctrl-alt, middle-click, esc)\n",
                         v[0]);
                     return 1;
                 }
                 mouse_release_set = true;
+                note_given(config_keys::KeyId::InputMouseRelease, arg);
                 break;
             case cli::OptId::JoyUartRx:
                 joy_uart_rx_file = v[0];
@@ -1091,6 +1303,57 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 break;
+            case cli::OptId::Set: {
+                config_keys::Assignment a;
+                std::string why;
+                if (!config_keys::parse_assignment(v[0], a, why)) {
+                    fprintf(stderr, "--set: %s\n", why.c_str());
+                    return 1;
+                }
+                const config_keys::Key& info = config_keys::info(a.id);
+                const std::string key = std::string(info.section) + "." +
+                    (a.id == config_keys::KeyId::DebuggerKey ? a.family_name : std::string(info.name));
+                note_given(a.id, "--set " + key);
+                apply_assignment(a);
+                break;
+            }
+            case cli::OptId::CpuSpeed: {
+                int index = 0;
+                if (!cli::parse_cpu_speed_mhz(v[0], index)) {
+                    fprintf(stderr, "--cpu-speed: MHZ must be 3.5, 7, 14 or 28, not \"%s\".\n", v[0]);
+                    return 1;
+                }
+                cpu_speed_opt = index;
+                break;
+            }
+            case cli::OptId::Scale: {
+                int n = 0;
+                if (!int_arg(arg, opt, v[0], 1, 3, n)) return 1;
+                qt_assignments.push_back({ config_keys::KeyId::StartupWindowScale, {}, std::to_string(n) });
+                note_given(config_keys::KeyId::StartupWindowScale, arg);
+                break;
+            }
+            case cli::OptId::Crt: {
+                cli::CrtEffect e;
+                if (!cli::parse_crt_effect(v[0], e)) {
+                    fprintf(stderr, "--crt: EFFECT must be off, scanlines, soft, tv or pc, not \"%s\".\n", v[0]);
+                    return 1;
+                }
+#ifdef ENABLE_QT_UI
+                if (e.needs_shader && !EmulatorWidget::crt_shader_built_in()) {
+                    fprintf(stderr, "--crt: \"%s\" needs the GPU shader, which this build does not have "
+                                    "(off and scanlines are available).\n", v[0]);
+                    return 1;
+                }
+#endif
+                using config_keys::KeyId;
+                qt_assignments.push_back({ KeyId::StartupCrtFilter, {}, e.filter ? "true" : "false" });
+                qt_assignments.push_back({ KeyId::StartupCrtShader, {}, e.shader ? "true" : "false" });
+                if (e.style >= 0)
+                    qt_assignments.push_back({ KeyId::StartupCrtShaderStyle, {}, std::to_string(e.style) });
+                note_given(KeyId::StartupCrtFilter, arg);
+                break;
+            }
             case cli::OptId::Help:
                 print_usage(argv[0]);
                 return 0;
@@ -1389,8 +1652,28 @@ int main(int argc, char* argv[]) {
     // ~/.jnext/jnext.conf during automated non-headless runs.
 #ifdef ENABLE_QT_UI
     AppConfig gui_app_config;
+    // GH #417 - the debugger keys of THIS run: the saved ones with the --set
+    // entries over them. Kept apart from gui_app_config and from MainWindow's
+    // own AppConfig, which only ever hold what is in the file.
+    jnext::dbgkeys::Keymap session_debug_keys;
+    bool                   session_debug_keys_given = false;
     if (!headless) {
         gui_app_config.load();
+        // GH #417 - the Qt-only --set keys and --scale/--crt, then the CPU speed,
+        // over the saved values. gui_app_config is this function's copy and is
+        // never saved; MainWindow loads its own.
+        merge_cli_assignments(gui_app_config.data(), qt_assignments);
+        if (cpu_speed_opt) gui_app_config.data().cpu_speed = static_cast<CpuSpeed>(*cpu_speed_opt);
+        if (!debug_key_assignments.empty()) {
+            session_debug_keys = gui_app_config.data().debug_keys;
+            std::string why;
+            if (!jnext::dbgkeys::apply_overrides(session_debug_keys, debug_key_assignments, why,
+                                                 kQtCtrlIsCommand)) {
+                fprintf(stderr, "--set debugger_keys: %s\n", why.c_str());
+                return 1;
+            }
+            session_debug_keys_given = true;
+        }
         if (sd_card_image.empty() && !gui_app_config.data().sd_card_path.isEmpty()) {
             sd_card_image = gui_app_config.data().sd_card_path.toStdString();
         }
@@ -1542,35 +1825,85 @@ int main(int argc, char* argv[]) {
     }
 
     // Task 79 — --joyN-source only has an effect in the interactive frontends
-    // (SDL / Qt); headless has no host input dispatcher, so warn loudly rather
-    // than silently accepting an inert flag.
+    // (SDL / Qt); headless has no host input dispatcher, so warn loudly rather than
+    // silently accepting an inert flag. GH #417: --set input.joyN_source / _device
+    // are the same settings and are covered by the same warning.
     if (headless && (joy_source_set[0] || joy_source_set[1] ||
-                     !joy_device_id[0].empty() || !joy_device_id[1].empty())) {
+                     joy_device_set[0] || joy_device_set[1])) {
         std::fprintf(stderr,
-            "warning: --joy1-source/--joy2-source/--joy1-device/--joy2-device have no effect with --headless "
+            "warning: --joy1-source/--joy2-source/--joy1-device/--joy2-device (and --set input.joyN_source, "
+            "input.joyN_device) have no effect with --headless "
             "(no host joystick input in headless mode); ignoring.\n");
     }
 
     // Issue #35 — same shape: the degradation policy only means anything where
     // emulation is paced against real time. Headless is uncapped and opens no
     // audio device, so there is nothing to trade off and nothing to degrade.
+    // The next three print the spelling the user used (--set startup.x or the flag).
     if (headless && when_slow_prefer_set) {
         std::fprintf(stderr,
-            "warning: --when-slow-prefer has no effect with --headless "
-            "(headless runs uncapped with no audio device); ignoring.\n");
+            "warning: %s has no effect with --headless "
+            "(headless runs uncapped with no audio device); ignoring.\n",
+            spelled(config_keys::KeyId::StartupWhenSlowPrefer, "--when-slow-prefer").c_str());
     }
     // GH #365 — pointer capture exists only in the interactive frontends.
     if (headless && mouse_release_set) {
         std::fprintf(stderr,
-            "warning: --mouse-release has no effect with --headless "
-            "(no host mouse in headless mode); ignoring.\n");
+            "warning: %s has no effect with --headless "
+            "(no host mouse in headless mode); ignoring.\n",
+            spelled(config_keys::KeyId::InputMouseRelease, "--mouse-release").c_str());
     }
     // --speed is a pace, and headless has none: it runs uncapped. Said, as
     // for --when-slow-prefer, rather than quietly ignored.
     if (headless && speed_percent_set) {
         std::fprintf(stderr,
-            "warning: --speed has no effect with --headless (headless runs "
-            "uncapped); ignoring.\n");
+            "warning: %s has no effect with --headless (headless runs "
+            "uncapped); ignoring.\n",
+            spelled(config_keys::KeyId::StartupEmulatorSpeedPercent, "--speed").c_str());
+    }
+    // GH #417 - every other key (or new flag) that the running frontend does not
+    // have: say so and carry on, so one command line can serve the Qt window, the
+    // SDL-only build and --headless. Those with a warning of their own are above.
+    {
+        using config_keys::KeyId;
+#ifdef ENABLE_QT_UI
+        const uint8_t running = headless ? config_keys::HEADLESS : config_keys::QT;
+#else
+        const uint8_t running = headless ? config_keys::HEADLESS : config_keys::SDL;
+#endif
+#ifdef ENABLE_DEBUGGER
+        const bool have_debugger = true;
+#else
+        const bool have_debugger = false;
+#endif
+        std::vector<std::string> said;
+        for (const auto& g : given_as) {
+            switch (g.first) {   // the keys whose warning is printed above
+            case KeyId::StartupEmulatorSpeedPercent:
+            case KeyId::StartupWhenSlowPrefer:
+            case KeyId::InputMouseRelease:
+            case KeyId::InputJoy1Source:
+            case KeyId::InputJoy2Source:
+            case KeyId::InputJoy1Device:
+            case KeyId::InputJoy2Device:
+                continue;
+            default:
+                break;
+            }
+            const config_keys::Key& k = config_keys::info(g.first);
+            const char* why = nullptr;
+            if (!(k.frontends & running))
+                why = headless ? "with --headless (it is a setting of the interactive window)"
+                               : "in the SDL-only build (it is a setting of the Qt window)";
+            else if (k.needs_debugger && !have_debugger)
+                why = "in a build without the debugger";
+            if (!why) continue;
+            bool dup = false;
+            for (const std::string& d : said) dup = dup || d == g.second;
+            if (dup) continue;
+            said.push_back(g.second);
+            std::fprintf(stderr, "warning: %s has no effect %s; ignoring.\n", g.second.c_str(), why);
+        }
     }
 
     // Task 79 — cursor keys can drive only one connector.
@@ -1833,7 +2166,7 @@ int main(int argc, char* argv[]) {
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>) {
             cfg.type   = merge_cli_precedence(machine_type_set, machine_type,
                                                gui_app_config.data().machine_type);
-            cfg.silent = merge_cli_precedence(silent, true, gui_app_config.data().silent);
+            cfg.silent = merge_cli_precedence(silent_set, silent, gui_app_config.data().silent);
             cfg.quick_snapshot_keep = merge_cli_precedence(
                 quick_snapshot_keep_set, quick_snapshot_keep,
                 gui_app_config.data().quick_snapshot_keep);
@@ -1857,9 +2190,10 @@ int main(int argc, char* argv[]) {
                                                      gui_app_config.data().joy_source[1]);
             // GH #311 — controller assignment: the CLI wins per connector. The
             // saved name goes with the id only when the id is the saved one.
+            // GH #417: a GIVEN empty id (`--set input.joyN_device=`) is Automatic.
             for (int i = 0; i < 2; ++i) {
                 const std::string saved = gui_app_config.data().joy_device[i].toStdString();
-                if (!joy_device_id[i].empty()) {
+                if (joy_device_set[i]) {
                     cfg.joy_device[i].id   = joy_device_id[i];
                     cfg.joy_device[i].name = (joy_device_id[i] == saved)
                         ? gui_app_config.data().joy_device_name[i].toStdString() : std::string();
@@ -1870,7 +2204,7 @@ int main(int argc, char* argv[]) {
             }
             // The CLI id may equal the OTHER connector's saved one: the CLI wins.
             if (!cfg.joy_device[0].id.empty() && cfg.joy_device[0].id == cfg.joy_device[1].id)
-                cfg.joy_device[joy_device_id[0].empty() ? 0 : 1] = JoyDeviceRef{};
+                cfg.joy_device[joy_device_set[0] ? 1 : 0] = JoyDeviceRef{};
             // The merged pair could disagree with the one-cursor rule (e.g.
             // saved keys on Joy 2 + CLI keys on Joy 1); resolve to CLI intent
             // by keeping the CLI-provided connector and reverting the other.
@@ -1897,7 +2231,7 @@ int main(int argc, char* argv[]) {
             // saved, like --tape-auto-play); it reaches the toggle through the
             // startup mirror below and is never written to the preferences file.
             gui_app_config.data().tape_fast_load = merge_cli_precedence(
-                tape_realtime_set, false, gui_app_config.data().tape_fast_load);
+                tape_realtime_set, !tape_realtime, gui_app_config.data().tape_fast_load);
             cfg.esp_allowed_hosts = merge_cli_precedence(
                 esp_allow_set, esp_allow.allowed_hosts,
                 gui_app_config.data().esp_allowed_hosts);
@@ -1923,8 +2257,11 @@ int main(int argc, char* argv[]) {
 
         // An allowlist with nothing to restrict is a user error worth naming:
         // it reads as "I have restricted the ESP" when in fact the ESP is off.
-        if (esp_allow_set && !cfg.esp_enabled) {
-            fprintf(stderr, "--esp-allow requires the ESP to be enabled (--esp).\n");
+        // (An EMPTY list given with --set esp.allowed_hosts= restricts nothing, so it
+        // claims nothing and is not refused.)
+        if (esp_allow_set && !esp_allow.allowed_hosts.empty() && !cfg.esp_enabled) {
+            fprintf(stderr, "%s requires the ESP to be enabled (--esp).\n",
+                    spelled(config_keys::KeyId::EspAllowedHosts, "--esp-allow").c_str());
             return 1;
         }
         // Same reasoning: a bind address given for a module that is off reads
@@ -2139,7 +2476,15 @@ int main(int argc, char* argv[]) {
             gui_app_config.data().mouse_release = merge_cli_precedence(
                 mouse_release_set, mouse_release,
                 gui_app_config.data().mouse_release);
-            if (auto* mw = app.main_window()) mw->apply_startup_config(gui_app_config.data());
+            if (auto* mw = app.main_window()) {
+                mw->apply_startup_config(gui_app_config.data());
+                // GH #417 - the --set debugger entries: this session's keys and attach
+                // state, not the file's.
+                if (session_debug_keys_given) mw->set_session_debug_keys(session_debug_keys);
+#ifdef ENABLE_DEBUGGER
+                if (debugger_attached_opt) mw->set_debugger_attach_override(*debugger_attached_opt);
+#endif
+            }
         }
 #else
         // The SDL frontend has no Preferences dialog and no saved config, so
@@ -2151,6 +2496,17 @@ int main(int argc, char* argv[]) {
             if (speed_percent_set) app.set_speed_percent(speed_percent);
         }
 #endif
+
+        // GH #417 - the CPU speed on the frontends that have no Preferences: the same
+        // NR 0x07 write apply_startup_config() does for the Qt window, as a STARTING
+        // value (NextZXOS writes its own while it boots).
+#ifdef ENABLE_QT_UI
+        if constexpr (!std::is_same_v<std::decay_t<decltype(app)>, QtApp>)
+#endif
+        {
+            if (cpu_speed_opt)
+                app.emulator().nextreg().write(0x07, static_cast<uint8_t>(*cpu_speed_opt));
+        }
 
         // The -frames form overrides the seconds form when both are given. The
         // seconds form is EMULATED seconds, counted by the frontends per frame

@@ -90,6 +90,28 @@ QString gain_text(float db) {
 
 } // namespace
 
+void merge_cli_assignments(AppConfigData& d, const std::vector<config_keys::Assignment>& list)
+{
+    for (const config_keys::Assignment& a : list) {
+        const QString text = QString::fromStdString(a.text);
+        switch (a.id) {
+        case KeyId::StartupWindowScale:     d.window_scale = text.toInt(); break;
+        case KeyId::StartupCrtFilter:       d.crt_filter = (a.text == "true"); break;
+        case KeyId::StartupCrtShader:       d.crt_shader = (a.text == "true"); break;
+        case KeyId::StartupCrtShaderStyle:  d.crt_shader_style = crt_shader::style_from_int(text.toInt()); break;
+        case KeyId::PathsLastLoadDir:       d.last_load_dir = text; break;
+        case KeyId::PathsScreenshotDir:     d.screenshot_dir = text; break;
+        case KeyId::ScreenshotQuickDir:     d.quick_screenshot_dir = text; break;
+        case KeyId::ScreenshotQuickFormat: {
+            const int i = config_keys::word_index(config_keys::info(KeyId::ScreenshotQuickFormat).values, a.text);
+            if (i >= 0) d.quick_screenshot_format = static_cast<ScreenshotFormat>(i);
+            break;
+        }
+        default: break;   // not a Qt-window-only key: main.cpp applied it elsewhere
+        }
+    }
+}
+
 QString AppConfig::default_config_path() {
     // ~/.jnext by default (the same home dir jnext uses for the SD image).
     // JNEXT_CONFIG_DIR overrides the directory so automated tests

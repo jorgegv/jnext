@@ -3,6 +3,7 @@
 #include <QDeadlineTimer>
 #include <QMainWindow>
 #include <QSettings>
+#include <optional>
 #include "debug/debug_keymap.h"
 #include "debugger/window_attach.h"
 
@@ -38,7 +39,11 @@ class DebuggerWindow : public QMainWindow {
 public:
     /// `dbg` — the debugger backend the panels read through (GH #278 WP4a-d,
     /// WP5: every panel).
-    explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr);
+    /// GH #417: `attach_override` (`--set debugger.attached=`) is the attach state for
+    /// THIS run. It governs the window, never the file: jnext.conf keeps what it had
+    /// until the Attach menu item is toggled (save_geometry() writes `attach_saved_`).
+    explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr,
+                            std::optional<bool> attach_override = std::nullopt);
 
     /// GH #312: merge a legacy <config-dir>/Debugger.conf into jnext.conf
     /// [debugger] and remove it. Idempotent; true only if it migrated.
@@ -213,6 +218,9 @@ private:
     // preference — untouched. Only a platform that cannot position windows at
     // all disables the item, because there a retry is guaranteed to fail.
     bool     attach_enabled_ = true;
+    // GH #417: what jnext.conf says (or the last toggle wrote). attach_enabled_ is what
+    // this run does; they differ only while a command-line override is in force.
+    bool     attach_saved_ = true;
     bool     attach_supported_ = true;
     // Set when the PLATFORM NAME says positioning is impossible (Wayland).
     // Distinct from attach_supported_: a platform-blocked backend can never

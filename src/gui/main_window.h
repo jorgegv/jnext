@@ -371,6 +371,21 @@ public:
     /// reads/writes through this).
     AppConfig& app_config() { return app_config_; }
 
+    /// GH #417 - the debugger key bindings of THIS run: the saved ones with the
+    /// command line's `--set debugger_keys.X=...` over them. They go live in both
+    /// windows (debug_keys_); app_config_, and so jnext.conf, keeps the saved ones.
+    void set_session_debug_keys(const jnext::dbgkeys::Keymap& km) {
+        debug_keys_ = km;
+        push_debug_keymap();
+    }
+
+#ifdef ENABLE_DEBUGGER
+    /// GH #417 - `--set debugger.attached=` for this run: the debugger window opens
+    /// attached or detached as told, whatever jnext.conf says, and the file keeps
+    /// what it had until the Attach menu item is toggled.
+    void set_debugger_attach_override(bool attached);
+#endif
+
 signals:
     /// Emitted when a scale factor is selected from the View menu.
     void scale_requested(int factor);
@@ -698,4 +713,21 @@ private:
     // persist it. Both the emulator window's own forwarding and the push into
     // the debugger window read THIS, so the two windows can never disagree.
     jnext::dbgkeys::Keymap debug_keys_;
+
+    // GH #417 - the four paths/format settings this session reads LIVE, kept apart
+    // from app_config_ so a command-line value (`--set paths.last_load_dir=...`)
+    // governs the run without ever reaching jnext.conf: any unrelated app_config_
+    // save (the recent-file list, a joystick toggle) would persist it otherwise.
+    // Started from the file in the constructor, from apply_startup_config() (so
+    // from the command line at start-up and from Preferences OK/Apply), and moved
+    // by the dialogs that remember a directory.
+    struct SessionPaths {
+        QString          last_load_dir;
+        QString          screenshot_dir;
+        QString          quick_dir;
+        ScreenshotFormat quick_format = ScreenshotFormat::Png;
+    } session_;
+
+    void remember_load_dir(const QString& dir);
+    void remember_screenshot_dir(const QString& dir);
 };
