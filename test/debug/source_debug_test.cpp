@@ -4998,8 +4998,14 @@ int main() {
             tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
             m.set_pc(0x8000);
             Debugger::SourceMapStatus st2;
+            bool stayed_running = false;
+            uint16_t pc_after = 0x8000;
             const std::string log2 = debugger_log_of([&] {
-                run_frames(m, 1);
+                m.dbg->run(m.a);
+                m.emu.run_frame();
+                stayed_running = !m.emu.debug_state().paused();   // the check does not stop the machine
+                pc_after = m.pc();
+                m.dbg->pause(m.a);
                 st2 = m.dbg->source_map_status();
             });
             check("SRCDBG-TAPE-03", "prog.map beside a tape attaches at once and works (main.c:19 resolves), "
@@ -5011,7 +5017,7 @@ int main() {
                       has(log1, "Loaded 46 z88dk source lines from '" + (d / "prog.map").string() +
                                     "' (identity check pending: the program loads from tape)") &&
                       st2.state == Debugger::SourceMapStatus::State::Attached && !st2.pending &&
-                      m.dbg->source_map().size() == 46 &&
+                      m.dbg->source_map().size() == 46 && stayed_running && pc_after != 0x8000 &&
                       has(log2, "Verified z88dk source map '" + (d / "prog.map").string() +
                                     "': the program loaded from tape matches its binary identity"),
                   log1 + log2);
@@ -5115,6 +5121,7 @@ int main() {
                 m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
             m.start(0x8000);
             m.frames(1);
+            const bool ran_on = !m.emu.debug_state().paused();
             const auto st = m.dbg->source_map_status();
             const bool after = m.emu.debug_state().armed();
             const fs::path d2 = tape / "t8b";
@@ -5124,7 +5131,7 @@ int main() {
             check("SRCDBG-TAPE-08", "with no client attached the machine is unarmed, armed while a check "
                                     "is pending, unarmed again once it is judged; a map with no identity "
                                     "never arms it",
-                  !before && pending && !after && st.state == Debugger::SourceMapStatus::State::Attached &&
+                  !before && pending && !after && ran_on && st.state == Debugger::SourceMapStatus::State::Attached &&
                       !st.pending && !n.emu.debug_state().armed() && !n.dbg->source_map_status().pending &&
                       n.dbg->source_map().size() == 46);
         }
@@ -5680,11 +5687,20 @@ int main() {
             tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
             const Result soft = m.dbg->reset(m.a, ResetKind::Soft);
             const auto st = m.dbg->source_map_status();
+            Machine u;
+            park(u);
+            u.dbg->load_source_map((d / "prog.map").string(), false, true);
+            tape_bytes(u, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
+            const Result soft2 = u.dbg->reset(u.a, ResetKind::Soft);
+            const auto su = u.dbg->source_map_status();
             check("SRCDBG-TAPE-26", "a soft reset after the whole program arrived verifies the pending map "
-                                    "at the landing (it matches): kept, no longer pending, window off",
+                                    "at the landing (it matches), a sidecar's and the user's alike: kept, "
+                                    "no longer pending, window off",
                   soft == Result::Ok && st.state == Debugger::SourceMapStatus::State::Attached &&
                       !st.pending && !m.emu.debug_state().verify_hold() &&
-                      m.dbg->source_map().size() > 0);
+                      m.dbg->source_map().size() > 0 && soft2 == Result::Ok && su.by_user &&
+                      su.state == Debugger::SourceMapStatus::State::Attached && !su.pending &&
+                      !u.emu.debug_state().verify_hold() && u.dbg->source_map().size() > 0);
         }
         {   // TAPE-27: replacing or clearing the map takes the window with it
             const fs::path d = tape / "t27";
@@ -5707,6 +5723,52 @@ int main() {
                                     "leaves no window armed",
                   armed1 && off1 && armed2 && off2,
                   std::to_string(armed1) + std::to_string(off1) + std::to_string(armed2) + std::to_string(off2));
+        }
+        {   // TAPE-28: the user's pending map across a rewind into an earlier generation
+            const fs::path d = tape / "t28";
+            tape_copy(kFx, d);
+            write_text(d / "other.tap", "");
+            write_text(d / "other2.tap", "");
+            Machine m(/*rewind=*/true);
+            park(m);
+            run_frames(m, 1);
+            const uint32_t f_pre = m.dbg->time().frame;
+            m.dbg->load_program_sidecars((d / "other.tap").string());
+            m.dbg->load_source_map((d / "prog.map").string(), false, true);
+            run_frames(m, 1);
+            m.dbg->load_program_sidecars((d / "other2.tap").string());   // another generation, the map carried
+            run_frames(m, 2);
+            const Result back = m.dbg->rewind_to_frame(m.a, f_pre);
+            const auto st = m.dbg->source_map_status();
+            const bool held = m.emu.debug_state().verify_hold();
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const auto end = m.dbg->source_map_status();
+            check("SRCDBG-TAPE-28", "a rewind into an earlier generation does not judge the user's pending map "
+                                    "against the memory of that moment (the program has not run its code "
+                                    "yet): still attached, pending, window armed, and verified when it runs",
+                  back == Result::Ok && st.by_user && st.pending &&
+                      st.state == Debugger::SourceMapStatus::State::Attached && held &&
+                      end.state == Debugger::SourceMapStatus::State::Attached && !end.pending,
+                  "back=" + std::to_string(int(back)) + " state=" + std::to_string(int(st.state)) +
+                      " pending=" + std::to_string(st.pending));
+        }
+        {   // TAPE-29: a SuspendScope disarms the verify hold and puts it back
+            const fs::path d = tape / "t29";
+            const std::string tap = tape_copy(kFx, d);
+            Bare m;
+            m.dbg->load_program_sidecars(tap);
+            DebugState& ds = m.emu.debug_state();
+            const bool before = ds.armed() && ds.verify_hold();
+            bool during = true;
+            {
+                DebugState::SuspendScope quiet(ds);
+                during = ds.armed() || ds.verify_hold();
+            }
+            check("SRCDBG-TAPE-29", "SuspendScope (a save, a load) disarms a machine held only by a pending "
+                                    "check and puts the hold back when it ends",
+                  before && !during && ds.armed() && ds.verify_hold());
         }
     }
 
