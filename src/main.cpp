@@ -1346,12 +1346,8 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
 #endif
-                using config_keys::KeyId;
-                qt_assignments.push_back({ KeyId::StartupCrtFilter, {}, e.filter ? "true" : "false" });
-                qt_assignments.push_back({ KeyId::StartupCrtShader, {}, e.shader ? "true" : "false" });
-                if (e.style >= 0)
-                    qt_assignments.push_back({ KeyId::StartupCrtShaderStyle, {}, std::to_string(e.style) });
-                note_given(KeyId::StartupCrtFilter, arg);
+                config_keys::append_crt_effect(qt_assignments, e.filter, e.shader, e.style);
+                note_given(config_keys::KeyId::StartupCrtFilter, arg);
                 break;
             }
             case cli::OptId::Help:

@@ -943,7 +943,7 @@ void MainWindow::create_menus() {
         const QString scr_filter = tr("ZX Screen Dumps (*.scr)");
         QString selected = png_filter;
         QString path = QFileDialog::getSaveFileName(
-            this, tr("Save Screenshot"), session_.screenshot_dir,
+            this, tr("Save Screenshot"), screenshot_dialog_seed(),
             png_filter + QStringLiteral(";;") + scr_filter
                 + QStringLiteral(";;") + tr("All Files (*)"),
             &selected);

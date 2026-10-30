@@ -20,6 +20,7 @@
 
 #include "platform/config_keys.h"
 #include "debug/debug_keymap.h"
+#include "core/cli_options.h"
 
 #include <QDir>
 #include <QDateTime>
@@ -1567,6 +1568,93 @@ static void test_config_keys(QTemporaryDir& dir) {
           bad96.empty(), bad96);
 }
 
+// ── AC-97: GH #417 - merge_cli_assignments() ────────────────────────────────
+// Oracle: the contract in the man page's "Settings for --set" (eight Qt-window
+// keys, canonical text, later of a key wins) and Preferences' CRT pop-up, whose
+// combinations --crt reproduces (preferences_dialog.cpp collect()). No VHDL.
+static void test_merge_cli_assignments(QTemporaryDir& dir) {
+    set_group("AC-MERGE");
+    using config_keys::KeyId;
+    const QString saved_path = fresh_ini_path(dir, "merge-saved");
+    const QString merged_path = fresh_ini_path(dir, "merge-merged");
+
+    AppConfigData saved;
+    saved.window_scale = 3;
+    saved.crt_filter = true;
+    saved.crt_shader = true;
+    saved.crt_shader_style = crt_shader::Style::Pc;
+    saved.last_load_dir = "/saved/load";
+    saved.screenshot_dir = "/saved/shots";
+    saved.quick_screenshot_dir = "/saved/quick";
+    saved.quick_screenshot_format = ScreenshotFormat::Png;
+    saved.cpu_speed = CpuSpeed::MHZ_14;
+    saved.silent = true;
+    saved.esp_enabled = true;
+    saved.esp_allowed_hosts = {"keep.example"};
+    saved.nextpi_dir = "/saved/pi";
+    saved.mouse_release = pointer_capture::ReleaseMethod::Esc;
+    saved.joy_source[0] = JoySource::CursorKeys;
+    saved.audio_gain_db = 3.0f;
+
+    AppConfigData merged = saved;
+    merge_cli_assignments(merged, {
+        { KeyId::StartupWindowScale, {}, "2" },
+        { KeyId::StartupCrtFilter, {}, "false" },
+        { KeyId::StartupCrtShader, {}, "false" },
+        { KeyId::StartupCrtShaderStyle, {}, "0" },
+        { KeyId::PathsLastLoadDir, {}, "/cli/load" },
+        { KeyId::PathsScreenshotDir, {}, "/cli/shots" },
+        { KeyId::ScreenshotQuickDir, {}, "/cli/quick" },
+        { KeyId::ScreenshotQuickFormat, {}, "scr" },
+        // A key this function does not own, and a later value for a key already given.
+        { KeyId::StartupSilent, {}, "false" },
+        { KeyId::StartupWindowScale, {}, "1" },
+    });
+    { AppConfig a(saved_path); a.data() = saved; a.save(); }
+    { AppConfig b(merged_path); b.data() = merged; b.save(); }
+    QSettings sa(saved_path, QSettings::IniFormat), sb(merged_path, QSettings::IniFormat);
+    QStringList differ;
+    for (const QString& k : sa.allKeys())
+        if (sa.value(k) != sb.value(k)) differ << k;
+    differ.sort();
+    const QStringList want = {"paths/last_load_dir", "paths/screenshot_dir", "screenshot/quick_dir",
+                              "screenshot/quick_format", "startup/crt_filter", "startup/crt_shader",
+                              "startup/crt_shader_style", "startup/window_scale"};
+    const bool merge_ok =
+          differ == want && merged.window_scale == 1 && merged.silent && merged.esp_enabled
+              && merged.last_load_dir == QLatin1String("/cli/load")
+              && merged.quick_screenshot_format == ScreenshotFormat::Scr
+              && merged.crt_shader_style == crt_shader::Style::Tv;
+
+    // --crt: the five effects give the Preferences pop-up's combinations.
+    struct Want { const char* effect; bool filter, shader; crt_shader::Style style; };
+    const Want wants[] = {
+        { "off",       false, false, crt_shader::Style::Pc },   // style untouched
+        { "scanlines", true,  false, crt_shader::Style::Pc },
+        { "soft",      false, true,  crt_shader::Style::Lite },
+        { "tv",        false, true,  crt_shader::Style::Tv },
+        { "pc",        false, true,  crt_shader::Style::Pc },
+    };
+    std::string bad;
+    for (const Want& w : wants) {
+        cli::CrtEffect e;
+        std::vector<config_keys::Assignment> list;
+        AppConfigData d = saved;
+        if (!cli::parse_crt_effect(w.effect, e)) { bad += std::string(w.effect) + ":unparsed "; continue; }
+        config_keys::append_crt_effect(list, e.filter, e.shader, e.style);
+        merge_cli_assignments(d, list);
+        if (d.crt_filter != w.filter || d.crt_shader != w.shader || d.crt_shader_style != w.style)
+            bad += std::string(w.effect) + " ";
+    }
+    cli::CrtEffect none;
+    if (cli::parse_crt_effect("crt", none) || cli::parse_crt_effect("", none) || cli::parse_crt_effect("TV", none))
+        bad += "accepted-bad ";
+    check("AC-97", "merge_cli_assignments() sets its eight keys (the later of one key wins) and leaves every "
+                   "other field at the saved value; the five --crt effects merge to the Preferences pop-up's "
+                   "filter/shader/style combinations",
+          merge_ok && bad.empty(), differ.join(',').toStdString() + " " + bad);
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -1595,6 +1683,7 @@ int main() {
     test_file_layout(dir);
     test_gh311_joy_device(dir);
     test_config_keys(dir);
+    test_merge_cli_assignments(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

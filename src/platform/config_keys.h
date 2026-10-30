@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace config_keys {
 
@@ -306,5 +307,12 @@ struct Assignment {
 /// returns false, sets `why` (it names what was typed) and leaves `out`
 /// untouched.
 bool parse_assignment(const char* arg, Assignment& out, std::string& why);
+
+/// `--crt EFFECT` as the settings it stands for: `startup.crt_filter`,
+/// `startup.crt_shader` and, when `style` >= 0, `startup.crt_shader_style`,
+/// appended in that order (a later one of a key wins). The three keys of the
+/// Preferences "CRT effect" pop-up; the caller maps the effect word to the three
+/// values (cli::parse_crt_effect).
+void append_crt_effect(std::vector<Assignment>& out, bool filter, bool shader, int style);
 
 } // namespace config_keys

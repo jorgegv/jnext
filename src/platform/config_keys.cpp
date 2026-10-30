@@ -254,4 +254,10 @@ bool parse_assignment(const char* arg, Assignment& out, std::string& why) {
     return true;
 }
 
+void append_crt_effect(std::vector<Assignment>& out, bool filter, bool shader, int style) {
+    out.push_back({ KeyId::StartupCrtFilter, {}, filter ? "true" : "false" });
+    out.push_back({ KeyId::StartupCrtShader, {}, shader ? "true" : "false" });
+    if (style >= 0) out.push_back({ KeyId::StartupCrtShaderStyle, {}, std::to_string(style) });
+}
+
 } // namespace config_keys

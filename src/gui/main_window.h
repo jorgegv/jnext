@@ -224,6 +224,8 @@ public:
 
     void on_recent_file(const QString& path);
     QString load_dialog_seed() const;
+    /// GH #417 - where File > Save Screenshot... opens: this session's directory.
+    QString screenshot_dialog_seed() const { return session_.screenshot_dir; }
 
     /// GH #392 - the window's POK session and whether its dialog is showing
     /// (an archive's bundled trainers make a session without opening it).
