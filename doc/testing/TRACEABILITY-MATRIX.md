@@ -68,7 +68,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    87 |   87 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6072 | 6072 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6072**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5596**. Rows the 173 suites declared in `test/unit-tests.conf` run live: **14469**.
+Rows the sections above carry: **6072**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5596**. Rows the 173 suites declared in `test/unit-tests.conf` run live: **14475**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 126 suites (8957 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 126 suites (8963 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -205,11 +205,11 @@ These 126 suites (8957 live rows) have no VHDL-derived plan row to map, so they 
 | `debugger_window_grow_test` | 4 | debugger window geometry (host GUI) |
 | `debugger_accel_test` | 8 | debugger keyboard accelerators (host GUI) |
 | `debugger_keymap_test` | 44 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
-| `debugger_menu_test` | 58 | debugger menu reachability (host GUI) |
+| `debugger_menu_test` | 60 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 41 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
 | `debugger_panels_test` | 85 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
 | `debugger_verbs_test` | 80 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
-| `debugger_source_panel_test` | 120 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_source_panel_test` | 124 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->
