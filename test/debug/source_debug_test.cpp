@@ -4668,6 +4668,57 @@ int main() {
                   r.symbols > 0 && r.sources == -1 && r.problem.empty() &&
                       m.dbg->lookup_name("_main") && m.dbg->source_map().empty());
         }
+        {   // Z88-23: the identity check changes nothing in the machine
+            const fs::path d = z / "d23";
+            z88_copy("v2.4/sccz80-page20", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            auto stream = [&] {
+                StateWriter measure;
+                m.emu.save_state(measure);
+                std::vector<uint8_t> bytes(measure.position());
+                StateWriter w(bytes.data(), bytes.size());
+                m.emu.save_state(w);
+                return bytes;
+            };
+            const std::vector<uint8_t> before = stream();
+            // Page 20 is checked while it is not mapped anywhere: the check reads the
+            // page itself, through the peek path, and moves nothing.
+            const auto out = m.dbg->load_source_map((d / "prog.map").string(), false);
+            const std::vector<uint8_t> after = stream();
+            check("SRCDBG-Z88-23", "verifying a z88dk map's identity over a mapped and an unmapped page "
+                                   "leaves the whole machine state as it was",
+                  out.count > 0 && out.identity && *out.identity && before == after);
+        }
+        {   // Z88-24: a refused SLD sidecar still speaks for the source half
+            const fs::path d = z / "d24";
+            z88_copy("v2.4/sccz80-debug", d);
+            write_text(d / "prog.sld", "this is not an SLD\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            check("SRCDBG-Z88-24", "an SLD sidecar that is refused is not replaced by prog.map's source "
+                                   "lines (it exists, and says why); the map's symbols still attach",
+                  r.sources == -1 && m.dbg->source_map().empty() && r.symbols == 19 &&
+                      has(r.problem, "prog.sld' rejected"),
+                  r.problem);
+        }
+        {   // Z88-25: the user's source map is kept, and prog.map is not read at all
+            const fs::path d = z / "d25";
+            z88_copy("v2.4/sccz80-debug", d);
+            const fs::path plain = d / "mine.sld";
+            write_text(plain, program_sld(p80, p90));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_source_map(plain.string(), false);
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            check("SRCDBG-Z88-25", "with the user's source map kept, prog.map is not loaded: no source "
+                                   "lines, no symbols",
+                  r.sources == -1 && r.symbols == -1 && !m.dbg->lookup_name("_main") &&
+                      m.dbg->source_map().loaded_file() == plain.string(),
+                  "sources=" + std::to_string(r.sources) + " symbols=" + std::to_string(r.symbols) +
+                      " file=" + m.dbg->source_map().loaded_file());
+        }
     }
 
     fs::remove_all(dir);

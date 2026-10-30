@@ -14,8 +14,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   2. --source-map maps/prog.map with --load game.nex attaches the map once, as
 #      the user's, identity verified (headless, Qt, SDL; exactly one line);
 #   3. --source-map without --load is refused at once, with a message;
-#   4. --source-map of the master build's map against the v2.4 program is a
-#      mismatch: the run exits 1 and says why (headless, Qt, SDL).
+#   4. --source-map of a map whose section binary is another build's (one byte of
+#      main.c:19's code differs from the program in memory) is a mismatch: the run
+#      exits 1 and says why (headless, Qt, SDL).
 # Matched on the file name: under wine jnext reports the path in Windows form.
 # The fixtures are the committed z88dk ones (test/fixtures/z88dk).
 if want z88dk-source-map-func; then
@@ -31,7 +32,9 @@ if want z88dk-source-map-func; then
     cp "$fx/v2.4/sccz80-debug/prog.nex" "$cli/game.nex"
     cp "$fx/v2.4/sccz80-debug/prog.map" "$fx/v2.4/sccz80-debug/prog_CODE.bin" "$maps/"
     cp "$fx/v2.4/sccz80-debug/prog.nex" "$wrong/game.nex"
-    cp "$fx/master/sccz80-debug/prog.map" "$fx/master/sccz80-debug/prog_CODE.bin" "$wrong/"
+    cp "$fx/v2.4/sccz80-debug/prog.map" "$fx/v2.4/sccz80-debug/prog_CODE.bin" "$wrong/"
+    # main.c:19 starts at $8CB5 = offset $0CB5 of the code binary; the byte there is $11.
+    printf '\356' | dd of="$wrong/prog_CODE.bin" bs=1 seek=$((0x0CB5)) conv=notrunc status=none
 
     # run_all <variable-prefix> <args...>: the same command line in the three
     # frontends. Sets <prefix>_hl / _qt / _sdl (the output) and <prefix>_rc as
@@ -72,7 +75,7 @@ if want z88dk-source-map-func; then
     cli_line="--source-map '[^']*prog\.map': 46 source lines \(program identity verified\)"
     cli_ok=
     for v in "$c_hl" "$c_qt" "$c_sdl"; do
-        if [[ $(grep -Ec "$cli_line" <<<"$v") -eq 1 ]]; then cli_ok+=y; else cli_ok+=n; fi
+        if [[ $(grep -Ec -- "$cli_line" <<<"$v") -eq 1 ]]; then cli_ok+=y; else cli_ok+=n; fi
     done
 
     # 3. --source-map without --load
@@ -81,12 +84,12 @@ if want z88dk-source-map-func; then
         "${SD_CARD_ARGS[@]}" --silent --source-map "$maps/prog.map" \
         --delayed-automatic-exit-frames 10 2>&1) || rc3=$?
 
-    # 4. a map of another build
+    # 4. a map built for another program
     run_all w --load "$wrong/game.nex" --source-map "$wrong/prog.map"
     wrong_line="--source-map '[^']*prog\.map': the program in memory does not match the source map's binary identity"
     wrong_ok=
     for v in "$w_hl" "$w_qt" "$w_sdl"; do
-        if grep -Eq "$wrong_line" <<<"$v"; then wrong_ok+=y; else wrong_ok+=n; fi
+        if grep -Eq -- "$wrong_line" <<<"$v"; then wrong_ok+=y; else wrong_ok+=n; fi
     done
 
     if [[ $side_ok == yyy && $s_rc == 0:0:0 && $cli_ok == yyy && $c_rc == 0:0:0 &&
