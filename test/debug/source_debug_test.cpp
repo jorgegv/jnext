@@ -4719,6 +4719,63 @@ int main() {
                   "sources=" + std::to_string(r.sources) + " symbols=" + std::to_string(r.symbols) +
                       " file=" + m.dbg->source_map().loaded_file());
         }
+        {   // Z88-27: the one table of program formats
+            bool later = true, not_later = true, map_yes = true, map_no = true;
+            for (const char* p : {"a.tap", "a.TZX", "a.Wav", "dir/a.tap"})
+                later = later && program_loads_later(p);
+            for (const char* p : {"a.nex", "a.sna", "a.z80", "a.szx", "a.rzx", "a.jns", "a", "a.tap.bak"})
+                not_later = not_later && !program_loads_later(p);
+            for (const char* p : {"a.nex", "a.NEX", "a.sna", "a.tap", "a.TAP"})
+                map_yes = map_yes && program_has_z88dk_map(p);
+            for (const char* p : {"a.tzx", "a.wav", "a.z80", "a.szx", "a.rzx", "a", "a.map"})
+                map_no = map_no && !program_has_z88dk_map(p);
+            check("SRCDBG-Z88-27", "program_loads_later() is the tape formats (.tap, .tzx, .wav, any case) "
+                                   "and program_has_z88dk_map() is .nex, .sna and .tap",
+                  later && not_later && map_yes && map_no,
+                  std::string(later ? "" : "later ") + (not_later ? "" : "not_later ") +
+                      (map_yes ? "" : "map_yes ") + (map_no ? "" : "map_no"));
+        }
+        {   // Z88-26: a rewind across the load drops the z88dk map and brings it back
+            const fs::path d = z / "d26";
+            z88_copy("v2.4/sccz80-debug", d);
+            // The program's bytes are written into page 4 (where the NEX loader puts them), so the
+            // identity checks without a load that would rebuild the machine under the rewind ring.
+            std::vector<uint8_t> code;
+            {
+                std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
+                code.assign(std::istreambuf_iterator<char>(in), {});
+            }
+            Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+            Z88Log lc;
+            m.dbg->set_listener(m.a, &lc);
+            const auto frames = [&](int n) {
+                m.dbg->run(m.a);
+                for (int i = 0; i < n; ++i) m.emu.run_frame();
+                m.dbg->pause(m.a);
+            };
+            frames(1);
+            const uint32_t before_load = m.dbg->time().frame;
+            m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
+            write_text(d / "game.nex", "");
+            fs::copy_file(d / "prog.map", d / "game.map");
+            fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
+            const auto r = m.dbg->load_program_sidecars((d / "game.nex").string());
+            frames(2);
+            const uint32_t after_load = m.dbg->time().frame;
+            const Result back = m.dbg->rewind_to_frame(m.a, before_load);
+            const size_t at_before = m.dbg->source_map().size();
+            const Result fwd = m.dbg->rewind_to_frame(m.a, after_load);
+            check("SRCDBG-Z88-26", "rewinding to before the program was loaded drops its z88dk map and "
+                                   "rewinding back restores it, each named as a z88dk map",
+                  r.sources == 46 && back == Result::Ok && fwd == Result::Ok && at_before == 0 &&
+                      m.dbg->source_map().size() == 46 &&
+                      lc.has("Dropped the program's z88dk source map: this point of the history is "
+                             "before the program was loaded") &&
+                      lc.has("Restored the program's z88dk source map of this point in the history"),
+                  "sources=" + std::to_string(r.sources) + " back=" + std::to_string(int(back)) +
+                      " fwd=" + std::to_string(int(fwd)) + " before=" + std::to_string(at_before) +
+                      " after=" + std::to_string(m.dbg->source_map().size()));
+        }
     }
 
     fs::remove_all(dir);

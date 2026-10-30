@@ -82,8 +82,7 @@ std::optional<std::filesystem::path> nextbuild_sidecar(const std::filesystem::pa
 // load on open).
 std::optional<std::filesystem::path> z88dk_map_sidecar(const std::filesystem::path& program) {
     namespace fs = std::filesystem;
-    const std::string ext = lower_extension(program);
-    if (ext != ".nex" && ext != ".tap" && ext != ".sna") return std::nullopt;
+    if (!program_has_z88dk_map(program.string())) return std::nullopt;
     const fs::path p = program.parent_path() / (program.stem().string() + ".map");
     std::error_code ec;
     const auto st = fs::status(p, ec);

@@ -16,3 +16,7 @@ std::string source_file_problem(const std::string& path);
 /// load call returns: the tape formats (.tap, .tzx, .wav, by extension, case
 /// ignored), which the machine loads over the following frames.
 bool program_loads_later(const std::string& path);
+
+/// Whether a z88dk `<stem>.map` is a sidecar of the program at `path`: a `.nex`,
+/// `.tap` or `.sna` (by extension, case ignored; design 6.1).
+bool program_has_z88dk_map(const std::string& path);
