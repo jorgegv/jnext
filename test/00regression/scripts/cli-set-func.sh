@@ -35,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #       Automatic wins for the run, and the file keeps the saved controller.
 #   Q4  Qt under Xvfb (Linux only: the X11 window is where size and keys are
 #       observable): --set startup.window_scale=3 gives a bigger window than
-#       --scale 1; --set screenshot.quick_dir / quick_format govern Alt+K, Quick
+#       --scale 2, which gives a bigger one than the saved scale 1; --set screenshot.quick_dir / quick_format govern Alt+K, Quick
 #       Screenshot (a .scr in the command line's directory); and the file, which the
 #       run rewrote, still holds the saved scale, directory and format.
 #   Q5  Qt: saved silent=true / tape_auto_play=true / tape_fast_load=false: --set
@@ -186,10 +186,13 @@ if want cli-set-func; then
                     --delayed-automatic-exit-frames 400 >/dev/null 2>&1 || true; }
             cs_xwin "$cs_dir/w3" alt+k --set startup.window_scale=3 --set "screenshot.quick_dir=$cs_cli_q" \
                 --set screenshot.quick_format=scr --load "$cs_tap"
-            cs_xwin "$cs_dir/w1" "" --scale 1
-            cs_w3=$(cat "$cs_dir/w3" 2>/dev/null || echo 0); cs_w1=$(cat "$cs_dir/w1" 2>/dev/null || echo 0)
-            if ! [[ "$cs_w3" =~ ^[0-9]+$ && "$cs_w1" =~ ^[0-9]+$ ]] || (( cs_w1 < 256 || cs_w3 <= cs_w1 )); then
-                cs_faults+=("Q4: window width --set startup.window_scale=3 is $cs_w3, --scale 1 is $cs_w1 (want the first bigger)")
+            cs_xwin "$cs_dir/w2" "" --scale 2
+            cs_xwin "$cs_dir/w1" ""      # the saved scale, 1
+            cs_w3=$(cat "$cs_dir/w3" 2>/dev/null || echo 0); cs_w2=$(cat "$cs_dir/w2" 2>/dev/null || echo 0)
+            cs_w1=$(cat "$cs_dir/w1" 2>/dev/null || echo 0)
+            if ! [[ "$cs_w3" =~ ^[0-9]+$ && "$cs_w2" =~ ^[0-9]+$ && "$cs_w1" =~ ^[0-9]+$ ]] \
+               || (( cs_w1 < 256 || cs_w2 <= cs_w1 || cs_w3 <= cs_w2 )); then
+                cs_faults+=("Q4: window widths: saved scale 1 is $cs_w1, --scale 2 is $cs_w2, --set startup.window_scale=3 is $cs_w3 (want each bigger than the last)")
             fi
             cs_scr=$(find "$cs_cli_q" -maxdepth 1 -name 'jnext-*.scr' | head -1)
             [[ -n "$cs_scr" && $(stat -c %s "$cs_scr") -eq 6912 ]] \
