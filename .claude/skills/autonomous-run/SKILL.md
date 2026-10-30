@@ -10,7 +10,7 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 ## Setup
 
 - Target milestone: as given at launch. Not given → ask once before starting; that is the last question.
-- Run dir: `~/tmp/autorun/<YYYY-MM-DD>/`: briefs, plans, reports, reviews, `decisions.md`, `agents.md` (slot, agent id, role, issue, worktree, state). Survives compaction.
+- Run dir: `~/tmp/autorun/jnext/<YYYY-MM-DD>/` (per project: a date-named dir shared with another project's run was overwritten on 2026-10-29): briefs, plans, reports, reviews, `decisions.md`, `agents.md` (slot, agent id, role, issue, worktree, state). Survives compaction.
 - `git fetch origin`; if local `main` is behind, `JNEXT_ALLOW_MAIN_WRITE=1 git merge --ff-only origin/main`. Never reset.
 - Read `/proc/loadavg`, `ps` for other Claude sessions, `git worktree list`. A branch/worktree another live session holds → skip that issue, record it.
 
