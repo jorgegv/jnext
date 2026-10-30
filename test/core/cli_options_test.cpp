@@ -118,7 +118,7 @@
 //   Oracle for CLI-DLY: no VHDL (a host CLI). The arithmetic of the definition
 //   above: nominal 1/50 s and 1/60 s per frame.
 //
-//   CLI-SET-01..12  (GH #417) `--set SECTION.KEY=VALUE` and the flags --cpu-speed,
+//   CLI-SET-01..14  (GH #417) `--set SECTION.KEY=VALUE` and the flags --cpu-speed,
 //               --scale and --crt. Oracle for all: no VHDL (a host CLI); the man page's
 //               "Settings for --set" and the key table (platform/config_keys.h). CLI-SET-06
 //               and CLI-SET-07's start value are checked against the machine itself:
@@ -141,7 +141,10 @@
 //   CLI-SET-11  --set nextpi.* reaches the NextPi settings (the "is ignored" warning names
 //               the flag).
 //   CLI-SET-12  a flag and --set accept the same values of the same key.
-//   CLI-SET-14  the `--help` debugger_keys.ACTION entry names every debugger action id.
+//   CLI-SET-13  a host list given to --set esp.allowed_hosts builds the same allowlist as
+//               the hosts given one per --esp-allow.
+//   CLI-SET-14  the `--help` debugger_keys.ACTION entry names every debugger action id
+//               as a whole token (step_into is not satisfied by source_step_into).
 //
 // Every row above was mutation-tested: the thing it protects was broken, the
 // suite rebuilt, and the row confirmed to fail. CLI-BIN-01's timeout guard
@@ -1503,9 +1506,19 @@ int main() {
                 const std::string entry = at == std::string::npos ? std::string()
                     : help_text.substr(at, end == std::string::npos ? std::string::npos : end - at);
                 if (entry.empty()) nohelp.push_back("no debugger_keys.ACTION entry in --help");
+                // Whole tokens, not substrings: `step_into` is a substring of `source_step_into`
+                // and `run` of `run_to_cursor`, so a substring test passes with the id dropped.
+                std::set<std::string> tokens;
+                {
+                    std::string tok;
+                    for (const char ch : entry + " ") {
+                        if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_') tok += ch;
+                        else if (!tok.empty()) { tokens.insert(tok); tok.clear(); }
+                    }
+                }
                 for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT && !entry.empty(); ++i) {
                     const std::string id = jnext::dbgkeys::info(static_cast<jnext::dbgkeys::Action>(i)).id;
-                    if (entry.find(id) == std::string::npos) nohelp.push_back(id);
+                    if (tokens.count(id) == 0) nohelp.push_back(id);
                 }
                 check("CLI-SET-14", "`--help` names every debugger action id in the debugger_keys.ACTION entry",
                       nohelp.empty(), "missing from --help: " + join(nohelp));
