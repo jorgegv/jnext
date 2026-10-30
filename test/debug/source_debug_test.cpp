@@ -6,7 +6,8 @@
 //   SRCDBG-SIDE-*   load_program_sidecars(): what is attached, kept, cleared
 //   SRCDBG-STEP-*   source_step() forwards: Into / Over / Out, the stops
 //   SRCDBG-BACK-*   source_step() backwards: Back / ReverseContinue
-//   SRCDBG-CS-*     the call-stack tracker records each frame's pages
+//   SRCDBG-CS-*     the call-stack tracker records each frame's pages and ends its frames
+//                    (the return-address rule, the esxDOS shim's return: GH #345)
 //
 // A real 48K machine and a real `Debugger`, as debugger_backend_test drives
 // them; no ROM. The program (interrupts off), with the source map's lines:
@@ -41,6 +42,8 @@
 //   SRCDBG-Z88-*     a z88dk -debug map: the <stem>.map sidecar (symbols and source lines),
 //                    the hand load, what the sidecar precedence keeps, identity from the
 //                    section binaries, the lifetime of a z88dk map, real z88dk code (GH #344)
+//   SRCSTEP-*        C steps on real z88dk code: Into/Over/Out across banked_call and the
+//                    -debug helpers, a tail JP, the esxDOS shim (GH #345)
 //   SRCLIFE-*        the source map's lifetime: load generations, the attachment
 //                    cache, stale user maps, Back stops at a landing (GH #342)
 //
@@ -2939,16 +2942,42 @@ int main() {
         m.emu.mmu().write(0x8001, 0x85);   // DEFB $85 (esxdos call code)
         m.emu.mmu().write(0x8002, 0x00);
         m.set_pc(0x8000);
-        m.dbg->step_into(m.a);
-        m.dbg->step_into(m.a);
+        m.dbg->step_into(m.a);   // the RST itself
         const auto& f = m.dbg->call_stack();
+        const bool opened = f.size() == 1 && f[0].type == CallType::RST && f[0].target_pc == 0x0008 &&
+                            f[0].caller_space == MemSpace::page(4) &&
+                            f[0].target_space == MemSpace::cpu();
+        m.dbg->step_into(m.a);   // the shim's slot: it returns to $8002 without a fetch
+        // GH #345 (owner-approved 2026-10-30, D5): the shim's return ends the RST frame.
+        // This row pinned the stale frame (1 after the shim) as an interim; the
+        // property it guards (the frame's target is never recorded from the RST's own
+        // fetch) is now asserted between the two slots.
         check("SRCDBG-CS-08", "an RST $08 serviced by the esxdos shim leaves its frame's target "
-                              "unrecorded: nothing was fetched at $0008",
-              f.size() == 1 && f[0].target_pc == 0x0008 && f[0].caller_space == MemSpace::page(4) &&
-                  f[0].target_space == MemSpace::cpu(),
-              f.empty() ? std::string("no frame")
-                        : "target " + std::to_string(unsigned(f[0].target_space.kind)) + "/" +
-                              std::to_string(unsigned(f[0].target_space.index)));
+                              "unrecorded (nothing was fetched at $0008), and the shim's return "
+                              "ends the frame",
+              opened && f.empty() && m.pc() == 0x8002,
+              f.empty() ? std::string("no frame, ") + m.where()
+                        : "frames " + std::to_string(f.size()) + " " + m.where());
+    }
+
+    {
+        // GH #345 (E23-14): a RET that is a computed jump (PUSH; RET) lands on no CALL's
+        // return address, so it keeps the SP rule and leaves the CALL's frame; the real
+        // RET after it lands on the CALL's return address and ends it.
+        Machine m;
+        const uint8_t main_p[] = {0xCD, 0x00, 0x90, 0x00};                   // CALL $9000; NOP
+        const uint8_t sub_p[]  = {0x21, 0x05, 0x90, 0xE5, 0xC9, 0x00, 0xC9}; // LD HL,$9005; PUSH HL; RET; NOP; RET
+        for (size_t i = 0; i < sizeof(main_p); ++i) m.emu.mmu().write(uint16_t(0x8000 + i), main_p[i]);
+        for (size_t i = 0; i < sizeof(sub_p); ++i) m.emu.mmu().write(uint16_t(0x9000 + i), sub_p[i]);
+        m.set_pc(0x8000);
+        for (int i = 0; i < 4; ++i) m.dbg->step_into(m.a);   // CALL, LD, PUSH, RET (the jump)
+        const bool jumped = m.pc() == 0x9005 && m.dbg->call_stack().size() == 1;
+        m.dbg->step_into(m.a);   // NOP
+        m.dbg->step_into(m.a);   // RET (real)
+        check("SRCDBG-CS-09", "a RET used as a computed jump keeps the CALL's frame; the real RET "
+                              "to the CALL's return address ends it",
+              jumped && m.pc() == 0x8003 && m.dbg->call_stack().empty(),
+              m.where() + " frames " + std::to_string(m.dbg->call_stack().size()));
     }
 
     // ── GH #342: the source map's lifetime (design §6.5-6.7) ────────────
@@ -5868,6 +5897,279 @@ int main() {
                       has(log, "Rejected z88dk source map '" + (d / "prog.map").string() +
                                "': the program loaded from tape does not match its binary identity"),
                   st.reason + "\n" + log);
+        }
+    }
+
+    // ── GH #345 (E23-14): C stepping semantics on real z88dk code ───────────────
+    // Oracles: the -run fixtures' maps and listings (test/fixtures/z88dk), design 7
+    // (Over/Out by call depth) and the recorded z88dk-gdb sessions A-E (plan
+    // gh345-plan.md section 6) for v2.4/sccz80-debug. Each row reaches its start by
+    // RUNNING to a breakpoint, as SRCDBG-Z88-14 does.
+    {
+        const fs::path sdir = dir / "srcstep";
+        // Run to `addr` on a fixture's machine; false when it never stops there.
+        const auto reach = [](Machine& m, uint16_t addr) {
+            const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+            m.dbg->run(m.a);
+            for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+            m.dbg->unsubscribe(m.a, id);
+            return m.dbg->state().paused && m.pc() == addr;
+        };
+        // Depth over CALL / RST frames (an interrupt's frame is not the program's).
+        const auto depth = [](const Machine& m) {
+            int n = 0;
+            for (const auto& f : m.dbg->call_stack())
+                if (f.type == CallType::CALL || f.type == CallType::RST) ++n;
+            return n;
+        };
+        const auto at = [&](Machine& m, uint16_t pc, const char* line) {
+            return m.pc() == pc && line_of(*m.dbg, m.pc()) == line;
+        };
+        // A machine with the fixture loaded, its sidecars attached, stopped at `addr`.
+        const auto start = [&](Machine& m, const char* fixture, const char* sub, uint16_t addr,
+                               std::string* log) {
+            const fs::path d = sdir / sub;
+            z88_copy(fixture, d);
+            z88_load(m, d / "prog.nex");
+            *log = debugger_log_of([&] { m.dbg->load_program_sidecars((d / "prog.nex").string()); });
+            return reach(m, addr) && has(*log, "(program identity verified)");
+        };
+
+        // master / sdcc `__banked`: bmain.c:13 `result = banked_add(2, 3);` at $8CAE.
+        {   // SRCSTEP-01
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sdcc-banked-run", "bs1", 0x8CAE, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-01", "sdcc __banked: Over bmain.c:13's call to banked_add (through "
+                                "banked_call) lands on bmain.c:15 ($8CBE; line 14 is its alias) at the "
+                                "same depth",
+                  ok && at(m, 0x8CBE, "bmain.c:15") && depth(m) == d0, log + m.where());
+        }
+        {   // SRCSTEP-02
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sdcc-banked-run", "bs2", 0x8CAE, &log);
+            m.dbg->source_step(m.a, Step::Into);
+            check("SRCSTEP-02", "sdcc __banked: Into bmain.c:13 runs through banked_call and stops "
+                                "at banked.c:5 ($C000), fetched from page 20",
+                  ok && at(m, 0xC000, "banked.c:5") && m.dbg->effective_page(0xC000) == 20, m.where());
+        }
+        {   // SRCSTEP-03
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sdcc-banked-run", "bs3", 0x8CAE, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Into);
+            m.dbg->source_step(m.a, Step::Into);
+            const bool inside = at(m, 0xC008, "banked.c:8");
+            m.dbg->source_step(m.a, Step::Out);
+            check("SRCSTEP-03", "sdcc __banked: Out of banked_add returns to the caller's line "
+                                "bmain.c:13 at $8CB9 (after the defq), at the caller's depth",
+                  ok && inside && at(m, 0x8CB9, "bmain.c:13") && depth(m) == d0, m.where());
+        }
+        {   // SRCSTEP-08
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sdcc-banked-run", "bs8", 0x8CAE, &log);
+            const int d0 = depth(m);
+            int d805A = -1, d809F = -1, d807E = -1, dC000 = -1, d8083 = -1, d809D = -1, d8CB9 = -1;
+            int mindepth = 1 << 20;
+            bool in_call = false, arrived = false;
+            const auto first = [](int& slot, int v) { if (slot < 0) slot = v; };
+            for (int i = 0; i < 200 && !arrived; ++i) {
+                const uint16_t pc = m.pc();
+                const int d = depth(m);
+                if (pc == 0x805A) in_call = true;
+                if (pc == 0x8CB9) { first(d8CB9, d); arrived = true; break; }
+                if (in_call && d < mindepth) mindepth = d;
+                if (pc == 0x805A) first(d805A, d);
+                if (pc == 0x809F) first(d809F, d);
+                if (pc == 0x807E) first(d807E, d);
+                if (pc == 0xC000) first(dC000, d);
+                if (pc == 0x8083) first(d8083, d);
+                if (pc == 0x809D) first(d809D, d);
+                m.dbg->step_into(m.a);
+            }
+            check("SRCSTEP-08", "banked_call keeps its frame for the whole trampoline: depth d0+1 at "
+                                "$805A, d0+2 in set_mmu ($809F), d0+1 after its RET ($807E), d0+2 in "
+                                "banked_add ($C000), d0+1 after the target's RET ($8083, $809D), d0 at "
+                                "$8CB9, and never below d0+1 inside the call",
+                  ok && arrived && d805A == d0 + 1 && d809F == d0 + 2 && d807E == d0 + 1 &&
+                      dC000 == d0 + 2 && d8083 == d0 + 1 && d809D == d0 + 1 && d8CB9 == d0 &&
+                      mindepth == d0 + 1,
+                  "d0=" + std::to_string(d0) + " 805A:" + std::to_string(d805A) + " 809F:" +
+                      std::to_string(d809F) + " 807E:" + std::to_string(d807E) + " C000:" +
+                      std::to_string(dC000) + " 8083:" + std::to_string(d8083) + " 809D:" +
+                      std::to_string(d809D) + " 8CB9:" + std::to_string(d8CB9) + " min:" +
+                      std::to_string(mindepth));
+        }
+
+        // v2.4 / sccz80 -debug: z88dk-gdb sessions A, B, E (l_debug_push_frame in every function).
+        {   // SRCSTEP-04
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-debug", "s4", 0x8CBE, &log);
+            m.dbg->source_step(m.a, Step::Into);
+            const bool first = at(m, 0x8C78, "main.c:10");
+            m.dbg->source_step(m.a, Step::Into);
+            check("SRCSTEP-04", "sccz80 -debug: Into main.c:20 stops at square's first line "
+                                "($8C78, main.c:10) and the next Into runs l_debug_push_frame through "
+                                "to main.c:11 ($8C7B) [z88dk-gdb A, B]",
+                  ok && first && at(m, 0x8C7B, "main.c:11"), m.where());
+        }
+        {   // SRCSTEP-05
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-debug", "s5", 0x8CB5, &log);
+            m.dbg->source_step(m.a, Step::Over);
+            const bool first = at(m, 0x8CBE, "main.c:20");
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-05", "sccz80 -debug: Over main.c:19 -> :20 ($8CBE), Over the call to "
+                                "square -> main.c:21 ($8CE9) [z88dk-gdb A, E]",
+                  ok && first && at(m, 0x8CE9, "main.c:21"), m.where());
+        }
+        {   // SRCSTEP-06
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-debug", "s6", 0x8CBE, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Into);
+            m.dbg->source_step(m.a, Step::Into);
+            const bool in = at(m, 0x8C7B, "main.c:11");
+            m.dbg->source_step(m.a, Step::Out);
+            check("SRCSTEP-06", "sccz80 -debug: Out of square's last line returns to main.c:20 at "
+                                "$8CC9, at the caller's depth [z88dk-gdb A: finish]",
+                  ok && in && at(m, 0x8CC9, "main.c:20") && depth(m) == d0, m.where());
+        }
+        {   // SRCSTEP-09
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-debug", "s9", 0x8CBE, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Into);
+            const bool in = at(m, 0x8C78, "main.c:10");
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-09", "sccz80 -debug: Over from square's first line runs the helper "
+                                "through and stops at main.c:11 ($8C7B), inside square [z88dk-gdb A: next]",
+                  ok && in && at(m, 0x8C7B, "main.c:11") && depth(m) == d0 + 1, m.where());
+        }
+        {   // SRCSTEP-10
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-debug", "s10", 0x8CBE, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Into);
+            m.dbg->source_step(m.a, Step::Into);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-10", "sccz80 -debug: Over from square's last line returns to main.c:20 "
+                                "($8CC9) [z88dk-gdb B: next]",
+                  ok && at(m, 0x8CC9, "main.c:20") && depth(m) == d0, m.where());
+        }
+
+        // v2.4 / sccz80 `__banked`: G5 and G9 in one program.
+        {   // SRCSTEP-11
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-banked-run", "k11", 0x8CCB, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Into);
+            const bool first = at(m, 0xC000, "banked.c:6") && m.dbg->effective_page(0xC000) == 20;
+            m.dbg->source_step(m.a, Step::Into);
+            const bool second = at(m, 0xC003, "banked.c:8");
+            m.dbg->source_step(m.a, Step::Out);
+            check("SRCSTEP-11", "sccz80 __banked: Into banked_call stops at banked.c:6 (page 20), then "
+                                ":8; Out returns to bmain.c:14 at $8CDA (after the defq) at the "
+                                "caller's depth [z88dk-gdb C: step]",
+                  ok && first && second && at(m, 0x8CDA, "bmain.c:14") && depth(m) == d0, m.where());
+        }
+        {   // SRCSTEP-12
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-banked-run", "k12", 0x8CCB, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-12", "sccz80 __banked: Over the banked call lands on bmain.c:15 ($8CE2) at "
+                                "the caller's depth",
+                  ok && at(m, 0x8CE2, "bmain.c:15") && depth(m) == d0, m.where());
+        }
+
+        // Synthetic programs: a source map of `file|line` at addresses, on the page now mapped.
+        const auto syn_sld = [&](const char* name, Machine& m,
+                                 std::initializer_list<std::pair<const char*, unsigned>> recs) {
+            std::string text = std::string("|SLD.data.version|1\n") + "main.asm|1||0" + kNextDevice;
+            for (const auto& [pos, addr] : recs) {
+                const std::string r = pos;
+                const size_t c = r.find(':');
+                text += r.substr(0, c) + "|" + r.substr(c + 1) + "||0|" +
+                        std::to_string(m.dbg->effective_page(uint16_t(addr))) + "|" +
+                        std::to_string(addr) + "|T|\n";
+            }
+            fs::create_directories(sdir);
+            write_text(sdir / name, text);
+            return (sdir / name).string();
+        };
+        const auto poke = [](Machine& m, uint16_t addr, std::initializer_list<uint8_t> b) {
+            for (const uint8_t v : b) m.emu.mmu().write(addr++, v);
+        };
+        {   // SRCSTEP-07
+            Machine m;
+            poke(m, 0x8000, {0xCD, 0x00, 0x90, 0x00, 0x18, 0xFE});   // CALL f; NOP; JR $
+            poke(m, 0x9000, {0x00, 0xC3, 0x00, 0xA0});               // NOP; JP g
+            poke(m, 0xA000, {0x00, 0x00, 0xC9});                     // NOP; NOP; RET
+            m.dbg->load_source_map(syn_sld("s7.sld", m,
+                {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8003}, {"f.asm:1", 0x9000},
+                 {"f.asm:2", 0x9001}, {"g.asm:1", 0xA000}, {"g.asm:2", 0xA001}, {"g.asm:3", 0xA002}}),
+                false);
+            m.set_pc(0x8000);
+            m.dbg->source_step(m.a, Step::Into);
+            m.dbg->source_step(m.a, Step::Into);
+            m.dbg->source_step(m.a, Step::Into);
+            const bool in_g = at(m, 0xA000, "g.asm:1");
+            m.dbg->source_step(m.a, Step::Out);
+            check("SRCSTEP-07", "a tail JP pushes no frame: Out from the jumped-to routine returns to "
+                                "f's caller (main.asm:2, $8003) at depth 0",
+                  in_g && at(m, 0x8003, "main.asm:2") && depth(m) == 0, m.where());
+        }
+        {   // SRCSTEP-13
+            Machine m;
+            m.emu.cpu().on_esxdos_call = [](uint8_t, Z80Registers&) { return true; };
+            poke(m, 0x8000, {0xCF, 0x85, 0x00, 0x18, 0xFD});   // RST $08; DEFB $85; NOP; JR $8002
+            m.dbg->load_source_map(syn_sld("s13.sld", m,
+                {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8002}, {"main.asm:3", 0x8003}}), false);
+            m.set_pc(0x8000);
+            const std::string log = debugger_log_of([&] { m.dbg->source_step(m.a, Step::Over); });
+            check("SRCSTEP-13", "Over a line holding an esxdos RST $08 serviced by the shim stops on "
+                                "the next line ($8002) at depth 0, with no runaway warning",
+                  at(m, 0x8002, "main.asm:2") && depth(m) == 0 && !has(log, "Source step stopped after"),
+                  m.where() + " " + log);
+        }
+        {   // SRCDBG-CS-10
+            const auto build = [&](Machine& m) {
+                poke(m, 0x8000, {0x21, 0x01, 0x00, 0xE5, 0xCD, 0x00, 0x90, 0x00, 0x18, 0xFE});
+                poke(m, 0x9000, {0xD1, 0xC1, 0xD5, 0xCD, 0x00, 0xA0, 0x00, 0xC9});   // callee convention
+                poke(m, 0xA000, {0x00, 0xC9});
+                m.dbg->load_source_map(syn_sld("cs10.sld", m,
+                    {{"main.asm:1", 0x8000}, {"main.asm:2", 0x8007}, {"f.asm:1", 0x9000},
+                     {"f.asm:2", 0x9003}, {"f.asm:3", 0x9006}, {"g.asm:1", 0xA000}}), false);
+                m.set_pc(0x8000);
+            };
+            Machine a;
+            build(a);
+            a.dbg->source_step(a.a, Step::Over);
+            const bool over = at(a, 0x8007, "main.asm:2") && depth(a) == 0;
+            Machine b;
+            build(b);
+            b.dbg->source_step(b.a, Step::Into);
+            b.dbg->source_step(b.a, Step::Into);
+            const bool in_f2 = at(b, 0x9003, "f.asm:2");
+            b.dbg->source_step(b.a, Step::Over);
+            check("SRCDBG-CS-10", "a __z88dk_callee routine (its return slot moved UP) keeps its frame "
+                                  "while the call it makes returns: Over main.asm:1 lands on :2 at depth "
+                                  "0, Over inside f lands on f.asm:3 at depth 1",
+                  over && in_f2 && at(b, 0x9006, "f.asm:3") && depth(b) == 1,
+                  a.where() + " | " + b.where() + " depth " + std::to_string(depth(b)));
         }
     }
 

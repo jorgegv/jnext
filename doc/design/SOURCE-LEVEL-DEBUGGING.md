@@ -153,6 +153,9 @@ fixture; the others are from the planning builds.
 - G5. sccz80 `-debug` changes the program: `l_debug_push_frame` and `l_debug_pop_frame` in
   every function (fixture: `_main` at $8C73 without `-debug`, $8C92 with it). The program
   debugged is the `-debug` build, and steps run through the helpers, which have no lines.
+  The helper pops its return address and pushes it back 2 bytes LOWER before it returns, so the
+  frame's slot is below SP after the RET: this is why the tracker's RET rule matches return
+  addresses (section 7), not SP alone.
 - G6. 2.4 only: sdcc line information exists only as `.lis` comments (`--c-code-in-asm`), so
   sdcc on 2.4 needs the listing adapter (E23-17).
 - G7. Optimisation moves code across lines, and the default `-SO2` is already optimised (sdcc,
@@ -166,8 +169,16 @@ fixture; the others are from the planning builds.
   address: D3's hazard (section 9.4).
 - G9. `__banked` calls go through `banked_call`, which pops its return address, switches to a
   private stack, pages the target in and calls it through `l_jphl`. jnext's `CallStack` pops
-  every frame whose `sp_at_call` is below SP on a RET, so the depth comes back right, by luck.
-  E23-14 (#345) pins it with rows (section 7).
+  every frame whose `sp_at_call` was below SP on a RET, so the depth came back right only at the
+  end, by luck: `banked_call`'s frame was lost at `set_mmu`'s RET, before `l_jphl`. E23-14 (#345)
+  fixed it with the return-address rule (section 7): the depth is d0+1 for the whole trampoline,
+  d0+2 inside the target, and d0 after the call. A newlib `+zxn` `__banked` program built with
+  the defaults cannot run: `CRT_ORG_PAGE_20` is 16-bit, so the `defq` page byte is 0, and the
+  stack ($FF58) is in the banking segment. It needs
+  `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` (the `-run`
+  fixtures). z88dk-gdb differs on banked code by design: its `finish` stops in `banked_call`
+  with no source line, its `next` hangs (it runs `nexti` to the `defq`), and it segfaults on a
+  24-bit `__C_LINE_` value; jnext runs unmapped code through (section 2.5).
 - G10. Paths are as the build spelled them: user files relative to the build directory (as
   given to `zcc`), headers as written in `#include`, system headers absolute; the module name
   is the mangled path. Files are therefore found relative to the map's directory (8.2) and
@@ -352,7 +363,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; no click-to-break, Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
-| C stepping on real z88dk code | none | 7 | E23-14 (#345) |
+| C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none | 9.6 | E23-20 (#350) |
 | Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
@@ -899,10 +910,15 @@ that waits never holds the frontend. Steps stay synchronous and bounded (OD-11);
 (#347) measures the worst case on the Release build.
 
 **Call depth** is the call-stack tracker's (`set_call_stack_enabled`), which the Qt debugger
-runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) pins it
+runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) fixed it
 on real z88dk code across `banked_call` (G9), the sccz80 `l_debug_push_frame` and
-`l_debug_pop_frame` helpers (G5), RST $08 esxDOS calls and a tail `JP`. A tracker defect found
-there is fixed in `CallStack` for every program, never as a special case for `banked_call`.
+`l_debug_pop_frame` helpers (G5), RST $08 esxDOS calls, `__z88dk_callee` routines and a tail
+`JP`, in `CallStack` for every program, never as a special case for `banked_call`. The rule: a
+CALL frame ends when a RET lands on its return address (`caller_pc + 3`), the newest CALL frame
+only; any other taken RET ends every frame whose return slot is below SP (a `PUSH; RET`
+computed jump leaves the frame). RST, INT and NMI frames end by SP alone, and so does the
+esxDOS shim's return (a slot that fetched no opcode). Out from a function lands at the return
+address, mid-line on the call's own line, as gdb's `finish` does.
 
 **Backward** steps search the trace from newest to oldest, considering only entries before the
 machine's current cycle: a Frame Back or a slider jump leaves the abandoned history in the
@@ -1069,7 +1085,9 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    if E23-12 (#343) can produce a fixture of such a map; otherwise the value is refused with a
    reason, and the rule waits for a fixture. In a numbered section the bits are not read: they
    are the 16K bank number before 72ea9d221b and the 8K page after it, so they cannot check
-   the name without knowing the version.
+   the name without knowing the version. The same holds for `__PAGE_<n>_head`: `head` is its
+   low 16 bits, and a head up to 24 bits is accepted (newlib puts the page there for
+   `__banked`, E23-14 (#345)).
 4. Any other section (`CODE`, `code_*`, the main program): the RAM page the MMU maps at that
    slot with the program in memory. For a NEX that is banks 5, 2 and 0, the pages 10, 11, 4, 5,
    0 and 1 for $4000-$FFFF, so $8000-$9FFF is `Page{4}`. A map read before the program is in
@@ -1316,6 +1334,11 @@ SRCDBG-BACK-12 (`source_debug_test`: steps by range, Back to the statement's fir
 instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
+
+E23-14 (#345) added SRCSTEP-01 to SRCSTEP-13 and SRCDBG-CS-09/10 (`source_debug_test`: Into, Over
+and Out on the runnable `__banked` and `-debug` fixtures, the return-address rule, the shim's
+return), Z88MAP-29 (`z88dk_map_test`: a 24-bit page head) and rewrote SRCDBG-CS-08 (the shim's
+return now ends the RST frame; owner-approved 2026-10-30).
 
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).

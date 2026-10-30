@@ -9,5 +9,9 @@ the source line each call was made from
 `INT` or `NMI` frame that is the line the interrupt interrupted. Code fetched
 from a ROM or an overlay has a line only if the source map names that memory.
 
+A frame ends when a `RET` lands on its call's return address, or when a `RET`
+raises SP above its return slot; an esxDOS call JNEXT services itself ends its
+`RST` frame.
+
 Call tracking only runs while the debugger is open, so the stack is built from
 the moment you open it — not retroactively.

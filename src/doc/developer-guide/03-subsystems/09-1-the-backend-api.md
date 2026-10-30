@@ -527,7 +527,8 @@ listener as a Warn line.
 
 `source_step(by, kind)` steps by statement. `Into`, `Over` and `Out` run
 `Emulator::debugger_step()` in a loop, as many Steps, until the mapped position
-changes (and, for Over / Out, the call-stack depth allows). `debugger_step()`
+changes (and, for Over / Out, the call-stack depth allows; the depth is `CallStack`'s: a RET that lands on the newest CALL's return address ends that frame, so
+Out and Over cross `banked_call` and `l_debug_push_frame`). `debugger_step()`
 delivers no `Execute` event, so between instructions the loop gives each next PC
 `run_frame()`'s delivery itself — `DebugState::should_break()`, then
 `run_execute_gate()` under a `GuestExecutionScope` — so handlers run and a

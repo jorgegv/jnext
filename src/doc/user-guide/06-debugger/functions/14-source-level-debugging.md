@@ -246,7 +246,13 @@ What z88dk and the library can do changes the result:
   while its 8K page is mapped where it runs (the Source tab, Call Stack and
   Breakpoints panels all follow the page). The map's address for a `BANK_n`
   section carries the bank in its high bits; JNEXT reads the page from the
-  section and the address.
+  section and the address. z88dk's `__banked` on newlib `+zxn` needs
+  `-pragma-define:CRT_ORG_PAGE_<n>=0x<page><org>` (the page in the top byte,
+  for example `0x14C000` for `PAGE_20`) and a stack below the banking segment
+  (`-pragma-define:REGISTER_SP=0xC000`): without them the program itself calls
+  page 0 or loses its stack. **Over** and **Out** step across `banked_call` and
+  the `-debug` helpers; **Out** lands on the calling line at the return address
+  (mid-statement), as gdb's `finish` does.
 - **DivMMC sections** (`DIV_n`) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.
 - Code in a section that names no page (`CODE`, `code_compiler`, the program
