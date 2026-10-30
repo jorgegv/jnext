@@ -98,16 +98,37 @@ inline bool emulator_apply_load_keeping_keys(Emulator& emu, const std::string& f
 /// of its includes (and of the logger's).
 struct CliSourceMapResult {
     bool        ok = false;
+    bool        pending = false;   ///< attached, its identity judged when the program first runs
     std::string line;
 };
+/// `deferred`: the program is a tape, not in memory yet (`program_loads_later()`), so a
+/// map with an identity attaches pending and is judged where the CPU first runs its code
+/// (stage 3); the frontend then watches it with emulator_poll_cli_source_map().
 template <typename Dbg>
-inline CliSourceMapResult emulator_attach_cli_source_map(Dbg& dbg, const std::string& file) {
-    const auto r = dbg.load_source_map(file, /*accept_identity_mismatch=*/false);
+inline CliSourceMapResult emulator_attach_cli_source_map(Dbg& dbg, const std::string& file,
+                                                         bool deferred = false) {
+    const auto r = dbg.load_source_map(file, /*accept_identity_mismatch=*/false, deferred);
     CliSourceMapResult out;
     out.ok = r.count >= 0;
+    out.pending = out.ok && r.pending;
     out.line = "--source-map '" + file + "': " +
                (out.ok ? std::to_string(r.count) + " source lines" + r.identity_note : r.error);
     return out;
+}
+
+/// GH #344 stage 3 - what became of a `--source-map` that attached pending, asked once
+/// per tick while the frontend watches it: still waiting for the program to run its
+/// code, verified, or dropped by a mismatch (the backend has logged the error; the
+/// frontend exits 1, as it does for a map refused at attach). `reason` is the Source
+/// tab's, for the frontend's own line.
+enum class CliSourceMapWatch { Waiting, Done, Failed };
+template <typename Dbg>
+inline CliSourceMapWatch emulator_poll_cli_source_map(const Dbg& dbg, std::string* reason = nullptr) {
+    const auto st = dbg.source_map_status();
+    if (st.state == Dbg::SourceMapStatus::State::Attached)
+        return st.pending ? CliSourceMapWatch::Waiting : CliSourceMapWatch::Done;
+    if (reason) *reason = st.reason;
+    return CliSourceMapWatch::Failed;
 }
 
 /// True when emulator_apply_load() above would route `file` to
