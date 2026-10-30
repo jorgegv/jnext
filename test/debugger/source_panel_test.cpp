@@ -2582,6 +2582,12 @@ void test_z88dk_source_map() {
 // sources in a sibling src/ is found through a search path, and Locate File... adds the
 // directory), the z88dk fixtures' recorded names, and the design doc (SOURCE-LEVEL-
 // DEBUGGING.md 2.3 G4: PC $8CB5 is main.c:19).
+/// write_text() for a path whose directories may not exist yet.
+void put_file(const std::string& path, const std::string& text) {
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+    write_text(path, text);
+}
+
 std::string numbered_lines(int n, const char* prefix = "/* line ") {
     std::string out;
     for (int i = 1; i <= n; ++i) out += prefix + std::to_string(i) + " */\n";
@@ -2624,7 +2630,7 @@ void test_source_search() {
         Fixture fx;
         fx.enable();
         const std::string root = tmp + "/q66";
-        write_text(root + "/src/main.c", numbered_lines(25));
+        put_file(root + "/src/main.c", numbered_lines(25));
         z88dk_in_build(fx, root);
         fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});
         fx.mgr->refresh_panels();
@@ -2640,7 +2646,7 @@ void test_source_search() {
         Fixture fx;
         fx.enable();
         const std::string root = tmp + "/q67";
-        write_text(root + "/src/main.c", numbered_lines(25));
+        put_file(root + "/src/main.c", numbered_lines(25));
         z88dk_in_build(fx, root);
         fx.mgr->refresh_panels();
         SourcePanel* sp = fx.dbg()->source_panel();
@@ -2660,7 +2666,7 @@ void test_source_search() {
         Fixture fx;
         fx.enable();
         const std::string root = tmp + "/q68";
-        write_text(root + "/src/main.c", numbered_lines(25));
+        put_file(root + "/src/main.c", numbered_lines(25));
         z88dk_in_build(fx, root);
         fx.mgr->refresh_panels();
         SourcePanel* sp = fx.dbg()->source_panel();
@@ -2678,7 +2684,7 @@ void test_source_search() {
         Fixture fx;
         fx.enable();
         const std::string root = tmp + "/q69";
-        write_text(root + "/src/main.c", numbered_lines(25));
+        put_file(root + "/src/main.c", numbered_lines(25));
         z88dk_in_build(fx, root);
         fx.mgr->refresh_panels();
         SourcePanel* sp = fx.dbg()->source_panel();
@@ -2701,8 +2707,8 @@ void test_source_search() {
         Fixture fx;
         fx.enable();
         const std::string root = tmp + "/q70";
-        write_text(root + "/src/main.c", numbered_lines(25));
-        write_text(root + "/src/other.c", numbered_lines(25));
+        put_file(root + "/src/main.c", numbered_lines(25));
+        put_file(root + "/src/other.c", numbered_lines(25));
         z88dk_in_build(fx, root);
         fx.mgr->refresh_panels();
         SourcePanel* sp = fx.dbg()->source_panel();
@@ -2721,7 +2727,7 @@ void test_source_search() {
         fx.enable();
         const std::string root = tmp + "/q71";
         const std::string inst = root + "/inst";
-        write_text(inst + "/libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4", numbered_lines(1051, "; crt "));
+        put_file(inst + "/libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4", numbered_lines(1051, "; crt "));
         z88dk_in_build(fx, root, 0x8000);
         fx.mgr->set_source_dirs({QString::fromStdString(inst)});
         fx.mgr->refresh_panels();
@@ -2737,8 +2743,8 @@ void test_source_search() {
         // The rule is the z88dk format's: an SLD naming x.m4 shows the file.
         Fixture fy;
         fy.enable();
-        write_text(root + "/sld/x.m4", numbered_lines(12));
-        write_text(root + "/sld/prog.sld",
+        put_file(root + "/sld/x.m4", numbered_lines(12));
+        put_file(root + "/sld/prog.sld",
                    std::string("|SLD.data.version|1\nx.m4|10||0") + kNextDevice + "x.m4|10||0|" +
                        std::to_string(fy.p80) + "|32768|T|\n");
         fy.backend->load_source_map(root + "/sld/prog.sld", false);
@@ -2752,9 +2758,9 @@ void test_source_search() {
     }
     {   // QSRC-72
         const std::string root = tmp + "/q72";
-        write_text(root + "/nowhere.bas", numbered_lines(9, "REM "));
+        put_file(root + "/nowhere.bas", numbered_lines(9, "REM "));
         auto sld_at = [&](Fixture& f, int line) {
-            write_text(root + "/prog.sld",
+            put_file(root + "/prog.sld",
                        std::string("|SLD.data.version|1\nnowhere.bas|") + std::to_string(line) + "||0" +
                            kNextDevice + "nowhere.bas|" + std::to_string(line) + "||0|" +
                            std::to_string(f.p80) + "|32768|T|\n");
@@ -2781,7 +2787,7 @@ void test_source_search() {
     {   // QSRC-73
         Fixture fx;
         const std::string root = tmp + "/q73";
-        write_text(root + "/src/main.c", numbered_lines(25));
+        put_file(root + "/src/main.c", numbered_lines(25));
         fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});   // no window yet
         const bool none_yet = fx.dbg() == nullptr;
         fx.enable();
