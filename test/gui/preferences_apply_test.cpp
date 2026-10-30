@@ -1632,11 +1632,10 @@ void test_session_paths_not_persisted()
 }
 
 // ── PA-34/PA-35: GH #417 - Preferences shows, and OK saves, the SAVED values ──
-// PA-34 proves by reading main_window.cpp that the saved last_load_dir / screenshot_dir are written
-// in exactly one place each (the remember_* helpers) and read nowhere but the one accessor
-// (session_load_dir() / screenshot_dialog_seed(), in the header): every dialog that opens "where
-// the last load was" therefore goes through the accessor, and no reader can bypass the session
-// value. PA-35 drives the real Preferences dialog: after a command-line session (paths, format,
+// PA-34 reads main_window.cpp and checks one spelling only: every `app_config_.data().last_load_dir`
+// / `.screenshot_dir` there must be the target of an assignment (the remember_* helpers), i.e. no
+// reader in that file takes the saved value directly. It does not see other spellings, the header or
+// other files; the accessors' behaviour is held by PA-29..PA-32. PA-35 drives the real Preferences dialog: after a command-line session (paths, format,
 // debugger keys), Apply writes the saved values back, not the command line's.
 void test_preferences_saves_saved_values()
 {
@@ -1648,11 +1647,16 @@ void test_preferences_saves_saved_values()
             for (const char* key : {"app_config_.data().last_load_dir", "app_config_.data().screenshot_dir"}) {
                 if (line.find(key) == std::string::npos) continue;
                 ++reads;
-                if (line.find("= dir;") == std::string::npos) bad += line + " | ";
+                // Must be an assignment: after the key, optional blanks, then '=' but not '=='.
+                size_t at = line.find(key) + std::strlen(key);
+                while (at < line.size() && line[at] == ' ') ++at;
+                const bool assigns = at < line.size() && line[at] == '='
+                                     && (at + 1 >= line.size() || line[at + 1] != '=');
+                if (!assigns) bad += line + " | ";
             }
         }
-        check("PA-34", "main_window.cpp touches the saved last_load_dir / screenshot_dir only to write the "
-                       "directory a dialog just picked: every reader goes through the session accessor",
+        check("PA-34", "in main_window.cpp the saved last_load_dir / screenshot_dir are named via "
+                       "app_config_.data() only as assignment targets (no direct reader in that file)",
               in.eof() && reads == 2 && bad.empty(), bad + std::to_string(reads) + " references");
     }
     QTemporaryDir home;

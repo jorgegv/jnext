@@ -230,7 +230,8 @@ public:
     /// saved one. The ONE reader of the saved `last_load_dir` (PA-34 greps for it).
     QString session_load_dir() const {
         return session_.last_load_dir.value_or(app_config_.data().last_load_dir);
-    }    /// GH #417 - where File > Save Screenshot... opens: this session's directory.
+    }
+    /// GH #417 - where File > Save Screenshot... opens: this session's directory.
     QString screenshot_dialog_seed() const {
         return session_.screenshot_dir.value_or(app_config_.data().screenshot_dir);
     }
