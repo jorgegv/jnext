@@ -429,6 +429,79 @@ static void test_recent_files(QTemporaryDir& dir) {
           r.data().recent_files.join('|').toStdString());
 }
 
+// ── AC-91..93: GH #407: [nextpi] qemu_args, and a free-text value with an unquoted comma ──
+
+static void test_nextpi_qemu_args(QTemporaryDir& dir) {
+    set_group("AC-QEMUARGS");
+    const QString none = fresh_ini_path(dir, "qemuargs-none");
+    AppConfig absent(none);
+    absent.load();
+    check("AC-91", "nextpi_qemu_args defaults to empty (no extra QEMU arguments), in a fresh struct and after load()",
+          AppConfigData{}.nextpi_qemu_args.isEmpty() && absent.data().nextpi_qemu_args.isEmpty());
+
+    const QString p = fresh_ini_path(dir, "qemuargs-rt");
+    const QString text = QStringLiteral("-serial telnet::2357,server,nowait -name \"my pi\" 'x' -drive file=C:\\pi\\x.img;y");
+    { AppConfig w(p); w.data().nextpi_qemu_args = text; w.save(); }
+    AppConfig r(p);
+    r.load();
+    const QString in_file = QSettings(p, QSettings::IniFormat).value("nextpi/qemu_args").toString();
+    check("AC-92", "nextpi_qemu_args round-trips byte for byte (commas, spaces, both quotes, a backslash path and a semicolon) under [nextpi]",
+          r.data().nextpi_qemu_args == text && in_file == text,
+          r.data().nextpi_qemu_args.toStdString() + " | " + in_file.toStdString());
+
+    // A hand-written file, with no QSettings involved: unquoted values holding a comma. QSettings reads each
+    // as a list and toString() of it is "", so every free-text key used to come back empty.
+    // Only the comma is repaired here; a backslash, a bare quote or a semicolon in a hand-edited value follow Qt's own
+    // INI rules, which the man page (FILES, [nextpi]) spells out. What jnext itself writes round-trips exactly (AC-92).
+    const QString h = fresh_ini_path(dir, "qemuargs-hand");
+    {
+        QFile f(h);
+        const bool opened = f.open(QIODevice::WriteOnly | QIODevice::Truncate);
+        f.write("[paths]\n"
+                "last_load_dir=/srv/a,b\n"
+                "sd_card_path=/srv/c,d.img\n"
+                "screenshot_dir=/srv/e,f\n"
+                "[screenshot]\n"
+                "quick_dir=/srv/g,h\n"
+                "[input]\n"
+                "joy1_device=ff0047df341200000100000000007601\n"
+                "joy1_device_name=Pad, Pro\n"
+                "joy2_device=ff000211785600000200000000007600\n"
+                "joy2_device_name=Pad, Two\n"
+                "[nextpi]\n"
+                "dir=/srv/i,j\n"
+                "release=1_93D,x\n"
+                "qemu_binary=/opt/q,r/qemu\n"
+                "audio=wav:/tmp/s,t.wav\n"
+                "qemu_args=-serial telnet::2357,server,nowait\n");
+        f.close();
+        (void)opened;
+    }
+    AppConfig hr(h);
+    hr.load();
+    const AppConfigData& d = hr.data();
+    struct Want { const char* key; QString got; QString want; };
+    const Want wants[] = {
+        {"last_load_dir", d.last_load_dir, "/srv/a,b"},
+        {"sd_card_path", d.sd_card_path, "/srv/c,d.img"},
+        {"screenshot_dir", d.screenshot_dir, "/srv/e,f"},
+        {"quick_dir", d.quick_screenshot_dir, "/srv/g,h"},
+        {"joy1_device_name", d.joy_device_name[0], "Pad,Pro"},   // Qt's parser drops the space beside the comma
+        {"joy2_device_name", d.joy_device_name[1], "Pad,Two"},
+        {"nextpi dir", d.nextpi_dir, "/srv/i,j"},
+        {"release", d.nextpi_release, "1_93D,x"},
+        {"qemu_binary", d.nextpi_qemu_binary, "/opt/q,r/qemu"},
+        {"audio", d.nextpi_audio, "wav:/tmp/s,t.wav"},
+        {"qemu_args", d.nextpi_qemu_args, "-serial telnet::2357,server,nowait"},
+    };
+    std::string bad;
+    for (const Want& w : wants)
+        if (w.got != w.want) bad += std::string(w.key) + "='" + w.got.toStdString() + "' ";
+    check("AC-93", "every free-text key (paths, quick_dir, joystick names, the nextpi fields) reads an UNQUOTED hand-edited "
+          "value holding a comma whole, instead of silently dropping it",
+          bad.empty(), bad);
+}
+
 // ── AC-80..83: GH #321 — [snapshot] quick_keep (Quick Save retention) ────
 
 static void test_quick_keep(QTemporaryDir& dir) {
@@ -1282,6 +1355,7 @@ int main() {
     test_merge_precedence();
     test_quick_keep(dir);
     test_recent_files(dir);
+    test_nextpi_qemu_args(dir);
     test_mouse_release(dir);
     test_default_path();
     test_debug_keys_defaults(dir);

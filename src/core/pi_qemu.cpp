@@ -103,7 +103,7 @@ std::vector<std::string> PiQemu::build_args_with_chardev(const Spec& spec,
                                                          const std::string& chardev,
                                                          const std::string& audio_base) {
     const fs::path dir(spec.dir);
-    return {
+    std::vector<std::string> args{
         "-M", "raspi0",
         "-kernel", (dir / "boot" / "kernel.img").string(),
         "-dtb", (dir / "boot" / "bcm2708-rpi-zero.dtb").string(),
@@ -120,6 +120,41 @@ std::vector<std::string> PiQemu::build_args_with_chardev(const Spec& spec,
 #endif
         "-display", "none",
     };
+    // The user's extras go LAST: a `-serial` of theirs is then the Pi's second UART and
+    // the console stays on the first (GH #407).
+    args.insert(args.end(), spec.extra_args.begin(), spec.extra_args.end());
+    return args;
+}
+
+bool PiQemu::split_extra_args(const std::string& text, std::vector<std::string>& out,
+                              std::string& error) {
+    out.clear();
+    error.clear();
+    std::vector<std::string> res;
+    std::string cur;
+    bool in_arg = false;   // an argument is open (also true after a lone '' or "")
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            if (in_arg) { res.push_back(cur); cur.clear(); in_arg = false; }
+        } else if (c == '\'' || c == '"') {
+            const std::size_t close = text.find(c, i + 1);
+            if (close == std::string::npos) {
+                error = std::string("unterminated ") + c + " quote (it opens at character " +
+                        std::to_string(i + 1) + ")";
+                return false;
+            }
+            cur.append(text, i + 1, close - i - 1);
+            in_arg = true;
+            i = close;
+        } else {
+            cur += c;
+            in_arg = true;
+        }
+    }
+    if (in_arg) res.push_back(cur);
+    out = std::move(res);
+    return true;
 }
 
 bool PiQemu::check_dir(const std::string& dir, std::string& error) {

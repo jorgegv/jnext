@@ -426,11 +426,14 @@ reported with the missing file, in the question and in the log. An
 interrupted download (Cancel, a dropped connection, or 30 seconds
 without data) is kept as `NextPi-<release>.tar.gz.part` and continues on
 the next run. NextPi then takes about a minute to reach its Supervisor
-prompt (`SUP>`). The release, the directory, the QEMU binary and where
-the Pi’s sound goes are set under **Settings \> Preferences \> NextPi**
-(the `[nextpi]` section of `~/.jnext/jnext.conf`); their defaults are
-release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the
-Next’s mixer.
+prompt (`SUP>`). The release, the directory, the QEMU binary, where the
+Pi’s sound goes and any extra QEMU arguments are set under **Settings \>
+Preferences \> NextPi** (the `[nextpi]` section of
+`~/.jnext/jnext.conf`) or, for one run, with **--nextpi-dir**,
+**--nextpi-release**, **--nextpi-qemu**, **--nextpi-audio** and
+**--nextpi-qemu-args**, which work in a headless session too; their
+defaults are release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on
+`PATH`, and the Next’s mixer.
 
 On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S, as
 on the real machine: it is mixed with the beeper, the AY chips and the
@@ -458,6 +461,38 @@ Preferences) it is a loopback TCP socket QEMU listens on.
 **--no-nextpi**  
 Do not start NextPi this run, overriding a saved preference that enables
 it.
+
+**--nextpi-dir** *DIR*  
+The NextPi directory for this run (default `~/.jnext/nextpi`), over the
+value saved under **Settings \> Preferences \> NextPi**. An empty value
+means the default. It is used when NextPi starts, so it goes with
+**--nextpi** (or a saved preference that enables it); given when NextPi
+is not enabled for the run, this and the four options below are ignored,
+with a warning naming each.
+
+**--nextpi-release** *NAME*  
+The NextPi release for this run: a release name on the mirror, or
+`latest` for the newest one listed there (default `1_93D`). Over the
+saved value; an empty value means the default.
+
+**--nextpi-qemu** *PROGRAM*  
+The QEMU program for this run (default `qemu-system-arm` on `PATH`; with
+a path, `qemu-img` is expected beside it). Over the saved value; an
+empty value means the default.
+
+**--nextpi-audio** *SPEC*  
+Where the Pi’s sound goes for this run: empty for the Next’s mixer (the
+default), `host`, a QEMU `-audiodev` driver such as `pa` or `none`, or
+`wav:`*FILE*. Over the saved value.
+
+**--nextpi-qemu-args** *“ARGS”*  
+Extra QEMU arguments for this run, added after jnext’s own. The text is
+split into arguments on spaces; `'...'` and `"..."` keep spaces in one
+argument; a backslash is an ordinary character; nothing is expanded and
+no shell is involved. Over the saved `qemu_args`. An unterminated quote
+stops NextPi from starting, with a message (an error when **--nextpi**
+asked for it). For example, a second serial port for the Pi, on `ttyS0`:
+`--nextpi-qemu-args "-serial telnet:127.0.0.1:2357,server,nowait"`.
 
 **--tape-realtime**  
 Real-time tape loading, at the speed of an actual tape, instead of fast
@@ -2583,28 +2618,41 @@ on this computer’s default output, `coreaudio` on macOS, `dsound` on
 Windows and `pa` elsewhere; otherwise a QEMU `-audiodev` driver such as
 `coreaudio`, `pa` or `none` to play it straight to the host, or
 `wav:`*FILE* to record it on its own). Changing the release makes the
-next start offer to download it, replacing the installed one. The
-joystick ports are stored under `[input]`: `joy1_source` and
-`joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
-(the controller’s id: 32 hex digits, optionally `#N`; empty means
-Automatic) and `joy1_device_name` and `joy2_device_name` (the name shown
-while that controller is not connected). **--joy1-device** and
-**--joy2-device** override the ids for one run. An id that is not valid
-is ignored, with its name. Also under `[input]`, `mouse_release`
-(`ctrl-alt`, `middle-click` or `esc`; **--mouse-release** overrides it
-for one run). The quick screenshot is stored under `[screenshot]` as
-`quick_dir` (empty means `~/.jnext/screenshots`) and `quick_format`
-(`png` or `scr`), edited under **Settings \> Preferences \> Paths**; an
-unrecognised format keeps the default. The Quick Save retention is
-stored under `[snapshot]` as `quick_keep` (a number from 1, or
-`unlimited`; default 20), edited under **Settings \> Preferences \>
-Paths**; **--quick-snapshot-keep** overrides it for one run, and an
-unrecognised value keeps the default. The debugger window’s layout is
-stored under `[debugger]`: `size` (`W, H`), `position` (`X, Y`, written
-only while the window is detached) and `attached` (`true`/`false`). An
-older `~/.jnext/Debugger.conf` is merged into this section once and
-removed. All section names are lowercase. CLI options always take
-precedence over saved values, and headless runs never read it.
+next start offer to download it, replacing the installed one.
+`qemu_args` holds extra QEMU arguments (empty means none;
+**--nextpi-qemu-args** sets it for one run), added after jnext’s own
+when NextPi starts. It is split into arguments on spaces; `'...'` and
+`"..."` keep spaces in one argument; a backslash is an ordinary
+character; nothing is expanded and no shell is involved. An unterminated
+quote stops NextPi from starting, with a message. Set it in Preferences
+or with **--nextpi-qemu-args** rather than by hand: jnext writes the
+file value correctly itself. If you edit the file, remember that its INI
+reader (Qt’s) has its own rules, applied before the text above: write
+the whole value in double quotes, write each `\` as `\\` and each `"` as
+`\"`; otherwise a backslash is an escape (`C:\pi\x.img` reads as
+`C:i.img`), a bare `"` is swallowed, a `;` ends an unquoted value, and
+the spaces beside a comma are lost. The joystick ports are stored under
+`[input]`: `joy1_source` and `joy2_source` (`sdl`, `keys` or `none`),
+`joy1_device` and `joy2_device` (the controller’s id: 32 hex digits,
+optionally `#N`; empty means Automatic) and `joy1_device_name` and
+`joy2_device_name` (the name shown while that controller is not
+connected). **--joy1-device** and **--joy2-device** override the ids for
+one run. An id that is not valid is ignored, with its name. Also under
+`[input]`, `mouse_release` (`ctrl-alt`, `middle-click` or `esc`;
+**--mouse-release** overrides it for one run). The quick screenshot is
+stored under `[screenshot]` as `quick_dir` (empty means
+`~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
+under **Settings \> Preferences \> Paths**; an unrecognised format keeps
+the default. The Quick Save retention is stored under `[snapshot]` as
+`quick_keep` (a number from 1, or `unlimited`; default 20), edited under
+**Settings \> Preferences \> Paths**; **--quick-snapshot-keep**
+overrides it for one run, and an unrecognised value keeps the default.
+The debugger window’s layout is stored under `[debugger]`: `size`
+(`W, H`), `position` (`X, Y`, written only while the window is detached)
+and `attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is
+merged into this section once and removed. All section names are
+lowercase. CLI options always take precedence over saved values, and
+headless runs never read it.
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless

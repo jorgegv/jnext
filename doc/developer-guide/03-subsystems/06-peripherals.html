@@ -2678,7 +2678,11 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
   FIFOs while QEMU — holding both ends read-write — keeps running, so the Pi
   neither reboots nor sees an EOF. A reaper thread logs a QEMU that exits on its
   own; the destructor stops it with SIGTERM (SIGKILL after three seconds; on
-  Windows <code>quit</code>, then the job is terminated).</li>
+  Windows <code>quit</code>, then the job is terminated). <code>Spec::extra_args</code> (the
+  <code>[nextpi] qemu_args</code> preference, split by <code>PiQemu::split_extra_args</code>: spaces,
+  <code>'...'</code> and <code>"..."</code> literal, backslash ordinary, no expansion) goes after
+  jnext's own arguments as argv entries: through the watchdog's <code>"$@"</code> on POSIX
+  and a per-argument <code>quote_arg</code> on Windows, never a shell.</li>
 <li>
 <p><strong><code>core/nextpi_provisioner.{h,cpp}</code></strong> makes the NextPi directory exist, on
   the SD provisioner's seams (<code>DownloadFn</code>, <code>ConfirmFn</code>, <code>ProgressFn</code>,
@@ -2721,7 +2725,12 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
 </li>
 </ul>
 <p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved
-preference (GUI sessions only, as for the ESP), checks the QEMU programs
+preference (GUI sessions only, as for the ESP), puts the <code>--nextpi-dir</code>,
+<code>--nextpi-release</code>, <code>--nextpi-qemu</code>, <code>--nextpi-audio</code> and <code>--nextpi-qemu-args</code>
+flags over the saved text settings (<code>nextpi::merge_settings</code>, any session),
+splits the extra QEMU
+arguments (before anything else, so a malformed value is reported with no download
+offered), checks the QEMU programs
 (<code>PiQemu::find_programs</code>, so nobody is offered 6 GB for a Pi that cannot run),
 provisions, starts QEMU, and
 puts the link (<code>PiQemu::link_config</code>) in the <code>EmulatorConfig</code>. A Pi asked for on the command line

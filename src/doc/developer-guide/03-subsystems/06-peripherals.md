@@ -296,7 +296,11 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   FIFOs while QEMU — holding both ends read-write — keeps running, so the Pi
   neither reboots nor sees an EOF. A reaper thread logs a QEMU that exits on its
   own; the destructor stops it with SIGTERM (SIGKILL after three seconds; on
-  Windows `quit`, then the job is terminated).
+  Windows `quit`, then the job is terminated). `Spec::extra_args` (the
+  `[nextpi] qemu_args` preference, split by `PiQemu::split_extra_args`: spaces,
+  `'...'` and `"..."` literal, backslash ordinary, no expansion) goes after
+  jnext's own arguments as argv entries: through the watchdog's `"$@"` on POSIX
+  and a per-argument `quote_arg` on Windows, never a shell.
 * **`core/nextpi_provisioner.{h,cpp}`** makes the NextPi directory exist, on
   the SD provisioner's seams (`DownloadFn`, `ConfirmFn`, `ProgressFn`,
   `BusyFn`, so the same GUI dialogs and terminal prompts serve both): it asks,
@@ -336,7 +340,12 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   replay never generates audio at all.
 
 `main()` wires them: it merges `--nextpi`/`--no-nextpi` over the saved
-preference (GUI sessions only, as for the ESP), checks the QEMU programs
+preference (GUI sessions only, as for the ESP), puts the `--nextpi-dir`,
+`--nextpi-release`, `--nextpi-qemu`, `--nextpi-audio` and `--nextpi-qemu-args`
+flags over the saved text settings (`nextpi::merge_settings`, any session),
+splits the extra QEMU
+arguments (before anything else, so a malformed value is reported with no download
+offered), checks the QEMU programs
 (`PiQemu::find_programs`, so nobody is offered 6 GB for a Pi that cannot run),
 provisions, starts QEMU, and
 puts the link (`PiQemu::link_config`) in the `EmulatorConfig`. A Pi asked for on the command line
