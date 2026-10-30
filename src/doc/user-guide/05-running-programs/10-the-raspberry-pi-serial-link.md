@@ -148,7 +148,7 @@ set up a login (a `getty`) on it inside NextPi.
 JNEXT does not check the arguments. One that conflicts with JNEXT's own (a
 second `-M` or `-kernel`, a `-chardev` with the id `pi`) can stop NextPi, and
 QEMU's reason is in `qemu.log`. Like every NextPi setting, the box is read only
-by sessions with a window, not by `--headless`.
+by sessions with a window, not by `--headless` (use `--nextpi-qemu-args` there).
 
 ## When nothing arrives
 

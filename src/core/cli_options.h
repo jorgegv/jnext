@@ -374,8 +374,8 @@ inline constexpr Option OPTIONS[] = {
       "a pair of pipes. Both are POSIX-only" },
     // NextPi on UART 1: one enabler with defaults, and one optional flag for each
     // other setting of the Preferences > NextPi tab (directory, release, QEMU,
-    // audio, extra QEMU arguments), which also live in the [nextpi] config section. jnext does not emulate the Pi; it runs NextPi
-    // under QEMU, downloading it on first use like the SD card image.
+    // audio, extra QEMU arguments), which also live in the [nextpi] config
+    // section. jnext does not emulate the Pi; it runs NextPi under QEMU, downloading it on first use like the SD card image.
     { "--nextpi", 0, Doc::Documented, OptId::Nextpi,
       "",
       "Start NextPi under QEMU (qemu-system-arm,\n"

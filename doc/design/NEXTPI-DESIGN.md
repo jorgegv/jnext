@@ -94,8 +94,8 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
   `--nextpi-audio` and `--nextpi-qemu-args` each set one setting for that run.
   (An earlier line here read "no CLI for the settings, only the enabler"; it
   misread the owner's review of PR #310.)
-- **Extra QEMU arguments: a Preferences box and `[nextpi] qemu_args`, no CLI flag**
-  (GH #407, also `--nextpi-qemu-args`). Split by `PiQemu::split_extra_args`: whitespace, `'...'` and
+- **Extra QEMU arguments: a Preferences box, `[nextpi] qemu_args` and `--nextpi-qemu-args`**
+  (GH #407). Split by `PiQemu::split_extra_args`: whitespace, `'...'` and
   `"..."` literal, adjacent pieces joined, backslash ordinary (a pasted Windows
   path is not changed), no expansion, no shell. Rejected: POSIX backslash escapes
   (they would turn `C:\Users\x` into `C:Usersx`), `QProcess::splitCommand`
@@ -511,7 +511,7 @@ NextPi image is needed.
 | PI-62 | a restore taken while the comparator was 1 leaves it 0, and the relaxed MIC level reads at once |
 | PI-63 | under `--silent` a rewind replay does not consume the Pi's sound; a live run does |
 | PI-64 | a tape save made with the Pi on the EAR input records the comparator's edges (the MIC jack carries it) |
-| PIT-57..62 | `nextpi_test` (every OS): the extra-arguments splitter, their place in `build_args`, and the real spawn (GH #407) |
+| PIT-57..64 | `nextpi_test` (every OS): the extra-arguments splitter, their place in `build_args`, and the real spawn, the `--nextpi-*` flags over the saved settings and the warning for one given with NextPi off (GH #407) |
 | PIT-01..25 | `nextpi_test` (every OS): `md5_file`, the socket command line, the host audio back-end per OS, what an empty audio setting means (the mixer, PIT-16/17/18), the Pi audio pipe (writers coming and going, a full ring, a prompt `close()`, no spinning, an uncreatable pipe: PIT-19..23), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale, the stop grace and the startup window are elapsed time, not a count of sleeps (PIT-24/25, GH #355) |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
@@ -565,13 +565,18 @@ handing every field back unchanged).
 Extra QEMU arguments (GH #407): PIT-57..60 (the splitter: blanks, quotes, no
 escapes and no expansion, the unterminated-quote error and its position),
 PIT-61 (`build_args` puts them after jnext's own on both transports), PIT-63
-(`merge_settings`: a `--nextpi-*` flag replaces its own saved setting only), PIT-62
+(`merge_settings`: a `--nextpi-*` flag replaces its own saved setting only), PIT-64
+(`given_flags`, the names warned about when NextPi is off), PIT-62
 (the real spawn delivers the hard ones byte for byte, no shell; on Windows
 through `quote_arg`), AC-91..93 (default, round-trip, and an unquoted comma in
 any free-text key is read whole) and PA-28a/b (the box follows the tick and is
 collected trimmed, unsplit). `nextpi-audio-func` fact 2 shows `main.cpp`
 copying the preference into the start; `nextpi-func` fact 14 shows a malformed
-value refusing the start before the QEMU lookup.
+value refusing the start before the QEMU lookup, fact 15 the same from
+`--nextpi-qemu-args`, and fact 16 the warning for a setting flag given with NextPi
+off; `nextpi-link-func` fact 5 shows the five flags reaching QEMU in a headless
+session, `--nextpi-release` included (the offer to replace the installed release
+must not appear).
 
 Discrimination (all measured): removing `setup_pi_uart()` from `init()` fails
 PI-01..05; removing the NR 0xA0 probe fails PI-02; in `PiQemu`, swapping the FIFO

@@ -103,6 +103,11 @@ if want nextpi-link-func; then
             --nextpi-audio none --nextpi-qemu-args "-name 'cli pi' -serial telnet:127.0.0.1:2357,server,nowait" \
             --delayed-automatic-exit-frames 50 </dev/null 2>&1) || rc=$?
         [[ $rc -eq 0 ]] || fails+=("--nextpi with the --nextpi-* flags exited $rc, want 0")
+        # The release flag must reach the provisioner: without it jnext would offer to replace the
+        # installed 1_100 with the default release (declined here on closed stdin, then it starts anyway).
+        if grep -qF 'is set to use NextPi' <<<"$out"; then
+            fails+=("--nextpi-release did not reach the provisioner (it offered to replace the installed 1_100)")
+        fi
         if [[ ! -f "$bindir/args" ]]; then
             fails+=("--nextpi-qemu qemu-alt did not start the stand-in under that name")
         else

@@ -3239,9 +3239,15 @@ It is split into arguments on spaces; \f[CR]\(aq...\(aq\f[R] and
 \f[CR]\(dq...\(dq\f[R] keep spaces in one argument; a backslash is an
 ordinary character; nothing is expanded and no shell is involved.
 An unterminated quote stops NextPi from starting, with a message.
-Write the value in double quotes in the file, as jnext saves it: an
-unquoted value holding commas is read whole, but the spaces beside its
-commas are lost.
+Set it in Preferences or with \f[B]\-\-nextpi\-qemu\-args\f[R] rather
+than by hand: jnext writes the file value correctly itself.
+If you edit the file, remember that its INI reader (Qt\(cqs) has its own
+rules, applied before the text above: write the whole value in double
+quotes, write each \f[CR]\(rs\f[R] as \f[CR]\(rs\(rs\f[R] and each
+\f[CR]\(dq\f[R] as \f[CR]\(rs\(dq\f[R]; otherwise a backslash is an
+escape (\f[CR]C:\(rspi\(rsx.img\f[R] reads as \f[CR]C:i.img\f[R]), a
+bare \f[CR]\(dq\f[R] is swallowed, a \f[CR];\f[R] ends an unquoted
+value, and the spaces beside a comma are lost.
 The joystick ports are stored under \f[CR][input]\f[R]:
 \f[CR]joy1_source\f[R] and \f[CR]joy2_source\f[R] (\f[CR]sdl\f[R],
 \f[CR]keys\f[R] or \f[CR]none\f[R]), \f[CR]joy1_device\f[R] and

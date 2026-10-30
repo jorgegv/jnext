@@ -3867,7 +3867,7 @@ set up a login (a <code>getty</code>) on it inside NextPi.</p>
 <p>JNEXT does not check the arguments. One that conflicts with JNEXT's own (a
 second <code>-M</code> or <code>-kernel</code>, a <code>-chardev</code> with the id <code>pi</code>) can stop NextPi, and
 QEMU's reason is in <code>qemu.log</code>. Like every NextPi setting, the box is read only
-by sessions with a window, not by <code>--headless</code>.</p>
+by sessions with a window, not by <code>--headless</code> (use <code>--nextpi-qemu-args</code> there).</p>
 <h2 id="when-nothing-arrives">When nothing arrives<a class="headerlink" href="#when-nothing-arrives" title="Permanent link">&para;</a></h2>
 <p>On a real Next the Pi's UART pins only reach the Next once a program sets
 NextREG <code>0xA0</code> to <code>0x30</code>, and JNEXT follows that: until then the Pi's bytes are

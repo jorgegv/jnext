@@ -2441,9 +2441,14 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     jnext's own when NextPi starts. It is split into arguments on spaces;
     `'...'` and `"..."` keep spaces in one argument; a backslash is an ordinary
     character; nothing is expanded and no shell is involved. An unterminated
-    quote stops NextPi from starting, with a message. Write the value in double
-    quotes in the file, as jnext saves it: an unquoted value holding commas is
-    read whole, but the spaces beside its commas are lost.
+    quote stops NextPi from starting, with a message. Set it in Preferences
+    or with **\--nextpi-qemu-args** rather than by hand: jnext writes the file
+    value correctly itself. If you edit the file, remember that its INI reader
+    (Qt's) has its own rules, applied before the text above: write the whole
+    value in double quotes, write each `\` as `\\` and each `"` as `\"`;
+    otherwise a backslash is an escape (`C:\pi\x.img` reads as `C:i.img`),
+    a bare `"` is swallowed, a `;` ends an unquoted value, and the spaces
+    beside a comma are lost.
     The joystick ports are stored under `[input]`: `joy1_source` and
     `joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
     (the controller's id: 32 hex digits, optionally `#N`; empty means

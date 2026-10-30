@@ -440,17 +440,19 @@ static void test_nextpi_qemu_args(QTemporaryDir& dir) {
           AppConfigData{}.nextpi_qemu_args.isEmpty() && absent.data().nextpi_qemu_args.isEmpty());
 
     const QString p = fresh_ini_path(dir, "qemuargs-rt");
-    const QString text = QStringLiteral("-serial telnet::2357,server,nowait -name \"my pi\" 'x'");
+    const QString text = QStringLiteral("-serial telnet::2357,server,nowait -name \"my pi\" 'x' -drive file=C:\\pi\\x.img;y");
     { AppConfig w(p); w.data().nextpi_qemu_args = text; w.save(); }
     AppConfig r(p);
     r.load();
     const QString in_file = QSettings(p, QSettings::IniFormat).value("nextpi/qemu_args").toString();
-    check("AC-92", "nextpi_qemu_args round-trips byte for byte (commas, spaces and both quotes) under [nextpi]",
+    check("AC-92", "nextpi_qemu_args round-trips byte for byte (commas, spaces, both quotes, a backslash path and a semicolon) under [nextpi]",
           r.data().nextpi_qemu_args == text && in_file == text,
           r.data().nextpi_qemu_args.toStdString() + " | " + in_file.toStdString());
 
     // A hand-written file, with no QSettings involved: unquoted values holding a comma. QSettings reads each
     // as a list and toString() of it is "", so every free-text key used to come back empty.
+    // Only the comma is repaired here; a backslash, a bare quote or a semicolon in a hand-edited value follow Qt's own
+    // INI rules, which the man page (FILES, [nextpi]) spells out. What jnext itself writes round-trips exactly (AC-92).
     const QString h = fresh_ini_path(dir, "qemuargs-hand");
     {
         QFile f(h);

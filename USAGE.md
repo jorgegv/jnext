@@ -2624,30 +2624,35 @@ next start offer to download it, replacing the installed one.
 when NextPi starts. It is split into arguments on spaces; `'...'` and
 `"..."` keep spaces in one argument; a backslash is an ordinary
 character; nothing is expanded and no shell is involved. An unterminated
-quote stops NextPi from starting, with a message. Write the value in
-double quotes in the file, as jnext saves it: an unquoted value holding
-commas is read whole, but the spaces beside its commas are lost. The
-joystick ports are stored under `[input]`: `joy1_source` and
-`joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
-(the controller’s id: 32 hex digits, optionally `#N`; empty means
-Automatic) and `joy1_device_name` and `joy2_device_name` (the name shown
-while that controller is not connected). **--joy1-device** and
-**--joy2-device** override the ids for one run. An id that is not valid
-is ignored, with its name. Also under `[input]`, `mouse_release`
-(`ctrl-alt`, `middle-click` or `esc`; **--mouse-release** overrides it
-for one run). The quick screenshot is stored under `[screenshot]` as
-`quick_dir` (empty means `~/.jnext/screenshots`) and `quick_format`
-(`png` or `scr`), edited under **Settings \> Preferences \> Paths**; an
-unrecognised format keeps the default. The Quick Save retention is
-stored under `[snapshot]` as `quick_keep` (a number from 1, or
-`unlimited`; default 20), edited under **Settings \> Preferences \>
-Paths**; **--quick-snapshot-keep** overrides it for one run, and an
-unrecognised value keeps the default. The debugger window’s layout is
-stored under `[debugger]`: `size` (`W, H`), `position` (`X, Y`, written
-only while the window is detached) and `attached` (`true`/`false`). An
-older `~/.jnext/Debugger.conf` is merged into this section once and
-removed. All section names are lowercase. CLI options always take
-precedence over saved values, and headless runs never read it.
+quote stops NextPi from starting, with a message. Set it in Preferences
+or with **--nextpi-qemu-args** rather than by hand: jnext writes the
+file value correctly itself. If you edit the file, remember that its INI
+reader (Qt’s) has its own rules, applied before the text above: write
+the whole value in double quotes, write each `\` as `\\` and each `"` as
+`\"`; otherwise a backslash is an escape (`C:\pi\x.img` reads as
+`C:i.img`), a bare `"` is swallowed, a `;` ends an unquoted value, and
+the spaces beside a comma are lost. The joystick ports are stored under
+`[input]`: `joy1_source` and `joy2_source` (`sdl`, `keys` or `none`),
+`joy1_device` and `joy2_device` (the controller’s id: 32 hex digits,
+optionally `#N`; empty means Automatic) and `joy1_device_name` and
+`joy2_device_name` (the name shown while that controller is not
+connected). **--joy1-device** and **--joy2-device** override the ids for
+one run. An id that is not valid is ignored, with its name. Also under
+`[input]`, `mouse_release` (`ctrl-alt`, `middle-click` or `esc`;
+**--mouse-release** overrides it for one run). The quick screenshot is
+stored under `[screenshot]` as `quick_dir` (empty means
+`~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
+under **Settings \> Preferences \> Paths**; an unrecognised format keeps
+the default. The Quick Save retention is stored under `[snapshot]` as
+`quick_keep` (a number from 1, or `unlimited`; default 20), edited under
+**Settings \> Preferences \> Paths**; **--quick-snapshot-keep**
+overrides it for one run, and an unrecognised value keeps the default.
+The debugger window’s layout is stored under `[debugger]`: `size`
+(`W, H`), `position` (`X, Y`, written only while the window is detached)
+and `attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is
+merged into this section once and removed. All section names are
+lowercase. CLI options always take precedence over saved values, and
+headless runs never read it.
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless
