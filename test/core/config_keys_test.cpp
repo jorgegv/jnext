@@ -223,6 +223,10 @@ int main() {
             }
             if (canon(f + "nonsense") != "<refused>") bad += f + "nonsense ";
         }
+        // word_index() is case-insensitive on its own too: AppConfig::load() calls it directly.
+        if (config_keys::word_index("audio|video", "VIDEO") != 1 || config_keys::word_index("audio|video", "Audio") != 0 ||
+            config_keys::word_index("audio|video", "vide") != -1 || config_keys::word_index("audio|video", "") != -1)
+            bad += "word_index ";
         check("SETK-10", "for every Word and Machine key each listed word is accepted in upper case and canonicalises to itself; nonsense is refused",
               bad.empty() && n == 6, bad + " keys=" + std::to_string(n));
     }
