@@ -34,7 +34,22 @@
 // application should never call WinHttpCloseHandle on a synchronous request"),
 // so the only way out of a blocked read is its own timeout. In async mode this
 // thread waits on an event for the next completion, one tick at a time, and a
-// cancel or a stall is simply "close the request handle and return".
+// cancel or a stall is simply "close the request handle and return". That holds
+// only while no WinHTTP call made on this thread waits on the network.
+// WinHttpReceiveResponse may: wine >= 11.7 reads the headers inside the call, in
+// its caller (GH #415: no tick, no stall note, no cancel for the whole header
+// wait). Microsoft says the same of WinHttpSendRequest and WinHttpQueryDataAvailable
+// ("can operate either synchronously or asynchronously"), and this thread still
+// calls those and WinHttpReadData; what makes them safe is wine's source and
+// measurement, not the documentation: SendRequest is always queued (wine 11.0 and
+// 11.20), and QueryDataAvailable and ReadData complete in the caller only with data
+// already buffered. So the receive is started from the SENDREQUEST_COMPLETE
+// completion callback, Microsoft's reentrant pattern, and this thread no longer
+// waits for the server's answer inside a WinHTTP call. Established: wine 11.0 and
+// 11.20 (source and tests); Windows only by inference from the documentation.
+// Remaining gap: a SendRequest that completed synchronously and delivered
+// SENDREQUEST_COMPLETE on the calling thread would run the receive on this thread
+// again. Impossible under wine; unknown on Windows.
 //
 // Behaviour replicated from the curl path (only what it actually USED):
 //   - follow redirects (WinHTTP follows them inside
@@ -65,6 +80,7 @@
 #include <cstdlib>
 #include <cwchar>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -145,6 +161,14 @@ struct AsyncState {
     std::atomic<DWORD> error{0};   // REQUEST_ERROR: dwError
     std::vector<char> buf;         // the read buffer: DownloadTimings::read_bytes (64 KiB in production)
     std::wstring headers;          // SendRequest's extra headers, valid until SENDREQUEST_COMPLETE
+    // The close handoff (GH #415). The callback thread can sit inside
+    // WinHttpReceiveResponse for the whole header wait (wine >= 11.7), and
+    // Microsoft forbids closing a handle while another thread is inside a call
+    // on it (Concurrency in WinHTTP). All three are guarded by `m`.
+    std::mutex m;
+    bool in_receive = false;   // the callback is inside WinHttpReceiveResponse
+    bool abandoned = false;    // the waiting thread gave up meanwhile: the callback closes the handle
+    bool closed = false;       // the waiting thread closed the handle itself
     explicit AsyncState(size_t read_bytes) : buf(read_bytes) {}
     AsyncState(const AsyncState&) = delete;
     AsyncState& operator=(const AsyncState&) = delete;
@@ -152,13 +176,41 @@ struct AsyncState {
 };
 
 // Runs on a WinHTTP thread (or, for a fast completion, inside the call that
-// started the operation). It only stores atomics and signals: no logging, no
+// started the operation). It stores atomics and signals, and on
+// SENDREQUEST_COMPLETE starts the receive (see the file header): no logging, no
 // globals, no PartialDownload. CALLBACK = __stdcall, which the i686 builds need.
-void CALLBACK status_cb(HINTERNET, DWORD_PTR ctx, DWORD status, LPVOID info, DWORD len) {
+void CALLBACK status_cb(HINTERNET h, DWORD_PTR ctx, DWORD status, LPVOID info, DWORD len) {
     AsyncState* st = reinterpret_cast<AsyncState*>(ctx);
     if (!st) return;
     switch (status) {
-    case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
+    case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE: {
+        {
+            std::lock_guard<std::mutex> lk(st->m);
+            if (st->closed) return;   // the waiting thread already closed the handle
+            st->in_receive = true;
+        }
+        // May wait for the headers right here (wine >= 11.7), and HEADERS_AVAILABLE
+        // or REQUEST_ERROR may be delivered nested inside this very call: they set
+        // `last` themselves, so this branch must not overwrite it afterwards.
+        const BOOL ok = WinHttpReceiveResponse(h, nullptr);
+        const DWORD why = ok ? 0 : GetLastError();
+        bool close_it;
+        {
+            std::lock_guard<std::mutex> lk(st->m);
+            st->in_receive = false;
+            close_it = st->abandoned;
+        }
+        if (close_it) {
+            WinHttpCloseHandle(h);   // HANDLE_CLOSING frees `st`: nothing touches it after this
+            return;
+        }
+        if (!ok) {
+            st->error = why;
+            st->last = WINHTTP_CALLBACK_STATUS_REQUEST_ERROR;
+        }
+        SetEvent(st->ev);   // wake the waiter: it may be holding a HEADERS_AVAILABLE until in_receive is clear
+        return;
+    }
     case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
         break;
     case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
@@ -192,6 +244,16 @@ struct AsyncRequest {
     AsyncRequest(const AsyncRequest&) = delete;
     AsyncRequest& operator=(const AsyncRequest&) = delete;
     ~AsyncRequest() {
+        if (h && callback_owns_state) {
+            {
+                std::lock_guard<std::mutex> lk(st->m);
+                if (st->in_receive) {   // the callback is inside a call on the handle: it closes it
+                    st->abandoned = true;
+                    return;             // `st` and `h` are the callback's now
+                }
+                st->closed = true;
+            }
+        }
         if (h) WinHttpCloseHandle(h);
         if (!callback_owns_state) delete st;
     }
@@ -307,7 +369,12 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
             if (w == WAIT_OBJECT_0) {
                 const DWORD last = st.last.load();
                 if (last == WINHTTP_CALLBACK_STATUS_REQUEST_ERROR) return Wait::Error;
-                if (last == want) return Wait::Done;
+                if (last == want) {
+                    // A call on the handle that is still running (the callback's
+                    // receive) must have returned before the next operation begins.
+                    std::lock_guard<std::mutex> lk(st.m);
+                    if (!st.in_receive) return Wait::Done;
+                }
                 continue;   // some other notification: keep waiting for ours
             }
             if (w != WAIT_TIMEOUT) { st.error = GetLastError(); return Wait::Error; }
@@ -333,9 +400,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
                             st.headers.empty() ? 0 : static_cast<DWORD>(-1L),
                             WINHTTP_NO_REQUEST_DATA, 0, 0, ctx))
         return transport_fail(transport_reason(GetLastError()), false);
-    if (!await(WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE)) return out;
-    if (!WinHttpReceiveResponse(req.h, nullptr))
-        return transport_fail(transport_reason(GetLastError()), false);
+    // SENDREQUEST_COMPLETE starts the receive from the callback (GH #415).
     if (!await(WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE)) return out;
 
     HttpResponseInfo resp;

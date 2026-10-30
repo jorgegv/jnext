@@ -1267,14 +1267,39 @@ synchronous request's handle from another thread as a race. With the cable pulle
 the GUI thread sat inside that read for its 120 s, and Windows ghosted the window as
 "Not Responding". In async mode the thread waits on an event for the next completion,
 one tick at a time, and a cancel or a stall is "close the request handle and return".
-The per-request state (event, latest completion, read buffer, the extra headers
+That holds only while no WinHTTP call made on that thread waits on the network.
+`WinHttpReceiveResponse` may: wine 11.7 and later read the headers inside the call, in its
+caller (GH #415: no tick, no stall note and no cancel for the whole header wait, up to
+21 s, until the server closed). Microsoft's sentence that even in async mode a function
+"can operate either synchronously or asynchronously" is on `WinHttpSendRequest` and
+`WinHttpQueryDataAvailable` too, and the waiting thread still calls those and
+`WinHttpReadData`. What makes them safe is wine's source and measurement, not the
+documentation: `SendRequest` is always queued (wine 11.0 and 11.20), and
+`QueryDataAvailable` and `ReadData` complete in the caller only with data already
+buffered (the reads ask for no more than was reported available). So the sequence is
+"send; the receive is started from the `SENDREQUEST_COMPLETE` callback, Microsoft's
+reentrant pattern; the waiting thread no longer waits for the server's answer inside a
+WinHTTP call". Established: wine 11.0 and 11.20, by source and by the rows; Windows only
+by inference from the documentation. The remaining gap: a `SendRequest` that completed
+synchronously and delivered `SENDREQUEST_COMPLETE` on the calling thread would run the
+receive on the waiting thread again; impossible under wine, unknown on Windows. The callback
+returns without signalling after a successful call (`HEADERS_AVAILABLE` or
+`REQUEST_ERROR` may be delivered nested inside it and set the state themselves), and the
+waiting thread treats `HEADERS_AVAILABLE` as done only once that call has returned
+(Microsoft: wait for the function to return and the completion callback before another
+operation on the handle). Closing the handle while the callback thread is inside the call
+is what the concurrency rules forbid, so a handoff under a mutex decides who closes: a
+waiting thread that gives up while the receive is in flight marks the request abandoned
+and the callback closes it when the call returns, otherwise the waiting thread closes it
+itself; either way once, and the callback touches nothing after its own close. The
+per-request state (event, latest completion, read buffer, the extra headers
 `WinHttpSendRequest` still points at) is heap-allocated and belongs to the request
 handle from the moment the status callback is installed: the callback frees it on
 `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING`, the last callback a handle gets, so an
 abort returns at once while WinHTTP may still be completing a read into that buffer,
-and nothing touches the state after `WinHttpCloseHandle`. The callback only stores
-atomics and signals (no logging, no globals) and is declared `CALLBACK`, which the
-i686 builds need. Reads are sized by `WinHttpQueryDataAvailable`, so every byte that
+and nothing touches the state after `WinHttpCloseHandle`. The callback stores atomics,
+signals and starts the receive (no logging, no globals) and is declared `CALLBACK`, which
+the i686 builds need. Reads are sized by `WinHttpQueryDataAvailable`, so every byte that
 arrived reaches the `.part`, and a read never asks for more than the buffer holds
 (`DownloadTimings::read_bytes`, 64 KiB); the receive timeout is only a backstop 30 s
 behind the stall timeout.
@@ -1289,7 +1314,12 @@ loopback server models "connection open, nothing arrives", which is what a recei
 sees until TCP gives up. WinHTTP's teardown of a pending asynchronous read: wine keeps
 it until data, EOF, the server's close or the backstop (measured 58 s), so a row that
 abandons a connection builds its own server and lets its destructor close it; the
-caller's result and timing are the same, only the abandoned socket lives longer. And
+caller's result and timing are the same, only the abandoned socket lives longer (under wine
+11.7 and later this includes the header wait of an abandoned attempt: it holds wine's queue
+thread until the server closes or 21 s pass). The close handoff itself is not observable:
+wine keeps a request object alive while a call holds it, so closing mid-call is tolerated and
+removing the handoff passes every row; it rests on Microsoft's rule and on review, and
+`PROV-STALL-11` pins the user-visible half (cancel before the server has answered). And
 TLS under asynchronous WinHTTP, and the read-fill semantics and error codes of real
 Windows (wine fills the buffer, reports a read timeout as 10060 and never reports
 more than 8 KiB available: measured over the whole provisioner suite, 8192 at most):
