@@ -47,6 +47,8 @@ WatchPanel::WatchPanel(QWidget* parent)
     table_->setAlternatingRowColors(true);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->horizontalHeader()->setStretchLastSection(true);
+    table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     table_->verticalHeader()->setVisible(false);
 
     QFont mono("Monospace", 10);
@@ -68,6 +70,12 @@ void WatchPanel::refresh() {
         return b;
     };
 
+    // One formatter for all three sizes: "$<hex> (<unsigned decimal>d)".
+    auto hexdec = [](int digits, uint32_t v) {
+        return QString::asprintf("$%0*X (%ud)", digits, static_cast<unsigned>(v),
+                                 static_cast<unsigned>(v));
+    };
+
     for (int i = 0; i < static_cast<int>(watches_.size()); ++i) {
         const auto& w = watches_[i];
         QString value_str;
@@ -75,14 +83,14 @@ void WatchPanel::refresh() {
         switch (w.type) {
             case BYTE: {
                 uint8_t val = peek(w.addr);
-                value_str = QString::asprintf("$%02X", val);
+                value_str = hexdec(2, val);
                 break;
             }
             case WORD: {
                 uint8_t lo = peek(w.addr);
                 uint8_t hi = peek(static_cast<uint16_t>(w.addr + 1));
                 uint16_t val = static_cast<uint16_t>(lo | (hi << 8));
-                value_str = QString::asprintf("$%04X", val);
+                value_str = hexdec(4, val);
                 break;
             }
             case LONG: {
@@ -91,7 +99,7 @@ void WatchPanel::refresh() {
                     uint8_t byte = peek(static_cast<uint16_t>(w.addr + b));
                     val |= static_cast<uint32_t>(byte) << (b * 8);
                 }
-                value_str = QString::asprintf("$%08X", val);
+                value_str = hexdec(8, val);
                 break;
             }
         }
