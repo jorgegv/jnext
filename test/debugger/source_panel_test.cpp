@@ -1301,8 +1301,8 @@ void test_source_buttons() {
         SourcePanel* sp = fx.dbg()->source_panel();
         const QString sld = QString::fromStdString(fx.sld);
         drive_modals([&](QWidget* w, int) { choose_file(w, sld); },
-                     [&]() { button(sp, QStringLiteral("Load SLD..."))->click(); });
-        check("QSRC-19", "the Load SLD button loads the chosen source map",
+                     [&]() { button(sp, QStringLiteral("Load Source Map..."))->click(); });
+        check("QSRC-19", "the Load Source Map button loads the chosen source map",
               !fx.backend->source_map().empty() &&
                   fx.backend->source_map().loaded_file() == fx.sld);
 
@@ -1337,7 +1337,7 @@ void test_source_buttons() {
                         }
                     choose_file(w, QString::fromStdString(wrong));
                 },
-                [&]() { button(sp, QStringLiteral("Load SLD..."))->click(); });
+                [&]() { button(sp, QStringLiteral("Load Source Map..."))->click(); });
         };
         run(QMessageBox::No);
         const bool declined = offered && fx.backend->source_map().empty();
