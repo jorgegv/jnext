@@ -210,8 +210,7 @@ with status 1.
     A boolean is `true` or `false`. It also reaches what a flag cannot:
     `--set startup.silent=false` plays sound for one run although the
     file says muted, `--set startup.tape_fast_load=true` forces fast
-    loading over a saved real-time setting, `--set input.joy1_device=`
-    (empty) chooses Automatic over a saved controller, and
+    loading over a saved real-time setting, and
     `--set esp.allowed_hosts=` (empty) allows any host over a saved
     list.
 
@@ -283,14 +282,16 @@ with status 1.
     it connects it (`Joystick 1 connected: 'name' [id]`): 32 hex digits,
     optionally followed by `#N` to tell identical pads apart. Used while
     the connector’s source is `sdl`; if that controller is not
-    connected, jnext logs it and uses the first free one. Wins over the
+    connected, jnext logs it and uses the first free one. An empty ID
+    chooses Automatic (the first free controller) over a saved
+    controller, the same as `--set input.joy1_device=`. Wins over the
     saved choice for this run.
 
 **--joy2-device** *ID*
 :   Physical controller for Joy 2 (port 0x37); same form as
-    **--joy1-device**. The two connectors cannot name the same
-    controller. Interactive (SDL/Qt) frontends only; inert under
-    **--headless**.
+    **--joy1-device**, an empty ID included. The two connectors cannot
+    name the same controller. Interactive (SDL/Qt) frontends only; inert
+    under **--headless**.
 
 **--mouse-release** *METHOD*
 :   How a captured mouse is released: `ctrl-alt` (default; Alt+Cmd in
@@ -1207,7 +1208,8 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 `input.joy1_device`, `input.joy2_device` *ID*
 :   The controller assigned to Joy 1 and Joy 2 (32 hex digits,
     optionally `#N`); empty is Automatic, which **--joy1-device** and
-    **--joy2-device** cannot say. The Qt window and the SDL-only build.
+    **--joy2-device** also take as an empty ID. The Qt window and the
+    SDL-only build.
 
 `input.mouse_release` *ctrl-alt\|middle-click\|esc*
 :   How a captured mouse is released; **--mouse-release**. The Qt window

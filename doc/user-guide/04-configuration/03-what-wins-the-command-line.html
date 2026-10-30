@@ -3692,8 +3692,9 @@ beside each key that has one, are listed by <code>jnext --help</code> and in
   own speed while it boots, as the real firmware does.</li>
 <li><strong>A few things only <code>--set</code> can say</strong>: <code>startup.silent=false</code> plays sound for
   one run although the file says muted; <code>startup.tape_fast_load=true</code> forces
-  fast loading; <code>input.joy1_device=</code> (empty) picks Automatic over a saved
-  controller; <code>esp.allowed_hosts=</code> (empty) allows any host over a saved list.</li>
+  fast loading; <code>esp.allowed_hosts=</code> (empty) allows any host over a saved list.
+  An empty controller (<code>--joy1-device ""</code> or <code>--set input.joy1_device=</code>) picks
+  Automatic over a saved controller.</li>
 </ul>
 <p>Headless runs ignore the configuration file completely, so an automated test
 produces the same result on any machine.</p>

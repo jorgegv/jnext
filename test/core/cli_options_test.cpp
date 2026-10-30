@@ -1744,10 +1744,18 @@ int main() {
                 for (const char* v : { "10", "100", "1000" })
                     if (run(std::string("--set startup.emulator_speed_percent=") + v + " --version") != 0)
                         bad.push_back(std::string("--set startup.emulator_speed_percent=") + v + " refused");
+                auto base_esp_off = [&]() { return std::string("--headless --machine 48k") + sd_arg; };
+                // --set REPLACES an earlier --esp-allow list (an empty one restricts nothing, so the
+                // requires-ESP refusal is the observable): in this order the list is gone, in the
+                // other it is not.
+                if (run(base_esp_off() + " --esp-allow a.example --set esp.allowed_hosts= --delayed-automatic-exit-frames 1") != 0)
+                    bad.push_back("--set esp.allowed_hosts= did not replace an earlier --esp-allow");
+                if (run(base_esp_off() + " --set esp.allowed_hosts= --esp-allow a.example --delayed-automatic-exit-frames 1") == 0)
+                    bad.push_back("--esp-allow after --set esp.allowed_hosts= was dropped");
                 // An allowlist with the ESP off is refused naming the spelling used; an EMPTY list
                 // restricts nothing, claims nothing, and is accepted.
                 {
-                    const std::string base = std::string("--headless --machine 48k") + sd_arg;
+                    const std::string base = base_esp_off();
                     run_split(base + " --set esp.allowed_hosts=a.example --delayed-automatic-exit-frames 1");
                     const std::string e1 = slurp(err_path);
                     run_split(base + " --esp-allow a.example --delayed-automatic-exit-frames 1");

@@ -3902,8 +3902,7 @@ values, not the command line’s.</p>
 <p>A boolean is <code>true</code> or <code>false</code>. It also reaches what a flag cannot:
 <code>--set startup.silent=false</code> plays sound for one run although the
 file says muted, <code>--set startup.tape_fast_load=true</code> forces fast
-loading over a saved real-time setting, <code>--set input.joy1_device=</code>
-(empty) chooses Automatic over a saved controller, and
+loading over a saved real-time setting, and
 <code>--set esp.allowed_hosts=</code> (empty) allows any host over a saved
 list.</p>
 </dd>
@@ -3966,13 +3965,15 @@ frontends only; inert under <strong>--headless</strong>.</dd>
 it connects it (<code>Joystick 1 connected: 'name' [id]</code>): 32 hex digits,
 optionally followed by <code>#N</code> to tell identical pads apart. Used while
 the connector’s source is <code>sdl</code>; if that controller is not
-connected, jnext logs it and uses the first free one. Wins over the
+connected, jnext logs it and uses the first free one. An empty ID
+chooses Automatic (the first free controller) over a saved
+controller, the same as <code>--set input.joy1_device=</code>. Wins over the
 saved choice for this run.</dd>
 <dt><strong>--joy2-device</strong> <em>ID</em></dt>
 <dd>Physical controller for Joy 2 (port 0x37); same form as
-<strong>--joy1-device</strong>. The two connectors cannot name the same
-controller. Interactive (SDL/Qt) frontends only; inert under
-<strong>--headless</strong>.</dd>
+<strong>--joy1-device</strong>, an empty ID included. The two connectors cannot
+name the same controller. Interactive (SDL/Qt) frontends only; inert
+under <strong>--headless</strong>.</dd>
 <dt><strong>--mouse-release</strong> <em>METHOD</em></dt>
 <dd>How a captured mouse is released: <code>ctrl-alt</code> (default; Alt+Cmd in
 the Qt GUI on macOS), <code>middle-click</code> or <code>esc</code>. The methods are
@@ -4772,7 +4773,8 @@ The Qt window.</dd>
 <dt><code>input.joy1_device</code>, <code>input.joy2_device</code> <em>ID</em></dt>
 <dd>The controller assigned to Joy 1 and Joy 2 (32 hex digits,
 optionally <code>#N</code>); empty is Automatic, which <strong>--joy1-device</strong> and
-<strong>--joy2-device</strong> cannot say. The Qt window and the SDL-only build.</dd>
+<strong>--joy2-device</strong> also take as an empty ID. The Qt window and the
+SDL-only build.</dd>
 <dt><code>input.mouse_release</code> <em>ctrl-alt|middle-click|esc</em></dt>
 <dd>How a captured mouse is released; <strong>--mouse-release</strong>. The Qt window
 and the SDL-only build.</dd>

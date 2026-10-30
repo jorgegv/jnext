@@ -45,8 +45,9 @@ beside each key that has one, are listed by `jnext --help` and in
   own speed while it boots, as the real firmware does.
 - **A few things only `--set` can say**: `startup.silent=false` plays sound for
   one run although the file says muted; `startup.tape_fast_load=true` forces
-  fast loading; `input.joy1_device=` (empty) picks Automatic over a saved
-  controller; `esp.allowed_hosts=` (empty) allows any host over a saved list.
+  fast loading; `esp.allowed_hosts=` (empty) allows any host over a saved list.
+  An empty controller (`--joy1-device ""` or `--set input.joy1_device=`) picks
+  Automatic over a saved controller.
 
 Headless runs ignore the configuration file completely, so an automated test
 produces the same result on any machine.

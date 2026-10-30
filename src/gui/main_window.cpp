@@ -1685,7 +1685,7 @@ void MainWindow::on_recent_file(const QString& path) {
 QString MainWindow::load_dialog_seed() const {
     return QString::fromStdString(recent_files::dialog_seed(
         recent_list(app_config_.data().recent_files),
-        session_.last_load_dir.value_or(app_config_.data().last_load_dir).toStdString()));
+        session_load_dir().toStdString()));
 }
 
 // GH #417 - a directory the user just picked: remembered for the session AND saved
@@ -1730,7 +1730,7 @@ void MainWindow::on_pok_trainers() {
 
 void MainWindow::on_pok_open() {
     const QString path = QFileDialog::getOpenFileName(
-        this, tr("Open POK File"), session_.last_load_dir.value_or(app_config_.data().last_load_dir),
+        this, tr("Open POK File"), session_load_dir(),
         tr("POK Trainers (*.pok *.POK);;All Files (*)"));
     if (path.isEmpty()) return;
     remember_load_dir(QFileInfo(path).absolutePath());
@@ -2241,7 +2241,7 @@ void MainWindow::on_tape_save_start() {
     if (!emulator_) return;
     QString filter;
     QString path = QFileDialog::getSaveFileName(
-        this, tr("Save to Tape File"), session_.last_load_dir.value_or(app_config_.data().last_load_dir),
+        this, tr("Save to Tape File"), session_load_dir(),
         tr("TZX Files (*.tzx);;WAV Files (*.wav);;TAP Files (*.tap)"), &filter,
         // Saving appends to an existing file, so there is nothing to confirm.
         QFileDialog::DontConfirmOverwrite);

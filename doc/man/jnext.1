@@ -242,10 +242,9 @@ A boolean is \f[CR]true\f[R] or \f[CR]false\f[R].
 It also reaches what a flag cannot:
 \f[CR]\-\-set startup.silent=false\f[R] plays sound for one run although
 the file says muted, \f[CR]\-\-set startup.tape_fast_load=true\f[R]
-forces fast loading over a saved real\-time setting,
-\f[CR]\-\-set input.joy1_device=\f[R] (empty) chooses Automatic over a
-saved controller, and \f[CR]\-\-set esp.allowed_hosts=\f[R] (empty)
-allows any host over a saved list.
+forces fast loading over a saved real\-time setting, and
+\f[CR]\-\-set esp.allowed_hosts=\f[R] (empty) allows any host over a
+saved list.
 .RE
 .TP
 \f[B]\-\-cpu\-speed\f[R] \f[I]MHZ\f[R]
@@ -327,11 +326,13 @@ digits, optionally followed by \f[CR]#N\f[R] to tell identical pads
 apart.
 Used while the connector\(cqs source is \f[CR]sdl\f[R]; if that
 controller is not connected, jnext logs it and uses the first free one.
+An empty ID chooses Automatic (the first free controller) over a saved
+controller, the same as \f[CR]\-\-set input.joy1_device=\f[R].
 Wins over the saved choice for this run.
 .TP
 \f[B]\-\-joy2\-device\f[R] \f[I]ID\f[R]
 Physical controller for Joy 2 (port 0x37); same form as
-\f[B]\-\-joy1\-device\f[R].
+\f[B]\-\-joy1\-device\f[R], an empty ID included.
 The two connectors cannot name the same controller.
 Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
 .TP
@@ -1391,7 +1392,7 @@ The Qt window and the SDL\-only build.
 \f[CR]input.joy1_device\f[R], \f[CR]input.joy2_device\f[R] \f[I]ID\f[R]
 The controller assigned to Joy 1 and Joy 2 (32 hex digits, optionally
 \f[CR]#N\f[R]); empty is Automatic, which \f[B]\-\-joy1\-device\f[R] and
-\f[B]\-\-joy2\-device\f[R] cannot say.
+\f[B]\-\-joy2\-device\f[R] also take as an empty ID.
 The Qt window and the SDL\-only build.
 .TP
 \f[CR]input.mouse_release\f[R] \f[I]ctrl\-alt|middle\-click|esc\f[R]

@@ -336,7 +336,8 @@ inline constexpr Option OPTIONS[] = {
       "ID",
       "Physical controller for Joy 1 (port 0x1F), by the id\n"
       "jnext logs when it connects (32 hex digits, optionally\n"
-      "#N); used while the connector's source is 'sdl'" },
+      "#N); used while the connector's source is 'sdl'. An empty\n"
+      "ID means Automatic (the first free controller)" },
     { "--joy2-device", 1, Doc::Documented, OptId::Joy2Device,
       "ID",
       "Physical controller for Joy 2 (port 0x37); same form\n"

@@ -1497,6 +1497,9 @@ if(ENABLE_QT_UI)
     add_executable(preferences_apply_test gui/preferences_apply_test.cpp)
     set_target_properties(preferences_apply_test PROPERTIES AUTOMOC ON)
     target_link_libraries(preferences_apply_test PRIVATE jnext_gui)
+    # PA-34 reads main_window.cpp (GH #417): the readers of the saved last_load_dir.
+    target_compile_definitions(preferences_apply_test PRIVATE
+        JNEXT_MAIN_WINDOW_SRC="${CMAKE_SOURCE_DIR}/src/gui/main_window.cpp")
     target_include_directories(preferences_apply_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME preferences_apply_tests COMMAND preferences_apply_test)
 
