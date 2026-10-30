@@ -89,11 +89,19 @@ The debugger\(cqs source map and symbols attach from beside the program:
 \f[I]NAME\f[R]\f[CR].sld\f[R] (or \f[I]NAME\f[R]\f[CR].sld.txt\f[R]), an
 sjasmplus source map whose labels join the symbols (a label assembled
 for a page names its address only while that page is mapped), beside any
-program but a tape (beside a tape only its labels attach), and
+program but a tape (beside a tape only its labels attach),
 \f[I]NAME\f[R]\f[CR].Memory.txt\f[R] (or \f[CR]Memory.txt\f[R]),
-NextBuild / Boriel ZX Basic symbols, beside a \f[CR].nex\f[R].
+NextBuild / Boriel ZX Basic symbols, beside a \f[CR].nex\f[R], and
+\f[I]NAME\f[R]\f[CR].map\f[R], a z88dk map built with
+\f[CR]\-debug\f[R], beside a \f[CR].nex\f[R], \f[CR].tap\f[R] or
+\f[CR].sna\f[R]: its symbols join the others (not when a
+\f[CR]Memory.txt\f[R] exists) and its source lines attach when there is
+no SLD (beside a tape only its symbols attach).
+z88dk\(cqs \f[B]\-create\-app\f[R] also writes the section binaries
+(\f[I]NAME\f[R]\f[CR]_CODE.bin\f[R], \&...)
+that the map is checked against; without them it attaches unverified.
 A map given with \f[B]\-\-map\f[R] or loaded by hand is kept over them.
-An SLD built for another binary, or a file over 64 MiB, is refused, with
+A map built for another binary, or a file over 64 MiB, is refused, with
 the reason in the log.
 .RE
 .TP
@@ -1139,6 +1147,17 @@ format), so a script can name an address as \f[CR]\(atsymbol\f[R] (an
 sjasmplus label is \f[CR]\(atmain.loop\f[R]), and the debugger shows the
 names (the same table \f[B]Map > Load MAP\f[R] fills).
 A file that cannot be loaded, or holds no symbols, is a startup error.
+.TP
+\f[B]\-\-source\-map\f[R] \f[I]FILE\f[R]
+Attach a source map, an sjasmplus SLD or a z88dk \f[CR]\-debug\f[R]
+\f[CR].map\f[R] (told apart by its contents), to the program
+\f[B]\-\-load\f[R] loads, as if loaded by hand with \f[B]Debug > Source
+> Load Source Map\&...\f[R].
+A z88dk map gives source lines only; its symbols stay with
+\f[B]\-\-map\f[R].
+Requires \f[B]\-\-load\f[R].
+A map whose binary identity does not match the program, or that cannot
+be loaded, is a startup error (exit status 1).
 .TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, \f[CR]0x\f[R] prefix

@@ -276,9 +276,9 @@ scripts) sees the same source map and symbols.
 | `prog.sld` `L` records | SLD labels | `SymbolTable` | E23-23 (#375) |
 | `Memory.txt` | NextBuild symbols | `SymbolTable` | done |
 | `prog.map` (`-m`) | z88dk map symbols | `SymbolTable` | done (#352) |
-| `prog.map` (`-m -debug`) | z88dk debug map | `SourceMap`, `SymbolTable` | E23-13 (#344) |
+| `prog.map` (`-m -debug`) | z88dk debug map | `SourceMap`, `SymbolTable` | done (E23-13 (#344)) |
 | `*.lis` and `prog.map` | z88dk listings | `SourceMap` | E23-17 (#348) |
-| `prog_<GROUP>.bin` | program identity | `SourceMap` | E23-13 (#344) |
+| `prog_<GROUP>.bin` | program identity | `SourceMap` | done (E23-13 (#344)) |
 | `--sym` / `--exp` files | EQU symbols | `SymbolTable` | #390 |
 | `.cdb` / `.adb` | CDB | `SourceMap` | E23-20 (#350), if the files exist |
 | project file | annotations reader and writer | user annotations | E23-24 (#387) |
@@ -344,7 +344,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
-| z88dk | the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352); the source adapter `load_z88dk_source_map()` exists (E23-13 stage 1) and is attached to no load path yet | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
+| z88dk | DONE (E23-13 (#344), stages 1 and 2): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs: stage 3 | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | DONE (E23-23 (#375) stages 1 and 2): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages: stage 3 | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
@@ -664,14 +664,14 @@ frames name the code's `FetchSource` (E23-08, section 4.3).
 
 | Verb | Meaning | Changes in |
 |---|---|---|
-| `load_source_map(path, accept_identity_mismatch)` | load a source map by hand; refused on a parse error, or on an identity mismatch unless accepted; the path is stored absolute | accepts `.map` (E23-13 (#344)) |
+| `load_source_map(path, accept_identity_mismatch)` | load a source map by hand; refused on a parse error, or on an identity mismatch unless accepted; the path is stored absolute | DONE (E23-13 (#344)): the format is told by content, a z88dk map fills the source half only |
 | `clear_source_map()`, `source_map()` | the store | |
 | `source_location(addr)`, `source_location()` | the primary position of `addr` or of the PC, by pointer into the store (done, E23-06 (#338)); every location there: `source_map().lookup_all()` | |
 | `source_page(addr)`, `effective_page(addr)` | the `FetchSource` that supplies the M1 at `addr` (done, E23-07); the MMU's page | `effective_page` stays, as the MMU's page for the legacy qualifier |
-| `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | `<stem>.map` (E23-13); lifetime (E23-10 (#342)) |
+| `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | DONE: `<stem>.map` (E23-13 (#344)); lifetime (E23-10 (#342)) |
 | `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (done, E23-06); recorded identity (done, E23-08) |
 | `load_map(path, MapFormat::NextBuild)` | `Memory.txt` by hand (CAP-SYM gains a format) | |
-| `--source-map FILE` (command line) | a source map at startup | new (OD-15, E23-13) |
+| `--source-map FILE` (command line) | a source map, attached right after the first `--load` | DONE (OD-15, E23-13 (#344)); requires `--load`, a mismatch exits 1 |
 
 `debugger.h` is a frozen public header: the sub-issue that needs an addition makes it, under
 the owner decisions recorded on #23 and #378.
@@ -684,7 +684,9 @@ After a successful program load every frontend calls `load_program_sidecars(path
 from their load tick, headless from `--load`, and `Debugger::load()` for a remote client). It
 looks for `<stem>.Memory.txt`, else `Memory.txt`, beside a `.nex`; for `<stem>.sld`, else
 `<stem>.sld.txt`; and, with E23-13 (#344) (OD-5), for `<stem>.map` beside a `.nex`, `.tap` or
-`.sna`.
+`.sna`. As built (E23-13): `<stem>.map` fills the symbols last (not when a `Memory.txt`
+exists) and the source lines only when no SLD sidecar exists; a map with neither is ignored; a map
+whose section binaries do not match the program is rejected whole.
 
 Only a regular file under the 64 MiB cap is a sidecar (`source_file_problem()`); a FIFO would
 block the load. Today `load_sld()` and `load_nextbuild_memory()` call it, and E23-13 applies it
@@ -1280,6 +1282,11 @@ checks at a state load, a `.sna`, an RZX start and a reset, stale user maps, the
 call, `load()` reporting, Back across a landing, purity of the check), RB-GEN-01
 (`rewind_test`), TRACE-SEQ-01 (`debugger_backend_test`) and QSRC-58 to QSRC-61
 (`debugger_source_panel_test`).
+
+E23-13 (#344) stage 2 added SRCDBG-Z88-01 to SRCDBG-Z88-14 and 18 to 22 (`source_debug_test`: the
+sidecar, the hand load, precedence, identity, lifetime, real code), SRCDBG-Z88-15 to 17
+(`source_debug_posix_test`: a FIFO), QSRC-62 to QSRC-64 (`debugger_source_panel_test`), QMAP-07
+(`debugger_verbs_test`) and the functional row `z88dk-source-map-func`.
 
 E23-13 (#344) added Z88MAP-01 to Z88MAP-28 (`z88dk_map_test`: the section rules against where
 `appmake` put the bytes in each fixture's `.nex`, extents, zero-width lines, strict refusal,

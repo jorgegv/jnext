@@ -4,7 +4,7 @@ The source line the CPU is running, read from the program's source map
 ([Source-level debugging](../functions/14-source-level-debugging.md)).
 
 At the top, the source steps — **Into**, **Over**, **Out**, **Back** and
-**Reverse** — and **Load SLD...** / **Load Memory.txt...** to load a source map
+**Reverse** — and **Load Source Map...** / **Load Memory.txt...** to load a source map (an SLD or a z88dk map)
 or NextBuild symbols by hand. The steps are available while the machine is
 paused and a source map is loaded; **Back** and **Reverse** also need the trace
 log and rewind. The same steps and loads are also in **Debug ▸ Source**.

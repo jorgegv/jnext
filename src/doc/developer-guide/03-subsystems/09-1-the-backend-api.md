@@ -394,19 +394,46 @@ space. `SourceMap::verify_program(read, read_space)` reads those through
 checked, and no binary means no identity. `SourceMap::format()` ("SLD" or
 "z88dk") is set by `replace()`.
 
+The identity is judged in one place, `Impl::verify_identity(map)`, which builds both
+readers: the logical one over `Mmu::peek()` for an SLD's hash, and the space one over
+`Debugger::peek(Page{n}, ...)` for z88dk byte checks (a page is read whatever the MMU
+maps over it; any other space reads nothing, so a byte check in it fails). The hand
+load, the sidecar attach and every landing (`recheck()`) call it, so a z88dk map is
+re-verified exactly as an SLD is.
+
+`load_source_map(path, accept_mismatch)` tells the format by content, after
+`source_file_problem()` (a FIFO is never read to find out): a first line starting
+`|SLD.data.version|` is an SLD, anything else a z88dk map. A hand z88dk map fills the
+source half only (its symbols stay with `load_map()`), and one with no line records is
+refused ("no source lines in ..."). `SourceMapLoad::identity_note` is the suffix a
+frontend appends to its report of the load: verified, not verified for lack of section
+binaries, or verified for the code the binaries cover (`SourceMapLoadResult::unchecked`
+counts the ranges they do not). `--source-map FILE` (`EmulatorConfig::source_map_file`)
+is this load, made once by each frontend right after the first successful `--load` and
+its sidecars (`emulator_attach_cli_source_map()` in `platform/emulator_boot.h`); a
+refusal logs an error and the run exits 1. `main.cpp` refuses it without `--load`.
+
 `load_program_sidecars(path)` attaches `<stem>.Memory.txt` (or `Memory.txt`,
-beside a `.nex`) and `<stem>.sld` / `<stem>.sld.txt`, searching with the
+beside a `.nex`), `<stem>.sld` / `<stem>.sld.txt` and `<stem>.map` (a z88dk map, beside
+a `.nex`, `.tap` or `.sna`), searching with the
 non-throwing filesystem calls; only a regular file counts (a FIFO would block the
 load), and one that cannot be read is reported. Both loaders refuse a file that is
 not regular, or is over 64 MiB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
 Open, and `load()` calls it for a remote client; a tape program gets no
-automatic map. The SLD sidecar is parsed once (`load_sld_sidecar()` with a label
+automatic source map (`program_loads_later()`, `debug/source_file.h`, is the one
+table of such formats). The SLD sidecar is parsed once (`load_sld_sidecar()` with a label
 table) and judged before the symbols: its labels attach when the file is not
 refused as a whole, its identity does not mismatch and the user's source map is not
 kept, also beside a tape and when only its `T` records are refused (an SLD with no
 label is not a symbol source). The sidecar symbol store is assembled in one block, in
 order, first wins: `Memory.txt`, then the SLD's labels (`SymbolTable::merge()`); the
-log has `Loaded N SLD labels from '<file>'`. Labels live in the Sidecar store, so
+log has `Loaded N SLD labels from '<file>'`. The z88dk map is read once for its two
+halves (`SymbolTable::load_z88dk_map()` and `load_z88dk_source_map()`, two
+transactions): its symbols are merged last, and only when no `Memory.txt` exists
+(`Loaded N z88dk symbols from '<file>'`); its source lines are used only when no SLD
+sidecar exists, beside a tape they are logged as not attached, and a map with neither
+symbols nor line records is ignored without a word. A map whose section binaries do not
+match memory is rejected whole (symbols included), as an SLD is. Labels live in the Sidecar store, so
 the attachment cache and the lifetime rules below treat them like `Memory.txt`.
 `load_source_map()` fills the same table from a hand-loaded SLD
 (`Impl::attach_hand_labels()`, count in `SourceMapLoad::labels`): the labels become

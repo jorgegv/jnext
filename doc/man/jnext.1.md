@@ -89,9 +89,14 @@ naming the option and the value, and exits with status 1.
     *NAME*`.sld` (or *NAME*`.sld.txt`), an sjasmplus source map whose labels join
     the symbols (a label assembled for a page names its address only while that
     page is mapped), beside any program but a tape (beside a tape only its labels
-    attach), and *NAME*`.Memory.txt` (or `Memory.txt`), NextBuild /
-    Boriel ZX Basic symbols, beside a `.nex`. A map given with **\--map** or
-    loaded by hand is kept over them. An SLD built for another binary, or a
+    attach), *NAME*`.Memory.txt` (or `Memory.txt`), NextBuild /
+    Boriel ZX Basic symbols, beside a `.nex`, and *NAME*`.map`, a z88dk map
+    built with `-debug`, beside a `.nex`, `.tap` or `.sna`: its symbols join the
+    others (not when a `Memory.txt` exists) and its source lines attach when there
+    is no SLD (beside a tape only its symbols attach). z88dk's **-create-app** also
+    writes the section binaries (*NAME*`_CODE.bin`, ...) that the map is checked
+    against; without them it attaches unverified. A map given with **\--map** or
+    loaded by hand is kept over them. A map built for another binary, or a
     file over 64 MiB, is refused, with the reason in the log.
 
 **\--nex-args** *LINE*
@@ -926,6 +931,14 @@ naming the option and the value, and exits with status 1.
     sjasmplus label is `@main.loop`), and the debugger shows the names (the
     same table **Map > Load MAP** fills). A file that cannot be loaded, or
     holds no symbols, is a startup error.
+
+**\--source-map** *FILE*
+:   Attach a source map, an sjasmplus SLD or a z88dk `-debug` `.map` (told apart
+    by its contents), to the program **\--load** loads, as if loaded by hand with
+    **Debug > Source > Load Source Map...**. A z88dk map gives source lines only;
+    its symbols stay with **\--map**. Requires **\--load**. A map whose binary
+    identity does not match the program, or that cannot be loaded, is a startup
+    error (exit status 1).
 
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for example `0x00FF`).
