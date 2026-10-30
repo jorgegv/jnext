@@ -5567,6 +5567,149 @@ int main() {
         }
     }
 
+    // ── GH #344 stage 3: who answers for the verdict ─────────────────────────
+    {
+        const fs::path tape = dir / "tape";
+        const char* kFx = "v2.4/sccz80-tape";
+        const long kFlip = 0xCC4;
+        {   // TAPE-22: the user's source map is kept, the sidecar's symbols still wait for their program
+            const fs::path d = tape / "t22";
+            const std::string tap = tape_copy(kFx, d);
+            write_text(d / "mine.sld", program_sld(p80, p90));
+            auto side = [&](long flip, Debugger::SidecarLoad& r, std::string& log) {
+                auto m = std::make_unique<Machine>();
+                park(*m);
+                m->dbg->load_source_map((d / "mine.sld").string(), false);
+                r = m->dbg->load_program_sidecars(tap);
+                tape_bytes(*m, MemSpace::cpu(), d / "prog_CODE.bin", flip, 0x8000);
+                m->set_pc(0x8000);
+                log = debugger_log_of([&] {
+                    run_frames(*m, 1);
+                    (void)m->dbg->source_map_status();
+                });
+                return m;
+            };
+            Debugger::SidecarLoad rg, rb;
+            std::string logg, logb;
+            auto good = side(-1, rg, logg);
+            auto bad = side(kFlip, rb, logb);
+            check("SRCDBG-TAPE-22", "with the user's source map kept, prog.map's symbols attach beside a "
+                                    "tape and wait for the program: kept when it matches, dropped (the "
+                                    "user's map untouched) when it does not",
+                  rg.symbols == 19 && rg.sources == -1 && good->dbg->lookup_name("_main") == 0x8CA1 &&
+                      rb.symbols == 19 && !bad->dbg->lookup_name("_main") &&
+                      bad->dbg->source_map().loaded_file() == (d / "mine.sld").string() &&
+                      bad->dbg->source_map().size() == 6 &&
+                      has(logb, "Rejected the symbols of z88dk map '" + (d / "prog.map").string() + "'") &&
+                      has(logb, "Dropped the program's symbols") && !has(logg, "Rejected"),
+                  logg + logb);
+        }
+        {   // TAPE-23: --source-map on top of a pending sidecar map
+            const fs::path d = tape / "t23";
+            const std::string tap = tape_copy(kFx, d);
+            const std::string map = (d / "prog.map").string();
+            auto both = [&](long flip, std::string& log, Debugger::SourceMapLoad& out) {
+                auto m = std::make_unique<Machine>();
+                park(*m);
+                m->dbg->load_program_sidecars(tap);
+                out = m->dbg->load_source_map(map, false, true);
+                tape_bytes(*m, MemSpace::cpu(), d / "prog_CODE.bin", flip, 0x8000);
+                m->set_pc(0x8000);
+                log = debugger_log_of([&] {
+                    run_frames(*m, 1);
+                    (void)m->dbg->source_map_status();
+                });
+                return m;
+            };
+            Debugger::SourceMapLoad og, ob;
+            std::string logg, logb;
+            auto good = both(-1, logg, og);
+            auto bad = both(kFlip, logb, ob);
+            const auto sg = good->dbg->source_map_status();
+            const auto sb = bad->dbg->source_map_status();
+            check("SRCDBG-TAPE-23", "the CLI order (the sidecar first, then --source-map of the same map): "
+                                    "matching bytes keep the user's map and the symbols; a wrong byte "
+                                    "drops BOTH, the user's map to None and the sidecar's symbols with it",
+                  og.pending && ob.pending && sg.state == Debugger::SourceMapStatus::State::Attached &&
+                      sg.by_user && !sg.pending && good->dbg->lookup_name("_main") == 0x8CA1 &&
+                      sb.state == Debugger::SourceMapStatus::State::None && !sb.by_user &&
+                      bad->dbg->source_map().empty() && !bad->dbg->lookup_name("_main") &&
+                      !bad->emu.debug_state().verify_hold(),
+                  logg + logb);
+        }
+        {   // TAPE-24: a user's pending map is carried into the next tape load
+            const fs::path d = tape / "t24";
+            tape_copy(kFx, d);
+            write_text(d / "other.tap", "");
+            Machine m;
+            park(m);
+            m.dbg->load_source_map((d / "prog.map").string(), false, true);
+            m.dbg->load_program_sidecars((d / "other.tap").string());
+            const auto st = m.dbg->source_map_status();
+            const bool held = m.emu.debug_state().verify_hold();
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const auto end = m.dbg->source_map_status();
+            check("SRCDBG-TAPE-24", "a pending map the user loaded survives the next program's load, still "
+                                    "pending with its window armed, and is verified when its code runs",
+                  st.by_user && st.pending && held && end.state == Debugger::SourceMapStatus::State::Attached &&
+                      end.by_user && !end.pending && !m.emu.debug_state().verify_hold());
+        }
+        {   // TAPE-25: a debugger Step is an execution
+            const fs::path d = tape / "t25";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m;
+            park(m);
+            m.dbg->load_program_sidecars(tap);
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
+            m.set_pc(0x8000);
+            const bool before = m.dbg->source_map_status().pending;
+            m.dbg->step_into(m.a);
+            check("SRCDBG-TAPE-25", "one debugger Step onto the first instruction of the program judges "
+                                    "the map, as a run would",
+                  before && !m.dbg->source_map_status().pending && m.pc() != 0x8000 &&
+                      m.dbg->source_map().size() > 0);
+        }
+        {   // TAPE-26: a reset after the program arrived judges it whole
+            const fs::path d = tape / "t26";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m;
+            park(m);
+            m.dbg->load_program_sidecars(tap);
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
+            const Result soft = m.dbg->reset(m.a, ResetKind::Soft);
+            const auto st = m.dbg->source_map_status();
+            check("SRCDBG-TAPE-26", "a soft reset after the whole program arrived verifies the pending map "
+                                    "at the landing (it matches): kept, no longer pending, window off",
+                  soft == Result::Ok && st.state == Debugger::SourceMapStatus::State::Attached &&
+                      !st.pending && !m.emu.debug_state().verify_hold() &&
+                      m.dbg->source_map().size() > 0);
+        }
+        {   // TAPE-27: replacing or clearing the map takes the window with it
+            const fs::path d = tape / "t27";
+            const std::string tap = tape_copy(kFx, d);
+            write_text(d / "other.tap", "");
+            Machine m;
+            park(m);
+            m.dbg->load_program_sidecars(tap);
+            const bool armed1 = m.emu.debug_state().verify_hold();
+            m.dbg->load_program_sidecars((d / "other.tap").string());   // a program with no sidecars
+            const bool off1 = !m.emu.debug_state().verify_hold() && m.dbg->source_map().empty() &&
+                              !m.dbg->source_map_status().pending;
+            Machine n;
+            park(n);
+            n.dbg->load_source_map((d / "prog.map").string(), false, true);
+            const bool armed2 = n.emu.debug_state().verify_hold();
+            n.dbg->clear_source_map();
+            const bool off2 = !n.emu.debug_state().verify_hold() && !n.dbg->source_map_status().pending;
+            check("SRCDBG-TAPE-27", "a pending map replaced by the next program's load, or cleared by hand, "
+                                    "leaves no window armed",
+                  armed1 && off1 && armed2 && off2,
+                  std::to_string(armed1) + std::to_string(off1) + std::to_string(armed2) + std::to_string(off2));
+        }
+    }
+
     fs::remove_all(dir);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
