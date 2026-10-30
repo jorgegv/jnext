@@ -57,8 +57,8 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
 
     auto* loads = new QHBoxLayout();
     loads->setSpacing(4);
-    auto* load_sld = new QPushButton(tr("Load SLD..."), this);
-    load_sld->setToolTip(tr("Load an sjasmplus SLD source map"));
+    auto* load_sld = new QPushButton(tr("Load Source Map..."), this);
+    load_sld->setToolTip(tr("Load a source map: an sjasmplus SLD or a z88dk -debug map"));
     connect(load_sld, &QPushButton::clicked, this, &SourcePanel::load_sld_requested);
     loads->addWidget(load_sld);
     auto* load_symbols = new QPushButton(tr("Load Memory.txt..."), this);

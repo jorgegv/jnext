@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <exception>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -341,16 +342,25 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         Bin bin;
         bin.group = group;
         bin.head = head;
-        bin.bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        // libstdc++ throws std::ios_base::failure from here when the read itself fails
+        // (an I/O error on a regular file). No exception leaves the adapter: the half is
+        // refused with a reason, like any other unreadable file.
+        try {
+            bin.bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        } catch (const std::exception&) {
+            return failed("could not read section binary '" + bin_path.string() + "'");
+        }
         bins.push_back(std::move(bin));
     }
     std::optional<SourceProgramIdentity> identity;
+    int unchecked = 0;
     if (!bins.empty()) {
         SourceProgramIdentity id;
         for (size_t k = 0; k < owners.size(); ++k) {
             const Record& r = records[owners[k]];
             if (is_data_section(r.section)) continue;
             const uint32_t length = ranges[k].hi_excl - ranges[k].lo;
+            bool covered = false;
             for (const Bin& bin : bins) {
                 if (r.value < bin.head || r.value + length > bin.head + bin.bytes.size()) continue;
                 // The binary's group must put both ends of the range in the range's space.
@@ -367,8 +377,10 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
                 const auto begin = bin.bytes.begin() + static_cast<std::ptrdiff_t>(r.value - bin.head);
                 id.bytes.push_back({r.space, r.lo,
                                     std::vector<uint8_t>(begin, begin + length)});
+                covered = true;
                 break;
             }
+            if (!covered) ++unchecked;
         }
         if (!id.bytes.empty()) identity = std::move(id);
     }
@@ -378,6 +390,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     const std::string loaded = ec ? path : absolute.lexically_normal().string();
     SourceMapLoadResult result;
     result.count = static_cast<int>(ranges.size());
+    result.unchecked = unchecked;
     map.replace(std::move(ranges), std::move(aliases), std::move(identity), loaded, "z88dk");
     return result;
 }

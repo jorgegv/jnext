@@ -14,6 +14,9 @@ struct SourceMapLoadResult {
     /// `L` label records accepted into the label table; -1 when no label table
     /// was given or the file was refused as a whole.
     int labels = -1;
+    /// z88dk only: the non-data line ranges stored that no section binary covers,
+    /// so the program identity (if any) does not check them.
+    int unchecked = 0;
 
     explicit operator bool() const { return count >= 0; }
 };

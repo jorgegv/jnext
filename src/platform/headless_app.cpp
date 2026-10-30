@@ -641,7 +641,19 @@ void HeadlessApp::run() {
                 const auto sidecars = debugger_->load_program_sidecars(load_file_);
                 if (!sidecars.problem.empty())
                     Log::platform()->warn("--load: {}", sidecars.problem);
+                // --source-map: attached once, as the user's map, on top of them.
+                if (!config_.source_map_file.empty()) {
+                    const auto sm = emulator_attach_cli_source_map(*debugger_,
+                                                                   config_.source_map_file);
+                    if (sm.ok) {
+                        Log::platform()->info("{}", sm.line);
+                    } else {
+                        Log::platform()->error("{}", sm.line);
+                        exit_code_ = 1;
+                    }
+                }
             }
+            config_.source_map_file.clear();
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {
             --load_countdown_;

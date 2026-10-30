@@ -95,6 +95,7 @@ enum class OptId {
     ScriptKey,
     RecordScript,
     Map,
+    SourceMap,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -801,6 +802,13 @@ inline constexpr Option OPTIONS[] = {
       "or --exp file, told apart by its contents, for `@symbol`\n"
       "in scripts and for the debugger (the same table\n"
       "Map > Load MAP fills)." },
+    { "--source-map", 1, Doc::Documented, OptId::SourceMap,
+      "FILE",
+      "Attach a source map, an sjasmplus SLD or a z88dk -debug .map\n"
+      "(told by its contents), to the program --load loads, as if\n"
+      "loaded by hand (Debug > Source > Load Source Map...). Refused\n"
+      "without --load, and when the program does not match the\n"
+      "map's binary identity (exit 1)." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

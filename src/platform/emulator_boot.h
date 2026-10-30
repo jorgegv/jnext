@@ -89,6 +89,27 @@ inline bool emulator_apply_load_keeping_keys(Emulator& emu, const std::string& f
     return ok;
 }
 
+/// GH #344 - `--source-map FILE`: attach the source map as the user's, right after
+/// the first successful CLI load (the program is then in memory, which its identity
+/// and, for z88dk, its banked sections are judged against). The same load a hand
+/// "Load Source Map..." does, with a mismatch refused. `line` is what the frontend
+/// logs (an Info line on success, an Error on a refusal, which makes it exit 1, as
+/// a failed `--load` does). A template over the debugger so this header stays free
+/// of its includes (and of the logger's).
+struct CliSourceMapResult {
+    bool        ok = false;
+    std::string line;
+};
+template <typename Dbg>
+inline CliSourceMapResult emulator_attach_cli_source_map(Dbg& dbg, const std::string& file) {
+    const auto r = dbg.load_source_map(file, /*accept_identity_mismatch=*/false);
+    CliSourceMapResult out;
+    out.ok = r.count >= 0;
+    out.line = "--source-map '" + file + "': " +
+               (out.ok ? std::to_string(r.count) + " source lines" + r.identity_note : r.error);
+    return out;
+}
+
 /// True when emulator_apply_load() above would route `file` to
 /// Emulator::load_nex() — i.e. the extension is `.nex` or unrecognised (the
 /// fallback). The GH #228 experimental-V1.3 gate applies to exactly that

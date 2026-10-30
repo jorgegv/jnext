@@ -11,6 +11,8 @@
 #include "debug/debugger.h"
 #include "debug/debugger_impl.h"
 #include "debug/sld_loader.h"
+#include "debug/source_file.h"
+#include "debug/z88dk_source_map.h"
 
 #include "core/log.h"
 #include "debug/ram_page.h"
@@ -18,16 +20,35 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
 
 namespace jnext {
 namespace dbg {
 
 namespace {
 
-// `read` for `SourceMap::verify_program`: logical memory as the CPU sees it,
-// without touching watchpoints or the floating-bus latch.
-std::function<uint8_t(uint16_t)> peek_reader(Emulator& emu) {
-    return [&emu](uint16_t addr) { return emu.mmu().peek(addr); };
+// Whether `path` is an sjasmplus SLD: its first line starts `|SLD.data.version|`.
+// Anything else that opens is read as a z88dk map. A file that does not open is
+// handed to the SLD loader, whose error names it. The caller has run
+// `source_file_problem()`: a FIFO is never opened here.
+bool looks_like_sld(const std::string& path) {
+    std::ifstream in(path);
+    std::string first;
+    if (!in.is_open() || !std::getline(in, first)) return true;
+    if (first.compare(0, 3, "\xEF\xBB\xBF") == 0) first.erase(0, 3);
+    return first.rfind("|SLD.data.version|", 0) == 0;
+}
+
+// The suffix of an attach line: what was done about the program's identity.
+// An SLD without one says nothing, as it always has; a z88dk map always says.
+std::string identity_note(const SourceMap& map, const SourceMapLoadResult& parsed,
+                          std::optional<bool> identity) {
+    if (map.format() != "z88dk") return identity ? " (program identity verified)" : "";
+    if (!identity) return " (program identity not verified: no section binaries beside it)";
+    if (parsed.unchecked > 0)
+        return " (program identity verified; " + std::to_string(parsed.unchecked) +
+               " code ranges have no section binary and were not checked)";
+    return " (program identity verified)";
 }
 
 std::string lower_extension(const std::filesystem::path& p) {
@@ -56,11 +77,18 @@ std::optional<std::filesystem::path> nextbuild_sidecar(const std::filesystem::pa
     return std::nullopt;
 }
 
-// A program whose bytes are not in memory when its load call returns: the tape
-// formats, which the machine loads over the following frames.
-bool loads_later(const std::filesystem::path& p) {
-    const std::string ext = lower_extension(p);
-    return ext == ".tap" || ext == ".tzx" || ext == ".wav";
+// `<stem>.map` beside a `.nex`, `.tap` or `.sna` (design 6.1): the z88dk map a
+// build leaves next to its program. Regular files only (a FIFO would block the
+// load on open).
+std::optional<std::filesystem::path> z88dk_map_sidecar(const std::filesystem::path& program) {
+    namespace fs = std::filesystem;
+    const std::string ext = lower_extension(program);
+    if (ext != ".nex" && ext != ".tap" && ext != ".sna") return std::nullopt;
+    const fs::path p = program.parent_path() / (program.stem().string() + ".map");
+    std::error_code ec;
+    const auto st = fs::status(p, ec);
+    if (!ec && fs::is_regular_file(st)) return p;
+    return std::nullopt;
 }
 
 // Both sidecars can be refused in one load: the second reason is appended.
@@ -74,22 +102,54 @@ void add_problem(Debugger::SidecarLoad& out, const std::string& problem) {
 // The store
 // ---------------------------------------------------------------------------
 
+std::optional<bool> Debugger::Impl::verify_identity(const SourceMap& map) const {
+    return map.verify_program(
+        [this](uint16_t addr) { return emu.mmu().peek(addr); },
+        [this](FetchSource space, uint16_t addr) -> std::optional<uint8_t> {
+            if (space.kind != MemSpace::Kind::Page) return std::nullopt;
+            uint8_t b = 0;
+            if (!self->peek(space, addr & 0x1FFF, 1, &b)) return std::nullopt;
+            return b;
+        });
+}
+
 Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
                                                   bool accept_identity_mismatch) {
     impl_->recheck();   // a writer first: a pending landing must not undo it later
     SourceMapLoad out;
     SourceMap candidate;
     SymbolTable labels;
-    const SourceMapLoadResult parsed = load_sld(candidate, path, &labels);
+    SourceMapLoadResult parsed;
+    // The format is told by the content, after the file is known safe to open (a
+    // FIFO must not be read to find out). A z88dk map fills the source half only
+    // (design 6.1, D10): its symbols stay with Load MAP and --map.
+    if (const std::string why = source_file_problem(path); !why.empty()) {
+        out.error = why;
+        return out;
+    }
+    const bool sld = looks_like_sld(path);
+    if (sld) {
+        parsed = load_sld(candidate, path, &labels);
+    } else {
+        parsed = load_z88dk_source_map(candidate, path, [this](uint16_t a) {
+            return impl_->emu.predict_fetch(a);
+        });
+        if (parsed && parsed.count == 0) {
+            parsed.count = -1;
+            parsed.error = "no source lines in '" + path +
+                           "' (a z88dk map built without -debug?)";
+        }
+    }
     if (!parsed) {
         out.error = parsed.error;
         return out;
     }
-    out.identity = candidate.verify_program(peek_reader(impl_->emu));
+    out.identity = impl_->verify_identity(candidate);
     if (out.identity && !*out.identity && !accept_identity_mismatch) {
         out.error = "the program in memory does not match the source map's binary identity";
         return out;
     }
+    out.identity_note = identity_note(candidate, parsed, out.identity);
     impl_->source_map         = std::move(candidate);
     impl_->sources_owner      = Impl::StoreOwner::User;
     impl_->user_sources_gen   = impl_->ds().load_generation();
@@ -97,7 +157,7 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     impl_->pause_verify_user  = false;
     impl_->source_reason.clear();
     out.count  = parsed.count;
-    out.labels = impl_->attach_hand_labels(std::move(labels), parsed.labels);
+    out.labels = sld ? impl_->attach_hand_labels(std::move(labels), parsed.labels) : 0;
     return out;
 }
 
@@ -212,11 +272,36 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     SymbolTable sld_labels;
     const SourceMapLoadResult parsed = load_sld_sidecar(candidate, program_path, &sld_labels);
     const bool user_sources = impl_->sources_owner == Owner::User;
-    const bool tape         = loads_later(program);
+    const bool tape         = program_loads_later(program_path);
     std::optional<bool> identity;   // only a source half that loaded, from memory
     if (parsed && !tape && !user_sources)
-        identity = candidate.verify_program(peek_reader(impl_->emu));
+        identity = impl_->verify_identity(candidate);
     const bool mismatch = identity && !*identity;
+
+    // `<stem>.map`, a z88dk map (design 6.1, D10), is read ONCE for its two halves
+    // (two transactions, design 9.1). Its source half is used only when no SLD
+    // sidecar exists at all; its symbols only when no Memory.txt exists, last of
+    // the program's symbol sources. A file with no symbol and no line record is not
+    // a z88dk map: ignored, nothing reported. Not read when the user's source map is
+    // kept (as for the SLD).
+    const auto zpath = user_sources ? std::nullopt : z88dk_map_sidecar(program);
+    SymbolTable zsyms;
+    SourceMap zsrc;
+    SourceMapLoadResult zparsed;
+    int zn = -1;
+    if (zpath) {
+        zn = zsyms.load_z88dk_map(zpath->string());
+        if (parsed.file.empty())
+            zparsed = load_z88dk_source_map(zsrc, zpath->string(), [this](uint16_t a) {
+                return impl_->emu.predict_fetch(a);
+            });
+        else
+            zparsed.count = 0;   // the SLD speaks for the source half
+    }
+    std::optional<bool> zidentity;
+    if (zpath && zparsed.count > 0 && !tape) zidentity = impl_->verify_identity(zsrc);
+    const bool zmismatch = zidentity && !*zidentity;
+    const bool zsyms_attach = zn > 0 && !memory && !zmismatch;
     // Its labels go with it (D7): not when the file is refused whole (labels < 0),
     // not when its identity is another build's, not when the user's source map is
     // kept (the SLD is then not loaded at all); yes when only its source records
@@ -233,6 +318,9 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         else if (sld_labels_attach)
             log->info("Kept the loaded symbols '{}'; not loading '{}'",
                       impl_->symbols.loaded_file(), parsed.file);
+        else if (zsyms_attach)
+            log->info("Kept the loaded symbols '{}'; not loading '{}'",
+                      impl_->symbols.loaded_file(), zpath->string());
     } else {
         // The program's symbols: each sidecar in order, first wins.
         SymbolTable store;
@@ -256,6 +344,12 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             n += parsed.labels;
             attached_symbols = true;
             log->info("Loaded {} SLD labels from '{}'", parsed.labels, parsed.file);
+        }
+        if (zsyms_attach) {
+            store.merge(zsyms);
+            n += zn;
+            attached_symbols = true;
+            log->info("Loaded {} z88dk symbols from '{}'", zn, zpath->string());
         }
         if (attached_symbols) {
             impl_->symbols       = std::move(store);
@@ -284,7 +378,40 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             const std::string why = "source map '" + parsed.file + "' rejected: " + parsed.error;
             add_problem(out, why);
             impl_->source_reason = why;
+            return out;
         }
+        // No SLD sidecar: the z88dk map's source half, under the same rules.
+        if (!zpath || zparsed.count == 0) return out;
+        const std::string zfile = zpath->string();
+        if (zparsed.count < 0) {
+            log->error("Rejected z88dk source map '{}': {}", zfile, zparsed.error);
+            const std::string why = "source map '" + zfile + "' rejected: " + zparsed.error;
+            add_problem(out, why);
+            impl_->source_reason = why;
+            return out;
+        }
+        if (tape) {
+            log->info("Not attaching z88dk source map '{}' automatically: '{}' loads from "
+                      "tape after this point; load the map by hand once it has loaded",
+                      zsrc.loaded_file(), program_path);
+            return out;
+        }
+        if (zmismatch) {
+            log->error("Rejected z88dk source map '{}': the loaded program's bytes differ "
+                       "from its binary identity", zsrc.loaded_file());
+            const std::string why = "source map '" + zsrc.loaded_file() +
+                                    "' rejected: the loaded program's bytes differ from its "
+                                    "binary identity";
+            add_problem(out, why);
+            impl_->source_reason = why;
+            return out;
+        }
+        impl_->source_map    = std::move(zsrc);
+        impl_->sources_owner = Owner::Sidecar;
+        out.sources = zparsed.count;
+        log->info("Loaded {} z88dk source lines from '{}'{}", zparsed.count,
+                  impl_->source_map.loaded_file(),
+                  identity_note(impl_->source_map, zparsed, zidentity));
         return out;
     }
     // A tape is loaded by the machine over the frames that follow, so there
@@ -379,11 +506,12 @@ void Debugger::Impl::drop_sidecars(const std::string& why) {
         pending_log.push_back("Dropped the program's symbols: " + why);
     }
     if (sources_owner == StoreOwner::Sidecar) {
+        const std::string format = source_map.format();
         source_map.clear();
         sources_owner = StoreOwner::None;
         source_reason = why;
         ++source_drops;
-        pending_log.push_back("Dropped the program's SLD source map: " + why);
+        pending_log.push_back("Dropped the program's " + format + " source map: " + why);
     }
 }
 
@@ -393,7 +521,7 @@ void Debugger::Impl::recheck() {
     if (!landing_pending && !ring_pending && !pause_verify_sidecar && !pause_verify_user)
         return;
     const uint64_t g = ds().load_generation();
-    auto identity = [this]() { return source_map.verify_program(peek_reader(emu)); };
+    auto identity = [this]() { return verify_identity(source_map); };
     auto verify_user = [&](bool carried_by_landing) {
         const std::optional<bool> id = identity();
         if (id && *id) {
@@ -467,15 +595,16 @@ void Debugger::Impl::recheck() {
                     if (rec && rec->sources) {
                         source_map    = *rec->sources;
                         sources_owner = StoreOwner::Sidecar;
-                        pending_log.push_back("Restored the program's SLD source map of this "
-                                              "point in the history");
+                        pending_log.push_back("Restored the program's " + source_map.format() +
+                                              " source map of this point in the history");
                     } else {
+                        const std::string format = source_map.format();
                         source_map.clear();
                         sources_owner = StoreOwner::None;
                         if (had) {
                             ++source_drops;
-                            pending_log.push_back("Dropped the program's SLD source map: " +
-                                                  std::string(before));
+                            pending_log.push_back("Dropped the program's " + format +
+                                                  " source map: " + std::string(before));
                         }
                     }
                     source_reason = rec ? rec->source_reason : (had ? before : "");

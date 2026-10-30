@@ -686,7 +686,19 @@ bool QtApp::TickEffects::pre_frames() {
             if (!sidecars.problem.empty())
                 Log::platform()->warn("load: {}", sidecars.problem);
 #endif
+            // --source-map: attached once, as the user's map, on top of them.
+            if (!a.config_.source_map_file.empty()) {
+                const auto sm = emulator_attach_cli_source_map(*a.debugger_,
+                                                               a.config_.source_map_file);
+                if (sm.ok) {
+                    Log::platform()->info("{}", sm.line);
+                } else {
+                    Log::platform()->error("{}", sm.line);
+                    a.exit_code_ = 1;
+                }
+            }
         }
+        a.config_.source_map_file.clear();
         // A File > Open load that failed gets its dialog (deferred to the
         // event loop by the window; this is inside the frame tick).
         if (a.main_window_) a.main_window_->load_finished(a.load_file_, loaded);

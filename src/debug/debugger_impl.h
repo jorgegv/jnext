@@ -133,6 +133,13 @@ struct Debugger::Impl {
     }
     /// Drop the stores a program's sidecars filled, never the user's.
     void drop_sidecars(const std::string& why);
+    /// A source map's identity against the machine as it is now: the one place
+    /// that builds BOTH readers, so a z88dk byte check and an SLD hash are judged
+    /// the same way at the hand load, the sidecar attach and every landing. The
+    /// logical reader is `Mmu::peek`; the space reader goes through `Debugger::peek`
+    /// (a `Page` is read whatever the MMU maps over it; any other space is
+    /// unreadable, so a byte check in one fails).
+    std::optional<bool> verify_identity(const SourceMap& map) const;
     /// The machine this backend describes was reset or replaced: both the
     /// hook `DebugState` calls and the re-application after a cold boot
     /// end here. Reconciles the stop evidence and marks the landing.

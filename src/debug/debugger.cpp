@@ -238,8 +238,8 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
     impl_->recheck();   // a writer first (CAP-SRC)
     int n = -1;
     switch (format) {
-        case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path); break;
-        case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path); break;
+        case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path, why); break;
+        case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path, why); break;
         case MapFormat::NextBuild: n = impl_->symbols.load_nextbuild_memory(path, why); break;
         case MapFormat::SjasmplusEqu: n = impl_->symbols.load_sjasmplus_equ(path); break;
         case MapFormat::Z88dkOrSjasmplus: n = impl_->symbols.load_z88dk_or_sjasmplus(path); break;

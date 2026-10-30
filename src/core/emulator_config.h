@@ -272,6 +272,8 @@ struct EmulatorConfig {
     std::vector<std::string>                   script_files;
     std::vector<std::pair<uint32_t, int>>      script_keys;
     std::string                                map_file;
+    /// `--source-map`: a source map to attach after the first `--load` (empty = none).
+    std::string                                source_map_file;
     // GH #26 WP6 / #20 — `--record-script FILE`: record the session as a
     // replay script (any frontend). Empty = not recording.
     std::string                                record_script_file;
