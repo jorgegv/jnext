@@ -1672,6 +1672,7 @@ int main(int argc, char* argv[]) {
         // never saved; MainWindow loads its own.
         merge_cli_assignments(gui_app_config.data(), qt_assignments);
         if (cpu_speed_opt) gui_app_config.data().cpu_speed = static_cast<CpuSpeed>(*cpu_speed_opt);
+#ifdef ENABLE_DEBUGGER   // without the debugger there is nothing to bind: the warning above says so
         if (!debug_key_assignments.empty()) {
             session_debug_keys = gui_app_config.data().debug_keys;
             std::string why;
@@ -1682,6 +1683,7 @@ int main(int argc, char* argv[]) {
             }
             session_debug_keys_given = true;
         }
+#endif
         if (sd_card_image.empty() && !gui_app_config.data().sd_card_path.isEmpty()) {
             sd_card_image = gui_app_config.data().sd_card_path.toStdString();
         }

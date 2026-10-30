@@ -376,10 +376,7 @@ public:
     /// GH #417 - the debugger key bindings of THIS run: the saved ones with the
     /// command line's `--set debugger_keys.X=...` over them. They go live in both
     /// windows (debug_keys_); app_config_, and so jnext.conf, keeps the saved ones.
-    void set_session_debug_keys(const jnext::dbgkeys::Keymap& km) {
-        debug_keys_ = km;
-        push_debug_keymap();
-    }
+    void set_session_debug_keys(const jnext::dbgkeys::Keymap& km);
 
 #ifdef ENABLE_DEBUGGER
     /// GH #417 - `--set debugger.attached=` for this run: the debugger window opens

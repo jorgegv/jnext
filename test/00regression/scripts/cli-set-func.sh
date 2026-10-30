@@ -75,7 +75,24 @@ if want cli-set-func; then
     # --- Q1 ---
     printf '[startup]\ncpu_speed=0\ntape_fast_load=true\n[paths]\nlast_load_dir=/saved/dir\n' > "$cs_conf"
     cs_qt "$cs_dir/q1.log" --set startup.cpu_speed=3 --set startup.tape_fast_load=false \
-        --set paths.last_load_dir=/cli/dir --load "$cs_tap" || cs_faults+=("Q1: the Qt run failed")
+        --set paths.last_load_dir=/cli/dir --set debugger_keys.run=Shift+F9 --set debugger.attached=false \
+        --load "$cs_tap" || cs_faults+=("Q1: the Qt run failed")
+    # The debugger entries reach the window (this build has the debugger unless it says otherwise).
+    if ! grep -qF "in a build without the debugger" "$cs_dir/q1.log"; then
+        grep -qF "the --set debugger_keys entries are in force for this run" "$cs_dir/q1.log" \
+            || cs_faults+=("Q1: --set debugger_keys.run did not reach the window")
+        grep -qF "debugger window: attached=false for this run" "$cs_dir/q1.log" \
+            || cs_faults+=("Q1: --set debugger.attached=false did not reach the debugger manager")
+        grep -q "debugger_keys\]" "$cs_conf" && cs_faults+=("Q1: a [debugger_keys] section was written to the file")
+    fi
+    # A clash is refused before the window opens (run=F7 is Step Over's default).
+    if QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 60s "$JNEXT" --silent --machine 48k \
+           "${SD_CARD_ARGS[@]}" --set debugger_keys.run=F7 --delayed-automatic-exit-frames 5 >"$cs_dir/q1clash.log" 2>&1; then
+        grep -qF "in a build without the debugger" "$cs_dir/q1clash.log" \
+            || cs_faults+=("Q1: a clashing --set debugger_keys.run=F7 was accepted")
+    else
+        grep -qF "would both be bound" "$cs_dir/q1clash.log" || cs_faults+=("Q1: the clash was refused without saying which keys")
+    fi
     cs_expect_nr07 "$cs_dir/q1.log" 33 "Q1 --set startup.cpu_speed=3"
     grep -qE "tape attached.*mode: realtime" "$cs_dir/q1.log" || cs_faults+=("Q1: tape not real time")
     grep -qE "cpu_speed=0" "$cs_conf" || cs_faults+=("Q1: cpu_speed was written to the file: $(tr '\n' ' ' < "$cs_conf")")

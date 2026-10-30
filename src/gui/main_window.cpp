@@ -3068,9 +3068,18 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     // apply_startup_config() updates the mixer immediately.
 }
 
+void MainWindow::set_session_debug_keys(const jnext::dbgkeys::Keymap& km) {
+    debug_keys_ = km;
+    push_debug_keymap();
+    Log::platform()->info("debugger keys: the --set debugger_keys entries are in force for this run "
+                          "(jnext.conf keeps the saved bindings)");
+}
+
 #ifdef ENABLE_DEBUGGER
 void MainWindow::set_debugger_attach_override(bool attached) {
     if (debugger_mgr_) debugger_mgr_->set_attach_override(attached);
+    Log::platform()->info("debugger window: attached={} for this run by --set debugger.attached "
+                          "(jnext.conf keeps its value until the Attach item is toggled)", attached);
 }
 #endif
 
