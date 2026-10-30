@@ -1283,7 +1283,7 @@ call, `load()` reporting, Back across a landing, purity of the check), RB-GEN-01
 (`rewind_test`), TRACE-SEQ-01 (`debugger_backend_test`) and QSRC-58 to QSRC-61
 (`debugger_source_panel_test`).
 
-E23-13 (#344) stage 2 added SRCDBG-Z88-01 to SRCDBG-Z88-14 and 18 to 27 (`source_debug_test`: the
+E23-13 (#344) stage 2 added SRCDBG-Z88-01 to SRCDBG-Z88-14 and 18 to 31 (`source_debug_test`: the
 sidecar, the hand load, precedence, identity, lifetime, real code), SRCDBG-Z88-15 to 17
 (`source_debug_posix_test`: a FIFO), QSRC-62 to QSRC-64 (`debugger_source_panel_test`), QMAP-07
 (`debugger_verbs_test`) and the functional row `z88dk-source-map-func`.

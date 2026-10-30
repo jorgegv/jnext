@@ -3779,15 +3779,15 @@ whose labels join the symbols (a label assembled for a page names
 its address only while that page is mapped), beside any program but
 a tape (beside a tape only its labels attach), <em>NAME</em><code>.Memory.txt</code>
 (or <code>Memory.txt</code>), NextBuild / Boriel ZX Basic symbols, beside a
-<code>.nex</code>, and <em>NAME</em><code>.map</code>, a z88dk map built with <code>-debug</code>, beside a
-<code>.nex</code>, <code>.tap</code> or <code>.sna</code>: its symbols join the others (not when a
-<code>Memory.txt</code> exists) and its source lines attach when there is no
-SLD (beside a tape only its symbols attach). z88dk’s <strong>-create-app</strong>
-also writes the section binaries (<em>NAME</em><code>_CODE.bin</code>, …) that the map
-is checked against; without them it attaches unverified. A map given
-with <strong>--map</strong> or loaded by hand is kept over them. A map built for
-another binary, or a file over 64 MiB, is refused, with the reason
-in the log.</p>
+<code>.nex</code>, and <em>NAME</em><code>.map</code>, a z88dk map (<code>-m</code>), beside a <code>.nex</code>,
+<code>.tap</code> or <code>.sna</code>: its symbols join the others (not when a
+<code>Memory.txt</code> exists), and with <code>-debug</code> also its source lines, which
+attach when there is no SLD (beside a tape only its symbols attach).
+z88dk’s <strong>-create-app</strong> also writes the section binaries
+(<em>NAME</em><code>_CODE.bin</code>, …) that the map is checked against; without them
+it attaches unverified. A map given with <strong>--map</strong> or loaded by hand
+is kept over them. A map built for another binary, or a file over 64
+MiB, is refused, with the reason in the log.</p>
 </dd>
 <dt><strong>--nex-args</strong> <em>LINE</em></dt>
 <dd>Argument line for a NEX <strong>V1.3</strong> program. <em>LINE</em> is placed, verbatim

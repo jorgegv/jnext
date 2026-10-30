@@ -33,7 +33,7 @@ When both a `Memory.txt` and an SLD have a label, the `Memory.txt` one wins. A
 z88dk map's source lines are used only when there is no SLD; its symbols come
 last, after an SLD's labels, and are not used at all when a `Memory.txt` exists
 (a `.map` with no symbols and no source lines is not a z88dk map, and is
-ignored). If the map is refused, say for a malformed line, its symbols still
+ignored; a plain `-m` map gives its symbols, `-debug` adds the source lines). If the map is refused, say for a malformed line, its symbols still
 attach and the log and the status bar say why the source lines did not. This happens in every
 frontend, with or without the debugger window open, but only the Qt debugger
 shows the source map: with `--headless`, and in the SDL-only build, it is
@@ -58,8 +58,9 @@ are attached. A tape (`.tap`, `.tzx`, `.wav`) has its labels and a z88dk
 map's symbols attached at once,
 but its source map is not attached automatically: its program is not in memory
 until the tape has loaded, so load the source map by hand (below) once it has.
-An SLD or a z88dk map built for another binary, or one you did not load because you had loaded
-a source map yourself, brings no labels or symbols either.
+An SLD or a z88dk map built for another binary brings no labels or symbols either, and an SLD you
+did not load because you had loaded a source map yourself brings no labels. A z88dk map beside the
+program still brings its symbols then (the log says its source lines were not loaded).
 
 Symbols you loaded by hand (below), or a MAP given with `--map`, are kept: they
 are your choice, not the program's. A source map you loaded by hand is yours too
@@ -75,7 +76,7 @@ buttons, also in **Debug ▸ Source ▸ Load Source Map…** and **Load Symbols
 z88dk `.map` (told apart by what the file holds). An SLD's labels are loaded too and
 replace the symbols the same way, unless you loaded symbols yourself (**Map ▸ Load MAP
 File**, **Load Memory.txt...** or `--map`), which are kept; a later SLD replaces an earlier SLD's labels.
-A z88dk map loaded this way gives source lines only: load its symbols with
+A z88dk map loaded this way gives source lines only (the labels of an SLD loaded before it stay): load its symbols with
 **Map ▸ Load MAP File ▸ Z88DK Format…**, or `--map`. One built without `-debug`
 has no source lines and is refused, saying so.
 

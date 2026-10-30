@@ -47,7 +47,8 @@ std::string identity_note(const SourceMap& map, const SourceMapLoadResult& parse
     if (!identity) return " (program identity not verified: no section binaries beside it)";
     if (parsed.unchecked > 0)
         return " (program identity verified; " + std::to_string(parsed.unchecked) +
-               " code ranges have no section binary and were not checked)";
+               (parsed.unchecked == 1 ? " code range has no section binary and was not checked)"
+                                      : " code ranges have no section binary and were not checked)");
     return " (program identity verified)";
 }
 
@@ -156,6 +157,8 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     impl_->pause_verify_user  = false;
     impl_->source_reason.clear();
     out.count  = parsed.count;
+    // A z88dk map fills the source half only (D10): it leaves the symbols alone, an
+    // earlier hand SLD's labels included, and reports none.
     out.labels = sld ? impl_->attach_hand_labels(std::move(labels), parsed.labels) : 0;
     return out;
 }
@@ -281,9 +284,10 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     // (two transactions, design 9.1). Its source half is used only when no SLD
     // sidecar exists at all; its symbols only when no Memory.txt exists, last of
     // the program's symbol sources. A file with no symbol and no line record is not
-    // a z88dk map: ignored, nothing reported. Not read when the user's source map is
-    // kept (as for the SLD).
-    const auto zpath = user_sources ? std::nullopt : z88dk_map_sidecar(program);
+    // a z88dk map: ignored, nothing reported. When the user's source map is kept only
+    // its source half is skipped (logged, as for the SLD); its symbols follow D10's own
+    // rules (not when the user owns the symbols or a Memory.txt exists).
+    const auto zpath = z88dk_map_sidecar(program);
     SymbolTable zsyms;
     SourceMap zsrc;
     SourceMapLoadResult zparsed;
@@ -298,7 +302,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             zparsed.count = 0;   // the SLD speaks for the source half
     }
     std::optional<bool> zidentity;
-    if (zpath && zparsed.count > 0 && !tape) zidentity = impl_->verify_identity(zsrc);
+    if (zpath && zparsed.count > 0 && !tape && !user_sources) zidentity = impl_->verify_identity(zsrc);
     const bool zmismatch = zidentity && !*zidentity;
     const bool zsyms_attach = zn > 0 && !memory && !zmismatch;
     // Its labels go with it (D7): not when the file is refused whole (labels < 0),
@@ -365,6 +369,9 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         if (parsed)
             log->info("Kept the loaded source map '{}'; not loading '{}'",
                       impl_->source_map.loaded_file(), candidate.loaded_file());
+        else if (zpath && zparsed.count > 0)
+            log->info("Kept the loaded source map '{}'; not loading the source lines of '{}'",
+                      impl_->source_map.loaded_file(), zpath->string());
         return out;
     }
     if (impl_->sources_owner == Owner::Sidecar) {

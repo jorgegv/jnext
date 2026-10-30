@@ -168,14 +168,14 @@ join the symbols (a label assembled for a page names its address only
 while that page is mapped), beside any program but a tape (beside a tape
 only its labels attach), *NAME*`.Memory.txt` (or `Memory.txt`),
 NextBuild / Boriel ZX Basic symbols, beside a `.nex`, and *NAME*`.map`,
-a z88dk map built with `-debug`, beside a `.nex`, `.tap` or `.sna`: its
-symbols join the others (not when a `Memory.txt` exists) and its source
-lines attach when there is no SLD (beside a tape only its symbols
-attach). z88dk’s **-create-app** also writes the section binaries
-(*NAME*`_CODE.bin`, …) that the map is checked against; without them it
-attaches unverified. A map given with **--map** or loaded by hand is
-kept over them. A map built for another binary, or a file over 64 MiB,
-is refused, with the reason in the log.
+a z88dk map (`-m`), beside a `.nex`, `.tap` or `.sna`: its symbols join
+the others (not when a `Memory.txt` exists), and with `-debug` also its
+source lines, which attach when there is no SLD (beside a tape only its
+symbols attach). z88dk’s **-create-app** also writes the section
+binaries (*NAME*`_CODE.bin`, …) that the map is checked against; without
+them it attaches unverified. A map given with **--map** or loaded by
+hand is kept over them. A map built for another binary, or a file over
+64 MiB, is refused, with the reason in the log.
 
 **--nex-args** *LINE*  
 Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim and

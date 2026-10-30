@@ -4398,6 +4398,9 @@ int main() {
             const fs::path d = z / "d3";
             fs::create_directories(d);
             fs::copy_file(d1 / "prog.map", d / "game.map");
+            // The section binary is beside the tape: the program is not in memory yet, so its
+            // identity must not be judged (and the symbols must not go with a "mismatch").
+            fs::copy_file(d1 / "prog_CODE.bin", d / "game_CODE.bin");
             write_text(d / "game.tap", "");
             Machine m(false, MachineType::ZXN_ISSUE2);
             Debugger::SidecarLoad r;
@@ -4668,27 +4671,64 @@ int main() {
                   r.symbols > 0 && r.sources == -1 && r.problem.empty() &&
                       m.dbg->lookup_name("_main") && m.dbg->source_map().empty());
         }
-        {   // Z88-23: the identity check changes nothing in the machine
+        {   // Z88-23: the identity check changes nothing in the machine, live (PURE-01's fixture)
             const fs::path d = z / "d23";
             z88_copy("v2.4/sccz80-page20", d);
             Machine m(false, MachineType::ZXN_ISSUE2);
             z88_load(m, d / "prog.nex");
+            auto& emu = m.emu;
+            // Live: +3 timing, a contended page behind $C000 (where page 20's code is
+            // checked by its logical address in a careless reader), the floating-bus
+            // latch set, READ watches over checked ranges, a Mem subscription.
+            emu.mmu().set_machine_timing(MachineTimingMode::TimingPlus3);
+            m.dbg->nextreg_write(m.a, 0x56, 0x08);
+            emu.mmu().set_p3_floating_bus_dat(0x3C);
+            for (uint16_t at : {0xC003, 0xC010, 0x8CB5})
+                emu.debug_state().breakpoints().add_watchpoint(at, WatchType::READ);
+            Subscription sub;
+            sub.kind = EventKind::Mem;
+            sub.access = Access::Read;
+            sub.filter.lo = 0x0000;
+            sub.filter.hi = 0xFFFF;
+            sub.action = Action::Continue;
+            m.dbg->subscribe(m.a, sub);
             auto stream = [&] {
                 StateWriter measure;
-                m.emu.save_state(measure);
+                emu.save_state(measure);
                 std::vector<uint8_t> bytes(measure.position());
                 StateWriter w(bytes.data(), bytes.size());
-                m.emu.save_state(w);
+                emu.save_state(w);
                 return bytes;
             };
+            auto ring = [&] { return emu.debug_state().event_table()->size(); };
             const std::vector<uint8_t> before = stream();
-            // Page 20 is checked while it is not mapped anywhere: the check reads the
-            // page itself, through the peek path, and moves nothing.
-            const auto out = m.dbg->load_source_map((d / "prog.map").string(), false);
-            const std::vector<uint8_t> after = stream();
-            check("SRCDBG-Z88-23", "verifying a z88dk map's identity over a mapped and an unmapped page "
-                                   "leaves the whole machine state as it was",
-                  out.count > 0 && out.identity && *out.identity && before == after);
+            const size_t ring_before = ring();
+            Debugger::SourceMapLoad out;
+            {
+                DebugState::GuestExecutionScope guest(emu.debug_state());
+                out = m.dbg->load_source_map((d / "prog.map").string(), false);
+            }
+            const bool untouched = before == stream() && !emu.debug_state().data_bp_hit() &&
+                                   ring() == ring_before && emu.mmu().p3_floating_bus_dat() == 0x3C;
+            check("SRCDBG-Z88-23", "verifying a z88dk map's identity over a mapped page and an unmapped "
+                                   "one, inside the guest's scope with watches armed, changes nothing: "
+                                   "the save stream, the latch, the watch flag and the event ring",
+                  out.count > 0 && out.identity && *out.identity && untouched,
+                  "stream_equal=" + std::to_string(before == stream()) + " hit=" +
+                      std::to_string(emu.debug_state().data_bp_hit()) + " ring=" +
+                      std::to_string(ring_before) + "->" + std::to_string(ring()) + " latch=" +
+                      hex(emu.mmu().p3_floating_bus_dat()));
+            // Control: ONE guest read of $C003 in the same fixture moves all of them, so the
+            // row above cannot pass because nothing here is live.
+            {
+                DebugState::GuestExecutionScope guest(emu.debug_state());
+                (void)emu.mmu().read(0xC003);
+            }
+            check("SRCDBG-Z88-28", "control for Z88-23: ONE guest read of $C003 in the same fixture moves "
+                                   "the save stream, raises the watchpoint and enters the event ring",
+                  before != stream() && emu.debug_state().data_bp_hit() && ring() > ring_before,
+                  "hit=" + std::to_string(emu.debug_state().data_bp_hit()) + " ring=" +
+                      std::to_string(ring()));
         }
         {   // Z88-24: a refused SLD sidecar still speaks for the source half
             const fs::path d = z / "d24";
@@ -4703,7 +4743,7 @@ int main() {
                       has(r.problem, "prog.sld' rejected"),
                   r.problem);
         }
-        {   // Z88-25: the user's source map is kept, and prog.map is not read at all
+        {   // Z88-25: the user's source map is kept; prog.map's source lines are not loaded, its symbols are
             const fs::path d = z / "d25";
             z88_copy("v2.4/sccz80-debug", d);
             const fs::path plain = d / "mine.sld";
@@ -4711,13 +4751,61 @@ int main() {
             Machine m(false, MachineType::ZXN_ISSUE2);
             z88_load(m, d / "prog.nex");
             m.dbg->load_source_map(plain.string(), false);
-            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
-            check("SRCDBG-Z88-25", "with the user's source map kept, prog.map is not loaded: no source "
-                                   "lines, no symbols",
-                  r.sources == -1 && r.symbols == -1 && !m.dbg->lookup_name("_main") &&
-                      m.dbg->source_map().loaded_file() == plain.string(),
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            check("SRCDBG-Z88-25", "with the user's source map kept, prog.map's source lines are not loaded "
+                                   "(and the log says so) but its symbols still attach (D10)",
+                  r.sources == -1 && r.symbols == 19 && m.dbg->lookup_name("_main") == 0x8C92 &&
+                      m.dbg->source_map().loaded_file() == plain.string() &&
+                      has(log, "Kept the loaded source map '" + plain.string() +
+                                   "'; not loading the source lines of '" + (d / "prog.map").string() + "'"),
                   "sources=" + std::to_string(r.sources) + " symbols=" + std::to_string(r.symbols) +
-                      " file=" + m.dbg->source_map().loaded_file());
+                      " file=" + m.dbg->source_map().loaded_file() + "\n" + log);
+        }
+        {   // Z88-29: a hand z88dk map leaves an earlier hand SLD's labels alone
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d1 / "prog.nex");
+            const auto first = m.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", true);
+            const auto second = m.dbg->load_source_map(map1, true);
+            check("SRCDBG-Z88-29", "a z88dk map loaded by hand fills the source half only: the labels of "
+                                   "the hand SLD loaded before it stay, and it reports none of its own",
+                  first.labels == 12 && second.count == 46 && second.labels == 0 &&
+                      m.dbg->lookup_name("banked") == 0xC000 && !m.dbg->lookup_name("_main"),
+                  "first=" + std::to_string(first.labels) + " second=" + std::to_string(second.labels));
+        }
+        {   // Z88-30: a BOM'd SLD is an SLD
+            const fs::path d = z / "d30";
+            fs::create_directories(d);
+            write_text(d / "bom.sld", std::string("\xEF\xBB\xBF") + program_sld(p80, p90));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto out = m.dbg->load_source_map((d / "bom.sld").string(), false);
+            check("SRCDBG-Z88-30", "a UTF-8 BOM before an SLD's header sends it to the SLD loader (its own "
+                                   "error), not to the z88dk adapter's \"no source lines\"",
+                  out.count == -1 && has(out.error, "SLD") && !has(out.error, "no source lines"),
+                  out.error);
+        }
+        {   // Z88-31: the --source-map helper's line for an SLD
+            const std::string sha = "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a";
+            const fs::path d = z / "d31";
+            fs::create_directories(d);
+            write_text(d / "hash.sld", std::string("|SLD.data.version|1\n||program.name:x\n||program.sha256:") +
+                                           sha + "\n||program.org:32768\n||program.size:4\n" +
+                                           "main.bas|10||0" + kNextDevice + "main.bas|10||0|" +
+                                           std::to_string(p80) + "|32768|T|\n");
+            write_text(d / "plain.sld", program_sld(p80, p90));
+            Machine m;
+            for (unsigned i = 0; i < 4; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), uint8_t(i + 1));
+            const auto with = emulator_attach_cli_source_map(*m.dbg, (d / "hash.sld").string());
+            const auto without = emulator_attach_cli_source_map(*m.dbg, (d / "plain.sld").string());
+            check("SRCDBG-Z88-31", "the helper's line for an SLD ends \" (program identity verified)\" when "
+                                   "its hash matched and has no suffix when it carries none",
+                  with.ok && with.line == "--source-map '" + (d / "hash.sld").string() +
+                                              "': 1 source lines (program identity verified)" &&
+                      without.ok && without.line == "--source-map '" + (d / "plain.sld").string() +
+                                                        "': 6 source lines",
+                  with.line + " | " + without.line);
         }
         {   // Z88-27: the one table of program formats
             bool later = true, not_later = true, map_yes = true, map_no = true;
