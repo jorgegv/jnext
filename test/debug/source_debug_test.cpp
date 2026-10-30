@@ -5641,7 +5641,13 @@ int main() {
                       sg.by_user && !sg.pending && good->dbg->lookup_name("_main") == 0x8CA1 &&
                       sb.state == Debugger::SourceMapStatus::State::None && !sb.by_user &&
                       bad->dbg->source_map().empty() && !bad->dbg->lookup_name("_main") &&
-                      !bad->emu.debug_state().verify_hold(),
+                      !bad->emu.debug_state().verify_hold() &&
+                      has(logb, "Rejected the symbols of z88dk map '" + map + "'") &&
+                      [&] {   // exactly one source-map rejection: the sidecar's check only answers for the symbols
+                          size_t n = 0;
+                          for (size_t at = 0; (at = logb.find("Rejected z88dk source map", at)) != std::string::npos; ++at) ++n;
+                          return n == 1;
+                      }(),
                   logg + logb);
         }
         {   // TAPE-24: a user's pending map is carried into the next tape load
@@ -5769,6 +5775,99 @@ int main() {
             check("SRCDBG-TAPE-29", "SuspendScope (a save, a load) disarms a machine held only by a pending "
                                     "check and puts the hold back when it ends",
                   before && !during && ds.armed() && ds.verify_hold());
+        }
+        // ── TAPE-30..32: the deferred check on the RUN path, and landings ──────────
+        {   // TAPE-30, -31: the hook's reads, run by run_frame() with a READ watch over a checked byte
+            const fs::path d = tape / "t30";
+            const std::string tap = tape_copy(kFx, d);
+            struct Side {
+                std::unique_ptr<Machine> m;
+                uint16_t pc = 0;
+                bool hit = false;
+                size_t ring = 0;
+                bool pending = true;
+            };
+            // `with_map`: the sidecar map is pending and judges at $8000; `pre_read`: one guest read of the
+            // watched byte before the run (the control).
+            auto run = [&](bool with_map, bool pre_read) {
+                Side sd;
+                sd.m = std::make_unique<Machine>();
+                Machine& m = *sd.m;
+                park(m);
+                if (with_map) m.dbg->load_program_sidecars(tap);
+                tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
+                m.emu.debug_state().breakpoints().add_watchpoint(0x8CC5, WatchType::READ);   // inside main.c:19
+                Subscription sub;
+                sub.kind = EventKind::Mem;
+                sub.access = Access::Read;
+                sub.filter.lo = 0x0000;
+                sub.filter.hi = 0xFFFF;
+                sub.action = Action::Continue;
+                m.dbg->subscribe(m.a, sub);
+                if (pre_read) {   // one read of the watched byte at the first instruction, as the check's reader would make
+                    Subscription at = execute_stop(0x8000);
+                    Emulator* emu = &m.emu;
+                    at.handler = [emu](const jnext::dbg::Event&, Debugger&) {
+                        DebugState::GuestExecutionScope guest(emu->debug_state());
+                        (void)emu->mmu().read(0x8CC5);
+                        return Action::Continue;
+                    };
+                    m.dbg->subscribe(m.a, at);
+                    park(m);
+                    const uint8_t jp[3] = {0xC3, 0x00, 0x80};
+                    m.dbg->poke(m.a, MemSpace::cpu(), 0x6000, 3, jp);
+                }
+                m.set_pc(pre_read ? 0x6000 : 0x8000);
+                m.dbg->run(m.a);
+                m.emu.run_frame();
+                sd.pc  = m.pc();
+                sd.hit = m.emu.debug_state().data_bp_hit();   // before anything consumes it
+                sd.ring = m.emu.debug_state().event_table()->size();
+                m.dbg->pause(m.a);
+                sd.pending = m.dbg->source_map_status().pending;
+                return sd;
+            };
+            const Side with = run(true, false), without = run(false, false), ctl = run(false, true);
+            check("SRCDBG-TAPE-30", "the check made inside run_frame() with a READ watch over a checked byte "
+                                    "leaves the run as the same run without a map: it stops at the same "
+                                    "instruction (the program's own read of $8CC5, not one instruction in "
+                                    "at the hook's), with the same watch flag and event ring; and the "
+                                    "map was judged",
+                  with.pc == without.pc && with.pc != 0x8001 && with.hit == without.hit &&
+                      with.ring == without.ring && !with.pending,
+                  "pc=" + hex(with.pc) + "/" + hex(without.pc) + " hit=" + std::to_string(with.hit) + "/" +
+                      std::to_string(without.hit) + " ring=" + std::to_string(with.ring) + "/" +
+                      std::to_string(without.ring) + " pending=" + std::to_string(with.pending));
+            check("SRCDBG-TAPE-31", "control for TAPE-30: ONE guest read of $8CC5 made at the first instruction "
+                                    "(as the check's reader would make it) moves the observation: the run "
+                                    "stops one instruction in, not where the program reads the byte, so "
+                                    "TAPE-30's stop PC can see a read made by the check",
+                  ctl.pc == 0x8001 && ctl.pc != without.pc,
+                  "ctl pc=" + hex(ctl.pc) + " hit=" + std::to_string(ctl.hit) + " vs " + hex(without.pc));
+        }
+        {   // TAPE-32: a verdict is applied before a landing nobody read in between
+            const fs::path d = tape / "t32";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m;
+            park(m);
+            m.dbg->load_program_sidecars(tap);
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", kFlip, 0x8000);
+            m.set_pc(0x8000);
+            m.dbg->run(m.a);
+            m.emu.run_frame();      // the hook judges the wrong byte; no reader runs recheck()
+            m.dbg->pause(m.a);
+            Debugger::SourceMapStatus st;
+            const std::string log = debugger_log_of([&] {
+                (void)m.dbg->reset(m.a, ResetKind::Soft);
+                st = m.dbg->source_map_status();
+            });
+            check("SRCDBG-TAPE-32", "a wrong byte judged by the hook and a reset before any reader: the map "
+                                    "is dropped for the tape verdict (reason and Error line), not for the "
+                                    "landing's own \"does not match the program now in memory\"",
+                  st.state == Debugger::SourceMapStatus::State::None && has(st.reason, "from tape") &&
+                      has(log, "Rejected z88dk source map '" + (d / "prog.map").string() +
+                               "': the program loaded from tape does not match its binary identity"),
+                  st.reason + "\n" + log);
         }
     }
 
