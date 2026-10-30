@@ -1733,6 +1733,17 @@ int main() {
                     if ((run(args) == 0) != c.second)
                         bad.push_back(std::string("--set ") + c.first + (c.second ? " refused" : " accepted"));
                 }
+                // The one DOCUMENTED difference of vocabulary: --speed clamps to 10..1000 where the
+                // key refuses a value outside it (man page, startup.emulator_speed_percent).
+                for (const char* v : { "5", "1001", "2000" }) {
+                    if (run(std::string("--speed ") + v + " --version") != 0)
+                        bad.push_back(std::string("--speed no longer clamps ") + v);
+                    if (run(std::string("--set startup.emulator_speed_percent=") + v + " --version") == 0)
+                        bad.push_back(std::string("--set startup.emulator_speed_percent=") + v + " accepted");
+                }
+                for (const char* v : { "10", "100", "1000" })
+                    if (run(std::string("--set startup.emulator_speed_percent=") + v + " --version") != 0)
+                        bad.push_back(std::string("--set startup.emulator_speed_percent=") + v + " refused");
                 // An allowlist with the ESP off is refused naming the spelling used; an EMPTY list
                 // restricts nothing, claims nothing, and is accepted.
                 {
