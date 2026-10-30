@@ -126,7 +126,7 @@
 //               speed in bits 5:4 (zxnext.vhd:5785-5791, 5817, 5903), so a write of 3
 //               reads 0x33.
 //   CLI-SET-01  the man page's Settings subsection lists every settable key (the
-//               debugger_keys family with its twelve action ids).
+//               debugger_keys family with its seventeen action ids).
 //   CLI-SET-02  ...and nothing else: no unknown key, no key that is not a setting, no repeat.
 //   CLI-SET-03  `--help` lists every settable key on its own entry line.
 //   CLI-SET-04  a refusal table: exit 1, the key and the value named, stdout clean, no crash.
@@ -141,6 +141,7 @@
 //   CLI-SET-11  --set nextpi.* reaches the NextPi settings (the "is ignored" warning names
 //               the flag).
 //   CLI-SET-12  a flag and --set accept the same values of the same key.
+//   CLI-SET-14  the `--help` debugger_keys.ACTION entry names every debugger action id.
 //
 // Every row above was mutation-tested: the thing it protects was broken, the
 // suite rebuilt, and the row confirmed to fail. CLI-BIN-01's timeout guard
@@ -582,7 +583,7 @@ int main() {
         std::vector<std::string> missing;
         for (const std::string& w : want)
             if (std::find(names.begin(), names.end(), w) == names.end()) missing.push_back(w);
-        // The family entry names every action id, or a twelfth could go undocumented.
+        // The family entry names every action id, or an eighteenth could go undocumented.
         for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i) {
             const std::string id = jnext::dbgkeys::info(static_cast<jnext::dbgkeys::Action>(i)).id;
             if (text.find("`" + id + "`") == std::string::npos) missing.push_back("debugger_keys." + id);
@@ -1006,6 +1007,8 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-SET-12", "a flag and --set accept the same values",
                  "jnext binary not built at " + bin);
+            skip("CLI-SET-14", "`--help` names every debugger action id",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -1044,6 +1047,8 @@ int main() {
             skip("CLI-SET-11", "--set nextpi.* reaches the NextPi settings",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-SET-12", "a flag and --set accept the same values",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-SET-14", "`--help` names every debugger action id",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -1482,6 +1487,27 @@ int main() {
                         nohelp.push_back(std::string(k.section) + "." + k.name);
                 }
                 check("CLI-SET-03", "`jnext --help` lists every settable key on its own entry line",
+                      nohelp.empty(), "missing from --help: " + join(nohelp));
+            }
+
+            // CLI-SET-14: the --help entry of the debugger_keys family names every action id,
+            // so an action added to the table cannot be missing from the text a user reads.
+            {
+                std::vector<std::string> nohelp;
+                const size_t at = help_text.find("\n  debugger_keys.ACTION=");
+                // The entry wraps onto deeper-indented lines; it ends at the next two-space entry line.
+                size_t end = at == std::string::npos ? at : at + 1;
+                while (end != std::string::npos && (end = help_text.find("\n  ", end)) != std::string::npos &&
+                       end + 3 < help_text.size() && help_text[end + 3] == ' ')
+                    ++end;
+                const std::string entry = at == std::string::npos ? std::string()
+                    : help_text.substr(at, end == std::string::npos ? std::string::npos : end - at);
+                if (entry.empty()) nohelp.push_back("no debugger_keys.ACTION entry in --help");
+                for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT && !entry.empty(); ++i) {
+                    const std::string id = jnext::dbgkeys::info(static_cast<jnext::dbgkeys::Action>(i)).id;
+                    if (entry.find(id) == std::string::npos) nohelp.push_back(id);
+                }
+                check("CLI-SET-14", "`--help` names every debugger action id in the debugger_keys.ACTION entry",
                       nohelp.empty(), "missing from --help: " + join(nohelp));
             }
 
