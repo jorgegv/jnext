@@ -1432,6 +1432,37 @@ static void test_config_keys(QTemporaryDir& dir) {
     set_group("AC-KEYS");
     using namespace config_keys;
 
+    // AC-98 - normalise_legacy_layout() names the six gains from the table: EACH of them is
+    // rewritten from a Qt5 float @Variant by load() alone (CF-12 pins only gain_db). One file
+    // per key, because a sync rewrites every float in the file as text: with all six planted
+    // together, dropping one from the list would still pass.
+    {
+        std::string bad;
+        int n = 0;
+        for (const char* k : {"gain_db", "gain_beeper_db", "gain_ay0_db", "gain_ay1_db", "gain_ay2_db", "gain_dac_db"}) {
+            const QString p = fresh_ini_path(dir, (std::string("keys-98-") + k).c_str());
+            plant(p, (std::string("[audio]\n") + k + "=@Variant(\\0\\0\\0\\x87?\\xc0\\0\\0)\n").c_str());
+            { AppConfig c(p); c.load(); }   // no save(): load() alone rewrites the file
+            const QByteArray f = slurp(p);
+            ++n;
+            if (!has_line(f, (std::string(k) + "=1.5").c_str()) || f.contains("@")) bad += std::string(k) + " ";
+        }
+        check("AC-98", "load() alone rewrites each of the six Qt5 float @Variant gains as text (one file per key)",
+              bad.empty() && n == 6, bad);
+    }
+
+    // AC-99 - a root key other than config_version keeps its name, under [config].
+    {
+        const QString p = fresh_ini_path(dir, "keys-99");
+        plant(p, "stray_key=x\n[startup]\ncpu_speed=2\n");
+        { AppConfig c(p); c.load(); }
+        QSettings s(p, QSettings::IniFormat);
+        check("AC-99", "a legacy root key other than config_version lands at config/<key> on load()",
+              s.value("config/stray_key").toString() == "x" && !s.contains("stray_key") &&
+                  !s.contains("startup/stray_key"),
+              slurp(p).toStdString());
+    }
+
     // AC-94
     {
         const QString p = fresh_ini_path(dir, "keys-94");

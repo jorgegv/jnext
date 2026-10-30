@@ -73,12 +73,22 @@ bool canon_value(const Key& k, const std::string& key, const std::string& val,
                                       + " to " + std::to_string(static_cast<long>(k.hi)));
         }
         case Type::Float: {
+            // Leading whitespace and one leading '+' are accepted, as the dedicated
+            // --audio-gain-*-db flags (std::stof), the file reader (toDouble) and
+            // the Int type (strtol) accept them; trailing junk is not. "+-3" is not.
             double d = 0;
             const char* b = val.c_str();
             const char* e = b + val.size();
-            const auto r = std::from_chars(b, e, d);
-            if (!val.empty() && r.ec == std::errc() && r.ptr == e && std::isfinite(d)
+            while (b < e && std::isspace(static_cast<unsigned char>(*b))) ++b;
+            if (b < e && *b == '+') {
+                ++b;
+                if (b < e && (*b == '-' || *b == '+')) b = e;   // refused below
+            }
+            std::from_chars_result r{b, std::errc::invalid_argument};
+            if (b < e) r = std::from_chars(b, e, d);
+            if (r.ec == std::errc() && r.ptr == e && std::isfinite(d)
                 && d >= k.lo && d <= k.hi) {
+                if (d == 0) d = 0.0;   // -0 -> 0: what AppConfig::save() writes
                 canon = num(d);
                 return true;
             }

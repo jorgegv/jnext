@@ -28,7 +28,7 @@ namespace config_keys {
 enum class Type : uint8_t {
     Bool,         // true | false
     Int,          // whole number in [lo, hi]
-    Float,        // finite number in [lo, hi]
+    Float,        // finite number in [lo, hi]; a leading blank or one leading + is accepted (as --audio-gain-*-db and the file reader do), -0 reads as 0
     Word,         // one of the words in `values` (or the type's own parser)
     Text,         // verbatim
     TrimmedText,  // surrounding whitespace removed, as load() does

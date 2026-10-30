@@ -689,6 +689,11 @@ static void test_key_names(const QString& dir)
     wipe_dir(dir);
 
     QSet<QString> written;
+    QString toggle_false, toggle_true;
+    const auto raw_attached = [](const QString& file) {
+        QSettings s(file, QSettings::IniFormat);
+        return s.value(QString::fromStdString(config_keys::path(config_keys::KeyId::DebuggerAttached))).toString();
+    };
     {
         Fixture fx;
         QAction* attach = nullptr;
@@ -696,6 +701,12 @@ static void test_key_names(const QString& dir)
             for (QAction* a : fx.dbg->findChildren<QAction*>())
                 if (a->text().remove(QLatin1Char('&')) == QLatin1String("Attach to Emulator Window")) attach = a;
         if (fx.ok && attach) {
+            // The toggle's OWN write, read before any save_position() can mask it.
+            attach->setChecked(true);
+            attach->setChecked(false);
+            toggle_false = raw_attached(conf);
+            attach->setChecked(true);
+            toggle_true = raw_attached(conf);
             attach->setChecked(false);
             QFile::remove(conf);
             fx.dbg->save_position();   // detached: size, attached and position
@@ -718,8 +729,9 @@ static void test_key_names(const QString& dir)
                 want.insert(QString::fromStdString(config_keys::path(k.id)));
         QStringList w(written.begin(), written.end());
         w.sort();
-        check("DWK-01", "the keys DebuggerWindow writes under [debugger] (detached, then attached) are exactly the table's DebuggerWindow-owned keys",
-              fx.ok && attach && written == want && want.size() == 3, w.join(',').toStdString());
+        check("DWK-01", "the keys DebuggerWindow writes under [debugger] (detached, then attached) are exactly the table's DebuggerWindow-owned keys, and the Attach toggle itself writes debugger/attached before any save",
+              fx.ok && attach && written == want && want.size() == 3 &&
+                  toggle_false == QLatin1String("false") && toggle_true == QLatin1String("true"), w.join(',').toStdString());
     }
     wipe_dir(dir);
 }

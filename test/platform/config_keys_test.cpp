@@ -202,6 +202,13 @@ int main() {
         if (canon("audio.gain_db=-24") != "-24") bad += "-24 ";
         if (canon("audio.gain_db=24") != "24") bad += "24 ";
         if (canon("audio.gain_db=-1.5") != "-1.5") bad += "-1.5 ";
+        // The vocabulary of --audio-gain-db and of the file reader: a leading '+', leading blanks.
+        if (canon("audio.gain_db=+3") != "3") bad += "+3 ";
+        if (canon("audio.gain_db= 3") != "3") bad += "' 3' ";
+        if (canon("audio.gain_db=-0") != "0") bad += "-0 ";
+        if (canon("audio.gain_db=+0") != "0") bad += "+0 ";
+        for (const char* v : {"+-3", "++3", "+", "3 ", "- 3"})
+            if (canon(std::string("audio.gain_db=") + v) != "<refused>") bad += std::string("accepts '") + v + "' ";
         for (const char* v : {"-24.1", "25", "nan", "inf", "x", ""})
             if (canon(std::string("audio.gain_dac_db=") + v) != "<refused>") bad += std::string("accepts '") + v + "' ";
         check("SETK-09", "a Float is a finite number in -24..24 in the text AppConfig writes; out of range, nan, inf and junk are refused",
