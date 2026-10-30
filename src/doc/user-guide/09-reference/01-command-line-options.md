@@ -1242,11 +1242,13 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 :   The key combination of a debugger action, like the **Preferences**
     Debugger Keys tab: *ACTION* is `run`, `pause`, `step_into`,
     `step_over`, `step_out`, `step_back`, `frame_back`, `run_to_cursor`,
-    `run_to_eof`, `run_to_eosl`, `trace_toggle` or `trace_export`, and
-    `none` unbinds it. A combination that is not legal there, or that
-    another action already holds (unless the same command line frees
-    it), is refused with exit status 1 before the window opens. The Qt
-    window with the debugger.
+    `run_to_eof`, `run_to_eosl`, `trace_toggle`, `trace_export`,
+    `source_step_into`, `source_step_over`, `source_step_out`,
+    `source_step_back` or `source_reverse_continue`, and `none` unbinds
+    it. A combination that is not legal there, or that another action
+    already holds (unless the same command line frees it), is refused
+    with exit status 1 before the window opens. The Qt window with the
+    debugger.
 
 `esp.enabled` *true\|false*
 :   The emulated ESP-01 WiFi module; **--esp** and **--no-esp**. All

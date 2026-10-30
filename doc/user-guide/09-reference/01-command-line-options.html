@@ -4804,11 +4804,13 @@ and the SDL-only build.</dd>
 <dd>The key combination of a debugger action, like the <strong>Preferences</strong>
 Debugger Keys tab: <em>ACTION</em> is <code>run</code>, <code>pause</code>, <code>step_into</code>,
 <code>step_over</code>, <code>step_out</code>, <code>step_back</code>, <code>frame_back</code>, <code>run_to_cursor</code>,
-<code>run_to_eof</code>, <code>run_to_eosl</code>, <code>trace_toggle</code> or <code>trace_export</code>, and
-<code>none</code> unbinds it. A combination that is not legal there, or that
-another action already holds (unless the same command line frees
-it), is refused with exit status 1 before the window opens. The Qt
-window with the debugger.</dd>
+<code>run_to_eof</code>, <code>run_to_eosl</code>, <code>trace_toggle</code>, <code>trace_export</code>,
+<code>source_step_into</code>, <code>source_step_over</code>, <code>source_step_out</code>,
+<code>source_step_back</code> or <code>source_reverse_continue</code>, and <code>none</code> unbinds
+it. A combination that is not legal there, or that another action
+already holds (unless the same command line frees it), is refused
+with exit status 1 before the window opens. The Qt window with the
+debugger.</dd>
 <dt><code>esp.enabled</code> <em>true|false</em></dt>
 <dd>The emulated ESP-01 WiFi module; <strong>--esp</strong> and <strong>--no-esp</strong>. All
 frontends.</dd>
