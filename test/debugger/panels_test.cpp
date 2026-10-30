@@ -1693,6 +1693,11 @@ static void test_watch_panel() {
                            t->columnWidth(col) - 2 * hm;
             // sized to its content, so narrower than the default section width
             ok = ok && t->columnWidth(col) < hv->defaultSectionSize();
+            // ...exactly its content size, and by ResizeToContents (not a fixed width)
+            ok = ok && hv->sectionResizeMode(col) == QHeaderView::ResizeToContents;
+            ok = ok && t->columnWidth(col) ==
+                           std::max(static_cast<const QAbstractItemView*>(t)->sizeHintForColumn(col),
+                                    hv->sectionSizeHint(col));
         }
         // Label stays at the default width whatever its text
         ok = ok && t->columnWidth(1) == hv->defaultSectionSize();
