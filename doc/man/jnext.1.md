@@ -1043,9 +1043,11 @@ naming the option and the value, and exits with status 1.
     longest matching trailing part of the recorded name first and the
     directories in the order given. For this run only, like **\--set**
     `paths.source_dirs`, whose list it appends to (a later **\--set** of that
-    key replaces what came before). The saved list is edited under
-    **Preferences > Paths**, and **Locate File...** in the Source tab adds a
-    directory.
+    key replaces what came before). A list given on the command line REPLACES
+    the saved one for the run; directories added by **Locate File...** still
+    apply. A relative *DIR* is taken from the working directory. The saved list
+    is edited under **Preferences > Paths**, and **Locate File...** in the
+    Source tab adds a directory.
 
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for example `0x00FF`).
@@ -1146,7 +1148,9 @@ The entries say which frontends use the key: the Qt window, the SDL-only build
 `paths.source_dirs` *DIRS*
 :   The directories the debugger's Source tab also searches for source files,
     separated by `:` (`;` on Windows); **\--source-dir** appends one. Empty
-    means none. The Qt window with the debugger.
+    means none. Given on the command line, the list REPLACES the saved one for
+    that run. A relative directory is taken from the working directory. The Qt
+    window with the debugger.
 
 `screenshot.quick_dir` *PATH*
 :   The Quick Screenshot directory; empty means `~/.jnext/screenshots`. The Qt

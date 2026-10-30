@@ -1292,6 +1292,9 @@ part of the recorded name first and the directories in the order given.
 For this run only, like \f[B]\-\-set\f[R] \f[CR]paths.source_dirs\f[R],
 whose list it appends to (a later \f[B]\-\-set\f[R] of that key replaces
 what came before).
+A list given on the command line REPLACES the saved one for the run;
+directories added by \f[B]Locate File\&...\f[R] still apply.
+A relative \f[I]DIR\f[R] is taken from the working directory.
 The saved list is edited under \f[B]Preferences > Paths\f[R], and
 \f[B]Locate File\&...\f[R] in the Source tab adds a directory.
 .TP
@@ -1418,6 +1421,8 @@ The directories the debugger\(cqs Source tab also searches for source
 files, separated by \f[CR]:\f[R] (\f[CR];\f[R] on Windows);
 \f[B]\-\-source\-dir\f[R] appends one.
 Empty means none.
+Given on the command line, the list REPLACES the saved one for that run.
+A relative directory is taken from the working directory.
 The Qt window with the debugger.
 .TP
 \f[CR]screenshot.quick_dir\f[R] \f[I]PATH\f[R]

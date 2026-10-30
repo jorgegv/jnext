@@ -250,11 +250,12 @@ session-only list through `on_source_dir_located()` (kept when the configured li
 the effective list (configured, then located, duplicates dropped) is pushed to the panel on every
 change and again in `ensure_window()`, since the window is lazy. Locate derives the directory with
 `source_search::root_for()`, refuses a file of another name, and asks whether to save it
-(`source_dir_save_requested`, which MainWindow appends to `[paths] source_dirs`). The manager
+(`source_dir_save_requested`, which MainWindow appends to `[paths] source_dirs`, refusing a directory
+that holds the list separator, as Preferences and `--source-dir` do: it would load back as two). The manager
 announces each change (`source_dirs_changed`; `src/debugger/` names no logger) and MainWindow logs
-`Source search path: ...`. Two records get a message of their own before any file is read: a z88dk
-record in a `.m4` file (z88dk counts the m4 output, which the build does not keep) and a line past
-the end of the file found. The label's tooltip is the path found.
+`Source search path: ...`. Two records get a message of their own: a z88dk record in a `.m4` file, decided before any file is
+read (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
+file found, decided after it is read (its line count ignores the final newline). The label's tooltip is the path found.
 Load MAP (`on_load_map_z88dk()`, `on_load_map_simple()`) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug > Source actions
 connect to the same `DebuggerManager` slots as its buttons, and their enabled

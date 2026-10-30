@@ -1384,9 +1384,9 @@ identity from the section binaries, the symbol loaders' file-type refusal).
 order, the longest trailing part first, the fixture's recorded CRT name, a Windows spelling, no
 escape by `..`, `root_for` and its round trip, the list spelling); `config_keys_test` SETK-17..19;
 `app_config_test` AC-100 (and AC-97 now covers nine keys); `debugger_source_panel_test`
-QSRC-66..74 (the fixture map in `build/` with its sources in `src/`, Locate File... with No, Yes
+QSRC-66..78 (the fixture map in `build/` with its sources in `src/`, Locate File... with No, Yes
 and a wrong name, the z88dk `.m4` message, the past-the-end message, the lazy window, the located
-directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..04 (file,
+directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..06 (file,
 command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
 
 **Row IDs are global**: the duplicate-ID gate refuses a reuse. IDs written into a sub-issue's

@@ -60,7 +60,8 @@ quick capture always lands in the same place. It also sets how many Quick Save s
 debugger it also holds the **Source search path**: the directories, one per line,
 where the Source tab looks for the files a source map names when they are not
 beside the map ([6.1.14](../06-debugger/functions/14-source-level-debugging.md));
-`--source-dir` adds to it for one run.
+a list given with `--source-dir` or `--set paths.source_dirs` replaces it for that run (the
+file is not changed).
 
 **Debugger Keys** rebinds the debugger's own keys — see
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md). The tab is only

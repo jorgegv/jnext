@@ -146,12 +146,18 @@ or in a container. The Source tab looks for each file in this order:
    search never leaves the directory it was given.
 
 Add to the search path with **Preferences ▸ Paths ▸ Source search path** (one
-directory per line, saved), with `--source-dir DIR` (repeat it; for that run
-only, `paths.source_dirs` with `--set`), or with **Locate File...**. When the
+directory per line, saved), with `--source-dir DIR` (repeat it; `paths.source_dirs`
+with `--set`), or with **Locate File...**. A list given on the command line
+**replaces** the saved one for that run and is never written to the file;
+directories added by **Locate File...** still apply. A relative directory is
+taken from the working directory JNEXT was started in. When the
 tab says `main.c:19 - source file not found`, **Locate File...** asks for the
 file the map names; the directory it is in is searched from then on, and JNEXT
 asks whether to save it in Preferences too (the default is No). Choosing a file
-of another name is refused.
+of another name is refused. The saved list is one line of `jnext.conf` with the directories
+separated by `:` (`;` on Windows), so a directory whose name holds that character is refused by
+Preferences, by `--source-dir` and by the Save question of **Locate File...** (it is still searched
+for the session).
 
 z88dk records its own library files too: the headers (`stdint.h`) and the
 `.inc` files, with absolute names. A map built on this machine finds them where
@@ -162,10 +168,13 @@ locate one of its files: one pick covers every file under it.
 The start-up code (`zxn_crt.asm.m4`, which holds the program's first
 instruction) cannot be shown. z88dk numbers its lines in the output of the `m4`
 macro processor, which the build does not keep, so no file on disk has them. The
-tab says so and you use the disassembly there. For the same reason, a program
-loaded or reloaded (**Alt+L**) while the machine is paused stops at its first
-instruction, which for z88dk is that start-up code and not yet `main`: press
-**Continue**, or set a breakpoint on `main` first.
+tab says so and you use the disassembly there.
+
+A program loaded or reloaded (**Alt+L**) while the machine is paused leaves it
+paused: a paused machine stays paused, at the new program counter. A NEX file
+stops at its entry point, which for z88dk is that start-up code (`__Start`) and
+not yet `main`: press **Continue**, or set a breakpoint on `main` first. A
+running machine keeps running.
 
 When the file is found but is shorter than the line the map names, the tab says
 so (`main.c:19 - /path/main.c has only 12 lines; it is not the text the build
