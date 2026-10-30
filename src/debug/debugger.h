@@ -986,7 +986,7 @@ public:
         int labels = -1;
     };
 
-    /// CAP-SRC — load a source map, an sjasmplus SLD file or a z88dk `-debug` map
+    /// CAP-SRC - load a source map, an sjasmplus SLD file or a z88dk `-debug` map
     /// (told by its first line), replacing the current map only on success. A
     /// z88dk map fills the source half only (its symbols stay with Load MAP and
     /// `--map`) and is refused when it has no line records. An SLD's labels
