@@ -302,7 +302,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             zparsed.count = 0;   // the SLD speaks for the source half
     }
     std::optional<bool> zidentity;
-    if (zpath && zparsed.count > 0 && !tape && !user_sources) zidentity = impl_->verify_identity(zsrc);
+    if (zpath && zparsed.count > 0 && !tape) zidentity = impl_->verify_identity(zsrc);
     const bool zmismatch = zidentity && !*zidentity;
     const bool zsyms_attach = zn > 0 && !memory && !zmismatch;
     // Its labels go with it (D7): not when the file is refused whole (labels < 0),
@@ -369,7 +369,15 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         if (parsed)
             log->info("Kept the loaded source map '{}'; not loading '{}'",
                       impl_->source_map.loaded_file(), candidate.loaded_file());
-        else if (zpath && zparsed.count > 0)
+        else if (zpath && zmismatch) {
+            // Its binaries are another build's: the whole map is rejected, symbols included,
+            // whether or not its source lines would have been used.
+            log->error("Rejected z88dk source map '{}': the loaded program's bytes differ "
+                       "from its binary identity", zsrc.loaded_file());
+            add_problem(out, "source map '" + zsrc.loaded_file() +
+                                 "' rejected: the loaded program's bytes differ from its "
+                                 "binary identity");
+        } else if (zpath && zparsed.count > 0)
             log->info("Kept the loaded source map '{}'; not loading the source lines of '{}'",
                       impl_->source_map.loaded_file(), zpath->string());
         return out;

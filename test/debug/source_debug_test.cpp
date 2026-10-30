@@ -4823,6 +4823,33 @@ int main() {
                   std::string(later ? "" : "later ") + (not_later ? "" : "not_later ") +
                       (map_yes ? "" : "map_yes ") + (map_no ? "" : "map_no"));
         }
+        {   // Z88-32: Z88-25's setup with prog.map's binary another build's
+            const fs::path d = z / "d32";
+            z88_copy("v2.4/sccz80-debug", d);
+            std::string bin;
+            {
+                std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
+                bin.assign(std::istreambuf_iterator<char>(in), {});
+            }
+            bin[0x0CB5] = static_cast<char>(bin[0x0CB5] ^ 0xFF);
+            write_text(d / "prog_CODE.bin", bin);
+            const fs::path plain = d / "mine.sld";
+            write_text(plain, program_sld(p80, p90));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_source_map(plain.string(), false);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            check("SRCDBG-Z88-32", "with the user's source map kept, a prog.map whose binaries are another "
+                                   "build's is still rejected: no symbols, the user's map kept, the "
+                                   "rejection logged and reported",
+                  r.symbols == -1 && r.sources == -1 && !m.dbg->lookup_name("_main") &&
+                      m.dbg->source_map().loaded_file() == plain.string() &&
+                      has(log, "Rejected z88dk source map") && has(r.problem, "prog.map' rejected"),
+                  "symbols=" + std::to_string(r.symbols) + " problem=" + r.problem);
+        }
         {   // Z88-26: a rewind across the load drops the z88dk map and brings it back
             const fs::path d = z / "d26";
             z88_copy("v2.4/sccz80-debug", d);
