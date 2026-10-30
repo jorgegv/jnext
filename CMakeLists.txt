@@ -1,5 +1,22 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Static-library de-duplication is left to the linker's own platform setting
+# (GH #416). jnext_core <-> jnext_debug is a deliberate cycle (see
+# src/debug/CMakeLists.txt), so under the OLD behaviour of CMP0156 CMake repeats
+# that group of archives on every link line: GNU ld needs the repeat, but Apple's
+# linker resolves backward references itself and warns "ignoring duplicate
+# libraries" about each copy. With NEW, CMake reads
+# CMAKE_<LANG>_LINK_LIBRARIES_PROCESSING, which only the Apple linker module
+# sets (ORDER=REVERSE DEDUPLICATION=ALL); GNU ld keeps the traditional repeats,
+# so Linux and MinGW link lines are unchanged. CMP0179 keeps the FIRST
+# occurrence when de-duplicating. Guarded: CMake < 3.29 has neither policy.
+if(POLICY CMP0156)
+    cmake_policy(SET CMP0156 NEW)
+endif()
+if(POLICY CMP0179)
+    cmake_policy(SET CMP0179 NEW)
+endif()
+
 # Read version from version.yaml (single source of truth).
 # Re-run CMake automatically when version.yaml changes so the generated
 # build/generated/version.h (and JNEXT_VERSION_STRING baked into the binary)
@@ -8,6 +25,17 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/version.yaml")
 include(cmake/GenerateVersion.cmake)
 project(jnext VERSION "${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" LANGUAGES C CXX)
+
+# Fedora's %mingw64_cmake (mingw64-cmake) and %cmake (the rpm spec) pass these
+# -D variables to every project; jnext uses none of them, and CMake then prints
+# "Manually-specified variables were not used" on every configure (GH #416).
+# Reading a variable marks it used. The list is exactly the macros' names, so a
+# typo in one of jnext's own -D options is still reported.
+foreach(_jnext_fedora_var INCLUDE_INSTALL_DIR SHARE_INSTALL_PREFIX SYSCONF_INSTALL_DIR
+        LIB_INSTALL_DIR LIB_SUFFIX CMAKE_INSTALL_DO_STRIP CMAKE_Fortran_FLAGS_RELEASE
+        CMAKE_VERBOSE_MAKEFILE)
+    set(_jnext_fedora_unused "${${_jnext_fedora_var}}")
+endforeach()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -344,6 +372,12 @@ add_subdirectory(tools/gen-snapshot-schema)
 #     first so it always wins when installed; Qt5 is only ever picked as a
 #     fallback on a host with no Qt6 at all.
 if(ENABLE_QT_UI OR ENABLE_DEBUGGER)
+    # Qt6's CMake macros warn, when cross-compiling for Windows, that no
+    # host-runnable qtpaths exists "for deployment purposes" (Fedora's
+    # mingw64-qt6-qtbase ships none). That only concerns Qt's deployment API
+    # (qt_generate_deploy_app_script, windeployqt), which jnext does not use:
+    # packaging/windows/bundle-dlls.sh bundles the DLLs. Qt's own switch.
+    set(QT_NO_QTPATHS_DEPLOYMENT_WARNING ON)
     if(JNEXT_FORCE_QT5)
         set(JNEXT_QT_MAJOR 5)
     else()
@@ -452,9 +486,15 @@ endif()
 # the LTO *link* step — not a per-TU compile — so it must be silenced on both
 # the compile and link of the jnext target (GCC only). Our own code keeps the
 # warning; only this third-party false positive is suppressed.
+# The MinGW build (Fedora's %mingw64_cmake passes BUILD_SHARED_LIBS=ON) builds
+# spdlog as libspdlog.dll, whose own LTO link instantiates the same fmt code
+# (write_fixed -> write_significand -> write2digits) and warns the same way, so
+# the spdlog target's link gets the same suppression (GH #416). For a static
+# spdlog (Linux) link options on a static library are ignored: no effect.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(jnext PRIVATE -Wno-stringop-overflow)
     target_link_options(jnext PRIVATE -Wno-stringop-overflow)
+    target_link_options(spdlog PRIVATE -Wno-stringop-overflow)
 endif()
 
 # Windows: embed the application icon and the activeCodePage=UTF-8 manifest

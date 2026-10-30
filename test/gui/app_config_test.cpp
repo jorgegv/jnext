@@ -1247,11 +1247,14 @@ static void test_file_layout(QTemporaryDir& dir) {
     const QString p7 = fresh_ini_path(dir, "layout_idem");
     { AppConfig c(p7); c.save(); }
     const QDateTime past = QDateTime::fromSecsSinceEpoch(1000000000);
-    { QFile f(p7); f.open(QIODevice::ReadWrite); f.setFileTime(past, QFileDevice::FileModificationTime); }
+    bool touched = false;
+    { QFile f(p7); touched = f.open(QIODevice::ReadWrite)
+                              && f.setFileTime(past, QFileDevice::FileModificationTime); }
     const QByteArray before = slurp(p7);
     { AppConfig c(p7); c.load(); }
     check("CF-07", "load() of a new-format file leaves its bytes and mtime unchanged",
-          slurp(p7) == before && QFileInfo(p7).lastModified() == past);
+          touched && slurp(p7) == before && QFileInfo(p7).lastModified() == past,
+          touched ? std::string() : std::string("touched=0 (test setup could not set the mtime)"));
 
     // A hand-edited rejected value survives the legacy rewrite.
     const QString p8 = fresh_ini_path(dir, "layout_banana");

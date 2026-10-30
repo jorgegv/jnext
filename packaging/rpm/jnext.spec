@@ -45,6 +45,12 @@ running programs under CI.
 %autosetup -n %{name}-%{version}
 
 %build
+# The cmake macro adds -DBUILD_SHARED_LIBS=ON, which would build the bundled
+# spdlog as libspdlog.so: jnext would link it, the package would not install it
+# (spdlog's install rules are off as a subproject) and rpm would then require a
+# libspdlog.so.1.x that the distro's spdlog does not provide. Link it statically.
+# (No percent sign in this comment: rpm expands macros even inside comments.)
+%undefine _cmake_shared_libs
 %cmake -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
 %cmake_build
 

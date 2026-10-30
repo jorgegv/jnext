@@ -100,6 +100,11 @@ modules:
         # out — a branch tip locally, the detached release tag in CI — so the
         # same manifest is portable across both without a hard-coded ref (the
         # git source otherwise defaults to `master`, which this repo lacks).
+        # Side effect, harmless: flatpak-builder creates a local branch literally
+        # named HEAD, so the build log carries two "refname 'HEAD' is ambiguous"
+        # warnings from git (both names resolve to the same commit). Known and
+        # expected (GH #416); any fix needs a per-build ref or a generated
+        # manifest, which costs more than the two log lines.
         branch: HEAD
       # The training's SD image source (see above). The same zip jnext's
       # provisioner downloads (kDistroUrl, src/core/sdcard_provisioner.cpp).

@@ -7,7 +7,7 @@ model: sonnet
 
 You run the jnext test triplet, or the full batch gate when the brief asks for it. That's it. You don't fix bugs, you don't audit, you don't review.
 
-The **batch gate** (CLAUDE.md merge protocol step 2) is the full gate on `main`'s tip, run in a detached worktree (`~/tmp/worktrees/main-gate`):
+The **batch gate** (CLAUDE.md merge protocol step 2) is the full gate on `main`'s tip, run in a detached worktree (`~/tmp/worktrees/jnext/main-gate`):
 
 1. `make clean && make gui-release`;
 2. `make unit-test`, `make unit-test-sdl`, `make unit-test-win`;
