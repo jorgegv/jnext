@@ -65,6 +65,9 @@
 #include "video/ula.h"
 
 #include <QGroupBox>
+#include <QHeaderView>
+#include <QStyle>
+#include <QFontMetrics>
 #include <QAbstractButton>
 #include <QApplication>
 #include <QMenuBar>
@@ -1432,24 +1435,25 @@ static void test_watch_panel() {
         click_and_answer(button_named(&wp, "Add"), add);
         check("QWP-01",
               "Add opens the dialog and a Byte watch appears as $ADDR / label / "
-              "Byte / $XX",
+              "Byte / $XX (Nd)",
               built && add.seen && wp.watch_count() == 1 &&
                   wcell(&wp, 0, 0) == "$9000" && wcell(&wp, 0, 1) == "counter" &&
-                  wcell(&wp, 0, 2) == "Byte" && wcell(&wp, 0, 3) == "$A1",
+                  wcell(&wp, 0, 2) == "Byte" && wcell(&wp, 0, 3) == "$A1 (161d)",
               fmt("seen=%d n=%d row=%s|%s|%s|%s", add.seen, wp.watch_count(),
                   s(wcell(&wp, 0, 0)).c_str(), s(wcell(&wp, 0, 1)).c_str(),
                   s(wcell(&wp, 0, 2)).c_str(), s(wcell(&wp, 0, 3)).c_str()));
 
         wp.add_watch(0x9000, "w", 1);
         wp.add_watch(0x9000, "l", 2);
-        const bool fmt_ok = wcell(&wp, 1, 2) == "Word" && wcell(&wp, 1, 3) == "$B2A1" &&
-                            wcell(&wp, 2, 2) == "Long" && wcell(&wp, 2, 3) == "$D4C3B2A1";
+        const bool fmt_ok = wcell(&wp, 1, 2) == "Word" && wcell(&wp, 1, 3) == "$B2A1 (45729d)" &&
+                            wcell(&wp, 2, 2) == "Long" && wcell(&wp, 2, 3) == "$D4C3B2A1 (3569595041d)";
         emu.mmu().write(0x9000, 0x9F);
         wp.refresh();
-        const bool live_ok = wcell(&wp, 0, 3) == "$9F" && wcell(&wp, 1, 3) == "$B29F" &&
-                             wcell(&wp, 2, 3) == "$D4C3B29F";
+        const bool live_ok = wcell(&wp, 0, 3) == "$9F (159d)" &&
+                             wcell(&wp, 1, 3) == "$B29F (45727d)" &&
+                             wcell(&wp, 2, 3) == "$D4C3B29F (3569595039d)";
         check("QWP-02",
-              "Byte $%02X, Word $%04X and Long $%08X little-endian from the "
+              "Byte, Word and Long as $hex (decimal d), little-endian from the "
               "address, and refresh() re-reads memory",
               fmt_ok && live_ok,
               fmt("word=%s long=%s after write: %s %s %s", s(wcell(&wp, 1, 3)).c_str(),
@@ -1475,10 +1479,10 @@ static void test_watch_panel() {
                   edit.prefilled[1] == "counter" && edit.combo_before == 0 &&
                   wp.watch_count() == 3 && wcell(&wp, 0, 0) == "$9002" &&
                   wcell(&wp, 0, 1) == "renamed" && wcell(&wp, 0, 2) == "Word" &&
-                  wcell(&wp, 0, 3) == "$D4C3" && edit_last.seen &&
+                  wcell(&wp, 0, 3) == "$D4C3 (54467d)" && edit_last.seen &&
                   edit_last.prefilled.size() >= 2 && edit_last.prefilled[1] == "l" &&
                   wcell(&wp, 2, 0) == "$9001" && wcell(&wp, 2, 1) == "l2" &&
-                  wcell(&wp, 2, 2) == "Byte" && wcell(&wp, 2, 3) == "$B2",
+                  wcell(&wp, 2, 2) == "Byte" && wcell(&wp, 2, 3) == "$B2 (178d)",
               fmt("seen=%d prefilled=%s combo=%d row=%s|%s|%s|%s; last: seen=%d row=%s|%s|%s|%s",
                   edit.seen, s(edit.prefilled.join(",")).c_str(), edit.combo_before,
                   s(wcell(&wp, 0, 0)).c_str(), s(wcell(&wp, 0, 1)).c_str(),
@@ -1534,10 +1538,62 @@ static void test_watch_panel() {
         check("QWP-08",
               "a watch's value is read without moving the +3 floating-bus latch, "
               "and shows the right bytes (control: Mmu::read() does move it)",
-              built && wcell(&wp, 0, 3) == "$A5A5A5A5" && latch_after_watch == 0x3C &&
+              built && wcell(&wp, 0, 3) == "$A5A5A5A5 (2779096485d)" && latch_after_watch == 0x3C &&
                   latch_after_read == 0xA5,
               fmt("value=%s latch after watch %02X (want 3C) after read %02X (want A5)",
                   s(wcell(&wp, 0, 3)).c_str(), latch_after_watch, latch_after_read));
+    }
+
+    // QWP-09..11 — every integer watch shows "$<hex> (<unsigned decimal>d)" (GH #425).
+    // Oracle: the owner's format ($D0 (208d)) and plain arithmetic on the
+    // little-endian value; the decimals are worked out by hand, not read off the panel.
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        poke(emu, 0x9000, {0x00, 0xD0, 0xFF});
+        wp.add_watch(0x9000, "a", 0);
+        wp.add_watch(0x9001, "b", 0);
+        wp.add_watch(0x9002, "c", 0);
+        check("QWP-09",
+              "Byte watches of $00, $D0 and $FF show $00 (0d), $D0 (208d), $FF (255d)",
+              built && wcell(&wp, 0, 3) == "$00 (0d)" && wcell(&wp, 1, 3) == "$D0 (208d)" &&
+                  wcell(&wp, 2, 3) == "$FF (255d)",
+              fmt("%s %s %s", s(wcell(&wp, 0, 3)).c_str(), s(wcell(&wp, 1, 3)).c_str(),
+                  s(wcell(&wp, 2, 3)).c_str()));
+
+        poke(emu, 0xA000, {0x00, 0x00,  0xD0, 0x00,  0x00, 0x80,  0xA1, 0xB2,  0xFF, 0xFF});
+        for (int i = 0; i < 5; ++i)
+            wp.add_watch(static_cast<uint16_t>(0xA000 + 2 * i), "w", 1);
+        wp.refresh();
+        check("QWP-10",
+              "Word watches (little-endian) show $0000 (0d), $00D0 (208d), $8000 (32768d), "
+              "$B2A1 (45729d), $FFFF (65535d)",
+              wcell(&wp, 3, 3) == "$0000 (0d)" && wcell(&wp, 4, 3) == "$00D0 (208d)" &&
+                  wcell(&wp, 5, 3) == "$8000 (32768d)" && wcell(&wp, 6, 3) == "$B2A1 (45729d)" &&
+                  wcell(&wp, 7, 3) == "$FFFF (65535d)",
+              fmt("%s %s %s %s %s", s(wcell(&wp, 3, 3)).c_str(), s(wcell(&wp, 4, 3)).c_str(),
+                  s(wcell(&wp, 5, 3)).c_str(), s(wcell(&wp, 6, 3)).c_str(),
+                  s(wcell(&wp, 7, 3)).c_str()));
+
+        poke(emu, 0xB000, {0x00, 0x00, 0x00, 0x00,  0xD0, 0x00, 0x00, 0x00,
+                           0x00, 0x00, 0x00, 0x80,  0xA1, 0xB2, 0xC3, 0xD4,
+                           0xFF, 0xFF, 0xFF, 0xFF});
+        for (int i = 0; i < 5; ++i)
+            wp.add_watch(static_cast<uint16_t>(0xB000 + 4 * i), "l", 2);
+        wp.refresh();
+        check("QWP-11",
+              "Long watches (little-endian) show $00000000 (0d), $000000D0 (208d), "
+              "$80000000 (2147483648d), $D4C3B2A1 (3569595041d), $FFFFFFFF (4294967295d)",
+              wcell(&wp, 8, 3) == "$00000000 (0d)" && wcell(&wp, 9, 3) == "$000000D0 (208d)" &&
+                  wcell(&wp, 10, 3) == "$80000000 (2147483648d)" &&
+                  wcell(&wp, 11, 3) == "$D4C3B2A1 (3569595041d)" &&
+                  wcell(&wp, 12, 3) == "$FFFFFFFF (4294967295d)",
+              fmt("%s %s %s %s %s", s(wcell(&wp, 8, 3)).c_str(), s(wcell(&wp, 9, 3)).c_str(),
+                  s(wcell(&wp, 10, 3)).c_str(), s(wcell(&wp, 11, 3)).c_str(),
+                  s(wcell(&wp, 12, 3)).c_str()));
     }
 
     // QWP-05..07 — the three disassembly routes, through the REAL window: the
@@ -1600,6 +1656,47 @@ static void test_watch_panel() {
                   wcell(wp, n - 1, 1) == "(HL)",
               fmt("found=%d items=%s row=%s|%s", ans.found, s(ans.items.join(",")).c_str(),
                   s(wcell(wp, n - 1, 0)).c_str(), s(wcell(wp, n - 1, 1)).c_str()));
+    }
+
+    // QWP-12 — the Value column holds the widest text whole, in the real window
+    // (GH #425). Address and Type are sized to their text so Value gets the room.
+    {
+        QTableWidget* t = watch_table(wp);
+        if (!t) {
+            check("QWP-12", "fixture: watch table", false);
+            return;
+        }
+        const int first = wp->watch_count();
+        wp->add_watch(0x9300, "b", 0);
+        wp->add_watch(0x9300, "w", 1);
+        wp->add_watch(0x9300, "l", 2);
+        poke(fx.emu, 0x9300, {0xFF, 0xFF, 0xFF, 0xFF});
+        fx.dbg()->refresh_panels();
+        QApplication::processEvents();
+        const QFontMetrics qfm(t->font());
+        const int margin =
+            t->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, nullptr, t) + 1;
+        auto whole = [&](const QString& text, int col) {
+            return qfm.elidedText(text, Qt::ElideRight, t->columnWidth(col) - 2 * margin) == text;
+        };
+        bool ok = wp->watch_count() == first + 3;
+        for (int col : {0, 2}) {
+            const QTableWidgetItem* h = t->horizontalHeaderItem(col);
+            if (h) {
+                QHeaderView* hv = t->horizontalHeader();
+                const int hm = hv->style()->pixelMetric(QStyle::PM_HeaderMargin, nullptr, hv);
+                ok = ok && QFontMetrics(hv->font()).horizontalAdvance(h->text()) <=
+                               t->columnWidth(col) - 2 * hm;
+            }
+        }
+        for (int r = first; r < first + 3; ++r)
+            for (int col : {0, 2, 3}) ok = ok && whole(wcell(wp, r, col), col);
+        check("QWP-12",
+              "the Value column shows $FF (255d), $FFFF (65535d) and $FFFFFFFF (4294967295d) "
+              "whole in the debugger window; Address and Type hold their text whole",
+              ok && wcell(wp, first + 2, 3) == "$FFFFFFFF (4294967295d)",
+              fmt("widths %d/%d/%d/%d row2=%s", t->columnWidth(0), t->columnWidth(1),
+                  t->columnWidth(2), t->columnWidth(3), s(wcell(wp, first + 2, 3)).c_str()));
     }
 }
 
