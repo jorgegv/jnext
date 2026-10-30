@@ -2878,8 +2878,12 @@ static void test_source_dirs_wiring()
                     });
                     dismiss.start(1);
                     dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+                    const bool apply_refused = !warning.isEmpty();
+                    warning.clear();
+                    dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();   // OK too
                     dismiss.stop();
-                    nothing_applied = mgr->source_dirs() == session.source_dirs;
+                    nothing_applied = apply_refused && !warning.isEmpty() && dlg->isVisible() &&
+                                      mgr->source_dirs() == session.source_dirs;
                     dlg->reject();
                 });
                 QTimer::singleShot(4000, &fx.win, []() {
@@ -2890,7 +2894,7 @@ static void test_source_dirs_wiring()
             }
         }
         check("MWSRC-06", "Preferences > Paths refuses a directory that contains the list separator in a "
-                          "box: Apply neither pushes the list nor writes jnext.conf",
+                          "box: neither Apply nor OK pushes the list or writes jnext.conf, and OK leaves the dialog open",
               found && nothing_applied && saved_text() == QLatin1String("/saved/one") && warning.contains(bad),
               detail);
     }
