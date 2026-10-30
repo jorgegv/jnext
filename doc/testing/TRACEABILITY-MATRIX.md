@@ -68,7 +68,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    79 |   79 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6029 | 6029 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6029**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5564**. Rows the 170 suites declared in `test/unit-tests.conf` run live: **14034**.
+Rows the sections above carry: **6029**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5564**. Rows the 171 suites declared in `test/unit-tests.conf` run live: **14038**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 123 suites (8554 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 124 suites (8558 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -90,6 +90,7 @@ These 123 suites (8554 live rows) have no VHDL-derived plan row to map, so they 
 | `esxdos_stub_test` | 185 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 6 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
 | `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
+| `pgo_map_parse_test` | 4 | GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle |
 | `phantom_typist_test` | 26 | jnext auto-typing state machine (host keystroke injection) |
 | `esp_wiring_test` | 127 | jnext host ESP policy/visibility/wiring, no core counterpart |
 | `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
@@ -828,8 +829,8 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | G10-G05-02 | row<change uses baseline clip; row>=change uses new clip | layer2.vhd:134,167 | pass | test/layer2/layer2_test.cpp:2289 |
 | G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220,1135 | pass | test/layer2/layer2_test.cpp:2318 |
 | G10-G09-02 | rows<64 sample old bank 0x08; rows>=64 sample new 0x10 | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:2378 |
-| G10-G14-01 | Layer2 set_enabled write logged with current scanline | zxnext.vhd:3916,3924-3925 | pass | test/layer2/layer2_test.cpp:3058 |
-| G10-G14-02 | rows<50 hidden; 50<=row<150 visible; row>=150 hidden | layer2.vhd:175,197-198 | pass | test/layer2/layer2_test.cpp:3128 |
+| G10-G14-01 | Layer2 set_enabled write logged with current scanline | zxnext.vhd:3916,3924-3925 | pass | test/layer2/layer2_test.cpp:3061 |
+| G10-G14-02 | rows<50 hidden; 50<=row<150 visible; row>=150 hidden | layer2.vhd:175,197-198 | pass | test/layer2/layer2_test.cpp:3131 |
 | L2-BR-01 | layer2.vhd hc_eff = hc + 1 - a byte written in the post-display lines is seen by the next frame only | layer2.vhd | pass | test/layer2/layer2_test.cpp:1627 |
 | L2-BR-02 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:510-522 - 256x192: pixel 50 is fetched at raw hc 178; a write 2 ticks after is old, 2 ticks before is new | layer2.vhd, zxula_timing.vhd:510-522 | pass | test/layer2/layer2_test.cpp:1644 |
 | L2-BR-03 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:476-492 - 320x256: column 100 is fetched at raw hc 196 (whc origin, not phc); a write 2 ticks after is old, 2 ticks before is new | layer2.vhd, zxula_timing.vhd:476-492 | pass | test/layer2/layer2_test.cpp:1661 |
@@ -938,31 +939,31 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | L2-GH270-08 | two writes at one column coalesce into one segment, last wins | — | pass | test/layer2/layer2_test.cpp:2664 |
 | L2-GH270-09 | out-of-order hpos is clamped forward onto the previous segment, never applied earlier | — | pass | test/layer2/layer2_test.cpp:2708 |
 | L2-GH270-10 | a new scanline re-arms the column tag: an unpositioned write is one span covering the whole line | — | pass | test/layer2/layer2_test.cpp:2746 |
-| L2-GH270-11 | bank and scroll segments interleave by column even when the logs disagree with that order | — | pass | test/layer2/layer2_test.cpp:2790 |
-| L2-GH270-12 | render_scanline with no segment list uses the live registers | — | pass | test/layer2/layer2_test.cpp:2814 |
-| L2-GH270-13 | render_scanline_debug draws its forced bank across the whole row and leaves the segment list intact | — | pass | test/layer2/layer2_test.cpp:2857 |
-| L2-GH270-14 | rewind_to_baseline drops the segment list, so a render before the next replay uses the rewound live registers | — | pass | test/layer2/layer2_test.cpp:2898 |
-| L2-GH270-15 | a hard reset drops the segment list with the change logs it is derived from | — | pass | test/layer2/layer2_test.cpp:2920 |
-| L2-GH270-16 | start_frame clears the before-display flag: a positioned write after it still splits its line | — | pass | test/layer2/layer2_test.cpp:2945 |
-| L2-GH270-17 | 320x256: vblank bank + X scroll writes (columns 339, 284, 234 of their line) own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3023 |
-| L2-GH270-18 | 640x256: vblank bank + X scroll writes own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3030 |
-| G10-G14-01a | two enable writes appended to log | — | pass | test/layer2/layer2_test.cpp:3058 |
-| G10-G14-01b | rewind+replay matches per-line enable transitions | — | pass | test/layer2/layer2_test.cpp:3075 |
-| G11-00a | palette layer2_priority_high(K) == true | — | pass | test/layer2/layer2_test.cpp:3200 |
-| G11-00b | palette layer2_priority_high(K+1) == false | — | pass | test/layer2/layer2_test.cpp:3202 |
-| G11-00c | palette layer2_priority_high(K+2) == true | — | pass | test/layer2/layer2_test.cpp:3204 |
-| G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3234 |
-| G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:3240 |
-| G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3246 |
-| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:3270 |
-| G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:3290 |
-| G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:3324 |
-| G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:3328 |
-| G11-04a | 640px: left nibble (idx 0x01) writes priority TRUE at col*2 | — | pass | test/layer2/layer2_test.cpp:3365 |
-| G11-04b | 640px: right nibble (idx 0x02) writes priority FALSE at col*2+1 | — | pass | test/layer2/layer2_test.cpp:3369 |
-| G11-05a | 640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0 | — | pass | test/layer2/layer2_test.cpp:3403 |
-| G11-05b | 640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1 | — | pass | test/layer2/layer2_test.cpp:3407 |
-| G11-06 | nullptr priority_dst: render still emits colour, no crash | — | pass | test/layer2/layer2_test.cpp:3433 |
+| L2-GH270-11 | bank and scroll segments interleave by column even when the logs disagree with that order | — | pass | test/layer2/layer2_test.cpp:2793 |
+| L2-GH270-12 | render_scanline with no segment list uses the live registers | — | pass | test/layer2/layer2_test.cpp:2817 |
+| L2-GH270-13 | render_scanline_debug draws its forced bank across the whole row and leaves the segment list intact | — | pass | test/layer2/layer2_test.cpp:2860 |
+| L2-GH270-14 | rewind_to_baseline drops the segment list, so a render before the next replay uses the rewound live registers | — | pass | test/layer2/layer2_test.cpp:2901 |
+| L2-GH270-15 | a hard reset drops the segment list with the change logs it is derived from | — | pass | test/layer2/layer2_test.cpp:2923 |
+| L2-GH270-16 | start_frame clears the before-display flag: a positioned write after it still splits its line | — | pass | test/layer2/layer2_test.cpp:2948 |
+| L2-GH270-17 | 320x256: vblank bank + X scroll writes (columns 339, 284, 234 of their line) own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3026 |
+| L2-GH270-18 | 640x256: vblank bank + X scroll writes own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3033 |
+| G10-G14-01a | two enable writes appended to log | — | pass | test/layer2/layer2_test.cpp:3061 |
+| G10-G14-01b | rewind+replay matches per-line enable transitions | — | pass | test/layer2/layer2_test.cpp:3078 |
+| G11-00a | palette layer2_priority_high(K) == true | — | pass | test/layer2/layer2_test.cpp:3203 |
+| G11-00b | palette layer2_priority_high(K+1) == false | — | pass | test/layer2/layer2_test.cpp:3205 |
+| G11-00c | palette layer2_priority_high(K+2) == true | — | pass | test/layer2/layer2_test.cpp:3207 |
+| G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3237 |
+| G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:3243 |
+| G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3249 |
+| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:3273 |
+| G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:3293 |
+| G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:3327 |
+| G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:3331 |
+| G11-04a | 640px: left nibble (idx 0x01) writes priority TRUE at col*2 | — | pass | test/layer2/layer2_test.cpp:3368 |
+| G11-04b | 640px: right nibble (idx 0x02) writes priority FALSE at col*2+1 | — | pass | test/layer2/layer2_test.cpp:3372 |
+| G11-05a | 640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0 | — | pass | test/layer2/layer2_test.cpp:3406 |
+| G11-05b | 640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1 | — | pass | test/layer2/layer2_test.cpp:3410 |
+| G11-06 | nullptr priority_dst: render still emits colour, no crash | — | pass | test/layer2/layer2_test.cpp:3436 |
 
 ## Sprites — `test/sprites/sprites_test.cpp`
 

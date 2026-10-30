@@ -2786,7 +2786,10 @@ static void test_group10f_midline_segments() {
         // col 200: new bank, scrolled by 4.
         const bool c40  = buf[DISP_X_NARROW + 2 *  40] == pal.layer2_colour(40);
         const bool c100 = buf[DISP_X_NARROW + 2 * 100] == pal.layer2_colour(100 + 0x80);
-        const bool c200 = buf[DISP_X_NARROW + 2 * 200] == pal.layer2_colour(204 + 0x80);
+        // The bank was filled with uint8_t(x + 0x80), so pixel 204 holds index 76:
+        // spell the 8-bit wrap instead of narrowing 332 implicitly.
+        const bool c200 = buf[DISP_X_NARROW + 2 * 200]
+                          == pal.layer2_colour(static_cast<uint8_t>(204 + 0x80));
         check("L2-GH270-11",
               "bank and scroll segments interleave by column even when the "
               "logs disagree with that order",

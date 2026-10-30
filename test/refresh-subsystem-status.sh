@@ -117,6 +117,7 @@ BEGIN {
     M["sd_no_digest_linux_test"]       = "Snapshot/warm start: no whole-card read (GH #396)"
     M["jns_host_path_linux_test"]      = "Snapshot: non-UTF-8 host path does not abort a save (GH #401)"
     M["quick_snapshot_posix_test"]     = "Quick snapshots: prune never follows a symlink (GH #321)"
+    M["pgo_map_parse_test"]            = "PGO link-map parser (GH #416)"
     M["snapshot_machine_test"]         = "Loading .sna/.szx/.z80 selects the saved machine (GH #323)"
     M["sprites_test"]                  = "Sprites"
     M["compositor_test"]               = "Compositor"

@@ -257,6 +257,11 @@ rpmbuild -bb --define "jnext_version $(awk '/^version:/{print $2}' version.yaml)
     packaging/rpm/jnext.spec
 ```
 
+The spec does `%undefine _cmake_shared_libs` before `%cmake`: Fedora's macro
+otherwise passes `-DBUILD_SHARED_LIBS=ON`, which builds the bundled spdlog as a
+shared library that `jnext` links but the package does not install, so the rpm
+would require a `libspdlog.so.1.x` the distro does not ship.
+
 The spec carries no version of its own: `version.yaml` is the single source of
 truth, so the version is passed in with `--define jnext_version`, and the spec
 refuses to parse without it rather than build a wrong or empty version. Its top

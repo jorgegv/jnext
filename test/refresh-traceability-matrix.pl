@@ -1019,6 +1019,7 @@ my %NO_MATRIX_SECTION = (
     'speed_report_test'    => 'host speed-percentage reporting',
     'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
     'quick_snapshot_posix_test' => 'GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle',
+    'pgo_map_parse_test'        => 'GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle',
 
     # ── Host policy around the emulated ESP-01 ───────────────────────
     # `## ESP-01 socket transport` / `AT engine` / `jnext UART adapter` trace

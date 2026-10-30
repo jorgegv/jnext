@@ -53,6 +53,9 @@ struct Result {
 
 inline Bytes caller(const Case& c) {
     Bytes code;
+    // The largest caller is 24 bytes; reserving it up front also keeps GCC -O3
+    // from a false -Wstringop-overflow in the chain of reallocating inserts.
+    code.reserve(32);
     auto put = [&](std::initializer_list<uint8_t> b) { code.insert(code.end(), b); };
     if (c.rom1_128) put({0x3E, 0x17, 0x01, 0xFD, 0x7F, 0xED, 0x79});   // LD A,17; LD BC,7FFD; OUT (C),A
     put({0xDD, 0x21, static_cast<uint8_t>(c.ix & 0xFF), static_cast<uint8_t>(c.ix >> 8)});   // LD IX,dest
