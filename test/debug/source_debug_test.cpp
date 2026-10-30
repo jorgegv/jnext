@@ -37,6 +37,9 @@
 //   SRCDBG-FB-*      Back after a Frame Back goes back in time
 //   SRCDBG-SYM-*     the labels of an SLD reach the backend's symbol table, by page
 //                    (GH #375 stage 2), through the sidecar and the hand load
+//   SRCDBG-Z88-*     a z88dk -debug map: the <stem>.map sidecar (symbols and source lines),
+//                    the hand load, what the sidecar precedence keeps, identity from the
+//                    section binaries, the lifetime of a z88dk map, real z88dk code (GH #344)
 //   SRCLIFE-*        the source map's lifetime: load generations, the attachment
 //                    cache, stale user maps, Back stops at a landing (GH #342)
 //
@@ -247,6 +250,49 @@ static std::string pair_str(const FetchPair& f) {
            std::to_string(unsigned(f.predicted.index)) + " recorded=" +
            std::to_string(unsigned(f.recorded.kind)) + "/" + std::to_string(unsigned(f.recorded.index)) +
            (f.fetched ? "" : " (no opcode fetched)");
+}
+
+// ── GH #344: the z88dk fixtures ───────────────────────────────────────────────
+static const fs::path kZ88Fixtures = JNEXT_Z88DK_FIXTURE_DIR;
+static const fs::path kZ88NoDebug  = fs::path(JNEXT_ZDEBUGMAP_DIR) / "nodebug.map";
+
+// Copy a z88dk fixture's `prog.nex` and `prog.map` (and, with `bins`, its section
+// binaries `prog_<GROUP>.bin`) into `to`, which is created.
+static void z88_copy(const char* fixture, const fs::path& to, bool bins = true) {
+    fs::create_directories(to);
+    for (const auto& e : fs::directory_iterator(kZ88Fixtures / fixture)) {
+        const std::string n = e.path().filename().string();
+        const bool is_bin = n.size() > 4 && n.compare(n.size() - 4, 4, ".bin") == 0;
+        if (n == "prog.nex" || n == "prog.map" || (bins && is_bin))
+            fs::copy_file(e.path(), to / n, fs::copy_options::overwrite_existing);
+    }
+}
+
+// What a Listener hears: the backend's own log lines.
+struct Z88Log : jnext::dbg::Listener {
+    std::vector<std::string> lines;
+    void on_paused(const jnext::dbg::PausedInfo&) override {}
+    void on_resumed(ClientId) override {}
+    void on_reset(ResetKind) override {}
+    void on_frame_ended(uint32_t) override {}
+    void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+    void on_exit_requested(int) override {}
+    void on_log(jnext::dbg::LogLevel, const std::string& t) override { lines.push_back(t); }
+    bool has(const std::string& s) const {
+        for (const auto& l : lines)
+            if (l.find(s) != std::string::npos) return true;
+        return false;
+    }
+};
+
+// A Next machine with the fixture's program loaded the way the frontends load it.
+static bool z88_load(Machine& m, const fs::path& nex) {
+    return emulator_apply_load(m.emu, nex.string(), false);
+}
+
+static std::string line_of(const Debugger& d, uint16_t addr) {
+    const auto* l = d.source_location(addr);
+    return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
 }
 
 int main() {
@@ -4297,6 +4343,330 @@ int main() {
                                    "labels included",
                   r.sources == -1 && r.symbols == -1 && !m.dbg->lookup_name("banked") &&
                       has(log, "Kept the loaded source map"));
+        }
+    }
+
+    // ── GH #344: the z88dk -debug map ─────────────────────────────────────────
+    // Every row loads a committed fixture (test/fixtures/z88dk): the program with
+    // `load_nex()`, as a frontend does, then the sidecars. The oracle is the map
+    // (main.c:19 starts at $8CB5, `_main` is $8C92), the NEX placement of its
+    // bytes (prog_CODE.bin is bank 2 offset 0, i.e. page 4) and the compiler's
+    // listing; design 6.1 / 9.4 / 9.7.
+    {
+        const fs::path z = dir / "z88";
+        const fs::path d1 = z / "d1";
+        z88_copy("v2.4/sccz80-debug", d1);
+        const std::string map1 = (d1 / "prog.map").string();
+        {   // Z88-01
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool ok = z88_load(m, d1 / "prog.nex");
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+            });
+            const auto st = m.dbg->source_map_status();
+            check("SRCDBG-Z88-01", "prog.map beside a .nex attaches its symbols and its 46 source lines, "
+                                   "identity verified from prog_CODE.bin",
+                  ok && r.symbols == 19 && r.sources == 46 && m.dbg->source_map().size() == 46 &&
+                      m.dbg->source_map().format() == "z88dk" &&
+                      st.state == Debugger::SourceMapStatus::State::Attached && !st.by_user &&
+                      line_of(*m.dbg, 0x8CB8) == "main.c:19" &&
+                      m.dbg->lookup(0x8C92) == std::string("_main") &&
+                      has(log, "Loaded 19 z88dk symbols from '" + map1 + "'") &&
+                      has(log, "Loaded 46 z88dk source lines from '" + map1 +
+                                   "' (program identity verified)"),
+                  "symbols=" + std::to_string(r.symbols) + " sources=" + std::to_string(r.sources) +
+                      " " + line_of(*m.dbg, 0x8CB8) + "\n" + log);
+        }
+        {   // Z88-02
+            const fs::path d = z / "d2";
+            z88_copy("v2.4/sccz80-debug", d);
+            write_text(d / "user.map", "_mine = $9000 ; addr, public, , m, code_compiler, x.c:1\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->load_map((d / "user.map").string(), jnext::dbg::MapFormat::Z88dk);
+            z88_load(m, d / "prog.nex");
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            check("SRCDBG-Z88-02", "the user's symbols are kept over prog.map's, whose source lines still attach",
+                  r.symbols == -1 && r.sources == 46 && m.dbg->lookup_name("_mine") == 0x9000 &&
+                      !m.dbg->lookup_name("_main") && has(log, "Kept the loaded symbols"),
+                  log);
+        }
+        {   // Z88-03
+            const fs::path d = z / "d3";
+            fs::create_directories(d);
+            fs::copy_file(d1 / "prog.map", d / "game.map");
+            write_text(d / "game.tap", "");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "game.tap").string());
+            });
+            check("SRCDBG-Z88-03", "game.map beside a tape attaches its symbols; its source lines wait "
+                                   "for the program (stage 3), and the log says so",
+                  r.symbols == 19 && m.dbg->lookup_name("_main") == 0x8C92 && r.sources == -1 &&
+                      m.dbg->source_map().empty() &&
+                      has(log, "Not attaching z88dk source map"),
+                  log);
+        }
+        {   // Z88-04
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d1 / "prog.nex");
+            m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+            m.dbg->nextreg_write(m.a, 0x54, 40);
+            const auto out = m.dbg->load_source_map(map1, true);
+            const std::string at40 = line_of(*m.dbg, 0x8CB8);
+            m.dbg->nextreg_write(m.a, 0x54, 4);
+            const std::string at4 = line_of(*m.dbg, 0x8CB8);
+            check("SRCDBG-Z88-04", "a map loaded by hand takes its rule-4 page from the MMU now: MMU4 = 40 "
+                                   "puts main.c:19 in page 40 and nowhere in page 4",
+                  out.count == 46 && out.identity && !*out.identity && at40 == "main.c:19" &&
+                      at4 == "-",
+                  at40 + " / " + at4);
+        }
+        {   // Z88-05
+            const fs::path a = z / "d5a", b = z / "d5b";
+            fs::create_directories(a);
+            fs::copy_file(d1 / "prog.nex", a / "game.nex");
+            z88_copy("v2.4/sccz80-debug", b);
+            fs::remove(b / "prog.nex");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, a / "game.nex");
+            const auto out = m.dbg->load_source_map((b / "prog.map").string(), false);
+            check("SRCDBG-Z88-05", "Load Source Map with a z88dk map: 46 lines, identity verified, user "
+                                   "owned, and no symbols (they stay with Load MAP)",
+                  out.count == 46 && out.identity && *out.identity &&
+                      m.dbg->source_map().format() == "z88dk" && !m.dbg->lookup_name("_main") &&
+                      out.identity_note == " (program identity verified)" &&
+                      m.dbg->source_map_status().by_user,
+                  out.error);
+        }
+        {   // Z88-06
+            const fs::path d = z / "d6";
+            z88_copy("v2.4/sccz80-page20", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const std::string log = debugger_log_of([&] {
+                m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            m.dbg->nextreg_write(m.a, 0x56, 20);
+            const std::string at20 = line_of(*m.dbg, 0xC003);
+            m.dbg->nextreg_write(m.a, 0x56, 21);
+            const std::string at21 = line_of(*m.dbg, 0xC003);
+            check("SRCDBG-Z88-06", "banked code (PAGE_20) is found while page 20 is mapped at $C000 and not "
+                                   "under page 21; identity verified over both binaries",
+                  at20 == "banked.c:8" && at21 == "-" && has(log, "(program identity verified)"),
+                  at20 + " / " + at21 + "\n" + log);
+        }
+        {   // Z88-07
+            const fs::path d = z / "d7";
+            z88_copy("v2.4/sccz80-debug", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const Result soft = m.dbg->reset(m.a, ResetKind::Soft);
+            const size_t kept = m.dbg->source_map().size();
+
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            Z88Log lc;
+            n.dbg->set_listener(n.a, &lc);
+            z88_load(n, d / "prog.nex");
+            n.dbg->load_program_sidecars((d / "prog.nex").string());
+            uint8_t b = 0;
+            n.dbg->peek(MemSpace::page(4), 0x0CB5, 1, &b);
+            const uint8_t other = static_cast<uint8_t>(b ^ 0xFF);
+            n.dbg->poke(n.a, MemSpace::page(4), 0x0CB5, 1, &other);
+            const Result soft2 = n.dbg->reset(n.a, ResetKind::Soft);
+            const size_t gone = n.dbg->source_map().size();
+            check("SRCDBG-Z88-07", "a soft reset keeps a z88dk map while its section bytes are in the page "
+                                   "and drops it when one differs (read through the peek path)",
+                  soft == Result::Ok && kept == 46 && soft2 == Result::Ok && gone == 0 &&
+                      lc.has("Dropped the program's z88dk source map: its binary identity does not "
+                             "match the program now in memory"),
+                  "kept=" + std::to_string(kept) + " gone=" + std::to_string(gone));
+        }
+        {   // Z88-08
+            const fs::path d = z / "d8";
+            z88_copy("v2.4/sccz80-debug", d);
+            write_text(d / "prog.sld", program_sld(p80, p90));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            check("SRCDBG-Z88-08", "an SLD sidecar wins the source half over prog.map, whose symbols still attach",
+                  r.sources == 6 && m.dbg->source_map().format() == "SLD" && r.symbols == 19);
+        }
+        {   // Z88-09
+            const fs::path d = z / "d9";
+            z88_copy("v2.4/sccz80-debug", d);
+            write_text(d / "prog.Memory.txt", "8000: ._Main\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            check("SRCDBG-Z88-09", "a Memory.txt sidecar keeps prog.map's symbols out; its source lines attach",
+                  r.symbols == 1 && m.dbg->lookup_name("Main") && !m.dbg->lookup_name("_main") &&
+                      r.sources == 46 && m.dbg->source_map().format() == "z88dk");
+        }
+        {   // Z88-10
+            const fs::path d = z / "d10";
+            fs::create_directories(d);
+            write_text(d / "a.nex", "");
+            write_text(d / "a.sld", program_sld(p80, p90));
+            write_text(d / "a.Memory.txt", "8000: ._Main\n");
+            write_text(d / "b.nex", "");
+            write_text(d / "b.map", "X = $1234\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto first = m.dbg->load_program_sidecars((d / "a.nex").string());
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "b.nex").string());
+            });
+            check("SRCDBG-Z88-10", "a .map with no symbol and no line record is not a z88dk map: nothing "
+                                   "attached, nothing reported, the previous program's sidecars cleared",
+                  first.sources == 6 && first.symbols == 1 && r.symbols == -1 && r.sources == -1 &&
+                      r.problem.empty() && m.dbg->symbols().empty() && m.dbg->source_map().empty() &&
+                      !has(log, "z88dk"),
+                  log);
+        }
+        {   // Z88-11
+            const fs::path d = z / "d11";
+            z88_copy("v2.4/sccz80-debug", d);
+            {
+                std::ofstream o(d / "prog.map", std::ios::app);
+                o << "__C_LINE_99_x = $8CC0 ; addr, local, , main_c, code_compiler, main.c::main::0::2:abc\n";
+            }
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            check("SRCDBG-Z88-11", "one malformed line record refuses the source half, naming its line; the "
+                                   "symbol half still attaches",
+                  r.sources == -1 && r.symbols == 19 && m.dbg->source_map().empty() &&
+                      has(r.problem, "source map '" + (d / "prog.map").string() + "' rejected: line "),
+                  r.problem);
+        }
+        {   // Z88-12
+            const fs::path d = z / "d12";
+            z88_copy("v2.4/sccz80-debug", d, /*bins=*/false);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            check("SRCDBG-Z88-12", "without the section binaries the map attaches, and the log says the "
+                                   "identity was not verified",
+                  r.sources == 46 &&
+                      has(log, "(program identity not verified: no section binaries beside it)"),
+                  log);
+        }
+        {   // Z88-13
+            const fs::path d = z / "d13";
+            fs::create_directories(d);
+            fs::copy_file(d1 / "prog.map", d / "game.map");
+            write_text(d / "game.z80", "");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "game.z80").string());
+            check("SRCDBG-Z88-13", "<stem>.map is a sidecar of a .nex, .tap or .sna only: beside a .z80 "
+                                   "nothing attaches",
+                  r.symbols == -1 && r.sources == -1 && m.dbg->symbols().empty());
+        }
+        {   // Z88-14
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d1 / "prog.nex");
+            m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+            m.dbg->subscribe(m.a, execute_stop(0x8CB5));
+            m.dbg->run(m.a);
+            for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+            const bool at_line = m.dbg->state().paused && m.pc() == 0x8CB5 &&
+                                 line_of(*m.dbg, m.pc()) == "main.c:19";
+            m.dbg->source_step(m.a, Step::Into);
+            check("SRCDBG-Z88-14", "real z88dk code: a breakpoint at main.c:19's start stops there, and a "
+                                   "source step ends at main.c:20's start ($8CBE)",
+                  at_line && m.pc() == 0x8CBE && line_of(*m.dbg, m.pc()) == "main.c:20", m.where());
+        }
+        {   // Z88-18: some code ranges have no binary
+            const fs::path d = z / "d18";
+            z88_copy("v2.4/sccz80-page20", d);
+            fs::remove(d / "prog_PAGE_20.bin");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const std::string log = debugger_log_of([&] {
+                m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            check("SRCDBG-Z88-18", "with only some of the section binaries the identity is verified for "
+                                   "the code they cover, and the log counts the ranges it did not check",
+                  has(log, "(program identity verified; ") && has(log, " code ranges have no section "
+                                                                       "binary and were not checked)"),
+                  log);
+        }
+        {   // Z88-19: the --source-map helper
+            const fs::path d = z / "d19";
+            z88_copy("v2.4/sccz80-debug", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto good = emulator_attach_cli_source_map(*m.dbg, (d / "prog.map").string());
+            // The same program, one of its code bytes changed: refused.
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            z88_load(n, d / "prog.nex");
+            uint8_t b = 0;
+            n.dbg->peek(MemSpace::page(4), 0x0CB5, 1, &b);
+            const uint8_t other = static_cast<uint8_t>(b ^ 0xFF);
+            n.dbg->poke(n.a, MemSpace::page(4), 0x0CB5, 1, &other);
+            const auto bad = emulator_attach_cli_source_map(*n.dbg, (d / "prog.map").string());
+            check("SRCDBG-Z88-19", "--source-map's helper attaches a matching map as the user's and "
+                                   "refuses a mismatching one, with a line to log each",
+                  good.ok && good.line == "--source-map '" + (d / "prog.map").string() +
+                                              "': 46 source lines (program identity verified)" &&
+                      m.dbg->source_map_status().by_user && !bad.ok && n.dbg->source_map().empty() &&
+                      has(bad.line, "does not match the source map's binary identity"),
+                  good.line + " | " + bad.line);
+        }
+        {   // Z88-20: a hand load of a map with no line records
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d1 / "prog.nex");
+            m.dbg->load_source_map(map1, true);
+            const auto out = m.dbg->load_source_map(kZ88NoDebug.string(), true);
+            check("SRCDBG-Z88-20", "a z88dk map built without -debug is refused by hand with a reason, and "
+                                   "the map already loaded is kept",
+                  out.count == -1 && has(out.error, "no source lines in") &&
+                      has(out.error, "built without -debug") && m.dbg->source_map().size() == 46);
+        }
+        {   // Z88-21: sidecar identity mismatch
+            const fs::path d = z / "d21";
+            z88_copy("v2.4/sccz80-debug", d);
+            // The binary beside the map is another build's: one code byte differs.
+            std::string bin;
+            {
+                std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
+                bin.assign(std::istreambuf_iterator<char>(in), {});
+            }
+            bin[0x0CB5] = static_cast<char>(bin[0x0CB5] ^ 0xFF);
+            write_text(d / "prog_CODE.bin", bin);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            check("SRCDBG-Z88-21", "a z88dk map whose binaries are not the loaded program's is rejected, "
+                                   "symbols included, with the reason",
+                  r.sources == -1 && r.symbols == -1 && m.dbg->source_map().empty() &&
+                      m.dbg->symbols().empty() &&
+                      has(log, "Rejected z88dk source map") && has(r.problem, "rejected"),
+                  log);
+        }
+        {   // Z88-22: a map built without -debug beside a .nex
+            const fs::path d = z / "d22";
+            fs::create_directories(d);
+            fs::copy_file(kZ88NoDebug, d / "game.map");
+            write_text(d / "game.nex", "");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_program_sidecars((d / "game.nex").string());
+            check("SRCDBG-Z88-22", "a map built without -debug beside a .nex attaches its symbols and "
+                                   "reports no source half and no problem",
+                  r.symbols > 0 && r.sources == -1 && r.problem.empty() &&
+                      m.dbg->lookup_name("_main") && m.dbg->source_map().empty());
         }
     }
 

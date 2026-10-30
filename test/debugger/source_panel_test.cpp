@@ -2459,6 +2459,96 @@ void test_sld_labels_add_execute() {
     m.clear_all();
 }
 
+// ── QSRC-62..64: a z88dk -debug map through Load Source Map... (GH #344) ──────────
+
+// Copy `from`'s file `name` (a committed z88dk fixture) to `to`, whose directory is made.
+void copy_z88dk(const char* fixture, const char* name, const std::string& to) {
+    std::filesystem::create_directories(std::filesystem::path(to).parent_path());
+    std::filesystem::copy_file(std::filesystem::path(JNEXT_Z88DK_FIXTURE_DIR) / fixture / name, to,
+                               std::filesystem::copy_options::overwrite_existing);
+}
+
+void test_z88dk_source_map() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-62: the dialog offers .map, and a z88dk map loads as source lines only
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q62/prog.map";
+        copy_z88dk("v2.4/sccz80-debug", "prog.map", map);
+        QStringList filters;
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* fd = qobject_cast<QFileDialog*>(w)) filters = fd->nameFilters();
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        bool offers_map = false;
+        for (const QString& f : filters)
+            if (f.contains(QStringLiteral("*.map"))) offers_map = true;
+        check("QSRC-62", "Load Source Map... offers *.map, and a z88dk map loads as source lines "
+                         "only: 46 of them, no symbols",
+              load && offers_map && fx.backend->source_map().format() == "z88dk" &&
+                  fx.backend->source_map().size() == 46 && !fx.backend->lookup_name("_main") &&
+                  box.startsWith(QStringLiteral("Loaded 46 source traces from:")),
+              "filters=" + s(filters.join("|")) + " box=" + s(box));
+    }
+    {   // QSRC-63: a source file is found under the map's directory
+        Fixture fx;
+        fx.enable();
+        const std::string map = tmp + "/q63/prog.map";
+        copy_z88dk("v2.4/sccz80-subdir", "prog.map", map);
+        std::string util;
+        for (int i = 1; i <= 9; ++i) util += "// line " + std::to_string(i) + "\n";
+        std::filesystem::create_directories(tmp + "/q63/game");
+        write_text(tmp + "/q63/game/util.c", util);
+        fx.backend->load_source_map(map, true);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x8D5C;
+        fx.emu.cpu().set_registers(r);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
+        check("QSRC-63", "the Source tab shows game/util.c, found under the map's directory, with line 8 "
+                         "highlighted at $8D5C",
+              sp && sp->highlighted_line() == 8 && sp->location_text().startsWith("game/util.c:8"),
+              sp ? s(sp->location_text()) + " line=" + std::to_string(sp->highlighted_line()) : "");
+    }
+    {   // QSRC-64: a mismatching z88dk map is offered in words that do not say SLD
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q64/prog.map";
+        copy_z88dk("v2.4/sccz80-debug", "prog.map", map);
+        copy_z88dk("v2.4/sccz80-debug", "prog_CODE.bin", tmp + "/q64/prog_CODE.bin");
+        QString offer;
+        auto run = [&](QMessageBox::StandardButton answer) {
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w))
+                        if (mb->windowTitle() == QStringLiteral("Source Map Identity Mismatch")) {
+                            offer = mb->text();
+                            click_box(w, answer);
+                            return;
+                        }
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        };
+        run(QMessageBox::No);
+        const bool declined = !offer.isEmpty() && fx.backend->source_map().empty();
+        run(QMessageBox::Yes);
+        check("QSRC-64", "a z88dk map whose binaries are not in memory is offered without naming SLD; No "
+                         "loads nothing, Yes loads it",
+              load && declined && !offer.contains(QStringLiteral("SLD")) &&
+                  fx.backend->source_map().format() == "z88dk" &&
+                  fx.backend->source_map().size() == 46,
+              s(offer));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -2504,6 +2594,7 @@ int main(int argc, char** argv) {
     test_sld_labels_add_execute();
     test_call_stack_non_page_caller();
     test_source_menu();
+    test_z88dk_source_map();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

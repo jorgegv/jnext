@@ -9,6 +9,9 @@
 //                    does not wait on it
 //   SRCDBG-SIDE-11   the same for <stem>.Memory.txt
 //   SRCDBG-SIDE-12   a FIFO loaded by hand is refused, not waited on
+//   SRCDBG-Z88-15    a FIFO named <stem>.map is no sidecar, and the load does not wait
+//   SRCDBG-Z88-16    a FIFO loaded by hand as a z88dk or simple MAP is refused, with why
+//   SRCDBG-Z88-17    a FIFO given to load_source_map() is refused before its content is read
 //
 // A real 48K machine and a real `Debugger`, as in source_debug_test.
 //
@@ -173,6 +176,44 @@ int main() {
             r = load_sld(sm, (own / "byhand.sld").string());
         });
         check("SRCDBG-SIDE-12", "a FIFO loaded by hand as an SLD is refused, not waited on",
+              quick && r.count == -1 && r.error == "not a regular file", r.error);
+    }
+    // GH #344: the z88dk map, as a sidecar, as a symbol file, and as a source map.
+    {
+        Machine m;
+        write_text(own / "pipe3.nex", "");
+        Debugger::SidecarLoad r;
+        const bool quick = with_fifo(own / "pipe3.map", [&] {
+            r = m.dbg->load_program_sidecars((own / "pipe3.nex").string());
+        });
+        check("SRCDBG-Z88-15", "a FIFO named <stem>.map is no sidecar, and the load returns "
+                               "within 1 s",
+              quick && r.symbols == -1 && r.sources == -1 && r.problem.empty(), r.problem);
+    }
+    {
+        Machine m;
+        std::string why_z88, why_simple;
+        bool refused_z88 = false, refused_simple = false;
+        const bool quick = with_fifo(own / "hand.map", [&] {
+            refused_z88 = !m.dbg->load_map((own / "hand.map").string(),
+                                           jnext::dbg::MapFormat::Z88dk, &why_z88);
+            refused_simple = !m.dbg->load_map((own / "hand.map").string(),
+                                              jnext::dbg::MapFormat::Simple, &why_simple);
+        });
+        check("SRCDBG-Z88-16", "a FIFO loaded by hand as a z88dk or a simple MAP is refused, "
+                               "with the reason, and not waited on",
+              quick && refused_z88 && refused_simple && why_z88 == "not a regular file" &&
+                  why_simple == "not a regular file",
+              why_z88 + " / " + why_simple);
+    }
+    {
+        Machine m;
+        Debugger::SourceMapLoad r;
+        const bool quick = with_fifo(own / "hand2.map", [&] {
+            r = m.dbg->load_source_map((own / "hand2.map").string(), false);
+        });
+        check("SRCDBG-Z88-17", "a FIFO given to load_source_map() is refused, not read to tell "
+                               "its format",
               quick && r.count == -1 && r.error == "not a regular file", r.error);
     }
 
