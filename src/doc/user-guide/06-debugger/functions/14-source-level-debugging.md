@@ -103,7 +103,8 @@ tape does not match its binary identity`), and so are the symbols that came with
 it; with `--source-map` the run then exits with status 1. A map with no binary
 identity (no section binaries, an SLD without a hash) attaches unverified, as for
 any program, and nothing is waited for. A reset before the program has arrived
-drops the pending map, since the program will not.
+drops a program's pending map, since the program will not, and makes the one you
+loaded yourself stale (load it again once the program is in memory).
 
 **Binary identity.** An SLD may record the SHA-256 of the program's bytes as it
 was built (`||program.sha256:`, `||program.org:` and `||program.size:` comment
