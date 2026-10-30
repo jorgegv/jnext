@@ -1670,6 +1670,9 @@ static void test_watch_panel() {
         wp->add_watch(0x9300, "b", 0);
         wp->add_watch(0x9300, "w", 1);
         wp->add_watch(0x9300, "l", 2);
+        // A label far wider than a default section: Label must NOT be sized to
+        // its text (D3), or it would squeeze Value.
+        wp->add_watch(0x9300, "player_position_x_velocity_name_long", 2);
         poke(fx.emu, 0x9300, {0xFF, 0xFF, 0xFF, 0xFF});
         fx.dbg()->refresh_panels();
         QApplication::processEvents();
@@ -1679,21 +1682,26 @@ static void test_watch_panel() {
         auto whole = [&](const QString& text, int col) {
             return qfm.elidedText(text, Qt::ElideRight, t->columnWidth(col) - 2 * margin) == text;
         };
-        bool ok = wp->watch_count() == first + 3;
+        bool ok = wp->watch_count() == first + 4;
+        QHeaderView* hv = t->horizontalHeader();
         for (int col : {0, 2}) {
             const QTableWidgetItem* h = t->horizontalHeaderItem(col);
-            if (h) {
-                QHeaderView* hv = t->horizontalHeader();
-                const int hm = hv->style()->pixelMetric(QStyle::PM_HeaderMargin, nullptr, hv);
-                ok = ok && QFontMetrics(hv->font()).horizontalAdvance(h->text()) <=
-                               t->columnWidth(col) - 2 * hm;
-            }
+            ok = ok && h != nullptr;
+            if (!h) continue;
+            const int hm = hv->style()->pixelMetric(QStyle::PM_HeaderMargin, nullptr, hv);
+            ok = ok && QFontMetrics(hv->font()).horizontalAdvance(h->text()) <=
+                           t->columnWidth(col) - 2 * hm;
+            // sized to its content, so narrower than the default section width
+            ok = ok && t->columnWidth(col) < hv->defaultSectionSize();
         }
-        for (int r = first; r < first + 3; ++r)
+        // Label stays at the default width whatever its text
+        ok = ok && t->columnWidth(1) == hv->defaultSectionSize();
+        for (int r = first; r < first + 4; ++r)
             for (int col : {0, 2, 3}) ok = ok && whole(wcell(wp, r, col), col);
         check("QWP-12",
               "the Value column shows $FF (255d), $FFFF (65535d) and $FFFFFFFF (4294967295d) "
-              "whole in the debugger window; Address and Type hold their text whole",
+              "whole in the debugger window with a very long label present; Address and Type "
+              "are sized exactly to their text and Label stays at the default width",
               ok && wcell(wp, first + 2, 3) == "$FFFFFFFF (4294967295d)",
               fmt("widths %d/%d/%d/%d row2=%s", t->columnWidth(0), t->columnWidth(1),
                   t->columnWidth(2), t->columnWidth(3), s(wcell(wp, first + 2, 3)).c_str()));
