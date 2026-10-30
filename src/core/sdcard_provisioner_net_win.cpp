@@ -33,8 +33,17 @@
 // synchronous call from another thread (WinHttpCloseHandle remarks: "an
 // application should never call WinHttpCloseHandle on a synchronous request"),
 // so the only way out of a blocked read is its own timeout. In async mode this
-// thread waits on an event for the next completion, one tick at a time, and a
-// cancel or a stall is simply "close the request handle and return". That holds
+// thread waits on a condition variable (SRW lock) for the next completion or the
+// next tick by the clock, and a cancel or a stall is simply "close the request
+// handle and return". It is not a kernel event on purpose: under wine without
+// ntsync every kernel-object wait goes through the single-threaded wineserver,
+// which also delivers its timeout, so a wineserver that does not run for T
+// seconds delays the tick by T (GH #415: a 1 s stop gave a 1.2 s tick gap, the CI
+// failure of PROV-STALL-08). A condition-variable wait is a futex inside the
+// process under wine (RtlSleepConditionVariableSRW, RtlWaitOnAddress,
+// NtWaitForAlertByThreadId) and a kernel wait on Windows, and is available from
+// Windows Vista, so Windows 7 is covered. On real Windows an event worked too;
+// this is about not depending on another process. That holds
 // only while no WinHTTP call made on this thread waits on the network.
 // WinHttpReceiveResponse may: wine >= 11.7 reads the headers inside the call, in
 // its caller (GH #415: no tick, no stall note, no cancel for the whole header
@@ -76,11 +85,11 @@
 #include <bcrypt.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
 #include <fstream>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -155,7 +164,12 @@ struct WinHttpHandle {
 // into `buf` (the SendRequest remarks: keep the buffers valid until the callback
 // says the operation is over). Nothing touches it after the close.
 struct AsyncState {
-    HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);   // auto-reset: a completion arrived
+    // The completion signal: `seq` counts the completions signalled so far, under
+    // `lock`; the waiter compares it with the count it has consumed. No kernel object
+    // (see the file header).
+    SRWLOCK lock = SRWLOCK_INIT;
+    CONDITION_VARIABLE cv = CONDITION_VARIABLE_INIT;
+    unsigned seq = 0;
     std::atomic<DWORD> last{0};    // WINHTTP_CALLBACK_STATUS_* of the latest completion
     std::atomic<DWORD> value{0};   // DATA_AVAILABLE: bytes available; READ_COMPLETE: bytes read
     std::atomic<DWORD> error{0};   // REQUEST_ERROR: dwError
@@ -164,15 +178,30 @@ struct AsyncState {
     // The close handoff (GH #415). The callback thread can sit inside
     // WinHttpReceiveResponse for the whole header wait (wine >= 11.7), and
     // Microsoft forbids closing a handle while another thread is inside a call
-    // on it (Concurrency in WinHTTP). All three are guarded by `m`.
-    std::mutex m;
+    // on it (Concurrency in WinHTTP). All three are guarded by `lock`. SRW locks are
+    // not recursive: nothing takes it while holding it.
     bool in_receive = false;   // the callback is inside WinHttpReceiveResponse
     bool abandoned = false;    // the waiting thread gave up meanwhile: the callback closes the handle
     bool closed = false;       // the waiting thread closed the handle itself
     explicit AsyncState(size_t read_bytes) : buf(read_bytes) {}
     AsyncState(const AsyncState&) = delete;
     AsyncState& operator=(const AsyncState&) = delete;
-    ~AsyncState() { if (ev) CloseHandle(ev); }
+    // A completion happened: count it and wake the waiter.
+    void signal() {
+        AcquireSRWLockExclusive(&lock);
+        ++seq;
+        ReleaseSRWLockExclusive(&lock);
+        WakeAllConditionVariable(&cv);
+    }
+};
+
+// Scoped exclusive hold of an SRW lock.
+struct SrwGuard {
+    SRWLOCK& l;
+    explicit SrwGuard(SRWLOCK& lk) : l(lk) { AcquireSRWLockExclusive(&l); }
+    ~SrwGuard() { ReleaseSRWLockExclusive(&l); }
+    SrwGuard(const SrwGuard&) = delete;
+    SrwGuard& operator=(const SrwGuard&) = delete;
 };
 
 // Runs on a WinHTTP thread (or, for a fast completion, inside the call that
@@ -185,7 +214,7 @@ void CALLBACK status_cb(HINTERNET h, DWORD_PTR ctx, DWORD status, LPVOID info, D
     switch (status) {
     case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE: {
         {
-            std::lock_guard<std::mutex> lk(st->m);
+            SrwGuard lk(st->lock);
             if (st->closed) return;   // the waiting thread already closed the handle
             st->in_receive = true;
         }
@@ -196,7 +225,7 @@ void CALLBACK status_cb(HINTERNET h, DWORD_PTR ctx, DWORD status, LPVOID info, D
         const DWORD why = ok ? 0 : GetLastError();
         bool close_it;
         {
-            std::lock_guard<std::mutex> lk(st->m);
+            SrwGuard lk(st->lock);
             st->in_receive = false;
             close_it = st->abandoned;
         }
@@ -208,7 +237,7 @@ void CALLBACK status_cb(HINTERNET h, DWORD_PTR ctx, DWORD status, LPVOID info, D
             st->error = why;
             st->last = WINHTTP_CALLBACK_STATUS_REQUEST_ERROR;
         }
-        SetEvent(st->ev);   // wake the waiter: it may be holding a HEADERS_AVAILABLE until in_receive is clear
+        st->signal();   // wake the waiter: it may be holding a HEADERS_AVAILABLE until in_receive is clear
         return;
     }
     case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
@@ -229,7 +258,7 @@ void CALLBACK status_cb(HINTERNET h, DWORD_PTR ctx, DWORD status, LPVOID info, D
         return;
     }
     st->last = status;
-    SetEvent(st->ev);
+    st->signal();
 }
 
 // The request handle and its state. Once the callback is installed the state is
@@ -246,7 +275,7 @@ struct AsyncRequest {
     ~AsyncRequest() {
         if (h && callback_owns_state) {
             {
-                std::lock_guard<std::mutex> lk(st->m);
+                SrwGuard lk(st->lock);
                 if (st->in_receive) {   // the callback is inside a call on the handle: it closes it
                     st->abandoned = true;
                     return;             // `st` and `h` are the callback's now
@@ -344,7 +373,6 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     // cannot be installed no HANDLE_CLOSING will come, and ~AsyncRequest frees
     // the state itself.
     req.st = new AsyncState(timings.read_bytes);
-    if (!req.st->ev) return transport_fail(transport_reason(GetLastError()), false);
     DWORD_PTR ctx = reinterpret_cast<DWORD_PTR>(req.st);
     if (!WinHttpSetOption(req.h, WINHTTP_OPTION_CONTEXT_VALUE, &ctx, sizeof(ctx)) ||
         WinHttpSetStatusCallback(req.h, status_cb,
@@ -362,23 +390,44 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     // Wait for the completion `want`, one tick at a time. On Ended the attempt is
     // over (download_step has set `err` and settled the partial) and nothing is
     // waited for: the caller returns, the handles close, WinHTTP cleans up behind.
+    //
+    // The tick is by the clock: a deadline that persists across wakes that are not
+    // the awaited completion, and restarts only after a tick's download_step. No
+    // kernel-object wait (see the file header). `seen` is the count of completions
+    // consumed so far, per request: a completion delivered inline, inside the WinHTTP
+    // call that started the operation and before this runs, is not lost.
     enum class Wait { Done, Error, Ended };
+    unsigned seen = 0;
+    using Clock = std::chrono::steady_clock;
+    const auto tick = std::chrono::milliseconds(timings.tick_ms);
     auto wait_for = [&](DWORD want) {
+        auto deadline = Clock::now() + tick;
         for (;;) {
-            const DWORD w = WaitForSingleObject(st.ev, static_cast<DWORD>(timings.tick_ms));
-            if (w == WAIT_OBJECT_0) {
+            bool signalled;
+            bool in_receive;
+            {
+                SrwGuard lk(st.lock);
+                while (st.seq == seen) {   // loops over spurious and stolen wakeups
+                    const auto now = Clock::now();
+                    if (now >= deadline) break;
+                    const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now) +
+                                      std::chrono::milliseconds(1);   // round up
+                    SleepConditionVariableSRW(&st.cv, &st.lock, static_cast<DWORD>(left.count()), 0);
+                }
+                signalled = st.seq != seen;
+                seen = st.seq;
+                in_receive = st.in_receive;
+            }
+            if (signalled) {
                 const DWORD last = st.last.load();
                 if (last == WINHTTP_CALLBACK_STATUS_REQUEST_ERROR) return Wait::Error;
-                if (last == want) {
-                    // A call on the handle that is still running (the callback's
-                    // receive) must have returned before the next operation begins.
-                    std::lock_guard<std::mutex> lk(st.m);
-                    if (!st.in_receive) return Wait::Done;
-                }
-                continue;   // some other notification: keep waiting for ours
+                // A call on the handle that is still running (the callback's receive)
+                // must have returned before the next operation begins.
+                if (last == want && !in_receive) return Wait::Done;
+                continue;   // some other notification: keep waiting for ours, same deadline
             }
-            if (w != WAIT_TIMEOUT) { st.error = GetLastError(); return Wait::Error; }
             if (!download_step(part, progress, got_total, watch, timings, err)) return Wait::Ended;
+            deadline = Clock::now() + tick;
         }
     };
     // wait_for() mapped to an Outcome; false = return `out` now.

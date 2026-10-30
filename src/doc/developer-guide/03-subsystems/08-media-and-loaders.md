@@ -1265,8 +1265,13 @@ cannot be met synchronously: a synchronous `WinHttpReadData` blocks its thread u
 data arrives or its receive timeout fires, and Microsoft documents closing a
 synchronous request's handle from another thread as a race. With the cable pulled
 the GUI thread sat inside that read for its 120 s, and Windows ghosted the window as
-"Not Responding". In async mode the thread waits on an event for the next completion,
-one tick at a time, and a cancel or a stall is "close the request handle and return".
+"Not Responding". In async mode the thread waits on a condition variable (with an SRW lock) for the next
+completion or the next tick by the clock, and a cancel or a stall is "close the request handle and return".
+The wait is not a kernel event on purpose: under wine without ntsync every kernel-object
+wait goes through the single-threaded wineserver, which also delivers its timeout, so a
+wineserver that does not run for T seconds delays the tick by T (GH #415: a 1 s stop gave a
+1.2 s tick gap, the CI failure of `PROV-STALL-08`). A condition-variable wait is a futex inside
+the process under wine and a kernel wait on Windows (Vista and later, so Windows 7 is covered).
 That holds only while no WinHTTP call made on that thread waits on the network.
 `WinHttpReceiveResponse` may: wine 11.7 and later read the headers inside the call, in its
 caller (GH #415: no tick, no stall note and no cancel for the whole header wait, up to
@@ -1288,11 +1293,11 @@ returns without signalling after a successful call (`HEADERS_AVAILABLE` or
 waiting thread treats `HEADERS_AVAILABLE` as done only once that call has returned
 (Microsoft: wait for the function to return and the completion callback before another
 operation on the handle). Closing the handle while the callback thread is inside the call
-is what the concurrency rules forbid, so a handoff under a mutex decides who closes: a
+is what the concurrency rules forbid, so a handoff under the state's SRW lock decides who closes: a
 waiting thread that gives up while the receive is in flight marks the request abandoned
 and the callback closes it when the call returns, otherwise the waiting thread closes it
 itself; either way once, and the callback touches nothing after its own close. The
-per-request state (event, latest completion, read buffer, the extra headers
+per-request state (lock and condition variable, latest completion, read buffer, the extra headers
 `WinHttpSendRequest` still points at) is heap-allocated and belongs to the request
 handle from the moment the status callback is installed: the callback frees it on
 `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING`, the last callback a handle gets, so an
@@ -1305,7 +1310,7 @@ arrived reaches the `.part`, and a read never asks for more than the buffer hold
 behind the stall timeout.
 
 Under wine the rows (`PROV-STALL-*`, `PIT-43`) show the tick cadence, the stall, the
-cancel and the resume on the WinHTTP backend; they cannot show four things. Windows'
+cancel and the resume on the WinHTTP backend; they cannot show five things. Windows'
 own hung-window detection (five seconds without a message pump) and the Qt dialog on
 top of WinHTTP: the Qt suites run on Linux only, so the pump is proven there
 (`SDD-01..03`) and meets the WinHTTP cadence in `progress()`, which every platform
@@ -1319,8 +1324,10 @@ caller's result and timing are the same, only the abandoned socket lives longer 
 thread until the server closes or 21 s pass). The close handoff itself is not observable:
 wine keeps a request object alive while a call holds it, so closing mid-call is tolerated and
 removing the handoff passes every row; it rests on Microsoft's rule and on review, and
-`PROV-STALL-11` pins the user-visible half (cancel before the server has answered). And
-TLS under asynchronous WinHTTP, and the read-fill semantics and error codes of real
+`PROV-STALL-11` pins the user-visible half (cancel before the server has answered). The
+tick's independence from the wineserver: it is measured by stopping the wineserver for a
+second during `PROV-STALL-08` (GH #415), not by a row, because a stalled wineserver stalls
+every suite sharing the prefix. And TLS under asynchronous WinHTTP, and the read-fill semantics and error codes of real
 Windows (wine fills the buffer, reports a read timeout as 10060 and never reports
 more than 8 KiB available: measured over the whole provisioner suite, 8192 at most):
 the rows use plain `http` on loopback, and https to the real mirrors is exercised
