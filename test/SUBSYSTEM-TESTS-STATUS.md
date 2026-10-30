@@ -92,7 +92,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
-| jnext.conf key table (GH #417) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
+| jnext.conf key table (GH #417) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -117,7 +117,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | src/debug Qt-free lint (GH #278) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source maps + symbols |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source maps + symbols |      105 |      105 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk -debug map adapter |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (backend) |      263 |      263 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -136,7 +136,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger session recorder (GH #20) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZRCP remote debugger adapter (GH #280) |      216 |      216 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect rules (pure) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |      174 |      174 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |      175 |      175 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Mouse Release Gesture (GH #365) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -174,11 +174,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Key Bindings |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Menus        |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Menus        |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Source panel |      111 |      111 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14439**| **14439**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Source panel |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **14475**| **14475**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

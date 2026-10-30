@@ -74,6 +74,7 @@ private:
     void refresh_key_row(int index);
 #endif
     AppConfigData collect() const;
+    bool source_dirs_ok();   // GH #420 - refuses a directory holding the list separator
     void browse_directory(QLineEdit* target);
     void browse_sd_image(QLineEdit* target);
 
@@ -118,6 +119,11 @@ private:
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;
     QLineEdit* screenshot_dir_edit_ = nullptr;
+
+    // GH #420 - Paths > Source search path (a debugger build only); one directory per
+    // line. source_dirs_saved_ is what collect() hands back when there is no control.
+    QPlainTextEdit* source_dirs_edit_ = nullptr;
+    QStringList     source_dirs_saved_;
 
     QLineEdit* quick_screenshot_dir_edit_  = nullptr;   // GH #19
     QComboBox* quick_screenshot_fmt_combo_ = nullptr;

@@ -20,6 +20,7 @@
 
 #include "platform/config_keys.h"
 #include "debug/debug_keymap.h"
+#include "debug/source_search.h"
 #include "core/cli_options.h"
 
 #include <QDir>
@@ -1390,6 +1391,7 @@ std::vector<std::string> accepted_samples(const config_keys::Key& k) {
         }
         case Type::Text:
         case Type::Path:  return {"a b", "x, y", ""};
+        case Type::PathList: return {"a b", "x, y", "", std::string("/a") + source_search::kListSeparator + "/b"};
         case Type::TrimmedText: return {"a b", "x, y", "  padded ", ""};
         case Type::HostList: return {"a.example,B.example", ""};
         case Type::DeviceId: return {"0123456789ABCDEF0123456789abcdef#2", ""};
@@ -1419,7 +1421,10 @@ std::vector<std::string> refused_samples(const config_keys::Key& k) {
         case Type::HostList:
         case Type::Text:
         case Type::TrimmedText:
-        case Type::Path: return {};
+        case Type::Path:
+        // GH #420 - load() drops an empty entry that --set refuses, so the file is
+        // the more permissive side here too.
+        case Type::PathList: return {};
     }
     return {};
 }
@@ -1597,6 +1602,7 @@ static void test_merge_cli_assignments(QTemporaryDir& dir) {
     saved.mouse_release = pointer_capture::ReleaseMethod::Esc;
     saved.joy_source[0] = JoySource::CursorKeys;
     saved.audio_gain_db = 3.0f;
+    saved.source_dirs = QStringList{QStringLiteral("/saved/src")};
 
     AppConfigData merged = saved;
     merge_cli_assignments(merged, {
@@ -1608,6 +1614,7 @@ static void test_merge_cli_assignments(QTemporaryDir& dir) {
         { KeyId::PathsScreenshotDir, {}, "/cli/shots" },
         { KeyId::ScreenshotQuickDir, {}, "/cli/quick" },
         { KeyId::ScreenshotQuickFormat, {}, "scr" },
+        { KeyId::PathsSourceDirs, {}, std::string("/cli/a") + source_search::kListSeparator + "/cli/b" },
         // A key this function does not own, and a later value for a key already given.
         { KeyId::StartupSilent, {}, "false" },
         { KeyId::StartupWindowScale, {}, "1" },
@@ -1619,13 +1626,15 @@ static void test_merge_cli_assignments(QTemporaryDir& dir) {
     for (const QString& k : sa.allKeys())
         if (sa.value(k) != sb.value(k)) differ << k;
     differ.sort();
-    const QStringList want = {"paths/last_load_dir", "paths/screenshot_dir", "screenshot/quick_dir",
+    const QStringList want = {"paths/last_load_dir", "paths/screenshot_dir", "paths/source_dirs",
+                              "screenshot/quick_dir",
                               "screenshot/quick_format", "startup/crt_filter", "startup/crt_shader",
                               "startup/crt_shader_style", "startup/window_scale"};
     const bool merge_ok =
           differ == want && merged.window_scale == 1 && merged.silent && merged.esp_enabled
               && merged.last_load_dir == QLatin1String("/cli/load")
               && merged.quick_screenshot_format == ScreenshotFormat::Scr
+              && merged.source_dirs == QStringList({QStringLiteral("/cli/a"), QStringLiteral("/cli/b")})
               && merged.crt_shader_style == crt_shader::Style::Tv;
 
     // --crt: the five effects give the Preferences pop-up's combinations.
@@ -1654,10 +1663,40 @@ static void test_merge_cli_assignments(QTemporaryDir& dir) {
     cli::CrtEffect none;
     if (cli::parse_crt_effect("crt", none) || cli::parse_crt_effect("", none) || cli::parse_crt_effect("TV", none))
         bad += "accepted-bad ";
-    check("AC-97", "merge_cli_assignments() sets its eight keys (the later of one key wins) and leaves every "
+    check("AC-97", "merge_cli_assignments() sets its nine keys (the later of one key wins) and leaves every "
                    "other field at the saved value; the five --crt effects merge to the Preferences pop-up's "
                    "filter/shader/style combinations",
           merge_ok && bad.empty(), differ.join(',').toStdString() + " " + bad);
+}
+
+// AC-100 (GH #420): paths/source_dirs is ONE string joined with the platform separator,
+// so a directory name holding a comma (which QSettings would split in a list) survives.
+// Oracle: the issue's contract and the `--set paths.source_dirs=` spelling.
+static void test_source_dirs(QTemporaryDir& dir) {
+    set_group("AC-SRCDIRS");
+    const QString p = fresh_ini_path(dir, "source-dirs");
+    const QStringList dirs = {QStringLiteral("/a b"), QStringLiteral("/c,d")};
+    {
+        AppConfig w(p);
+        w.load();
+        w.data().source_dirs = dirs;
+        w.save();
+    }
+    const QString sep(QLatin1Char(source_search::kListSeparator));
+    bool present = false;
+    const std::string raw = raw_text(p, "paths/source_dirs", &present);
+    AppConfig r(p);
+    r.load();
+    const std::string want = ("/a b" + sep + "/c,d").toStdString();
+    // An empty list is saved as an empty value and loads back as no directory.
+    const QString pe = fresh_ini_path(dir, "source-dirs-empty");
+    { AppConfig w(pe); w.load(); w.save(); }
+    AppConfig re(pe);
+    re.load();
+    check("AC-100", "source_dirs saves as the one string '/a b<sep>/c,d' and loads back as the same two entries "
+                    "(the comma survives); an empty list loads back empty",
+          present && raw == want && r.data().source_dirs == dirs && re.data().source_dirs.isEmpty(),
+          raw + " | " + r.data().source_dirs.join('|').toStdString());
 }
 
 int main() {
@@ -1689,6 +1728,7 @@ int main() {
     test_gh311_joy_device(dir);
     test_config_keys(dir);
     test_merge_cli_assignments(dir);
+    test_source_dirs(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

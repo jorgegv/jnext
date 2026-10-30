@@ -4701,6 +4701,21 @@ program, or that cannot be loaded, is a startup error (exit status
 1). With a tape program (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) the map attaches at
 once and is checked the first time the program runs its code; a
 mismatch then drops it, and the run exits with status 1.</dd>
+<dt><strong>--source-dir</strong> <em>DIR</em></dt>
+<dd>Also search <em>DIR</em> for the source files a source map names, in the
+Source tab of the debugger (the Qt window with the debugger;
+elsewhere a warning, and ignored). One directory per option, repeat
+it for more; the list separator (<code>:</code>, <code>;</code> on Windows) is refused.
+The Source tab tries a file beside the source map and in its parent
+directories first, then these directories, the longest matching
+trailing part of the recorded name first and the directories in the
+order given. For this run only, like <strong>--set</strong> <code>paths.source_dirs</code>,
+whose list it appends to (a later <strong>--set</strong> of that key replaces
+what came before). A list given on the command line REPLACES the
+saved one for the run; directories added by <strong>Locate File…</strong> still
+apply. A relative <em>DIR</em> is taken from the working directory. The
+saved list is edited under <strong>Preferences &gt; Paths</strong>, and <strong>Locate
+File…</strong> in the Source tab adds a directory.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
 for example <code>0x00FF</code>).</dd>
@@ -4781,6 +4796,12 @@ All frontends.</dd>
 frontends.</dd>
 <dt><code>paths.screenshot_dir</code> <em>PATH</em></dt>
 <dd>The directory the Save Screenshot dialog opens in. The Qt window.</dd>
+<dt><code>paths.source_dirs</code> <em>DIRS</em></dt>
+<dd>The directories the debugger’s Source tab also searches for source
+files, separated by <code>:</code> (<code>;</code> on Windows); <strong>--source-dir</strong> appends
+one. Empty means none. Given on the command line, the list REPLACES
+the saved one for that run. A relative directory is taken from the
+working directory. The Qt window with the debugger.</dd>
 <dt><code>screenshot.quick_dir</code> <em>PATH</em></dt>
 <dd>The Quick Screenshot directory; empty means <code>~/.jnext/screenshots</code>.
 The Qt window.</dd>

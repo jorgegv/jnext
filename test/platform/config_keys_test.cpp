@@ -15,6 +15,7 @@
 
 #include "core/cli_options.h"
 #include "debug/debug_keymap.h"
+#include "debug/source_search.h"
 #include "input/joy_source.h"
 
 #include <cstdio>
@@ -300,6 +301,48 @@ int main() {
             a.id != KeyId::DebuggerKey || a.family_name != "step_out")
             bad += "family_name ";
         check("SETK-15", "a Combo parses through dbgkeys::parse_combo (ctrl+f10 -> Ctrl+F10, none -> none); Ctrl+ is refused; the action id is kept",
+              bad.empty(), bad);
+    }
+
+    // SETK-17 (GH #420)
+    {
+        const Key& k = config_keys::info(KeyId::PathsSourceDirs);
+        check("SETK-17", "paths.source_dirs is a PathList row: dedicated flag --source-dir, Qt window only, debugger builds only, settable with --set",
+              std::string(k.section) == "paths" && std::string(k.name) == "source_dirs" &&
+                  k.type == Type::PathList && std::string(k.flag) == "--source-dir" &&
+                  k.frontends == config_keys::QT && k.needs_debugger && !k.not_setting &&
+                  config_keys::find("paths", "source_dirs") == &k);
+    }
+
+    // SETK-18 (GH #420)
+    {
+        const std::string sep(1, source_search::kListSeparator);
+        std::string bad, why;
+        if (canon("paths.source_dirs=") != "") bad += "empty ";
+        if (canon("paths.source_dirs=a" + sep + "b c") != "a" + sep + "b c") bad += "list ";
+        if (canon("paths.source_dirs=/x,y") != "/x,y") bad += "comma ";
+        for (const std::string v : {sep + "a", "a" + sep, "a" + sep + sep + "b", sep}) {
+            if (canon("paths.source_dirs=" + v, &why) != "<refused>") bad += "accepts '" + v + "' ";
+            else if (why.find("\"" + v + "\"") == std::string::npos ||
+                     why.find("paths.source_dirs") == std::string::npos) bad += "why(" + why + ") ";
+        }
+        check("SETK-18", "a PathList is empty or directories joined by the platform separator, kept verbatim; a leading, trailing or doubled separator is refused, naming the typed value",
+              bad.empty(), bad);
+    }
+
+    // SETK-19 (GH #420)
+    {
+        const std::string sep(1, source_search::kListSeparator);
+        std::string bad, why, list;
+        if (!config_keys::append_list_entry(list, "a", why) || list != "a") bad += "first ";
+        if (!config_keys::append_list_entry(list, "b c", why) || list != "a" + sep + "b c") bad += "second ";
+        const std::string before = list;
+        if (config_keys::append_list_entry(list, "", why) || list != before ||
+            why.find("--source-dir") == std::string::npos) bad += "empty(" + why + ") ";
+        why.clear();
+        if (config_keys::append_list_entry(list, ("x" + sep + "y").c_str(), why) || list != before ||
+            why.find("--source-dir") == std::string::npos) bad += "separator(" + why + ") ";
+        check("SETK-19", "append_list_entry appends in order; an empty directory or one holding the separator is refused, naming --source-dir, and the list is unchanged",
               bad.empty(), bad);
     }
 

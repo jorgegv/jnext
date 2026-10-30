@@ -130,6 +130,57 @@ binary, a file that is not an SLD or a map, not a regular file, or over 64 MiB),
 why: the reason is in the log, in the main window's status bar for ten
 seconds, and in the Source tab in place of "No source map loaded".
 
+## Where the Source tab finds the files
+
+A map names its files as the compiler saw them, and the build may have run
+somewhere else: in a `build/` directory beside the sources, on another machine,
+or in a container. The Source tab looks for each file in this order:
+
+1. the name as recorded, when it is an absolute path that exists;
+2. beside the map, then in each of its parent directories;
+3. your **source search path**: for each directory in it, the whole recorded
+   name, then the name without its first directory, and so on down to the file
+   name alone. The longest matching part of the name wins over the order of the
+   directories, so `game/util.c` is `game/util.c` in the second directory rather
+   than `util.c` in the first. A `..` at the start of a name is ignored, so a
+   search never leaves the directory it was given.
+
+Add to the search path with **Preferences ▸ Paths ▸ Source search path** (one
+directory per line, saved), with `--source-dir DIR` (repeat it; `paths.source_dirs`
+with `--set`), or with **Locate File...**. A list given on the command line
+**replaces** the saved one for that run and is never written to the file;
+directories added by **Locate File...** still apply. A relative directory is
+taken from the working directory JNEXT was started in. When the
+tab says `main.c:19 - source file not found`, **Locate File...** asks for the
+file the map names; the directory it is in is searched from then on, and JNEXT
+asks whether to save it in Preferences too (the default is No). Choosing a file
+of another name is refused. The saved list is one line of `jnext.conf` with the directories
+separated by `:` (`;` on Windows), so a directory whose name holds that character is refused by
+Preferences, by `--source-dir` and by the Save question of **Locate File...** (it is still searched
+for the session).
+
+z88dk records its own library files too: the headers (`stdint.h`) and the
+`.inc` files, with absolute names. A map built on this machine finds them where
+the compiler left them. For a map built elsewhere, add the z88dk install
+directory (the one holding `libsrc/` and `include/`) to the search path, or
+locate one of its files: one pick covers every file under it.
+
+The start-up code (`zxn_crt.asm.m4`, which holds the program's first
+instruction) cannot be shown. z88dk numbers its lines in the output of the `m4`
+macro processor, which the build does not keep, so no file on disk has them. The
+tab says so and you use the disassembly there.
+
+A program loaded or reloaded (**Alt+L**) while the machine is paused leaves it
+paused: a paused machine stays paused, at the new program counter. A NEX file
+stops at its entry point, which for z88dk is that start-up code (`__Start`) and
+not yet `main`: press **Continue**, or set a breakpoint on `main` first. A
+running machine keeps running.
+
+When the file is found but is shorter than the line the map names, the tab says
+so (`main.c:19 - /path/main.c has only 12 lines; it is not the text the build
+used`): it is not the file the program was built from. The label's tooltip
+shows the path of the file that was found.
+
 ## Banked code
 
 A Next program pages code in and out, so one address can hold different code

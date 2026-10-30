@@ -941,7 +941,9 @@ location is; a `space` on a kind other than `Execute` is refused.
   It follows the PC at every stop and says "Running" while the machine runs (done in v1.1.64).
   The file is found from the recorded name, absolute or else relative to the map's directory
   or one of its parents, and reloaded when it changes on disk. A refused sidecar says why in
-  the tab.
+  the tab. E23-27 (#420) adds a source search path after those two steps (Preferences > Paths,
+  `--source-dir`, `paths.source_dirs`), tried longest trailing part of the name first, and a
+  **Locate File...** button that adds the directory of the file the user picks.
 - **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
   Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
   Settings > Preferences... > Debugger Keys like the other debugger actions
@@ -1377,6 +1379,15 @@ identity from the section binaries, the symbol loaders' file-type refusal).
 - z88dk fixtures are our own sources, generated on both installs and committed with the z88dk
   commit and the command; every row that depends on compiler output names its install (2.3);
   a row checks the fixtures' recorded hashes, since CI has no z88dk.
+
+**E23-27 (#420), the source search path.** `source_map_test` SRCPATH-01..13 (the resolution
+order, the longest trailing part first, the fixture's recorded CRT name, a Windows spelling, no
+escape by `..`, `root_for` and its round trip, the list spelling); `config_keys_test` SETK-17..19;
+`app_config_test` AC-100 (and AC-97 now covers nine keys); `debugger_source_panel_test`
+QSRC-66..78 (the fixture map in `build/` with its sources in `src/`, Locate File... with No, Yes
+and a wrong name, the z88dk `.m4` message, the past-the-end message, the lazy window, the located
+directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..06 (file,
+command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
 
 **Row IDs are global**: the duplicate-ID gate refuses a reuse. IDs written into a sub-issue's
 text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRCDBG-SIDE-12`,

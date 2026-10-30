@@ -108,6 +108,9 @@
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
 #include "gui/main_window.h"
+#include "gui/preferences_dialog.h"
+#include "debug/source_search.h"
+#include "debugger/source_panel.h"
 #include "input/emu_fnkeys.h"
 #include "memory/mmu.h"
 #include "platform/emulator_boot.h"
@@ -118,6 +121,11 @@
 #include <QCheckBox>
 #include <QContextMenuEvent>
 #include <QDialog>
+#include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QSettings>
 #include <QImage>
 #include <QKeyEvent>
 #include <QLineEdit>
@@ -2644,6 +2652,255 @@ static void test_session_debug_keys()
     if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
 }
 
+// ── MWSRC: GH #420 - the Source tab's search path, from the file to the panel ─
+//
+// MainWindow keeps the list IN EFFECT (the command line's, else the saved one;
+// Preferences takes over) apart from app_config_, which is what jnext.conf holds. The
+// manager gets it when it is created and whenever apply_startup_config() runs; a
+// Locate File... Yes appends to the saved list only. Oracle: the contract (man page:
+// the command line is never written to jnext.conf; Preferences > Paths edits the saved
+// list), read back from the real manager, panel and file. No VHDL.
+static void test_source_dirs_wiring()
+{
+    set_group("MWSRC");
+    const QString sep(QLatin1Char(source_search::kListSeparator));
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home;
+    const QString conf = home.path() + QStringLiteral("/jnext.conf");
+    auto write_saved = [&](const QString& value) {
+        QSettings raw(conf, QSettings::IniFormat);
+        raw.clear();
+        raw.setValue("paths/source_dirs", value);
+        raw.sync();
+    };
+    auto saved_text = [&]() {
+        QSettings f(conf, QSettings::IniFormat);
+        return f.value("paths/source_dirs").toString();
+    };
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+
+    // MWSRC-01 - the manager and the panel get the list, in either order.
+    {
+        write_saved(QString());
+        bool now = false, window = false, later = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData cfg = fx.win.app_config().data();
+                cfg.source_dirs = QStringList{QStringLiteral("/s/one"), QStringLiteral("/s/two")};
+                fx.win.apply_startup_config(cfg);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                now = mgr->source_dirs() == cfg.source_dirs;
+                mgr->set_enabled(true);
+                SourcePanel* sp = mgr->debugger_window_ptr() ? mgr->debugger_window_ptr()->source_panel() : nullptr;
+                window = sp && sp->search_dirs() == std::vector<std::string>({"/s/one", "/s/two"});
+                detail += "now=" + std::to_string(now) + " window=" + std::to_string(window);
+            }
+        }
+        {
+            Emulator emu;
+            if (build_next_emulator(emu)) {
+                jnext::dbg::Debugger backend(emu);
+                MainWindow win;
+                AppConfigData cfg = win.app_config().data();
+                cfg.source_dirs = QStringList{QStringLiteral("/s/late")};
+                win.apply_startup_config(cfg);   // before the manager exists
+                win.set_debugger(&backend);
+                win.set_emulator(&emu);
+                later = win.debugger_manager() && win.debugger_manager()->source_dirs() == cfg.source_dirs;
+                if (win.debugger_manager()) win.debugger_manager()->set_enabled(false, false);
+            }
+        }
+        check("MWSRC-01", "apply_startup_config() hands the search directories to the manager and the Source "
+                          "tab, and a manager created after the call gets them too",
+              now && window && later, detail + " later=" + std::to_string(later));
+    }
+
+    // MWSRC-02 / MWSRC-03 - a command-line list governs the run, not the file; a saved Locate adds to the file.
+    {
+        write_saved(QStringLiteral("/saved/one"));
+        bool cli_in_force = false, file_kept = false, loaded = false;
+        bool listed = false, once = false, still_cli = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                loaded = fx.win.app_config().data().source_dirs == QStringList{QStringLiteral("/saved/one")};
+                AppConfigData session = fx.win.app_config().data();
+                session.source_dirs = QStringList{QStringLiteral("/cli/one")};
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                cli_in_force = mgr->source_dirs() == session.source_dirs;
+                fx.win.set_startup_load("/x/c.nex", "/x/c.nex");
+                fx.win.startup_rzx_started("/x/c.nex");         // an unrelated save of jnext.conf
+                file_kept = saved_text() == QLatin1String("/saved/one");
+                detail = "file=" + saved_text().toStdString();
+
+                emit mgr->source_dir_save_requested(QStringLiteral("/located/dir"));
+                emit mgr->source_dir_save_requested(QStringLiteral("/located/dir"));
+                listed = saved_text() == QStringLiteral("/saved/one") + sep + QStringLiteral("/located/dir");
+                once = fx.win.app_config().data().source_dirs.size() == 2;
+                still_cli = mgr->source_dirs() == session.source_dirs;
+                detail += " after=" + saved_text().toStdString();
+            }
+        }
+        check("MWSRC-02", "a command-line search path governs the run and an unrelated save of jnext.conf "
+                          "leaves paths/source_dirs as the file had it",
+              loaded && cli_in_force && file_kept, detail);
+        check("MWSRC-03", "a Yes to saving a located directory appends it to the saved list once, written to "
+                          "jnext.conf, and the command-line list stays in force",
+              listed && once && still_cli, detail);
+    }
+
+    // MWSRC-04 - Preferences > Paths edits the saved list and takes over from the command line.
+    {
+        write_saved(QStringLiteral("/saved/one") + sep + QStringLiteral("/saved/two"));
+        QString shown, after_add, saved;
+        bool took_over = false, found = false;
+        std::string detail;
+        QTemporaryDir picked;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData session = fx.win.app_config().data();
+                session.source_dirs = QStringList{QStringLiteral("/cli/one")};
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* edit = dlg ? dlg->findChild<QPlainTextEdit*>(QStringLiteral("sourceDirsEdit")) : nullptr;
+                    if (!edit) { if (dlg) dlg->reject(); return; }
+                    found = true;
+                    shown = edit->toPlainText();
+                    edit->setPlainText(QStringLiteral("/x/one\n\n  /y/two  \n/x/one"));
+                    QDialogButtonBox* box = dlg->findChild<QDialogButtonBox*>();
+                    box->button(QDialogButtonBox::Apply)->click();
+                    took_over = mgr->source_dirs() == QStringList({QStringLiteral("/x/one"), QStringLiteral("/y/two")});
+                    QTimer pick;
+                    QObject::connect(&pick, &QTimer::timeout, [&]() {
+                        auto* fd = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+                        if (!fd) return;
+                        fd->selectFile(picked.path());
+                        static_cast<QDialog*>(fd)->accept();   // QFileDialog::accept() is protected
+                    });
+                    pick.start(1);
+                    dlg->findChild<QPushButton*>(QStringLiteral("sourceDirsAddButton"))->click();
+                    pick.stop();
+                    after_add = edit->toPlainText();
+                    dlg->reject();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                saved = saved_text();
+                detail = "shown=" + shown.toStdString() + " after_add=" + after_add.toStdString() +
+                         " saved=" + saved.toStdString();
+            }
+        }
+        check("MWSRC-04", "Preferences > Paths shows the saved list one directory per line; Apply trims it, "
+                          "drops blank lines and duplicates, saves it and takes over from the command-line "
+                          "list; Add Directory... appends a line",
+              found && shown == QStringLiteral("/saved/one\n/saved/two") && took_over &&
+                  saved == QStringLiteral("/x/one") + sep + QStringLiteral("/y/two") &&
+                  after_add == QStringLiteral("/x/one\n\n  /y/two  \n/x/one\n") + picked.path(),
+              detail);
+    }
+    // MWSRC-05 - a directory holding the list separator is not saved (it would load back as two).
+    {
+        write_saved(QStringLiteral("/saved/one"));
+        const QString bad = QStringLiteral("/data/a") + sep + QStringLiteral("b");
+        QString warning;
+        bool refused = false, session_kept = false, plain_saved = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                QTimer dismiss;
+                QObject::connect(&dismiss, &QTimer::timeout, [&]() {
+                    auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                    if (!mb) return;
+                    warning = mb->text();
+                    mb->button(QMessageBox::Ok)->click();
+                });
+                dismiss.start(1);
+                mgr->on_source_dir_located(bad);
+                emit mgr->source_dir_save_requested(bad);
+                dismiss.stop();
+                refused = saved_text() == QLatin1String("/saved/one") &&
+                          fx.win.app_config().data().source_dirs == QStringList{QStringLiteral("/saved/one")};
+                session_kept = mgr->source_dirs().contains(bad);
+                emit mgr->source_dir_save_requested(QStringLiteral("/fine/dir"));
+                plain_saved = saved_text() == QStringLiteral("/saved/one") + sep + QStringLiteral("/fine/dir");
+                detail = "file=" + saved_text().toStdString() + " warning=" + warning.toStdString();
+            }
+        }
+        check("MWSRC-05", "a Yes to saving a located directory that contains the list separator is refused "
+                          "in a box and nothing is written, the directory stays searched for the session, "
+                          "and an ordinary directory is still saved",
+              refused && session_kept && plain_saved && warning.contains(bad), detail);
+    }
+
+    // MWSRC-06 - Preferences refuses the same directory and neither applies nor saves.
+    {
+        write_saved(QStringLiteral("/saved/one"));
+        const QString bad = QStringLiteral("/data/a") + sep + QStringLiteral("b");
+        QString warning;
+        bool found = false, nothing_applied = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData session = fx.win.app_config().data();
+                session.source_dirs = QStringList{QStringLiteral("/cli/one")};
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* edit = dlg ? dlg->findChild<QPlainTextEdit*>(QStringLiteral("sourceDirsEdit")) : nullptr;
+                    if (!edit) { if (dlg) dlg->reject(); return; }
+                    found = true;
+                    edit->setPlainText(QStringLiteral("/ok/dir\n") + bad);
+                    QTimer dismiss;
+                    QObject::connect(&dismiss, &QTimer::timeout, [&]() {
+                        auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                        if (!mb) return;
+                        warning = mb->text();
+                        mb->button(QMessageBox::Ok)->click();
+                    });
+                    dismiss.start(1);
+                    dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+                    const bool apply_refused = !warning.isEmpty();
+                    warning.clear();
+                    dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();   // OK too
+                    dismiss.stop();
+                    nothing_applied = apply_refused && !warning.isEmpty() && dlg->isVisible() &&
+                                      mgr->source_dirs() == session.source_dirs;
+                    dlg->reject();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                detail = "file=" + saved_text().toStdString() + " warning=" + warning.toStdString();
+            }
+        }
+        check("MWSRC-06", "Preferences > Paths refuses a directory that contains the list separator in a "
+                          "box: neither Apply nor OK pushes the list or writes jnext.conf, and OK leaves the dialog open",
+              found && nothing_applied && saved_text() == QLatin1String("/saved/one") && warning.contains(bad),
+              detail);
+    }
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -2689,6 +2946,8 @@ int main(int argc, char** argv)
     std::printf("  Group: MWD            — done\n");
     test_session_debug_keys();
     std::printf("  Group: DWK            - done\n");
+    test_source_dirs_wiring();
+    std::printf("  Group: MWSRC          - done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

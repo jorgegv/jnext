@@ -1280,6 +1280,24 @@ With a tape program (\f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R])
 the map attaches at once and is checked the first time the program runs
 its code; a mismatch then drops it, and the run exits with status 1.
 .TP
+\f[B]\-\-source\-dir\f[R] \f[I]DIR\f[R]
+Also search \f[I]DIR\f[R] for the source files a source map names, in
+the Source tab of the debugger (the Qt window with the debugger;
+elsewhere a warning, and ignored).
+One directory per option, repeat it for more; the list separator
+(\f[CR]:\f[R], \f[CR];\f[R] on Windows) is refused.
+The Source tab tries a file beside the source map and in its parent
+directories first, then these directories, the longest matching trailing
+part of the recorded name first and the directories in the order given.
+For this run only, like \f[B]\-\-set\f[R] \f[CR]paths.source_dirs\f[R],
+whose list it appends to (a later \f[B]\-\-set\f[R] of that key replaces
+what came before).
+A list given on the command line REPLACES the saved one for the run;
+directories added by \f[B]Locate File\&...\f[R] still apply.
+A relative \f[I]DIR\f[R] is taken from the working directory.
+The saved list is edited under \f[B]Preferences > Paths\f[R], and
+\f[B]Locate File\&...\f[R] in the Source tab adds a directory.
+.TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, \f[CR]0x\f[R] prefix
 optional, for example \f[CR]0x00FF\f[R]).
@@ -1397,6 +1415,15 @@ All frontends.
 \f[CR]paths.screenshot_dir\f[R] \f[I]PATH\f[R]
 The directory the Save Screenshot dialog opens in.
 The Qt window.
+.TP
+\f[CR]paths.source_dirs\f[R] \f[I]DIRS\f[R]
+The directories the debugger\(cqs Source tab also searches for source
+files, separated by \f[CR]:\f[R] (\f[CR];\f[R] on Windows);
+\f[B]\-\-source\-dir\f[R] appends one.
+Empty means none.
+Given on the command line, the list REPLACES the saved one for that run.
+A relative directory is taken from the working directory.
+The Qt window with the debugger.
 .TP
 \f[CR]screenshot.quick_dir\f[R] \f[I]PATH\f[R]
 The Quick Screenshot directory; empty means
