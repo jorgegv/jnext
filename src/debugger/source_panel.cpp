@@ -135,8 +135,7 @@ void SourcePanel::locate_file()
                                  .arg(QFileInfo(picked).fileName(), base));
         return;
     }
-    emit source_dir_located(root);
-    refresh();
+    emit source_dir_located(root);   // the manager pushes the list back, which refreshes the tab
     const auto keep = QMessageBox::question(
         this, tr("Locate File"),
         tr("Source files are now also searched for in:\n%1\n\n"
