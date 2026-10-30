@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.104</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.104</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3586,6 +3586,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#settings-for-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings for --set
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3877,6 +3888,57 @@ firmware-resident machine does not have.</p>
 and is never shipped with <strong>jnext</strong>: it contains NextZXOS and DivMMC
 ROM content.</p>
 </dd>
+<dt><strong>--set</strong> <em>SECTION.KEY=VALUE</em></dt>
+<dd>
+<p>Set one setting of <code>~/.jnext/jnext.conf</code> for this run. Every
+Preferences setting can be given this way: the key is the file’s
+<code>[section]</code> and key name joined with a dot, the value is what the
+file holds, and the keys are listed under <strong>Settings for --set</strong>
+below. Repeat it for more
+(<code>--set audio.gain_db=-6 --set startup.silent=false</code>). The split is
+at the first <code>=</code>, so a value may contain one.</p>
+<p>A value that is not accepted, or a key that does not exist, is a
+usage error naming both, and <strong>jnext</strong> exits with status 1. A key
+the running frontend has no use for (a window setting under
+<strong>--headless</strong>, say) is reported with a warning and ignored, so one
+command line can serve all three frontends.</p>
+<p><strong>Precedence.</strong> The command line wins over the saved <code>jnext.conf</code>,
+which wins over the built-in default; a flag and <strong>--set</strong> are the
+same thing, and the later of two settings of one key wins whichever
+way it is spelled (<code>--cpu-speed 28 --set startup.cpu_speed=0</code> starts
+at 3.5 MHz). Nothing given on the command line is ever written to
+<code>jnext.conf</code>. A change made in the window during the run takes over
+from then on (a <strong>Preferences</strong> OK or Apply, a menu, a file dialog
+that moves the last directory), and <strong>Preferences</strong> shows the saved
+values, not the command line’s.</p>
+<p>A boolean is <code>true</code> or <code>false</code>. It also reaches what a flag cannot:
+<code>--set startup.silent=false</code> plays sound for one run although the
+file says muted, <code>--set startup.tape_fast_load=true</code> forces fast
+loading over a saved real-time setting, and
+<code>--set esp.allowed_hosts=</code> (empty) allows any host over a saved
+list.</p>
+</dd>
+<dt><strong>--cpu-speed</strong> <em>MHZ</em></dt>
+<dd>The CPU speed the machine starts at: <code>3.5</code>, <code>7</code>, <code>14</code> or <code>28</code>,
+exactly. The same as <code>--set startup.cpu_speed=0..3</code>, and like it a
+<em>starting</em> value: the speed is programmed through NextREG 0x07 when
+the machine has started, as <strong>Preferences</strong> does. NextZXOS then sets
+its own speed while it boots, as the hardware’s firmware does, so on
+the Next machine a program that waits for the firmware sees the
+firmware’s speed, not this one. On the other machines it holds.
+Works in the Qt window, the SDL-only build and <strong>--headless</strong>.</dd>
+<dt><strong>--scale</strong> <em>N</em></dt>
+<dd>Window scale 1 to 3 for this run, over the saved <strong>Preferences</strong>
+value. The same as <code>--set startup.window_scale</code>. Qt window only:
+elsewhere <strong>jnext</strong> warns and ignores it.</dd>
+<dt><strong>--crt</strong> <em>EFFECT</em></dt>
+<dd>CRT effect for this run: <code>off</code>, <code>scanlines</code>, <code>soft</code>, <code>tv</code> or <code>pc</code>,
+the choices of the <strong>Preferences</strong> CRT effect pop-up. The same as
+setting <code>startup.crt_filter</code>, <code>startup.crt_shader</code> and
+<code>startup.crt_shader_style</code> together. <code>soft</code>, <code>tv</code> and <code>pc</code> need the
+GPU shader; a build without it refuses them (exit status 1) and
+offers <code>off</code> and <code>scanlines</code>. Qt window only: elsewhere <strong>jnext</strong>
+warns and ignores it.</dd>
 <dt><strong>--speed</strong> <em>PERCENT</em></dt>
 <dd>Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
 Clamped to 10..1000. Works in the GUI and the SDL-only build;
@@ -3915,13 +3977,15 @@ frontends only; inert under <strong>--headless</strong>.</dd>
 it connects it (<code>Joystick 1 connected: 'name' [id]</code>): 32 hex digits,
 optionally followed by <code>#N</code> to tell identical pads apart. Used while
 the connector’s source is <code>sdl</code>; if that controller is not
-connected, jnext logs it and uses the first free one. Wins over the
+connected, jnext logs it and uses the first free one. An empty ID
+chooses Automatic (the first free controller) over a saved
+controller, the same as <code>--set input.joy1_device=</code>. Wins over the
 saved choice for this run.</dd>
 <dt><strong>--joy2-device</strong> <em>ID</em></dt>
 <dd>Physical controller for Joy 2 (port 0x37); same form as
-<strong>--joy1-device</strong>. The two connectors cannot name the same
-controller. Interactive (SDL/Qt) frontends only; inert under
-<strong>--headless</strong>.</dd>
+<strong>--joy1-device</strong>, an empty ID included. The two connectors cannot
+name the same controller. Interactive (SDL/Qt) frontends only; inert
+under <strong>--headless</strong>.</dd>
 <dt><strong>--mouse-release</strong> <em>METHOD</em></dt>
 <dd>How a captured mouse is released: <code>ctrl-alt</code> (default; Alt+Cmd in
 the Qt GUI on macOS), <code>middle-click</code> or <code>esc</code>. The methods are
@@ -4038,9 +4102,12 @@ the log. An interrupted download (Cancel, a dropped connection, or
 30 seconds without data) is kept as <code>NextPi-&lt;release&gt;.tar.gz.part</code>
 and continues on the next run. NextPi then takes about a minute to
 reach its Supervisor prompt (<code>SUP&gt;</code>). The release, the directory,
-the QEMU binary and where the Pi’s sound goes are set under
-<strong>Settings &gt; Preferences &gt; NextPi</strong> (the <code>[nextpi]</code> section of
-<code>~/.jnext/jnext.conf</code>); their defaults are release <code>1_93D</code>,
+the QEMU binary, where the Pi’s sound goes and any extra QEMU
+arguments are set under <strong>Settings &gt; Preferences &gt; NextPi</strong> (the
+<code>[nextpi]</code> section of <code>~/.jnext/jnext.conf</code>) or, for one run, with
+<strong>--nextpi-dir</strong>, <strong>--nextpi-release</strong>, <strong>--nextpi-qemu</strong>,
+<strong>--nextpi-audio</strong> and <strong>--nextpi-qemu-args</strong>, which work in a
+headless session too; their defaults are release <code>1_93D</code>,
 <code>~/.jnext/nextpi</code>, <code>qemu-system-arm</code> on <code>PATH</code>, and the Next’s
 mixer.</p>
 <p>On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S,
@@ -4069,6 +4136,34 @@ QEMU listens on.</p>
 <dt><strong>--no-nextpi</strong></dt>
 <dd>Do not start NextPi this run, overriding a saved preference that
 enables it.</dd>
+<dt><strong>--nextpi-dir</strong> <em>DIR</em></dt>
+<dd>The NextPi directory for this run (default <code>~/.jnext/nextpi</code>), over
+the value saved under <strong>Settings &gt; Preferences &gt; NextPi</strong>. An
+empty value means the default. It is used when NextPi starts, so it
+goes with <strong>--nextpi</strong> (or a saved preference that enables it);
+given when NextPi is not enabled for the run, this and the four
+options below are ignored, with a warning naming each.</dd>
+<dt><strong>--nextpi-release</strong> <em>NAME</em></dt>
+<dd>The NextPi release for this run: a release name on the mirror, or
+<code>latest</code> for the newest one listed there (default <code>1_93D</code>). Over the
+saved value; an empty value means the default.</dd>
+<dt><strong>--nextpi-qemu</strong> <em>PROGRAM</em></dt>
+<dd>The QEMU program for this run (default <code>qemu-system-arm</code> on <code>PATH</code>;
+with a path, <code>qemu-img</code> is expected beside it). Over the saved
+value; an empty value means the default.</dd>
+<dt><strong>--nextpi-audio</strong> <em>SPEC</em></dt>
+<dd>Where the Pi’s sound goes for this run: empty for the Next’s mixer
+(the default), <code>host</code>, a QEMU <code>-audiodev</code> driver such as <code>pa</code> or
+<code>none</code>, or <code>wav:</code><em>FILE</em>. Over the saved value.</dd>
+<dt><strong>--nextpi-qemu-args</strong> <em>“ARGS”</em></dt>
+<dd>Extra QEMU arguments for this run, added after jnext’s own. The text
+is split into arguments on spaces; <code>'...'</code> and <code>"..."</code> keep spaces
+in one argument; a backslash is an ordinary character; nothing is
+expanded and no shell is involved. Over the saved <code>qemu_args</code>. An
+unterminated quote stops NextPi from starting, with a message (an
+error when <strong>--nextpi</strong> asked for it). For example, a second serial
+port for the Pi, on <code>ttyS0</code>:
+<code>--nextpi-qemu-args "-serial telnet:127.0.0.1:2357,server,nowait"</code>.</dd>
 <dt><strong>--tape-realtime</strong></dt>
 <dd>Real-time tape loading, at the speed of an actual tape, instead of
 fast load. It sets the one fast/real-time setting (the GUI’s <strong>Tape
@@ -4635,6 +4730,105 @@ page</a>.</dd>
 <dd>Print the built-in help and exit.</dd>
 <dt><strong>--version</strong>, <strong>-V</strong></dt>
 <dd>Print the version and exit.</dd>
+</dl>
+<h2 id="settings-for-set">Settings for --set<a class="headerlink" href="#settings-for-set" title="Permanent link">&para;</a></h2>
+<p>Each entry below is a key of <code>~/.jnext/jnext.conf</code>, written
+<code>section.key</code>, with the values it takes. Where the setting has a flag of
+its own, the entry names it: the flag and <strong>--set</strong> are the same
+setting, and the later one given wins. The entries say which frontends
+use the key: the Qt window, the SDL-only build (both interactive) or
+<strong>--headless</strong>. Booleans are <code>true</code> or <code>false</code>.</p>
+<dl>
+<dt><code>startup.machine_type</code> <em>48k|128k|plus3|pentagon|next</em></dt>
+<dd>The machine type; <strong>--machine</strong>. All frontends.</dd>
+<dt><code>startup.cpu_speed</code> <em>0..3</em></dt>
+<dd>The CPU speed at start: 0 is 3.5 MHz, 1 is 7, 2 is 14, 3 is 28;
+<strong>--cpu-speed</strong> takes the MHz. A starting value: NextZXOS sets its
+own speed while it boots. All frontends.</dd>
+<dt><code>startup.emulator_speed_percent</code> <em>10..1000</em></dt>
+<dd>The emulation speed as a percentage of real time; <strong>--speed</strong>. Where
+<strong>--speed</strong> clamps a value outside the range, <strong>--set</strong> refuses it.
+The Qt window and the SDL-only build.</dd>
+<dt><code>startup.window_scale</code> <em>1..3</em></dt>
+<dd>The window scale; <strong>--scale</strong>. The Qt window.</dd>
+<dt><code>startup.crt_filter</code> <em>true|false</em></dt>
+<dd>The software scanlines effect; <strong>--crt scanlines</strong>. The Qt window.</dd>
+<dt><code>startup.crt_shader</code> <em>true|false</em></dt>
+<dd>The GPU CRT shader; <strong>--crt</strong>. The Qt window.</dd>
+<dt><code>startup.crt_shader_style</code> <em>0..2</em></dt>
+<dd>The shader’s look: 0 is <code>tv</code>, 1 is <code>pc</code>, 2 is <code>soft</code>; <strong>--crt</strong>. The
+Qt window.</dd>
+<dt><code>startup.silent</code> <em>true|false</em></dt>
+<dd>Start with the sound muted; <strong>--silent</strong>. All frontends.</dd>
+<dt><code>startup.tape_fast_load</code> <em>true|false</em></dt>
+<dd>Tape fast-load; <code>false</code> is real time, which is <strong>--tape-realtime</strong>.
+All frontends.</dd>
+<dt><code>startup.tape_auto_play</code> <em>true|false</em></dt>
+<dd>Automatic tape play and stop; <strong>--tape-auto-play</strong> and
+<strong>--no-tape-auto-play</strong>. All frontends.</dd>
+<dt><code>startup.when_slow_prefer</code> <em>audio|video</em></dt>
+<dd>What a host too slow for real time sacrifices;
+<strong>--when-slow-prefer</strong>. The Qt window and the SDL-only build.</dd>
+<dt><code>audio.gain_db</code>, <code>audio.gain_beeper_db</code>, <code>audio.gain_ay0_db</code>, <code>audio.gain_ay1_db</code>, <code>audio.gain_ay2_db</code>, <code>audio.gain_dac_db</code> <em>-24..24</em></dt>
+<dd>The master, beeper, AY #0, #1, #2 and DAC gains in dB;
+<strong>--audio-gain-db</strong>, <strong>--audio-gain-beeper-db</strong>,
+<strong>--audio-gain-ay0-db</strong>, <strong>--audio-gain-ay1-db</strong>,
+<strong>--audio-gain-ay2-db</strong> and <strong>--audio-gain-dac-db</strong>. All frontends.</dd>
+<dt><code>paths.last_load_dir</code> <em>PATH</em></dt>
+<dd>The directory the Load dialogs open in. The Qt window.</dd>
+<dt><code>paths.sd_card_path</code> <em>FILE</em></dt>
+<dd>The SD card image; <strong>--sdcard</strong>. Empty means none given. All
+frontends.</dd>
+<dt><code>paths.screenshot_dir</code> <em>PATH</em></dt>
+<dd>The directory the Save Screenshot dialog opens in. The Qt window.</dd>
+<dt><code>screenshot.quick_dir</code> <em>PATH</em></dt>
+<dd>The Quick Screenshot directory; empty means <code>~/.jnext/screenshots</code>.
+The Qt window.</dd>
+<dt><code>screenshot.quick_format</code> <em>png|scr</em></dt>
+<dd>The Quick Screenshot format. The Qt window.</dd>
+<dt><code>snapshot.quick_keep</code> <em>1..1000000|unlimited</em></dt>
+<dd>How many quick snapshots Quick Save keeps;
+<strong>--quick-snapshot-keep</strong>. The Qt window and the SDL-only build.</dd>
+<dt><code>input.joy1_source</code>, <code>input.joy2_source</code> <em>sdl|keys|none</em></dt>
+<dd>The host source for Joy 1 and Joy 2; <strong>--joy1-source</strong> and
+<strong>--joy2-source</strong>. The Qt window and the SDL-only build.</dd>
+<dt><code>input.joy1_device</code>, <code>input.joy2_device</code> <em>ID</em></dt>
+<dd>The controller assigned to Joy 1 and Joy 2 (32 hex digits,
+optionally <code>#N</code>); empty is Automatic, which <strong>--joy1-device</strong> and
+<strong>--joy2-device</strong> also take as an empty ID. The Qt window and the
+SDL-only build.</dd>
+<dt><code>input.mouse_release</code> <em>ctrl-alt|middle-click|esc</em></dt>
+<dd>How a captured mouse is released; <strong>--mouse-release</strong>. The Qt window
+and the SDL-only build.</dd>
+<dt><code>debugger_keys.</code><em>ACTION</em> <em>COMBO</em></dt>
+<dd>The key combination of a debugger action, like the <strong>Preferences</strong>
+Debugger Keys tab: <em>ACTION</em> is <code>run</code>, <code>pause</code>, <code>step_into</code>,
+<code>step_over</code>, <code>step_out</code>, <code>step_back</code>, <code>frame_back</code>, <code>run_to_cursor</code>,
+<code>run_to_eof</code>, <code>run_to_eosl</code>, <code>trace_toggle</code> or <code>trace_export</code>, and
+<code>none</code> unbinds it. A combination that is not legal there, or that
+another action already holds (unless the same command line frees
+it), is refused with exit status 1 before the window opens. The Qt
+window with the debugger.</dd>
+<dt><code>esp.enabled</code> <em>true|false</em></dt>
+<dd>The emulated ESP-01 WiFi module; <strong>--esp</strong> and <strong>--no-esp</strong>. All
+frontends.</dd>
+<dt><code>esp.allowed_hosts</code> <em>HOST,HOST,…</em></dt>
+<dd>The hosts the ESP may connect to, comma-separated; empty means any;
+<strong>--esp-allow</strong> gives one host per option and is appended to this
+list. All frontends.</dd>
+<dt><code>nextpi.enabled</code> <em>true|false</em></dt>
+<dd>NextPi under QEMU on UART 1; <strong>--nextpi</strong> and <strong>--no-nextpi</strong>. All
+frontends.</dd>
+<dt><code>nextpi.dir</code>, <code>nextpi.release</code>, <code>nextpi.qemu_binary</code>, <code>nextpi.audio</code>, <code>nextpi.qemu_args</code> <em>TEXT</em></dt>
+<dd>The NextPi directory, release, QEMU binary, Pi audio and extra QEMU
+arguments; <strong>--nextpi-dir</strong>, <strong>--nextpi-release</strong>,
+<strong>--nextpi-qemu</strong>, <strong>--nextpi-audio</strong> and <strong>--nextpi-qemu-args</strong>.
+Surrounding blanks are removed. All frontends.</dd>
+<dt><code>debugger.attached</code> <em>true|false</em></dt>
+<dd>Whether the debugger window follows the emulator window. The window
+opens as told for this run; the file keeps its value until the
+<strong>Attach to Emulator Window</strong> menu item is toggled. The Qt window
+with the debugger.</dd>
 </dl>
 
 

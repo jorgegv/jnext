@@ -103,8 +103,17 @@ the Preferences tab means that default:
 | NextPi release | `1_93D` | a release name on the NextPi mirror, or `latest` for the newest one there |
 | QEMU | `qemu-system-arm` on your `PATH` | the QEMU to run; `qemu-img` is expected beside it |
 | Pi audio | the Next's mixer | or `host` to play it on your computer's default output (`pa` on Linux, `coreaudio` on macOS, `dsound` on Windows), a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
+| Extra QEMU arguments | none | added after JNEXT's own when NextPi starts |
 
-Changes take effect the next time JNEXT starts. Changing the release makes the
+Each setting also has an optional command-line flag, for one run and over the
+saved value, in a headless session too: `--nextpi-dir DIR`, `--nextpi-release
+NAME`, `--nextpi-qemu PROGRAM`, `--nextpi-audio SPEC` and `--nextpi-qemu-args
+"ARGS"`. An empty value means the default. They go with `--nextpi` (or a saved
+preference that starts NextPi), which alone starts NextPi with the defaults.
+Given when NextPi is not enabled for the run, a flag is ignored and JNEXT warns
+in its log, naming it.
+
+Changes made in Preferences take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With
 `latest`, JNEXT checks the mirror each time it starts; if it cannot reach it, it
 carries on with the release it has, and says so, with the address it tried.
@@ -113,6 +122,33 @@ The Pi's SD card image is never changed: everything NextPi writes goes to
 `overlay.qcow2` in the NextPi directory. Delete that file to start again from a
 pristine image. QEMU's own messages go to `qemu.log` there too, which is the
 place to look if the Pi never answers.
+
+### Extra QEMU arguments
+
+The box under *Extra QEMU arguments* (or `--nextpi-qemu-args "..."`) is added to the end of the QEMU command
+line when NextPi starts. It is split into arguments on spaces, so one box
+holding `-serial telnet:127.0.0.1:2357,server,nowait` is two arguments,
+`-serial` and the address. Single or double quotes keep spaces inside one
+argument (`-name 'my pi'`); there are no escapes, so a backslash is an ordinary
+character and a Windows path can be pasted as it is. Nothing is expanded
+(`$HOME`, `~` and `*` stay as typed) and no shell is involved. A quote that is
+never closed stops NextPi from starting, with a message naming where it opens.
+When NextPi starts, the log shows how the box was split: `NextPi: 2 extra QEMU
+arguments, after JNEXT's own: "-serial" "telnet:127.0.0.1:2357,server,nowait"`.
+
+The arguments come after JNEXT's own, so a `-serial` of yours is the Pi's second
+serial port (its mini UART, `ttyS0`) and the NextPi console stays where JNEXT
+connected it. That makes a second telnet console possible:
+`-serial telnet:127.0.0.1:2357,server,nowait`. Write the address as shown:
+`telnet::2357` listens on every network interface, and without `nowait` QEMU
+waits for a client to connect before it boots the Pi. NextPi as shipped runs
+nothing on `ttyS0`, so the port accepts a connection but stays silent until you
+set up a login (a `getty`) on it inside NextPi.
+
+JNEXT does not check the arguments. One that conflicts with JNEXT's own (a
+second `-M` or `-kernel`, a `-chardev` with the id `pi`) can stop NextPi, and
+QEMU's reason is in `qemu.log`. Like every NextPi setting, the box is read only
+by sessions with a window, not by `--headless` (use `--nextpi-qemu-args` there).
 
 ## When nothing arrives
 

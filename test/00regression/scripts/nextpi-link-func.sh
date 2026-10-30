@@ -24,6 +24,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   4. stop QEMU the ORDERLY way on exit (the stand-in's `graceful` marker) and,
 #      where the stand-in's pid is a host pid (not under wine), have no stand-in
 #      left running.
+#   5. (GH #407) The optional flags set what Preferences > NextPi sets, for one run, in a
+#      headless session: --nextpi-dir (a directory of its own), --nextpi-release (1_100, the one installed there),
+#      --nextpi-qemu (a QEMU under another name, found on PATH), --nextpi-audio none and
+#      --nextpi-qemu-args reach the stand-in as its -kernel path, its -audiodev, its program
+#      and its LAST four arguments, after jnext's own.
 if want nextpi-link-func; then
     begin_func nextpi-link-func
 
@@ -79,6 +84,43 @@ if want nextpi-link-func; then
             fi
         fi
         rm -rf "$bindir" "$np"
+
+        # Fact 5 - the optional flags, with a directory of their own and a QEMU under another name.
+        cdir="$TMP_DIR/nextpi-cli-dir"
+        bindir="$TMP_DIR/nextpi-cli-bin"
+        rm -rf "$cdir" "$bindir"
+        mkdir -p "$cdir/boot" "$bindir"
+        cp "$stub" "$bindir/qemu-alt$exe"
+        cp "$stub" "$bindir/qemu-img$exe"
+        : >"$cdir/nextpi.img"
+        : >"$cdir/boot/kernel.img"
+        : >"$cdir/boot/bcm2708-rpi-zero.dtb"
+        echo 1_100 >"$cdir/release"
+        rc=0
+        out=$(timeout --foreground --kill-after=5s 90s \
+            env PATH="$bindir:$PATH" JNEXT_EXTRA_WINEPATH="$bindir" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+            --nextpi --nextpi-dir "$cdir" --nextpi-release 1_100 --nextpi-qemu qemu-alt \
+            --nextpi-audio none --nextpi-qemu-args "-name 'cli pi' -serial telnet:127.0.0.1:2357,server,nowait" \
+            --delayed-automatic-exit-frames 50 </dev/null 2>&1) || rc=$?
+        [[ $rc -eq 0 ]] || fails+=("--nextpi with the --nextpi-* flags exited $rc, want 0")
+        # The release flag must reach the provisioner: without it jnext would offer to replace the
+        # installed 1_100 with the default release (declined here on closed stdin, then it starts anyway).
+        if grep -qF 'is set to use NextPi' <<<"$out"; then
+            fails+=("--nextpi-release did not reach the provisioner (it offered to replace the installed 1_100)")
+        fi
+        if [[ ! -f "$bindir/args" ]]; then
+            fails+=("--nextpi-qemu qemu-alt did not start the stand-in under that name")
+        else
+            mapfile -t cl < <(tr -d '\r' <"$bindir/args")
+            cn=${#cl[@]}
+            (( cn >= 4 )) && [[ "${cl[cn-4]}|${cl[cn-3]}|${cl[cn-2]}|${cl[cn-1]}" == "-name|cli pi|-serial|telnet:127.0.0.1:2357,server,nowait" ]] \
+                || fails+=("--nextpi-qemu-args did not reach QEMU as its last four arguments")
+            cl_all=$(printf '%s\n' "${cl[@]}")
+            grep -qx 'none,id=snd0' <<<"$cl_all" || fails+=("--nextpi-audio none did not reach QEMU")
+            grep -q 'nextpi-cli-dir.*kernel\.img' <<<"$cl_all" || fails+=("--nextpi-dir did not reach QEMU (-kernel)")
+        fi
+        [[ -f "$cdir/overlay.qcow2" ]] || fails+=("--nextpi-dir: the overlay was not created in that directory")
+        rm -rf "$bindir" "$cdir"
 
         if [[ ${#fails[@]} -eq 0 ]]; then
             pass_row " (--nextpi starts the stand-in QEMU, attaches the launcher's serial link to UART 1 over the platform's transport, creates the overlay and stops QEMU the orderly way)"

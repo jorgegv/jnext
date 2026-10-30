@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.104</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.104</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1632,6 +1632,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="The NextPi settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extra-qemu-arguments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extra QEMU arguments
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3806,9 +3823,21 @@ the Preferences tab means that default:</p>
 <td>the Next's mixer</td>
 <td>or <code>host</code> to play it on your computer's default output (<code>pa</code> on Linux, <code>coreaudio</code> on macOS, <code>dsound</code> on Windows), a QEMU audio driver to play it straight to your computer, <code>none</code> to mute it, or <code>wav:FILE</code> to record it on its own</td>
 </tr>
+<tr>
+<td>Extra QEMU arguments</td>
+<td>none</td>
+<td>added after JNEXT's own when NextPi starts</td>
+</tr>
 </tbody>
 </table>
-<p>Changes take effect the next time JNEXT starts. Changing the release makes the
+<p>Each setting also has an optional command-line flag, for one run and over the
+saved value, in a headless session too: <code>--nextpi-dir DIR</code>, <code>--nextpi-release
+NAME</code>, <code>--nextpi-qemu PROGRAM</code>, <code>--nextpi-audio SPEC</code> and <code>--nextpi-qemu-args
+"ARGS"</code>. An empty value means the default. They go with <code>--nextpi</code> (or a saved
+preference that starts NextPi), which alone starts NextPi with the defaults.
+Given when NextPi is not enabled for the run, a flag is ignored and JNEXT warns
+in its log, naming it.</p>
+<p>Changes made in Preferences take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With
 <code>latest</code>, JNEXT checks the mirror each time it starts; if it cannot reach it, it
 carries on with the release it has, and says so, with the address it tried.</p>
@@ -3816,6 +3845,29 @@ carries on with the release it has, and says so, with the address it tried.</p>
 <code>overlay.qcow2</code> in the NextPi directory. Delete that file to start again from a
 pristine image. QEMU's own messages go to <code>qemu.log</code> there too, which is the
 place to look if the Pi never answers.</p>
+<h3 id="extra-qemu-arguments">Extra QEMU arguments<a class="headerlink" href="#extra-qemu-arguments" title="Permanent link">&para;</a></h3>
+<p>The box under <em>Extra QEMU arguments</em> (or <code>--nextpi-qemu-args "..."</code>) is added to the end of the QEMU command
+line when NextPi starts. It is split into arguments on spaces, so one box
+holding <code>-serial telnet:127.0.0.1:2357,server,nowait</code> is two arguments,
+<code>-serial</code> and the address. Single or double quotes keep spaces inside one
+argument (<code>-name 'my pi'</code>); there are no escapes, so a backslash is an ordinary
+character and a Windows path can be pasted as it is. Nothing is expanded
+(<code>$HOME</code>, <code>~</code> and <code>*</code> stay as typed) and no shell is involved. A quote that is
+never closed stops NextPi from starting, with a message naming where it opens.
+When NextPi starts, the log shows how the box was split: <code>NextPi: 2 extra QEMU
+arguments, after JNEXT's own: "-serial" "telnet:127.0.0.1:2357,server,nowait"</code>.</p>
+<p>The arguments come after JNEXT's own, so a <code>-serial</code> of yours is the Pi's second
+serial port (its mini UART, <code>ttyS0</code>) and the NextPi console stays where JNEXT
+connected it. That makes a second telnet console possible:
+<code>-serial telnet:127.0.0.1:2357,server,nowait</code>. Write the address as shown:
+<code>telnet::2357</code> listens on every network interface, and without <code>nowait</code> QEMU
+waits for a client to connect before it boots the Pi. NextPi as shipped runs
+nothing on <code>ttyS0</code>, so the port accepts a connection but stays silent until you
+set up a login (a <code>getty</code>) on it inside NextPi.</p>
+<p>JNEXT does not check the arguments. One that conflicts with JNEXT's own (a
+second <code>-M</code> or <code>-kernel</code>, a <code>-chardev</code> with the id <code>pi</code>) can stop NextPi, and
+QEMU's reason is in <code>qemu.log</code>. Like every NextPi setting, the box is read only
+by sessions with a window, not by <code>--headless</code> (use <code>--nextpi-qemu-args</code> there).</p>
 <h2 id="when-nothing-arrives">When nothing arrives<a class="headerlink" href="#when-nothing-arrives" title="Permanent link">&para;</a></h2>
 <p>On a real Next the Pi's UART pins only reach the Next once a program sets
 NextREG <code>0xA0</code> to <code>0x30</code>, and JNEXT follows that: until then the Pi's bytes are

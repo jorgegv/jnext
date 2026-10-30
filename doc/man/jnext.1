@@ -222,6 +222,75 @@ never shipped with \f[B]jnext\f[R]: it contains NextZXOS and DivMMC ROM
 content.
 .RE
 .TP
+\f[B]\-\-set\f[R] \f[I]SECTION.KEY=VALUE\f[R]
+Set one setting of \f[CR]\(ti/.jnext/jnext.conf\f[R] for this run.
+Every Preferences setting can be given this way: the key is the
+file\(cqs \f[CR][section]\f[R] and key name joined with a dot, the value
+is what the file holds, and the keys are listed under \f[B]Settings for
+\-\-set\f[R] below.
+Repeat it for more
+(\f[CR]\-\-set audio.gain_db=\-6 \-\-set startup.silent=false\f[R]).
+The split is at the first \f[CR]=\f[R], so a value may contain one.
+.RS
+.PP
+A value that is not accepted, or a key that does not exist, is a usage
+error naming both, and \f[B]jnext\f[R] exits with status 1.
+A key the running frontend has no use for (a window setting under
+\f[B]\-\-headless\f[R], say) is reported with a warning and ignored, so
+one command line can serve all three frontends.
+.PP
+\f[B]Precedence.\f[R] The command line wins over the saved
+\f[CR]jnext.conf\f[R], which wins over the built\-in default; a flag and
+\f[B]\-\-set\f[R] are the same thing, and the later of two settings of
+one key wins whichever way it is spelled
+(\f[CR]\-\-cpu\-speed 28 \-\-set startup.cpu_speed=0\f[R] starts at 3.5
+MHz).
+Nothing given on the command line is ever written to
+\f[CR]jnext.conf\f[R].
+A change made in the window during the run takes over from then on (a
+\f[B]Preferences\f[R] OK or Apply, a menu, a file dialog that moves the
+last directory), and \f[B]Preferences\f[R] shows the saved values, not
+the command line\(cqs.
+.PP
+A boolean is \f[CR]true\f[R] or \f[CR]false\f[R].
+It also reaches what a flag cannot:
+\f[CR]\-\-set startup.silent=false\f[R] plays sound for one run although
+the file says muted, \f[CR]\-\-set startup.tape_fast_load=true\f[R]
+forces fast loading over a saved real\-time setting, and
+\f[CR]\-\-set esp.allowed_hosts=\f[R] (empty) allows any host over a
+saved list.
+.RE
+.TP
+\f[B]\-\-cpu\-speed\f[R] \f[I]MHZ\f[R]
+The CPU speed the machine starts at: \f[CR]3.5\f[R], \f[CR]7\f[R],
+\f[CR]14\f[R] or \f[CR]28\f[R], exactly.
+The same as \f[CR]\-\-set startup.cpu_speed=0..3\f[R], and like it a
+\f[I]starting\f[R] value: the speed is programmed through NextREG 0x07
+when the machine has started, as \f[B]Preferences\f[R] does.
+NextZXOS then sets its own speed while it boots, as the hardware\(cqs
+firmware does, so on the Next machine a program that waits for the
+firmware sees the firmware\(cqs speed, not this one.
+On the other machines it holds.
+Works in the Qt window, the SDL\-only build and \f[B]\-\-headless\f[R].
+.TP
+\f[B]\-\-scale\f[R] \f[I]N\f[R]
+Window scale 1 to 3 for this run, over the saved \f[B]Preferences\f[R]
+value.
+The same as \f[CR]\-\-set startup.window_scale\f[R].
+Qt window only: elsewhere \f[B]jnext\f[R] warns and ignores it.
+.TP
+\f[B]\-\-crt\f[R] \f[I]EFFECT\f[R]
+CRT effect for this run: \f[CR]off\f[R], \f[CR]scanlines\f[R],
+\f[CR]soft\f[R], \f[CR]tv\f[R] or \f[CR]pc\f[R], the choices of the
+\f[B]Preferences\f[R] CRT effect pop\-up.
+The same as setting \f[CR]startup.crt_filter\f[R],
+\f[CR]startup.crt_shader\f[R] and \f[CR]startup.crt_shader_style\f[R]
+together.
+\f[CR]soft\f[R], \f[CR]tv\f[R] and \f[CR]pc\f[R] need the GPU shader; a
+build without it refuses them (exit status 1) and offers \f[CR]off\f[R]
+and \f[CR]scanlines\f[R].
+Qt window only: elsewhere \f[B]jnext\f[R] warns and ignores it.
+.TP
 \f[B]\-\-speed\f[R] \f[I]PERCENT\f[R]
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
 Clamped to 10..1000.
@@ -271,11 +340,13 @@ digits, optionally followed by \f[CR]#N\f[R] to tell identical pads
 apart.
 Used while the connector\(cqs source is \f[CR]sdl\f[R]; if that
 controller is not connected, jnext logs it and uses the first free one.
+An empty ID chooses Automatic (the first free controller) over a saved
+controller, the same as \f[CR]\-\-set input.joy1_device=\f[R].
 Wins over the saved choice for this run.
 .TP
 \f[B]\-\-joy2\-device\f[R] \f[I]ID\f[R]
 Physical controller for Joy 2 (port 0x37); same form as
-\f[B]\-\-joy1\-device\f[R].
+\f[B]\-\-joy1\-device\f[R], an empty ID included.
 The two connectors cannot name the same controller.
 Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
 .TP
@@ -428,12 +499,16 @@ without data) is kept as \f[CR]NextPi\-<release>.tar.gz.part\f[R] and
 continues on the next run.
 NextPi then takes about a minute to reach its Supervisor prompt
 (\f[CR]SUP>\f[R]).
-The release, the directory, the QEMU binary and where the Pi\(cqs sound
-goes are set under \f[B]Settings > Preferences > NextPi\f[R] (the
-\f[CR][nextpi]\f[R] section of \f[CR]\(ti/.jnext/jnext.conf\f[R]); their
-defaults are release \f[CR]1_93D\f[R], \f[CR]\(ti/.jnext/nextpi\f[R],
-\f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R], and the Next\(cqs
-mixer.
+The release, the directory, the QEMU binary, where the Pi\(cqs sound
+goes and any extra QEMU arguments are set under \f[B]Settings >
+Preferences > NextPi\f[R] (the \f[CR][nextpi]\f[R] section of
+\f[CR]\(ti/.jnext/jnext.conf\f[R]) or, for one run, with
+\f[B]\-\-nextpi\-dir\f[R], \f[B]\-\-nextpi\-release\f[R],
+\f[B]\-\-nextpi\-qemu\f[R], \f[B]\-\-nextpi\-audio\f[R] and
+\f[B]\-\-nextpi\-qemu\-args\f[R], which work in a headless session too;
+their defaults are release \f[CR]1_93D\f[R],
+\f[CR]\(ti/.jnext/nextpi\f[R], \f[CR]qemu\-system\-arm\f[R] on
+\f[CR]PATH\f[R], and the Next\(cqs mixer.
 .PP
 On Linux and macOS the Pi\(cqs sound reaches the Next\(cqs mixer over
 I2S, as on the real machine: it is mixed with the beeper, the AY chips
@@ -469,6 +544,45 @@ loopback TCP socket QEMU listens on.
 \f[B]\-\-no\-nextpi\f[R]
 Do not start NextPi this run, overriding a saved preference that enables
 it.
+.TP
+\f[B]\-\-nextpi\-dir\f[R] \f[I]DIR\f[R]
+The NextPi directory for this run (default
+\f[CR]\(ti/.jnext/nextpi\f[R]), over the value saved under \f[B]Settings
+> Preferences > NextPi\f[R].
+An empty value means the default.
+It is used when NextPi starts, so it goes with \f[B]\-\-nextpi\f[R] (or
+a saved preference that enables it); given when NextPi is not enabled
+for the run, this and the four options below are ignored, with a warning
+naming each.
+.TP
+\f[B]\-\-nextpi\-release\f[R] \f[I]NAME\f[R]
+The NextPi release for this run: a release name on the mirror, or
+\f[CR]latest\f[R] for the newest one listed there (default
+\f[CR]1_93D\f[R]).
+Over the saved value; an empty value means the default.
+.TP
+\f[B]\-\-nextpi\-qemu\f[R] \f[I]PROGRAM\f[R]
+The QEMU program for this run (default \f[CR]qemu\-system\-arm\f[R] on
+\f[CR]PATH\f[R]; with a path, \f[CR]qemu\-img\f[R] is expected beside
+it).
+Over the saved value; an empty value means the default.
+.TP
+\f[B]\-\-nextpi\-audio\f[R] \f[I]SPEC\f[R]
+Where the Pi\(cqs sound goes for this run: empty for the Next\(cqs mixer
+(the default), \f[CR]host\f[R], a QEMU \f[CR]\-audiodev\f[R] driver such
+as \f[CR]pa\f[R] or \f[CR]none\f[R], or \f[CR]wav:\f[R]\f[I]FILE\f[R].
+Over the saved value.
+.TP
+\f[B]\-\-nextpi\-qemu\-args\f[R] \f[I]\(lqARGS\(rq\f[R]
+Extra QEMU arguments for this run, added after jnext\(cqs own.
+The text is split into arguments on spaces; \f[CR]\(aq...\(aq\f[R] and
+\f[CR]\(dq...\(dq\f[R] keep spaces in one argument; a backslash is an
+ordinary character; nothing is expanded and no shell is involved.
+Over the saved \f[CR]qemu_args\f[R].
+An unterminated quote stops NextPi from starting, with a message (an
+error when \f[B]\-\-nextpi\f[R] asked for it).
+For example, a second serial port for the Pi, on \f[CR]ttyS0\f[R]:
+\f[CR]\-\-nextpi\-qemu\-args \(dq\-serial telnet:127.0.0.1:2357,server,nowait\(dq\f[R].
 .TP
 \f[B]\-\-tape\-realtime\f[R]
 Real\-time tape loading, at the speed of an actual tape, instead of fast
@@ -1201,6 +1315,159 @@ Print the built\-in help and exit.
 .TP
 \f[B]\-\-version\f[R], \f[B]\-V\f[R]
 Print the version and exit.
+.SS Settings for \-\-set
+Each entry below is a key of \f[CR]\(ti/.jnext/jnext.conf\f[R], written
+\f[CR]section.key\f[R], with the values it takes.
+Where the setting has a flag of its own, the entry names it: the flag
+and \f[B]\-\-set\f[R] are the same setting, and the later one given
+wins.
+The entries say which frontends use the key: the Qt window, the
+SDL\-only build (both interactive) or \f[B]\-\-headless\f[R].
+Booleans are \f[CR]true\f[R] or \f[CR]false\f[R].
+.TP
+\f[CR]startup.machine_type\f[R] \f[I]48k|128k|plus3|pentagon|next\f[R]
+The machine type; \f[B]\-\-machine\f[R].
+All frontends.
+.TP
+\f[CR]startup.cpu_speed\f[R] \f[I]0..3\f[R]
+The CPU speed at start: 0 is 3.5 MHz, 1 is 7, 2 is 14, 3 is 28;
+\f[B]\-\-cpu\-speed\f[R] takes the MHz.
+A starting value: NextZXOS sets its own speed while it boots.
+All frontends.
+.TP
+\f[CR]startup.emulator_speed_percent\f[R] \f[I]10..1000\f[R]
+The emulation speed as a percentage of real time; \f[B]\-\-speed\f[R].
+Where \f[B]\-\-speed\f[R] clamps a value outside the range,
+\f[B]\-\-set\f[R] refuses it.
+The Qt window and the SDL\-only build.
+.TP
+\f[CR]startup.window_scale\f[R] \f[I]1..3\f[R]
+The window scale; \f[B]\-\-scale\f[R].
+The Qt window.
+.TP
+\f[CR]startup.crt_filter\f[R] \f[I]true|false\f[R]
+The software scanlines effect; \f[B]\-\-crt scanlines\f[R].
+The Qt window.
+.TP
+\f[CR]startup.crt_shader\f[R] \f[I]true|false\f[R]
+The GPU CRT shader; \f[B]\-\-crt\f[R].
+The Qt window.
+.TP
+\f[CR]startup.crt_shader_style\f[R] \f[I]0..2\f[R]
+The shader\(cqs look: 0 is \f[CR]tv\f[R], 1 is \f[CR]pc\f[R], 2 is
+\f[CR]soft\f[R]; \f[B]\-\-crt\f[R].
+The Qt window.
+.TP
+\f[CR]startup.silent\f[R] \f[I]true|false\f[R]
+Start with the sound muted; \f[B]\-\-silent\f[R].
+All frontends.
+.TP
+\f[CR]startup.tape_fast_load\f[R] \f[I]true|false\f[R]
+Tape fast\-load; \f[CR]false\f[R] is real time, which is
+\f[B]\-\-tape\-realtime\f[R].
+All frontends.
+.TP
+\f[CR]startup.tape_auto_play\f[R] \f[I]true|false\f[R]
+Automatic tape play and stop; \f[B]\-\-tape\-auto\-play\f[R] and
+\f[B]\-\-no\-tape\-auto\-play\f[R].
+All frontends.
+.TP
+\f[CR]startup.when_slow_prefer\f[R] \f[I]audio|video\f[R]
+What a host too slow for real time sacrifices;
+\f[B]\-\-when\-slow\-prefer\f[R].
+The Qt window and the SDL\-only build.
+.TP
+\f[CR]audio.gain_db\f[R], \f[CR]audio.gain_beeper_db\f[R], \f[CR]audio.gain_ay0_db\f[R], \f[CR]audio.gain_ay1_db\f[R], \f[CR]audio.gain_ay2_db\f[R], \f[CR]audio.gain_dac_db\f[R] \f[I]\-24..24\f[R]
+The master, beeper, AY #0, #1, #2 and DAC gains in dB;
+\f[B]\-\-audio\-gain\-db\f[R], \f[B]\-\-audio\-gain\-beeper\-db\f[R],
+\f[B]\-\-audio\-gain\-ay0\-db\f[R], \f[B]\-\-audio\-gain\-ay1\-db\f[R],
+\f[B]\-\-audio\-gain\-ay2\-db\f[R] and
+\f[B]\-\-audio\-gain\-dac\-db\f[R].
+All frontends.
+.TP
+\f[CR]paths.last_load_dir\f[R] \f[I]PATH\f[R]
+The directory the Load dialogs open in.
+The Qt window.
+.TP
+\f[CR]paths.sd_card_path\f[R] \f[I]FILE\f[R]
+The SD card image; \f[B]\-\-sdcard\f[R].
+Empty means none given.
+All frontends.
+.TP
+\f[CR]paths.screenshot_dir\f[R] \f[I]PATH\f[R]
+The directory the Save Screenshot dialog opens in.
+The Qt window.
+.TP
+\f[CR]screenshot.quick_dir\f[R] \f[I]PATH\f[R]
+The Quick Screenshot directory; empty means
+\f[CR]\(ti/.jnext/screenshots\f[R].
+The Qt window.
+.TP
+\f[CR]screenshot.quick_format\f[R] \f[I]png|scr\f[R]
+The Quick Screenshot format.
+The Qt window.
+.TP
+\f[CR]snapshot.quick_keep\f[R] \f[I]1..1000000|unlimited\f[R]
+How many quick snapshots Quick Save keeps;
+\f[B]\-\-quick\-snapshot\-keep\f[R].
+The Qt window and the SDL\-only build.
+.TP
+\f[CR]input.joy1_source\f[R], \f[CR]input.joy2_source\f[R] \f[I]sdl|keys|none\f[R]
+The host source for Joy 1 and Joy 2; \f[B]\-\-joy1\-source\f[R] and
+\f[B]\-\-joy2\-source\f[R].
+The Qt window and the SDL\-only build.
+.TP
+\f[CR]input.joy1_device\f[R], \f[CR]input.joy2_device\f[R] \f[I]ID\f[R]
+The controller assigned to Joy 1 and Joy 2 (32 hex digits, optionally
+\f[CR]#N\f[R]); empty is Automatic, which \f[B]\-\-joy1\-device\f[R] and
+\f[B]\-\-joy2\-device\f[R] also take as an empty ID.
+The Qt window and the SDL\-only build.
+.TP
+\f[CR]input.mouse_release\f[R] \f[I]ctrl\-alt|middle\-click|esc\f[R]
+How a captured mouse is released; \f[B]\-\-mouse\-release\f[R].
+The Qt window and the SDL\-only build.
+.TP
+\f[CR]debugger_keys.\f[R]\f[I]ACTION\f[R] \f[I]COMBO\f[R]
+The key combination of a debugger action, like the \f[B]Preferences\f[R]
+Debugger Keys tab: \f[I]ACTION\f[R] is \f[CR]run\f[R], \f[CR]pause\f[R],
+\f[CR]step_into\f[R], \f[CR]step_over\f[R], \f[CR]step_out\f[R],
+\f[CR]step_back\f[R], \f[CR]frame_back\f[R], \f[CR]run_to_cursor\f[R],
+\f[CR]run_to_eof\f[R], \f[CR]run_to_eosl\f[R], \f[CR]trace_toggle\f[R]
+or \f[CR]trace_export\f[R], and \f[CR]none\f[R] unbinds it.
+A combination that is not legal there, or that another action already
+holds (unless the same command line frees it), is refused with exit
+status 1 before the window opens.
+The Qt window with the debugger.
+.TP
+\f[CR]esp.enabled\f[R] \f[I]true|false\f[R]
+The emulated ESP\-01 WiFi module; \f[B]\-\-esp\f[R] and
+\f[B]\-\-no\-esp\f[R].
+All frontends.
+.TP
+\f[CR]esp.allowed_hosts\f[R] \f[I]HOST,HOST,\&...\f[R]
+The hosts the ESP may connect to, comma\-separated; empty means any;
+\f[B]\-\-esp\-allow\f[R] gives one host per option and is appended to
+this list.
+All frontends.
+.TP
+\f[CR]nextpi.enabled\f[R] \f[I]true|false\f[R]
+NextPi under QEMU on UART 1; \f[B]\-\-nextpi\f[R] and
+\f[B]\-\-no\-nextpi\f[R].
+All frontends.
+.TP
+\f[CR]nextpi.dir\f[R], \f[CR]nextpi.release\f[R], \f[CR]nextpi.qemu_binary\f[R], \f[CR]nextpi.audio\f[R], \f[CR]nextpi.qemu_args\f[R] \f[I]TEXT\f[R]
+The NextPi directory, release, QEMU binary, Pi audio and extra QEMU
+arguments; \f[B]\-\-nextpi\-dir\f[R], \f[B]\-\-nextpi\-release\f[R],
+\f[B]\-\-nextpi\-qemu\f[R], \f[B]\-\-nextpi\-audio\f[R] and
+\f[B]\-\-nextpi\-qemu\-args\f[R].
+Surrounding blanks are removed.
+All frontends.
+.TP
+\f[CR]debugger.attached\f[R] \f[I]true|false\f[R]
+Whether the debugger window follows the emulator window.
+The window opens as told for this run; the file keeps its value until
+the \f[B]Attach to Emulator Window\f[R] menu item is toggled.
+The Qt window with the debugger.
 .SH MACHINES
 .TP
 \f[CR]48k\f[R]
@@ -3233,6 +3500,22 @@ it straight to the host, or \f[CR]wav:\f[R]\f[I]FILE\f[R] to record it
 on its own).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
+\f[CR]qemu_args\f[R] holds extra QEMU arguments (empty means none;
+\f[B]\-\-nextpi\-qemu\-args\f[R] sets it for one run), added after
+jnext\(cqs own when NextPi starts.
+It is split into arguments on spaces; \f[CR]\(aq...\(aq\f[R] and
+\f[CR]\(dq...\(dq\f[R] keep spaces in one argument; a backslash is an
+ordinary character; nothing is expanded and no shell is involved.
+An unterminated quote stops NextPi from starting, with a message.
+Set it in Preferences or with \f[B]\-\-nextpi\-qemu\-args\f[R] rather
+than by hand: jnext writes the file value correctly itself.
+If you edit the file, remember that its INI reader (Qt\(cqs) has its own
+rules, applied before the text above: write the whole value in double
+quotes, write each \f[CR]\(rs\f[R] as \f[CR]\(rs\(rs\f[R] and each
+\f[CR]\(dq\f[R] as \f[CR]\(rs\(dq\f[R]; otherwise a backslash is an
+escape (\f[CR]C:\(rspi\(rsx.img\f[R] reads as \f[CR]C:i.img\f[R]), a
+bare \f[CR]\(dq\f[R] is swallowed, a \f[CR];\f[R] ends an unquoted
+value, and the spaces beside a comma are lost.
 The joystick ports are stored under \f[CR][input]\f[R]:
 \f[CR]joy1_source\f[R] and \f[CR]joy2_source\f[R] (\f[CR]sdl\f[R],
 \f[CR]keys\f[R] or \f[CR]none\f[R]), \f[CR]joy1_device\f[R] and
@@ -3265,6 +3548,9 @@ section once and removed.
 All section names are lowercase.
 CLI options always take precedence over saved values, and headless runs
 never read it.
+Every key above can also be set for one run, without touching the file,
+with \f[B]\-\-set\f[R] \f[I]section.key=value\f[R] (see \f[B]Settings
+for \-\-set\f[R]).
 .TP
 \f[CR]\(ti/.jnext/screenshots/\f[R]
 Where \f[B]File > Quick Screenshot\f[R] writes, unless

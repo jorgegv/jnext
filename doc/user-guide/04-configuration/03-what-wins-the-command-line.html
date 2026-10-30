@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.104</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.104</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1175,6 +1175,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What wins: the command line
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="03-what-wins-the-command-line.html" class="md-nav__link md-nav__link--active">
         
   
@@ -1191,6 +1209,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#any-setting-from-the-command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Any setting, from the command line
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -3615,6 +3663,39 @@
 comfortable defaults for everyday use and still override them for a one-off,
 and it is why scripts should pass explicit options rather than depend on
 whatever a particular machine happens to have saved.</p>
+<h2 id="any-setting-from-the-command-line">Any setting, from the command line<a class="headerlink" href="#any-setting-from-the-command-line" title="Permanent link">&para;</a></h2>
+<p>Every setting of the configuration file can be given for one run with
+<code>--set section.key=value</code>, using the file's own section and key names and
+values. Repeat it for more:</p>
+<pre><code>jnext --set audio.gain_db=-6 --set startup.silent=false --set paths.last_load_dir=/home/me/games
+</code></pre>
+<p>Three settings also have flags of their own, because they have menus of their
+own: <code>--cpu-speed</code> (<code>3.5</code>, <code>7</code>, <code>14</code> or <code>28</code> MHz), <code>--scale</code> (1 to 3) and
+<code>--crt</code> (<code>off</code>, <code>scanlines</code>, <code>soft</code>, <code>tv</code> or <code>pc</code>). The keys, and the flag
+beside each key that has one, are listed by <code>jnext --help</code> and in
+<strong>jnext(1)</strong> under <em>Settings for --set</em>.</p>
+<ul>
+<li><strong>The later one wins.</strong> A flag and <code>--set</code> are the same setting, so
+  <code>--cpu-speed 28 --set startup.cpu_speed=0</code> starts at 3.5 MHz, in either order.</li>
+<li><strong>Nothing is written back.</strong> A value from the command line governs that run
+  only; <code>jnext.conf</code> keeps what it had, even when something else makes JNEXT
+  save the file (loading a program adds it to File &gt; Recent Files, say).</li>
+<li><strong>The window takes over.</strong> Once the run is going, a change you make in it
+  (Preferences OK or Apply, a menu, a file dialog that moves the last
+  directory) replaces the command line's value from then on. Preferences shows
+  the <em>saved</em> values, not the command line's.</li>
+<li><strong>A bad value stops the start-up</strong>, with a message naming the key and the
+  value and exit status 1. A key the running frontend has no use for (a window
+  setting with <code>--headless</code>, say) only produces a warning, so one command line
+  can serve the window, the SDL-only build and headless runs.</li>
+<li><strong>The CPU speed is a starting value.</strong> On the Next machine NextZXOS sets its
+  own speed while it boots, as the real firmware does.</li>
+<li><strong>A few things only <code>--set</code> can say</strong>: <code>startup.silent=false</code> plays sound for
+  one run although the file says muted; <code>startup.tape_fast_load=true</code> forces
+  fast loading; <code>esp.allowed_hosts=</code> (empty) allows any host over a saved list.
+  An empty controller (<code>--joy1-device ""</code> or <code>--set input.joy1_device=</code>) picks
+  Automatic over a saved controller.</li>
+</ul>
 <p>Headless runs ignore the configuration file completely, so an automated test
 produces the same result on any machine.</p>
 <p>The full list of options is in the <strong>jnext(1)</strong> man page, also available as

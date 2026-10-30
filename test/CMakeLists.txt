@@ -7,6 +7,17 @@ if(WIN32)
     add_link_options(-Wl,--stack,8388608)
 endif()
 
+# GH #416: a compiler warning in a test is a test defect (it hid which side of
+# a row failed, truncated a failure message, narrowed a constant by accident),
+# so the test executables are built with -Werror (GNU and Clang, incl. MinGW
+# gcc). Directory-scoped like the link option above: jnext and the libraries
+# are unaffected. -Wall/-Wextra are deliberately NOT enabled (GH #418): only the
+# compiler's default warnings are errors. Production .cpp files compiled
+# straight into a test (wav_loader, sdl_input, quit_signal) are covered too.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Werror)
+endif()
+
 # FUSE Z80 opcode test runner (standalone, no GoogleTest required)
 add_executable(fuse_z80_test fuse/fuse_z80_test.cpp)
 target_link_libraries(fuse_z80_test PRIVATE jnext_cpu)
@@ -166,6 +177,12 @@ if(NOT WIN32)
     target_link_libraries(quick_snapshot_posix_test PRIVATE jnext_core spdlog::spdlog)
     target_include_directories(quick_snapshot_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME quick_snapshot_posix_tests COMMAND quick_snapshot_posix_test)
+    # GH #416 — the PGO link-map reader of cmake/JnextPgo.cmake, both map formats.
+    # Drives `cmake -P` through env(1), so POSIX only.
+    add_executable(pgo_map_parse_test pgo/pgo_map_parse_test.cpp)
+    target_compile_definitions(pgo_map_parse_test PRIVATE
+        JNEXT_TEST_CMAKE="${CMAKE_COMMAND}" JNEXT_TEST_SRC="${CMAKE_SOURCE_DIR}")
+    add_test(NAME pgo_map_parse_tests COMMAND pgo_map_parse_test)
     add_executable(esxdos_symlink_test esxdos_stub/esxdos_symlink_test.cpp)
     target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
     target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -808,6 +825,11 @@ add_test(NAME pok_trainers_tests COMMAND pok_trainers_test)
 # (ctest runs it from the build tree). It also shells out to the built jnext
 # binary, which `cmake --build build` always produces alongside it.
 add_executable(cli_options_test core/cli_options_test.cpp)
+# GH #417: CLI-SET-01/02 read the key table (src/platform/config_keys.h).
+target_link_libraries(cli_options_test PRIVATE
+    jnext_platform jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(cli_options_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(cli_options_test PRIVATE
     JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"
@@ -817,6 +839,17 @@ target_compile_definitions(cli_options_test PRIVATE
     JNEXT_BINARY="$<TARGET_FILE:jnext>")
 add_dependencies(cli_options_test jnext)
 add_test(NAME cli_options_tests COMMAND cli_options_test)
+
+# GH #417 - the table of jnext.conf keys (src/platform/config_keys.h), its setter and
+# the debugger-key override. Qt-free: it builds, and runs, in the SDL-only and
+# Windows trees too.
+add_executable(config_keys_test platform/config_keys_test.cpp)
+target_link_libraries(config_keys_test PRIVATE
+    jnext_platform jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(config_keys_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME config_keys_tests COMMAND config_keys_test)
 
 # Logging level-policy test (Task 24). Host-side tooling; no VHDL oracle.
 add_executable(log_test core/log_test.cpp)
@@ -1492,6 +1525,9 @@ if(ENABLE_QT_UI)
     add_executable(preferences_apply_test gui/preferences_apply_test.cpp)
     set_target_properties(preferences_apply_test PROPERTIES AUTOMOC ON)
     target_link_libraries(preferences_apply_test PRIVATE jnext_gui)
+    # PA-34 reads main_window.cpp (GH #417): the readers of the saved last_load_dir.
+    target_compile_definitions(preferences_apply_test PRIVATE
+        JNEXT_MAIN_WINDOW_SRC="${CMAKE_SOURCE_DIR}/src/gui/main_window.cpp")
     target_include_directories(preferences_apply_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME preferences_apply_tests COMMAND preferences_apply_test)
 
