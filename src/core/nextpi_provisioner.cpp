@@ -189,10 +189,14 @@ bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
     return ok;
 }
 
-StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled) {
+StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled,
+                           MachineType startup_machine) {
     StartRequest r;
-    r.wanted       = cli_set ? cli_value : (gui && saved_enabled);
-    r.asked_on_cli = cli_set && cli_value;
+    const bool pref = !cli_set && gui && saved_enabled;
+    const bool next = startup_machine == MachineType::ZXN_ISSUE2;
+    r.wanted           = cli_set ? cli_value : (pref && next);
+    r.asked_on_cli     = cli_set && cli_value;
+    r.held_for_machine = pref && !next;
     return r;
 }
 

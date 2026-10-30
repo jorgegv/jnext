@@ -2643,7 +2643,12 @@ every flush. <code>SIGPIPE</code> is ignored when the first endpoint is created,
 which a debugger closing its end would kill the emulator outright.</p>
 <h2 id="nextpi-on-the-raspberry-pi">NextPi on the Raspberry Pi<a class="headerlink" href="#nextpi-on-the-raspberry-pi" title="Permanent link">&para;</a></h2>
 <p><code>--nextpi</code> (or the <code>[nextpi]</code> preference) runs a real NextPi under QEMU on
-UART 1, the Pi GPIO header's UART. Three pieces:</p>
+UART 1, the Pi GPIO header's UART. <code>main()</code> starts it once, at launch: the
+preference only when the startup machine is the ZX Next (<code>nextpi::start_request</code>;
+the startup machine is <code>emulator_startup_machine</code> over the CLI/saved merge, the
+same value that becomes <code>cfg.type</code>), <code>--nextpi</code> on any machine, since NR 0x83
+bit 4 keeps UART 1 decoded in the standalone personalities. A machine change
+while jnext runs neither starts nor stops it. Three pieces:</p>
 <ul>
 <li><strong><code>peripheral/pi_uart_device.{h,cpp}</code></strong> is the far end of UART 1. Unlike the
   joystick cable it <strong>is</strong> a <code>UartDevice</code>: the Pi has a channel of its own, so it

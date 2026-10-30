@@ -47,7 +47,7 @@ Turning the ESP on here does not put a running program on the network — see
 below — and while it *is* running with the ESP on, the status bar always
 carries an ESP cell, so it can never be on invisibly.
 
-**NextPi** starts NextPi under QEMU with JNEXT, and holds its directory, the release downloaded on first use, the QEMU program, where the Pi's sound goes and extra QEMU arguments; see [5.10](../05-running-programs/10-the-raspberry-pi-serial-link.md).
+**NextPi** starts NextPi under QEMU when JNEXT starts the ZX Next, and holds its directory, the release downloaded on first use, the QEMU program, where the Pi's sound goes and extra QEMU arguments; see [5.10](../05-running-programs/10-the-raspberry-pi-serial-link.md).
 
 **Paths** remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,

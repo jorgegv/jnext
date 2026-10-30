@@ -408,7 +408,7 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
 
-    nextpi_enabled_check_ = new QCheckBox(tr("Start NextPi (under QEMU) with jnext"), tab);
+    nextpi_enabled_check_ = new QCheckBox(tr("Start NextPi (under QEMU) when jnext starts the ZX Next"), tab);
     nextpi_enabled_check_->setObjectName(QStringLiteral("nextpiEnabledCheck"));
     nextpi_enabled_check_->setToolTip(
         tr("Boots NextPi under QEMU and connects it to UART 1, the Pi GPIO "
@@ -505,7 +505,10 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
            "directory above, as it does for the SD card image.\n\n"
            "These settings are not applied to the machine that is already "
            "running: they take effect the next time jnext starts. --nextpi and "
-           "--no-nextpi override the tick for a single run."), tab);
+           "--no-nextpi override the tick for a single run. "
+           "The tick starts NextPi only when jnext starts on the ZX Next; "
+           "--nextpi starts it with any machine. Changing the machine while "
+           "jnext runs neither starts nor stops it."), tab);
     note->setWordWrap(true);
     form->addRow(QString(), note);
 
