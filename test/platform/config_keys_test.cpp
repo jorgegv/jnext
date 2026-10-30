@@ -140,8 +140,8 @@ int main() {
         if (config_keys::find("debugger_keys", "ACTION") != nullptr) bad += "debugger_keys.ACTION ";
         if (config_keys::find("startup", "nope") != nullptr) bad += "startup.nope ";
         if (config_keys::find("nope", "enabled") != nullptr) bad += "nope.enabled ";
-        check("SETK-05", "find() resolves every table key and the 12 debugger action ids, and nothing else",
-              bad.empty() && n == 12, bad);
+        check("SETK-05", "find() resolves every table key and the 17 debugger action ids, and nothing else",
+              bad.empty() && n == 17, bad);
     }
 
     // SETK-06
