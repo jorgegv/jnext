@@ -435,6 +435,10 @@ naming the option and the value, and exits with status 1.
     On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
     Windows, its folder on `PATH` or set in Preferences) it is a loopback TCP
     socket QEMU listens on.
+    **\--nextpi** starts the Pi with any machine (the header and UART 1 are
+    there in every personality); the saved preference starts it only when jnext
+    starts the ZX Next. Changing the machine while jnext runs neither starts
+    nor stops it.
 
 **\--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
@@ -444,7 +448,7 @@ naming the option and the value, and exits with status 1.
 :   The NextPi directory for this run (default `~/.jnext/nextpi`), over the
     value saved under **Settings > Preferences > NextPi**. An empty value means
     the default. It is used when NextPi starts, so it goes with **\--nextpi**
-    (or a saved preference that enables it); given when NextPi is not enabled
+    (or the saved preference, when it starts NextPi); given when NextPi is not enabled
     for the run, this and the four options below are ignored, with a warning
     naming each.
 

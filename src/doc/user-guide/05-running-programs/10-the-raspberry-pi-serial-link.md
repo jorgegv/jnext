@@ -18,8 +18,9 @@ You need **QEMU** installed — on macOS `brew install qemu`; on Fedora
 Windows and either add its folder to your `PATH` or set the QEMU binary under
 **Settings ▸ Preferences ▸ NextPi**. On Windows the Pi is reached over a local
 (loopback) socket, which may raise a firewall prompt the first time. Then either tick **Start
-NextPi** under **Settings ▸ Preferences ▸ NextPi** and restart JNEXT, or start
-it for one run with:
+NextPi** under **Settings ▸ Preferences ▸ NextPi** and restart JNEXT (the tick
+starts NextPi when JNEXT starts the ZX Next), or start it for one run, with any
+machine, with:
 
 ```
 jnext --nextpi
@@ -89,8 +90,8 @@ a tape the Pi plays to it.
 
 QEMU runs in the background for as long as JNEXT does, and stops with it. A
 soft or hard reset of the Next leaves the Pi running, as it would on the real
-machine. `--no-nextpi` leaves the Pi off for one run even when the preference
-is ticked.
+machine. Changing the machine neither starts nor stops it. `--no-nextpi`
+leaves the Pi off for one run even when the preference is ticked.
 
 ## The NextPi settings
 
