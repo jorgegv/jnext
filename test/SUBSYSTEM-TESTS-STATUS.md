@@ -117,7 +117,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source maps + symbols |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk -debug map adapter |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |      228 |      228 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      232 |      232 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1474 |     1474 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -177,6 +177,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      110 |      110 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14334**| **14334**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **14338**| **14338**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
