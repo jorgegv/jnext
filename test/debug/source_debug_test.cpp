@@ -30,7 +30,8 @@
 //   SRCDBG-HALT-*    a step ends at DI:HALT and within its frame budget
 //   SRCDBG-GATE-*    between instructions a step delivers Execute events
 //   SRCDBG-OWN-*     store ownership is explicit and changes only on success
-//   SRCDBG-TAPE-*    a tape program's SLD is not attached automatically
+//   SRCDBG-TAPE-*    a tape program's maps attach at once; one with an identity is judged
+//                    where the CPU first runs its code, space by space (GH #344 stage 3)
 //   SRCDBG-HIST-*    sidecars are dropped when the machine goes back before
 //                    the load they came with
 //   SRCDBG-PATH-*    a relative map path is made absolute
@@ -2282,15 +2283,16 @@ int main() {
                   tail.find("own5.sld' rejected: missing SLD.data.version") != std::string::npos,
               r.problem);
     }
-    // ── a tape program gets no automatic map ────────────────────────────
+    // ── a tape program's map attaches at once (owner decision 2026-10-29) ──
     {
         Machine m;
         write_text(own / "tape.tap", "");
         write_text(own / "tape.sld", program_sld(p80, p90));
         const auto r = m.dbg->load_program_sidecars((own / "tape.tap").string());
-        check("SRCDBG-TAPE-01", "an SLD beside a tape program is not attached "
-                                "automatically (the tape has not loaded yet)",
-              r.sources == -1 && m.dbg->source_map().empty());
+        check("SRCDBG-TAPE-01", "an SLD with no identity beside a tape program is attached at "
+                                "once, unverified (nothing to judge it by, so nothing pending)",
+              r.sources == 6 && m.dbg->source_map().size() == 6 && !r.sources_pending &&
+                  !m.dbg->source_map_status().pending);
         const auto byhand = m.dbg->load_source_map((own / "tape.sld").string(), false);
         check("SRCDBG-TAPE-02", "it can still be loaded by hand",
               byhand.count == 6 && m.dbg->source_map().size() == 6);
@@ -4399,7 +4401,7 @@ int main() {
             fs::create_directories(d);
             fs::copy_file(d1 / "prog.map", d / "game.map");
             // The section binary is beside the tape: the program is not in memory yet, so its
-            // identity must not be judged (and the symbols must not go with a "mismatch").
+            // identity is judged where the CPU first runs it, not now (owner decision 2026-10-29).
             fs::copy_file(d1 / "prog_CODE.bin", d / "game_CODE.bin");
             write_text(d / "game.tap", "");
             Machine m(false, MachineType::ZXN_ISSUE2);
@@ -4407,11 +4409,13 @@ int main() {
             const std::string log = debugger_log_of([&] {
                 r = m.dbg->load_program_sidecars((d / "game.tap").string());
             });
-            check("SRCDBG-Z88-03", "game.map beside a tape attaches its symbols; its source lines wait "
-                                   "for the program (stage 3), and the log says so",
-                  r.symbols == 19 && m.dbg->lookup_name("_main") == 0x8C92 && r.sources == -1 &&
-                      m.dbg->source_map().empty() &&
-                      has(log, "Not attaching z88dk source map"),
+            check("SRCDBG-Z88-03", "game.map beside a tape attaches its symbols and, at once, its source "
+                                   "lines, pending: the program is not in memory, so its identity is not "
+                                   "judged now and the symbols do not go with a \"mismatch\"",
+                  r.symbols == 19 && m.dbg->lookup_name("_main") == 0x8C92 && r.sources == 46 &&
+                      r.sources_pending && m.dbg->source_map().size() == 46 &&
+                      m.dbg->source_map_status().pending &&
+                      has(log, "(identity check pending: the program loads from tape)"),
                   log);
         }
         {   // Z88-04
