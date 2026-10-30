@@ -296,6 +296,78 @@ static std::string line_of(const Debugger& d, uint16_t addr) {
     return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
 }
 
+
+// ── GH #344 stage 3: tape programs ───────────────────────────────────────────
+// What the backend sees of a tape is a notification (`load_program_sidecars`) made
+// while the program is NOT in memory, and bytes that arrive later. These rows do
+// exactly that: attach, then `poke` the section binaries in, then run.
+static std::vector<uint8_t> read_all(const fs::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    return std::vector<uint8_t>(std::istreambuf_iterator<char>(in), {});
+}
+
+// A fixture's prog.map and section binaries beside an empty `prog.tap` in `to`.
+// `bins` false leaves the binaries out (a map that carries no identity).
+static std::string tape_copy(const char* fixture, const fs::path& to, bool bins = true) {
+    fs::create_directories(to);
+    for (const auto& e : fs::directory_iterator(kZ88Fixtures / fixture)) {
+        const std::string n = e.path().filename().string();
+        const bool is_bin = n.size() > 4 && n.compare(n.size() - 4, 4, ".bin") == 0;
+        if (n == "prog.map" || (bins && is_bin))
+            fs::copy_file(e.path(), to / n, fs::copy_options::overwrite_existing);
+    }
+    write_text(to / "prog.tap", "");
+    return (to / "prog.tap").string();
+}
+
+// The program parks at $6000 (`JR $`), outside every code range, until a row starts it.
+static void park(Machine& m) {
+    m.emu.mmu().write(0x6000, 0x18);
+    m.emu.mmu().write(0x6001, 0xFE);
+    m.set_pc(0x6000);
+}
+
+static void run_frames(Machine& m, int n) {
+    m.dbg->run(m.a);
+    for (int i = 0; i < n; ++i) m.emu.run_frame();
+    m.dbg->pause(m.a);
+}
+
+// The tape "loads" a section binary into `space` (offset 0), one byte flipped when asked.
+static void tape_bytes(Machine& m, MemSpace space, const fs::path& bin, long flip = -1,
+                       uint16_t addr = 0) {
+    std::vector<uint8_t> b = read_all(bin);
+    if (flip >= 0) b[static_cast<size_t>(flip)] ^= 0xFF;
+    m.dbg->poke(m.a, space, addr, b.size(), b.data());
+}
+
+// A machine with no client attached and nothing paused: what a headless run is.
+struct Bare {
+    Emulator emu;
+    std::unique_ptr<Debugger> dbg;
+    explicit Bare(MachineType type = MachineType::ZX48K) {
+        EmulatorConfig cfg;
+        cfg.type = type;
+        emu.init(cfg);
+        emu.mmu().write(0x6000, 0x18);
+        emu.mmu().write(0x6001, 0xFE);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x6000;
+        r.SP = 0xFF00;
+        r.IFF1 = r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        dbg = std::make_unique<Debugger>(emu);
+    }
+    void start(uint16_t pc) {
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = pc;
+        emu.cpu().set_registers(r);
+    }
+    void frames(int n) {
+        for (int i = 0; i < n; ++i) emu.run_frame();
+    }
+};
+
 int main() {
     std::printf("Source-level debugging (backend)\n");
     const fs::path dir = fs::temp_directory_path() /
@@ -4894,6 +4966,314 @@ int main() {
                   "sources=" + std::to_string(r.sources) + " back=" + std::to_string(int(back)) +
                       " fwd=" + std::to_string(int(fwd)) + " before=" + std::to_string(at_before) +
                       " after=" + std::to_string(m.dbg->source_map().size()));
+        }
+    }
+
+    // ── GH #344 stage 3: a tape program's maps ───────────────────────────────
+    // The oracle is the committed v2.4/sccz80-tape fixture (zcc +zx; its prog.tap carries
+    // prog_CODE.bin as one CODE block at $8000) and the owner's decisions of 2026-10-29:
+    // a map attaches at once; its identity is judged per memory space, the first time the
+    // CPU is about to run inside that space; a mismatch in any space drops the map.
+    // main.c:19 starts at $8CC4 here, `_main` is $8CA1, the map has 46 source lines and
+    // 19 symbols.
+    {
+        const fs::path tape = dir / "tape";
+        const char* kFx = "v2.4/sccz80-tape";
+        const long kFlip = 0xCC4;   // main.c:19's first byte, as an offset into prog_CODE.bin
+        auto rejected = [](const std::string& map) {
+            return "Rejected z88dk source map '" + map +
+                   "': the program loaded from tape does not match its binary identity";
+        };
+        {   // TAPE-03
+            const fs::path d = tape / "t3";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m;
+            park(m);
+            Debugger::SidecarLoad r;
+            const std::string log1 = debugger_log_of([&] { r = m.dbg->load_program_sidecars(tap); });
+            const auto st1 = m.dbg->source_map_status();
+            const std::string at19 = line_of(*m.dbg, 0x8CC4);
+            run_frames(m, 2);
+            const bool parked_pending = m.dbg->source_map_status().pending;
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
+            m.set_pc(0x8000);
+            Debugger::SourceMapStatus st2;
+            const std::string log2 = debugger_log_of([&] {
+                run_frames(m, 1);
+                st2 = m.dbg->source_map_status();
+            });
+            check("SRCDBG-TAPE-03", "prog.map beside a tape attaches at once and works (main.c:19 resolves), "
+                                    "pending; once the bytes are in and the CPU runs them it is verified "
+                                    "and kept",
+                  r.sources == 46 && r.sources_pending && r.symbols == 19 &&
+                      st1.state == Debugger::SourceMapStatus::State::Attached && st1.pending &&
+                      at19 == "main.c:19" && parked_pending &&
+                      has(log1, "Loaded 46 z88dk source lines from '" + (d / "prog.map").string() +
+                                    "' (identity check pending: the program loads from tape)") &&
+                      st2.state == Debugger::SourceMapStatus::State::Attached && !st2.pending &&
+                      m.dbg->source_map().size() == 46 &&
+                      has(log2, "Verified z88dk source map '" + (d / "prog.map").string() +
+                                    "': the program loaded from tape matches its binary identity"),
+                  log1 + log2);
+        }
+        {   // TAPE-04
+            const fs::path d = tape / "t4";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m;
+            park(m);
+            const auto r = m.dbg->load_program_sidecars(tap);
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", kFlip, 0x8000);
+            m.set_pc(0x8000);
+            Debugger::SourceMapStatus st;
+            const std::string log = debugger_log_of([&] {
+                run_frames(m, 1);
+                st = m.dbg->source_map_status();
+            });
+            check("SRCDBG-TAPE-04", "one byte of main.c:19 wrong: at the first execution the map is dropped "
+                                    "with the symbols that came with it, the error is logged and the Source "
+                                    "tab's reason says why",
+                  r.sources == 46 && r.symbols == 19 && m.dbg->source_map().empty() &&
+                      st.state == Debugger::SourceMapStatus::State::None && !st.pending &&
+                      has(st.reason, "does not match") && !m.dbg->lookup_name("_main") &&
+                      has(log, rejected((d / "prog.map").string())) &&
+                      has(log, "Dropped the program's symbols"),
+                  st.reason + "\n" + log);
+        }
+        {   // TAPE-05
+            const fs::path d = tape / "t5";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m;
+            park(m);
+            m.dbg->load_program_sidecars(tap);
+            // The bytes arrive (writes into the range) while the CPU runs elsewhere: neither judges.
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", kFlip, 0x8000);
+            run_frames(m, 2);
+            const auto parked = m.dbg->source_map_status();
+            check("SRCDBG-TAPE-05", "writes into the range and execution outside it do not judge the map: "
+                                    "pending after two frames at $6000, even with a wrong byte loaded",
+                  parked.pending && parked.state == Debugger::SourceMapStatus::State::Attached &&
+                      m.dbg->source_map().size() == 46,
+                  parked.reason);
+        }
+        {   // TAPE-06: the space, not the logical address
+            const fs::path d = tape / "t6";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            park(m);
+            m.dbg->nextreg_write(m.a, 0x54, 4);
+            m.dbg->load_program_sidecars(tap);
+            const uint8_t jr[2] = {0x18, 0xFE};
+            m.dbg->poke(m.a, MemSpace::page(40), 0, 2, jr);
+            m.dbg->nextreg_write(m.a, 0x54, 40);
+            m.set_pc(0x8000);
+            run_frames(m, 1);
+            const bool other_page = m.dbg->source_map_status().pending;
+            tape_bytes(m, MemSpace::page(4), d / "prog_CODE.bin");
+            m.dbg->nextreg_write(m.a, 0x54, 4);
+            m.set_pc(0x8000);
+            run_frames(m, 1);
+            const auto st = m.dbg->source_map_status();
+            check("SRCDBG-TAPE-06", "$8000 is in the code range but page 40 is mapped there, not the page "
+                                    "the map was bound to (4): still pending; with page 4 mapped and the "
+                                    "program in it, verified",
+                  other_page && st.state == Debugger::SourceMapStatus::State::Attached && !st.pending &&
+                      m.dbg->source_map().size() == 46);
+        }
+        {   // TAPE-07: the pending window changes nothing in the machine
+            const fs::path d = tape / "t7";
+            const std::string tap = tape_copy(kFx, d);
+            Bare with, without;
+            with.dbg->load_program_sidecars(tap);
+            const bool armed_with = with.emu.debug_state().armed();
+            const bool armed_without = without.emu.debug_state().armed();
+            with.frames(20);
+            without.frames(20);
+            const auto ra = with.emu.cpu().get_registers();
+            const auto rb = without.emu.cpu().get_registers();
+            uint64_t ha = 1469598103934665603ULL, hb = ha;
+            for (uint32_t a = 0x4000; a < 0x10000; ++a) {
+                ha = (ha ^ with.emu.mmu().peek(static_cast<uint16_t>(a))) * 1099511628211ULL;
+                hb = (hb ^ without.emu.mmu().peek(static_cast<uint16_t>(a))) * 1099511628211ULL;
+            }
+            check("SRCDBG-TAPE-07", "a pending window that never triggers leaves the machine exactly as "
+                                    "one without it: equal registers, clock and RAM after 20 frames "
+                                    "(the first armed, the second not)",
+                  armed_with && !armed_without && with.dbg->source_map_status().pending &&
+                      ra.PC == rb.PC && ra.SP == rb.SP && ra.AF == rb.AF && ra.BC == rb.BC &&
+                      ra.DE == rb.DE && ra.HL == rb.HL &&
+                      with.emu.clock().get() == without.emu.clock().get() && ha == hb);
+        }
+        {   // TAPE-08: with no client, the hold arms the machine only while a check is pending
+            const fs::path d = tape / "t8";
+            const std::string tap = tape_copy(kFx, d);
+            Bare m;
+            const bool before = m.emu.debug_state().armed();
+            m.dbg->load_program_sidecars(tap);
+            const bool pending = m.emu.debug_state().armed() && m.dbg->source_map_status().pending;
+            const std::vector<uint8_t> code = read_all(d / "prog_CODE.bin");
+            for (size_t i = 0; i < code.size(); ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
+            m.start(0x8000);
+            m.frames(1);
+            const auto st = m.dbg->source_map_status();
+            const bool after = m.emu.debug_state().armed();
+            const fs::path d2 = tape / "t8b";
+            const std::string tap2 = tape_copy(kFx, d2, /*bins=*/false);
+            Bare n;
+            n.dbg->load_program_sidecars(tap2);
+            check("SRCDBG-TAPE-08", "with no client attached the machine is unarmed, armed while a check "
+                                    "is pending, unarmed again once it is judged; a map with no identity "
+                                    "never arms it",
+                  !before && pending && !after && st.state == Debugger::SourceMapStatus::State::Attached &&
+                      !st.pending && !n.emu.debug_state().armed() && !n.dbg->source_map_status().pending &&
+                      n.dbg->source_map().size() == 46);
+        }
+        {   // TAPE-09: a rewind within and before the generation
+            const fs::path d = tape / "t9";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m(/*rewind=*/true);
+            park(m);
+            run_frames(m, 1);
+            const uint32_t before_load = m.dbg->time().frame;
+            m.dbg->load_program_sidecars(tap);
+            run_frames(m, 1);
+            const uint32_t after_load = m.dbg->time().frame;
+            run_frames(m, 3);
+            const Result back = m.dbg->rewind_to_frame(m.a, after_load);
+            const bool a_pending = m.dbg->source_map_status().pending && m.emu.debug_state().verify_hold();
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", -1, 0x8000);
+            m.set_pc(0x8000);
+            run_frames(m, 1);
+            const auto after = m.dbg->source_map_status();
+            const Result back2 = m.dbg->rewind_to_frame(m.a, before_load);
+            const bool b_gone = m.dbg->source_map().empty() && !m.emu.debug_state().verify_hold();
+            check("SRCDBG-TAPE-09", "a rewind inside the load's generation keeps the check pending and the "
+                                    "window armed (and the program can still be verified); a rewind to "
+                                    "before the load drops the map and the window",
+                  back == Result::Ok && a_pending && !after.pending &&
+                      after.state == Debugger::SourceMapStatus::State::Attached &&
+                      back2 == Result::Ok && b_gone,
+                  "back=" + std::to_string(int(back)) + " back2=" + std::to_string(int(back2)));
+        }
+        {   // TAPE-10: a reset in the middle of the load
+            const fs::path d = tape / "t10";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m;
+            park(m);
+            m.dbg->load_program_sidecars(tap);
+            const Result soft = m.dbg->reset(m.a, ResetKind::Soft);
+            Debugger::SourceMapStatus st;
+            const std::string log = debugger_log_of([&] { st = m.dbg->source_map_status(); });
+            check("SRCDBG-TAPE-10", "a reset before the program arrived judges the pending map at the "
+                                    "landing: dropped as not matching the program now in memory, window off",
+                  soft == Result::Ok && st.state == Debugger::SourceMapStatus::State::None &&
+                      m.dbg->source_map().empty() && !m.emu.debug_state().verify_hold() &&
+                      has(log, "Dropped the program's z88dk source map: its binary identity does not "
+                               "match the program now in memory"),
+                  log);
+        }
+        {   // TAPE-11: an SLD with a hash
+            const fs::path d = tape / "t11";
+            fs::create_directories(d);
+            const std::string head = "|SLD.data.version|1\n||program.name:prog\n";
+            const std::string tail = "||program.org:32768\n||program.size:4\n";
+            write_text(d / "game.sld",
+                       head + "||program.sha256:04bb9c5fbc1b0517a33504a5fbb7b9de7dd72a1de84987241364d2674495a823\n" +
+                           tail + program_sld(p80, p90).substr(20));
+            write_text(d / "game.tap", "");
+            auto fresh = [&](uint8_t third, Debugger::SidecarLoad& r, std::string& log,
+                             Debugger::SourceMapStatus& st) {
+                auto m = std::make_unique<Machine>();
+                park(*m);
+                for (uint16_t i = 0; i < 4; ++i) m->emu.mmu().write(0x8000 + i, 0);
+                r = m->dbg->load_program_sidecars((d / "game.tap").string());
+                const uint8_t program[4] = {0x00, 0x00, third, 0x00};
+                m->dbg->poke(m->a, MemSpace::cpu(), 0x8000, 4, program);
+                m->set_pc(0x8000);
+                log = debugger_log_of([&] {
+                    run_frames(*m, 1);
+                    st = m->dbg->source_map_status();
+                });
+                return m;
+            };
+            Debugger::SidecarLoad r1, r2;
+            std::string log1, log2;
+            Debugger::SourceMapStatus st1, st2;
+            auto good = fresh(0xCD, r1, log1, st1);
+            auto bad = fresh(0xCE, r2, log2, st2);
+            check("SRCDBG-TAPE-11", "an SLD whose hash is of the program attaches pending beside a tape, "
+                                    "with $8000 still zero (not judged at the attach); verified when the "
+                                    "bytes match at the first execution and dropped when one differs",
+                  r1.sources == 6 && r1.sources_pending &&
+                      st1.state == Debugger::SourceMapStatus::State::Attached && !st1.pending &&
+                      has(log1, "Verified SLD source map") &&
+                      st2.state == Debugger::SourceMapStatus::State::None && bad->dbg->source_map().empty() &&
+                      has(log2, "Rejected SLD source map") &&
+                      has(log2, "the program loaded from tape does not match its binary identity"),
+                  log1 + log2);
+        }
+        {   // TAPE-12
+            const fs::path d = tape / "t12";
+            const std::string tap = tape_copy(kFx, d, /*bins=*/false);
+            Bare m;
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] { r = m.dbg->load_program_sidecars(tap); });
+            check("SRCDBG-TAPE-12", "prog.map without its section binaries beside a tape attaches "
+                                    "unverified at once: no pending state, no window, the unverified "
+                                    "wording in the log",
+                  r.sources == 46 && !r.sources_pending && !m.dbg->source_map_status().pending &&
+                      !m.emu.debug_state().armed() &&
+                      has(log, "(program identity not verified: no section binaries beside it)"),
+                  log);
+        }
+        {   // TAPE-13: --source-map with a tape
+            const fs::path d = tape / "t13";
+            tape_copy(kFx, d);
+            const std::string map = (d / "prog.map").string();
+            Machine m;
+            park(m);
+            const auto out = m.dbg->load_source_map(map, false, /*verify_at_first_execution=*/true);
+            const auto st1 = m.dbg->source_map_status();
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", kFlip, 0x8000);
+            m.set_pc(0x8000);
+            run_frames(m, 1);
+            const auto st2 = m.dbg->source_map_status();
+            check("SRCDBG-TAPE-13", "a map loaded for a tape program is the user's and pending; a wrong "
+                                    "byte at the first execution drops it: None, not Stale, with the reason",
+                  out.count == 46 && out.pending && st1.by_user && st1.pending &&
+                      has(out.identity_note, "identity check pending") &&
+                      st2.state == Debugger::SourceMapStatus::State::None && !st2.by_user &&
+                      has(st2.reason, "does not match") && m.dbg->source_map().empty());
+        }
+        {   // TAPE-14: the verdict is in before a stop on the first instruction
+            const fs::path d = tape / "t14";
+            const std::string tap = tape_copy(kFx, d);
+            Machine m;
+            park(m);
+            m.dbg->load_program_sidecars(tap);
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", kFlip, 0x8000);
+            Subscription stop = execute_stop(0x8000);
+            Debugger::SourceMapStatus::State seen = Debugger::SourceMapStatus::State::Attached;
+            bool pending_seen = true;
+            stop.handler = [&](const jnext::dbg::Event&, Debugger& dd) {
+                const auto st = dd.source_map_status();
+                seen = st.state;
+                pending_seen = st.pending;
+                return Action::Stop;
+            };
+            m.dbg->subscribe(m.a, stop);
+            // A JP from $6000, not a resume at $8000: the first instruction after a resume is
+            // exempt from every breakpoint (GH #221), the window's check is not.
+            const uint8_t jp[3] = {0xC3, 0x00, 0x80};
+            m.dbg->poke(m.a, MemSpace::cpu(), 0x6000, 3, jp);
+            m.set_pc(0x6000);
+            run_frames(m, 1);
+            check("SRCDBG-TAPE-14", "a stop on the very instruction that triggers the check already sees "
+                                    "the verdict (the window runs before the breakpoint gate)",
+                  seen == Debugger::SourceMapStatus::State::None && !pending_seen &&
+                      m.pc() == 0x8000,
+                  "seen=" + std::to_string(int(seen)) + " pending=" + std::to_string(pending_seen) +
+                      " pc=" + hex(m.pc()));
         }
     }
 
