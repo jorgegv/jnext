@@ -181,6 +181,11 @@ green. Deliberate exceptions live **in the table** — there is exactly one, the
 undocumented `--sd-card` back-compat alias — and never in a checker's exclusion
 list, because an exclusion list is invisible from the code it excuses.
 
+The same goes for the settings. Every Preferences setting is a row of
+`config_keys::KEYS` and is therefore settable with `--set section.key=value`;
+a persisted field with no row fails `AC-94`, and a row with no arm in
+`main.cpp`'s `switch` does not compile. See [4.5](../04-testing/05-documentation-and-cli-gates.md).
+
 ## Test suites are declared, and a missing test is loud
 
 `test/unit-tests.conf` names every unit suite together with the **exact** number

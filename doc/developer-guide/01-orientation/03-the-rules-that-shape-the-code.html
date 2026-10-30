@@ -2519,6 +2519,10 @@ documentation, and the documentation drifted twice while every gate stayed
 green. Deliberate exceptions live <strong>in the table</strong> — there is exactly one, the
 undocumented <code>--sd-card</code> back-compat alias — and never in a checker's exclusion
 list, because an exclusion list is invisible from the code it excuses.</p>
+<p>The same goes for the settings. Every Preferences setting is a row of
+<code>config_keys::KEYS</code> and is therefore settable with <code>--set section.key=value</code>;
+a persisted field with no row fails <code>AC-94</code>, and a row with no arm in
+<code>main.cpp</code>'s <code>switch</code> does not compile. See <a href="../04-testing/05-documentation-and-cli-gates.html">4.5</a>.</p>
 <h2 id="test-suites-are-declared-and-a-missing-test-is-loud">Test suites are declared, and a missing test is loud<a class="headerlink" href="#test-suites-are-declared-and-a-missing-test-is-loud" title="Permanent link">&para;</a></h2>
 <p><code>test/unit-tests.conf</code> names every unit suite together with the <strong>exact</strong> number
 of rows it must report. <code>test/run-unit-tests.sh</code> refuses to run at all if that

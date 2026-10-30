@@ -62,6 +62,16 @@ quick capture always lands in the same place. It also sets how many Quick Save s
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md). The tab is only
 present in a build with the debugger compiled in.
 
+## The same settings from the command line
+
+Every setting in this dialog can be given for one run with `--set
+section.key=value`, using the keys of [the configuration
+file](02-the-configuration-file.md); `--cpu-speed`, `--scale` and `--crt` are
+the shorter forms of the Startup tab's CPU speed, Window scale and CRT effect.
+The dialog always shows the *saved* values, never the command line's, and
+nothing from the command line is saved. How the two combine is in
+[what wins](03-what-wins-the-command-line.md).
+
 ## Apply, OK and Cancel
 
 **Apply** pushes the settings to the *running* machine — change the window

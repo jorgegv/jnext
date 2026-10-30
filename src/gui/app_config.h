@@ -10,6 +10,7 @@
 #include "core/emulator_config.h"
 #include "debug/debug_keymap.h"
 #include "platform/audio_pacing.h"
+#include "platform/config_keys.h"
 #include "platform/pointer_capture.h"
 #include "core/screenshot.h"
 #include "gui/crt_shader_policy.h"
@@ -158,6 +159,14 @@ template <typename T>
 inline T merge_cli_precedence(bool cli_provided, const T& cli_value, const T& saved_value) {
     return cli_provided ? cli_value : saved_value;
 }
+
+/// GH #417 - lay command-line `--set` / `--scale` / `--crt` values over `data`:
+/// the eight keys only the Qt window has a use for (window_scale, crt_filter,
+/// crt_shader, crt_shader_style, last_load_dir, screenshot_dir, quick_dir,
+/// quick_format), in order, so a later one of a key wins. Every other field is
+/// left alone. The texts are the CANONICAL ones config_keys::parse_assignment()
+/// produces. `data` is the caller's own copy; nothing here saves anything.
+void merge_cli_assignments(AppConfigData& data, const std::vector<config_keys::Assignment>& list);
 
 /// Loads/saves AppConfigData via QSettings.
 ///

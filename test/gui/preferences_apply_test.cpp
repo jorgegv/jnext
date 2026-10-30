@@ -54,6 +54,9 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QLineEdit>
+#include <QDialog>
+#include <QTimer>
+#include <QMenu>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -1481,6 +1484,310 @@ void test_tape_auto_play_preference()
           "before=" + std::to_string(on_before) + " after=" + std::to_string(f.emu.tape_auto_play()));
 }
 
+// ── GH #417: a command-line value governs the session and never reaches jnext.conf ──
+//
+// MainWindow reads four settings LIVE from what it loaded (the Load / Save
+// Screenshot dialog directories, the Quick Screenshot directory and format), and
+// saves that same copy on every unrelated change (the recent-files list, a
+// joystick toggle). A `--set paths.last_load_dir=...` merged into it would be
+// written back by the first such save. The session copy keeps the two apart.
+// Oracle: no VHDL (a host GUI). The contract is the man page: "never written to
+// jnext.conf; a GUI change takes over; Preferences shows the saved values".
+namespace {
+
+QString ini_value(const QString& dir, const char* key)
+{
+    QSettings raw(dir + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+    return raw.value(QString::fromLatin1(key)).toString();
+}
+
+void seed_saved(const QString& dir)
+{
+    QSettings raw(dir + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+    raw.setValue("paths/last_load_dir", "/saved/load");
+    raw.setValue("paths/screenshot_dir", "/saved/shots");
+    raw.setValue("screenshot/quick_dir", dir + QStringLiteral("/saved-quick"));
+    raw.setValue("screenshot/quick_format", "png");
+    raw.sync();
+}
+
+/// The saved file with `--set` values over it, exactly as main.cpp builds the copy
+/// it hands to apply_startup_config().
+AppConfigData cli_over_saved(const QString& dir, const QString& quick_dir)
+{
+    using config_keys::KeyId;
+    AppConfig cfg(dir + QStringLiteral("/jnext.conf"));
+    cfg.load();
+    merge_cli_assignments(cfg.data(), {
+        { KeyId::PathsLastLoadDir, {}, "/cli/load" },
+        { KeyId::PathsScreenshotDir, {}, "/cli/shots" },
+        { KeyId::ScreenshotQuickDir, {}, quick_dir.toStdString() },
+        { KeyId::ScreenshotQuickFormat, {}, "scr" },
+    });
+    return cfg.data();
+}
+
+}  // namespace
+
+void test_session_paths_not_persisted()
+{
+    // PA-29: the dialogs seed from the session values; an unrelated save leaves the file's.
+    {
+        QTemporaryDir home;
+        seed_saved(home.path());
+        qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+        Fixture f;
+        f.win.set_unattended(true);
+        f.win.apply_startup_config(cli_over_saved(home.path(), home.path() + QStringLiteral("/cli-quick")));
+        const QString load_seed = f.win.load_dialog_seed();
+        const QString shot_seed = f.win.screenshot_dialog_seed();
+        f.win.set_startup_load("/x/a.nex", "/x/a.nex");
+        f.win.startup_rzx_started("/x/a.nex");   // records a recent file: an unrelated save
+        const QString saved_load = ini_value(home.path(), "paths/last_load_dir");
+        const QString saved_shot = ini_value(home.path(), "paths/screenshot_dir");
+        const QString recent = ini_value(home.path(), "recent/files");
+        check("PA-29", "the Load and Save Screenshot dialogs open in the session's directories, and an "
+                       "unrelated save leaves jnext.conf holding the saved ones",
+              load_seed == QStringLiteral("/cli/load") && shot_seed == QStringLiteral("/cli/shots")
+                  && saved_load == QStringLiteral("/saved/load")
+                  && saved_shot == QStringLiteral("/saved/shots") && recent.contains("a.nex"),
+              (load_seed + "|" + shot_seed + "|" + saved_load + "|" + saved_shot + "|" + recent).toStdString());
+    }
+
+    // PA-30: a load from directory D moves the seed AND the saved value to D.
+    {
+        QTemporaryDir home;
+        seed_saved(home.path());
+        qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+        const QString d = home.path() + QStringLiteral("/picked");
+        QDir().mkpath(d);
+        QFile prog(d + QStringLiteral("/prog.tap"));
+        if (prog.open(QIODevice::WriteOnly)) prog.close();
+        Fixture f;
+        f.win.set_unattended(true);
+        f.win.apply_startup_config(cli_over_saved(home.path(), home.path() + QStringLiteral("/cli-quick")));
+        f.win.on_recent_file(prog.fileName());
+        const QString seed = f.win.load_dialog_seed();
+        const QString saved = ini_value(home.path(), "paths/last_load_dir");
+        check("PA-30", "after a load from a directory the Load dialog's seed and the saved value are both "
+                       "that directory: the GUI change takes over from the command line",
+              seed == d && saved == d, (seed + "|" + saved).toStdString());
+    }
+
+    // PA-31: Quick Screenshot writes into the session's directory in the session's format.
+    {
+        QTemporaryDir home;
+        seed_saved(home.path());
+        qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+        const QString cli_quick = home.path() + QStringLiteral("/cli-quick");
+        Fixture f;
+        f.win.set_unattended(true);
+        f.win.apply_startup_config(cli_over_saved(home.path(), cli_quick));
+        QAction* quick = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == QStringLiteral("Quic&k Screenshot")) quick = a;
+        if (quick) { quick->trigger(); QApplication::processEvents(); }
+        f.win.set_startup_load("/x/b.nex", "/x/b.nex");
+        f.win.startup_rzx_started("/x/b.nex");   // an unrelated save
+        const QStringList made = QDir(cli_quick).entryList(QDir::Files);
+        const bool one_scr = made.size() == 1 && made.first().endsWith(QStringLiteral(".scr"));
+        const bool none_saved = QDir(home.path() + QStringLiteral("/saved-quick")).entryList(QDir::Files).isEmpty();
+        const QString fmt = ini_value(home.path(), "screenshot/quick_format");
+        const QString dir = ini_value(home.path(), "screenshot/quick_dir");
+        check("PA-31", "Quick Screenshot writes a .scr into the session's directory; the file keeps the "
+                       "saved directory and format",
+              quick && one_scr && none_saved && fmt == QStringLiteral("png")
+                  && dir == home.path() + QStringLiteral("/saved-quick"),
+              (made.join(',') + "|" + fmt + "|" + dir).toStdString());
+    }
+
+    // PA-32: Preferences OK/Apply replaces the session values with the dialog's.
+    {
+        QTemporaryDir home;
+        seed_saved(home.path());
+        qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+        Fixture f;
+        f.win.set_unattended(true);
+        f.win.apply_startup_config(cli_over_saved(home.path(), home.path() + QStringLiteral("/cli-quick")));
+        const QString dlg_quick = home.path() + QStringLiteral("/dlg-quick");
+        AppConfigData c = live_prefs(MachineType::ZX48K);
+        c.last_load_dir = QStringLiteral("/dlg/load");
+        c.screenshot_dir = QStringLiteral("/dlg/shots");
+        c.quick_screenshot_dir = dlg_quick;
+        c.quick_screenshot_format = ScreenshotFormat::Png;
+        f.win.apply_preferences(c);
+        QAction* quick = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == QStringLiteral("Quic&k Screenshot")) quick = a;
+        if (quick) { quick->trigger(); QApplication::processEvents(); }
+        const QStringList made = QDir(dlg_quick).entryList(QDir::Files);
+        check("PA-32", "Preferences Apply replaces the session's directories and quick-screenshot format "
+                       "with the dialog's",
+              quick && f.win.load_dialog_seed() == QStringLiteral("/dlg/load")
+                  && f.win.screenshot_dialog_seed() == QStringLiteral("/dlg/shots")
+                  && made.size() == 1 && made.first().endsWith(QStringLiteral(".png")),
+              (f.win.load_dialog_seed() + "|" + f.win.screenshot_dialog_seed() + "|" + made.join(',')).toStdString());
+    }
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
+// ── PA-34/PA-35: GH #417 - Preferences shows, and OK saves, the SAVED values ──
+// PA-34 reads main_window.cpp and checks one spelling only: every `app_config_.data().last_load_dir`
+// / `.screenshot_dir` there must be the target of an assignment (the remember_* helpers), i.e. no
+// reader in that file takes the saved value directly. It does not see other spellings, the header or
+// other files; the accessors' behaviour is held by PA-29..PA-32. PA-35 drives the real Preferences dialog: after a command-line session (paths, format,
+// debugger keys), Apply writes the saved values back, not the command line's.
+void test_preferences_saves_saved_values()
+{
+    {
+        std::ifstream in(JNEXT_MAIN_WINDOW_SRC);
+        std::string line, bad;
+        int reads = 0;
+        while (std::getline(in, line)) {
+            for (const char* key : {"app_config_.data().last_load_dir", "app_config_.data().screenshot_dir"}) {
+                if (line.find(key) == std::string::npos) continue;
+                ++reads;
+                // Must be an assignment: after the key, optional blanks, then '=' but not '=='.
+                size_t at = line.find(key) + std::strlen(key);
+                while (at < line.size() && line[at] == ' ') ++at;
+                const bool assigns = at < line.size() && line[at] == '='
+                                     && (at + 1 >= line.size() || line[at + 1] != '=');
+                if (!assigns) bad += line + " | ";
+            }
+        }
+        check("PA-34", "in main_window.cpp the saved last_load_dir / screenshot_dir are named via "
+                       "app_config_.data() only as assignment targets (no direct reader in that file)",
+              in.eof() && reads == 2 && bad.empty(), bad + std::to_string(reads) + " references");
+    }
+    QTemporaryDir home;
+    seed_saved(home.path());
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    bool opened = false;
+    QString load_dir, shot_dir, quick_dir, quick_fmt;
+    QStringList key_overrides;
+    {
+        Fixture f;
+        f.win.set_unattended(true);
+        f.win.apply_startup_config(cli_over_saved(home.path(), home.path() + QStringLiteral("/cli-quick")));
+        jnext::dbgkeys::Keymap km;
+        jnext::dbgkeys::Combo c;
+        std::string why;
+        jnext::dbgkeys::parse_combo("Shift+F9", c, why);
+        km.set(jnext::dbgkeys::Action::Run, c);
+        f.win.set_session_debug_keys(km);
+        QAction* prefs = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text().remove('&').startsWith(QStringLiteral("Preferences"))) prefs = a;
+        if (prefs) {
+            QTimer::singleShot(300, [&]() {
+                QWidget* w = QApplication::activeModalWidget();
+                auto* dlg = qobject_cast<QDialog*>(w);
+                if (!dlg) return;
+                opened = true;
+                auto* buttons = dlg->findChild<QDialogButtonBox*>();
+                if (buttons && buttons->button(QDialogButtonBox::Apply))
+                    buttons->button(QDialogButtonBox::Apply)->click();
+                dlg->reject();
+            });
+            prefs->trigger();
+        }
+        load_dir  = ini_value(home.path(), "paths/last_load_dir");
+        shot_dir  = ini_value(home.path(), "paths/screenshot_dir");
+        quick_dir = ini_value(home.path(), "screenshot/quick_dir");
+        quick_fmt = ini_value(home.path(), "screenshot/quick_format");
+        QSettings raw(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+        raw.beginGroup("debugger_keys");
+        key_overrides = raw.childKeys();
+    }
+    check("PA-35", "after a command-line session, Preferences Apply saves the SAVED directories, quick "
+                   "screenshot directory and format and debugger keys, not the command line's",
+          opened && load_dir == QStringLiteral("/saved/load") && shot_dir == QStringLiteral("/saved/shots")
+              && quick_dir == home.path() + QStringLiteral("/saved-quick") && quick_fmt == QStringLiteral("png")
+              && key_overrides.isEmpty(),
+          (QString::number(opened) + "|" + load_dir + "|" + shot_dir + "|" + quick_dir + "|" + quick_fmt + "|" +
+           key_overrides.join(',')).toStdString());
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
+// ── PA-33: GH #417 - an Input-menu pick persists what it changed, not a command-line value ──
+//
+// persist_joy_config() used to copy BOTH connectors' live state into the file, so
+// picking Joy 1's source wrote a `--joy2-source keys` of the same run into
+// jnext.conf. Now the connector picked is saved, and the other only when the
+// emulator's one-cursor rule moved it. Oracle: the contract (man page: "never
+// written to jnext.conf"); the real menu action and the real file.
+void test_joy_menu_persists_only_the_pick()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    const QString conf = home.path() + QStringLiteral("/jnext.conf");
+    const auto pick = [](Fixture& f, const char* menu_prefix, const char* item) {
+        for (QMenu* m : f.win.findChildren<QMenu*>()) {
+            if (!m->title().remove('&').startsWith(QString::fromLatin1(menu_prefix))) continue;
+            for (QAction* a : m->actions())
+                if (a->text().remove('&').startsWith(QString::fromLatin1(item))) { a->trigger(); return true; }
+        }
+        return false;
+    };
+    // (a) Joy 2 runs a command-line value; picking Joy 1 None must not save it.
+    bool picked_a = false;
+    QString j1_a, j2_a;
+    {
+        Fixture f;
+        f.emu.set_joystick_source(1, JoySource::CursorKeys);   // `--joy2-source keys`
+        picked_a = pick(f, "Joy 1 Source", "None");
+        j1_a = ini_value(home.path(), "input/joy1_source");
+        j2_a = ini_value(home.path(), "input/joy2_source");
+    }
+    // (b) Joy 2 holds Cursor Keys (saved AND live); picking Cursor Keys on Joy 1 takes them away
+    // from Joy 2 (the emulator's rule). That change is the pick's doing and is saved: the file
+    // must stop saying `keys` for Joy 2, which only a save of the OTHER connector can do.
+    {
+        QSettings raw(conf, QSettings::IniFormat);
+        raw.setValue("input/joy2_source", "keys");
+        raw.sync();
+    }
+    bool picked_b = false;
+    QString j1_b, j2_b;
+    JoySource live_j2 = JoySource::CursorKeys;
+    {
+        Fixture f;
+        f.emu.set_joystick_source(1, JoySource::CursorKeys);
+        picked_b = pick(f, "Joy 1 Source", "Cursor");
+        live_j2 = f.emu.joystick_source(1);
+        j1_b = ini_value(home.path(), "input/joy1_source");
+        j2_b = ini_value(home.path(), "input/joy2_source");
+    }
+    // (c) The device half: Joy 2 holds controller X (saved and live); Joy 1 picks X. The emulator
+    // takes X off Joy 2, and the file must lose Joy 2's X with it.
+    const std::string x = "0123456789abcdef0123456789abcdef";
+    {
+        QSettings raw(conf, QSettings::IniFormat);
+        raw.setValue("input/joy2_device", QString::fromStdString(x));
+        raw.setValue("input/joy2_source", "sdl");
+        raw.sync();
+    }
+    bool picked_c = false;
+    QString j1_c, j2_c;
+    {
+        Fixture f;
+        f.win.set_joy_device_provider([&]() { return std::vector<JoyDeviceInfo>{ { x, "Pad X", -1 } }; });
+        f.emu.set_joystick_device(1, JoyDeviceRef{ x, "Pad X" });
+        f.win.sync_joy_source_menu();
+        picked_c = pick(f, "Joy 1 Source", "Pad X");
+        j1_c = ini_value(home.path(), "input/joy1_device");
+        j2_c = ini_value(home.path(), "input/joy2_device");
+    }
+    check("PA-33", "an Input-menu pick saves its own connector and not the other connector's command-line "
+                   "value; a source or controller change the pick forced on the other one is saved with it",
+          picked_a && picked_b && picked_c && j1_a == QLatin1String("none") && j2_a != QLatin1String("keys")
+              && j1_b == QLatin1String("keys") && live_j2 != JoySource::CursorKeys
+              && j2_b == QString::fromLatin1(joy_source_str(live_j2)) && j2_b != QLatin1String("keys")
+              && j1_c == QString::fromStdString(x) && j2_c.isEmpty(),
+          (j1_a + "|" + j2_a + "|" + j1_b + "|" + j2_b + "|" + j1_c + "|" + j2_c).toStdString());
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1514,6 +1821,9 @@ int main(int argc, char** argv)
     test_recent_files_carried();
     test_debug_keymap_passthrough();
     test_tape_auto_play_preference();
+    test_session_paths_not_persisted();
+    test_joy_menu_persists_only_the_pick();
+    test_preferences_saves_saved_values();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

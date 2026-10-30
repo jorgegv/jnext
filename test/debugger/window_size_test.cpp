@@ -49,12 +49,15 @@
 //
 // Run: ./build/test/debugger_window_size_test
 
+#include "platform/config_keys.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/window_attach.h"
 
+#include <optional>
+#include <QAction>
 #include <QApplication>
 #include <QDataStream>
 #include <QDir>
@@ -66,6 +69,7 @@
 #include <QScreen>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSet>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -168,10 +172,13 @@ struct Fixture {
     DebuggerWindow*  dbg = nullptr;
     bool             ok  = false;
 
-    Fixture() {
+    /// `attach_override`: GH #417's `--set debugger.attached=`, handed to the manager
+    /// before the window is built (it is created lazily).
+    explicit Fixture(std::optional<bool> attach_override = std::nullopt) {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
+        if (attach_override) mgr->set_attach_override(*attach_override);
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
@@ -674,6 +681,124 @@ static void test_one_file(const QString& dir)
     }
 }
 
+// ── DWK: GH #417 - the [debugger] key names come from platform/config_keys.h ───
+// Oracle: the table's DebuggerWindow-owned rows (size, position, attached),
+// compared with the keys the real window writes to the real file. No VHDL: a
+// host configuration file.
+
+static void test_key_names(const QString& dir)
+{
+    set_group("DWK");
+    const QString conf = dir + QStringLiteral("/jnext.conf");
+    wipe_dir(dir);
+
+    QSet<QString> written;
+    QString toggle_false, toggle_true;
+    const auto raw_attached = [](const QString& file) {
+        QSettings s(file, QSettings::IniFormat);
+        return s.value(QString::fromStdString(config_keys::path(config_keys::KeyId::DebuggerAttached))).toString();
+    };
+    {
+        Fixture fx;
+        QAction* attach = nullptr;
+        if (fx.ok)
+            for (QAction* a : fx.dbg->findChildren<QAction*>())
+                if (a->text().remove(QLatin1Char('&')) == QLatin1String("Attach to Emulator Window")) attach = a;
+        if (fx.ok && attach) {
+            // The toggle's OWN write, read before any save_position() can mask it.
+            attach->setChecked(true);
+            attach->setChecked(false);
+            toggle_false = raw_attached(conf);
+            attach->setChecked(true);
+            toggle_true = raw_attached(conf);
+            attach->setChecked(false);
+            QFile::remove(conf);
+            fx.dbg->save_position();   // detached: size, attached and position
+            {
+                QSettings s(conf, QSettings::IniFormat);
+                s.beginGroup(QStringLiteral("debugger"));
+                for (const QString& k : s.allKeys()) written.insert(QStringLiteral("debugger/") + k);
+            }
+            attach->setChecked(true);
+            fx.dbg->save_position();   // attached
+            {
+                QSettings s(conf, QSettings::IniFormat);
+                s.beginGroup(QStringLiteral("debugger"));
+                for (const QString& k : s.allKeys()) written.insert(QStringLiteral("debugger/") + k);
+            }
+        }
+        QSet<QString> want;
+        for (const config_keys::Key& k : config_keys::KEYS)
+            if (k.owner == config_keys::Owner::DebuggerWindow)
+                want.insert(QString::fromStdString(config_keys::path(k.id)));
+        QStringList w(written.begin(), written.end());
+        w.sort();
+        check("DWK-01", "the keys DebuggerWindow writes under [debugger] (detached, then attached) are exactly the table's DebuggerWindow-owned keys, and the Attach toggle itself writes debugger/attached before any save",
+              fx.ok && attach && written == want && want.size() == 3 &&
+                  toggle_false == QLatin1String("false") && toggle_true == QLatin1String("true"), w.join(',').toStdString());
+    }
+    wipe_dir(dir);
+}
+
+// DWK-02: a command-line attach state governs the run and never the file. The
+// window persists "debugger/attached" on every close (save_geometry()), and used
+// to write attach_enabled_ - the CLI value when one is in force. Oracle: the
+// contract (man page: "never written to jnext.conf; a GUI change takes over"),
+// read from the real file with a fresh QSettings.
+static void test_attach_override(const QString& dir)
+{
+    set_group("DWK");
+    const QString conf = dir + QStringLiteral("/jnext.conf");
+    const QString key = QString::fromStdString(config_keys::path(config_keys::KeyId::DebuggerAttached));
+    const auto file_value = [&]() { QSettings s(conf, QSettings::IniFormat); return s.value(key).toString(); };
+
+    QString opened_a, closed_a, toggled_off_a, closed_after_toggle_a, closed_b;
+    bool detached_a = false, attached_b = false, ok = true;
+    // A: saved true, the command line says detached.
+    wipe_dir(dir);
+    { QSettings s(conf, QSettings::IniFormat); s.setValue(key, true); s.sync(); }
+    {
+        Fixture fx(false);
+        ok = ok && fx.ok;
+        if (fx.ok) {
+            detached_a = !fx.dbg->attach_enabled();
+            opened_a = file_value();
+            QAction* attach = nullptr;
+            for (QAction* a : fx.dbg->findChildren<QAction*>())
+                if (a->text().remove(QLatin1Char('&')) == QLatin1String("Attach to Emulator Window")) attach = a;
+            ok = ok && attach;
+            fx.dbg->save_position();     // what a hide writes
+            closed_a = file_value();     // after the save, with the override in force
+            if (attach) {
+                attach->setChecked(true);
+                attach->setChecked(false);
+                toggled_off_a = file_value();   // the toggle's own write, before any save
+            }
+            fx.dbg->close();             // the real close path
+            closed_after_toggle_a = file_value();
+        }
+    }
+    // B: saved false, the command line says attached.
+    wipe_dir(dir);
+    { QSettings s(conf, QSettings::IniFormat); s.setValue(key, false); s.sync(); }
+    {
+        Fixture fx(true);
+        ok = ok && fx.ok;
+        if (fx.ok) {
+            attached_b = fx.dbg->attach_enabled();
+            fx.dbg->close();
+            closed_b = file_value();
+        }
+    }
+    check("DWK-02", "an attach override opens the window as told and a save or close leaves the file's value; "
+                    "toggling Attach then writes the toggled value",
+          ok && detached_a && attached_b && opened_a == QLatin1String("true") && closed_a == QLatin1String("true")
+              && toggled_off_a == QLatin1String("false") && closed_after_toggle_a == QLatin1String("false")
+              && closed_b == QLatin1String("false"),
+          (opened_a + "|" + closed_a + "|" + toggled_off_a + "|" + closed_after_toggle_a + "|" + closed_b).toStdString());
+    wipe_dir(dir);
+}
+
 int main(int argc, char** argv)
 {
     // The debugger window owns QWidgets, so a QApplication is required — but
@@ -698,6 +823,9 @@ int main(int argc, char** argv)
     std::printf("  Group: DW             — done\n");
     test_one_file(cfg.path());
     std::printf("  Group: DCF            — done\n");
+    test_key_names(cfg.path());
+    test_attach_override(cfg.path());
+    std::printf("  Group: DWK            - done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
