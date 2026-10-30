@@ -21,6 +21,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub (symlinks, POSIX) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quick snapshots: prune never follows a symlink (GH #321) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
+| PGO link-map parser (GH #416) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      391 |      391 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -176,6 +177,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14034**| **14034**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **14038**| **14038**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
