@@ -34,7 +34,7 @@ mentions them, so a test can no longer be absent from this document.
 | DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
-| UART+I2C/RTC                               |   249 |  249 |    0 |    0 |       0 |          0 |
+| UART+I2C/RTC                               |   251 |  251 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    87 |   87 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6043 | 6043 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6045 | 6045 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6043**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5572**. Rows the 170 suites declared in `test/unit-tests.conf` run live: **14047**.
+Rows the sections above carry: **6045**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5572**. Rows the 170 suites declared in `test/unit-tests.conf` run live: **14047**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -2875,6 +2875,8 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-60 | an unterminated ' or " quote is refused: false, the output emptied, and the error names the quote and the 1-based character where it opens; a quote inside the other kind opens nothing (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2504 |
 | PIT-61 | build_args, on the FIFO and the socket transport, appends Spec::extra_args after jnext's own arguments, in order and unchanged, so a user -serial comes after the console's -serial chardev:pi; with none set the list is the 22 arguments it was (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2596 |
 | PIT-62 | started for real, QEMU receives the extra arguments after jnext's own, byte for byte, including a space, an embedded double quote, $HOME ; * and a backtick, a trailing backslash and an empty argument: no shell, and on Windows the CreateProcessW quoting (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2628 |
+| PIT-63 | the --nextpi-dir/-release/-qemu/-audio/-qemu-args flags replace their own saved setting and no other, an empty value means the default (it replaces a saved one), and with no flag the saved settings stand (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2543 |
+| PIT-64 | the setting flags given on the command line are named, in order, each once, an empty value included, and none when no flag was given: main.cpp warns about each when NextPi is not enabled (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2559 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1776 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1780 |
 | RTC-23 | GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field and a wrong separator are rejected; unpadded digit fields still parse | — | pass | test/uart/uart_test.cpp:2341 |
