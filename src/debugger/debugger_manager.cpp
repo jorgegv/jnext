@@ -269,7 +269,7 @@ void DebuggerManager::ensure_window() {
     if (debugger_window_)
         return;
 
-    debugger_window_ = new DebuggerWindow(dbg_, nullptr);
+    debugger_window_ = new DebuggerWindow(dbg_, nullptr, attach_override_);
     debugger_window_->set_debugger_manager(this);
     // GH #1 — BEFORE anything else touches the window. The window is created
     // lazily (the first time the debugger is enabled, from the menu, a magic

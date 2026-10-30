@@ -67,6 +67,12 @@ endif()
 if(ENABLE_TESTS)
     enable_testing()
 
+    # GH #416: test executables only (set after the esp01 library target, so
+    # the library keeps its flags); see test/CMakeLists.txt.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(-Werror)
+    endif()
+
     # Drives the AT engine against an in-memory fake transport: no socket, no
     # DNS, no listener. Portable to any platform the module builds on.
     add_executable(esp_at_test test/esp_at_test.cpp)

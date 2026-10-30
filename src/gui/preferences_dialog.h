@@ -113,6 +113,7 @@ private:
     QComboBox* nextpi_release_combo_  = nullptr;   // editable
     QLineEdit* nextpi_qemu_edit_      = nullptr;
     QComboBox* nextpi_audio_combo_    = nullptr;   // editable
+    QLineEdit* nextpi_qemu_args_edit_ = nullptr;   // GH #407
 
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <QObject>
 #include <QAction>
 #include <QToolBar>
@@ -95,6 +96,10 @@ public:
     /// and ensure_window() would build a window on the compiled-in defaults.
     /// Applies immediately when a window already exists.
     void set_keymap(const jnext::dbgkeys::Keymap& km);
+
+    /// GH #417 - `--set debugger.attached=` for this run, handed to the window when it
+    /// is built (it is created lazily). The file keeps its own value.
+    void set_attach_override(bool attached) { attach_override_ = attached; }
 
     /// GH #278 WP3 — the backend this adapter drives, for the DebuggerWindow's
     /// own controls (rewind toolbar and menu, trace menu, action greying),
@@ -247,6 +252,7 @@ private:
     // The separate debugger window (created lazily on first enable)
     DebuggerWindow* debugger_window_ = nullptr;
     jnext::dbgkeys::Keymap keymap_;      // GH #1
+    std::optional<bool> attach_override_;   // GH #417
 
     // Enable/disable action (points to View menu's Debugger action)
     QAction* enable_action_ = nullptr;

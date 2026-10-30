@@ -2593,6 +2593,57 @@ static void test_main_window_debugger_wiring()
               threw, what.c_str(), refused_unbuilt, built));
 }
 
+// ── DWK-03: GH #417 - `--set debugger_keys.X=...` governs the run, not the file ─
+//
+// main.cpp hands the keymap it built (the saved bindings with the command line's
+// entries over them) to MainWindow::set_session_debug_keys(). Both windows must
+// answer to it, and jnext.conf's [debugger_keys] must still hold only what the
+// FILE held after an unrelated save (the recent-files list). Oracle: the contract
+// (man page: "never written to jnext.conf"); the keymap read back from the real
+// DebuggerWindow and the real file, no VHDL.
+static void test_session_debug_keys()
+{
+    set_group("DWK");
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home;
+    {
+        QSettings raw(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+        raw.setValue("debugger_keys/step_over", "Ctrl+F12");
+        raw.sync();
+    }
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+
+    bool answers = false, file_kept = false, built = false;
+    std::string detail;
+    {
+        MainWindowFixture fx;
+        built = fx.ok;
+        if (fx.ok) {
+            jnext::dbgkeys::Keymap km;
+            jnext::dbgkeys::Combo c;
+            std::string why;
+            jnext::dbgkeys::parse_combo("Shift+F9", c, why);
+            km.set(jnext::dbgkeys::Action::Run, c);
+            fx.win.set_session_debug_keys(km);
+            fx.win.debugger_manager()->set_enabled(true);   // creates the window with the manager's keymap
+            DebuggerWindow* dw = fx.win.debugger_manager()->debugger_window_ptr();
+            answers = dw && jnext::dbgkeys::render_combo(dw->keymap().combo(jnext::dbgkeys::Action::Run)) == "Shift+F9";
+            fx.win.set_startup_load("/x/c.nex", "/x/c.nex");
+            fx.win.startup_rzx_started("/x/c.nex");         // an unrelated save of jnext.conf
+            QSettings after(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+            after.beginGroup("debugger_keys");
+            const QStringList keys = after.childKeys();
+            file_kept = keys == QStringList{QStringLiteral("step_over")}
+                        && after.value("step_over").toString() == QLatin1String("Ctrl+F12");
+            detail = keys.join(',').toStdString();
+        }
+    }
+    check("DWK-03", "set_session_debug_keys() makes the debugger window answer the new combination, and an "
+                    "unrelated save leaves [debugger_keys] holding only what the file held",
+          built && answers && file_kept, detail);
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -2636,6 +2687,8 @@ int main(int argc, char** argv)
     std::printf("  Group: MBP            — done\n");
     test_main_window_debugger_wiring();
     std::printf("  Group: MWD            — done\n");
+    test_session_debug_keys();
+    std::printf("  Group: DWK            - done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

@@ -105,6 +105,10 @@ public:
         /// timer-coalescing host does, to prove the grace and the startup
         /// window are measured against the clock, not counted in sleeps.
         void (*poll_sleep)(int ms) = nullptr;
+        /// User-set extra QEMU arguments (`[nextpi] qemu_args`, split by
+        /// split_extra_args): appended after jnext's own arguments, in order, as
+        /// separate argv entries; never through a shell.
+        std::vector<std::string> extra_args;
     };
 
     PiQemu() = default;
@@ -168,6 +172,15 @@ public:
     /// The QEMU argument vector, argv[0] excluded. Pure; exposed for tests.
     /// `pipe_base` is the chardev path whose `.in` / `.out` are the FIFOs.
     static std::vector<std::string> build_args(const Spec& spec, const std::string& pipe_base);
+
+    /// Split the user's extra-arguments text into argv entries. Pure; exposed for tests.
+    /// Runs of space/tab/CR/LF separate; '...' and "..." are literal (no escapes) and
+    /// adjacent pieces join into one argument; a lone '' or "" is one empty argument;
+    /// a backslash is an ordinary character; nothing is expanded. An unterminated quote
+    /// returns false, clears `out` and sets `error` to
+    /// "unterminated ' quote (it opens at character N)" (N is 1-based).
+    static bool split_extra_args(const std::string& text, std::vector<std::string>& out,
+                                 std::string& error);
     /// The same with the console UART on a loopback TCP chardev QEMU listens
     /// on: `socket,host=127.0.0.1,port=<port>,server=on,wait=off,nodelay=on`.
     /// `host=` is not optional (QEMU's default is 0.0.0.0) and neither is

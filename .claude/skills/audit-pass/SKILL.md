@@ -22,7 +22,7 @@ per CLAUDE.md (anything walking the repository file list also walks an in-repo
 worktree):
 
 ```
-git worktree add /home/jorgegv/tmp/worktrees/audit-<subsystem>-pass<N> -b audit-<subsystem>-pass<N> main
+git worktree add /home/jorgegv/tmp/worktrees/jnext/audit-<subsystem>-pass<N> -b audit-<subsystem>-pass<N> main
 ```
 
 Verify the base branch is fresh (per `feedback_agent_worktree_stale_base`), and

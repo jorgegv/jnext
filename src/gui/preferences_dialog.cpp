@@ -111,6 +111,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     nextpi_release_combo_->setEditText(current.nextpi_release);
     nextpi_qemu_edit_->setText(current.nextpi_qemu_binary);
     nextpi_audio_combo_->setEditText(current.nextpi_audio);
+    nextpi_qemu_args_edit_->setText(current.nextpi_qemu_args);
     last_load_dir_edit_->setText(current.last_load_dir);
     sd_card_path_edit_->setText(current.sd_card_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
@@ -477,12 +478,23 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
            "\"none\" to mute it, or wav:FILE to record it on its own."));
     form->addRow(tr("Pi audio:"), nextpi_audio_combo_);
 
+    nextpi_qemu_args_edit_ = new QLineEdit(tab);
+    nextpi_qemu_args_edit_->setObjectName(QStringLiteral("nextpiQemuArgsEdit"));
+    nextpi_qemu_args_edit_->setPlaceholderText(
+        tr("none - e.g. -serial telnet:127.0.0.1:2357,server,nowait"));
+    nextpi_qemu_args_edit_->setToolTip(
+        tr("Added after jnext's own QEMU arguments when NextPi starts. Split on "
+           "spaces; '...' or \"...\" keep spaces in one argument; a backslash is an "
+           "ordinary character. There is no shell: nothing is expanded."));
+    form->addRow(tr("Extra QEMU arguments:"), nextpi_qemu_args_edit_);
+
     // Every other control follows the enable tick, so a disabled Pi does not
     // look half-configured.
     for (QWidget* w : {static_cast<QWidget*>(nextpi_dir_edit_->parentWidget()),
                        static_cast<QWidget*>(nextpi_release_combo_),
                        static_cast<QWidget*>(nextpi_qemu_edit_->parentWidget()),
-                       static_cast<QWidget*>(nextpi_audio_combo_)}) {
+                       static_cast<QWidget*>(nextpi_audio_combo_),
+                       static_cast<QWidget*>(nextpi_qemu_args_edit_)}) {
         connect(nextpi_enabled_check_, &QCheckBox::toggled, w, &QWidget::setEnabled);
         w->setEnabled(false);   // the constructor's fill toggles it on
     }
@@ -630,6 +642,7 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.nextpi_release     = nextpi_release_combo_->currentText().trimmed();
     cfg.nextpi_qemu_binary = nextpi_qemu_edit_->text().trimmed();
     cfg.nextpi_audio       = nextpi_audio_combo_->currentText().trimmed();
+    cfg.nextpi_qemu_args   = nextpi_qemu_args_edit_->text().trimmed();
     {
         // Through EspHostPolicy::add, exactly as AppConfig::load() and the CLI
         // do: blanks (every stray newline in a text box is one) dropped,

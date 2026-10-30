@@ -1019,6 +1019,7 @@ my %NO_MATRIX_SECTION = (
     'speed_report_test'    => 'host speed-percentage reporting',
     'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
     'quick_snapshot_posix_test' => 'GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle',
+    'pgo_map_parse_test'        => 'GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle',
 
     # ── Host policy around the emulated ESP-01 ───────────────────────
     # `## ESP-01 socket transport` / `AT engine` / `jnext UART adapter` trace
@@ -1097,6 +1098,7 @@ my %NO_MATRIX_SECTION = (
     'log_gate_test'                 => 'jnext log-level gating',
     'profiler_test'                 => 'jnext profiler output format (a developer tool)',
     'app_config_test'               => 'jnext.conf schema/precedence (host settings file)',
+    'config_keys_test'              => 'the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle)',
     'warm_start_test'               => 'warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify',
     'preferences_apply_test'        => 'Preferences dialog wiring (host GUI)',
     'preferences_apply_policy_test' => 'Preferences apply/revert policy (host GUI)',
