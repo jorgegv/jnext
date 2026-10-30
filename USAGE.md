@@ -165,17 +165,21 @@ KB of ignored bytes also logs a warning.
 The debugger’s source map and symbols attach from beside the program:
 *NAME*`.sld` (or *NAME*`.sld.txt`), an sjasmplus source map whose labels
 join the symbols (a label assembled for a page names its address only
-while that page is mapped), beside any program but a tape (beside a tape
-only its labels attach), *NAME*`.Memory.txt` (or `Memory.txt`),
-NextBuild / Boriel ZX Basic symbols, beside a `.nex`, and *NAME*`.map`,
-a z88dk map (`-m`), beside a `.nex`, `.tap` or `.sna`: its symbols join
-the others (not when a `Memory.txt` exists), and with `-debug` also its
-source lines, which attach when there is no SLD (beside a tape only its
-symbols attach). z88dk’s **-create-app** also writes the section
-binaries (*NAME*`_CODE.bin`, …) that the map is checked against; without
-them it attaches unverified. A map given with **--map** or loaded by
-hand is kept over them. A map built for another binary, or a file over
-64 MiB, is refused, with the reason in the log.
+while that page is mapped), beside any program, *NAME*`.Memory.txt` (or
+`Memory.txt`), NextBuild / Boriel ZX Basic symbols, beside a `.nex`, and
+*NAME*`.map`, a z88dk map (`-m`), beside a `.nex`, `.tap` or `.sna`: its
+symbols join the others (not when a `Memory.txt` exists), and with
+`-debug` also its source lines, which attach when there is no SLD.
+z88dk’s **-create-app** also writes the section binaries
+(*NAME*`_CODE.bin`, …) that the map is checked against; without them it
+attaches unverified. Beside a tape (`.tap`, `.tzx`, `.wav`), whose
+program is not in memory yet, a map that carries a binary identity
+attaches at once and each memory space it covers is checked the first
+time the program runs its code there; a space that does not match drops
+the map and the symbols that came with it, with the reason in the log. A
+map given with **--map** or loaded by hand is kept over them. A map
+built for another binary, or a file over 64 MiB, is refused, with the
+reason in the log.
 
 **--nex-args** *LINE*  
 Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim and
@@ -1038,7 +1042,10 @@ apart by its contents), to the program **--load** loads, as if loaded by
 hand with **Debug \> Source \> Load Source Map…**. A z88dk map gives
 source lines only; its symbols stay with **--map**. Requires **--load**.
 A map whose binary identity does not match the program, or that cannot
-be loaded, is a startup error (exit status 1).
+be loaded, is a startup error (exit status 1). With a tape program
+(`.tap`, `.tzx`, `.wav`) the map attaches at once and is checked the
+first time the program runs its code; a mismatch then drops it, and the
+run exits with status 1.
 
 **--magic-port** *PORT*  
 Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for

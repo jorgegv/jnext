@@ -89,17 +89,21 @@ The debugger\(cqs source map and symbols attach from beside the program:
 \f[I]NAME\f[R]\f[CR].sld\f[R] (or \f[I]NAME\f[R]\f[CR].sld.txt\f[R]), an
 sjasmplus source map whose labels join the symbols (a label assembled
 for a page names its address only while that page is mapped), beside any
-program but a tape (beside a tape only its labels attach),
-\f[I]NAME\f[R]\f[CR].Memory.txt\f[R] (or \f[CR]Memory.txt\f[R]),
-NextBuild / Boriel ZX Basic symbols, beside a \f[CR].nex\f[R], and
-\f[I]NAME\f[R]\f[CR].map\f[R], a z88dk map (\f[CR]\-m\f[R]), beside a
-\f[CR].nex\f[R], \f[CR].tap\f[R] or \f[CR].sna\f[R]: its symbols join
-the others (not when a \f[CR]Memory.txt\f[R] exists), and with
-\f[CR]\-debug\f[R] also its source lines, which attach when there is no
-SLD (beside a tape only its symbols attach).
+program, \f[I]NAME\f[R]\f[CR].Memory.txt\f[R] (or
+\f[CR]Memory.txt\f[R]), NextBuild / Boriel ZX Basic symbols, beside a
+\f[CR].nex\f[R], and \f[I]NAME\f[R]\f[CR].map\f[R], a z88dk map
+(\f[CR]\-m\f[R]), beside a \f[CR].nex\f[R], \f[CR].tap\f[R] or
+\f[CR].sna\f[R]: its symbols join the others (not when a
+\f[CR]Memory.txt\f[R] exists), and with \f[CR]\-debug\f[R] also its
+source lines, which attach when there is no SLD.
 z88dk\(cqs \f[B]\-create\-app\f[R] also writes the section binaries
 (\f[I]NAME\f[R]\f[CR]_CODE.bin\f[R], \&...)
 that the map is checked against; without them it attaches unverified.
+Beside a tape (\f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R]), whose
+program is not in memory yet, a map that carries a binary identity
+attaches at once and each memory space it covers is checked the first
+time the program runs its code there; a space that does not match drops
+the map and the symbols that came with it, with the reason in the log.
 A map given with \f[B]\-\-map\f[R] or loaded by hand is kept over them.
 A map built for another binary, or a file over 64 MiB, is refused, with
 the reason in the log.
@@ -1158,6 +1162,9 @@ A z88dk map gives source lines only; its symbols stay with
 Requires \f[B]\-\-load\f[R].
 A map whose binary identity does not match the program, or that cannot
 be loaded, is a startup error (exit status 1).
+With a tape program (\f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R])
+the map attaches at once and is checked the first time the program runs
+its code; a mismatch then drops it, and the run exits with status 1.
 .TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, \f[CR]0x\f[R] prefix

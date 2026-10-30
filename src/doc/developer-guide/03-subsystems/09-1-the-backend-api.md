@@ -411,7 +411,11 @@ binaries, or verified for the code the binaries cover (`SourceMapLoadResult::unc
 counts the ranges they do not). `--source-map FILE` (`EmulatorConfig::source_map_file`)
 is this load, made once by each frontend right after the first successful `--load` and
 its sidecars (`emulator_attach_cli_source_map()` in `platform/emulator_boot.h`); a
-refusal logs an error and the run exits 1. `main.cpp` refuses it without `--load`.
+refusal logs an error and the run exits 1. `main.cpp` refuses it without `--load`. With a tape
+`--load` the helper passes `deferred` (`program_loads_later()`), the map attaches pending
+(*Tapes*), and the frontend watches it with `emulator_poll_cli_source_map()` once per tick
+(`source_map_watch_` in `HeadlessApp`, `SdlApp` and `QtApp`): a map dropped by the check
+sets exit code 1.
 
 `load_program_sidecars(path)` attaches `<stem>.Memory.txt` (or `Memory.txt`,
 beside a `.nex`), `<stem>.sld` / `<stem>.sld.txt` and `<stem>.map` (a z88dk map, beside
@@ -419,9 +423,9 @@ a `.nex`, `.tap` or `.sna`), searching with the
 non-throwing filesystem calls; only a regular file counts (a FIFO would block the
 load), and one that cannot be read is reported. Both loaders refuse a file that is
 not regular, or is over 64 MiB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
-Open, and `load()` calls it for a remote client; a tape program gets no
-automatic source map (`program_loads_later()`, `debug/source_file.h`, is the one
-table of such formats). The SLD sidecar is parsed once (`load_sld_sidecar()` with a label
+Open, and `load()` calls it for a remote client; a tape program's map attaches at
+once but its identity waits for the program (*Tapes*, below; `program_loads_later()`,
+`debug/source_file.h`, is the one table of such formats). The SLD sidecar is parsed once (`load_sld_sidecar()` with a label
 table) and judged before the symbols: its labels attach when the file is not
 refused as a whole, its identity does not mismatch and the user's source map is not
 kept, also beside a tape and when only its `T` records are refused (an SLD with no
@@ -431,7 +435,7 @@ log has `Loaded N SLD labels from '<file>'`. The z88dk map is read once for its 
 halves (`SymbolTable::load_z88dk_map()` and `load_z88dk_source_map()`, two
 transactions): its symbols are merged last, and only when no `Memory.txt` exists
 (`Loaded N z88dk symbols from '<file>'`); its source lines are used only when no SLD
-sidecar exists, beside a tape they are logged as not attached, and a map with neither
+sidecar exists, and a map with neither
 symbols nor line records is ignored without a word. A map whose section binaries do not
 match memory is rejected whole (symbols included), as an SLD is. Labels live in the Sidecar store, so
 the attachment cache and the lifetime rules below treat them like `Memory.txt`.
@@ -471,6 +475,42 @@ loads for itself (the NextZXOS browser, `LOAD ""`) is invisible to the backend,
 so its predecessor's sidecars stay until a reset or a load. Back counts a trace
 entry only if it belongs to the current generation (`TraceLog::recorded()` plus
 `(sequence, generation)` markers in `Impl`).
+
+**Tapes (deferred, per-space identity).** A tape's program is not in memory when
+`load_program_sidecars()` returns, so a map that carries an identity (an SLD hash, z88dk
+byte checks) attaches at once and PENDING (`SidecarLoad::sources_pending`,
+`SourceMapStatus::pending`, `load_source_map(path, accept, verify_at_first_execution)` for
+the user's), the attach line ending `(identity check pending: the program loads from
+tape)`. Rule-4 sections bind at the attach, with `predict_fetch()`, because that is where
+the loader puts the bytes. The identity is split into UNITS (`SourceMap::verify_spans()`):
+one per memory space a z88dk byte check lies in, and `MemSpace::cpu()` for an SLD's hash,
+which hashes logical memory as one. `Impl::DeferredCheck` holds a copy of the map, the
+units and spans still to judge, and which stores answer for the verdict: the live source
+store (`guards_sources`, the user's or a sidecar's) and/or the sidecar symbols that came with
+the map (`guards_symbols`, so they go with a map of another build even when the user's
+source map is the one kept). The trigger is `DebugState`'s one-shot VERIFY WINDOW, not an
+`Execute` subscription: `Impl::sync_verify_window()` sets `[min lo, max hi)` over the
+pending spans (`set_verify_window()`), which is an `armed()` contributor of its own
+(`verify_hold_`, in `refresh_gates_()` and `SuspendScope`, like `magic_hold_`). The
+emulator asks `verify_window_hit(pc)` first in `run_frame()`'s armed block, before
+`consume_step_off()`, the legacy breakpoint test and the execute gate, and in
+`step_frame_slot()` for a debugger Step; on a hit `Impl::verify_hook()` (installed beside the
+event hooks, in the constructor and after a cold boot) takes `predict_fetch(pc)`, finds the
+span in that exact space, judges the unit now with `verify_identity_unit()` (through
+`Debugger::peek`, so it reads page 20 while it is unmapped and touches no watchpoint,
+latch or ring) and only RECORDS the verdict; it never pauses and does nothing in
+`replay_mode()`. `Impl::recheck()` applies it first thing (`apply_deferred()`: an
+Info line per space judged, `Verified ...` when the last matches, and a mismatch drops the
+sidecar map with its symbols through `drop_sidecars()`, or the user's map to `None`, not
+`Stale`, with `Rejected ... does not match its binary identity` at error level), so a
+reader, or a stop on the very instruction that triggered it, sees the map already judged. The
+window stays armed for the spaces not run yet. A landing that is not a ring restore
+judges a pending map WHOLE, as it does any carried map (a match clears it, a mismatch or a
+reset before the program arrived drops it); a ring restore brings back the generation's
+`Attachment::checks` (updated at every judged space, so a rewind keeps what was
+verified); a user's pending map is carried into the next program's load and across
+rewinds still pending. With nothing attached pending the window is off, and an unattended
+run is unarmed again (rows SRCDBG-TAPE-*).
 
 `SidecarLoad::problem` is the one-line account of what was found and refused:
 `NextBuild symbols '<file>' rejected: <reason>` and/or `source map '<file>'

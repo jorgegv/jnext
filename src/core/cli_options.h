@@ -808,7 +808,9 @@ inline constexpr Option OPTIONS[] = {
       "(told by its contents), to the program --load loads, as if\n"
       "loaded by hand (Debug > Source > Load Source Map...). Refused\n"
       "without --load, and when the program does not match the\n"
-      "map's binary identity (exit 1)." },
+      "map's binary identity (exit 1). With a tape program the map\n"
+      "attaches at once and is checked the first time the program\n"
+      "runs its code; a mismatch then drops it (exit 1)." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

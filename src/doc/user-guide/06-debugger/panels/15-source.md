@@ -15,6 +15,11 @@ the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.
 
+A tape program's map is attached before the program has loaded, and the tab adds
+*Source map not verified yet: it is checked when the program first runs its code*
+under the position line until it has; if the program then does not match, the map
+is dropped and the tab says why.
+
 While the machine runs the tab says **Running**; the next pause shows the line
 again. While it is paused you can scroll the file: the view goes back to the
 current line when the machine stops again (a breakpoint, a Pause, a step, a

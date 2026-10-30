@@ -235,7 +235,10 @@ puts the view back. While the machine runs the tab says "Running" and drops the
 highlight. The Source tab's **Load Source Map...** button and the Debug > Source > Load
 Source Map... item are one slot, `DebuggerManager::on_load_sld()`; its file dialog offers
 `*.sld`, `*.sld.txt` and `*.map`, and the backend tells the format by content, so a z88dk
-map loads as source lines only. Its mismatch box and failure title do not name a format.
+map loads as source lines only. Its mismatch box and failure title do not name a format. While
+`source_map_status().pending` is set (a tape program's map, waiting for its program) the panel
+appends a note line, *Source map not verified yet: it is checked when the program first runs its
+code*, to whatever it shows.
 Load MAP (`on_load_map_z88dk()`, `on_load_map_simple()`) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug > Source actions
 connect to the same `DebuggerManager` slots as its buttons, and their enabled

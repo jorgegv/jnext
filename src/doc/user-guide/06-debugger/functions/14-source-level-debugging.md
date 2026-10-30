@@ -24,7 +24,8 @@ for:
 - `<name>.Memory.txt`, else `Memory.txt`, beside a `.nex`: the symbols;
 - `<name>.sld`, else `<name>.sld.txt`: the source map and its labels;
 - `<name>.map`, a z88dk map, beside a `.nex`, `.tap` or `.sna`: its source lines
-  and its symbols.
+  and its symbols. Beside a tape (`.tap`, `.tzx`, `.wav`) they attach at once,
+  and are checked when the program first runs (see **Tapes** below).
 
 Each one found is loaded and named in the log (`Loaded 2 NextBuild symbols
 from …`, `Loaded 12 SLD labels from …`, `Loaded 812 SLD source traces from …`,
@@ -54,11 +55,7 @@ itself, such as one chosen in the NextZXOS browser or started with `LOAD ""`,
 is not seen by JNEXT: load its source map by hand (below). With
 `--esxdos-stub`, a `.RUN` of a sibling NEX is a load like any other: the
 machine cold-boots with it, which drops the old ones, and the new program's
-are attached. A tape (`.tap`, `.tzx`, `.wav`) has its labels and a z88dk
-map's symbols attached at once,
-but its source map is not attached automatically: its program is not in memory
-until the tape has loaded, so load the source map by hand (below) once it has.
-An SLD or a z88dk map built for another binary brings no labels or symbols either, and an SLD you
+are attached. An SLD or a z88dk map built for another binary brings no labels or symbols either, and an SLD you
 did not load because you had loaded a source map yourself brings no labels. A z88dk map beside the
 program still brings its symbols then (the log says its source lines were not loaded).
 
@@ -84,7 +81,29 @@ has no source lines and is refused, saying so.
 (an SLD or a z88dk map) right after the program given with `--load` is in memory,
 in every frontend. It needs `--load`; a map whose binary identity does not match
 the program is refused, and the run exits with status 1 (the log says why). The
-map is yours, like one loaded by hand.
+map is yours, like one loaded by hand. With a tape program the map attaches at
+once and is checked when the program first runs its code (see **Tapes** above); a
+mismatch drops it then, and the run exits with status 1.
+
+**Tapes.** A program loaded from tape (`.tap`, `.tzx`, `.wav`) is not in memory
+when the load call returns: the machine loads it over the frames that follow. So
+a tape's source map, whether it is `<name>.sld`, `<name>.map` or the map of
+`--source-map`, attaches **at once** and works at once (the Source tab shows its
+files, `main.c:19` can be set as a breakpoint before the tape has loaded), but
+its binary identity is checked later, **the first time the CPU is about to run
+inside the memory the map describes**. Until then the Source tab says *Source map
+not verified yet: it is checked when the program first runs its code* and the log
+line ends `(identity check pending: the program loads from tape)`. The check is
+made **per memory space**: a program with code in the main page and in a bank
+that the tape loads after it has started has each checked when it first runs
+there, and the others stay pending. When the last one matches the log says
+`Verified z88dk source map …`. If any space does not match, the map is
+**dropped** with an error (`Rejected z88dk source map …: the program loaded from
+tape does not match its binary identity`), and so are the symbols that came with
+it; with `--source-map` the run then exits with status 1. A map with no binary
+identity (no section binaries, an SLD without a hash) attaches unverified, as for
+any program, and nothing is waited for. A reset before the program has arrived
+drops the pending map, since the program will not.
 
 **Binary identity.** An SLD may record the SHA-256 of the program's bytes as it
 was built (`||program.sha256:`, `||program.org:` and `||program.size:` comment
@@ -194,6 +213,11 @@ Build with z88dk's `-debug` and `-m` and let it write the application files
 ```
 zcc +zxn -clib=new -debug -m -create-app -subtype=nex -o prog main.c util.c
 ```
+
+For a 48K Spectrum tape build for `+zx` instead (`zcc +zx -clib=new -debug -m
+-create-app -o prog main.c util.c` writes `prog.tap`, `prog.map` and
+`prog_CODE.bin`) and load `prog.tap`: the map attaches while the tape loads and is
+verified when the program starts.
 
 Load `prog.nex`. The `prog.map` beside it attaches by itself (see above): the
 Source tab shows `main.c` with the current line, **Into / Over / Out** step by C
