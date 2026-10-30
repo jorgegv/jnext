@@ -2457,7 +2457,7 @@ work. A breakpoint change another client made arrives as
 </tr>
 <tr>
 <td>Call Stack</td>
-<td><code>call_stack()</code>, a shadow stack built from SP deltas plus a frame per accepted INT or NMI</td>
+<td><code>call_stack()</code>, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address ends it, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame</td>
 <td>—</td>
 </tr>
 <tr>
