@@ -109,13 +109,40 @@ inline void harvest_menu_bar(QMenuBar* bar, std::vector<Accel>& out,
 
 /// Every QKeySequence bound under `root`. shortcuts() is PLURAL on purpose —
 /// see the file header.
+///
+/// A Qt::WidgetShortcut / WidgetWithChildrenShortcut action fires only while its
+/// widget has the focus, so two of them on DIFFERENT widgets (the Disassembly's
+/// Ctrl+C and the Source tab's, GH #423) do not compete: each gets a scope of its
+/// owning widget. One that shares a chord with a window-wide action still
+/// competes with it (Qt finds both when that widget has the focus), so it is also
+/// counted in the window scope then, where collisions() flags it.
 inline std::vector<Accel> harvest_shortcuts(const QWidget* root) {
-    std::vector<Accel> out;
-    for (QAction* a : root->findChildren<QAction*>())
+    std::vector<Accel> out, narrow;
+    for (QAction* a : root->findChildren<QAction*>()) {
+        const bool is_narrow = a->shortcutContext() == Qt::WidgetShortcut ||
+                               a->shortcutContext() == Qt::WidgetWithChildrenShortcut;
+        QString owner;
+        if (is_narrow)
+            for (QObject* o : a->associatedObjects())
+                if (qobject_cast<QWidget*>(o)) {
+                    owner = QString::fromLatin1(o->metaObject()->className()) + QStringLiteral("@") +
+                            QString::number(reinterpret_cast<quintptr>(o), 16);
+                    break;
+                }
         for (const QKeySequence& seq : a->shortcuts()) {
             if (seq.isEmpty()) continue;
-            out.push_back(Accel{window_scope(), a->text(), seq.toString()});
+            if (is_narrow && !owner.isEmpty())
+                narrow.push_back(Accel{QStringLiteral("<widget ") + owner + QStringLiteral(">"), a->text(), seq.toString()});
+            else
+                out.push_back(Accel{window_scope(), a->text(), seq.toString()});
         }
+    }
+    const std::vector<Accel> wide = out;
+    for (const Accel& n : narrow) {
+        out.push_back(n);
+        for (const Accel& w : wide)
+            if (w.key == n.key) { out.push_back(Accel{window_scope(), n.label, n.key}); break; }
+    }
     return out;
 }
 

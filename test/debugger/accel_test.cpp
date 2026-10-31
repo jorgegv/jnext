@@ -332,10 +332,12 @@ static void test_accelerators(Fixture& fx)
         // GH #337: + the Debug > Source popup (one popup, its "Sourc&e" title
         // and seven item mnemonics = 8 more) and Ctrl+F6/F7/F8 (Back and
         // Reverse Continue ship unbound).
+        // GH #423: + the Source tab's Ctrl+C and Ctrl+A (WidgetShortcut actions
+        // on its editor, scoped by widget in harvest_shortcuts(): 22 -> 24).
         const bool as_expected = top == 6
                               && popup_scopes.size() == 10
                               && menu_accels.size() == 47
-                              && shortcuts == 22;
+                              && shortcuts == 24;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
         // four size checks cannot establish (add one menu and delete another
@@ -343,7 +345,7 @@ static void test_accelerators(Fixture& fx)
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
               fmt("menus=%zu (want 6), popups=%zu (want 10), mnemonics=%zu (want 47), "
-                  "shortcuts=%zu (want 22)",
+                  "shortcuts=%zu (want 24)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }
 }

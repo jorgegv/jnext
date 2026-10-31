@@ -62,6 +62,7 @@
 #include <QWindow>
 
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -363,14 +364,29 @@ void test_window_no_ambiguity() {
     fx.dbg->set_keymap(km);
     QApplication::processEvents();
 
+    // A WidgetShortcut action competes only with the actions of its own widget (the
+    // Disassembly's Ctrl+C and the Source tab's, GH #423), and with a window-wide one
+    // of the same chord, which Qt would also find when that widget has the focus.
     QStringList seen, dupes;
+    std::map<QString, QStringList> widget_seen;
+    std::vector<std::pair<QString, QString>> narrow;   // (owner, chord)
     for (QAction* a : all_actions(fx.dbg)) {
+        const bool is_narrow = a->shortcutContext() == Qt::WidgetShortcut ||
+                               a->shortcutContext() == Qt::WidgetWithChildrenShortcut;
+        QString owner;
+        for (QObject* o : a->associatedObjects())
+            if (qobject_cast<QWidget*>(o)) { owner = QString::number(reinterpret_cast<quintptr>(o), 16); break; }
         for (const QKeySequence& s : a->shortcuts()) {
             if (s.isEmpty()) continue;
             const QString t = s.toString();
-            if (seen.contains(t)) dupes << t; else seen << t;
+            if (is_narrow && !owner.isEmpty()) {
+                if (widget_seen[owner].contains(t)) dupes << t; else widget_seen[owner] << t;
+                narrow.emplace_back(owner, t);
+            } else if (seen.contains(t)) dupes << t; else seen << t;
         }
     }
+    for (const auto& n : narrow)
+        if (seen.contains(n.second)) dupes << n.second;
     check("DKW-20", "a rebind leaves no two actions sharing a sequence",
           dupes.isEmpty(), dupes.join(QStringLiteral(",")).toStdString());
 
