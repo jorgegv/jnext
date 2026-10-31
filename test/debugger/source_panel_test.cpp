@@ -3034,10 +3034,13 @@ void test_source_gutter() {
         const bool distinct = !v.number_is(img, 10, "9") && !v.number_is(img, 10, "11") &&
                               v.number_blank(img, 14);
         const bool margin = v.ed->viewport()->geometry().left() >= v.gutter->geometry().right() &&
-                            v.gutter->geometry().top() == v.ed->viewport()->geometry().top();
+                            v.gutter->geometry().top() == v.ed->viewport()->geometry().top() &&
+                            v.ed->viewport()->geometry().top() > v.header->geometry().bottom() &&
+                            v.gutter->accessibleName() == QStringLiteral("Breakpoints and line numbers");
         check("QSRC-79", "the gutter numbers the file's own lines (1, 10, 13), line 10's cell is not "
                          "9's or 11's, the final newline's blank block has no number, and the text "
-                         "starts right of the gutter",
+                         "starts right of and below the gutter and its header, and the gutter is named for "
+                         "accessibility",
               cells && distinct && margin,
               "cells=" + std::to_string(cells) + " distinct=" + std::to_string(distinct) +
                   " margin=" + std::to_string(margin));
@@ -3151,8 +3154,12 @@ void test_source_gutter() {
               v.mark(11) == "half-disc" && v.sp->line_tooltip(11).contains(QStringLiteral("1 of 2 places")),
               v.mark(11) + " | " + s(v.sp->line_tooltip(11)));
         m.set_enabled(BreakpointModel::Execute, 0x8002, false, p80);
-        check("QSRC-87", "the same partial line, disabled, shows the half ring",
-              v.mark(11) == "half-ring", v.mark(11));
+        check("QSRC-87", "the same partial line, disabled, shows the half ring and its tooltip says suspended, 1 of 2",
+              v.mark(11) == "half-ring" &&
+                  v.sp->line_tooltip(11) == QStringLiteral("main.bas:11: suspended breakpoint at $8002 @") +
+                                                QString::asprintf("%02X", fx.p80) +
+                                                QStringLiteral(" (1 of 2 places)"),
+              v.mark(11) + " | " + s(v.sp->line_tooltip(11)));
         m.clear_all();
 
         v.click(11);
@@ -3170,13 +3177,23 @@ void test_source_gutter() {
         const auto row = m.rows().empty() ? BreakpointModel::Row() : m.rows()[0];
         m.set_enabled(row, false);
         const std::string off = v.mark(11);
+        const bool words = v.sp->line_tooltip(11).contains(QStringLiteral("main.bas:11: suspended breakpoint at"));
         m.set_enabled(row, true);
         m.set_master_enabled(false);
         const std::string master_off = v.mark(11);
         m.set_master_enabled(true);
-        check("QSRC-85", "a group unticked, or the master switch off, shows the ring; armed again, the disc",
-              off == "ring" && master_off == "ring" && v.mark(11) == "disc",
-              off + " " + master_off + " " + v.mark(11));
+        const std::string armed_again = v.mark(11);
+        // a live group with a disabled logical breakpoint on the line can still fire: the disc
+        m.clear_all();
+        v.click(11);
+        m.add(BreakpointModel::Execute, 0x8002);
+        m.set_enabled(BreakpointModel::Execute, 0x8002, false);
+        const std::string mixed_live = v.mark(11);
+        check("QSRC-85", "a group unticked, or the master switch off, shows the ring; armed again, the disc; "
+                         "a live group with a disabled logical breakpoint is still the disc (live while any is)",
+              off == "ring" && master_off == "ring" && armed_again == "disc" && words &&
+                  mixed_live == "disc",
+              off + " " + master_off + " " + armed_again + " words=" + std::to_string(words) + " " + mixed_live);
         m.clear_all();
     }
     {   // The default map again, for breakpoints set by address
@@ -3242,9 +3259,11 @@ void test_source_gutter() {
         v.click(12);
         const bool set = gui_subs(fx, m) == 1;
         check("QSRC-90", "a breakpoint on a line whose page is not mapped now is set, shows no mark, and "
-                         "the tooltip says the memory is not mapped now; a line with one mapped and one "
+                         "the tooltip names that breakpoint and says its memory is not mapped now; a line with one mapped and one "
                          "unmapped place shows the full disc once the mapped place is armed",
-              set && v.mark(12) == "none" && v.sp->line_tooltip(12).contains(QStringLiteral("not mapped now")) &&
+              set && v.mark(12) == "none" && v.sp->line_tooltip(12) == QStringLiteral("main.bas:12: breakpoint at $8005 @") +
+                                                QString::asprintf("%02X", fx.p80 + 2) +
+                                                QStringLiteral(", not mapped now") &&
                   mixed == "disc",
               std::to_string(gui_subs(fx, m)) + " " + v.mark(12) + " | " + s(v.sp->line_tooltip(12)) + " mixed=" + mixed);
         v.click(12);
@@ -3260,13 +3279,19 @@ void test_source_gutter() {
         if (!v.gutter) { check("QSRC-94", "the Source tab has a gutter", false); return; }
         QTest::qWait(50);   // let the first paints of the shown window settle
         v.paints.n = 0;
+        v.sp->refresh();    // the manager's tick while paused: the mapping may have changed
+        QApplication::processEvents();
+        const int refresh_paints = v.paints.n;
+        QTest::qWait(50);
+        v.paints.n = 0;
         m.add_source_line(QStringLiteral("main.bas:12"));   // what the Breakpoints panel's Add does
         QApplication::processEvents();
         const int repainted = v.paints.n;   // before mark(): rendering the gutter paints it too
         const std::string disc = v.mark(12);
         check("QSRC-94", "a breakpoint added through the model repaints the gutter without a panel "
-                         "refresh, and line 12 then shows the disc",
-              repainted > 0 && disc == "disc", std::to_string(repainted) + " " + disc);
+                         "refresh, a panel refresh repaints it too, and line 12 then shows the disc",
+              repainted > 0 && disc == "disc" && refresh_paints > 0,
+              std::to_string(repainted) + " " + disc + " refresh=" + std::to_string(refresh_paints));
         m.clear_all();
 
         const QPalette light = QApplication::palette();
@@ -3332,6 +3357,97 @@ void test_source_gutter() {
               alias == "disc/disc" && both == "disc" && one == "half-disc",
               alias + " " + both + " " + one);
         m.clear_all();
+    }
+    {   // GH #421 review 1: line 12 compiled to $8005 in TWO pages
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p80 + 2);
+        const std::string sld = write_sld("gut-twopage.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32773|T|\n" + "main.bas|12||0|" + b + "|32773|T|\n" +
+            "main.bas|13||0|" + a + "|32774|T|\n");
+        fx.backend->load_source_map(sld, false);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-150", "the Source tab has a gutter", false); return; }
+        v.click(12);
+        const std::string both = v.mark(12);
+        m.remove(BreakpointModel::Execute, 0x8005, pg(fx.p80 + 2));   // the place out of view, removed
+        const std::string part = v.mark(12);
+        const QString part_tip = v.sp->line_tooltip(12);
+        m.clear_all();
+        v.click(12);
+        m.remove(BreakpointModel::Execute, 0x8005, pg(fx.p80));       // the mapped place, removed
+        const std::string none = v.mark(12);
+        const QString none_tip = v.sp->line_tooltip(12);
+        m.clear_all();
+        check("QSRC-150", "a line compiled to the same address in two pages: both places armed show the disc; "
+                          "with the place in the other page removed, the half disc and 1 of 2 places; with the "
+                          "mapped place removed, no mark and the tooltip says not mapped now",
+              both == "disc" && part == "half-disc" && part_tip.contains(QStringLiteral("(1 of 2 places)")) &&
+                  none == "none" && none_tip.contains(QStringLiteral("not mapped now")),
+              both + " " + part + " " + s(part_tip) + " | " + none + " " + s(none_tip));
+    }
+    {   // GH #421 review 1: the default map
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-151", "the Source tab has a gutter", false); return; }
+        v.mouse(QEvent::MouseButtonPress, 12, Qt::RightButton);
+        check("QSRC-151", "a right click in the gutter sets nothing (the context menu is another feature's)",
+              gui_subs(fx, m) == 0, std::to_string(gui_subs(fx, m)));
+
+        m.add(BreakpointModel::Write, 0x8005);   // a watchpoint at a code address
+        const std::string watch = v.mark(12);
+        v.click(12);
+        bool group = false;
+        for (const auto& r : m.rows())
+            if (r.type == BreakpointModel::Execute && r.group != jnext::dbg::GROUP_NONE) group = true;
+        check("QSRC-152", "a data breakpoint at a line's address marks nothing, and a click then sets the "
+                          "line's execute group",
+              watch == "none" && group, watch + " group=" + std::to_string(group));
+        m.clear_all();
+
+        m.add(BreakpointModel::Execute, 0x9000);   // sub.bas:1, not main.bas
+        const std::string other = v.mark(1) + "/" + v.mark(10);
+        m.clear_all();
+        check("QSRC-153", "an execute breakpoint in another source file marks no line of this one",
+              other == "none/none", other);
+
+        // a message in place of the file: the gutter has nothing to number or toggle
+        fx.backend->clear_source_map();
+        v.sp->refresh();
+        QApplication::processEvents();
+        v.hover(1);
+        const QString tip = v.gutter->toolTip();
+        v.click(1);
+        check("QSRC-154", "after the tab shows a message instead of a file, it names no file, its gutter "
+                          "has no tooltip and a click sets nothing",
+              v.sp->shown_file().empty() && tip.isEmpty() && gui_subs(fx, m) == 0,
+              s(tip) + " " + std::to_string(gui_subs(fx, m)));
+    }
+    {   // GH #421 review 1: hover bounds (two.sld shows 13 lines and the final newline's blank block)
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-155", "the Source tab has a gutter", false); return; }
+        v.hover(13);
+        const bool real = !v.gutter->toolTip().isEmpty();
+        v.hover(14);   // the blank block after the final newline is no line
+        const QString blank = v.gutter->toolTip();
+        v.hover(13);
+        const QPoint below(kGutterW / 2, v.gutter->height() - 3);
+        QMouseEvent ev(QEvent::MouseMove, QPointF(below), v.gutter->mapToGlobal(below), Qt::NoButton,
+                       Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(v.gutter, &ev);
+        const QString under = v.gutter->toolTip();
+        check("QSRC-155", "hovering the gutter beside the final newline's blank block, or below the text, "
+                          "shows no tooltip (a stale one is cleared)",
+              real && blank.isEmpty() && under.isEmpty(), s(blank) + " | " + s(under));
     }
 }
 

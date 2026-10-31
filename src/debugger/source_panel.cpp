@@ -119,7 +119,8 @@ public:
         for (; b.isValid(); b = b.next()) {
             if (y < top) return 0;
             const qreal h = blockBoundingRect(b).height();
-            if (y < top + h) return b.blockNumber() + 1;
+            if (y < top + h)   // the final newline's blank block is no line (as painted and clicked)
+                return b.blockNumber() + 1 <= file_line_count(document()) ? b.blockNumber() + 1 : 0;
             top += h;
         }
         return 0;
@@ -556,7 +557,7 @@ struct SourcePanel::LineState {
     std::string error;
     std::vector<SourceAddress> starts, placed;
     std::vector<BreakpointModel::PcBreakpoint> drawn, hidden;
-    int armed = 0;   // placed starts carrying a drawn breakpoint
+    int armed = 0;   // starts (mapped now or not) carrying one of this GUI's execute breakpoints
 };
 
 SourcePanel::LineState SourcePanel::line_state(int line) const
@@ -590,9 +591,15 @@ SourcePanel::LineState SourcePanel::line_state(int line) const
             if (s.address == m.addr && s.space == m.space && dbg_->source_page(s.address) != s.space)
                 st.hidden.push_back(m);
     }
-    for (const SourceAddress& p : st.placed)
-        if (std::any_of(st.drawn.begin(), st.drawn.end(),
-                        [&](const BreakpointModel::PcBreakpoint& m) { return m.addr == p.address; }))
+    // A place is armed by a breakpoint at its address that is logical or tied to its
+    // memory, whether that memory is mapped now or not: a place removed in a bank that
+    // is out of view still makes the line partial.
+    const auto all = bps->pc_breakpoints();
+    for (const SourceAddress& p : st.starts)
+        if (std::any_of(all.begin(), all.end(), [&](const BreakpointModel::PcBreakpoint& m) {
+                return m.addr == p.address &&
+                       (m.space == jnext::dbg::MemSpace::cpu() || m.space == p.space);
+            }))
             ++st.armed;
     return st;
 }
@@ -603,7 +610,7 @@ SourcePanel::LineMark SourcePanel::line_mark(int line) const
     if (st.drawn.empty()) return LineMark::None;
     const bool live = std::any_of(st.drawn.begin(), st.drawn.end(),
                                   [](const BreakpointModel::PcBreakpoint& m) { return m.live; });
-    const bool full = !st.placed.empty() && st.armed == static_cast<int>(st.placed.size());
+    const bool full = !st.starts.empty() && st.armed == static_cast<int>(st.starts.size());
     if (full) return live ? LineMark::Armed : LineMark::Suspended;
     return live ? LineMark::PartArmed : LineMark::PartSuspended;
 }
@@ -625,7 +632,7 @@ QString SourcePanel::line_tooltip(int line) const
         QString text = where + QStringLiteral(": ") +
                        (suspended ? tr("suspended breakpoint at %1") : tr("breakpoint at %1")).arg(list(st.drawn));
         if (partial)
-            text += tr(" (%1 of %2 places)").arg(st.armed).arg(st.placed.size());
+            text += tr(" (%1 of %2 places)").arg(st.armed).arg(st.starts.size());
         return text;
     }
     if (st.starts.empty())
