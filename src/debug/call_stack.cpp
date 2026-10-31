@@ -21,6 +21,48 @@ void CallStack::pop_frames_to_sp(uint16_t sp) {
     }
 }
 
+// GH #345 (E23-14): which frame a taken RET ends. SP alone is wrong for a
+// routine that moves its own return address: l_debug_push_frame (every sccz80
+// -debug function) re-pushes it 2 bytes LOWER, so the frame survives the RET
+// by the SP rule; a __z88dk_callee routine moves it UP, so the RET of a call
+// it makes (or of an ISR that interrupted it) pops its frame too. So a RET
+// that lands on the NEWEST frame's own return point ends exactly that frame:
+//  * CALL: caller_pc + 3 (CALL nn is 3 bytes);
+//  * INT / NMI: caller_pc is the interrupted PC and the pushed address is that
+//    PC, or PC + 1 when the interrupt ended a HALT (the CPU had stepped past it).
+// RST frames (whose inline DEFW operands make the return point vary) and any
+// other RET keep the SP rule. The price: a routine that drops its return
+// address and leaves by JP (banked_call looks the same) keeps its frame until
+// a RET ends it by SP.
+void CallStack::return_to(uint16_t sp, uint16_t pc) {
+    if (!frames_.empty()) {
+        const CallFrame& f = frames_.back();
+        const bool lands =
+            (f.type == CallType::CALL && static_cast<uint16_t>(f.caller_pc + 3) == pc) ||
+            ((f.type == CallType::INT || f.type == CallType::NMI) &&
+             (pc == f.caller_pc || pc == static_cast<uint16_t>(f.caller_pc + 1)));
+        if (lands) {
+            frames_.pop_back();
+            return;
+        }
+    }
+    pop_frames_to_sp(sp);
+}
+
+// The esxDOS shim returns from the RST $08 it serviced: that frame ends, and
+// only that one. newlib's sccz80 esxDOS callees move their return slot up and
+// `jp` to the RST, so the SP rule would end the callee's live CALL frame too.
+void CallStack::on_slot_without_fetch(uint16_t new_sp) {
+    if (!enabled_ || !have_pre_) return;
+    have_pre_ = false;   // the captured opcode did not run in this slot
+    if (!frames_.empty() && frames_.back().type == CallType::RST &&
+        frames_.back().target_pc == 0x0008) {
+        frames_.pop_back();
+        return;
+    }
+    pop_frames_to_sp(new_sp);
+}
+
 void CallStack::on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uint8_t op2, uint8_t op3,
                                    jnext::dbg::MemSpace pc_space) {
     if (!enabled_) return;
@@ -80,13 +122,13 @@ void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc,
         // RET (unconditional + conditional)
         if (op == 0xC9 || op == 0xC0 || op == 0xC8 || op == 0xD0 || op == 0xD8 ||
             op == 0xE0 || op == 0xE8 || op == 0xF0 || op == 0xF8) {
-            pop_frames_to_sp(new_sp);
+            return_to(new_sp, new_pc);
             return;
         }
 
         // RETI (ED 4D) / RETN (ED 45)
         if (op == 0xED && (pre_op2_ == 0x4D || pre_op2_ == 0x45)) {
-            pop_frames_to_sp(new_sp);
+            return_to(new_sp, new_pc);
             return;
         }
     }

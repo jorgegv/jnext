@@ -149,6 +149,17 @@ static std::string lis_row(int line, const char* addr, const char* bytes, const 
     return out + text + "\n";
 }
 
+// A listing in z80asm's format from (line, address, bytes, text) rows, with its map.
+struct LisRow { int line; const char* addr; const char* bytes; const char* text; };
+
+static void write_case(const fs::path& dir, const std::string& base, const std::vector<LisRow>& rows,
+                       const std::string& map) {
+    std::string lis = base + ".asm:\n";
+    for (const LisRow& r : rows) lis += lis_row(r.line, r.addr, r.bytes, r.text);
+    write_text(dir / (base + ".asm.lis"), lis);
+    write_text(dir / (base + ".map"), map);
+}
+
 // A temp copy of a fixture directory: the committed fixtures are never edited.
 static fs::path copy_fixture(const fs::path& dir, const fs::path& from, const char* name) {
     const fs::path to = dir / name;
@@ -756,6 +767,79 @@ int main() {
         check("Z88LIS-31", "a `sw: MACRO` definition (label form) holding SECTION never_used is skipped like the other two forms: the nop and ret that follow are h.asm:9 and :10, no note",
               r && r.listings == 1 && r.listing_notes.empty() && is_at(m.lookup(P4, 0x8000), "h.asm", 9) &&
                   is_at(m.lookup(P4, 0x8001), "h.asm", 10));
+    }
+
+    // ── Z88LIS-32..34: a section or PHASE switched inside an expansion drops the listing (z80asm 2.4 / latest output) ──
+    {
+        const std::string map_head =
+            "__code_user_head                = $8000 ; const, public, def, , ,\n";
+        // r.asm: a REPT body with SECTION; the ENDR row is the last byte row, so only the REPT rule sees it.
+        write_case(dir / "z32", "r", {
+            {1, nullptr, nullptr, " SECTION code_user"}, {2, nullptr, nullptr, " ORG $8000"},
+            {3, nullptr, nullptr, " PUBLIC _r"}, {4, nullptr, nullptr, "_r:"}, {5, "0000", "00", " nop"},
+            {6, nullptr, nullptr, " REPT 2"}, {7, nullptr, nullptr, " SECTION bss_user"},
+            {8, nullptr, nullptr, " defs 1"}, {9, nullptr, nullptr, " SECTION code_user"},
+            {10, "0001", "0000", " ENDR"}, {11, nullptr, nullptr, ""}},
+            "__bss_user_head                 = $8001 ; const, public, def, , ,\n"
+            "__bss_user_size                 = $0002 ; const, public, def, , ,\n"
+            "__bss_user_tail                 = $8003 ; const, public, def, , ,\n" + map_head +
+            "__code_user_size                = $0001 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8001 ; const, public, def, , ,\n"
+            "_r                              = $8000 ; addr, public, , r, code_user, r.asm:4\n");
+        SourceMap m;
+        const auto r = load(m, dir / "z32" / "r.map");
+        check("Z88LIS-32", "a SECTION inside a REPT body (the expansion's 2 bytes went to bss_user, the ENDR row lists them at code_user $0001): the whole listing is dropped, the note names the REPT rule, nothing is placed",
+              r && r.count == 0 && r.listings == 0 && !m.lookup(P4, 0x8000) && !m.lookup(P4, 0x8001) &&
+                  any_note_has(r, "r.asm.lis") && any_note_has(r, "REPT"));
+
+        // t.asm: `wrap` switches section only through the macro `sw` it calls.
+        write_case(dir / "z33", "t", {
+            {1, nullptr, nullptr, " SECTION code_user"}, {2, nullptr, nullptr, " ORG $8000"},
+            {3, nullptr, nullptr, " PUBLIC _q"}, {4, nullptr, nullptr, "sw MACRO"},
+            {5, nullptr, nullptr, " SECTION bss_user"}, {6, nullptr, nullptr, " defs 1"},
+            {7, nullptr, nullptr, " SECTION code_user"}, {8, nullptr, nullptr, "ENDM"},
+            {9, nullptr, nullptr, "wrap MACRO"}, {10, nullptr, nullptr, " nop"}, {11, nullptr, nullptr, " sw"},
+            {12, nullptr, nullptr, "ENDM"}, {13, nullptr, nullptr, "_q:"}, {14, "0000", "00", " nop"},
+            {15, "0001", "0000", " wrap"}, {16, nullptr, nullptr, ""}},
+            "__bss_user_head                 = $8002 ; const, public, def, , ,\n"
+            "__bss_user_size                 = $0001 ; const, public, def, , ,\n"
+            "__bss_user_tail                 = $8003 ; const, public, def, , ,\n" + map_head +
+            "__code_user_size                = $0002 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8002 ; const, public, def, , ,\n"
+            "_q                              = $8000 ; addr, public, , t, code_user, t.asm:13\n");
+        SourceMap m2;
+        const auto r2 = load(m2, dir / "z33" / "t.map");
+        check("Z88LIS-33", "wrap's body only invokes sw, and sw switches section: the invocation of wrap is dropped through the transitive rule, the note names 'wrap', nothing is placed",
+              r2 && r2.count == 0 && r2.listings == 0 && !m2.lookup(P4, 0x8001) && !m2.lookup(P4, 0x8000) &&
+                  any_note_has(r2, "'wrap'") && any_note_has(r2, "t.asm.lis"));
+
+        // p.asm / p2.asm: PHASE and DEPHASE (no SECTION) inside a macro body and inside a REPT body.
+        write_case(dir / "z34a", "p", {
+            {1, nullptr, nullptr, " SECTION code_user"}, {2, nullptr, nullptr, " ORG $8000"},
+            {3, nullptr, nullptr, " PUBLIC _p"}, {4, nullptr, nullptr, "ph MACRO"},
+            {5, nullptr, nullptr, " PHASE $6000"}, {6, nullptr, nullptr, " nop"},
+            {7, nullptr, nullptr, " DEPHASE"}, {8, nullptr, nullptr, "ENDM"}, {9, nullptr, nullptr, "_p:"},
+            {10, "0000", "00", " nop"}, {11, "0001", "00", " ph"}, {12, nullptr, nullptr, ""}},
+            map_head + "__code_user_size                = $0002 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8002 ; const, public, def, , ,\n"
+            "_p                              = $8000 ; addr, public, , p, code_user, p.asm:9\n");
+        write_case(dir / "z34b", "p2", {
+            {1, nullptr, nullptr, " SECTION code_user"}, {2, nullptr, nullptr, " ORG $8000"},
+            {3, nullptr, nullptr, " PUBLIC _p"}, {4, nullptr, nullptr, "_p:"}, {5, "0000", "00", " nop"},
+            {6, nullptr, nullptr, " REPT 1"}, {7, nullptr, nullptr, " PHASE $6000"},
+            {8, nullptr, nullptr, " nop"}, {9, nullptr, nullptr, " DEPHASE"}, {10, "0001", "00", " ENDR"},
+            {11, nullptr, nullptr, ""}},
+            map_head + "__code_user_size                = $0002 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8002 ; const, public, def, , ,\n"
+            "_p                              = $8000 ; addr, public, , p2, code_user, p2.asm:4\n");
+        SourceMap m3;
+        SourceMap m4;
+        const auto r3 = load(m3, dir / "z34a" / "p.map");
+        const auto r4 = load(m4, dir / "z34b" / "p2.map");
+        check("Z88LIS-34", "PHASE / DEPHASE alone (no SECTION) inside an invoked macro's body (p.asm) and inside a REPT body (p2.asm) drop the listing: the phased nop would otherwise be placed at $8001; each note names the listing",
+              r3 && r3.count == 0 && r3.listings == 0 && !m3.lookup(P4, 0x8001) && any_note_has(r3, "'ph'") &&
+                  r4 && r4.count == 0 && r4.listings == 0 && !m4.lookup(P4, 0x8001) && any_note_has(r4, "REPT") &&
+                  any_note_has(r4, "p2.asm.lis"));
     }
 
     fs::remove_all(dir);

@@ -10980,6 +10980,11 @@ uint64_t Emulator::step_one_instruction()
                 case Z80Cpu::SlotKind::Nmi:
                     call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::NMI);
                     break;
+                case Z80Cpu::SlotKind::Other:
+                    // GH #345: the esxDOS shim returns without fetching an
+                    // opcode (the only such slot besides INT/NMI): SP alone.
+                    call_stack_.on_slot_without_fetch(post.SP);
+                    break;
                 default:
                     call_stack_.on_instruction_post(
                         post.SP, post.PC,
