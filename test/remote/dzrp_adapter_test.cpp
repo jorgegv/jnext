@@ -2907,11 +2907,11 @@ static void edge_rows() {
         const Resp regs = c.cmd(CMD_GET_REGISTERS);
         check("DZRP-EDGE-03", "CMD_SET_SLOT slot 7 and bank 223 — the last of each — map (error "
                               "0); 0xFE on slot 1 is NOT rewritten to 0xFF (that is slot 0's rule) "
-                              "and slot 1 still serves ROM",
+                              "and slot 1 still serves ROM, which CMD_GET_REGISTERS reports as 0xFF",
               s7.payload == bytes({0}) && rd.payload == bytes({0xDF}) &&
                   fe1.payload == bytes({0}) && regs.payload.size() == 37 &&
                   static_cast<unsigned char>(regs.payload[29 + 7]) == 223 &&
-                  static_cast<unsigned char>(regs.payload[29 + 1]) == 0xFE &&
+                  static_cast<unsigned char>(regs.payload[29 + 1]) == 0xFF &&
                   rig.emu.mmu().is_slot_rom(1));
     }
     {

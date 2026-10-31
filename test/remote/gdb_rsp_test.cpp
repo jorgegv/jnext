@@ -1672,10 +1672,15 @@ static void monitor_rows() {
         const auto  slots = rig.dbg->mmu_slots();
         bool        ok    = lines.size() == 9;
         for (std::size_t s = 0; ok && s < 8; ++s) {
-            char want[64];
-            std::snprintf(want, sizeof(want), "slot %u: page %02X (effective %02X)%s\n",
+            // The memory each slot reads now, per the VHDL (zxnext.vhd:2964, :3052, :6558-6578):
+            // ROM 0 in slots 0/1, the bank-5 block RAM for pages 10/11, SRAM page n + 0x20 above.
+            static const char* const kMem[8] = {"ROM0 $000000", "ROM0 $002000", "P0A BRAM5+$0000",
+                                                "P0B BRAM5+$2000", "P04 $048000", "P05 $04A000",
+                                                "P00 $040000", "P01 $042000"};
+            char want[96];
+            std::snprintf(want, sizeof(want), "slot %u: page %02X (effective %02X)%s  %s\n",
                           static_cast<unsigned>(s), slots[s].nr_page, slots[s].effective_page,
-                          slots[s].is_rom ? " ROM" : "");
+                          slots[s].is_rom ? " ROM" : "", kMem[s]);
             ok = lines[s] == want;
         }
         ok = ok && lines.size() == 9 && lines[8].rfind("7FFD=", 0) == 0;
@@ -1817,8 +1822,8 @@ static void monitor_rows() {
                             "its address, an address to the symbol at or below it (+offset), "
                             "an exact address to the name, an unknown name said so",
               wrote && loaded.value == 2 && byname.size() == 1 && byname[0] == "_main = $816A\n" &&
-                  near.size() == 1 && near[0] == "$8170 = _main+6\n" && exact.size() == 1 &&
-                  exact[0] == "$8200 = _helper\n" && none.size() == 1 &&
+                  near.size() == 1 && near[0] == "$8170 P04 = _main+6\n" && exact.size() == 1 &&
+                  exact[0] == "$8200 P04 = _helper\n" && none.size() == 1 &&
                   none[0] == "no symbol _nope\n" && f1 == "OK" && f2 == "OK" && f4 == "OK",
               join(byname) + join(near) + join(exact));
     }
@@ -1907,10 +1912,10 @@ static void monitor_rows() {
         const auto in21 = c.monitor("sym $C004", f);
         check("GDB-MON-13", "monitor sym names an address by the SLD label of the page mapped there now "
                             "(banked, other_bank, else the page-4 label below it)",
-              loaded.labels == 12 && premise && byname.size() == 1 && byname[0] == "banked = $C000\n" &&
-                  in20.size() == 1 && in20[0] == "$C004 = banked+4\n" && in30.size() == 1 &&
-                  in30[0] == "$C004 = other_bank+4\n" && in21.size() == 1 &&
-                  in21[0] == "$C004 = gfx.draw.loop+16364\n",
+              loaded.labels == 12 && premise && byname.size() == 1 && byname[0] == "banked = $C000 P14\n" &&
+                  in20.size() == 1 && in20[0] == "$C004 P14 = banked+4\n" && in30.size() == 1 &&
+                  in30[0] == "$C004 P1E = other_bank+4\n" && in21.size() == 1 &&
+                  in21[0] == "$C004 P15 = gfx.draw.loop+16364\n",
               join(byname) + join(in20) + join(in30) + join(in21));
     }
 }
