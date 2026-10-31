@@ -23,6 +23,7 @@
 // page-qualified model row and no source map to read.
 //
 //   QSRC-120..139  language detection and syntax highlighting (GH #422)
+//   QSRC-190..199  owner classes, punctuation and operators, colour schemes (GH #422 stage 2)
 //
 // Qt is required; a display is not (offscreen QPA, as the other suites).
 // Run: ./build/test/debugger_source_panel_test
@@ -4834,6 +4835,177 @@ std::string panel_mask(SourcePanel* sp, int line) {
     return (hl && ed) ? role_mask(*hl, ed->document()->findBlockByNumber(line - 1)) : std::string("<none>");
 }
 
+/// The format ranges of `line` as "role@start+length" in document order, one entry per range
+/// (Qt merges adjacent equal formats, so a Keyword run like "->" is one range).
+std::string range_list(const Hl& h, int line) {
+    static const char kChars[SourceHighlighter::kRoles + 1] = ".KIPLSQNFC";
+    std::string out;
+    for (const QTextLayout::FormatRange& fr : h.doc.findBlockByNumber(line).layout()->formats()) {
+        char c = '?';
+        for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+            if (fr.format.foreground().color() == h.hl.colour(static_cast<SourceHighlighter::Role>(r))) c = kChars[r];
+        out += std::string(1, c) + "@" + std::to_string(fr.start) + "+" + std::to_string(fr.length) + " ";
+    }
+    return out;
+}
+
+// ── QSRC-190..194: the owner's classes and punctuation per language (GH #422 stage 2) ──
+
+void test_source_highlight_classes() {
+    {   // QSRC-190
+        // Oracle: ISO C11 6.4.4.1 (integer constants), 6.4.4.2 (floating constants, incl. the
+        // hexadecimal `p` exponent), 6.4.4.4 (character constants), 6.4.5 (string literals);
+        // 6.4.4 defines no signed constant, so a leading '-' is an operator.
+        Hl h;
+        h.load(SourceLanguage::C,
+               QStringLiteral("a = 1.5; b = .5; c = 2.f; d = 1e-3; e = 0x1p-3;\n"
+                              "f = 0x5800; g = 10u; h = 017; i = 0x1E;\n"
+                              "j = 'x'; k = \"s\";\n"
+                              "x-1;\n-5;"));
+        const bool floats = tok(h, 0, QStringLiteral("1.5")) == 'F' && tok(h, 0, QStringLiteral(".5")) == 'F' &&
+                            tok(h, 0, QStringLiteral("2.f")) == 'F' && tok(h, 0, QStringLiteral("1e-3")) == 'F' &&
+                            tok(h, 0, QStringLiteral("0x1p-3")) == 'F';
+        const bool ints = tok(h, 1, QStringLiteral("0x5800")) == 'N' && tok(h, 1, QStringLiteral("10u")) == 'N' &&
+                          tok(h, 1, QStringLiteral("017")) == 'N' && tok(h, 1, QStringLiteral("0x1E")) == 'N';
+        const bool lit = tok(h, 2, QStringLiteral("'x'")) == 'Q' && tok(h, 2, QStringLiteral("\"s\"")) == 'S';
+        const bool minus = tok(h, 3, QStringLiteral("-")) == 'K' && tok(h, 3, QStringLiteral("1")) == 'N' &&
+                           tok(h, 4, QStringLiteral("-")) == 'K' && tok(h, 4, QStringLiteral("5")) == 'N';
+        check("QSRC-190", "C numbers and characters: 1.5 .5 2.f 1e-3 0x1p-3 are Float, 0x5800 10u 017 0x1E "
+                          "(not a float) are Integer, 'x' is Char, \"s\" String, and a leading '-' is a "
+                          "Keyword operator in x-1 and -5",
+              floats && ints && lit && minus,
+              range_list(h, 0) + "| " + range_list(h, 1) + "| " + range_list(h, 3));
+    }
+    {   // QSRC-191
+        // Oracle: the owner's rulings (2026-10-31): punctuation and operators, "." and
+        // multi-character operators included, are Keyword; comments, strings, chars and
+        // numbers keep their own characters. C11 6.4.6 lists the punctuators.
+        Hl h;
+        h.load(SourceLanguage::C,
+               QStringLiteral("if (a[i] == b) { f(x, y); }\n"
+                              "p->x\n"
+                              "a<<=2\n"
+                              "a.b f(...)\n"
+                              "x ? y : z !a ~a ^ b % c & d | e\n"
+                              "\"a,b;(c)\" '(' // a, (b)\n"
+                              "/* ( */\n"
+                              "#define F(a,b) (a+b)"));
+        const std::string m0 = role_mask(h, 0);
+        const bool punct0 = m0 == "KK.K.K.K.KK..K.K..K.K..KK.K";
+        const bool arrow = tok(h, 1, QStringLiteral("p")) == '.' && range_list(h, 1) == "K@1+2 " &&
+                           tok(h, 1, QStringLiteral("x")) == '.';
+        const bool shift = range_list(h, 2) == "K@1+3 N@4+1 " && tok(h, 2, QStringLiteral("2")) == 'N';
+        const bool dots = tok(h, 3, QStringLiteral(".")) == 'K' && tok(h, 3, QStringLiteral("...")) == 'K';
+        const bool ops = tok(h, 4, QStringLiteral("?")) == 'K' && tok(h, 4, QStringLiteral(":")) == 'K' &&
+                         tok(h, 4, QStringLiteral("!")) == 'K' && tok(h, 4, QStringLiteral("~")) == 'K' &&
+                         tok(h, 4, QStringLiteral("^")) == 'K' && tok(h, 4, QStringLiteral("%")) == 'K' &&
+                         tok(h, 4, QStringLiteral("&")) == 'K' && tok(h, 4, QStringLiteral("|")) == 'K';
+        const bool wins = tok(h, 5, QStringLiteral("\"a,b;(c)\"")) == 'S' && tok(h, 5, QStringLiteral("'('")) == 'Q' &&
+                          tok(h, 5, QStringLiteral("// a, (b)")) == 'C' &&
+                          tok(h, 6, QStringLiteral("/* ( */")) == 'C' &&
+                          role_mask(h, 7) == std::string(h.doc.findBlockByNumber(7).text().size(), 'P');
+        check("QSRC-191", "C punctuation and operators are Keyword (one span for -> and <<=, '.' and '...' too) "
+                          "and the other classes win: a comma in a string, a '(' char, a // or /* */ comment "
+                          "and a # line keep their own class",
+              punct0 && arrow && shift && dots && ops && wins,
+              m0 + " | " + range_list(h, 1) + "| " + range_list(h, 2));
+    }
+    {   // QSRC-192
+        // Oracle: the owner's rulings; z80asm and sjasmplus syntax ('.'/'@' lead a word, '$' is the
+        // program counter, '%0101' is binary, '%' alone is modulo, a leading '-' is an operator).
+        Hl h;
+        h.load(SourceLanguage::Asm,
+               QStringLiteral("  ld a,(ix+5)\n"
+                              "  ld a,-5\n"
+                              "  ld hl,lbl*2/3\n"
+                              "  and %0101\n"
+                              "  ld a,7%3\n"
+                              "  cp 'a'\n"
+                              "  db \"s\",1\n"
+                              "  jp $\n"
+                              "  nop : nop\n"
+                              "lbl: nop\n"
+                              "  jr nz,.end\n"
+                              "  ld a,1 ; x, (y)"));
+        const bool l0 = role_mask(h, 0) == "..II.IKKIIKNK";
+        const bool l1 = tok(h, 1, QStringLiteral("-")) == 'K' && tok(h, 1, QStringLiteral("5")) == 'N';
+        const bool l2 = tok(h, 2, QStringLiteral("*")) == 'K' && tok(h, 2, QStringLiteral("/")) == 'K' &&
+                        tok(h, 2, QStringLiteral("lbl")) == '.';
+        const bool l3 = tok(h, 3, QStringLiteral("%0101")) == 'N';
+        const bool l4 = tok(h, 4, QStringLiteral("%")) == 'K' && tok(h, 4, QStringLiteral("7")) == 'N' &&
+                        tok(h, 4, QStringLiteral("3")) == 'N';
+        const bool l5 = tok(h, 5, QStringLiteral("'a'")) == 'Q';
+        const bool l6 = tok(h, 6, QStringLiteral("\"s\"")) == 'S' && tok(h, 6, QStringLiteral(",")) == 'K' &&
+                        tok(h, 6, QStringLiteral("1")) == 'N';
+        const bool l7 = tok(h, 7, QStringLiteral("$")) == '.';
+        const bool l8 = tok(h, 8, QStringLiteral(":")) == 'K';
+        const bool l9 = tok(h, 9, QStringLiteral("lbl:")) == 'L';
+        const bool l10 = tok(h, 10, QStringLiteral(".end")) == '.';
+        const bool l11 = tok(h, 11, QStringLiteral("; x, (y)")) == 'C';
+        check("QSRC-192", "assembly: ( ) , + * / : are Keyword, -5 is an operator and an Integer, %0101 is "
+                          "Integer and a lone % an operator, 'a' is Char, the label's colon stays Label, "
+                          "$ and a .label reference stay Text, and a ; comment swallows its punctuation",
+              l0 && l1 && l2 && l3 && l4 && l5 && l6 && l7 && l8 && l9 && l10 && l11,
+              role_mask(h, 0) + " " + role_mask(h, 4) + " " + role_mask(h, 8));
+    }
+    {   // QSRC-193
+        // Oracle: boriel-basic/zxbasic src/zxbc/zxblex.py @29f0b2f lines 534-605 (t_HEXA, t_OCTAL,
+        // t_BIN, t_NUMBER, t_ID with its $ and % suffix).
+        Hl h;
+        h.load(SourceLanguage::Basic,
+               QStringLiteral("10 LET a = 1.5 + .5e-3 + 1e3 + 2 + $FF + %0101 + 0FFh + 0E3h + 17o : PRINT a$, n%; CHR$(65)\n"
+                              "IF a <> b THEN\n"
+                              "PRINT \"a,b\"\n"
+                              "REM a,(b)\n"
+                              "' a(b)\n"
+                              "#include <x.bas>"));
+        const bool ln = tok(h, 0, QStringLiteral("10")) == 'L';
+        const bool fl = tok(h, 0, QStringLiteral("1.5")) == 'F' && tok(h, 0, QStringLiteral(".5e-3")) == 'F' &&
+                        tok(h, 0, QStringLiteral("1e3")) == 'F';
+        const bool in = tok(h, 0, QStringLiteral("2")) == 'N' &&
+                        tok(h, 0, QStringLiteral("$FF")) == 'N' && tok(h, 0, QStringLiteral("%0101")) == 'N' &&
+                        tok(h, 0, QStringLiteral("0FFh")) == 'N' && tok(h, 0, QStringLiteral("0E3h")) == 'N' &&
+                        tok(h, 0, QStringLiteral("17o")) == 'N';
+        const bool pu = tok(h, 0, QStringLiteral("=")) == 'K' && tok(h, 0, QStringLiteral("+")) == 'K' &&
+                        tok(h, 0, QStringLiteral(":")) == 'K' && tok(h, 0, QStringLiteral(",")) == 'K' &&
+                        tok(h, 0, QStringLiteral(";")) == 'K' && tok(h, 0, QStringLiteral("(")) == 'K' &&
+                        tok(h, 0, QStringLiteral(")")) == 'K';
+        const bool id = tok(h, 0, QStringLiteral("a$")) == '.' && tok(h, 0, QStringLiteral("n%")) == '.' &&
+                        tok(h, 0, QStringLiteral("CHR$")) == 'K';
+        const bool ne = range_list(h, 1).find("K@5+2 ") != std::string::npos;
+        const bool rest = tok(h, 2, QStringLiteral("\"a,b\"")) == 'S' && role_mask(h, 3) == "CCCCCCCCC" &&
+                          role_mask(h, 4) == "CCCCCC" &&
+                          role_mask(h, 5) == std::string(h.doc.findBlockByNumber(5).text().size(), 'P');
+        check("QSRC-193", "Boriel: 1.5 .5e-3 1e3 are Float, 2 $FF %0101 0FFh 0E3h 17o Integer, punctuation "
+                          "and <> are Keyword, a$ and n% are plain identifiers, CHR$ a keyword, the line "
+                          "number a Label, and strings, comments and # lines keep their class",
+              ln && fl && in && pu && id && ne && rest,
+              role_mask(h, 0) + " | " + range_list(h, 1));
+    }
+    {   // QSRC-194
+        // Oracle: sccz80 #asm/#endasm, sdcc __asm/__endasm, Boriel asm/end asm (stage-1 QSRC-130/131)
+        // coloured with the owner's classes.
+        Hl h;
+        h.load(SourceLanguage::C, QStringLiteral("#asm\n  ld (hl),'x'\n#endasm\n__asm\n  ld a,1\n__endasm;"));
+        const bool a = role_mask(h, 0) == "PPPP" && role_mask(h, 2) == "PPPPPPP" &&
+                       tok(h, 1, QStringLiteral("ld")) == 'I' && tok(h, 1, QStringLiteral("hl")) == 'I' &&
+                       tok(h, 1, QStringLiteral("(")) == 'K' && tok(h, 1, QStringLiteral(")")) == 'K' &&
+                       tok(h, 1, QStringLiteral(",")) == 'K' && tok(h, 1, QStringLiteral("'x'")) == 'Q';
+        const bool b = tok(h, 3, QStringLiteral("__asm")) == 'K' && tok(h, 4, QStringLiteral("ld")) == 'I' &&
+                       tok(h, 4, QStringLiteral("a")) == 'I' && tok(h, 5, QStringLiteral("__endasm")) == 'K' &&
+                       tok(h, 5, QStringLiteral(";")) == 'K';
+        Hl bh;
+        bh.load(SourceLanguage::Basic, QStringLiteral("asm\n  ld a,1\nend asm"));
+        const bool c = tok(bh, 0, QStringLiteral("asm")) == 'K' && tok(bh, 1, QStringLiteral("ld")) == 'I' &&
+                       tok(bh, 1, QStringLiteral("a")) == 'I' && tok(bh, 2, QStringLiteral("end")) == 'K' &&
+                       tok(bh, 2, QStringLiteral("asm")) == 'K';
+        check("QSRC-194", "embedded assembly takes the owner's classes: #asm/#endasm lines Preprocessor, "
+                          "sdcc __asm/__endasm and Boriel asm/end asm Keyword, mnemonics and registers "
+                          "Instruction, the punctuation Keyword and 'x' a Char",
+              a && b && c, role_mask(h, 1) + " " + role_mask(h, 5));
+    }
+}
+
 void test_source_highlight_panel() {
     const std::string tmp = g_tmp->path().toStdString();
     {   // QSRC-134
@@ -5191,6 +5363,7 @@ int main(int argc, char** argv) {
     test_source_highlight_detection();   // GH #422
     test_source_highlight_rules();
     test_source_highlight_panel();
+    test_source_highlight_classes();   // GH #422 stage 2
     test_z88dk_c_names_source();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
