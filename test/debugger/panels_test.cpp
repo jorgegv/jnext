@@ -2592,18 +2592,17 @@ static void test_memory_panel() {
         const QString s7 = combo ? combo->itemText(8) : QString();
         const QString s2 = combo ? combo->itemText(3) : QString();
         const QString s0 = combo ? combo->itemText(1) : QString();
-        const QString want_s0 = QString::asprintf("Slot 0 (page %02X)",
-                                                  emu.mmu().get_effective_page(0));
+        const QString want_s0 = QStringLiteral("Slot 0 (ROM0)");   // GH #360: the slot's space, not page 00
         // GH #278 WP8 (owner decision Q7) added the tenth item, "Page...": any
         // physical page through the selector (QMP-07). The count was 9.
         const bool ok = combo && combo->count() == 10 && combo->itemText(0) == "CPU View" &&
                         combo->itemText(9) == "Page..." &&
                         emu.mmu().get_effective_page(0) != 0xFF &&
                         s0 == want_s0 &&
-                        s6_before == "Slot 6 (page 00)" &&
-                        s6 == "Slot 6 (page 06)" &&
-                        s7 == "Slot 7 (page 07)" &&
-                        s2 == "Slot 2 (page 0A)";
+                        s6_before == "Slot 6 (P00)" &&
+                        s6 == "Slot 6 (P06)" &&
+                        s7 == "Slot 7 (P07)" &&
+                        s2 == "Slot 2 (P0A)";
         check("QMP-03",
               "the selector offers CPU View + Slot 0..7, each naming the page in "
               "effect (the ROM slot's too), and follows a bank switch on refresh — "
