@@ -2699,6 +2699,7 @@ void test_z88dk_listings() {
         QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
         const std::string map = tmp + "/q142/prog.map";
         copy_z88dk("v2.4/sdcc-SO2", "prog.map", map);
+        copy_z88dk("v2.4/sdcc-SO2", "prog_CODE.bin", tmp + "/q142/prog_CODE.bin");
         for (const char* lis : {"main.c.lis", "util.c.lis", "asmfn.asm.lis", "prog.lis"})
             copy_z88dk("v2.4/sdcc-SO2", lis, tmp + "/q142/" + lis);
         {
@@ -2711,7 +2712,11 @@ void test_z88dk_listings() {
         if (load)
             drive_modals(
                 [&](QWidget* w, int) {
-                    if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+                        // The test machine does not hold the program: accept the mismatch question.
+                        if (mb->text().contains(QStringLiteral("Load it anyway"))) { click_box(w, QMessageBox::Yes); return; }
+                        box = mb->text();
+                    }
                     choose_file(w, QString::fromStdString(map));
                 },
                 [&]() { load->trigger(); });
