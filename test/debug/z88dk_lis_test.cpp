@@ -479,8 +479,8 @@ int main() {
             "_g                              = $9FFE ; addr, public, , s, code_user, s.asm:4\n");
         SourceMap m;
         const auto r = load(m, dir / "z21" / "s.map");
-        check("Z88LIS-21", "ld hl,1 at $9FFF runs over the page end: its range stops at $A000 in page 4 (nothing at $A000 in page 5), and the ret at $A002 is in page 5",
-              r && is_at(m.lookup(P4, 0x9FFF), "s.asm", 6) && !m.lookup(P5, 0xA000) &&
+        check("Z88LIS-21", "ld hl,1 at $9FFF runs over the page end: its range stops at $A000 in page 4 (nothing at $A000 in page 4 or 5), and the ret at $A002 is in page 5",
+              r && is_at(m.lookup(P4, 0x9FFF), "s.asm", 6) && !m.lookup(P4, 0xA000) && !m.lookup(P5, 0xA000) &&
                   is_at(m.lookup(P5, 0xA002), "s.asm", 7));
     }
 
