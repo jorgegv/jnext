@@ -1008,11 +1008,19 @@ static void register_rows() {
         auto slot = [](const Resp& r, int i) {
             return static_cast<unsigned char>(r.payload[29 + static_cast<std::size_t>(i)]);
         };
+        // The overlay half needs a slot that is NOT ROM: RAM page 0x10 at slot 0, then DivMMC
+        // conmem overlays it (zxnext.vhd:3037-3043, :3084), and the byte stays 0x10.
+        rig.dbg->nextreg_write(1, 0x50, 0x10);
+        const Resp c0 = c.cmd(CMD_GET_REGISTERS);
+        rig.emu.port().out(0x00E3, 0x82);   // DivMMC conmem
+        const Resp c1 = c.cmd(CMD_GET_REGISTERS);
         check("DZRP-REG-08", "CMD_GET_REGISTERS: MMU0 = 0xE5 (ROM) is sent as 0xFF, MMU2 = 0xE5 "
-                             "(floating) stays 0xE5, and DivMMC conmem changes no byte",
+                             "(floating) stays 0xE5, DivMMC conmem changes no byte, and over a "
+                             "RAM page (MMU0 = 0x10) it stays 0x10 rather than becoming 0xFF",
               a.payload.size() == 37 && slot(a, 0) == 0xFF && slot(a, 1) == 0xFF &&
-                  slot(a, 2) == 0xE5 && b.payload == a.payload,
-              hex(a.payload) + " / " + hex(b.payload));
+                  slot(a, 2) == 0xE5 && b.payload == a.payload && slot(c0, 0) == 0x10 &&
+                  slot(c1, 0) == 0x10 && rig.dbg->mmu_slots()[0].now == jnext::dbg::MemSpace::divmmc_rom(),
+              hex(a.payload) + " / " + hex(b.payload) + " / " + hex(c1.payload));
     }
     {
         // THE REGISTER NUMBERS, ALL OF THEM: spec 0..35 (12 unused) == DeZog's

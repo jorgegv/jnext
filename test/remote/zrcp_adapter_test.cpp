@@ -859,6 +859,21 @@ static void format_rows() {
               mp + " / " + lp + " / " + fp + " / " + ap);
     }
 
+    {
+        // ZRCP-FMT-18 (GH #360): on a legacy machine segment 0 is `DIV` for DivMMC RAM as well as
+        // ROM (debug.c:7915-7936 tests only that DivMMC is paged in): here MAPRAM bank 3.
+        using jnext::dbg::MemSpace;
+        std::array<jnext::dbg::SlotInfo, 8> l48{};
+        l48[0].is_rom = true;
+        l48[0].now    = MemSpace::divmmc_ram(3);
+        std::array<jnext::dbg::SlotInfo, 8> l128{};
+        l128[0].now = MemSpace::divmmc_ram(3);
+        const std::string p48  = memory_pages(l48, false, MachineType::ZX48K);
+        const std::string p128 = memory_pages(l128, false, MachineType::ZX128K);
+        check("ZRCP-FMT-18", "get-memory-pages on a legacy machine with DivMMC RAM (MAPRAM bank 3) "
+                             "at slot 0: segment 0 is DIV on the 48K (\"DIV RAM \") and on the 128K",
+              p48 == "DIV RAM " && p128.rfind("DIV ", 0) == 0, p48 + " / " + p128);
+    }
     std::uint32_t n = 0;
     const bool nums =
         parse_number("38h", n) && n == 0x38 && parse_number("0FFH", n) && n == 0xFF &&

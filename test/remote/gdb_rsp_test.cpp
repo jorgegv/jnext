@@ -1999,6 +1999,22 @@ static void monitor_rows() {
                   l[2].rfind("slot 2:", 0) == 0 && l[2].find("  P") != std::string::npos,
               join(l));
     }
+    {
+        // GDB-MON-43 (GH #360): a floating slot (MMU2 = 0xE5, zxnext.vhd:3061) ends in the tag
+        // alone: its physical text is the same word, printed once.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        rig.dbg->nextreg_write(rig.gdb->client(), 0x52, 0xE5);
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        const auto  l  = c.monitor("mmu", f);
+        const auto  s2 = rig.dbg->mmu_slots()[2];
+        char        want[96];
+        std::snprintf(want, sizeof(want), "slot 2: page E5 (effective %02X)  FLOAT\n", s2.effective_page);
+        check("GDB-MON-43", "monitor mmu with MMU2 = 0xE5 ends the slot line exactly in \"  FLOAT\" "
+                            "(the tag, the same word not repeated as physical text)",
+              l.size() == 9 && s2.now == jnext::dbg::MemSpace::floating() && l[2] == want, join(l));
+    }
 }
 
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────
