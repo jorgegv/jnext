@@ -127,6 +127,11 @@ std::string s(const QString& q) { return q.toStdString(); }
 
 QTemporaryDir* g_tmp = nullptr;
 
+std::string read_text(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
 void write_text(const std::string& path, const std::string& text) {
     std::ofstream out(path, std::ios::binary);
     out << text;
@@ -2638,6 +2643,144 @@ QString locate(SourcePanel* sp, const std::string& picked, QMessageBox::Standard
     return warning;
 }
 
+// ── QSRC-140/141 (GH #348): a z88dk map's --list listings in the Source tab and the Load box ──
+
+void test_z88dk_listings() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-140
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q140";
+        const std::string map = root + "/build/prog.map";
+        copy_z88dk("master/sdcc-debug", "prog.map", map);
+        copy_z88dk("master/sdcc-debug", "prog.lis", root + "/build/prog.lis");
+        put_file(root + "/build/z88dk/lib/crt/newlib/crt_start_di.inc", numbered_lines(10, "; di "));
+        fx.backend->load_source_map(map, true);
+        auto at = [&](uint16_t pc) {
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = pc;
+            fx.emu.cpu().set_registers(r);
+            fx.mgr->refresh_panels();
+        };
+        at(0x8001);
+        SourcePanel* sp = fx.dbg()->source_panel();
+        auto* editor = sp->findChild<QPlainTextEdit*>();
+        const bool text_ok = editor &&
+            editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push iy") &&
+            editor->document()->findBlockByNumber(9461).text() == QStringLiteral("__Start:") &&
+            sp->location_tooltip().endsWith(QStringLiteral("/q140/build/prog.lis"));
+        const bool m4_ok = text_ok && editor && editor->document()->blockCount() == 9689 && sp->highlighted_line() == 9470 &&
+                           sp->location_text().endsWith(QStringLiteral("(m4 output, from prog.lis)")) &&
+                           !button(sp, QStringLiteral("Locate File..."))->isEnabled();
+        const QString m4_text = sp->location_text();
+        at(0x8000);
+        const bool disk_ok = editor && editor->document()->blockCount() == 11 && sp->highlighted_line() == 3 &&
+                             !sp->location_text().contains(QStringLiteral("m4 output"));
+        check("QSRC-140", "with prog.lis loaded beside the map, $8001 shows the CRT's m4 text from the listing "
+                          "(9689 lines, line 9470 highlighted, labelled '(m4 output, from prog.lis)', no Locate "
+                          "File...), and $8000 goes back to the disk file crt_start_di.inc with line 3 highlighted",
+              m4_ok && disk_ok, s(m4_text) + " | " + s(sp->location_text()));
+    }
+    {   // QSRC-141
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q141/prog.map";
+        copy_z88dk("v2.4/sdcc-SO2", "prog.map", map);
+        for (const char* lis : {"main.c.lis", "util.c.lis", "asmfn.asm.lis", "prog.lis"})
+            copy_z88dk("v2.4/sdcc-SO2", lis, tmp + "/q141/" + lis);
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        check("QSRC-141", "Load Source Map... of a z88dk map with its listings reports 230 traces and 'with 4 z88dk listings'",
+              load && box.startsWith(QStringLiteral("Loaded 230 source traces from:")) &&
+                  box.contains(QStringLiteral("with 4 z88dk listings")),
+              s(box));
+    }
+    {   // QSRC-142: dropped listings in the Load box
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q142/prog.map";
+        copy_z88dk("v2.4/sdcc-SO2", "prog.map", map);
+        copy_z88dk("v2.4/sdcc-SO2", "prog_CODE.bin", tmp + "/q142/prog_CODE.bin");
+        for (const char* lis : {"main.c.lis", "util.c.lis", "asmfn.asm.lis", "prog.lis"})
+            copy_z88dk("v2.4/sdcc-SO2", lis, tmp + "/q142/" + lis);
+        {
+            std::string text = read_text(tmp + "/q142/main.c.lis");
+            const size_t at = text.find("0023  af");
+            if (at != std::string::npos) text.replace(at, 8, "0023  b7");
+            write_text(tmp + "/q142/main.c.lis", text);
+        }
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+                        // The test machine does not hold the program: accept the mismatch question.
+                        if (mb->text().contains(QStringLiteral("Load it anyway"))) { click_box(w, QMessageBox::Yes); return; }
+                        box = mb->text();
+                    }
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        check("QSRC-142", "Load Source Map... with one stale listing reports the 3 that were used and the note naming main.c.lis",
+              load && box.contains(QStringLiteral("with 3 z88dk listings")) &&
+                  box.contains(QStringLiteral("main.c.lis")) && box.contains(QStringLiteral("$8C6B")),
+              s(box));
+    }
+    {   // QSRC-144: one listing is singular in the Load box
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q144/prog.map";
+        copy_z88dk("v2.4/sccz80-incmid", "prog.map", map);
+        copy_z88dk("v2.4/sccz80-incmid", "incmid.c.lis", tmp + "/q144/incmid.c.lis");
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        check("QSRC-144", "Load Source Map... of a map with exactly one listing says 'with 1 z88dk listing', not 'listings'",
+              load && box.contains(QStringLiteral("with 1 z88dk listing")) &&
+                  !box.contains(QStringLiteral("z88dk listings")),
+              s(box));
+    }
+    {   // QSRC-143: a reloaded listing of the same name refreshes the shown text
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q143";
+        const std::string map = root + "/build/prog.map";
+        copy_z88dk("master/sdcc-debug", "prog.map", map);
+        copy_z88dk("master/sdcc-debug", "prog.lis", root + "/build/prog.lis");
+        fx.backend->load_source_map(map, true);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x8001;
+        fx.emu.cpu().set_registers(r);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        auto* editor = sp->findChild<QPlainTextEdit*>();
+        const bool before = editor && editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push iy");
+        std::string lis = read_text(root + "/build/prog.lis");
+        const size_t at = lis.find("      push iy");
+        if (at != std::string::npos) lis.replace(at, 13, "      push ix");
+        write_text(root + "/build/prog.lis", lis);
+        fx.backend->load_source_map(map, true);
+        fx.mgr->refresh_panels();
+        check("QSRC-143", "loading the map again after its prog.lis changed shows the new m4 text, not the old",
+              before && editor && at != std::string::npos &&
+                  editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push ix"));
+    }
+}
+
 void test_source_search() {
     const std::string tmp = g_tmp->path().toStdString();
     {   // QSRC-66
@@ -3470,6 +3613,122 @@ void test_source_gutter() {
     }
 }
 
+// ── QCN-01..04: z88dk C names in every address field (GH #424, design 10.6) ──
+// Oracle: the fixture map (`_counter` $8F59, `_main` $8C92, `_square` $8C78; module main_c) and zcc's MODULE
+// naming. Every dialog and Go to resolves through the one SymbolTable.
+void test_z88dk_c_names() {
+    const std::string tmp = g_tmp->path().toStdString();
+    Fixture fx;
+    fx.enable();
+    const std::string map = tmp + "/qcn/prog.map";
+    copy_z88dk("v2.4/sccz80-debug", "prog.map", map);
+    fx.backend->load_map(map, jnext::dbg::MapFormat::Z88dk);
+    // A symbol of a section naming no page is bound to the page mapped at its address when loaded.
+    const MemSpace page = fx.backend->source_page(0x8F59);
+    BreakpointModel& m = fx.mgr->breakpoints();
+    WatchPanel* wp = fx.dbg() ? fx.dbg()->watch_panel() : nullptr;
+    BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
+    QAction* add_exec = fx.dbg() ? menu_action(fx.dbg(), QStringLiteral("Add &Execute Breakpoint...")) : nullptr;
+    if (!wp || !bp || !add_exec) {
+        check("QCN-01", "panels and menu", false);
+        return;
+    }
+    {   // QCN-01
+        const bool seen = answer_modal(QStringLiteral("counter"), [&]() { wp->on_add_watch(); }) &&
+                          answer_modal(QStringLiteral("_counter"), [&]() { wp->on_add_watch(); }) &&
+                          answer_modal(QStringLiteral("@counter"), [&]() { wp->on_add_watch(); });
+        bool all = seen;
+        for (int row = 0; row < 3; ++row)
+            all = all && cell(wp, row, 0).contains(QStringLiteral("8F59")) &&
+                  cell(wp, row, 1) == QStringLiteral("counter");
+        check("QCN-01", "Add Watch with counter, _counter and @counter watches $8F59 three times, each labelled "
+                        "with the C name",
+              all, s(cell(wp, 0, 0)) + "/" + s(cell(wp, 0, 1)) + " " + s(cell(wp, 1, 0)) + "/" +
+                       s(cell(wp, 1, 1)) + " " + s(cell(wp, 2, 0)) + "/" + s(cell(wp, 2, 1)));
+    }
+    {   // QCN-02
+        const bool seen = answer_modal(QStringLiteral("main"), [&]() { add_exec->trigger(); });
+        const auto rows = m.rows();
+        bp->refresh();
+        check("QCN-02", "Debug > Add Execute Breakpoint with `main` sets an Execute row at $8C92 on the name's "
+                        "page, and the Breakpoints Symbol column reads main",
+              seen && rows.size() == 1 && rows[0].type == BreakpointModel::Execute && rows[0].addr == 0x8C92 &&
+                  rows[0].space == page && cell(bp, 0, 3) == QStringLiteral("main"),
+              "rows=" + std::to_string(rows.size()) + " sym=" + s(cell(bp, 0, 3)));
+        m.clear_all();
+    }
+    {   // QCN-03
+        const auto drive = [&](const QString& name, int type, bool edit) {
+            return drive_modals(
+                [&](QWidget* w, int n) {
+                    auto* dlg = qobject_cast<QDialog*>(w);
+                    if (!dlg) return;
+                    if (n == 0) {
+                        if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText(name);
+                        if (auto* c = dlg->findChild<QComboBox*>()) c->setCurrentIndex(type);
+                        dlg->accept();
+                        return;
+                    }
+                    dlg->reject();
+                },
+                [&]() { edit ? bp->on_edit() : bp->on_add(); });
+        };
+        drive(QStringLiteral("counter"), BreakpointModel::Write, false);
+        const auto added = m.rows();
+        bp->refresh();
+        const QString sym_added = cell(bp, 0, 3);
+        if (auto* table = bp->findChild<QTableWidget*>()) table->setCurrentCell(0, 1);
+        drive(QStringLiteral("square"), BreakpointModel::Write, true);
+        const auto edited = m.rows();
+        bp->refresh();
+        check("QCN-03", "the Breakpoints panel's own dialog takes C names: `counter` adds a Write row at $8F59 "
+                        "with Symbol counter, and editing it to `square` moves it to $8C78",
+              added.size() == 1 && added[0].type == BreakpointModel::Write && added[0].addr == 0x8F59 &&
+                  sym_added == QStringLiteral("counter") && edited.size() == 1 &&
+                  edited[0].type == BreakpointModel::Write && edited[0].addr == 0x8C78 &&
+                  cell(bp, 0, 3) == QStringLiteral("square"),
+              "added=" + std::to_string(added.size()) + " sym=" + s(sym_added) + " edited=" +
+                  std::to_string(edited.size()) + " sym=" + s(cell(bp, 0, 3)));
+        m.clear_all();
+    }
+    {   // QCN-04
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        QLineEdit* dgo = line_edit(dp, QStringLiteral("Address..."));
+        auto* dsb = dp ? dp->findChild<QScrollBar*>() : nullptr;
+        int by_number = -1, by_name = -1, start = -1;
+        if (dgo && dsb) {
+            dsb->setValue(0x4000);
+            start = dsb->value();
+            dgo->setText(QStringLiteral("8C92"));
+            emit dgo->returnPressed();
+            by_number = dsb->value();
+            dsb->setValue(0x4000);
+            dgo->setText(QStringLiteral("main"));
+            emit dgo->returnPressed();
+            by_name = dsb->value();
+        }
+        MemoryPanel* mp = fx.dbg()->memory_panel();
+        QLineEdit* mgo = line_edit(mp, QStringLiteral("$0000"));
+        auto* msb = mp ? mp->findChild<QScrollBar*>() : nullptr;
+        int m_number = -1, m_name = -1, m_start = -1;
+        if (mgo && msb) {
+            msb->setValue(0);
+            m_start = msb->value();
+            mgo->setText(QStringLiteral("8F59"));
+            emit mgo->returnPressed();
+            m_number = msb->value();
+            msb->setValue(0);
+            mgo->setText(QStringLiteral("counter"));
+            emit mgo->returnPressed();
+            m_name = msb->value();
+        }
+        check("QCN-04", "Go to Address takes a C name: the disassembly's `main` lands where 8C92 does, the memory "
+                        "panel's `counter` where 8F59 does",
+              by_number != start && by_name == by_number && m_number != m_start && m_name == m_number,
+              std::to_string(start) + " " + std::to_string(by_number) + " " + std::to_string(by_name) + " | " +
+                  std::to_string(m_start) + " " + std::to_string(m_number) + " " + std::to_string(m_name));
+    }
+}
 
 // ── GH #423: the Source tab's context menu ───────────────────────────────
 // Oracle for all: the issue text, the owner's parity rule (the Source tab offers the
@@ -4776,6 +5035,52 @@ void test_source_highlight_panel() {
     }
 }
 
+// ── QCN-05: the Source tab's word menu offers a z88dk C symbol under its C name (GH #424 stage 2) ──
+// Oracle: the owner's parity rule (the Source tab offers what the Disassembly offers, which shows
+// `counter` for `_counter`) and zcc's MODULE naming (main_c); a map in the real line format.
+void test_z88dk_c_names_source() {
+    Fixture fx;
+    fx.enable();
+    fx.load_map();
+    const std::string map = g_tmp->path().toStdString() + "/qcn5.map";
+    write_text(map,
+               "_counter                        = $9000 ; addr, public, , main_c, bss_compiler, main.c:2\n"
+               "_main                           = $8005 ; addr, public, , main_c, code_compiler, main.c:12\n"
+               "_asm_bump                       = $9100 ; addr, public, , asmfn_asm, code_user, asmfn.asm:5\n");
+    fx.backend->load_map(map, jnext::dbg::MapFormat::Z88dk);
+    write_main({{10, "    counter = 0;"}, {11, "    ld hl,_counter"}, {12, "int main(void)"}, {13, "    ld hl,_asm_bump"}});
+    BreakpointModel& m = fx.mgr->breakpoints();
+    SrcView v(fx, m);
+    v.sp->set_watch_panel(fx.dbg()->watch_panel());
+    const auto menu_of = [&](int line, const char* needle) {
+        auto menu = std::make_unique<QMenu>();
+        const QString text = v.ed->document()->findBlockByNumber(line - 1).text();
+        v.sp->fill_context_menu(*menu, line, col_in(text, needle));
+        return menu;
+    };
+    WatchPanel* wp = fx.dbg()->watch_panel();
+    const auto c_word = menu_of(10, "counter");       // the C word, as in main.c
+    const auto asm_word = menu_of(11, "_counter");    // the assembler word, as in asmfn.asm
+    const auto main_word = menu_of(12, "main");       // the function's own line: its label is main too
+    const auto asm_fn = menu_of(13, "_asm_bump");     // an asm symbol keeps its name
+    const int w0 = wp->watch_count();
+    QAction* watch = menu_action(*asm_word, "Watch 'counter' ($9000)");
+    if (watch) watch->trigger();
+    check("QCN-05", "the Source tab offers a z88dk C symbol under its C name: `counter` and `_counter` both give "
+                    "Watch/Break on Read/Write 'counter' ($9000) and the watch is labelled counter; `main` on its own "
+                    "line gives one 'main' entry; an asm symbol keeps `_asm_bump`",
+          menu_texts(*c_word).contains("Watch 'counter' ($9000)") &&
+              menu_texts(*c_word).contains("Break on Read 'counter' ($9000)") &&
+              menu_texts(*asm_word).contains("Break on Write 'counter' ($9000)") &&
+              !menu_texts(*asm_word).contains("Watch '_counter' ($9000)") && watch &&
+              wp->watch_count() == w0 + 1 && cell(wp, w0, 1) == "counter" &&
+              menu_texts(*main_word).count("Watch 'main' ($8005)") == 1 &&
+              menu_texts(*asm_fn).contains("Watch '_asm_bump' ($9100)"),
+          s(menu_texts(*c_word).join("|")) + " / " + s(menu_texts(*asm_word).join("|")) + " / " +
+              s(menu_texts(*main_word).join("|")));
+    m.clear_all();
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -4822,13 +5127,16 @@ int main(int argc, char** argv) {
     test_call_stack_non_page_caller();
     test_source_menu();
     test_z88dk_source_map();
+    test_z88dk_listings();
     test_source_search();
     test_source_gutter();
+    test_z88dk_c_names();
     test_source_context_menu();
     test_source_menu_review();
     test_source_highlight_detection();   // GH #422
     test_source_highlight_rules();
     test_source_highlight_panel();
+    test_z88dk_c_names_source();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

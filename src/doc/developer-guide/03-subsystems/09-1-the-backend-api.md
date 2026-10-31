@@ -309,6 +309,15 @@ are dropped by the loader, so they never name an address or resolve by name.
 over the size cap before opening it, with the table untouched, and say why
 through their optional `why` argument; a file that merely fails to open leaves it
 empty (rows Z88MAP-27).
+A symbol of a z88dk C module (`; addr`, name `_x`, module `<file>_c`; design 10.6) also has a C name. The
+loader marks each such label (`SymbolLabel::c_symbol`) and records its key under the C name in
+`c_name_to_key_`, first C symbol wins; the rule is per symbol, so an asm `_dup` and a C `_dup` stay two
+symbols. `find_name()` tries `c_name_to_key_` after every exact name and constant (so `resolve()`,
+`resolve_key()` and `lookup_name()` take `counter`); `lookup()`/`nearest()` show a C label's C name only when
+nothing else holds it and its own key is the one the C name resolves to (else its assembler name, which is the
+case of a second C module's local `_util_inc`); `shown_name(name)` gives the same for a typed name.
+`lookup_assembler()` keeps the assembler name for text that must assemble. `merge()` carries `c_name_to_key_`
+for the names the receiving table does not own, and `clear()` empties it (rows Z88CN-01..16).
 `MapFormat::NextBuild` reads a NextBuild / Boriel ZX Basic `Memory.txt` (`8000: ._Main`): the shown name drops the `.` and the
 compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
 turns an address field's text into an address: hex first (`4000`, `$4000`,
@@ -383,6 +392,17 @@ one row.
 An SLD may carry a SHA-256 of the program's bytes (`||program.*` comment
 records); `load_source_map(path, accept_mismatch)` checks it against memory and
 stores the path absolute.
+
+The z88dk adapter's listing half (GH #348) is `src/debug/z88dk_lis.*` (std-only):
+`parse_z88dk_listing()` tokenises a z80asm `.lis`, `place_z88dk_listing()` interprets it
+against a `Z88dkMapView` (the map's symbols, line records, section bounds, a `place`
+function and the section binaries). `load_z88dk_source_map(..., Z88dkListings::Beside)`
+finds `<stem>.lis` and `<file>.lis` for the files the map's module symbols name, drops a
+listing that does not hold up (a note in `SourceMapLoadResult::listing_notes`, never the
+half), merges the used ones (their module's map records are replaced), cross-checks the
+map's line records and hands the CRT's m4 text to `SourceMap::replace(..., texts)`
+(`SourceMap::embedded_text()`). `SourceMapLoad::listings` and `listing_note` carry the
+result to the frontends; the sidecar logs `and N listings` and one Warn per note.
 
 The second source adapter is `load_z88dk_source_map()` (`src/debug/z88dk_source_map.*`,
 GH #344), which reads the `__C_LINE_` and `__ASM_LINE_` records of a z88dk

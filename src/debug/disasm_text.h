@@ -56,7 +56,10 @@ using SymbolNamer = std::function<std::optional<std::string>(uint16_t)>;
 /// nothing; an empty `space_of` is "no memory known" (`MemSpace::cpu()`), which
 /// reaches unpaged labels only. Every consumer asks through this one rule
 /// (GH #375); the pointers must outlive the namer.
-SymbolNamer symbol_namer(const SymbolTable* table, const SymbolSpaceOf& space_of);
+/// `assembler_names` asks for `lookup_assembler()` instead: a z88dk C symbol
+/// by its `_name`, as the assembler spells it (the copy, which must assemble).
+SymbolNamer symbol_namer(const SymbolTable* table, const SymbolSpaceOf& space_of,
+                         bool assembler_names = false);
 
 /// `mnemonic` with its 16-bit immediate replaced by the symbol `namer` gives
 /// for that address, if it gives one. Returns the mnemonic unchanged when

@@ -272,6 +272,16 @@ static void z88_copy(const char* fixture, const fs::path& to, bool bins = true) 
     }
 }
 
+// Also the fixture's `--list` listings (GH #348): every `*.lis` beside the map.
+static void z88_copy_lis(const char* fixture, const fs::path& to) {
+    z88_copy(fixture, to);
+    for (const auto& e : fs::directory_iterator(kZ88Fixtures / fixture)) {
+        const std::string n = e.path().filename().string();
+        if (n.size() > 4 && n.compare(n.size() - 4, 4, ".lis") == 0)
+            fs::copy_file(e.path(), to / n, fs::copy_options::overwrite_existing);
+    }
+}
+
 // What a Listener hears: the backend's own log lines.
 struct Z88Log : jnext::dbg::Listener {
     std::vector<std::string> lines;
@@ -4792,7 +4802,7 @@ int main() {
                       m.dbg->source_map().format() == "z88dk" &&
                       st.state == Debugger::SourceMapStatus::State::Attached && !st.by_user &&
                       line_of(*m.dbg, 0x8CB8) == "main.c:19" &&
-                      m.dbg->lookup(0x8C92) == std::string("_main") &&
+                      m.dbg->lookup(0x8C92) == std::string("main") &&
                       has(log, "Loaded 19 z88dk symbols from '" + map1 + "'") &&
                       has(log, "Loaded 46 z88dk source lines from '" + map1 +
                                    "' (program identity verified)"),
@@ -5057,6 +5067,145 @@ int main() {
                                    "the map already loaded is kept",
                   out.count == -1 && has(out.error, "no source lines in") &&
                       has(out.error, "built without -debug") && m.dbg->source_map().size() == 46);
+        }
+        {   // SRCDBG-LIS-01..04 (GH #348): the --list listings beside a z88dk map
+            const fs::path d = z / "lis";
+            z88_copy_lis("v2.4/sdcc-SO2", d);
+            const std::string map = (d / "prog.map").string();
+            {   // LIS-01
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool ok = z88_load(m, d / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                });
+                check("SRCDBG-LIS-01", "the sidecar attaches the listings' 230 source lines, the log says "
+                                       "'and 4 listings', the identity is verified, and $8C6F is main.c:18",
+                      ok && r.sources == 230 && line_of(*m.dbg, 0x8C6F) == "main.c:18" &&
+                          has(log, "Loaded 230 z88dk source lines from '" + map + "' and 4 listings") &&
+                          has(log, "(program identity verified") && !has(log, "not verified"),
+                      std::to_string(r.sources) + "\n" + log);
+            }
+            {   // LIS-02
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                const auto out = m.dbg->load_source_map(map, true);
+                const fs::path bare = z / "lis-bare";
+                z88_copy("v2.4/sdcc-SO2", bare);
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, bare / "prog.nex");
+                const auto none = n.dbg->load_source_map((bare / "prog.map").string(), true);
+                check("SRCDBG-LIS-02", "a hand load gives 230 lines from 4 listings and no note; the same map "
+                                       "with no listings is refused, the reason pointing at --list",
+                      out.count == 230 && out.listings == 4 && out.listing_note.empty() &&
+                          none.count == -1 && has(none.error, "no source lines in") &&
+                          has(none.error, "--list"),
+                      none.error);
+            }
+            {   // LIS-03
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                const auto line = emulator_attach_cli_source_map(*m.dbg, map);
+                check("SRCDBG-LIS-03", "--source-map's line carries the listing count",
+                      line.ok && has(line.line, "230 source lines") && has(line.line, "(4 z88dk listings)"),
+                      line.line);
+            }
+            {   // LIS-04
+                const fs::path st = z / "lis-stale";
+                z88_copy_lis("v2.4/sdcc-SO2", st);
+                {
+                    std::string text;
+                    {
+                        std::ifstream in(st / "main.c.lis", std::ios::binary);
+                        text.assign(std::istreambuf_iterator<char>(in), {});
+                    }
+                    const size_t at = text.find("0023  af");
+                    if (at != std::string::npos) text.replace(at, 8, "0023  b7");
+                    write_text(st / "main.c.lis", text);
+                }
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, st / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((st / "prog.nex").string());
+                });
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, st / "prog.nex");
+                const auto hand = n.dbg->load_source_map((st / "prog.map").string(), true);
+                check("SRCDBG-LIS-04", "a stale main.c.lis is dropped alone: the sidecar attaches the rest and "
+                                       "warns naming it; a hand load carries the note",
+                      r.sources > 0 && r.sources < 230 && has(log, "main.c.lis") &&
+                          has(log, "and 3 listings") && hand.count > 0 && hand.listings == 3 &&
+                          has(hand.listing_note, "main.c.lis"),
+                      log);
+            }
+        }
+        {   // SRCDBG-LIS-05..07 (GH #348 stage 2 review): what the user is told when listings are dropped
+            auto edit = [](const fs::path& file, const std::string& from, const std::string& to) {
+                std::string text;
+                {
+                    std::ifstream in(file, std::ios::binary);
+                    text.assign(std::istreambuf_iterator<char>(in), {});
+                }
+                const size_t at = text.find(from);
+                if (at != std::string::npos) text.replace(at, from.size(), to);
+                write_text(file, text);
+            };
+            {   // LIS-05: the only listing is stale
+                const fs::path d = z / "lis-only-stale";
+                z88_copy("v2.4/sdcc-SO2", d);
+                fs::copy_file(kZ88Fixtures / "v2.4/sdcc-SO2/main.c.lis", d / "main.c.lis");
+                edit(d / "main.c.lis", "0023  af", "0023  b7");
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                });
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, d / "prog.nex");
+                const auto hand = n.dbg->load_source_map((d / "prog.map").string(), true);
+                check("SRCDBG-LIS-05", "with no usable listing left the sidecar still warns naming the dropped "
+                                       "one and why, and a refused hand load carries the same note",
+                      m.dbg->source_map().empty() && has(log, "z88dk listings for '" + (d / "prog.map").string()) &&
+                          has(log, "main.c.lis") && has(log, "$8C6B") &&
+                          hand.count == -1 && has(hand.error, "main.c.lis") && has(hand.error, "--list"),
+                      log + "\n" + hand.error);
+            }
+            {   // LIS-06: two dropped listings, the --source-map line and the joined note
+                const fs::path d = z / "lis-two-stale";
+                z88_copy_lis("v2.4/sdcc-SO2", d);
+                edit(d / "main.c.lis", "0023  af", "0023  b7");
+                edit(d / "asmfn.asm.lis", "0000  210000", "0000  310000");
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                const auto line = emulator_attach_cli_source_map(*m.dbg, (d / "prog.map").string());
+                const size_t a = line.line.find("asmfn.asm.lis");
+                const size_t b = line.line.find("main.c.lis");
+                check("SRCDBG-LIS-06", "--source-map's line carries the notes of two dropped listings, both named "
+                                       "and joined with '; ', beside the count of the two that were used",
+                      line.ok && has(line.line, "(2 z88dk listings)") && a != std::string::npos &&
+                          b != std::string::npos && a < b && line.line.find("; ", a) != std::string::npos,
+                      line.line);
+            }
+            {   // LIS-07: one listing is singular everywhere
+                const fs::path d = z / "lis-one";
+                z88_copy_lis("v2.4/sccz80-incmid", d);
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                });
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, d / "prog.nex");
+                const auto line = emulator_attach_cli_source_map(*n.dbg, (d / "prog.map").string());
+                check("SRCDBG-LIS-07", "a single listing reads 'and 1 listing' in the log and '(1 z88dk listing)' "
+                                       "in --source-map's line",
+                      r.sources > 0 && has(log, " and 1 listing") && !has(log, "1 listings") &&
+                          has(line.line, "(1 z88dk listing)") && !has(line.line, "1 z88dk listings"),
+                      log + "\n" + line.line);
+            }
         }
         {   // Z88-21: sidecar identity mismatch
             const fs::path d = z / "d21";
@@ -6525,8 +6674,8 @@ int main() {
             const std::string main40 = lookup_at(m, 0x8C62);
             check("SRCDBG-SYM-18", "a banked z88dk label names its address only while its page is mapped, and a "
                                    "code symbol only in the RAM page the program loaded it in",
-                  r.symbols == 10 && p20 && at20 == "_banked_add" && at21 == "-" && at0 == "-" && p4 &&
-                      main4 == "_main" && main40 == "-",
+                  r.symbols == 10 && p20 && at20 == "banked_add" && at21 == "-" && at0 == "-" && p4 &&
+                      main4 == "main" && main40 == "-",
                   at20 + "/" + at21 + "/" + at0 + " " + main4 + "/" + main40);
         }
         {   // SRCDBG-SYM-19
@@ -6538,18 +6687,18 @@ int main() {
             Machine m(false, MachineType::ZXN_ISSUE2);
             nr(m, 0x54, 40);
             m.dbg->load_map((d / "prog.map").string(), jnext::dbg::MapFormat::Z88dk);
-            const bool in40 = lookup_at(m, 0x8C62) == "_main";
+            const bool in40 = lookup_at(m, 0x8C62) == "main";
             nr(m, 0x54, 4);
             const bool gone4 = lookup_at(m, 0x8C62) == "-";
             z88_load(m, alone / "game.nex");
             const bool premise = m.dbg->source_page(0x8C62) == MemSpace::page(4);
             const auto r = m.dbg->load_program_sidecars((alone / "game.nex").string());
-            const bool rebound = lookup_at(m, 0x8C62) == "_main" && in_space(m, "_main", 0x8C62, MemSpace::page(4)) &&
+            const bool rebound = lookup_at(m, 0x8C62) == "main" && in_space(m, "_main", 0x8C62, MemSpace::page(4)) &&
                                  key_of(m, "_main")->bind_at_load;
             nr(m, 0x54, 40);
             const bool gone40 = lookup_at(m, 0x8C62) == "-";
             nr(m, 0x56, 20);
-            const bool b20 = lookup_at(m, 0xC000) == "_banked_add";
+            const bool b20 = lookup_at(m, 0xC000) == "banked_add";
             nr(m, 0x56, 0);
             const bool b0 = lookup_at(m, 0xC000) == "-";
             check("SRCDBG-SYM-19", "a map loaded before its program is bound when loaded and again at the program load "
@@ -6562,7 +6711,7 @@ int main() {
             Machine m(false, MachineType::ZXN_ISSUE2);
             const bool premise = m.dbg->source_page(0x8CA1) == MemSpace::page(4);
             const auto r = m.dbg->load_program_sidecars(tap);
-            const bool live = lookup_at(m, 0x8CA1) == "_main" && in_space(m, "_main", 0x8CA1, MemSpace::page(4));
+            const bool live = lookup_at(m, 0x8CA1) == "main" && in_space(m, "_main", 0x8CA1, MemSpace::page(4));
             nr(m, 0x54, 40);
             const bool gone40 = lookup_at(m, 0x8CA1) == "-";
             const fs::path d2 = sdir / "s20b";
@@ -6586,7 +6735,7 @@ int main() {
             const bool in40 = in_space(m, "_main", 0x8CA1, MemSpace::page(40));
             nr(m, 0x54, 4);
             m.dbg->load_program_sidecars((alone / "game.tap").string());
-            const bool in4 = in_space(m, "_main", 0x8CA1, MemSpace::page(4)) && lookup_at(m, 0x8CA1) == "_main";
+            const bool in4 = in_space(m, "_main", 0x8CA1, MemSpace::page(4)) && lookup_at(m, 0x8CA1) == "main";
             nr(m, 0x54, 40);
             check("SRCDBG-SYM-21", "the user's map is rebound at a tape load",
                   in40 && in4 && lookup_at(m, 0x8CA1) == "-");
@@ -6610,17 +6759,36 @@ int main() {
             const bool s1 = run_to(0x8CAE);
             const MemSpace before = m.dbg->source_page(0xC000);
             const bool premise1 = !(before == MemSpace::page(20)) && m.dbg->source_page(0x8CAE) == MemSpace::page(4);
-            const bool main_named = lookup_at(m, 0x8CAE) == "_main" && lookup_at(m, 0xC000) == "-";
+            const bool main_named = lookup_at(m, 0x8CAE) == "main" && lookup_at(m, 0xC000) == "-";
             const bool s2 = run_to(0xC000);
             const bool in20 = m.dbg->source_page(0xC000) == MemSpace::page(20) &&
-                              lookup_at(m, 0xC000) == "_banked_add" && m.dbg->lookup_name("_banked_add") == 0xC000;
+                              lookup_at(m, 0xC000) == "banked_add" && m.dbg->lookup_name("_banked_add") == 0xC000;
             const bool s3 = run_to(0x8CBE);
             const bool out = m.dbg->source_page(0xC000) == before && lookup_at(m, 0xC000) == "-";
-            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: _banked_add (a 24-bit $14C000 "
-                                   "in the map) names $C000 only while banked_call has page 20 mapped",
+            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: banked_add (_banked_add, a 24-bit "
+                                   "$14C000 in the map) names $C000 only while banked_call has page 20 mapped",
                   r.symbols == 9 && has(log, "(program identity verified)") && s1 && premise1 && main_named && s2 &&
                       in20 && s3 && out,
                   log);
+        }
+        {   // SRCDBG-CN-01: GH #424, a C symbol under its C name through the real attach
+            // Oracle: the fixture's own bytes (`32 59 8F` at $8C9A is ld (_counter),a, main.c.lis:624;
+            // `21 59 8F` at $8D65 is ld hl,_counter) and zcc's MODULE naming (main_c).
+            const fs::path d = sdir / "cn1";
+            z88_copy("v2.4/sccz80-debug", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const auto mnemonic = [&](uint16_t addr) {
+                return std::string(m.dbg->disassemble(addr, 1, &m.dbg->symbols())[0].mnemonic);
+            };
+            const auto k = m.dbg->symbols().resolve_key("counter");
+            check("SRCDBG-CN-01", "after the attach of a z88dk program, `counter` names `_counter`'s address and page, "
+                                  "lookup() shows counter, and disassemble() prints the C name",
+                  r.symbols == 19 && m.dbg->lookup_name("counter") == std::optional<uint16_t>(0x8F59) &&
+                      k && k->space && *k->space == MemSpace::page(4) && lookup_at(m, 0x8F59) == "counter" &&
+                      mnemonic(0x8C9A) == "LD (counter),A" && mnemonic(0x8D65) == "LD HL,counter",
+                  mnemonic(0x8C9A) + " | " + mnemonic(0x8D65));
         }
     }
 

@@ -3666,13 +3666,9 @@ log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</s
 <code>ROM or overlay</code> when no RAM page supplies the address — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
-use the disassembly there.</p>
-<p>The text is coloured by its language: C (<code>.c</code>, <code>.h</code>), Z80 and Z80N assembly (<code>.asm</code>, <code>.s</code>,
-<code>.z80</code>, <code>.inc</code>; the sjasmplus and z88dk z80asm directives are recognised) and Boriel ZX Basic
-(<code>.bas</code>). A file with another extension is recognised by its first lines, and shown plain when
-they do not decide. Assembly written inside C (<code>#asm</code>, <code>__asm</code>) or inside Boriel Basic (<code>asm</code> ...
-<code>end asm</code>) is coloured as assembly. The colours follow the light or dark scheme. They change
-only the colour of the text: the current line keeps its highlight, and the gutter is not affected.</p>
+use the disassembly there. The start-up code of a z88dk program built with <code>--list</code>
+shows its m4 text from the listing, the label ending <code>(m4 output, from prog.lis)</code>;
+<strong>Locate File...</strong> does not apply to it.</p>
 <p>Left of the text is a gutter, like the disassembly's: a <strong>BP</strong> column and the file's
 own <strong>Line</strong> numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a
@@ -3706,9 +3702,10 @@ inside it, the selection stays (so a dragged range can be copied).</p>
   mapped now is disabled.</li>
 <li><strong>Watch</strong> and <strong>Break on Read / Write</strong> entries, as in the disassembly menu, for the labels at
   the line's address, and for what is under the pointer: a symbol (a label or a name of the
-  map, written as the map has it), a number (<code>$5800</code>, <code>0x5800</code>, <code>5800h</code>, <code>#5800</code> or decimal),
+  map; a z88dk C variable or function is offered under its C name, <code>counter</code>, whether the source
+  writes <code>counter</code> or <code>_counter</code>), a number (<code>$5800</code>, <code>0x5800</code>, <code>5800h</code>, <code>#5800</code> or decimal),
   or a register in parentheses (<code>(hl)</code>, <code>(ix+2)</code>). They are by CPU address, whatever is mapped
-  there. A C variable is found under its map name today (<code>_counter</code>), not as <code>counter</code>.</li>
+  there.</li>
 </ul>
 <p>On a line with no code Toggle Breakpoint, Run to Here and Show in Disassembly are disabled, and
 their tooltip says <em>no code at main.bas:3</em>.</p>

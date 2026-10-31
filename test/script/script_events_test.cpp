@@ -2325,6 +2325,50 @@ static void host_rows() {
               g.sink.tail(4) + h.sink.tail(3));
     }
     {
+        // GH #424: `--map` of a z88dk map; a C symbol (module main_c / util_c) is a script `@name` under its C
+        // name too, as the compiler's `_name`. Oracle: the fixture's own map ($8F59, $8C92, $8D35).
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.map";
+        o.scripts  = {tmp_file("cn1.jds",
+                               "on frame 0 do log \"C ${@counter} ${@_counter} ${@main} ${@util_twice}\" end\n")};
+        const bool ok = g.start(o);
+        g.run(1);
+        check("SCRIPT-HOST-CN-01", "--map of a z88dk map: `@counter` is the address of `@_counter` (36697), "
+                                   "`@main` 35986, `@util_twice` 36149, and the load-time check accepts the C names",
+              ok && g.sink.count("C 36697 36697 35986 36149") == 1, g.sink.tail(4));
+    }
+    {
+        // GH #424: what is not C stays unresolved by its stripped name: an asm module's `_asm_bump`, and a
+        // refused 24-bit `_far`; a banked C name works.
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.map";
+        o.scripts  = {tmp_file("cn2a.jds", "on frame 0 do log \"A ${@asm_bump}\" end\n")};
+        const bool refused_asm = !g.start(o);
+        const std::string body =
+            "__PAGE_20_head = $14C000 ; const, public, def, , ,\n"
+            "_banked_add    = $14C000 ; addr, public, , banked_c, PAGE_20, banked.c:5\n"
+            "_far           = $14E000 ; addr, public, , m_c, code_compiler, m.c:3\n";
+        HostRig h;
+        ScriptHostOptions p;
+        p.map_file = tmp_file("cn2.map", body);
+        p.scripts  = {tmp_file("cn2b.jds", "on frame 0 do log \"B ${@banked_add}\" end\n")};
+        const bool ok = h.start(p);
+        h.run(1);
+        HostRig i;
+        ScriptHostOptions q;
+        q.map_file = p.map_file;
+        q.scripts  = {tmp_file("cn2c.jds", "on frame 0 do log \"F ${@far}\" end\n")};
+        const bool refused_far = !i.start(q);
+        check("SCRIPT-HOST-CN-02", "`@asm_bump` (asm module) and `@far` (refused 24-bit) are refused as unknown symbols, "
+                                   "exactly as the stripped name of a non-C symbol; the banked C name `@banked_add` is 49152",
+              refused_asm && g.sink.count("unknown symbol `@asm_bump` (not in any loaded MAP)") == 1 && ok &&
+                  h.sink.count("B 49152") == 1 && refused_far &&
+                  i.sink.count("unknown symbol `@far` (not in any loaded MAP)") == 1,
+              g.sink.tail(3) + h.sink.tail(2) + i.sink.tail(3));
+    }
+    {
         // SCRIPT-SLD-01 (GH #375): the labels of an SLD loaded into the backend are the one table the
         // DSL's `@name` reads, as 16-bit addresses (a name's page does not reach the script).
         HostRig g;

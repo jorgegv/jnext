@@ -213,7 +213,9 @@ name an address in the memory that supplies it now (`Debugger::source_page()`),
 through `disasm_text::symbol_namer()` for the disassembly; a Breakpoints row uses
 its own page when it has one, a Call Stack frame the page its target was entered
 in, and a breakpoint dialog keeps the page of a name assembled for one
-(`resolve_key()`).
+(`resolve_key()`). A z88dk C symbol is shown by its C name (`lookup()`, design 10.6); the Disassembly copy
+asks `symbol_namer(..., true)` for the assembler name so the paste still assembles, and the watch dialog
+labels an auto-filled watch with `SymbolTable::shown_name()` (rows QCN-01..05, DCN-01/02, QMAP-08); the Source tab's word menu offers the shown name too.
 
 The three Map > Load MAP File items (Z88DK, Simple, sjasmplus) are three handlers
 in `DebuggerManager`, each calling `load_map()` and then `refresh_panels()`. The
@@ -292,7 +294,7 @@ change and again in `ensure_window()`, since the window is lazy. Locate derives 
 that holds the list separator, as Preferences and `--source-dir` do: it would load back as two). The manager
 announces each change (`source_dirs_changed`; `src/debugger/` names no logger) and MainWindow logs
 `Source search path: ...`. Two records get a message of their own: a z88dk record in a `.m4` file, decided before any file is
-read (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
+read (unless the map carries the text from `prog.lis`: `SourceMap::embedded_text()`, shown instead of a file and labelled `(m4 output, from prog.lis)`) (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
 file found, decided after it is read (its line count ignores the final newline). The label's tooltip is the path found.
 Load MAP (`on_load_map_z88dk()`, `on_load_map_simple()`) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug > Source actions
