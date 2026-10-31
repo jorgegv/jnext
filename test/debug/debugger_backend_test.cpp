@@ -6928,6 +6928,78 @@ static void e25_mem_coverage_rows() {
                   " data=" + std::to_string(data_view) + " refusals=" + std::to_string(refusals));
     }
 
+    // INS-21-18: the coverage hook marks each access through the DivMMC view its own bus cycle had
+    // (divmmc.vhd:128-148, zxnext.vhd ~2904): the M1 through the FETCH view (`automap` = held OR
+    // instant-on), every other cycle through the data view (`automap_hold` only). Delayed-on: the RST 8
+    // entry is delayed (NR 0xBA = 0, divmmc.h:223-234), so the instruction AT 0x0008 is fetched from
+    // the page (X there) but its operands already come from the DivMMC ROM (R there). Delayed-off: an
+    // instruction fetched in the 0x1FF8-0x1FFF range is still fetched from the DivMMC (X there) and its
+    // operands come from the page again. A swap of either view in Mmu::cov_note_ shows in both halves.
+    {
+        auto machine = [](Emulator& emu) {
+            build(emu, MachineType::ZXN_ISSUE2);
+            emu.mmu().set_boot_rom_enabled(false);
+            emu.mmu().set_config_mode(false);
+            emu.nextreg().write(0x50, 10);                          // MMU0 = RAM page 10
+            emu.nextreg().write(0x0A, 0x10);                        // automap enable
+            emu.divmmc().set_port_io_enable(true);
+        };
+        auto cov = [](Debugger& d, MemSpace sp, uint32_t off) { return mc_at(d, sp, off); };
+        bool on_ok = false, off_ok = false;
+        std::string detail;
+        {   // delayed-on
+            Emulator emu; machine(emu);
+            Debugger dbg(emu);
+            dbg.mem_coverage_enable(true);
+            emu.nextreg().write(0xB8, 0x02); emu.nextreg().write(0xB9, 0x02); emu.nextreg().write(0xBA, 0x00);
+            emu.divmmc().rom_data()[8] = 0x11; emu.divmmc().rom_data()[9] = 0x00; emu.divmmc().rom_data()[10] = 0x90;
+            emu.mmu().write(0x0008, 0x3A); emu.mmu().write(0x0009, 0x55); emu.mmu().write(0x000A, 0x66);
+            emu.mmu().write(0x8000, 0xCF);                          // RST $08
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.execute_single_instruction();                       // RST 8
+            emu.execute_single_instruction();                       // the instruction at 0x0008
+            const MemSpace pg = MemSpace::page(10), dr = MemSpace::divmmc_rom();
+            on_ok = cov(dbg, pg, 8) == COVERAGE_EXEC && cov(dbg, dr, 8) == 0 &&
+                    cov(dbg, dr, 9) == COVERAGE_READ && cov(dbg, dr, 10) == COVERAGE_READ &&
+                    cov(dbg, pg, 9) == 0 && cov(dbg, pg, 10) == 0;
+            detail += "on: page " + std::to_string(cov(dbg, pg, 8)) + "," + std::to_string(cov(dbg, pg, 9)) + "," +
+                      std::to_string(cov(dbg, pg, 10)) + " rom " + std::to_string(cov(dbg, dr, 8)) + "," +
+                      std::to_string(cov(dbg, dr, 9)) + "," + std::to_string(cov(dbg, dr, 10)) + "; ";
+        }
+        {   // delayed-off
+            Emulator emu; machine(emu);
+            Debugger dbg(emu);
+            dbg.mem_coverage_enable(true);
+            emu.nextreg().write(0xB8, 0x02); emu.nextreg().write(0xB9, 0x02); emu.nextreg().write(0xBA, 0x02);
+            emu.divmmc().rom_data()[8] = 0x00;
+            emu.mmu().write(0x0008, 0x00);
+            emu.mmu().write(0x8000, 0xCF);                          // RST $08, instant-on
+            emu.mmu().write(0x1FF8, 0x3A); emu.mmu().write(0x1FF9, 0x55); emu.mmu().write(0x1FFA, 0x66);   // page: LD A,(6655)
+            emu.divmmc().rom_data()[0x1FF8] = 0x11; emu.divmmc().rom_data()[0x1FF9] = 0x00; emu.divmmc().rom_data()[0x1FFA] = 0x90;
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.execute_single_instruction();                       // RST 8
+            emu.execute_single_instruction();                       // the NOP at 0x0008, instant-on: the DivMMC is held
+            r = emu.cpu().get_registers(); r.PC = 0x1FF8; emu.cpu().set_registers(r);
+            emu.execute_single_instruction();                       // fetched in the off range
+            const MemSpace pg = MemSpace::page(10), dr = MemSpace::divmmc_rom();
+            off_ok = cov(dbg, dr, 0x1FF8) == COVERAGE_EXEC && cov(dbg, pg, 0x1FF8) == 0 &&
+                     cov(dbg, pg, 0x1FF9) == COVERAGE_READ && cov(dbg, pg, 0x1FFA) == COVERAGE_READ &&
+                     cov(dbg, dr, 0x1FF9) == 0 && cov(dbg, dr, 0x1FFA) == 0;
+            detail += "off: page " + std::to_string(cov(dbg, pg, 0x1FF8)) + "," + std::to_string(cov(dbg, pg, 0x1FF9)) + "," +
+                      std::to_string(cov(dbg, pg, 0x1FFA)) + " rom " + std::to_string(cov(dbg, dr, 0x1FF8)) + "," +
+                      std::to_string(cov(dbg, dr, 0x1FF9)) + "," + std::to_string(cov(dbg, dr, 0x1FFA));
+        }
+        check("INS-21-18", "the hook marks an M1 through the DivMMC fetch view and every other cycle through the "
+                           "data view: at a delayed-on RST 8 the instruction at 0x0008 is X in the page and its "
+                           "operands are R in the DivMMC ROM; an instruction fetched in 0x1FF8-0x1FFF is X in the "
+                           "DivMMC ROM and its operands R in the page (divmmc.vhd:128-148; zxnext.vhd:2904)",
+              on_ok && off_ok, detail);
+    }
+
     // INS-21-15: X agrees with INS-20.
     {
         Emulator emu; build(emu);
