@@ -14,6 +14,7 @@
 
 #include "debug/debugger_impl.h"
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 #include <utility>
@@ -379,10 +380,13 @@ RunState Debugger::state() const {
         case PauseReason::Kind::RunTo:
             // A run-to stops at its target OR earlier, on a breakpoint the run
             // crossed. Which one it was is readable: the target address.
-            if (!impl_->has_target || impl_->armed_target == st.pc) {
+            if (!impl_->has_target || impl_->armed_target == st.pc ||
+                std::find(impl_->armed_targets.begin(), impl_->armed_targets.end(), st.pc) !=
+                    impl_->armed_targets.end()) {
                 st.pause_reason.kind = PauseReason::Kind::RunTo;
                 st.pause_reason.by   = impl_->armed_by;
-                st.pause_reason.addr = impl_->armed_target;
+                // GH #423: a source line has several targets; the one reached is the PC.
+                st.pause_reason.addr = impl_->armed_targets.empty() ? impl_->armed_target : st.pc;
                 st.pause_reason.id   = impl_->armed_target_id;
                 return st;
             }

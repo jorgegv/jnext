@@ -219,6 +219,9 @@ struct Debugger::Impl {
     /// `inspect.h`'s `RunTo`: "`id` names the transient subscription where there
     /// was one" (GH #276 B5: `state()` never filled it).
     EventId           armed_target_id = EVENT_NONE;
+    /// GH #423 - every address of a run-to-source-line (a line compiled to
+    /// several places stops at any of them); empty for the single-address verbs.
+    std::vector<uint16_t> armed_targets;
 
     /// SES-01 pause ownership (GH #280 N1, owner decision 2026-10-01: "the
     /// pause should belong to the one remaining"). The client whose pause the
@@ -244,6 +247,7 @@ struct Debugger::Impl {
         has_target   = false;
         armed_target = 0;
         armed_target_id = EVENT_NONE;
+        armed_targets.clear();
         pause_origin    = CLIENT_NONE;
         // GH #276 B2 — the event-stop latch describes the stop the machine is
         // LEAVING, and every control verb calls this. Clearing it here rather
@@ -373,6 +377,16 @@ struct Debugger::Impl {
     /// difference being that here it refuses instead of asking, and the asking
     /// stays in Qt (§4.1 CTL-11).
     Result execute_gate() const;
+
+    /// GH #423 - the pause a run-to makes to take its target. On a RUNNING
+    /// machine the caller's earlier transient targets go first (its previous
+    /// Run to Here would otherwise stop the machine at the old target); another
+    /// client's stay. A paused machine already dropped its own at the stop.
+    void retarget_pause(ClientId by) {
+        if (ds().paused()) return;
+        if (events.clear_transient(by)) gates_changed();
+        ds().pause();
+    }
 
     // ── B3 (§4.8 CAP-SES) — the session ─────────────────────────────────────
 

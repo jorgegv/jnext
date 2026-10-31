@@ -384,6 +384,13 @@ public:
     /// RSP's `i<len>` is `run_to(pc + len)`.
     Result run_to(ClientId by, uint16_t addr);
 
+    /// CTL-06 for a source line (GH #423): a transient `Execute` group at every
+    /// start of `file_line` (`subscribe_source_line`, each member tied to its
+    /// memory) plus a run. The stop at any start reports `RunTo` with that
+    /// address. Refused, the machine untouched, for no live map or a line with no
+    /// code; the gates of run_to() otherwise. ASYNCHRONOUS.
+    Result run_to_source_line(ClientId by, const std::string& file_line);
+
     /// CTL-07 / TIME-03 — run until the master cycle counter reaches
     /// `master_cycle`. The primitive under CTL-08.
     Result run_to_cycle(ClientId by, uint64_t master_cycle);

@@ -187,6 +187,10 @@ public:
     /// stop"). Returns how many went.
     size_t clear_transient();
 
+    /// ... only those `owner` made (GH #423: a client re-targeting its own run-to
+    /// must not drop another client's pending step).
+    size_t clear_transient(ClientId owner);
+
     /// SES-01 — drop everything a client owns. B3's `detach` needs it; declared
     /// here because the data is here.
     size_t erase_client(ClientId cid);

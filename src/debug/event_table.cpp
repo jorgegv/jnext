@@ -69,6 +69,19 @@ size_t EventTable::clear_transient() {
     return n;
 }
 
+size_t EventTable::clear_transient(ClientId owner) {
+    size_t n = 0;
+    for (auto& e : subs_) {
+        if (e.removed || !e.transient || e.owner != owner) continue;
+        e.removed   = true;
+        e.condition = nullptr;
+        e.handler   = nullptr;
+        ++n;
+    }
+    if (n) refresh();
+    return n;
+}
+
 size_t EventTable::erase_client(ClientId cid) {
     size_t n = 0;
     for (auto& e : subs_) {
