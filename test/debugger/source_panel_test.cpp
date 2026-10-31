@@ -2981,6 +2981,15 @@ struct SrcView {
     }
     void click(int line) { mouse(QEvent::MouseButtonPress, line, Qt::LeftButton); }
     void hover(int line) { mouse(QEvent::MouseMove, line, Qt::NoButton); }
+    /// The number cell of `line` is empty: nothing but the gutter's background.
+    bool number_blank(const QImage& img, int line) const {
+        const QRect c = cell(line);
+        const QImage cellimg = img.copy(QRect(kGutterW + 4, c.top(), gutter->width() - kGutterW - 4 - 6, c.height()));
+        for (int y = 0; y < cellimg.height(); ++y)
+            for (int x = 0; x < cellimg.width(); ++x)
+                if (cellimg.pixel(x, y) != qRgb(255, 255, 255)) return false;
+        return true;
+    }
     /// The number cell of `line` as the gutter paints it equals `text` painted by hand.
     bool number_is(const QImage& img, int line, const QString& text) const {
         const QRect c = cell(line);
@@ -3023,7 +3032,7 @@ void test_source_gutter() {
                            v.number_is(img, 13, "13");
         // the file's final newline starts no line: its blank last block is not numbered
         const bool distinct = !v.number_is(img, 10, "9") && !v.number_is(img, 10, "11") &&
-                              !v.number_is(img, 14, "14");
+                              v.number_blank(img, 14);
         const bool margin = v.ed->viewport()->geometry().left() >= v.gutter->geometry().right() &&
                             v.gutter->geometry().top() == v.ed->viewport()->geometry().top();
         check("QSRC-79", "the gutter numbers the file's own lines (1, 10, 13), line 10's cell is not "
@@ -3220,17 +3229,24 @@ void test_source_gutter() {
         const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p80 + 2);
         const std::string sld = write_sld("gut-banked.sld",
             "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
-            "main.bas|12||0|" + b + "|32773|T|\n" + "main.bas|13||0|" + a + "|32774|T|\n");
+            "main.bas|12||0|" + b + "|32773|T|\n" + "main.bas|13||0|" + a + "|32774|T|\n" +
+            "main.bas|13||0|" + b + "|40960|T|\n");
         fx.backend->load_source_map(sld, false);
         BreakpointModel& m = fx.mgr->breakpoints();
         SrcView v(fx, m);
         if (!v.gutter) { check("QSRC-90", "the Source tab has a gutter", false); return; }
+        // line 13 has a place that is mapped and one that is not: only the mapped one counts
+        v.click(13);
+        const std::string mixed = v.mark(13);
+        v.click(13);
         v.click(12);
         const bool set = gui_subs(fx, m) == 1;
         check("QSRC-90", "a breakpoint on a line whose page is not mapped now is set, shows no mark, and "
-                         "the tooltip says the memory is not mapped now",
-              set && v.mark(12) == "none" && v.sp->line_tooltip(12).contains(QStringLiteral("not mapped now")),
-              std::to_string(gui_subs(fx, m)) + " " + v.mark(12) + " | " + s(v.sp->line_tooltip(12)));
+                         "the tooltip says the memory is not mapped now; a line with one mapped and one "
+                         "unmapped place shows the full disc once the mapped place is armed",
+              set && v.mark(12) == "none" && v.sp->line_tooltip(12).contains(QStringLiteral("not mapped now")) &&
+                  mixed == "disc",
+              std::to_string(gui_subs(fx, m)) + " " + v.mark(12) + " | " + s(v.sp->line_tooltip(12)) + " mixed=" + mixed);
         v.click(12);
         check("QSRC-91", "a click on that line removes the hidden group instead of stacking a second",
               gui_subs(fx, m) == 0, std::to_string(gui_subs(fx, m)));
@@ -3242,13 +3258,15 @@ void test_source_gutter() {
         BreakpointModel& m = fx.mgr->breakpoints();
         SrcView v(fx, m);
         if (!v.gutter) { check("QSRC-94", "the Source tab has a gutter", false); return; }
-        QApplication::processEvents();
+        QTest::qWait(50);   // let the first paints of the shown window settle
         v.paints.n = 0;
         m.add_source_line(QStringLiteral("main.bas:12"));   // what the Breakpoints panel's Add does
         QApplication::processEvents();
+        const int repainted = v.paints.n;   // before mark(): rendering the gutter paints it too
+        const std::string disc = v.mark(12);
         check("QSRC-94", "a breakpoint added through the model repaints the gutter without a panel "
                          "refresh, and line 12 then shows the disc",
-              v.paints.n > 0 && v.mark(12) == "disc", std::to_string(v.paints.n) + " " + v.mark(12));
+              repainted > 0 && disc == "disc", std::to_string(repainted) + " " + disc);
         m.clear_all();
 
         const QPalette light = QApplication::palette();
@@ -3268,7 +3286,7 @@ void test_source_gutter() {
         const QColor bg_back = QColor::fromRgb(v.gutter_image().pixel(kGutterW + 1, 1));
         check("QSRC-95", "on a dark palette the gutter is dark with lighter numbers and the breakpoint "
                          "stays red; the light palette restores white",
-              bg.lightness() < 100 && ink > bg.lightness() + 50 && dark_mark == "disc" &&
+              bg.lightness() < 100 && ink > 150 && dark_mark == "disc" &&
                   bg_back.lightness() > 240,
               std::to_string(bg.lightness()) + " ink=" + std::to_string(ink) + " " + dark_mark +
                   " back=" + std::to_string(bg_back.lightness()));
