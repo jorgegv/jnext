@@ -2385,7 +2385,8 @@ the row of the table says where:</p>
   CPU speed into its own copy of the saved values, then hands that copy to
   <code>MainWindow::apply_startup_config()</code>. The debugger keys of the run go to
   <code>set_session_debug_keys()</code> after <code>dbgkeys::apply_overrides()</code> has refused a
-  clash, and <code>debugger.attached</code> to <code>DebuggerManager::set_attach_override()</code>.
+  clash, <code>debugger.attached</code> to <code>DebuggerManager::set_attach_override()</code> and
+  <code>debugger.physical_addresses</code> to <code>DebuggerManager::set_physical_override()</code>.
   None of it reaches <code>MainWindow::app_config_</code>, the object that is saved.</li>
 </ul>
 <p>Two argument shapes bypass the table lookup, both on purpose.
