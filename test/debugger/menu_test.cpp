@@ -612,9 +612,12 @@ struct DebuggerFixture {
     DebuggerWindow*  dbg = nullptr;
     bool             ok  = false;
 
-    DebuggerFixture() {
+    // `coverage_on`: the backend is already recording when the window is built
+    // over it (--coverage, GH #388).
+    explicit DebuggerFixture(bool coverage_on = false) {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        if (coverage_on) backend->mem_coverage_enable(true);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
@@ -2901,6 +2904,88 @@ static void test_source_dirs_wiring()
     if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
 }
 
+// ===========================================================================
+// QCOV -- GH #388 (E23-25): Debug > Coverage. Enable Coverage toggles the
+// backend's memory coverage and mirrors it (also for a window built over a
+// backend that --coverage already switched on); Clear Coverage empties every
+// map, recording goes on, and the panels refresh. Oracle: the owner's design
+// (doc/design/SOURCE-LEVEL-DEBUGGING.md 11.1) and Debug > Trace's pattern.
+// ===========================================================================
+static QAction* coverage_item(DebuggerFixture& fx, const QString& text)
+{
+    QAction* sub = item_named(menu_named(fx.dbg->menuBar(), QStringLiteral("Debug")),
+                              QStringLiteral("Coverage"));
+    return item_named(sub ? sub->menu() : nullptr, text);
+}
+
+static void test_coverage_menu()
+{
+    set_group("QCOV");
+    {
+        DebuggerFixture on(/*coverage_on=*/true);
+        DebuggerFixture off;
+        if (!on.ok || !off.ok) {
+            check("QCOV-01", "Debug > Coverage > Enable Coverage toggles and mirrors the backend",
+                  false, "fixture failed");
+            check("QCOV-07", "Debug > Coverage > Clear Coverage empties the maps and refreshes",
+                  false, "fixture failed");
+            return;
+        }
+        auto enable_of = [](DebuggerFixture& fx) { return coverage_item(fx, QStringLiteral("Enable Coverage")); };
+        auto clear_of  = [](DebuggerFixture& fx) { return coverage_item(fx, QStringLiteral("Clear Coverage")); };
+        QAction* en_on = enable_of(on);
+        QAction* en_off = enable_of(off);
+        // A window built over a recording backend shows it ticked; over a quiet one, not.
+        const bool mirrored = en_on && en_on->isCheckable() && en_on->isChecked() &&
+                              en_off && !en_off->isChecked() && on.backend->mem_coverage_enabled() &&
+                              !off.backend->mem_coverage_enabled();
+        if (en_off) { en_off->trigger(); QApplication::processEvents(); }
+        const bool turned_on = off.backend->mem_coverage_enabled() && en_off->isChecked() &&
+                               off.emu.debug_state().mem_coverage_sink() != nullptr;
+        if (en_off) { en_off->trigger(); QApplication::processEvents(); }
+        const bool turned_off = !off.backend->mem_coverage_enabled() && !en_off->isChecked() &&
+                                off.emu.debug_state().mem_coverage_sink() == nullptr;
+        if (en_on) { en_on->trigger(); QApplication::processEvents(); }
+        const bool untick_started = !on.backend->mem_coverage_enabled() && !en_on->isChecked();
+        check("QCOV-01",
+              "Debug > Coverage > Enable Coverage is checkable and mirrors the backend, including a window "
+              "built over a backend that was already recording (--coverage); ticking it switches the "
+              "backend on and unticking it off",
+              mirrored && turned_on && turned_off && untick_started,
+              fmt("mirrored=%d on=%d off=%d untick=%d", mirrored, turned_on, turned_off, untick_started));
+
+        // QCOV-07: Clear Coverage.
+        DebuggerFixture cl;
+        QAction* clear = cl.ok ? clear_of(cl) : nullptr;
+        QAction* enable = cl.ok ? enable_of(cl) : nullptr;
+        bool ok7 = false;
+        std::string why7 = "fixture";
+        if (clear && enable) {
+            cl.backend->mem_coverage_enable(true);           // behind the window's back: unticked
+            const bool unticked = !enable->isChecked();
+            cl.emu.mmu().write(0x8000, 0x00);
+            Z80Registers r = cl.emu.cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = r.IFF2 = 0;
+            cl.emu.cpu().set_registers(r);
+            cl.emu.execute_single_instruction();
+            const bool marked = !cl.backend->mem_coverage_spaces().empty();
+            clear->trigger();
+            QApplication::processEvents();
+            ok7 = unticked && marked && cl.backend->mem_coverage_spaces().empty() &&
+                  cl.backend->mem_coverage_enabled() && enable->isChecked();
+            why7 = fmt("unticked=%d marked=%d spaces=%zu enabled=%d ticked_after=%d", unticked, marked,
+                       cl.backend->mem_coverage_spaces().size(), cl.backend->mem_coverage_enabled(),
+                       enable->isChecked());
+            cl.emu.execute_single_instruction();             // recording goes on
+            ok7 = ok7 && !cl.backend->mem_coverage_spaces().empty();
+        }
+        check("QCOV-07",
+              "Debug > Coverage > Clear Coverage empties every map, recording goes on, and the panels refresh "
+              "(the Enable item, unticked behind the window's back, shows the backend again)",
+              ok7, why7);
+    }
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -2948,6 +3033,8 @@ int main(int argc, char** argv)
     std::printf("  Group: DWK            - done\n");
     test_source_dirs_wiring();
     std::printf("  Group: MWSRC          - done\n");
+    test_coverage_menu();
+    std::printf("  Group: QCOV           - done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

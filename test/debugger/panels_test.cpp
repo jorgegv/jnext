@@ -49,6 +49,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/coverage_colors.h"   // GH #388
 #include "debugger/memory_panel.h"
 #include "debugger/mmu_panel.h"
 #include "debugger/video_panel.h"
@@ -1878,6 +1879,284 @@ static void test_disasm_latch() {
 }
 
 // ===========================================================================
+// QCOV -- GH #388 (E23-25): memory coverage in the Disassembly and Memory panels.
+//
+// Oracle: the owner's design (doc/design/SOURCE-LEVEL-DEBUGGING.md 11.1, the
+// issue): a Disassembly line whose first opcode byte ran has a green bar in the
+// margin; the Memory panel underlines each covered byte with X | R | W in thirds
+// of its cell (green, blue, orange-red); nothing is drawn while coverage is off;
+// the colours come through palette_tint, so a dark palette gets readable ones.
+// The panels are rendered into a QImage and the exact colours looked for, as the
+// QDARK rows do.
+// ===========================================================================
+namespace {
+
+struct CovProbe {
+    int x0, x1;                  // the cell
+    int y0, y1;                  // the rows to look in
+};
+
+// Which of the three coverage colours appear in the rectangle (bit 1 X, 2 R, 4 W).
+int cov_colours_in(const QImage& img, const CovProbe& r, const QPalette& pal) {
+    int mask = 0;
+    const QRgb x = coverage_colors::exec(pal).rgb(), rd = coverage_colors::read(pal).rgb(),
+               w = coverage_colors::write(pal).rgb();
+    for (int y = std::max(0, r.y0); y < std::min(img.height(), r.y1); ++y)
+        for (int xx = std::max(0, r.x0); xx < std::min(img.width(), r.x1); ++xx) {
+            const QRgb c = img.pixel(xx, y);
+            if (c == x) mask |= 1;
+            else if (c == rd) mask |= 2;
+            else if (c == w) mask |= 4;
+        }
+    return mask;
+}
+
+// Runs of rows at pixel column `x` whose colour is `want`: (first row, length).
+std::vector<std::pair<int, int>> bar_runs(const QImage& img, int x, QRgb want) {
+    std::vector<std::pair<int, int>> runs;
+    for (int y = 0; y < img.height(); ++y) {
+        if (img.pixel(x, y) != want) continue;
+        if (!runs.empty() && runs.back().first + runs.back().second == y) ++runs.back().second;
+        else runs.push_back({y, 1});
+    }
+    return runs;
+}
+
+}  // namespace
+
+static QPalette dark_test_palette();   // defined with the QDARK rows below
+
+static void test_coverage_panels() {
+    set_group("QCOV");
+
+    auto image_of = [](QWidget* w) {
+        QImage img(w->size(), QImage::Format_ARGB32);
+        img.fill(Qt::black);
+        w->render(&img);
+        return img;
+    };
+    // GUTTER_WIDTH is private: the bar sits one pixel past the gutter separator,
+    // which is the panel's first pixel column with the separator's colour.
+    auto gutter_x = [](const QImage& img, const QPalette& p) {
+        const QRgb sep = palette_tint::surface(p, QColor(200, 200, 200)).rgb();
+        for (int x = 1; x < 60; ++x)
+            if (img.pixel(x, 60) == sep && img.pixel(x, 61) == sep) return x;
+        return -1;
+    };
+
+    Emulator emu;
+    const bool built = build(emu, MachineType::ZX48K);
+    // 8000 LD A,(9000) / 8003 LD (9001),A / 8006 NOP / 8007 NOP
+    poke(emu, 0x8000, {0x3A, 0x00, 0x90, 0x32, 0x01, 0x90, 0x00, 0x00});
+    Z80Registers r0 = emu.cpu().get_registers();
+    r0.PC = 0x8000; r0.SP = 0xFF00; r0.IFF1 = r0.IFF2 = 0;
+    emu.cpu().set_registers(r0);
+    jnext::dbg::Debugger dbg(emu);
+    DisasmPanel dis(&dbg);
+    dis.resize(700, 400);
+    dis.set_paused(true);
+    dis.activate_follow_pc();
+    dis.refresh();
+    MemoryPanel mem(&dbg);
+    mem.resize(700, 600);
+    mem.refresh();
+    const QPalette pal = QApplication::palette();
+    const QImage dis_never = image_of(&dis), mem_never = image_of(&mem);
+
+    dbg.mem_coverage_enable(true);
+    for (int i = 0; i < 3; ++i) emu.execute_single_instruction();       // LD, LD, NOP
+    // The Disassembly follows the PC again from 8000: four lines, the first three ran.
+    emu.cpu().set_registers([&] { Z80Registers r = emu.cpu().get_registers(); r.PC = 0x8000; return r; }());
+    dis.activate_follow_pc();
+    dis.refresh();
+    mem.refresh();
+    const QImage dis_on = image_of(&dis);
+    const int gx = gutter_x(dis_on, pal);
+
+    {   // QCOV-02 (a): the bar is on the executed lines and not on the others
+        const auto runs = gx > 0 ? bar_runs(dis_on, gx + 2, coverage_colors::exec(pal).rgb())
+                                 : std::vector<std::pair<int, int>>{};
+        bool geometry = runs.size() == 3;
+        for (size_t i = 0; geometry && i < runs.size(); ++i)
+            geometry = runs[i].second == 16 && (i == 0 || runs[i].first - runs[i - 1].first == 18);
+        // (b) the fetch view: a DivMMC automap at RST 8 -- the line at 0x0008 has X in the
+        //     DivMMC ROM (it ran there), and nothing in the ROM / RAM page the data view names.
+        Emulator nx;
+        bool nx_ok = build(nx, MachineType::ZXN_ISSUE2);
+        nx.mmu().set_boot_rom_enabled(false);
+        nx.mmu().set_config_mode(false);
+        nx.nextreg().write(0x50, 10);
+        nx.nextreg().write(0x0A, 0x10);
+        nx.nextreg().write(0xB8, 0x02); nx.nextreg().write(0xB9, 0x02); nx.nextreg().write(0xBA, 0x02);
+        nx.divmmc().set_port_io_enable(true);
+        nx.divmmc().rom_data()[8] = 0x00;
+        nx.mmu().write(0x0008, 0x00);
+        nx.mmu().write(0x8000, 0xCF);                      // RST $08
+        Z80Registers nr = nx.cpu().get_registers();
+        nr.PC = 0x8000; nr.SP = 0xFF00; nr.IFF1 = nr.IFF2 = 0;
+        nx.cpu().set_registers(nr);
+        jnext::dbg::Debugger ndbg(nx);
+        ndbg.mem_coverage_enable(true);
+        nx.execute_single_instruction();                   // RST 8
+        nx.execute_single_instruction();                   // the NOP at 0x0008, from the DivMMC ROM
+        nx.divmmc().on_retn();                             // out of the DivMMC again
+        nx.divmmc().on_retn_instruction_complete();
+        Z80Registers pc8 = nx.cpu().get_registers();
+        pc8.PC = 0x0008;
+        nx.cpu().set_registers(pc8);
+        DisasmPanel ndis(&ndbg);
+        ndis.resize(700, 400);
+        ndis.set_paused(true);
+        ndis.activate_follow_pc();
+        ndis.refresh();
+        const QImage nimg = image_of(&ndis);
+        const int ngx = gutter_x(nimg, pal);
+        const auto nruns = ngx > 0 ? bar_runs(nimg, ngx + 2, coverage_colors::exec(pal).rgb())
+                                   : std::vector<std::pair<int, int>>{};
+        const bool follows_fetch = nx_ok && nruns.size() == 1 && nruns[0].second == 16 &&
+                                   (ndbg.mem_coverage_fetch(0x0008) & jnext::dbg::COVERAGE_EXEC);
+        uint8_t data_view = 0xEE;
+        ndbg.mem_coverage(jnext::dbg::MemSpace::cpu(), 0x0008, 1, &data_view);
+        check("QCOV-02",
+              "Disassembly: with coverage on, each line whose first opcode byte ran has a 16-px green bar "
+              "just right of the gutter (three of the four lines here) and the others have none; after a "
+              "DivMMC automap at RST 8 the 0x0008 line has the bar, from the DivMMC ROM's X, while the "
+              "data view of 0x0008 has no mark",
+              built && gx > 0 && geometry && follows_fetch && data_view == 0,
+              fmt("gutter=%d runs=%zu follows_fetch=%d nruns=%zu data=%u", gx, runs.size(),
+                  int(follows_fetch), nruns.size(), unsigned(data_view)));
+    }
+
+    {   // QCOV-03: the Memory panel's X | R | W underline, per byte, per view
+        auto cell_marks = [&](MemoryPanel& m, const QString& label, int col, const QImage& img) {
+            const DumpRow row = dump_row(painted(&m), label);
+            if (!row.found) return -1;
+            // locate the byte's text item to get its x
+            const auto items = painted(&m);
+            double x = -1;
+            for (size_t i = 0; i < items.size(); ++i)
+                if (items[i].text == label && i + 17 < items.size()) { x = items[i + 1 + col].pos.x(); break; }
+            const QFontMetrics fm(QFont("Monospace", 10));
+            const int cw = fm.horizontalAdvance('0') * 2;
+            return cov_colours_in(img, {int(x), int(x) + cw, int(row.baseline_y), int(row.baseline_y) + 14}, pal);
+        };
+        go_to(&mem, "8000");
+        const QImage img = image_of(&mem);
+        const bool x_cols = cell_marks(mem, "$8000", 0, img) == 1 && cell_marks(mem, "$8000", 3, img) == 1 &&
+                            cell_marks(mem, "$8000", 6, img) == 1;
+        const bool r_cols = cell_marks(mem, "$8000", 1, img) == 2 && cell_marks(mem, "$8000", 2, img) == 2 &&
+                            cell_marks(mem, "$8000", 4, img) == 2 && cell_marks(mem, "$8000", 5, img) == 2;
+        const bool clear_cols = cell_marks(mem, "$8000", 7, img) == 0 && cell_marks(mem, "$8000", 8, img) == 0;
+        go_to(&mem, "9000");
+        const QImage img9 = image_of(&mem);
+        const bool data = cell_marks(mem, "$9000", 0, img9) == 2 && cell_marks(mem, "$9000", 1, img9) == 4;
+        // A byte that is both executed and read shows both segments: 0x9000 executed too.
+        emu.cpu().set_registers([&] { Z80Registers r = emu.cpu().get_registers(); r.PC = 0x9000; return r; }());
+        poke(emu, 0x9000, {0x00});
+        emu.execute_single_instruction();
+        mem.refresh();
+        const QImage imgb = image_of(&mem);
+        const bool both = cell_marks(mem, "$9000", 0, imgb) == 3;   // X and R
+        // The Page view of another page shows none; the Slot view uses the slot's space.
+        select_view(&mem, 1 + 4);                                     // Slot 4: 0x8000 -> Page{4}
+        go_to(&mem, "0000");
+        const QImage slot_img = image_of(&mem);
+        const bool slot_ok = cell_marks(mem, "$0000", 0, slot_img) == 1 && cell_marks(mem, "$0000", 1, slot_img) == 2;
+        select_view(&mem, 1 + 7);                                     // Slot 7: not touched
+        go_to(&mem, "0000");
+        const QImage slot7 = image_of(&mem);
+        const bool slot7_clear = cell_marks(mem, "$0000", 0, slot7) == 0 && cell_marks(mem, "$0000", 1, slot7) == 0;
+        select_page_view(&mem, "20");                                 // Page 0x20: not touched
+        go_to(&mem, "0000");
+        const QImage pg = image_of(&mem);
+        const bool page_clear = cell_marks(mem, "$0000", 0, pg) == 0 && cell_marks(mem, "$0000", 1, pg) == 0;
+        check("QCOV-03",
+              "Memory panel, coverage on: the CPU view underlines the executed bytes in X (green), the "
+              "operand and data reads in R (blue), the landed write in W (orange-red), a byte both executed "
+              "and read in both, and leaves the others plain; the Slot view reads the slot's space (same "
+              "marks), another slot and another Page show none",
+              x_cols && r_cols && clear_cols && data && both && slot_ok && slot7_clear && page_clear,
+              fmt("x=%d r=%d clear=%d data=%d both=%d slot=%d slot7=%d page=%d", x_cols, r_cols, clear_cols,
+                  data, both, slot_ok, slot7_clear, page_clear));
+    }
+
+    {   // QCOV-04: switched off (the set cleared), both panels are what they were never enabled
+        dbg.mem_coverage_enable(false);
+        emu.cpu().set_registers(r0);
+        poke(emu, 0x9000, {0x00, 0x00});
+        select_view(&mem, 0);
+        go_to(&mem, "0000");
+        mem.refresh();
+        dis.activate_follow_pc();
+        dis.refresh();
+        // never-enabled reference, same state
+        Emulator e2;
+        build(e2, MachineType::ZX48K);
+        poke(e2, 0x8000, {0x3A, 0x00, 0x90, 0x32, 0x01, 0x90, 0x00, 0x00});
+        poke(e2, 0x9000, {0x00, 0x00});
+        e2.cpu().set_registers(r0);
+        jnext::dbg::Debugger d2(e2);
+        DisasmPanel dis2(&d2);
+        dis2.resize(700, 400); dis2.set_paused(true); dis2.activate_follow_pc(); dis2.refresh();
+        MemoryPanel mem2(&d2);
+        mem2.resize(700, 600); mem2.refresh();
+        go_to(&mem2, "0000");
+        const bool dis_same = image_of(&dis) == image_of(&dis2) && image_of(&dis) == dis_never;
+        const bool mem_same = image_of(&mem) == image_of(&mem2);
+        QLabel* legend = nullptr;
+        for (QLabel* l : mem.findChildren<QLabel*>())
+            if (l->text().contains("Coverage:")) legend = l;
+        check("QCOV-04",
+              "with coverage off (switched off after a run) the Disassembly and Memory panels are pixel-"
+              "identical to a backend that never enabled it, and the legend is hidden",
+              built && dis_same && mem_same && (!legend || !legend->isVisible()),
+              fmt("dis=%d mem=%d legend=%d", dis_same, mem_same, int(legend && legend->isVisible())));
+        (void)mem_never;
+    }
+
+    {   // QCOV-05: on a dark palette the three marks are drawn in readable colours
+        dbg.mem_coverage_enable(true);
+        emu.cpu().set_registers(r0);
+        for (int i = 0; i < 3; ++i) emu.execute_single_instruction();
+        emu.cpu().set_registers(r0);
+        QApplication::setPalette(dark_test_palette());
+        for (int i = 0; i < 3; ++i) QApplication::processEvents();
+        const QPalette dpal = QApplication::palette();
+        dis.activate_follow_pc();
+        dis.refresh();
+        select_view(&mem, 0);
+        go_to(&mem, "8000");
+        mem.refresh();
+        const QImage dimg = image_of(&dis), mimg = image_of(&mem);
+        const int dgx = gutter_x(dimg, dpal);
+        const QColor ex = coverage_colors::exec(dpal), rd = coverage_colors::read(dpal),
+                     wr = coverage_colors::write(dpal);
+        const int base = dpal.color(QPalette::Base).lightness();
+        const bool bar = dgx > 0 && !bar_runs(dimg, dgx + 2, ex.rgb()).empty();
+        const DumpRow row = dump_row(painted(&mem), "$8000");
+        const int found = row.found ? cov_colours_in(mimg, {0, mimg.width(), int(row.baseline_y),
+                                                           int(row.baseline_y) + 14}, dpal) : -1;
+        go_to(&mem, "9000");
+        mem.refresh();
+        const DumpRow row9 = dump_row(painted(&mem), "$9000");
+        const int found9 = row9.found ? cov_colours_in(image_of(&mem), {0, mimg.width(), int(row9.baseline_y),
+                                                                        int(row9.baseline_y) + 14}, dpal) : -1;
+        const bool contrast = std::abs(ex.lightness() - base) >= 60 && std::abs(rd.lightness() - base) >= 60 &&
+                              std::abs(wr.lightness() - base) >= 60;
+        const bool differs = ex != coverage_colors::exec(pal) && rd != coverage_colors::read(pal);
+        QApplication::setPalette(pal);
+        for (int i = 0; i < 3; ++i) QApplication::processEvents();
+        check("QCOV-05",
+              "on a dark palette the Disassembly bar and the Memory underline are drawn in the palette-"
+              "adapted X, R and W colours, each at least 60 lightness steps from the panel's Base, and "
+              "they differ from the light-palette colours",
+              bar && (found & 1) && (found & 2) && (found9 & 4) && contrast && differs,
+              fmt("bar=%d found=%d found9=%d contrast=%d differs=%d ex=%s rd=%s wr=%s base=%d", bar, found,
+                  found9, contrast, differs, s(ex.name()).c_str(), s(rd.name()).c_str(), s(wr.name()).c_str(), base));
+    }
+}
+
+// ===========================================================================
 // QWIN — GH #278 WP4a/b review round 1: the REAL window hands the backend to
 // its MMU, Sprites and Copper panels. Their QPN rows build each panel directly,
 // so a DebuggerWindow::create_panels() that handed one of them nullptr — a
@@ -3172,6 +3451,7 @@ int main(int argc, char** argv) {
     test_dark_palette();
     test_memory_panel();
     test_disasm_latch();
+    test_coverage_panels();
     test_script_panel();
 
     std::printf("\n=====================================\n");
