@@ -3105,6 +3105,18 @@ int main() {
             cs.on_interrupt(0x9003, 0x0038, T - 4);
             ins(0x0038, T - 4, 0xC9, 0x9004, T - 2);
             const bool halted = cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
+            // The NMI half: the same callee shape, an NMI at $9003, RETN back to $9003.
+            fresh();
+            ins(0x8000, T, 0xE5, 0x8001, T - 2);
+            ins(0x8001, T - 2, 0xCD, 0x9000, T - 4, 0x00, 0x90);
+            ins(0x9000, T - 4, 0xD1, 0x9001, T - 2);
+            ins(0x9001, T - 2, 0xC1, 0x9002, T);
+            ins(0x9002, T, 0xD5, 0x9003, T - 2);
+            cs.on_instruction_pre(0x9003, T - 2, 0x00, 0, 0);
+            cs.on_interrupt(0x9003, 0x0066, T - 4, CallType::NMI);
+            const bool nmi_open = cs.frames().size() == 2 && cs.frames()[1].type == CallType::NMI;
+            ins(0x0066, T - 4, 0xED, 0x9003, T - 2, 0x45);   // RETN
+            const bool nmi = nmi_open && cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
             // #278: an ISR that returns ELSEWHERE (a context switch) falls back to the SP rule:
             // the INT frame ends (its slot is below SP) and the CALL frame at SP stays.
             fresh();
@@ -3115,8 +3127,8 @@ int main() {
             const bool elsewhere = cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
             check("SRCDBG-CS-14", "an INT frame ends when the ISR returns to the interrupted PC, so a "
                                   "routine that moved its return slot keeps its frame; an ISR that "
-                                  "returns elsewhere ends it by SP (GH #278: strictly below); after a HALT the return point is the HALT + 1",
-                  callee && halted && elsewhere);
+                                  "returns elsewhere ends it by SP (GH #278: strictly below); after a HALT the return point is the HALT + 1; an NMI and its RETN follow the same rule",
+                  callee && halted && nmi && elsewhere);
         }
     }
     {
@@ -3135,9 +3147,10 @@ int main() {
         const uint16_t caller = taken ? f[1].caller_pc : 0;
         m.dbg->step_into(m.a);                   // EI
         m.dbg->step_into(m.a);                   // RET
-        check("SRCDBG-CS-15", "an INT that ended a HALT is ended by the ISR's RET to the HALT's "
-                              "successor, leaving the interrupted CALL's frame",
-              taken && f.size() == 1 && f[0].type == CallType::CALL,
+        check("SRCDBG-CS-15", "an INT that ended a HALT has the HALT as its caller, and the ISR's RET "
+                              "to the HALT's successor ends it, leaving the interrupted CALL's frame",
+              taken && caller == 0xC000 && m.pc() == 0xC001 && f.size() == 1 &&
+                  f[0].type == CallType::CALL,
               "caller " + hex(caller) + " pc " + hex(m.pc()) + " frames " + std::to_string(f.size()));
     }
 
