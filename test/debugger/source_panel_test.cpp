@@ -4733,10 +4733,10 @@ void test_source_highlight_rules() {
         const bool nest1 = tok(h, 5, QStringLiteral("/' a /' b '/ c '/")) == 'C' && tok(h, 5, QStringLiteral("print")) == 'K';
         const bool nest2 = role_mask(h, 6) == "CCCCCCC" && tok(h, 7, QStringLiteral(" b '/ c '/")) == 'C' &&
                            tok(h, 7, QStringLiteral("print")) == 'K';
-        const bool pre = role_mask(h, 8) == std::string(16, 'D');
+        const bool pre = role_mask(h, 8) == std::string(16, 'P');
         const bool lineno = tok(h, 9, QStringLiteral("10")) == 'L' && tok(h, 9, QStringLiteral("PRINT")) == 'K';
-        const bool a = tok(h, 10, QStringLiteral("asm")) == 'K' && tok(h, 11, QStringLiteral("ld")) == 'K' &&
-                       tok(h, 11, QStringLiteral("a")) == 'R' && tok(h, 11, QStringLiteral("; x")) == 'C' &&
+        const bool a = tok(h, 10, QStringLiteral("asm")) == 'K' && tok(h, 11, QStringLiteral("ld")) == 'I' &&
+                       tok(h, 11, QStringLiteral("a")) == 'I' && tok(h, 11, QStringLiteral("; x")) == 'C' &&
                        tok(h, 12, QStringLiteral("end")) == 'K' && tok(h, 12, QStringLiteral("asm")) == 'K' &&
                        tok(h, 13, QStringLiteral("ld")) == '.' && tok(h, 14, QStringLiteral("print")) == 'K';
         check("QSRC-131", "Boriel ZX Basic: keywords in either case with the $ names, REM and ' comments, "
