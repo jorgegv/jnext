@@ -44,7 +44,7 @@ trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_
 normalise() {  # $1 = install root; stdin -> stdout
     local e; e=$(enc "$1/")
     sed -e "s|$1/|z88dk/|g" -e "s|$e|z88dk_2f|g" \
-        -e 's|tmpXX[A-Za-z0-9]\{6\}|tmpXXXXXXXX|g' \
+        -e 's|tmp\(zcc\)\{0,1\}XX[A-Za-z0-9]\{6\}|tmp\1XXXXXXXX|g' \
         -e 's|\(Module compile time: \).*|\1(normalised)|'
 }
 

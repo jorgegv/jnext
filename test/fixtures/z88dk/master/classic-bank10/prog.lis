@@ -15,7 +15,7 @@ z88dk/lib/config/../..//lib/target/zxn/classic/zxn_crt0.asm:
     10                          
     11                              defc    crt0 = 1
     12                              INCLUDE "zcc_opt.def"
-/tmp/tmpzccXXTHFrAL/zcc_opt.def:
+/tmp/tmpzccXXXXXXXX/zcc_opt.def:
      1                          
      2                          IF !DEFINED_fgetc_cons
      3                          	PUBLIC fgetc_cons
