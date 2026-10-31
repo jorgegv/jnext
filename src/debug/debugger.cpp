@@ -119,6 +119,8 @@ Debugger::~Debugger() {
     // (row LIFE-07). Retired unconditionally — a sink that is already null
     // stays null.
     impl_->ds().set_coverage_sink(nullptr);
+    // GH #388 - and the memory-coverage sink, which points into `Impl` likewise.
+    impl_->ds().set_mem_coverage_sink(nullptr);
     // GH #276 B4 — CAP-01. A capture still queued can never be taken now: say
     // so, one line each (§4.5's `NoFrame`, which has no other carrier — see
     // `debugger_capture.cpp`), then take down what the queue had armed on the

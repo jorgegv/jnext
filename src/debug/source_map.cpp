@@ -1,4 +1,5 @@
 #include "debug/source_map.h"
+#include <limits>
 
 #include "core/sha256.h"
 
@@ -147,6 +148,20 @@ std::vector<const SourceLocation*> SourceMap::lookup_all(FetchSource space,
             all.push_back(&locations_[ranges_[cover_[seg->first + i]].location]);
     }
     return all;
+}
+
+std::vector<SourceMap::FileRange> SourceMap::file_ranges(const std::string& file) const
+{
+    std::vector<FileRange> out;
+    for (auto it = by_line_.lower_bound(FileLine{file, std::numeric_limits<int>::min()});
+         it != by_line_.end() && it->first.first == file; ++it) {
+        for (const size_t i : it->second) {
+            const Range& r = ranges_[i];
+            out.push_back({it->first.second, key_space(r.space_key),
+                           static_cast<uint16_t>(r.lo), r.hi});
+        }
+    }
+    return out;
 }
 
 SourceResolution SourceMap::resolve(std::string_view expression) const

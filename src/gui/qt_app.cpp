@@ -11,6 +11,7 @@
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
+#include "platform/coverage_startup.h"   // GH #388
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
@@ -318,6 +319,7 @@ bool QtApp::init(int argc, char* argv[]) {
     // the choice is visible.
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
     debugger_->set_stop_policy(jnext::dbg::StopPolicy::Pause);
+    apply_startup_coverage(*debugger_, cfg);   // GH #388 --coverage
     {
         jnext::dbg::LoopDriver driver;
         driver.cold_boot = [this]() {

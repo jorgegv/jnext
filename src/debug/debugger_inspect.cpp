@@ -952,6 +952,71 @@ Result Debugger::coverage_clear() {
 const CoverageBits& Debugger::coverage() const { return impl_->coverage; }
 
 // ---------------------------------------------------------------------------
+// INS-21 -- memory coverage by execute, read and write (GH #388, E23-25)
+//
+// The set is `Impl::mem_cov`; `Mmu` writes it through
+// `DebugState::mem_coverage_live()` from the one arbiter (mmu.h `route_bits_`).
+// SAME RULES AS INS-20: off clears, `on` over `on` does not, the set and its
+// switch are backend state (published by `publish_mem_coverage()`, retired by
+// `~Debugger()`), so a rewind, a reset, a state load and a cold boot keep the
+// bits. A rewind neither removes nor adds a mark: a replay re-executes accesses
+// already recorded and a set bit set again is the same bit.
+// ---------------------------------------------------------------------------
+
+Result Debugger::mem_coverage_enable(bool enabled) {
+    if (enabled && !impl_->mem_cov) impl_->mem_cov = std::make_unique<MemCoverage>();
+    impl_->mem_cov_on = enabled;
+    if (!enabled && impl_->mem_cov) impl_->mem_cov->clear();
+    impl_->publish_mem_coverage();
+    return Result::Ok;
+}
+
+bool Debugger::mem_coverage_enabled() const { return impl_->mem_cov_on; }
+
+Result Debugger::mem_coverage_clear() {
+    if (impl_->mem_cov) impl_->mem_cov->clear();
+    return Result::Ok;
+}
+
+Expected<size_t> Debugger::mem_coverage(MemSpace space, uint32_t addr, size_t n,
+                                        uint8_t* out) const {
+    if (!out) return make_refused<size_t>(Result::RefusedUnavailable);
+    const MemCoverage* cov = impl_->mem_cov.get();
+    if (space.kind == MemSpace::Kind::Cpu) {
+        // The live DATA route, as peek(Cpu): each byte of the window through
+        // Mmu::route(), so a Layer 2 read mapping or the DivMMC shows its own map.
+        for (size_t i = 0; i < n; ++i) {
+            const uint16_t a = static_cast<uint16_t>((addr + i) & 0xFFFF);
+            const Mmu::Route r = impl_->emu.mmu().route(a);
+            out[i] = cov ? cov->get(r.space, r.offset) : 0;
+        }
+        return make_ok<size_t>(n);
+    }
+    // The store's own bounds, as peek() has them: an index outside the 8-bit
+    // space, a Page the SRAM does not have (>= 0xE0), a Rom image > 3.
+    if (space.index > 0xFF) return make_refused<size_t>(Result::InvalidPage);
+    if (space.kind == MemSpace::Kind::Page && space.index >= 0xE0)
+        return make_refused<size_t>(Result::InvalidPage);
+    if (space.kind == MemSpace::Kind::Rom && space.index > 3)
+        return make_refused<size_t>(Result::InvalidPage);
+    const uint32_t size = space_size(space.kind);
+    size_t done = 0;
+    for (; done < n && addr + done < size; ++done)
+        out[done] = cov ? cov->get(space, static_cast<uint16_t>(addr + done)) : 0;
+    return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
+}
+
+uint8_t Debugger::mem_coverage_fetch(uint16_t addr) const {
+    if (!impl_->mem_cov) return 0;
+    const MemSpace s = source_page(addr);
+    return impl_->mem_cov->get(s, space_offset(s, addr));
+}
+
+std::vector<MemSpace> Debugger::mem_coverage_spaces() const {
+    return impl_->mem_cov ? impl_->mem_cov->spaces() : std::vector<MemSpace>{};
+}
+
+// ---------------------------------------------------------------------------
 // INS-14 — framebuffer
 // ---------------------------------------------------------------------------
 

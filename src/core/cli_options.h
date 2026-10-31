@@ -141,6 +141,7 @@ enum class OptId {
     PokTrainers,
     RewindBufferSize,
     Trace,
+    Coverage,
     CompositorTrace,
     CompositorTraceFrame,
     Profile,
@@ -615,6 +616,10 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Enable the per-instruction trace log (10K-entry ring;\n"
       "implied by --rewind-buffer-size N with N>0)" },
+    { "--coverage", 0, Doc::Documented, OptId::Coverage,
+      "",
+      "Record memory coverage (executed, read and written bytes per\n"
+      "page) from the start; see Debug > Coverage" },
 
     // Headless and automation
     { "--headless", 0, Doc::Documented, OptId::Headless,

@@ -27,6 +27,7 @@
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
 #include "debug/event_table.h"
+#include "debug/mem_coverage.h"
 #include "debug/resume_guard.h"
 #include "debug/symbol_table.h"
 
@@ -561,6 +562,19 @@ struct Debugger::Impl {
     CoverageBits coverage;
     bool         coverage_on = false;
     void publish_coverage() { ds().set_coverage_sink(coverage_on ? &coverage : nullptr); }
+
+    // ── GH #388 (E23-25, INS-21) — memory coverage ──────────────────────────
+    //
+    // Same arrangement as INS-20 above: the set and its switch are BACKEND
+    // state; the machine only holds a pointer (`DebugState::mem_coverage_sink()`).
+    // `publish_mem_coverage()` is the ONE writer of that pointer; the enable and
+    // the re-application end with it and `~Debugger()` retires it. The set is
+    // created on the first enable and kept (an off clears it, not frees it).
+    std::unique_ptr<jnext::dbg::MemCoverage> mem_cov;
+    bool                                     mem_cov_on = false;
+    void publish_mem_coverage() {
+        ds().set_mem_coverage_sink(mem_cov_on ? mem_cov.get() : nullptr);
+    }
 
     // ── B4 (§4.5 CAP-01) — deferred screenshots ─────────────────────────────
     //

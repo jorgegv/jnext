@@ -236,6 +236,13 @@ struct EmulatorConfig {
     // needs the trace to locate the target instruction within a frame.
     bool trace = false;
 
+    // GH #388 (--coverage): record memory coverage (executed, read and written
+    // bytes per page) from the start. Not a Preferences field: it is a debugger
+    // session toggle like the trace (Debug > Coverage), so it has no
+    // config_keys row. Applied by the loop owners right after hosting the
+    // debugger backend (platform/coverage_startup.h).
+    bool coverage = false;
+
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 

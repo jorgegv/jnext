@@ -632,12 +632,14 @@ int DivMmc::ram_page_for(uint16_t addr) const {
 DivMmc::Overlay DivMmc::overlay_at(uint16_t addr) const {
     const uint16_t off = addr & 0x1FFF;
     if (addr < 0x2000 && !mapram_) {
-        // Normal: the DivMMC ROM
-        return Overlay{false, 0, rom_data() + off};
+        // Normal: the DivMMC ROM (read-only: page 0)
+        return Overlay{false, 0, rom_data() + off, true};
     }
     // MAPRAM at page 0: RAM page 3; page 1: the selected RAM bank
     const uint8_t bank = static_cast<uint8_t>(ram_page_for(addr));
-    return Overlay{true, bank, ram_data() + bank * kRamPageSize + off};
+    // divmmc.vhd:100: page 0, or MAPRAM with ram_bank 3.
+    const bool rdonly = addr < 0x2000 || (mapram_ && bank == 3);
+    return Overlay{true, bank, ram_data() + bank * kRamPageSize + off, rdonly};
 }
 
 uint8_t DivMmc::read(uint16_t addr) const {
@@ -647,31 +649,9 @@ uint8_t DivMmc::read(uint16_t addr) const {
 
 bool DivMmc::write(uint16_t addr, uint8_t val) {
     if (addr >= 0x4000) return false;  // outside DivMMC range
-
-    bool page0 = (addr < 0x2000);
-
-    if (page0) {
-        // Slot 0: writable only when conmem is set AND mapram is NOT set
-        // (i.e. writing to the ROM area — which actually writes to... nothing
-        // useful, but the VHDL allows it when conmem is set).
-        // When mapram is set, page 3 at slot 0 is read-only.
-        if (conmem_ && !mapram_) {
-            // In the real hardware with conmem, writes go to... the ROM area.
-            // Since we model ROM as writable storage when conmem forces it:
-            // Actually from VHDL: rdonly = '1' when page0 — slot 0 is ALWAYS
-            // read-only regardless of conmem. Writes are simply discarded.
-            return false;
-        }
-        // All other cases: slot 0 is read-only
-        return false;
-    }
-
-    // Slot 1: writable unless mapram is set AND bank is 3
-    if (mapram_ && bank_ == 3) {
-        return false;  // read-only
-    }
-
-    ram_data()[bank_ * kRamPageSize + (addr & 0x1FFF)] = val;
+    const Overlay o = overlay_at(addr);
+    if (o.rdonly) return false;        // divmmc.vhd:100 -> zxnext.vhd:3089, :3097
+    ram_data()[o.bank * kRamPageSize + (addr & 0x1FFF)] = val;
     return true;
 }
 
