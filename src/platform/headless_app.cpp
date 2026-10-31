@@ -1050,6 +1050,7 @@ void HeadlessApp::run() {
 }
 
 void HeadlessApp::shutdown() {
+    if (debugger_) log_coverage_summary(*debugger_);   // GH #388
     // Same contract as the two GUI frontends: a screenshot that was asked for
     // and never taken is a failure. The countdown ticks whether or not the
     // machine is paused, so the only way to land in this first branch is a

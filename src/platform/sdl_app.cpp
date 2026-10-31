@@ -777,6 +777,7 @@ void SdlApp::run() {
 }
 
 void SdlApp::shutdown() {
+    if (debugger_) log_coverage_summary(*debugger_);   // GH #388
     // A requested screenshot that was never written is a failure, not a
     // footnote — same contract as QtApp::shutdown(). Reachable here if the
     // capture was still deferred (no frame rendered on its tick) when

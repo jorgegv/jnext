@@ -491,6 +491,7 @@ int QtApp::run() {
 }
 
 void QtApp::shutdown() {
+    if (debugger_) log_coverage_summary(*debugger_);   // GH #388
     // A screenshot that was asked for and never taken is a FAILURE, not a
     // footnote. The capture is deferred while no frame is rendering (debugger
     // paused), but --delayed-automatic-exit is a hard bound and must stay one,

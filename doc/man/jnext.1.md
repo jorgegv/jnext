@@ -752,8 +752,8 @@ naming the option and the value, and exits with status 1.
     whether the program executed it (first opcode byte of an instruction), read it
     or wrote it. Toggleable in the debugger (Debug > Coverage), where the
     Disassembly, Memory and Source views show it. With the SDL frontend or
-    **\--headless** it records but there is no viewer. Costs a little speed while
-    on; nothing while off.
+    **\--headless** it records but there is no viewer; it logs one summary line at
+    exit. Costs a little speed while on; nothing while off.
 
 ## Headless and automation
 

@@ -1580,7 +1580,10 @@ int main() {
                     run_split("--headless --machine 48k" + sd_arg + " " + flags +
                               " --delayed-automatic-exit-frames 1");
                     const std::string all = slurp(out_path) + slurp(err_path);
-                    return all.find("Memory coverage recording: on") != std::string::npos;
+                    // the start line and the exit summary both appear, or neither
+                    const bool start = all.find("Memory coverage recording: on") != std::string::npos;
+                    const bool summary = all.find("Memory coverage at exit: ") != std::string::npos;
+                    return start && summary;
                 };
                 const bool without = cov_line(""), with = cov_line("--coverage");
                 const bool arity0 = cli::find("--coverage") && cli::find("--coverage")->arity == 0 &&

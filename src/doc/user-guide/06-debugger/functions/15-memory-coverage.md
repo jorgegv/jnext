@@ -34,7 +34,7 @@ are different bytes with different marks.
   recording goes on.
 - `--coverage` on the command line starts with it recording, from the first
   instruction. (With the SDL frontend or `--headless` it records but there is no
-  viewer.)
+  viewer; it logs one summary line at exit.)
 - It costs a little speed while it is on, and nothing while it is off.
 
 ## Where it shows
