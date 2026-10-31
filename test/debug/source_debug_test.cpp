@@ -44,6 +44,9 @@
 //                    section binaries, the lifetime of a z88dk map, real z88dk code (GH #344)
 //   SRCSTEP-*        C steps on real z88dk code: Into/Over/Out across banked_call and the
 //                    -debug helpers, a tail JP, the esxDOS shim (GH #345)
+//   SRCDOT-*         a z88dk dot command's map, which NextZXOS runs from DivMMC RAM bank 2: a source
+//                    breakpoint and the steps inside it, the same bytes in RAM or ROM, the judgement
+//                    at the entry, the hand load, landings, dotx and a rewind (GH #351)
 //   SRCLIFE-*        the source map's lifetime: load generations, the attachment
 //                    cache, stale user maps, Back stops at a landing (GH #342)
 //

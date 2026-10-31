@@ -4709,12 +4709,18 @@ is a startup error.</dd>
 (told apart by its contents), to the program <strong>--load</strong> loads, as if
 loaded by hand with <strong>Debug &gt; Source &gt; Load Source Map…</strong>. A z88dk
 map gives source lines only (and reads the <code>--list</code> listings beside
-it); its symbols stay with <strong>--map</strong>. Requires <strong>--load</strong>. A map
-whose binary identity does not match the program, or that cannot be
-loaded, is a startup error (exit status 1). With a tape program
-(<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) the map attaches at once and is checked the
-first time the program runs its code; a mismatch then drops it, and
-the run exits with status 1.</dd>
+it); its symbols stay with <strong>--map</strong>. Requires <strong>--load</strong>, unless
+<em>FILE</em> is the map of a z88dk dot command (<code>-subtype=dot</code>, <code>dotx</code>;
+built with <code>-debug</code>): that map is attached at once, before any
+script loads, and stays pending until the guest runs the command,
+when it is checked (the command is loaded into DivMMC RAM by
+NextZXOS, which jnext does not know until it runs; see the User
+Guide). Any other map without <strong>--load</strong> is refused (exit status 1).
+A map whose binary identity does not match the program, or that
+cannot be loaded, is a startup error (exit status 1). With a tape
+program (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) the map attaches at once and is
+checked the first time the program runs its code; a mismatch then
+drops it, and the run exits with status 1.</dd>
 <dt><strong>--source-dir</strong> <em>DIR</em></dt>
 <dd>Also search <em>DIR</em> for the source files a source map names, in the
 Source tab of the debugger (the Qt window with the debugger;

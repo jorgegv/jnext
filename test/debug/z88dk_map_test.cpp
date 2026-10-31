@@ -4,6 +4,8 @@
 //              ranges (extents, zero-width lines, strict refusal), the program
 //              identity from the section binaries, and the symbol loaders'
 //              file-type residual
+//   Z88DOT-*   z88dk dot commands (GH #351): rule 5 - the CODE group of a dot / dotx is
+//              DivMMC RAM bank 2, a dotn is refused, detection is by the map
 //
 // Oracle: the committed fixtures test/fixtures/z88dk (what the two z88dk installs
 // produced from our own sources, with the NEX placement and the .lis listings next

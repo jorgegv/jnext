@@ -1,4 +1,4 @@
-# z88dk 4d530b6eb779ad0f2a1d13c0bb670cf717477501 (v2.4)
+# z88dk 4d530b6eb779ad0f2a1d13c0bb670cf717477501 (v2.4-dotn)
 + zcc +zxn -clib=new -debug -m --list -subtype=dotn -o prog -create-app dot.c dutil.c
 Notice: Main binary occupies [32768,35674]
 Notice: Space to end of dot is 5435 bytes
