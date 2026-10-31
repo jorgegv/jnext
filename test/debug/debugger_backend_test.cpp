@@ -56,6 +56,7 @@
 #include "core/log.h"
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
+#include "debug/disasm.h"
 #include "debug/event_table.h"
 #include "peripheral/copper.h"
 #include "peripheral/nmi_source.h"
@@ -5606,6 +5607,40 @@ struct RwmVerbCase {
     std::function<Result(B5VerbMachine&)>  write;   // the change
     std::function<bool(B5VerbMachine&)>    stands;  // it is still there (nullptr: no check)
 };
+
+// GH #422 F1 - the disassembler names every Z80N ED opcode the VHDL decodes
+// (cpu/t80n_mcode.vhd, the ED page, lines 1644-2620) and nothing else: ED B6 is
+// LDIRSCALE, and ED C6 has no arm there (nor has ED FB), so both are data.
+static void dasm_z80n_rows() {
+    struct Row { uint8_t op; const char* text; int len; };
+    static const Row rows[] = {
+        {0x23, "SWAPNIB", 2}, {0x24, "MIRROR A", 2}, {0x27, "TEST $00", 3},
+        {0x28, "BSLA DE,B", 2}, {0x29, "BSRA DE,B", 2}, {0x2A, "BSRL DE,B", 2},
+        {0x2B, "BSRF DE,B", 2}, {0x2C, "BRLC DE,B", 2}, {0x30, "MUL D,E", 2},
+        {0x31, "ADD HL,A", 2}, {0x32, "ADD DE,A", 2}, {0x33, "ADD BC,A", 2},
+        {0x34, "ADD HL,$0000", 4}, {0x35, "ADD DE,$0000", 4}, {0x36, "ADD BC,$0000", 4},
+        {0x8A, "PUSH $0000", 4}, {0x90, "OUTINB", 2}, {0x91, "NEXTREG $00,$00", 4},
+        {0x92, "NEXTREG $00,A", 3}, {0x93, "PIXELDN", 2}, {0x94, "PIXELAD", 2},
+        {0x95, "SETAE", 2}, {0x98, "JP (C)", 2}, {0xA4, "LDIX", 2}, {0xA5, "LDWS", 2},
+        {0xAC, "LDDX", 2}, {0xB4, "LDIRX", 2}, {0xB6, "LDIRSCALE", 2}, {0xB7, "LDPIRX", 2},
+        {0xBC, "LDDRX", 2},
+        {0xC6, "DB $ED,$C6", 2}, {0xFB, "DB $ED,$FB", 2},
+    };
+    bool ok = true;
+    for (const Row& r : rows) {
+        const auto line = disasm_one(0x8000, [&](uint16_t a) -> uint8_t {
+            return a == 0x8000 ? 0xED : a == 0x8001 ? r.op : 0;
+        });
+        if (std::string(line.mnemonic) != r.text || line.byte_count != r.len) {
+            std::printf("  DASM-Z80N-01: ED %02X gives '%s' (%d bytes), want '%s' (%d)\n",
+                        r.op, line.mnemonic, line.byte_count, r.text, r.len);
+            ok = false;
+        }
+    }
+    check("DASM-Z80N-01", "the disassembler names every Z80N ED opcode the VHDL decodes "
+                          "(ED B6 is LDIRSCALE) and ED C6 and ED FB, which it does not, are data",
+          ok);
+}
 
 static void rwm_rows() {
     using jnext::dbg::PaletteId;
@@ -18071,6 +18106,7 @@ int main() {
     dzrp_d_rows();
     q_wp7_raster_rows();          // GH #278 WP7
     rwm_rows();                   // §4.2a rewind wall
+    dasm_z80n_rows();             // GH #422 F1
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

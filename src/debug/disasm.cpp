@@ -418,9 +418,9 @@ static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn) {
     case 0xA5: return make_line(addr, 2, read_fn, "LDWS");
     case 0xAC: return make_line(addr, 2, read_fn, "LDDX");
     case 0xB4: return make_line(addr, 2, read_fn, "LDIRX");
+    case 0xB6: return make_line(addr, 2, read_fn, "LDIRSCALE");
     case 0xB7: return make_line(addr, 2, read_fn, "LDPIRX");
     case 0xBC: return make_line(addr, 2, read_fn, "LDDRX");
-    case 0xC6: return make_line(addr, 2, read_fn, "LOOP");
     }
 
     // ---- Standard Z80 ED opcodes ----
