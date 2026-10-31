@@ -3699,6 +3699,95 @@ static void test_long_address() {
               "(Disassembly ROM0 at $0000, MMU slot 4 P04)",
               built && d == "ROM0" && m == "P04", s(d) + "|" + s(m));
     }
+
+    {   // QLADDR-12: the physical text carries the offset inside the slot, not only the slot's base
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.nextreg().write(0x56, 0x14);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.set_address_style(AddressStyle::Physical);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const QString d = after_label(painted(&dis), "$8003");
+        MemoryPanel mem(&dbg);
+        mem.resize(760, 600);
+        mem.set_address_style(AddressStyle::Physical);
+        go_to(&mem, "4010");
+        const QString m = after_label(painted(&mem), "$4010", 18);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        wp.set_address_style(AddressStyle::Physical);
+        wp.add_watch(0xC123, "w", 0);
+        wp.refresh();
+        MmuPanel mmu(&dbg);
+        mmu.set_address_style(AddressStyle::Physical);
+        mmu.refresh();
+        const QString rom1 = text_of(grid_value(&mmu, "Memory", 2, 0));
+        check("QLADDR-12",
+              "Physical style at addresses that are not slot-aligned: a Disassembly line $8003 in page 4 "
+              "reads $048003, a Memory row $4010 in the bank-5 BRAM BRAM5+$0010, a watch at $C123 in page "
+              "0x14 $068123, and the MMU panel's ROM slot 1 $002000 (the ROM's second 8K)",
+              built && d == "$048003" && m == "BRAM5+$0010" && wcell(&wp, 0, 4) == "$068123" &&
+                  rom1 == "$002000",
+              s(d) + "|" + s(m) + "|" + s(wcell(&wp, 0, 4)) + "|" + s(rom1));
+    }
+
+    {   // QLADDR-13: the Memory panel's Slot and Page views
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.nextreg().write(0x52, 0xE5);   // slot 2 reads nothing (zxnext.vhd:3061)
+        emu.nextreg().write(0x56, 0x14);
+        jnext::dbg::Debugger dbg(emu);
+        MemoryPanel mem(&dbg);
+        mem.resize(760, 600);
+        mem.refresh();
+        auto* combo = mem.findChild<QComboBox*>();
+        const QString sel2 = combo ? combo->itemText(3) : QString();
+        select_view(&mem, 3);
+        mem.refresh();
+        const QString float_tag = after_label(painted(&mem), "$0010", 18);
+        select_view(&mem, 2);   // Slot 1: the ROM's second 8K
+        mem.set_address_style(AddressStyle::Physical);
+        mem.refresh();
+        const QString slot1_phys = after_label(painted(&mem), "$0010", 18);
+        mem.set_address_style(AddressStyle::Friendly);
+        select_page_view(&mem, "14");
+        mem.refresh();
+        const QString page_tag = after_label(painted(&mem), "$0010", 18);
+        check("QLADDR-13",
+              "Memory panel: a slot paged to NR 0xE5 is Slot 2 (FLOAT) in the selector and tags FLOAT in "
+              "its Slot view (never PE5); the Slot 1 view in the physical style reads $002010 (the ROM's "
+              "second 8K); the Page view of page 0x14 tags P14",
+              built && sel2 == "Slot 2 (FLOAT)" && float_tag == "FLOAT" && slot1_phys == "$002010" &&
+                  page_tag == "P14",
+              s(sel2) + "|" + s(float_tag) + "|" + s(slot1_phys) + "|" + s(page_tag));
+    }
+
+    {   // QLADDR-14: each Stack row names the slot of its OWN address
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.nextreg().write(0x55, 0x0D);
+        emu.nextreg().write(0x56, 0x14);
+        Z80Registers r = emu.cpu().get_registers();
+        r.SP = 0xBFF8;
+        emu.cpu().set_registers(r);
+        jnext::dbg::Debugger dbg(emu);
+        StackPanel panel(&dbg);
+        panel.set_paused(true);
+        panel.refresh();
+        QTableWidget* t = table_of(&panel);
+        auto cellt = [&](int r2) { return t && t->item(r2, 4) ? t->item(r2, 4)->text() : QString("<none>"); };
+        check("QLADDR-14",
+              "Stack: SP $BFF8 rows cross slots 5 and 6: BFF8..BFFE read P0D, C000 onwards P14",
+              built && cellt(0) == "P0D" && cellt(3) == "P0D" && cellt(4) == "P14" && cellt(5) == "P14",
+              s(cellt(0)) + "|" + s(cellt(3)) + "|" + s(cellt(4)) + "|" + s(cellt(5)));
+    }
 }
 
 int main(int argc, char** argv) {
