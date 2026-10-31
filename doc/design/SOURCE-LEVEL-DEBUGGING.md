@@ -153,6 +153,9 @@ fixture; the others are from the planning builds.
 - G5. sccz80 `-debug` changes the program: `l_debug_push_frame` and `l_debug_pop_frame` in
   every function (fixture: `_main` at $8C73 without `-debug`, $8C92 with it). The program
   debugged is the `-debug` build, and steps run through the helpers, which have no lines.
+  The helper pops its return address and pushes it back 2 bytes LOWER before it returns, so the
+  frame's slot is below SP after the RET: this is why the tracker's RET rule matches return
+  addresses (section 7), not SP alone.
 - G6. 2.4 only: sdcc line information exists only as `.lis` comments (`--c-code-in-asm`), so
   sdcc on 2.4 needs the listing adapter (E23-17).
 - G7. Optimisation moves code across lines, and the default `-SO2` is already optimised (sdcc,
@@ -166,8 +169,16 @@ fixture; the others are from the planning builds.
   address: D3's hazard (section 9.4).
 - G9. `__banked` calls go through `banked_call`, which pops its return address, switches to a
   private stack, pages the target in and calls it through `l_jphl`. jnext's `CallStack` pops
-  every frame whose `sp_at_call` is below SP on a RET, so the depth comes back right, by luck.
-  E23-14 (#345) pins it with rows (section 7).
+  every frame whose `sp_at_call` was below SP on a RET, so the depth came back right only at the
+  end, by luck: `banked_call`'s frame was lost at `set_mmu`'s RET, before `l_jphl`. E23-14 (#345)
+  fixed it with the return-address rule (section 7): the depth is d0+1 for the whole trampoline,
+  d0+2 inside the target, and d0 after the call. A newlib `+zxn` `__banked` program built with
+  the defaults cannot run: `CRT_ORG_PAGE_20` is 16-bit, so the `defq` page byte is 0, and the
+  stack ($FF58) is in the banking segment. It needs
+  `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` (the `-run`
+  fixtures). z88dk-gdb differs on banked code by design: its `finish` stops in `banked_call`
+  with no source line, its `next` hangs (it runs `nexti` to the `defq`), and it segfaults on a
+  24-bit `__C_LINE_` value; jnext runs unmapped code through (section 2.5).
 - G10. Paths are as the build spelled them: user files relative to the build directory (as
   given to `zcc`), headers as written in `#include`, system headers absolute; the module name
   is the mangled path. Files are therefore found relative to the map's directory (8.2) and
@@ -345,14 +356,14 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
 | z88dk | DONE (E23-13 (#344), stages 1 to 3): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs attach at once and are judged per space where the CPU first runs them (6.2, stage 3) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
-| Symbols | DONE (E23-23 (#375) stages 1 and 2): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages: stage 3 | 10 | E23-23 (#375); EQU files: #390 |
+| Symbols | DONE (E23-23 (#375) stages 1 to 3): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages (stage 3): `z88dk_section_space()` places each symbol, rule-4 symbols are bound by `SymbolTable::bind()` | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); no Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
-| C stepping on real z88dk code | none | 7 | E23-14 (#345) |
+| C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none | 9.6 | E23-20 (#350) |
 | Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
@@ -762,8 +773,9 @@ their map, as ever.
 - **A reset before the program arrived** drops the pending map: the program will not arrive.
 
 How it runs is 4.7 (the window) and 6.5 (the lifetime). The symbols of a tape's `<stem>.map`
-are still unpaged until E23-23 (#375) states how they take their spaces with no program in
-memory at the load point.
+bind at the attach with the same function as its source records (E23-23 (#375) stage 3, #344
+D17): they are live while the check is pending, and a deferred mismatch in any space drops them
+with the map. The user's map (`--map`, Load MAP) is bound again at the tape load call.
 
 ### 6.3 Ownership
 
@@ -906,10 +918,19 @@ that waits never holds the frontend. Steps stay synchronous and bounded (OD-11);
 (#347) measures the worst case on the Release build.
 
 **Call depth** is the call-stack tracker's (`set_call_stack_enabled`), which the Qt debugger
-runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) pins it
+runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) fixed it
 on real z88dk code across `banked_call` (G9), the sccz80 `l_debug_push_frame` and
-`l_debug_pop_frame` helpers (G5), RST $08 esxDOS calls and a tail `JP`. A tracker defect found
-there is fixed in `CallStack` for every program, never as a special case for `banked_call`.
+`l_debug_pop_frame` helpers (G5), RST $08 esxDOS calls, `__z88dk_callee` routines and a tail
+`JP`, in `CallStack` for every program, never as a special case for `banked_call`. The rule: a
+frame ends when a RET lands on its own return point, the NEWEST frame only: a CALL frame's is
+`caller_pc + 3`, an INT or NMI frame's is the interrupted PC (`+ 1` when the interrupt ended a
+HALT). Any other taken RET ends every frame whose return slot is below SP (a `PUSH; RET`
+computed jump leaves the frame). RST frames end by SP alone (an inline `DEFW` makes their return
+point vary); the esxDOS shim's return (a slot that fetched no opcode) ends the RST $08 frame it
+serviced and only it. Trade-off: a routine that drops its return address and leaves by JP
+(`POP HL; JP (HL)`) looks like `banked_call`, so its frame stays on the stack until a RET ends
+it by SP. Out from a function lands at the return
+address, mid-line on the call's own line, as gdb's `finish` does.
 
 **Backward** steps search the trace from newest to oldest, considering only entries before the
 machine's current cycle: a Frame Back or a slider jump leaves the abandoned history in the
@@ -1081,7 +1102,9 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    if E23-12 (#343) can produce a fixture of such a map; otherwise the value is refused with a
    reason, and the rule waits for a fixture. In a numbered section the bits are not read: they
    are the 16K bank number before 72ea9d221b and the 8K page after it, so they cannot check
-   the name without knowing the version.
+   the name without knowing the version. The same holds for `__PAGE_<n>_head`: `head` is its
+   low 16 bits, and a head up to 24 bits is accepted (newlib puts the page there for
+   `__banked`, E23-14 (#345)).
 4. Any other section (`CODE`, `code_*`, the main program): the RAM page the MMU maps at that
    slot with the program in memory. For a NEX that is banks 5, 2 and 0, the pages 10, 11, 4, 5,
    0 and 1 for $4000-$FFFF, so $8000-$9FFF is `Page{4}`. A map read before the program is in
@@ -1089,7 +1112,9 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    read: `--map` is read when the script host starts, before the `--load` countdown applies
    the program. The adapter binds a rule-4 record with the `space_of` function its caller
    gives (the backend passes `source_page()`, the identity lookups compare against), and the
-   space must be a `Page`: an address the MMU maps to ROM refuses the half.
+   space must be a `Page`: an address the MMU maps to ROM refuses the half. The symbol half is
+   lenient: a rule-4 symbol is stored unbound (`bind_at_load`), `SymbolTable::bind()` gives it
+   the RAM page `source_page()` names at its address, and any other space leaves it unpaged. For the symbol half an empty section (z80asm's default section) is rule 4 too; only the source half drops such G2 lines.
 5. A DivMMC dot command (org $2000), and the `DIV_<n>` and `<KIND>_DIV_<n>` sections of the
    memory maps: `DivMmcRam{bank}` (E23-21 (#351), OD-14). E23-21 establishes how a dot
    command's sections map to a bank. Until then a record in such a section refuses the source
@@ -1213,9 +1238,16 @@ UI, and the rule for a name already used at another key are E23-24's.
   page, address constants included (2.1), so the format cannot tell an address from a
   constant; making them labels agrees with the `--sym` file, which lists the EQU constants
   too. A record with no main label (a module marker) names nothing.
-- **z88dk map `; addr` symbols** (E23-23): the space by 9.4's derivation, the same as the map's
-  source records, so that one file has one derivation for both stores. `; const` stays
-  name-only.
+- **z88dk map `; addr` symbols** (E23-23, #375 stage 3): the space by 9.4's derivation, the same as the map's
+  source records, so that one file has one derivation for both stores; both halves take a page's
+  head from `z88dk_page_head()`. The loader reads the file in two passes. Paged: a `BANK_n` or
+  `PAGE_n` symbol is a label of its page at its low 16 bits (24-bit classic values included).
+  BindAtLoad: stored with a flag and no memory; the backend's `bind()` gives it the RAM page
+  mapped at its address, with the one function the source half uses, at `load_map()`, at the
+  sidecar attach (a tape too) and, for the user's store, at every program load. Unpaged (DIV, a
+  head-less PAGE, a number out of range): an unpaged label when the value fits 16 bits. Refused
+  (24 bits in a section that names no page) and a value past 24 bits are skipped. `; const` stays
+  name-only, 16 bits (a wider constant is no name). A symbol with an empty section is rule 4 (BindAtLoad); only the source half drops those lines (G2).
 - **Simple map, `Memory.txt`, sjasmplus `--sym` and `--exp` files (#390)**: unpaged. A
   `--sym` or `--exp` value above 0xFFFF is settled by #390; the SLD rule above (name-only) is
   the precedent.
@@ -1341,6 +1373,10 @@ assembles again.
 - Toolchain mis-attributions (G4 on 2.4, master sdcc's `util.h:9`, G7) are shown as the
   toolchain wrote them, with the primary line and the "also" list (OD-7), and documented in the
   user guide.
+- A map read with no program load after it is bound once, when it is read (#375): at
+  `ScriptHost::start` that is the reset mapping, MMU2-7 = 10, 11, 4, 5, 0, 1, which NEX loaders
+  set and 48K/128K mode maps, so the names are right for those programs; a program the guest
+  loads itself is the case where they may not be.
 - Programs the guest loads for itself (6.6). A tape's map is judged where the program first runs
   (6.2); a program that rewrites its own code before running it fails its identity.
 
@@ -1366,6 +1402,17 @@ SRCDBG-BACK-12 (`source_debug_test`: steps by range, Back to the statement's fir
 instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
+
+E23-23 (#375) stage 3 added SYMPG-13 (`source_map_test`: `bind()`), Z88SYM-01 to Z88SYM-09
+(`z88dk_map_test`: the symbol loader's pages, the rule-4 bind, the Unpaged and Refused table, two
+passes, a 24-bit page head, an empty section as rule 4), SRCDBG-SYM-18 to SRCDBG-SYM-22 (`source_debug_test`: a banked symbol
+names its address only while its page is mapped, the bind points, a running program paging its own
+symbol) and SCRIPT-HOST-MAP-Z88BANK (`script_events_test`: `--map` with 24-bit banked symbols).
+
+E23-14 (#345) added SRCSTEP-01 to SRCSTEP-13 and SRCDBG-CS-09 to CS-15 (`source_debug_test`: Into, Over
+and Out on the runnable `__banked` and `-debug` fixtures, the return-address rule, the shim's
+return), Z88MAP-29 (`z88dk_map_test`: a 24-bit page head) and rewrote SRCDBG-CS-08 (the shim's
+return now ends the RST frame; owner-approved 2026-10-30).
 
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).

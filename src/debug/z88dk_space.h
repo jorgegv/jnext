@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -40,6 +41,13 @@ struct Z88dkSpace {
 Z88dkSpace z88dk_section_space(
     std::string_view section, uint32_t value,
     const std::function<std::optional<uint16_t>(int)>& page_head);
+
+/// Design 9.4 rule 1: page n's head, as `z88dk_section_space()`'s `page_head`
+/// wants it. `consts` holds the map's const values by name (first wins). The
+/// head is the low 16 bits of `__PAGE_<n>_head`; nullopt when it is absent or
+/// does not fit 24 bits (newlib puts the page in bits 16-23 for __banked;
+/// GH #345).
+std::optional<uint16_t> z88dk_page_head(const std::map<std::string, uint64_t>& consts, int n);
 
 /// One map line: `NAME = $HEX ; type, scope, def, module, section, location`.
 struct Z88dkMapLine {

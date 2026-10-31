@@ -1,12 +1,14 @@
 #include "symbol_table.h"
 
 #include "debug/source_file.h"
+#include "debug/z88dk_space.h"
 
 #include <fstream>
 #include <sstream>
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <vector>
 
 int SymbolTable::load_z88dk_map(const std::string& path, std::string* why)
 {
@@ -26,100 +28,60 @@ int SymbolTable::load_z88dk_map(const std::string& path, std::string* why)
 
 int SymbolTable::read_z88dk_map(std::istream& file)
 {
-    int count = 0;
+    // Pass 1: the whole file. A section's head may come after its symbols (the
+    // map is sorted by name), so nothing is placed before it has all been read.
+    // "; addr" lines are memory addresses: they name addresses (the
+    // disassembler's immediates) and resolve by name. "; const" lines are
+    // compile-time values - a size, or a section bound such as
+    // `__data_crt_head` - so they must never name an address, but a script
+    // or a remote client may still ask for one by name (#279).
+    std::vector<Z88dkMapLine> symbols;
+    std::map<std::string, uint64_t> consts;   // first wins; 64-bit, for the page heads
     std::string line;
-
     while (std::getline(file, line)) {
-        // "; addr" lines are memory addresses: they name addresses (the
-        // disassembler's immediates) and resolve by name. "; const" lines are
-        // compile-time values — a size, or a section bound such as
-        // `__data_crt_head` — so they must never name an address, but a script
-        // or a remote client may still ask for one by name (#279).
-        auto semi = line.find(';');
-        if (semi == std::string::npos)
-            continue;
-        std::string metadata = line.substr(semi + 1);
-        // Trim leading whitespace from metadata
-        auto md_start = metadata.find_first_not_of(" \t");
-        if (md_start == std::string::npos)
-            continue;
-        metadata = metadata.substr(md_start);
-        // "; const" values (section bounds, sizes) are kept by NAME only:
-        // `lookup_name()` resolves them, `lookup()` never sees them.
-        const bool is_const = metadata.substr(0, 5) == "const";
-        if (metadata.substr(0, 4) != "addr" && !is_const)
-            continue;
-
-        // Strip metadata for value parsing
-        std::string def_part = line.substr(0, semi);
-
-        // Find '=' separator
-        auto eq = def_part.find('=');
-        if (eq == std::string::npos)
-            continue;
-
-        // Extract symbol name (first non-whitespace token before '=')
-        std::string name_part = def_part.substr(0, eq);
-        // Trim trailing whitespace
-        auto end = name_part.find_last_not_of(" \t\r\n");
-        if (end == std::string::npos)
-            continue;
-        // Trim leading whitespace
-        auto start = name_part.find_first_not_of(" \t\r\n");
-        if (start == std::string::npos)
-            continue;
-        std::string name = name_part.substr(start, end - start + 1);
-        if (name.empty())
-            continue;
+        const auto parsed = parse_z88dk_map_line(line);
+        if (!parsed) continue;
         // z88dk `-debug` debug records (GH #352): a per-line marker at the
         // address of the function label, and the C debug info. Reserved
         // prefixes (z80asm preproc.cpp / directives.c, sccz80 cdbfile.c); the
         // map is sorted by name, so a marker would otherwise win the address.
-        if (name.compare(0, 9, "__C_LINE_") == 0 ||
-            name.compare(0, 11, "__ASM_LINE_") == 0 ||
-            name.compare(0, 11, "__CDBINFO__") == 0)
+        if (parsed->name.compare(0, 9, "__C_LINE_") == 0 ||
+            parsed->name.compare(0, 11, "__ASM_LINE_") == 0 ||
+            parsed->name.compare(0, 11, "__CDBINFO__") == 0)
             continue;
-
-        // Extract hex value after '=' — look for '$' prefix
-        std::string val_part = def_part.substr(eq + 1);
-        auto dollar = val_part.find('$');
-        if (dollar == std::string::npos)
-            continue;
-
-        std::string hex_str;
-        for (size_t i = dollar + 1; i < val_part.size(); ++i) {
-            char c = val_part[i];
-            if (std::isxdigit(static_cast<unsigned char>(c)))
-                hex_str += c;
-            else
-                break;
+        if (parsed->is_const) {
+            consts.emplace(parsed->name, parsed->value);
+            // Names are 16-bit (D4): a wider constant is not a name.
+            if (parsed->value <= 0xFFFF)
+                add_value(parsed->name, static_cast<uint16_t>(parsed->value));
+        } else if (parsed->is_addr) {
+            symbols.push_back(*parsed);
         }
-
-        if (hex_str.empty())
-            continue;
-
-        // Parse hex value — skip addresses that don't fit in 16 bits
-        unsigned long addr_val = 0;
-        try {
-            addr_val = std::stoul(hex_str, nullptr, 16);
-        } catch (...) {
-            continue;
-        }
-
-        if (addr_val > 0xFFFF)
-            continue;
-
-        auto addr = static_cast<uint16_t>(addr_val);
-
-        if (is_const) {
-            add_value(name, addr);   // first occurrence wins
-            continue;
-        }
-
-        add_label(name, addr, std::nullopt);   // first occurrence wins
-        ++count;
     }
 
+    // Pass 2: place every symbol, in file order (first occurrence wins).
+    const auto page_head = [&](int n) { return z88dk_page_head(consts, n); };
+    int count = 0;
+    for (const Z88dkMapLine& s : symbols) {
+        if (s.value > 0xFFFFFF) continue;   // no rule places it; never truncated
+        const Z88dkSpace placed = z88dk_section_space(s.section, static_cast<uint32_t>(s.value),
+                                                      page_head);
+        switch (placed.kind) {
+        case Z88dkSpace::Kind::Paged:
+            add_label(s.name, placed.addr16, placed.space);
+            break;
+        case Z88dkSpace::Kind::BindAtLoad:
+            add_label(s.name, placed.addr16, std::nullopt, true);
+            break;
+        case Z88dkSpace::Kind::Unpaged:
+            if (s.value > 0xFFFF) continue;
+            add_label(s.name, placed.addr16, std::nullopt);
+            break;
+        case Z88dkSpace::Kind::Refused:
+            continue;
+        }
+        ++count;
+    }
     return count;
 }
 
@@ -386,21 +348,35 @@ std::optional<uint16_t> SymbolTable::resolve(std::string_view text) const
 }
 
 void SymbolTable::add_name(const std::string& name, uint16_t addr,
-                           std::optional<jnext::dbg::FetchSource> space)
+                           std::optional<jnext::dbg::FetchSource> space, bool bind_at_load)
 {
-    name_to_key_.emplace(name, SymbolNameKey{addr, space});
+    name_to_key_.emplace(name, SymbolNameKey{addr, space, bind_at_load});
 }
 
 bool SymbolTable::add_label(const std::string& name, uint16_t addr,
-                            std::optional<jnext::dbg::FetchSource> space)
+                            std::optional<jnext::dbg::FetchSource> space, bool bind_at_load)
 {
-    add_name(name, addr, space);
+    add_name(name, addr, space, bind_at_load);
     const auto range = labels_.equal_range(addr);
     for (auto it = range.first; it != range.second; ++it)
         if (it->second.space == space)
             return false;
-    labels_.emplace(addr, SymbolLabel{name, space});
+    labels_.emplace(addr, SymbolLabel{name, space, bind_at_load});
     return true;
+}
+
+void SymbolTable::bind(const SymbolSpaceOf& space_of)
+{
+    const auto memory = [&](uint16_t addr) -> std::optional<jnext::dbg::FetchSource> {
+        if (!space_of) return std::nullopt;
+        const jnext::dbg::FetchSource space = space_of(addr);
+        if (space.kind != jnext::dbg::MemSpace::Kind::Page) return std::nullopt;
+        return space;
+    };
+    for (auto& [addr, label] : labels_)
+        if (label.bind_at_load) label.space = memory(addr);
+    for (auto& [name, key] : name_to_key_)
+        if (key.bind_at_load) key.space = memory(key.addr);
 }
 
 void SymbolTable::merge(const SymbolTable& other)

@@ -80,7 +80,7 @@ work. A breakpoint change another client made arrives as
 | Disassembly | `disasm_one()` over `memory_reader()`, with symbols, a breakpoint gutter and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
 | Stack | the words at and above SP, through `peek` | — |
-| Call Stack | `call_stack()`, a shadow stack built from SP deltas plus a frame per accepted INT or NMI | — |
+| Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a routine that drops its return address and leaves by JP keeps its frame until a later RET ends it by SP | — |
 | Watches | byte, word or long at user addresses, through `peek` | — |
 | Breakpoints | every client's subscriptions, through `BreakpointModel` | the GUI's own |
 | Video | `raster()` in all four counter domains plus the ULA fetch phase, and `render_layer()` for each of the eight views | — |
@@ -206,7 +206,8 @@ on a symbol keeps its name in the list, and a symbol any other client loads
 shows in the panels too. `src/debug/symbol_table.*` reads z88dk maps
 (`load_z88dk_map()`), plain `SYMBOL = $ADDR` lists (`load_simple_map()`),
 sjasmplus `--sym` / `--exp` files (`load_sjasmplus_equ()`) and NextBuild
-`Memory.txt` files (`load_nextbuild_memory()`); the address fields of the
+`Memory.txt` files (`load_nextbuild_memory()`); a z88dk name keeps its page in a
+breakpoint dialog as an SLD label does; the address fields of the
 breakpoint and watch dialogs go through `SymbolTable::resolve()`. The panels
 name an address in the memory that supplies it now (`Debugger::source_page()`),
 through `disasm_text::symbol_namer()` for the disassembly; a Breakpoints row uses

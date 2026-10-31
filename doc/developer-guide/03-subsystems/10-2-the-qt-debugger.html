@@ -2468,7 +2468,7 @@ work. A breakpoint change another client made arrives as
 </tr>
 <tr>
 <td>Call Stack</td>
-<td><code>call_stack()</code>, a shadow stack built from SP deltas plus a frame per accepted INT or NMI</td>
+<td><code>call_stack()</code>, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a routine that drops its return address and leaves by JP keeps its frame until a later RET ends it by SP</td>
 <td>—</td>
 </tr>
 <tr>
@@ -2619,7 +2619,8 @@ on a symbol keeps its name in the list, and a symbol any other client loads
 shows in the panels too. <code>src/debug/symbol_table.*</code> reads z88dk maps
 (<code>load_z88dk_map()</code>), plain <code>SYMBOL = $ADDR</code> lists (<code>load_simple_map()</code>),
 sjasmplus <code>--sym</code> / <code>--exp</code> files (<code>load_sjasmplus_equ()</code>) and NextBuild
-<code>Memory.txt</code> files (<code>load_nextbuild_memory()</code>); the address fields of the
+<code>Memory.txt</code> files (<code>load_nextbuild_memory()</code>); a z88dk name keeps its page in a
+breakpoint dialog as an SLD label does; the address fields of the
 breakpoint and watch dialogs go through <code>SymbolTable::resolve()</code>. The panels
 name an address in the memory that supplies it now (<code>Debugger::source_page()</code>),
 through <code>disasm_text::symbol_namer()</code> for the disassembly; a Breakpoints row uses

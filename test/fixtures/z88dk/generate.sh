@@ -116,6 +116,10 @@ build "$Z24" v2.4 sccz80-page20 banked:PAGE_20 -clib=new -debug
 build "$Z24" v2.4 sccz80-bank10 banked:BANK_10 -clib=new -debug
 build "$Z24" v2.4 sccz80-banked banked:PAGE_20:kw -clib=new -debug
 build "$Z24" v2.4 sdcc-banked   banked:PAGE_20:kw -clib=sdcc_iy --c-code-in-asm
+# GH #345: the banked fixtures above link a program that cannot run (newlib's
+# CRT_ORG_PAGE_20 is 16-bit, so banked_call pages in page 0; the stack at $FF58
+# is in the banking segment). The -run builds carry the two pragmas that fix it.
+build "$Z24" v2.4 sccz80-banked-run banked:PAGE_20:kw -clib=new -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
 build "$Z24" v2.4 classic-bank10 banked:BANK_10 -clib=classic
 EXPECT_FAIL=1 build "$Z24" v2.4 classic-debug plain          -clib=classic -debug
 build "$Z24" v2.4 sccz80-subdir subdir         -clib=new -debug
@@ -126,6 +130,7 @@ build "$ZM" master sccz80-debug plain          -clib=new -debug
 build "$ZM" master sdcc-debug   plain          -clib=sdcc_iy -debug
 build "$ZM" master 80cc-debug   plain          -clib=new -compiler=80cc -debug
 build "$ZM" master sdcc-banked  banked:PAGE_20:kw -clib=sdcc_iy -debug
+build "$ZM" master sdcc-banked-run banked:PAGE_20:kw -clib=sdcc_iy -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
 build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
 EXPECT_FAIL=1 build "$ZM" master classic-debug  banked:BANK_10 -clib=classic -debug
 
