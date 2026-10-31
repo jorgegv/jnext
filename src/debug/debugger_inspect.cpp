@@ -456,6 +456,7 @@ std::array<SlotInfo, 8> Debugger::mmu_slots() const {
             si.space        = MemSpace::page(si.nr_page);
             si.space_offset = 0;
         }
+        si.now = mmu.route(static_cast<uint16_t>(s << 13)).space;
     }
     return out;
 }

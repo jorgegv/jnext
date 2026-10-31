@@ -144,6 +144,16 @@ struct SlotInfo {
     /// `(effective_page & 1) * 0x2000` for a ROM slot (a 16 KB image holds two
     /// 8 K slots).
     uint16_t space_offset = 0;
+
+    /// What a read of this slot reaches NOW, overlays included (DivMMC, the
+    /// Multiface, Layer 2, the alt ROM, config mode, the boot ROM): the live
+    /// DATA route of the slot's first byte, `Mmu::route(slot << 13).space`
+    /// (GH #360). `space` stays the slot's own source. One value per slot is
+    /// complete: every arm of the VHDL arbiter switches on `cpu_a(15:13)`
+    /// boundaries or coarser (zxnext.vhd:2952-2959, :3029, :3065;
+    /// divmmc.vhd:88-89). It is the DATA view: the instruction at the PC may
+    /// come from elsewhere (`Debugger::source_page()`).
+    MemSpace now;
 };
 
 /// INS-03 — the legacy paging ports, as last written (`paging_ports()`).
