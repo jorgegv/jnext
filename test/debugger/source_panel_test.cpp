@@ -4661,7 +4661,7 @@ void test_source_highlight_rules() {
         check("QSRC-146", "C string and character literals honour a backslash escape: the quote of "
                           "\"a\\\"b\" and of '\\'' does not end the literal, so int after each is a keyword",
               tok(h, 0, QStringLiteral("\"a\\\"b\"")) == 'S' && tok(h, 0, QStringLiteral("int")) == 'K' &&
-                  tok(h, 1, QStringLiteral("'\\''")) == 'S' && tok(h, 1, QStringLiteral("int")) == 'K',
+                  tok(h, 1, QStringLiteral("'\\''")) == 'Q' && tok(h, 1, QStringLiteral("int")) == 'K',
               role_mask(h, 0) + " " + role_mask(h, 1));
     }
     {   // QSRC-147
