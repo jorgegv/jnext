@@ -142,9 +142,9 @@ struct Fixture {
     unsigned p80 = 0, p90 = 0;
     std::string sld;
 
-    explicit Fixture(int rewind_frames = 0) {
+    explicit Fixture(int rewind_frames = 0, MachineType type = MachineType::ZX48K) {
         EmulatorConfig cfg;
-        cfg.type = MachineType::ZX48K;
+        cfg.type = type;
         cfg.rewind_buffer_frames = rewind_frames;
         emu.init(cfg);
         const uint8_t prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
@@ -1291,6 +1291,51 @@ void test_line_starts() {
               r.empty() ? std::string() : s(r[0].addr_text));
         fx.backend->detach(other);
     }
+
+    // QLADDR-09 (GH #360): the Address column spells an identity row with the formatter's tag, which
+    // parses back to the row's space; another client's legacy page keeps its "@14" (QBPM-18 unchanged).
+    {
+        m.add(BreakpointModel::Execute, 0x8005, pg(fx.p80));
+        m.add(BreakpointModel::Execute, 0x0008, MemSpace::divmmc_rom());
+        jnext::dbg::ClientInfo ci;
+        ci.name = "dzrp-like";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const jnext::dbg::ClientId other = fx.backend->attach(ci).value;
+        jnext::dbg::Subscription legacy;
+        legacy.kind = jnext::dbg::EventKind::Execute;
+        legacy.action = jnext::dbg::Action::Stop;
+        legacy.filter.lo = legacy.filter.hi = 0xC000;
+        legacy.filter.page = 20;
+        fx.backend->subscribe(other, legacy);
+        m.add(BreakpointModel::Execute, 0x8000);   // the model re-reads the listing on its own mutations
+        m.remove(BreakpointModel::Execute, 0x8000);
+        QString ident, div, old;
+        bool parsed = false;
+        for (const auto& r : m.rows()) {
+            if (r.addr == 0x8005) {
+                ident = r.addr_text;
+                const auto sp = jnext::dbg::parse_space_tag(r.addr_text.mid(r.addr_text.indexOf(' ') + 1).toStdString());
+                parsed = sp && *sp == r.space && *sp == pg(fx.p80);
+            }
+            if (r.addr == 0x0008) div = r.addr_text;
+            if (r.addr == 0xC000) old = r.addr_text;
+        }
+        // A 48K machine has no Next layout: the Physical style prints the same tags (plan D3).
+        m.set_address_style(jnext::dbg::AddressStyle::Physical);
+        QString phys;
+        for (const auto& r : m.rows())
+            if (r.addr == 0x8005) phys = r.addr_text;
+        m.set_address_style(jnext::dbg::AddressStyle::Friendly);
+        check("QLADDR-09",
+              "Breakpoints: an identity row reads $8005 P<page> and $0008 DIVROM, its tag parses back to "
+              "the row's space (the Physical style on a 48K prints the same); another client's legacy page "
+              "reads $C000 @14",
+              ident == QString::asprintf("$8005 P%02X", fx.p80) && parsed && div == "$0008 DIVROM" &&
+                  phys == ident && old == QStringLiteral("$C000 @14"),
+              s(ident) + "|" + s(div) + "|" + s(phys) + "|" + s(old));
+        fx.backend->detach(other);
+        m.clear_all();
+    }
 }
 
 // ── QBPM-10: Edit never cancels silently ──────────────────────────────
@@ -2009,6 +2054,66 @@ void test_call_stack_pages() {
                      "target is on another page",
           pc0 != fx.p80 && fx.pc() == 0xC000 && cell(cs, 0, 4) == QStringLiteral("main.bas:11"),
           "pages " + std::to_string(fx.p80) + "/" + std::to_string(pc0) + " " + s(cell(cs, 0, 4)));
+}
+
+// ── GH #360: the Call Stack's memory columns, the Source tab's label ────
+
+void test_long_address_views() {
+    {   // QLADDR-08: the recorded identities, not the live page
+        Fixture fx;
+        fx.enable();
+        fx.emu.mmu().write(0x8003, 0x00);
+        fx.emu.mmu().write(0x8004, 0xC0);
+        fx.emu.mmu().write(0xC000, 0x00);
+        fx.emu.mmu().write(0xC001, 0xC9);
+        fx.emu.mmu().set_page(6, 20);
+        fx.backend->set_call_stack_enabled(true);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $C000, page 20 in slot 6
+        CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+        if (cs) { cs->set_paused(true); cs->refresh(); }
+        const QString predicted = cell(cs, 0, 6);          // not fetched yet: the prediction
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // the first fetch at the target records its memory
+        fx.emu.mmu().set_page(6, 21);                      // then the slot is paged on
+        if (cs) cs->refresh();
+        const QString caller = cell(cs, 0, 5), target = cell(cs, 0, 6);
+        check("QLADDR-08",
+              "Call Stack: Caller memory and Target memory are the identities recorded (P04 and P14, the "
+              "target at its first fetch), not the live page 21 now in slot 6; before that fetch the "
+              "target shows the prediction",
+              fx.p80 == 4 && fx.pc() == 0xC001 && predicted == "P14" && caller == "P04" && target == "P14",
+              s(predicted) + "|" + s(caller) + "|" + s(target));
+    }
+    {   // QLADDR-10: the Source tab names the memory of the PC, in either style
+        Fixture fx(0, MachineType::ZXN_ISSUE2);
+        fx.enable();
+        fx.emu.mmu().set_boot_rom_enabled(false);
+        fx.load_map();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        fx.mgr->refresh_panels();
+        const QString friendly = sp->location_text();
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Physical);
+        const QString physical = sp->location_text();
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Friendly);
+        // The unmapped PC at a DivMMC instant entry: DIVROM, not "ROM or overlay".
+        fx.emu.nextreg().write(0x0A, 0x10);
+        fx.emu.nextreg().write(0xB8, 0x01);
+        fx.emu.nextreg().write(0xB9, 0x01);
+        fx.emu.nextreg().write(0xBA, 0x01);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x0000;
+        fx.emu.cpu().set_registers(r);
+        fx.mgr->refresh_panels();
+        const QString unmapped = sp->location_text();
+        check("QLADDR-10",
+              "Source tab: the label names the memory of the PC through the formatter: main.bas:10  $8000  "
+              "P04 (physical $048000), and $0000 (DIVROM): no source mapping at a DivMMC instant entry",
+              fx.p80 == 4 && friendly == QStringLiteral("main.bas:10  $8000  P04") &&
+                  physical == QStringLiteral("main.bas:10  $8000  $048000") &&
+                  unmapped == QStringLiteral("$0000 (DIVROM): no source mapping; use the disassembly"),
+              s(friendly) + "|" + s(physical) + "|" + s(unmapped));
+    }
 }
 
 // ── Paged symbol labels in the panels (GH #375) ────────────────────────
@@ -4529,6 +4634,7 @@ int main(int argc, char** argv) {
     test_source_reverse_refused();
     test_source_messages();
     test_call_stack_pages();
+    test_long_address_views();
     test_paged_symbols();
     test_sld_labels_menu();
     test_sld_labels_add_execute();
