@@ -766,6 +766,39 @@ int main() {
                       copy.lookup(p20, 0xC000) == name("banked") && cleared.empty() &&
                       !cleared.lookup_name("banked") && !cleared.lookup_name("sz"));
         }
+        {
+            // GH #375 stage 3: bind() gives a rule-4 (bind_at_load) label, and name, the RAM
+            // page the MMU maps at its address; nothing else, and nothing that is not RAM.
+            using Key = SymbolNameKey;
+            const auto fixed = [](uint16_t a) {
+                return a >> 13 == 4 ? MemSpace::page(4) : a >> 13 == 2 ? MemSpace::page(10)
+                                                        : MemSpace::page(0);
+            };
+            SymbolTable t;
+            t.add_label("r4", 0x8000, std::nullopt, true);
+            t.add_label("fixed", 0xC000, MemSpace::page(20));
+            t.add_label("plain", 0x4000, std::nullopt);
+            const bool before = t.lookup(MemSpace::cpu(), 0x8000) == name("r4") &&
+                                t.find_name("r4") == std::optional<Key>(Key{0x8000, std::nullopt, true}) &&
+                                t.symbols().find(0x8000)->second.bind_at_load;
+            t.bind(fixed);
+            const bool in4 = t.lookup(MemSpace::page(4), 0x8000) == name("r4") &&
+                             !t.lookup(MemSpace::cpu(), 0x8000) && !t.lookup(MemSpace::page(5), 0x8000) &&
+                             t.find_name("r4")->space == std::optional<jnext::dbg::FetchSource>(MemSpace::page(4)) &&
+                             t.lookup(MemSpace::page(20), 0xC000) == name("fixed") &&
+                             !t.lookup(MemSpace::page(0), 0xC000) &&
+                             t.lookup(MemSpace::page(77), 0x4000) == name("plain");
+            t.bind([](uint16_t) { return MemSpace::page(40); });
+            const bool in40 = t.find_name("r4")->space == std::optional<jnext::dbg::FetchSource>(MemSpace::page(40));
+            t.bind([](uint16_t) { return MemSpace::rom(0); });
+            const bool in_rom = t.lookup(MemSpace::cpu(), 0x8000) == name("r4") && !t.find_name("r4")->space;
+            t.bind(fixed);
+            t.bind({});
+            const bool unbound = t.lookup(MemSpace::cpu(), 0x8000) == name("r4") && !t.find_name("r4")->space;
+            check("SYMPG-13", "bind() binds only the bind_at_load labels and names, to a RAM page only; a non-RAM "
+                              "memory or an empty function leaves them unpaged",
+                  before && in4 && in40 && in_rom && unbound);
+        }
     }
 
     // ── SLD `L` records into a SymbolTable — GH #375 ────────────────────

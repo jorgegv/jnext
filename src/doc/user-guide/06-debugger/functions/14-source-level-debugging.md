@@ -102,7 +102,9 @@ there, and the others stay pending. When the last one matches the log says
 tape does not match its binary identity`), and so are the symbols that came with
 it; with `--source-map` the run then exits with status 1. A map with no binary
 identity (no section binaries, an SLD without a hash) attaches unverified, as for
-any program, and nothing is waited for. A reset before the program has arrived
+any program, and nothing is waited for. The map's symbols take the page mapped at
+the tape's load call, as its source lines do, and work at once, while the check is
+pending; the map you loaded yourself is bound again at each program load. A reset before the program has arrived
 drops a program's pending map, since the program will not, and makes the one you
 loaded yourself stale (load it again once the program is in memory).
 
@@ -314,7 +316,10 @@ What z88dk and the library can do changes the result:
   while its 8K page is mapped where it runs (the Source tab, Call Stack and
   Breakpoints panels all follow the page). The map's address for a `BANK_n`
   section carries the bank in its high bits; JNEXT reads the page from the
-  section and the address. z88dk's `__banked` on newlib `+zxn` needs
+  section and the address, and the map's symbols follow the page as its lines
+  do (`@name` and the disassembly name a banked symbol only while its page is
+  mapped); the 24-bit `__PAGE_<n>_head` that the pragma below produces is read
+  by its low 16 bits. z88dk's `__banked` on newlib `+zxn` needs
   `-pragma-define:CRT_ORG_PAGE_<n>=0x<page><org>` (the page in the top byte,
   for example `0x14C000` for `PAGE_20`) and a stack below the banking segment
   (`-pragma-define:REGISTER_SP=0xC000`): without them the program itself calls

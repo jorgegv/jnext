@@ -272,7 +272,7 @@ name-only table: `lookup_name()` resolves them, and `lookup(addr)` never names a
 address after a constant.
 
 The table is keyed by (memory, address) (GH #375). A label is UNPAGED, naming its
-address in every memory (every map loader makes these), or PAGED, assembled for one
+address in every memory (the SJASMPLUS, simple and NextBuild loaders make these), or PAGED, assembled for one
 `FetchSource` such as `Page{20}`, and naming the address only while that memory
 supplies it. `SymbolTable::lookup(space, addr)` has no address-only form;
 `lookup(addr)` of the backend asks it with `source_page(addr)`, the same identity
@@ -288,6 +288,18 @@ loads neither, a bad trace refuses only the source half. The name is
 records (a struct's offsets and size) are name-only, while a `+sizeof` record only
 says SIZEOF(label) was used, and is an ordinary label; a value past 0xFFFF or a page the device lacks is skipped
 (rows SYMPG-*, SLDL-*).
+
+The z88dk loader (GH #375 stage 3) places each `; addr` symbol with the same
+`z88dk_section_space()` as the source half, in two passes (a section's head may come
+after its symbols): `BANK_n` and `PAGE_n` symbols, classic 24-bit values included,
+are PAGED labels; a symbol of a section that names no page is stored with
+`bind_at_load` and no memory, and `SymbolTable::bind(space_of)` gives it the RAM
+page `space_of(addr)` names (ROM, DivMMC and the other overlays leave it unpaged;
+an empty function unbinds it). The backend binds with the ONE function the source
+half uses, `emu.predict_fetch`: at `load_map()` (every success), at the sidecar
+`<stem>.map` (a tape included, at the attach), and for the user's store at every
+program load. A symbol with an empty section (z80asm's default section) is rule 4 here; only the source half drops such lines (G2). A 24-bit value in a section that names no page, or past 24 bits, is not
+a symbol; a constant wider than 16 bits is not a name (rows Z88SYM-01..09, SRCDBG-SYM-18..22).
 `SymbolTable::merge(other)` is the one way to combine two tables: it adds the other's
 labels whose key is still free, its names and its name-only values not yet taken, so
 the first table wins throughout (row SYMPG-12).
@@ -374,9 +386,11 @@ stores the path absolute.
 
 The second source adapter is `load_z88dk_source_map()` (`src/debug/z88dk_source_map.*`,
 GH #344), which reads the `__C_LINE_` and `__ASM_LINE_` records of a z88dk
-`-debug` map. The symbols of the same file stay the symbol table's. Its rules
+`-debug` map. The symbols of the same file take their pages from the same rules (see
+`bind_at_load` above). Its rules
 (design 9.1, 9.4, 9.7) live in two places. `z88dk_section_space()` and
-`parse_z88dk_map_line()` (`src/debug/z88dk_space.*`, std-only) are the one derivation
+`z88dk_page_head()` (the one rule for a page's head: the low 16 bits of a 24-bit
+`__PAGE_<n>_head`) and `parse_z88dk_map_line()` (`src/debug/z88dk_space.*`, std-only) are the one derivation
 of a section's page (`PAGE_n` and `BANK_n` and their siblings name it; any other
 section binds to the RAM page the MMU maps, which the caller supplies as
 `space_of`; a DIV section, a PAGE section with no head or a number out of range is
