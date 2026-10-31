@@ -16,6 +16,13 @@ the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.
 
+The text is coloured by its language: C (`.c`, `.h`), Z80 and Z80N assembly (`.asm`, `.s`,
+`.z80`, `.inc`; the sjasmplus and z88dk z80asm directives are recognised) and Boriel ZX Basic
+(`.bas`). A file with another extension is recognised by its first lines, and shown plain when
+they do not decide. Assembly written inside C (`#asm`, `__asm`) or inside Boriel Basic (`asm` ...
+`end asm`) is coloured as assembly. The colours follow the light or dark scheme. They change
+only the colour of the text: the current line keeps its highlight, and the gutter is not affected.
+
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a

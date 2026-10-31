@@ -360,7 +360,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
-| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
+| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); syntax highlighting done in E23-29 (#422); no location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
@@ -969,6 +969,9 @@ location is; a `space` on a kind other than `Execute` is refused.
   glyphs from one header (`breakpoint_glyph.h`); a click toggles the line's group through
   `SourcePanel::toggle_breakpoint_at_line()`; a half glyph marks a line only some of whose places
   carry a breakpoint. Rows QSRC-79..98.
+- **Syntax highlighting** (E23-29 (#422)): `source_highlighter.*` colours C, Z80/Z80N assembly and Boriel ZX Basic,
+  chosen by extension (`.m4` stripped) and then by the first 200 lines; assembly inside C and Boriel is coloured as
+  assembly. Colour only, light or dark, and the current-line selection stays on top. Rows QSRC-120..137.
 - **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
   Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
   Settings > Preferences... > Debugger Keys like the other debugger actions
@@ -1447,6 +1450,9 @@ text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRC
 the tree.
 
 
+E23-29 (#422) added QSRC-120 to QSRC-137 (`debugger_source_panel_test`: language by extension and content, the assembly, C
+and Boriel rules, colour-only formats, light and dark, the current line and the gutter marks, one highlighting pass per
+load) and DASM-Z80N-01 (`debugger_backend_test`: the disassembler names ED B6 LDIRSCALE and no longer names ED C6).
 E23-30 (#423) added QSRC-99 to QSRC-119 (`debugger_source_panel_test`: the Source tab's context menu, Run to Here, Show in
 Disassembly, the copy forms, the operand entries and the Disassembly's menu pinned across the shared builder),
 SRCRUN-01 to SRCRUN-07 (`source_debug_test`: `run_to_source_line`) and CTL-06-04 (`debugger_backend_test`: a run-to on

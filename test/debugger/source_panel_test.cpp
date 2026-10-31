@@ -4625,7 +4625,6 @@ void test_source_highlight_panel() {
         const bool opened = f.open(QIODevice::ReadWrite);
         f.setFileTime(QDateTime::currentDateTime().addSecs(60), QFileDevice::FileModificationTime);
         f.close();
-        if (!opened) check("QSRC-136", "main.bas reopened to set its mtime", false);
         const int b2 = hl->blocks_highlighted();
         v.sp->refresh();
         const int reload = hl->blocks_highlighted() - b2;
@@ -4650,7 +4649,7 @@ void test_source_highlight_panel() {
         check("QSRC-136", "a load highlights each block once, twenty paused refreshes with the PC "
                           "moving highlight nothing, a reload is one more pass, and a scheme switch "
                           "(there and back) is one pass each",
-              load_pass == blocks + 1 && ticks == 0 && reload == blocks2 + 1 && to_dark == blocks2 &&
+              opened && load_pass == blocks + 1 && ticks == 0 && reload == blocks2 + 1 && to_dark == blocks2 &&
                   dark_ticks == 0 && to_light == blocks2,
               "load=" + std::to_string(load_pass) + "/" + std::to_string(blocks) + " ticks=" +
                   std::to_string(ticks) + " reload=" + std::to_string(reload) + "/" +

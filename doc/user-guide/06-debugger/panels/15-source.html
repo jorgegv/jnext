@@ -3667,6 +3667,12 @@ log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</s
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.</p>
+<p>The text is coloured by its language: C (<code>.c</code>, <code>.h</code>), Z80 and Z80N assembly (<code>.asm</code>, <code>.s</code>,
+<code>.z80</code>, <code>.inc</code>; the sjasmplus and z88dk z80asm directives are recognised) and Boriel ZX Basic
+(<code>.bas</code>). A file with another extension is recognised by its first lines, and shown plain when
+they do not decide. Assembly written inside C (<code>#asm</code>, <code>__asm</code>) or inside Boriel Basic (<code>asm</code> ...
+<code>end asm</code>) is coloured as assembly. The colours follow the light or dark scheme. They change
+only the colour of the text: the current line keeps its highlight, and the gutter is not affected.</p>
 <p>Left of the text is a gutter, like the disassembly's: a <strong>BP</strong> column and the file's
 own <strong>Line</strong> numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a

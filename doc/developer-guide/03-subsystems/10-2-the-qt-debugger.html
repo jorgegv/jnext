@@ -2639,6 +2639,22 @@ map loads as source lines only. Its mismatch box and failure title do not name a
 <code>source_map_status().pending</code> is set (a tape program's map, waiting for its program) the panel
 appends a note line, <em>Source map not verified yet: it is checked when the program first runs its
 code</em>, to whatever it shows.
+The text is coloured by <code>SourceHighlighter</code> (<code>source_highlighter.*</code>, a <code>QSyntaxHighlighter</code> that exists only in
+<code>jnext_debugger</code>; GH #422). <code>source_language_for(file, text)</code> picks the language: the extension, case-insensitive,
+with a trailing <code>.m4</code> dropped (z88dk's <code>zxn_crt.asm.m4</code> is assembly), then the first 200 lines by content (a line is
+evidence for a language when its first word is in that language's set alone, a column-0 label skipped; the winner
+needs three lines and strictly more than the others), else Plain. The Z80/Z80N mnemonics and the register words are
+not listed anywhere: they are enumerated once from <code>disasm_one()</code> over the seven opcode pages, so a new Z80N opcode is
+coloured the day the disassembler names it. The directive, C and Boriel tables are committed with the upstream file
+and commit they were read from (z80asm <code>scan_def.h</code> and <code>keyword.def</code>, sjasmplus <code>directives.cpp</code>, ISO C11 6.4.1,
+Boriel <code>keywords.py</code>). The scanners are hand-written, linear per line, allocation-free per word, and carry multi-line
+comments and embedded assembly in the block state. Formats set the foreground colour and nothing else (the line
+geometry and the gutter alignment equal Plain's); the light constants are used on a light palette and
+<code>palette_tint::ink()</code> of them on a dark one. <code>SourcePanel::set_source_text()</code> is the one way a text enters the editor:
+the language first, then the text, so a load is highlighted once with its own language; <code>refresh()</code> calls
+<code>apply_palette()</code>, which rehighlights only when a colour changed (a scheme switch), never on a paused tick. The
+current-line marker is the same <code>ExtraSelection</code> as before, and Qt draws a selection's colours over the layout's
+formats, so the syntax colours never show on that line.
 The editor is a private <code>QPlainTextEdit</code> subclass (<code>SourceEdit</code>) with a gutter widget in a left
 viewport margin and a header strip above it (<code>setViewportMargins</code>; objects <code>source_gutter</code> and
 <code>source_gutter_header</code>), because the visible blocks' geometry is protected. The gutter

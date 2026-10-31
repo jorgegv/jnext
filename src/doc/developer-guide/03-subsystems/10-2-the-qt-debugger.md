@@ -240,6 +240,22 @@ map loads as source lines only. Its mismatch box and failure title do not name a
 `source_map_status().pending` is set (a tape program's map, waiting for its program) the panel
 appends a note line, *Source map not verified yet: it is checked when the program first runs its
 code*, to whatever it shows.
+The text is coloured by `SourceHighlighter` (`source_highlighter.*`, a `QSyntaxHighlighter` that exists only in
+`jnext_debugger`; GH #422). `source_language_for(file, text)` picks the language: the extension, case-insensitive,
+with a trailing `.m4` dropped (z88dk's `zxn_crt.asm.m4` is assembly), then the first 200 lines by content (a line is
+evidence for a language when its first word is in that language's set alone, a column-0 label skipped; the winner
+needs three lines and strictly more than the others), else Plain. The Z80/Z80N mnemonics and the register words are
+not listed anywhere: they are enumerated once from `disasm_one()` over the seven opcode pages, so a new Z80N opcode is
+coloured the day the disassembler names it. The directive, C and Boriel tables are committed with the upstream file
+and commit they were read from (z80asm `scan_def.h` and `keyword.def`, sjasmplus `directives.cpp`, ISO C11 6.4.1,
+Boriel `keywords.py`). The scanners are hand-written, linear per line, allocation-free per word, and carry multi-line
+comments and embedded assembly in the block state. Formats set the foreground colour and nothing else (the line
+geometry and the gutter alignment equal Plain's); the light constants are used on a light palette and
+`palette_tint::ink()` of them on a dark one. `SourcePanel::set_source_text()` is the one way a text enters the editor:
+the language first, then the text, so a load is highlighted once with its own language; `refresh()` calls
+`apply_palette()`, which rehighlights only when a colour changed (a scheme switch), never on a paused tick. The
+current-line marker is the same `ExtraSelection` as before, and Qt draws a selection's colours over the layout's
+formats, so the syntax colours never show on that line.
 The editor is a private `QPlainTextEdit` subclass (`SourceEdit`) with a gutter widget in a left
 viewport margin and a header strip above it (`setViewportMargins`; objects `source_gutter` and
 `source_gutter_header`), because the visible blocks' geometry is protected. The gutter
