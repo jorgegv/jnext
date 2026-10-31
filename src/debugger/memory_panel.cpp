@@ -442,7 +442,11 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
             if (row_cov[col]) {
                 const int cell = char_w_ * 2;
                 const int seg = cell / 3;
-                const int uy = y + rh - 2;
+                // On the selected cell (a fixed blue fill) the blue R, and in the dark
+                // palette every mark, would sit on a like colour: lift the marks one pixel
+                // and give them a white backing, one pixel wider all round.
+                const int uy = y + rh - (selected ? 3 : 2);
+                if (selected) p.fillRect(x_pos - 1, uy - 1, cell + 2, 4, Qt::white);
                 if (row_cov[col] & jnext::dbg::COVERAGE_EXEC)
                     p.fillRect(x_pos, uy, seg, 2, coverage_colors::exec(palette()));
                 if (row_cov[col] & jnext::dbg::COVERAGE_READ)

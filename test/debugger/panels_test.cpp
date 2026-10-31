@@ -2170,6 +2170,44 @@ static void test_coverage_panels() {
               fmt("bar=%d found=%d found9=%d contrast=%d differs=%d ex=%s rd=%s wr=%s base=%d", bar, found,
                   found9, contrast, differs, s(ex.name()).c_str(), s(rd.name()).c_str(), s(wr.name()).c_str(), base));
     }
+
+    {   // QCOV-08: a mark on the SELECTED cell (a fixed blue fill) stays legible: it has a white backing
+        // around it, in the light and in the dark palette, and it is still drawn in its own colour.
+        auto selected_mark = [&](const QPalette& p, int col, QRgb want, const char* shot) {
+            QApplication::setPalette(p);
+            for (int i = 0; i < 3; ++i) QApplication::processEvents();
+            const QPalette cur = QApplication::palette();
+            select_view(&mem, 0);
+            go_to(&mem, QString("%1").arg(0x8000 + col, 4, 16, QChar('0')));   // selects that byte
+            mem.refresh();
+            const QImage img = image_of(&mem);
+            (void)shot;
+            const auto items = painted(&mem);
+            const DumpRow row = dump_row(items, "$8000");
+            double x = -1;
+            for (size_t i = 0; i < items.size(); ++i)
+                if (items[i].text == "$8000" && i + 17 < items.size()) { x = items[i + 1 + col].pos.x(); break; }
+            if (!row.found || x < 0) return false;
+            (void)cur;
+            int top = -1, xs = -1;
+            for (int y = int(row.baseline_y); y < int(row.baseline_y) + 14 && top < 0; ++y)
+                for (int xx = int(x); xx < int(x) + 8; ++xx)
+                    if (img.pixel(xx, y) == want) { top = y; xs = xx; break; }
+            const QRgb white = QColor(Qt::white).rgb();
+            return top > 0 && img.pixel(xs, top - 1) == white && img.pixel(xs, top + 2) == white;
+        };
+        const QPalette lp = pal, dp = dark_test_palette();
+        const bool light_r = selected_mark(lp, 1, coverage_colors::read(lp).rgb(), "selected-R-light");
+        const bool light_x = selected_mark(lp, 0, coverage_colors::exec(lp).rgb(), "selected-X-light");
+        const bool dark_r = selected_mark(dp, 1, coverage_colors::read(dp).rgb(), "selected-R-dark");
+        QApplication::setPalette(pal);
+        for (int i = 0; i < 3; ++i) QApplication::processEvents();
+        check("QCOV-08",
+              "a coverage mark on the selected Memory cell keeps its own colour and has a white backing above and below it, "
+              "so the blue R (and X) stay legible on the blue selection fill, in the light and the dark palette",
+              light_r && light_x && dark_r,
+              fmt("light R=%d X=%d dark R=%d", light_r, light_x, dark_r));
+    }
 }
 
 // ===========================================================================
