@@ -14,6 +14,8 @@ so breakpoint dots stay visible.
   [suspended](08-breakpoints.md) — unticked in the Breakpoints panel, or
   covered by its master switch — is drawn as a hollow red ring instead;
   clicking its gutter still removes it.
+- With [memory coverage](../functions/15-memory-coverage.md) on, a green bar
+  sits left of the address on every line whose instruction ran.
 - **Click and drag** over the listing to select a range of lines, or click one
   line to select just that one. **Shift+click** extends the selection from
   where it started, and **Shift + ↑ ↓ Page Up/Down Home End** do the same from

@@ -845,6 +845,15 @@ Enable the per-instruction trace log (a 10K-entry ring). Also enabled
 implicitly by **--rewind-buffer-size** *N* with *N* \> 0, and toggleable
 in the debugger.
 
+**--coverage**  
+Record memory coverage from the start: for every byte of every memory
+(each RAM page, ROM image, DivMMC and Multiface window, Layer 2 mapping,
+…) whether the program executed it (first opcode byte of an
+instruction), read it or wrote it. Toggleable in the debugger (Debug \>
+Coverage), where the Disassembly, Memory and Source views show it. With
+the SDL frontend or **--headless** it records but there is no viewer.
+Costs a little speed while on; nothing while off.
+
 ### Headless and automation
 
 **--headless**  

@@ -446,10 +446,17 @@ Layer 2 3100, alternate ROM 3116.
 The VHDL arbiter takes the access direction as an input (`zxnext.vhd:3077`: the Layer 2
 mapping uses its read enable on a read and its write enable on a write; `3078`: the
 alternate-ROM decode). So any later write-side identity (E23-25) comes from the same function,
-given the direction, never from a second copy of the order. `write_landed()` keeps its own
-cascade for now, because write arbitration has other rules (read-only slots, the Layer 2 write
-enable, the alt-ROM write-over). If inlining misses the bench threshold (4.7), the fallback
-goes to the owner, never to a second arbiter.
+given the direction, never from a second copy of the order. As built (E23-25 (#388)):
+`route_bits_<Live, Write>()` takes the direction at compile time, `Mmu::write_route(addr)` is the
+public form, and `write_landed()` is that route followed by a store by the space's kind, so
+`git grep` finds the priority order in `route_bits_()` only. The write direction differs
+exactly where the VHDL does: no boot-ROM arm (`1856`, the `cpu_di` mux), the Layer 2 write
+enable (`3077`), the alt ROM only with en+rw (`3078`, `3056`), and a write lands only where
+`sram_rdonly` is clear (`3154`): the Multiface ROM half (`3035`), the DivMMC ROM and read-only
+RAM (`3089`, `3097`, `divmmc.vhd:100`, which `DivMmc::Overlay::rdonly` now carries for both
+`DivMmc::write()` and the route) and a ROM or unmapped slot are dropped (`ptr == nullptr`, the
+space still named). If inlining misses the bench threshold (4.7), the fallback goes to the
+owner, never to a second arbiter.
 
 `read()` is the route followed by ONE side-effect tail, `finish_read_()`, for every source: the
 +3 floating-bus latch on every contended access (`zxnext.vhd:4498-4509` latches whatever
@@ -1244,6 +1251,42 @@ E23-26's automatic code/data map. Off must cost nothing measurable; off and on a
 decides and pins the rewind rule (no double count), and whether INS-20's logical bitset stays
 beside it.
 
+**As built (E23-25 (#388)).**
+
+- *What is recorded.* One byte of flags per byte per space (`dbg::MemCoverage`, lazily allocated
+  8 KB chunks keyed by kind, index and half; at most 6 MB when every space is touched): X is the
+  first opcode byte of an executed instruction (set by `read_m1()` from the route it stores as
+  `last_m1_`; a prefix's inner M1, an accepted INT or NMI and a serviced esxdos shim mark
+  nothing), R every other memory read, operands and the DMA's included, and W a write that
+  landed. A `Floating` route is not memory and a dropped write marks nothing. Only guest accesses
+  count, exactly what a watchpoint can see (inside `GuestExecutionScope`, outside
+  `InspectionScope`): the CPU, the DMA and the esxdos shim's own stores; never video (it reads
+  the BRAM and SRAM through other ports, `zxnext.vhd:6558-6575`, `1666`), the Copper, `peek`,
+  `poke`, the trace and call-stack captures, or a loader.
+- *Zero cost off.* `DebugState::mem_gate_live()` is `wp_live || mem_cov_live`, one cached bool
+  replacing `watchpoints_live()` as the first test of the Mmu's read and write sites, so with no
+  client the hot path is the load and branch it was; behind it the coverage sink pointer is
+  tested before the watchpoint mask. `watchpoints_live()` is unchanged for the port sites.
+- *The rewind rule.* Coverage is a set of what this session's machine did, backend state beside
+  INS-20's (the sink is re-published at the one re-application and retired by `~Debugger()`): a
+  rewind neither removes nor adds a mark, a replay sets the same bits again (no double count by
+  construction), and a reset, a state load and a cold boot keep it. Only Clear and switching off
+  empty it. It is not in the rewind ring or a `.jns`, so the format is unchanged.
+- *INS-20 stays.* The logical-PC set is returned by ZRCP `cpu-code-coverage` (the ZEsarUX
+  contract DeZog reads) and the logical address a page ran at cannot be rebuilt from a physical
+  byte; a shared switch would make ZRCP users pay for the read and write hooks. INS-21-15
+  cross-checks the two on a fixed mapping.
+- *What E23-26 (#389) gets.* `mem_coverage_spaces()` and a dense `mem_coverage(space, 0, size)`
+  per space (8 KB, or 16 KB for `Rom`, `AltRom`, `Config`; `space_offset()` maps a logical
+  address). X marks instruction starts, which is skoolkit's code map and DeZog's and ZEsarUX's
+  coverage; an R byte inside an executed instruction's extent (`opcode_len` at each X) is an
+  operand, so #389 classifies code and data itself.
+- *Surface.* Debug ▸ Coverage, `--coverage` (a debugger session toggle like `--trace`: no
+  Preferences field), the Disassembly bar (X only, by the fetch view), the Memory panel's
+  X | R | W underline with a legend, and the Source tab's tint of the lines
+  `executed_source_lines()` returns (X only: R and W have no per-line meaning). No DZRP, ZRCP,
+  GDB or DSL verb: the C++ backend API is what #389 consumes.
+
 ### 11.2 skoolkit and ghidra (E23-26 (#389)): how a page identity maps into each format
 
 Export writes what the disassembly shows (the user layer over the toolchain layer); import
@@ -1324,6 +1367,13 @@ column of a logical breakpoint).
 
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).
+
+E23-25 (#388) added FSRC-17 to FSRC-19 and MCOV-01 to MCOV-07 (`mmu_test`, `mmu_integration_test`:
+the write route against the memory map for all 64 KB of 17 configurations with no stray write in
+any store, the offsets, and the hook per arm, direction, scope and gate), INS-21-01 to INS-21-16
+and HOST-COV-01 (`debugger_backend_test`), SRCDBG-COV-01/02 (`source_debug_test`), CLI-COV-01
+(`cli_options_test`) and QCOV-01 to QCOV-07 (`debugger_menu_test`, `debugger_panels_test`,
+`debugger_source_panel_test`).
 
 E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug_test`: the live gate,
 the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group

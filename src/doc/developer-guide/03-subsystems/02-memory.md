@@ -58,9 +58,35 @@ that has not happened yet, with the two overlays that M1 itself can switch
 (DivMMC's automap, the Multiface's 0x0066 fetch) given instead of read: it is how
 a debugger predicts the source of the next opcode fetch
 (`Emulator::predict_fetch()`), and it cannot disagree with `read()` because it is
-`read()`'s function. The write path keeps its own cascade, because write
-arbitration has rules the read side does not (read-only halves, the Layer 2 write
-enable, alt-ROM write-over).
+`read()`'s function.
+
+Writes use the **same body**, given the access direction
+(`route_bits_<Live, Write>`, public as `write_route(addr)`): the VHDL's SRAM
+arbiter is one process for both (`zxnext.vhd:3081-3132`) and the direction enters
+in three places, which are the three `if constexpr (Write)` arms. The boot ROM is
+in the read data mux only (`:1856-1857`), so a write skips it; the Layer 2 mapping
+tests its write enable instead of its read enable (`:3077`) and the alt ROM takes a
+write only with en+rw (`:3078`); and a write lands only where `sram_rdonly` is
+clear (`:3154`), so the Multiface ROM half, the DivMMC ROM and a read-only DivMMC
+RAM page (`DivMmc::Overlay::rdonly`, `divmmc.vhd:100`, decided once and used by
+`DivMmc::write()` too) and a ROM or unmapped slot come back with a null byte
+pointer: dropped, still *naming* their space. `write_landed()` is that route plus
+a store by the space's kind (the SRAM log and the attribute-mux record for the
+SRAM-backed ones, the peripheral's own RAM for Multiface and DivMMC) and the +3
+floating-bus latch; it returns whether the byte landed. There is exactly one copy
+of the priority order, in `route_bits_()`. Offsets agree with
+`dbg::space_offset(space, addr)` in both directions (`& 0x3FFF` for the 16 KB
+`Rom`, `AltRom` and `Config`, `& 0x1FFF` otherwise): mmu_integration_test FSRC-19.
+
+**Memory coverage** (GH #388) hangs off the same two functions. `finish_read_`
+and `write_landed` test `DebugState::mem_gate_live()`, one cached bool that is
+`wp_live || mem_cov_live` (the watchpoint gate and the coverage sink, both only
+while the machine is executing), so with nothing armed the hot path is the
+load-and-branch it always was. Behind it `Mmu::cov_note_()` marks the byte of
+the route in a `dbg::MemCoverage`: X from `read_m1()`, R from `read()` and W from
+a write that landed; `read_fetch()` (a prefix's inner M1) marks nothing and a
+`Floating` route is not memory. The map is keyed by the space the arbiter named,
+so the aliases stay apart; see [9.1](09-1-the-backend-api.md).
 
 `read()` and `read_m1()` are `route()` followed by one side-effect tail for every
 source: the byte (0xFF for a null pointer), the +3 floating-bus latch and the

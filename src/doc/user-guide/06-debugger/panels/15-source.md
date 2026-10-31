@@ -16,6 +16,10 @@ the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.
 
+With [memory coverage](../functions/15-memory-coverage.md) on, every line of the
+shown file that ran has a pale green background (the current line keeps its
+highlight).
+
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a
