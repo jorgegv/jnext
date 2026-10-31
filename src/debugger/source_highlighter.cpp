@@ -270,22 +270,23 @@ int word_end(const QString& t, int i) {
 }
 bool is_hex(QChar c) { return c.unicode() < 128 && std::isxdigit(c.unicode()); }
 
-// The end of a number starting at `i`, or `i` when none starts there. A letter-led
-// run ("FFh") is an identifier and a bare '$' is not a number. `c_style` is C: digits
-// with '.', suffixes and exponents, and no '$', '#' or '%' forms.
-int number_end(const QString& t, int i, bool c_style, bool hash_hex) {
+// Punctuation, grouping and operators are Keyword (owner ruling, GH #422 2026-10-31). Each
+// scanner tests this at its fall-through point, after comment, string, char, number and
+// word detection, so those win; Qt merges adjacent equal formats, so "->" or "<<=" is one span.
+// '$', '#', '@', '\\' and the backtick are not in it.
+constexpr char kKeywordPunct[] = ":,;()[]{}+-*/=<>&|!~^%?.";
+bool is_keyword_punct(QChar c) { return c.unicode() < 128 && c.unicode() != 0 && std::strchr(kKeywordPunct, c.unicode()); }
+
+// The end of an assembly or Boriel prefixed number starting at `i`, or `i` when none starts
+// there. A letter-led run ("FFh") is an identifier and a bare '$' is not a number.
+int number_end(const QString& t, int i, bool hash_hex) {
     const int n = t.size();
     const QChar c = t[i];
-    if (c.isDigit() || (c_style && c == QLatin1Char('.') && i + 1 < n && t[i + 1].isDigit())) {
+    if (c.isDigit()) {
         int j = i + 1;
-        while (j < n && (is_word_char(t[j]) || (c_style && t[j] == QLatin1Char('.')) ||
-                         (c_style && (t[j] == QLatin1Char('+') || t[j] == QLatin1Char('-')) &&
-                          (t[j - 1] == QLatin1Char('e') || t[j - 1] == QLatin1Char('E')) &&
-                          !t.mid(i, 2).startsWith(QLatin1String("0x"), Qt::CaseInsensitive))))
-            ++j;
+        while (j < n && is_word_char(t[j])) ++j;
         return j;
     }
-    if (c_style) return i;
     if ((c == QLatin1Char('$') || (hash_hex && c == QLatin1Char('#'))) && i + 1 < n && is_hex(t[i + 1])) {
         int j = i + 1;
         while (j < n && is_hex(t[j])) ++j;
@@ -297,6 +298,85 @@ int number_end(const QString& t, int i, bool c_style, bool hash_hex) {
         return j;
     }
     return i;
+}
+
+int digits_end(const QString& t, int i) {
+    while (i < t.size() && t[i].unicode() < 128 && t[i].isDigit()) ++i;
+    return i;
+}
+
+// An exponent "e[+-]digits" (or "p" for a hex float) at `i`: its end, or `i` when there is none.
+int exponent_end(const QString& t, int i, bool hex) {
+    const int n = t.size();
+    if (i >= n) return i;
+    const QChar c = t[i].toLower();
+    if (c != (hex ? QLatin1Char('p') : QLatin1Char('e'))) return i;
+    int j = i + 1;
+    if (j < n && (t[j] == QLatin1Char('+') || t[j] == QLatin1Char('-'))) ++j;
+    const int d = digits_end(t, j);
+    return d > j ? d : i;
+}
+
+// A C numeric constant (ISO C11 6.4.4.1, 6.4.4.2) starting at a digit, or at a '.' before a
+// digit: its end, and whether it is a floating constant (a '.' or an exponent). A sign is
+// part of the number only inside an exponent: "-5" is an operator and an integer.
+int c_number_end(const QString& t, int i, bool& is_float) {
+    const int n = t.size();
+    int j = i;
+    is_float = false;
+    if (t[j] == QLatin1Char('0') && j + 1 < n && (t[j + 1] == QLatin1Char('x') || t[j + 1] == QLatin1Char('X'))) {
+        j += 2;
+        while (j < n && is_hex(t[j])) ++j;
+        if (j < n && t[j] == QLatin1Char('.')) {
+            is_float = true;
+            ++j;
+            while (j < n && is_hex(t[j])) ++j;
+        }
+        const int e = exponent_end(t, j, true);
+        if (e > j) { is_float = true; j = e; }
+    } else {
+        j = digits_end(t, j);
+        if (j < n && t[j] == QLatin1Char('.')) {
+            is_float = true;
+            j = digits_end(t, j + 1);
+        }
+        const int e = exponent_end(t, j, false);
+        if (e > j) { is_float = true; j = e; }
+    }
+    while (j < n && is_word_char(t[j])) ++j;   // suffixes (u, l, f) and the like
+    return j;
+}
+
+// A Boriel ZX Basic numeric literal at `i` (a digit, or a '.' before a digit), in
+// zxblex.py's rule order: t_HEXA, t_OCTAL, t_BIN, then t_NUMBER.
+int basic_number_end(const QString& t, int i, bool& is_float) {
+    const int n = t.size();
+    is_float = false;
+    if (t[i].isDigit()) {
+        int w = i;
+        while (w < n && t[w].unicode() < 128 && t[w].isLetterOrNumber()) ++w;
+        const QStringView word = QStringView(t).mid(i, w - i);
+        auto all = [&](qsizetype from, qsizetype to, auto pred) {
+            for (qsizetype k = from; k < to; ++k) if (!pred(word[k])) return false;
+            return true;
+        };
+        const qsizetype len = word.size();
+        const QChar last = word[len - 1].toLower();
+        if (len >= 3 && word[0] == QLatin1Char('0') && word[1].toLower() == QLatin1Char('x') &&
+            all(2, len, [](QChar c) { return is_hex(c); }))
+            return w;
+        if (len >= 2 && last == QLatin1Char('h') && all(0, len - 1, [](QChar c) { return is_hex(c); })) return w;
+        if (len >= 2 && last == QLatin1Char('o') && all(0, len - 1, [](QChar c) { return c >= QLatin1Char('0') && c <= QLatin1Char('7'); })) return w;
+        if (len >= 2 && last == QLatin1Char('b') && all(0, len - 1, [](QChar c) { return c == QLatin1Char('0') || c == QLatin1Char('1'); })) return w;
+    }
+    int j = digits_end(t, i);
+    if (j < n && t[j] == QLatin1Char('.')) {
+        is_float = true;
+        j = digits_end(t, j + 1);
+    }
+    const int e = exponent_end(t, j, false);
+    if (e > j) { is_float = true; j = e; }
+    return j;
 }
 
 // A quoted run ending at the closing quote, or at the end of the line. `escapes`: a
@@ -394,13 +474,16 @@ SourceHighlighter::SourceHighlighter(QObject* parent) : QSyntaxHighlighter(paren
 QColor SourceHighlighter::light_colour(Role role)
 {
     switch (role) {
-    case Role::Keyword:   return QColor(0x00, 0x00, 0xC0);
-    case Role::Register:  return QColor(0x00, 0x6E, 0x6E);
-    case Role::Directive: return QColor(0x80, 0x00, 0x80);
-    case Role::Number:    return QColor(0xA0, 0x50, 0x00);
-    case Role::String:    return QColor(0xA3, 0x15, 0x15);
-    case Role::Comment:   return QColor(0x00, 0x80, 0x00);
-    case Role::Label:     return QColor(0x79, 0x5E, 0x26);
+    case Role::Text:         return QColor(0x00, 0x00, 0x00);
+    case Role::Keyword:      return QColor(0x00, 0x00, 0xC0);
+    case Role::Instruction:  return QColor(0x00, 0x6E, 0x6E);
+    case Role::Preprocessor: return QColor(0x80, 0x00, 0x80);
+    case Role::Label:        return QColor(0x79, 0x5E, 0x26);
+    case Role::String:       return QColor(0xA3, 0x15, 0x15);
+    case Role::Char:         return QColor(0xC2, 0x18, 0x5B);
+    case Role::Integer:      return QColor(0xA0, 0x50, 0x00);
+    case Role::Float:        return QColor(0x39, 0x49, 0xAB);
+    case Role::Comment:      return QColor(0x00, 0x80, 0x00);
     }
     return QColor();
 }
@@ -493,7 +576,7 @@ int SourceHighlighter::scan_asm(const QString& t, int i, AsmCtx ctx, bool& ended
         const QChar c = t[i];
         if (c.isSpace()) { ++i; continue; }
         if (c == QLatin1Char(';')) { paint(i, n, Role::Comment); return n; }
-        if (c == QLatin1Char(':')) { op_seen = false; ++i; continue; }   // sjasmplus statement separator
+        if (c == QLatin1Char(':')) { op_seen = false; paint(i, i + 1, Role::Keyword); ++i; continue; }   // sjasmplus statement separator
         if (c == QLatin1Char('/') && i + 1 < n) {
             if (t[i + 1] == QLatin1Char('/')) { paint(i, n, Role::Comment); return n; }
             if (t[i + 1] == QLatin1Char('*') && ctx == AsmCtx::File) {
@@ -506,13 +589,13 @@ int SourceHighlighter::scan_asm(const QString& t, int i, AsmCtx ctx, bool& ended
         }
         if (c == QLatin1Char('"') || c == QLatin1Char('\'')) {
             const int e = string_end(t, i, c == QLatin1Char('"'));
-            paint(i, e, Role::String);
+            paint(i, e, c == QLatin1Char('"') ? Role::String : Role::Char);
             i = e;
             continue;
         }
         if (c.isDigit() || c == QLatin1Char('$') || c == QLatin1Char('#') || c == QLatin1Char('%')) {
-            const int e = number_end(t, i, false, true);
-            if (e > i) { paint(i, e, Role::Number); i = e; continue; }
+            const int e = number_end(t, i, true);
+            if (e > i) { paint(i, e, Role::Integer); i = e; continue; }
         }
         if (is_asm_start(c)) {
             int e = asm_word_end(t, i);
@@ -537,17 +620,18 @@ int SourceHighlighter::scan_asm(const QString& t, int i, AsmCtx ctx, bool& ended
                 }
             }
             if (!op_seen && is_directive_word(w)) {
-                paint(i, e, Role::Directive);
-                op_seen = true;
-            } else if (in_set(disasm_words().mnemonics, w)) {
                 paint(i, e, Role::Keyword);
                 op_seen = true;
+            } else if (in_set(disasm_words().mnemonics, w)) {
+                paint(i, e, Role::Instruction);
+                op_seen = true;
             } else if (in_set(disasm_words().registers, w)) {
-                paint(i, e, Role::Register);
+                paint(i, e, Role::Instruction);
             }
             i = e;
             continue;
         }
+        if (is_keyword_punct(c)) paint(i, i + 1, Role::Keyword);
         ++i;
     }
     return n;
@@ -589,7 +673,7 @@ void SourceHighlighter::highlight_c(const QString& t)
         mode = Normal;
     } else if (mode == HashAsm) {
         if (t.trimmed().startsWith(QLatin1String("#endasm"))) {
-            paint(0, n, Role::Directive);
+            paint(0, n, Role::Preprocessor);
             setCurrentBlockState(Normal);
         } else {
             scan_asm(t, 0, AsmCtx::CHash, ended, open);
@@ -602,7 +686,7 @@ void SourceHighlighter::highlight_c(const QString& t)
         mode = Normal;
     }
 
-    // A preprocessor line is all Directive; "#asm" starts sccz80's embedded assembly.
+    // A preprocessor line is all Preprocessor; "#asm" starts sccz80's embedded assembly.
     if (i == 0) {
         int f = 0;
         while (f < n && t[f].isSpace()) ++f;
@@ -610,7 +694,7 @@ void SourceHighlighter::highlight_c(const QString& t)
             int w = f + 1;
             while (w < n && t[w].isSpace()) ++w;
             const int we = word_end(t, w);
-            paint(0, n, Role::Directive);
+            paint(0, n, Role::Preprocessor);
             if (QStringView(t).mid(w, we - w) == QLatin1String("asm")) {
                 setCurrentBlockState(HashAsm);
                 return;
@@ -649,14 +733,15 @@ void SourceHighlighter::highlight_c(const QString& t)
         }
         if (c == QLatin1Char('"') || c == QLatin1Char('\'')) {
             const int e = string_end(t, i, true);
-            paint(i, e, Role::String);
+            paint(i, e, c == QLatin1Char('"') ? Role::String : Role::Char);
             i = e;
             continue;
         }
-        if (c.isDigit() || c == QLatin1Char('.')) {
-            const int e = number_end(t, i, true, false);
-            if (e > i) { paint(i, e, Role::Number); i = e; continue; }
-            ++i;
+        if (c.isDigit() || (c == QLatin1Char('.') && i + 1 < n && t[i + 1].isDigit())) {
+            bool is_float = false;
+            const int e = c_number_end(t, i, is_float);
+            paint(i, e, is_float ? Role::Float : Role::Integer);
+            i = e;
             continue;
         }
         if (c.isLetter() || c == QLatin1Char('_')) {
@@ -673,6 +758,7 @@ void SourceHighlighter::highlight_c(const QString& t)
             i = e;
             continue;
         }
+        if (is_keyword_punct(c)) paint(i, i + 1, Role::Keyword);
         ++i;
     }
     setCurrentBlockState(Normal);
@@ -711,7 +797,7 @@ void SourceHighlighter::highlight_basic(const QString& t)
         int f = 0;
         while (f < n && t[f].isSpace()) ++f;
         if (f < n && t[f] == QLatin1Char('#')) {   // preprocessor line
-            paint(0, n, Role::Directive);
+            paint(0, n, Role::Preprocessor);
             setCurrentBlockState(Normal);
             return;
         }
@@ -746,9 +832,16 @@ void SourceHighlighter::highlight_basic(const QString& t)
             i = e;
             continue;
         }
-        if (c.isDigit() || c == QLatin1Char('$') || c == QLatin1Char('%')) {
-            const int e = number_end(t, i, false, false);
-            if (e > i) { paint(i, e, Role::Number); i = e; continue; }
+        if (c.isDigit() || (c == QLatin1Char('.') && i + 1 < n && t[i + 1].isDigit())) {
+            bool is_float = false;
+            const int e = basic_number_end(t, i, is_float);
+            paint(i, e, is_float ? Role::Float : Role::Integer);
+            i = e;
+            continue;
+        }
+        if (c == QLatin1Char('$') || c == QLatin1Char('%')) {
+            const int e = number_end(t, i, false);
+            if (e > i) { paint(i, e, Role::Integer); i = e; continue; }
         }
         if (c.isLetter() || c == QLatin1Char('_')) {
             int e = word_end(t, i);
@@ -756,6 +849,11 @@ void SourceHighlighter::highlight_basic(const QString& t)
             const int with_sign = (e < n && t[e] == QLatin1Char('$')) ? e + 1 : e;
             if (with_sign > e && in_set(basic_set(), QStringView(t).mid(i, with_sign - i))) e = with_sign;
             const QStringView w = QStringView(t).mid(i, e - i);
+            // A typed variable ("a$", "n%") keeps its suffix (zxblex.py t_ID): it is Text.
+            if (e < n && (t[e] == QLatin1Char('$') || t[e] == QLatin1Char('%')) && !in_set(basic_set(), w)) {
+                i = e + 1;
+                continue;
+            }
             if (in_set(basic_set(), w)) {
                 paint(i, e, Role::Keyword);
                 if (ci_equals(w, "asm")) {
@@ -767,6 +865,7 @@ void SourceHighlighter::highlight_basic(const QString& t)
             i = e;
             continue;
         }
+        if (is_keyword_punct(c)) paint(i, i + 1, Role::Keyword);
         ++i;
     }
     setCurrentBlockState(Normal);

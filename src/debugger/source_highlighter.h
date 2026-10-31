@@ -30,8 +30,10 @@ SourceLanguage source_language_for(std::string_view file_name, const QString& te
 class SourceHighlighter : public QSyntaxHighlighter {
     Q_OBJECT
 public:
-    enum class Role { Keyword, Register, Directive, Number, String, Comment, Label };
-    static constexpr int kRoles = 7;
+    /// The owner's ten classes (GH #422, 2026-10-31). Text is the editor palette's text colour
+    /// and never a format: an unclassified character carries none.
+    enum class Role { Text, Keyword, Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment };
+    static constexpr int kRoles = 10;
 
     explicit SourceHighlighter(QObject* parent);
 
