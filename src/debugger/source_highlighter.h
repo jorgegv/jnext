@@ -28,6 +28,7 @@ enum class SourceLanguage { Plain, C, Asm, Basic };
 SourceLanguage source_language_for(std::string_view file_name, const QString& text);
 
 class SourceHighlighter : public QSyntaxHighlighter {
+    Q_OBJECT
 public:
     enum class Role { Keyword, Register, Directive, Number, String, Comment, Label };
     static constexpr int kRoles = 7;

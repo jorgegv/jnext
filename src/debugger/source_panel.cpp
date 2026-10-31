@@ -9,6 +9,7 @@
 #include "debug/disasm_text.h"
 #include "debug/symbol_table.h"
 #include "debugger/operand_menu.h"
+#include "debugger/source_highlighter.h"
 #include "debugger/watch_panel.h"
 
 #include <QAction>
@@ -353,6 +354,9 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     mono.setStyleHint(QFont::Monospace);
     editor_->setFont(mono);
     layout->addWidget(editor_, 1);
+    // GH #422 - colours the text by language; a child of the panel, so tests find it.
+    highlighter_ = new SourceHighlighter(this);
+    highlighter_->setDocument(editor_->document());
 
     // GH #423 - the clipboard commands are QActions on the editor, as the
     // Disassembly's are on its widget: the menu shows the chord, and the chord
@@ -433,6 +437,7 @@ void SourcePanel::show_message(const QString& message)
     location_label_->setToolTip(QString());
     shown_file_.clear();
     if (!loaded_source_.isEmpty()) {
+        highlighter_->set_language(SourceLanguage::Plain);
         editor_->clear();
         loaded_source_.clear();
         loaded_mtime_ = -1;
@@ -465,8 +470,19 @@ void SourcePanel::update_buttons(bool paused)
     reverse_btn_->setEnabled(backward);
 }
 
+SourceLanguage SourcePanel::source_language() const { return highlighter_->language(); }
+
+// GH #422 - THE way a text enters the editor: the language is chosen first, so the
+// text is highlighted once, with its own language.
+void SourcePanel::set_source_text(const QString& text, const std::string& file)
+{
+    highlighter_->set_language(source_language_for(file, text));
+    editor_->setPlainText(text);
+}
+
 void SourcePanel::refresh()
 {
+    highlighter_->apply_palette(editor_->palette());   // rehighlights only on a scheme switch
     refresh_();
     update_gutter();   // the marks follow the memory mapped now
 }
@@ -543,7 +559,7 @@ void SourcePanel::refresh_()
             show_message(tr("Could not open %1").arg(source_path));
             return;
         }
-        editor_->setPlainText(QString::fromUtf8(file.readAll()));
+        set_source_text(QString::fromUtf8(file.readAll()), location->file);
         loaded_source_ = source_path;
         loaded_mtime_ = mtime;
         placed_ = false;   // a new text, or another file, starts at its top

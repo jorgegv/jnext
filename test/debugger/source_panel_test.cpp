@@ -22,6 +22,8 @@
 // Every row fails on a tree without the feature: there is no Source tab, no
 // page-qualified model row and no source map to read.
 //
+//   QSRC-120..139  language detection and syntax highlighting (GH #422)
+//
 // Qt is required; a display is not (offscreen QPA, as the other suites).
 // Run: ./build/test/debugger_source_panel_test
 // ===========================================================================
@@ -30,6 +32,7 @@
 #include "core/emulator_config.h"
 #include "core/saveable.h"
 #include "debug/debugger.h"
+#include "debug/disasm.h"
 #include "debug/ram_page.h"
 #include "debug/source_file.h"
 #include "debug/symbol_table.h"
@@ -40,10 +43,14 @@
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/memory_panel.h"
+#include "debugger/source_highlighter.h"
 #include "debugger/source_panel.h"
 #include "debugger/watch_panel.h"
 
 #include <QAbstractButton>
+#include <QDateTime>
+#include <QTextLayout>
+#include <QTextDocument>
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QKeySequence>
@@ -77,6 +84,7 @@
 #include <QWindow>
 #include <QTimer>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -87,6 +95,7 @@
 #include <memory>
 #include <string>
 #include "../row_id.h"
+#include "qt/palette_tint_qt.h"
 #include "dark_test_palette.h"
 
 namespace {
@@ -4117,6 +4126,568 @@ void test_source_menu_review() {
     }
 }
 
+// ── QSRC-120..139: language detection and syntax highlighting (GH #422) ──
+
+/// A document with a highlighter, read back through the block layouts' formats (the
+/// highlighter's formats are layout formats).
+struct Hl {
+    QTextDocument doc;
+    SourceHighlighter hl{nullptr};
+    // A document emits contentsChange (which drives a highlighter) only when it has a layout:
+    // documentLayout() creates the default one, which also lays the text out for QSRC-132.
+    Hl() {
+        QFont mono("Monospace", 10);   // the tab's font: column alignment is its point
+        mono.setStyleHint(QFont::Monospace);
+        doc.setDefaultFont(mono);
+        doc.documentLayout();
+        hl.setDocument(&doc);
+    }
+    void load(SourceLanguage l, const QString& t) {
+        hl.set_language(l);
+        doc.setPlainText(t);
+    }
+};
+
+/// One char per column of the block: K keyword, R register, D directive, N number,
+/// S string, C comment, L label, '.' no colour.
+std::string role_mask(const SourceHighlighter& hl, const QTextBlock& b) {
+    static const char kChars[SourceHighlighter::kRoles + 1] = "KRDNSCL";
+    std::string m(static_cast<size_t>(b.length() - 1), '.');
+    for (const QTextLayout::FormatRange& fr : b.layout()->formats())
+        for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+            if (fr.format.foreground().color() == hl.colour(static_cast<SourceHighlighter::Role>(r)))
+                for (int c = fr.start; c < fr.start + fr.length && c < static_cast<int>(m.size()); ++c)
+                    m[static_cast<size_t>(c)] = kChars[r];
+    return m;
+}
+std::string role_mask(const Hl& h, int line) {
+    return role_mask(h.hl, h.doc.findBlockByNumber(line));
+}
+/// The role char of `token`'s first occurrence on `line` ('?' when its chars differ).
+char tok(const Hl& h, int line, const QString& token, int from = 0) {
+    const QTextBlock b = h.doc.findBlockByNumber(line);
+    const int at = b.text().indexOf(token, from);
+    if (at < 0) return '!';
+    const std::string m = role_mask(h, line);
+    char c = m[static_cast<size_t>(at)];
+    for (int i = 0; i < token.size(); ++i)
+        if (m[static_cast<size_t>(at + i)] != c) return '?';
+    return c;
+}
+bool has_role(const Hl& h, int line, char role) {
+    return role_mask(h, line).find(role) != std::string::npos;
+}
+
+QString lines(const QStringList& l) { return l.join(QLatin1Char('\n')); }
+QString repeat_line(const QString& line, int n) { return lines(QStringList(n, line)); }
+
+SourceLanguage lang(const char* name, const QString& text = QString()) {
+    return source_language_for(name, text);
+}
+
+void test_source_highlight_detection() {
+    const QString prose = QStringLiteral("Some notes about the build.\nMore words here.\nNothing else.");
+    check("QSRC-120", "the extension picks the language, case-insensitively: .c .h C; .asm .s .z80 .inc "
+                      "and the m4 source zxn_crt.asm.m4 assembly; .bas Boriel ZX Basic; a prose .txt "
+                      "and a bare .m4 plain",
+          lang("main.c") == SourceLanguage::C && lang("x.H") == SourceLanguage::C &&
+              lang("a.asm") == SourceLanguage::Asm && lang("b.S") == SourceLanguage::Asm &&
+              lang("c.z80") == SourceLanguage::Asm && lang("d.inc") == SourceLanguage::Asm &&
+              lang("zxn_crt.asm.m4") == SourceLanguage::Asm &&
+              lang("dir.d/zxn_crt.ASM.M4") == SourceLanguage::Asm &&
+              lang("p.bas") == SourceLanguage::Basic && lang("P.BAS") == SourceLanguage::Basic &&
+              lang("notes.txt", prose) == SourceLanguage::Plain &&
+              lang("x.m4", prose) == SourceLanguage::Plain &&
+              lang("dir.c/noext", prose) == SourceLanguage::Plain);
+
+    const QString asm_text = lines({
+        QStringLiteral("start:  ld a,1"), QStringLiteral("        ld b,2"), QStringLiteral("        nop"),
+        QStringLiteral("        halt"),   QStringLiteral("        ret"),     QStringLiteral("; end"),
+        QStringLiteral("        push hl"), QStringLiteral("        pop hl"),  QStringLiteral("        di"),
+        QStringLiteral("        ei")});
+    const QString c_text = lines({
+        QStringLiteral("static void f(void)"), QStringLiteral("{"), QStringLiteral("    unsigned char c;"),
+        QStringLiteral("    c = 1;"), QStringLiteral("}"), QStringLiteral(""),
+        QStringLiteral("typedef struct S S;"), QStringLiteral("void g(void);"), QStringLiteral(""),
+        QStringLiteral("// end")});
+    const QString bas_text = lines({
+        QStringLiteral("10 PRINT \"hi\""), QStringLiteral("20 DIM x AS UBYTE"),
+        QStringLiteral("30 BORDER 1"), QStringLiteral("40 CLS"), QStringLiteral("50 PAUSE 0"),
+        QStringLiteral("60 BEEP 1,2"), QStringLiteral("70 PAPER 1"), QStringLiteral("80 INK 2"),
+        QStringLiteral("90 PLOT 1,1"), QStringLiteral("100 DRAW 5,5")});
+    bool by_content = true;
+    for (const char* name : {"x.m4", "prog.txt", "noext"})
+        by_content = by_content && lang(name, asm_text) == SourceLanguage::Asm &&
+                     lang(name, c_text) == SourceLanguage::C &&
+                     lang(name, bas_text) == SourceLanguage::Basic &&
+                     lang(name, prose) == SourceLanguage::Plain &&
+                     lang(name, QString()) == SourceLanguage::Plain;
+    const QString tie = lines({
+        QStringLiteral("  ld a,1"), QStringLiteral("  ld b,2"), QStringLiteral("  nop"),
+        QStringLiteral("10 PRINT 1"), QStringLiteral("20 CLS"), QStringLiteral("30 BEEP 1,1")});
+    check("QSRC-121", "an unknown extension is read by content (3 evidence lines, strictly more than "
+                      "either other language): assembly, C and Boriel texts are told apart, prose and "
+                      "an empty text are plain, and a 3 + 3 tie is plain",
+          by_content && lang("t.txt", tie) == SourceLanguage::Plain);
+
+    const QString asm_lines = repeat_line(QStringLiteral("  ld a,1"), 50);
+    auto padded = [&](int prose_lines) {
+        return repeat_line(QStringLiteral("just some words"), prose_lines) + QLatin1Char('\n') + asm_lines;
+    };
+    check("QSRC-122", "the extension wins over the content, and only the first 200 lines are read: "
+                      "assembly on lines 198-200 decides, on 199-250 and on 201-250 it does not",
+          lang("x.c", asm_lines) == SourceLanguage::C &&
+              lang("x.txt", padded(197)) == SourceLanguage::Asm &&
+              lang("x.txt", padded(198)) == SourceLanguage::Plain &&
+              lang("x.txt", padded(200)) == SourceLanguage::Plain);
+}
+
+void test_source_highlight_rules() {
+    // QSRC-123: mnemonics and registers are the disassembler's, enumerated here independently.
+    {
+        QSet<QString> mn, rg;
+        static const uint8_t pre[7][2] = {{0, 0}, {0xCB, 0}, {0xED, 0}, {0xDD, 0}, {0xFD, 0},
+                                          {0xDD, 0xCB}, {0xFD, 0xCB}};
+        static const int plen[7] = {0, 1, 1, 1, 1, 2, 2};
+        for (int p = 0; p < 7; ++p)
+            for (int op = 0; op < 256; ++op) {
+                uint8_t b[4] = {0, 0, 0, 0};
+                int n = 0;
+                for (int k = 0; k < plen[p]; ++k) b[n++] = pre[p][k];
+                if (p >= 5) n = 3;
+                b[n] = static_cast<uint8_t>(op);
+                const DisasmLine l = disasm_one(0, [&](uint16_t a) -> uint8_t { return a < 4 ? b[a] : 0; });
+                const QString text = QString::fromLatin1(l.mnemonic);
+                const QString first = text.section(QLatin1Char(' '), 0, 0);
+                if (first == QLatin1String("DB")) continue;
+                mn.insert(first);
+                const QString ops = text.section(QLatin1Char(' '), 1);
+                static const QRegularExpression word(QStringLiteral("\\$[0-9A-F]+|[A-Z][A-Z0-9]*'?"));
+                auto it = word.globalMatch(ops);
+                while (it.hasNext()) {
+                    const QString w = it.next().captured(0);
+                    if (!w.startsWith(QLatin1Char('$'))) rg.insert(w);
+                }
+            }
+        const auto& am = SourceHighlighter::asm_mnemonics();
+        const auto& ar = SourceHighlighter::asm_registers();
+        check("QSRC-123", "the mnemonics and registers are the disassembler's: LDIRSCALE is a mnemonic, "
+                          "LOOP and DB are not, AF' IXH and NZ are registers",
+              am == mn && ar == rg && am.contains(QStringLiteral("LDIRSCALE")) &&
+                  am.contains(QStringLiteral("NEXTREG")) && am.contains(QStringLiteral("LD")) &&
+                  !am.contains(QStringLiteral("LOOP")) && !am.contains(QStringLiteral("DB")) &&
+                  ar.contains(QStringLiteral("AF'")) && ar.contains(QStringLiteral("IXH")) &&
+                  ar.contains(QStringLiteral("NZ")) && !ar.contains(QStringLiteral("FF")),
+              "mn=" + std::to_string(am.size()) + "/" + std::to_string(mn.size()) +
+                  " rg=" + std::to_string(ar.size()) + "/" + std::to_string(rg.size()));
+    }
+    {   // QSRC-124
+        bool z80asm = true, sjasm = true;
+        for (const char* d : {"SECTION", "DEFC", "DEFVARS", "C_LINE", "IFNDEF", "PHASE", "EXTERN", "PUBLIC"})
+            z80asm = z80asm && SourceHighlighter::is_asm_directive(QString::fromLatin1(d)) &&
+                     SourceHighlighter::is_asm_directive(QString::fromLatin1(d).toLower());
+        for (const char* d : {"DEVICE", "SAVENEX", "SLDOPT", "MMU", "DISP", "ENT", ".db", "STRUCT", "ENDS", "EQU", "DEFL"})
+            sjasm = sjasm && SourceHighlighter::is_asm_directive(QString::fromLatin1(d)) &&
+                    SourceHighlighter::is_asm_directive(QString::fromLatin1(d).toLower());
+        Hl h;
+        h.load(SourceLanguage::Asm, QStringLiteral("  db 1\n  ld a,1\n  .DEFB 2"));
+        check("QSRC-124", "directives: the z80asm and the sjasmplus names are directives in either case "
+                          "and with a leading dot; db is a directive (not a keyword) and ld is not",
+              z80asm && sjasm && !SourceHighlighter::is_asm_directive(QStringLiteral("ld")) &&
+                  !SourceHighlighter::is_asm_directive(QStringLiteral("ldir")) &&
+                  tok(h, 0, QStringLiteral("db")) == 'D' && tok(h, 1, QStringLiteral("ld")) == 'K' &&
+                  tok(h, 2, QStringLiteral(".DEFB")) == 'D');
+    }
+    {   // QSRC-125
+        Hl h;
+        h.load(SourceLanguage::Asm,
+               QStringLiteral("loop:  ld a,(hl) ; next\n"
+                              "  db $FF #FF 0xFF 0FFh %0101 0b0101 255\n"
+                              "  db FFh,$,$\n"
+                              "  LD A,(HL)"));
+        const bool line = role_mask(h, 0) == "LLLLL..KK.R..RR..CCCCCC";
+        const bool nums = role_mask(h, 1) == "..DD.NNN.NNN.NNNN.NNNN.NNNNN.NNNNNN.NNN";
+        const bool not_nums = role_mask(h, 2) == "..DD........";
+        const bool upper = role_mask(h, 3) == "..KK.R..RR.";
+        check("QSRC-125", "an assembly line: the label, mnemonic, registers and comment are coloured and "
+                          "the punctuation is not; $FF #FF 0xFF 0FFh %0101 0b0101 255 are numbers, FFh "
+                          "and a bare $ are not; upper case is the same as lower",
+              line && nums && not_nums && upper,
+              role_mask(h, 0) + " " + role_mask(h, 1) + " " + role_mask(h, 2) + " " + role_mask(h, 3));
+    }
+    {   // QSRC-126
+        Hl h;
+        h.load(SourceLanguage::Asm, QStringLiteral("  ex af,af' ; swap\n  ld a,\";\"\n  cp 'x'"));
+        check("QSRC-126", "the apostrophe of AF' belongs to the register, not to a string, and a ';' in a "
+                          "string or a quoted character starts no comment",
+              role_mask(h, 0) == "..KK.RR.RRR.CCCCCC" && role_mask(h, 1) == "..KK.R.SSS" &&
+                  role_mask(h, 2) == "..KK.SSS",
+              role_mask(h, 0) + " " + role_mask(h, 1) + " " + role_mask(h, 2));
+    }
+    {   // QSRC-127
+        Hl h;
+        h.load(SourceLanguage::Asm,
+               QStringLiteral("  nextreg $07,3\n  ldirx\n  mul d,e\n  pixelad\n  test $80\n  ldirscale\n"
+                              "  SECTION code_user\n  defc X = 1\n.db 1\n  DEVICE ZXSPECTRUMNEXT\nx EQU 5"));
+        bool z80n = tok(h, 0, QStringLiteral("nextreg")) == 'K' && tok(h, 1, QStringLiteral("ldirx")) == 'K' &&
+                    tok(h, 2, QStringLiteral("mul")) == 'K' && tok(h, 3, QStringLiteral("pixelad")) == 'K' &&
+                    tok(h, 4, QStringLiteral("test")) == 'K' && tok(h, 5, QStringLiteral("ldirscale")) == 'K';
+        bool dirs = tok(h, 6, QStringLiteral("SECTION")) == 'D' && tok(h, 7, QStringLiteral("defc")) == 'D' &&
+                    tok(h, 8, QStringLiteral(".db")) == 'D' && tok(h, 9, QStringLiteral("DEVICE")) == 'D' &&
+                    tok(h, 10, QStringLiteral("x")) == 'L' && tok(h, 10, QStringLiteral("EQU")) == 'D';
+        check("QSRC-127", "the Z80N mnemonics are keywords, the z80asm and sjasmplus directive lines are "
+                          "directives, and in `x EQU 5` x is the label and EQU the directive",
+              z80n && dirs);
+    }
+    {   // QSRC-128
+        Hl h;
+        h.load(SourceLanguage::Asm, QStringLiteral("ld a,1 // c\n/* a\nb\n*/ nop"));
+        check("QSRC-128", "sjasmplus comments: // to the end of the line, and /* ... */ across lines, "
+                          "after which the code is coloured again",
+              tok(h, 0, QStringLiteral("ld")) == 'K' && tok(h, 0, QStringLiteral("// c")) == 'C' &&
+                  role_mask(h, 1) == "CCCC" && role_mask(h, 2) == "C" &&
+                  tok(h, 3, QStringLiteral("*/")) == 'C' && tok(h, 3, QStringLiteral("nop")) == 'K');
+    }
+    {   // QSRC-129
+        Hl h;
+        h.load(SourceLanguage::C,
+               QStringLiteral("static unsigned char f(void) __z88dk_fastcall {\n"
+                              "#include <arch/zxn.h>\n"
+                              "char *s = \"a/*b\";\n"
+                              "int x = 0x5800 + 10u + 017;\n"
+                              "char c = '\\n';\n"
+                              "/* a\n"
+                              "   b */\n"
+                              "  return RETURN;"));
+        const QString l0 = h.doc.findBlockByNumber(0).text();
+        const int f = l0.indexOf(QStringLiteral(" f(")) + 1;
+        const std::string m0 = role_mask(h, 0);
+        const bool kw = tok(h, 0, QStringLiteral("static")) == 'K' && tok(h, 0, QStringLiteral("unsigned")) == 'K' &&
+                        tok(h, 0, QStringLiteral("char")) == 'K' && tok(h, 0, QStringLiteral("void")) == 'K' &&
+                        tok(h, 0, QStringLiteral("__z88dk_fastcall")) == 'K' && m0[static_cast<size_t>(f)] == '.';
+        const bool pre = role_mask(h, 1) == std::string(h.doc.findBlockByNumber(1).text().size(), 'D');
+        const bool str = tok(h, 2, QStringLiteral("\"a/*b\"")) == 'S' && !has_role(h, 2, 'C') &&
+                         !has_role(h, 3, 'C') && tok(h, 4, QStringLiteral("'\\n'")) == 'S';
+        const bool nums = tok(h, 3, QStringLiteral("0x5800")) == 'N' && tok(h, 3, QStringLiteral("10u")) == 'N' &&
+                          tok(h, 3, QStringLiteral("017")) == 'N';
+        const bool cmt = role_mask(h, 5) == "CCCC" && role_mask(h, 6) == "CCCCCCC";
+        const bool ret = tok(h, 7, QStringLiteral("return")) == 'K' && tok(h, 7, QStringLiteral("RETURN")) == '.';
+        check("QSRC-129", "C: keywords including the __ names (the function's own name is not), a # line "
+                          "is a directive, a /* inside a string is no comment, numbers with suffixes, a "
+                          "character literal, a /* */ over lines, and keywords are case-sensitive",
+              kw && pre && str && nums && cmt && ret,
+              std::to_string(kw) + std::to_string(pre) + std::to_string(str) + std::to_string(nums) +
+                  std::to_string(cmt) + std::to_string(ret));
+    }
+    {   // QSRC-130
+        Hl h;
+        h.load(SourceLanguage::C,
+               QStringLiteral("#asm\n  ld a,1 ; x\n#endasm\nint y;\n__asm\n  ld a,1 ; x\n__endasm;\n"
+                              "int z; ld a,1\n"));
+        const bool a1 = tok(h, 1, QStringLiteral("ld")) == 'K' && tok(h, 1, QStringLiteral("; x")) == 'C';
+        const bool a2 = tok(h, 5, QStringLiteral("ld")) == 'K' && tok(h, 5, QStringLiteral("; x")) == 'C';
+        const bool dirs = role_mask(h, 0) == "DDDD" && role_mask(h, 2) == "DDDDDDD";
+        const bool after = tok(h, 3, QStringLiteral("int")) == 'K' && tok(h, 7, QStringLiteral("int")) == 'K' &&
+                           tok(h, 7, QStringLiteral("ld")) == '.';
+        check("QSRC-130", "embedded assembly in C is coloured as assembly between #asm and #endasm and "
+                          "between __asm and __endasm, and C rules resume after each",
+              a1 && a2 && dirs && after,
+              std::to_string(a1) + std::to_string(a2) + std::to_string(dirs) + std::to_string(after));
+    }
+    {   // QSRC-131
+        Hl h;
+        h.load(SourceLanguage::Basic,
+               QStringLiteral("print \"x\"\nPRINT chr$(65)\nDIM x AS UBYTE\nREM a b\n' a\n"
+                              "/' a /' b '/ c '/ print\n/' a /'\n b '/ c '/ print\n"
+                              "#include <x.bas>\n10 PRINT\nasm\n  ld a,1 ; x\nend asm\nld a,1\nprint"));
+        const bool kw = tok(h, 0, QStringLiteral("print")) == 'K' && tok(h, 1, QStringLiteral("PRINT")) == 'K' &&
+                        tok(h, 1, QStringLiteral("chr$")) == 'K' && tok(h, 2, QStringLiteral("DIM")) == 'K' &&
+                        tok(h, 2, QStringLiteral("x")) == '.' && tok(h, 2, QStringLiteral("AS")) == 'K' &&
+                        tok(h, 2, QStringLiteral("UBYTE")) == 'K';
+        const bool rem = role_mask(h, 3) == "CCCCCCC" && role_mask(h, 4) == "CCC";
+        const bool nest1 = tok(h, 5, QStringLiteral("/' a /' b '/ c '/")) == 'C' && tok(h, 5, QStringLiteral("print")) == 'K';
+        const bool nest2 = role_mask(h, 6) == "CCCCCCC" && tok(h, 7, QStringLiteral(" b '/ c '/")) == 'C' &&
+                           tok(h, 7, QStringLiteral("print")) == 'K';
+        const bool pre = role_mask(h, 8) == std::string(16, 'D');
+        const bool lineno = tok(h, 9, QStringLiteral("10")) == 'L' && tok(h, 9, QStringLiteral("PRINT")) == 'K';
+        const bool a = tok(h, 10, QStringLiteral("asm")) == 'K' && tok(h, 11, QStringLiteral("ld")) == 'K' &&
+                       tok(h, 11, QStringLiteral("a")) == 'R' && tok(h, 11, QStringLiteral("; x")) == 'C' &&
+                       tok(h, 12, QStringLiteral("end")) == 'K' && tok(h, 12, QStringLiteral("asm")) == 'K' &&
+                       tok(h, 13, QStringLiteral("ld")) == '.' && tok(h, 14, QStringLiteral("print")) == 'K';
+        check("QSRC-131", "Boriel ZX Basic: keywords in either case with the $ names, REM and ' comments, "
+                          "/' '/ comments nested and across lines, a # line, a line number, and asm ... "
+                          "end asm coloured as assembly",
+              kw && rem && nest1 && nest2 && pre && lineno && a,
+              std::to_string(kw) + std::to_string(rem) + std::to_string(nest1) + std::to_string(nest2) +
+                  std::to_string(pre) + std::to_string(lineno) + std::to_string(a));
+    }
+    {   // QSRC-132
+        const QString samples[] = {
+            QStringLiteral("loop: ld a,(hl) ; c\n  db $FF,\"s\",'c'\n  SECTION x\n/* a\nb */"),
+            QStringLiteral("static int f(void) {\n#define X 1\n  return 0x10 + 'c'; // c\n}\n/* a\nb */"),
+            QStringLiteral("10 PRINT \"s\" ' c\nDIM x AS UBYTE\n/' a '/\nasm\nld a,1\nend asm")};
+        const SourceLanguage langs[] = {SourceLanguage::Asm, SourceLanguage::C, SourceLanguage::Basic};
+        bool plain_empty = true, colour_only = true, geometry = true;
+        for (int i = 0; i < 3; ++i) {
+            Hl p;
+            p.load(SourceLanguage::Plain, samples[i]);
+            for (QTextBlock b = p.doc.begin(); b.isValid(); b = b.next())
+                plain_empty = plain_empty && b.layout()->formats().isEmpty();
+            for (bool dark : {false, true}) {
+                Hl h;
+                if (dark) h.hl.apply_palette(dark_test_palette());
+                h.load(langs[i], samples[i]);
+                int ranges = 0;
+                for (QTextBlock b = h.doc.begin(); b.isValid(); b = b.next())
+                    for (const QTextLayout::FormatRange& fr : b.layout()->formats()) {
+                        ++ranges;
+                        const auto props = fr.format.properties();
+                        colour_only = colour_only && props.size() == 1 &&
+                                      props.contains(QTextFormat::ForegroundBrush);
+                    }
+                colour_only = colour_only && ranges > 5;
+                // The same text as Plain has the same size, and the same line widths.
+                if (!dark) {
+                    geometry = geometry && h.doc.size() == p.doc.size();
+                    QTextBlock b = h.doc.begin(), q = p.doc.begin();
+                    for (; b.isValid() && q.isValid(); b = b.next(), q = q.next()) {
+                        geometry = geometry && b.layout()->lineCount() == q.layout()->lineCount();
+                        for (int k = 0; k < b.layout()->lineCount() && k < q.layout()->lineCount(); ++k)
+                            geometry = geometry &&
+                                b.layout()->lineAt(k).naturalTextWidth() == q.layout()->lineAt(k).naturalTextWidth() &&
+                                b.layout()->lineAt(k).height() == q.layout()->lineAt(k).height();
+                    }
+                    geometry = geometry && !b.isValid() && !q.isValid();
+                }
+            }
+        }
+        check("QSRC-132", "a Plain text has no format at all; every format of every language, on a light "
+                          "and a dark palette, sets the foreground and nothing else; and a highlighted "
+                          "text has the size and line widths of the same text as Plain",
+              plain_empty && colour_only && geometry,
+              std::to_string(plain_empty) + std::to_string(colour_only) + std::to_string(geometry));
+    }
+    {   // QSRC-133
+        const QPalette light = QPalette();
+        const QPalette dark = dark_test_palette();
+        SourceHighlighter hl(nullptr);
+        bool light_ok = !palette_tint::is_dark(light), dark_ok = palette_tint::is_dark(dark);
+        bool d_light = true, d_dark = true;
+        auto distinct = [&](auto get) {
+            for (int i = 0; i < SourceHighlighter::kRoles; ++i)
+                for (int j = i + 1; j < SourceHighlighter::kRoles; ++j)
+                    if (get(i) == get(j)) return false;
+            return true;
+        };
+        hl.apply_palette(light);
+        for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+            light_ok = light_ok && hl.colour(static_cast<SourceHighlighter::Role>(r)) ==
+                                       SourceHighlighter::light_colour(static_cast<SourceHighlighter::Role>(r));
+        d_light = distinct([&](int r) { return hl.colour(static_cast<SourceHighlighter::Role>(r)); });
+        const bool again_light = hl.apply_palette(light);
+        const bool to_dark = hl.apply_palette(dark);
+        for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+            dark_ok = dark_ok && hl.colour(static_cast<SourceHighlighter::Role>(r)) ==
+                                     palette_tint::ink(dark, SourceHighlighter::light_colour(static_cast<SourceHighlighter::Role>(r)));
+        d_dark = distinct([&](int r) { return hl.colour(static_cast<SourceHighlighter::Role>(r)); });
+        const bool again_dark = hl.apply_palette(dark);
+        const bool to_light = hl.apply_palette(light);
+        check("QSRC-133", "light colours on a light palette, palette_tint::ink() of them on a dark one, "
+                          "the seven pairwise distinct on both, and apply_palette() reports a change "
+                          "only on a scheme switch",
+              light_ok && dark_ok && d_light && d_dark && !again_light && to_dark && !again_dark && to_light,
+              std::to_string(light_ok) + std::to_string(dark_ok) + std::to_string(d_light) +
+                  std::to_string(d_dark) + std::to_string(again_light) + std::to_string(to_dark) +
+                  std::to_string(again_dark) + std::to_string(to_light));
+    }
+}
+
+/// The role mask of `line` (1-based) of the Source tab's own document.
+std::string panel_mask(SourcePanel* sp, int line) {
+    auto* hl = sp->findChild<SourceHighlighter*>();
+    auto* ed = sp->findChild<QPlainTextEdit*>();
+    return (hl && ed) ? role_mask(*hl, ed->document()->findBlockByNumber(line - 1)) : std::string("<none>");
+}
+
+void test_source_highlight_panel() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-134
+        bool bas = false, c = false;
+        std::string c_mask;
+        {
+            Fixture fx;
+            fx.enable();
+            fx.load_map();
+            BreakpointModel& m = fx.mgr->breakpoints();
+            SrcView v(fx, m);
+            bas = v.sp->source_language() == SourceLanguage::Basic &&
+                  panel_mask(v.sp, 12).substr(0, 3) == "CCC";
+        }
+        {
+            Fixture fx;
+            fx.enable();
+            const std::string map = tmp + "/h134/prog.map";
+            copy_z88dk("v2.4/sccz80-subdir", "prog.map", map);
+            std::string util;
+            for (int i = 1; i <= 9; ++i) util += "int v" + std::to_string(i) + "; // line\n";
+            std::filesystem::create_directories(tmp + "/h134/game");
+            write_text(tmp + "/h134/game/util.c", util);
+            fx.backend->load_source_map(map, true);
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = 0x8D5C;
+            fx.emu.cpu().set_registers(r);
+            fx.mgr->refresh_panels();
+            SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
+            c_mask = sp ? panel_mask(sp, 8) : "<no panel>";
+            c = sp && sp->source_language() == SourceLanguage::C && sp->shown_file() == "game/util.c" &&
+                c_mask.substr(0, 3) == "KKK";
+        }
+        check("QSRC-134", "the Source tab colours what it shows: main.bas is Boriel (REM is a comment), "
+                          "and the z88dk fixture's game/util.c is C (int is a keyword)",
+              bas && c, std::to_string(bas) + std::to_string(c) + " " + c_mask);
+    }
+    {   // QSRC-135
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        bool sel_ok = true, never_role = true, control = true;
+        for (bool dark : {false, true}) {
+            const QPalette light = QApplication::palette();
+            if (dark) QApplication::setPalette(dark_test_palette());
+            QApplication::processEvents();
+            v.sp->refresh();
+            QApplication::processEvents();
+            const auto sels = v.ed->extraSelections();
+            sel_ok = sel_ok && sels.size() == 1 &&
+                     sels[0].format.background() == v.ed->palette().highlight() &&
+                     sels[0].format.foreground() == v.ed->palette().highlightedText() &&
+                     sels[0].format.boolProperty(QTextFormat::FullWidthSelection);
+            QImage img(v.ed->viewport()->size(), QImage::Format_ARGB32);
+            img.fill(Qt::magenta);
+            v.ed->viewport()->render(&img);
+            auto* hl = v.sp->findChild<SourceHighlighter*>();
+            auto count_role_pixels = [&](int line) {
+                const QRect c = v.cell(line);
+                int n = 0;
+                for (int y = std::max(c.top(), 0); y <= std::min(c.bottom(), img.height() - 1); ++y)
+                    for (int x = 0; x < img.width(); ++x)
+                        for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+                            if (QColor::fromRgb(img.pixel(x, y)) == hl->colour(static_cast<SourceHighlighter::Role>(r))) ++n;
+                return n;
+            };
+            never_role = never_role && count_role_pixels(10) == 0;
+            control = control && count_role_pixels(11) > 0;   // the colours really are drawn elsewhere
+            if (dark) {
+                QApplication::setPalette(light);
+                QApplication::processEvents();
+                v.sp->refresh();
+            }
+        }
+        m.add(BreakpointModel::Execute, 0x8005);
+        QApplication::processEvents();
+        const std::string disc = v.mark(12);
+        check("QSRC-135", "the current line keeps the palette's highlight and highlighted-text selection "
+                          "and none of the syntax colours is drawn on it (on light and dark), the other "
+                          "lines do show them, and a breakpoint on a coloured line still shows its disc",
+              sel_ok && never_role && control && disc == "disc",
+              std::to_string(sel_ok) + std::to_string(never_role) + std::to_string(control) + " " + disc);
+        m.clear_all();
+    }
+    {   // QSRC-136
+        Fixture fx;
+        fx.enable();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);   // no map yet: the tab shows a message, the document is empty
+        auto* hl = v.sp->findChild<SourceHighlighter*>();
+        if (!hl) { check("QSRC-136", "the Source tab has a highlighter", false); return; }
+        const int b0 = hl->blocks_highlighted();
+        fx.load_map();
+        v.sp->refresh();
+        QApplication::processEvents();
+        const int blocks = v.ed->document()->blockCount();
+        const int load_pass = hl->blocks_highlighted() - b0;
+        const int b1 = hl->blocks_highlighted();
+        const uint16_t pcs[] = {0x8000, 0x8002, 0x8005, 0x8006};
+        for (int i = 0; i < 20; ++i) {
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = pcs[i % 4];
+            fx.emu.cpu().set_registers(r);
+            v.sp->refresh();
+        }
+        const int ticks = hl->blocks_highlighted() - b1;
+        // a changed mtime reloads the file: one more pass over its blocks
+        std::string text;
+        for (int i = 1; i <= 20; ++i) text += "REM again " + std::to_string(i) + "\n";
+        write_text(tmp + "/main.bas", text);
+        QFile f(QString::fromStdString(tmp + "/main.bas"));
+        const bool opened = f.open(QIODevice::ReadWrite);
+        f.setFileTime(QDateTime::currentDateTime().addSecs(60), QFileDevice::FileModificationTime);
+        f.close();
+        if (!opened) check("QSRC-136", "main.bas reopened to set its mtime", false);
+        const int b2 = hl->blocks_highlighted();
+        v.sp->refresh();
+        const int reload = hl->blocks_highlighted() - b2;
+        const int blocks2 = v.ed->document()->blockCount();
+        const QPalette light = QApplication::palette();
+        const int b3 = hl->blocks_highlighted();
+        QApplication::setPalette(dark_test_palette());
+        QApplication::processEvents();
+        v.sp->refresh();
+        const int to_dark = hl->blocks_highlighted() - b3;
+        const int b4 = hl->blocks_highlighted();
+        v.sp->refresh();
+        v.sp->refresh();
+        const int dark_ticks = hl->blocks_highlighted() - b4;
+        const int b5 = hl->blocks_highlighted();
+        QApplication::setPalette(light);
+        QApplication::processEvents();
+        v.sp->refresh();
+        const int to_light = hl->blocks_highlighted() - b5;
+        // A load (and a reload) replaces the text: Qt clears it first, which highlights the one
+        // empty block left, then inserts the new blocks, so a pass is blockCount + 1.
+        check("QSRC-136", "a load highlights each block once, twenty paused refreshes with the PC "
+                          "moving highlight nothing, a reload is one more pass, and a scheme switch "
+                          "(there and back) is one pass each",
+              load_pass == blocks + 1 && ticks == 0 && reload == blocks2 + 1 && to_dark == blocks2 &&
+                  dark_ticks == 0 && to_light == blocks2,
+              "load=" + std::to_string(load_pass) + "/" + std::to_string(blocks) + " ticks=" +
+                  std::to_string(ticks) + " reload=" + std::to_string(reload) + "/" +
+                  std::to_string(blocks2) + " dark=" + std::to_string(to_dark) + " dticks=" +
+                  std::to_string(dark_ticks) + " light=" + std::to_string(to_light));
+    }
+    {   // QSRC-137
+        Fixture fx;
+        fx.enable();
+        write_text(tmp + "/sub.asm", "  ld a,1\n  ret\n");
+        const std::string sld = write_sld("h137.sld",
+            "main.bas|10||0|" + std::to_string(fx.p80) + "|32768|T|\n" +
+            "sub.asm|1||0|" + std::to_string(fx.p90) + "|36864|T|\n");
+        fx.backend->load_source_map(sld, false);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        auto go = [&](uint16_t pc) {
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = pc;
+            fx.emu.cpu().set_registers(r);
+            v.sp->refresh();
+            QApplication::processEvents();
+        };
+        const bool bas1 = v.sp->source_language() == SourceLanguage::Basic && panel_mask(v.sp, 1).substr(0, 3) == "CCC";
+        go(0x9000);
+        const bool asm_ok = v.sp->source_language() == SourceLanguage::Asm &&
+                            panel_mask(v.sp, 1) == "..KK.R.N";
+        go(0x8000);
+        const std::string back = panel_mask(v.sp, 1);
+        const bool bas2 = v.sp->source_language() == SourceLanguage::Basic && back.substr(0, 3) == "CCC" &&
+                          back.find('D') == std::string::npos && back.find('R') == std::string::npos;
+        check("QSRC-137", "the language follows the file: sub.asm is assembly (ld a,1 coloured), and "
+                          "going back to main.bas is Boriel again with no assembly colour left",
+              bas1 && asm_ok && bas2, panel_mask(v.sp, 1) + " " + back);
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -4167,6 +4738,9 @@ int main(int argc, char** argv) {
     test_source_gutter();
     test_source_context_menu();
     test_source_menu_review();
+    test_source_highlight_detection();   // GH #422
+    test_source_highlight_rules();
+    test_source_highlight_panel();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
