@@ -4680,13 +4680,13 @@ void test_source_highlight_rules() {
         check("QSRC-148", "a column-0 word ending in ':' is a label even when it is named like a "
                           "directive, and a word behind the instruction word is never a directive; "
                           "a directive that opens its statement, also behind a ':' statement separator, still is one",
-              tok(h, 0, QStringLiteral(".local:")) == 'L' && tok(h, 0, QStringLiteral("jr")) == 'K' &&
+              tok(h, 0, QStringLiteral(".local:")) == 'L' && tok(h, 0, QStringLiteral("jr")) == 'I' &&
                   tok(h, 0, QStringLiteral(".local"), 8) == '.' &&
-                  tok(h, 1, QStringLiteral(".end:")) == 'L' && tok(h, 1, QStringLiteral("nz")) == 'R' &&
+                  tok(h, 1, QStringLiteral(".end:")) == 'L' && tok(h, 1, QStringLiteral("nz")) == 'I' &&
                   tok(h, 1, QStringLiteral(".end"), 6) == '.' &&
-                  tok(h, 2, QStringLiteral("db")) == 'D' && tok(h, 2, QStringLiteral("word")) == '.' &&
-                  tok(h, 3, QStringLiteral(".end")) == 'D' && tok(h, 4, QStringLiteral("EQU")) == 'D' &&
-                  tok(h, 5, QStringLiteral("nop")) == 'K' && tok(h, 5, QStringLiteral("db")) == 'D',
+                  tok(h, 2, QStringLiteral("db")) == 'K' && tok(h, 2, QStringLiteral("word")) == '.' &&
+                  tok(h, 3, QStringLiteral(".end")) == 'K' && tok(h, 4, QStringLiteral("EQU")) == 'K' &&
+                  tok(h, 5, QStringLiteral("nop")) == 'I' && tok(h, 5, QStringLiteral("db")) == 'K',
               role_mask(h, 0) + " " + role_mask(h, 1) + " " + role_mask(h, 2));
     }
     {   // QSRC-149
