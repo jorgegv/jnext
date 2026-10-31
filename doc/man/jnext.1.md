@@ -1006,7 +1006,7 @@ naming the option and the value, and exits with status 1.
     *file*:*line*:*column*: *message* and jnext exits 1 before the machine
     runs - nothing of it runs partially. With **\--load**, a script that names a source
     line (`on execute main.c:19`), an `@symbol` that **\--map** does not know,
-    or a z88dk **\--map** symbol waits, with the scripts after it, until the
+    or a z88dk **\--map** symbol of a section that names no page waits, with the scripts after it, until the
     program is in (it is still read and parsed at once); an error then also
     exits 1. Its rules start at the load: an `on frame` *N* or a **\--script-key**
     due before it never fires (a `.tzx` or `.wav` loads about 100 frames in), so

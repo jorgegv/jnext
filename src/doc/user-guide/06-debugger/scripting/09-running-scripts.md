@@ -15,7 +15,7 @@ is reported as *file*:*line*:*column*: *message* and JNEXT exits 1 without
 running anything — nothing of any script runs partially, the good ones loaded
 before it included. With `--load`, a script is held until the program is in if it names a source line
 (`on execute main.c:19`), or an `@symbol` that `--map` does not know (the program's own
-`.map`/`.sld` brings it), or a z88dk `--map` symbol (it takes the memory the program's
+`.map`/`.sld` brings it), or a z88dk `--map` symbol of a section that names no page (it takes the memory the program's
 load maps). It is held together with every script after it, to keep their order. A
 script whose symbols are all known and fixed (an sjasmplus `--map`, say) starts at once.
 Every script is still read and parsed first, so a typo is reported before the machine

@@ -3262,9 +3262,39 @@ static void src_rows() {
         const bool ok = g.start(o);
         const size_t before = g.engine_subs();
         const bool silent = g.sink.count("names a symbol") == 0 && g.host->files().size() == 1;
+        // A known final symbol only inside ${...} does not hold either.
+        HostRig h(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("known-interp.jds", "on frame 0 do log \"${@main}\" end\n")};
+        const bool interp_ok = h.start(o) && h.host->files().size() == 1 && h.sink.count("names a symbol") == 0;
         check("SCRIPT-HOST-SRC-10", "with a --load pending, a script whose symbols are all known at start() with no "
-                                    "binding at the load (a --map sjasmplus symbol) loads at once, not held",
-              ok && before == 1 && silent, g.sink.tail(3));
+                                    "binding at the load (a --map sjasmplus symbol, also inside ${...}) loads at once, "
+                                    "not held",
+              ok && before == 1 && silent && interp_ok, g.sink.tail(3) + h.sink.tail(2));
+    }
+    {
+        // A final symbol first (a banked PAGE_n one) must not decide for a load-bound one after it.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.map_file = tmp_file("mixed.map",
+            "__PAGE_21_head = $14E000 ; const, public, def, , ,\n"
+            "_banked_add    = $14E000 ; addr, public, , banked_c, PAGE_21, banked.c:5\n"
+            "_func          = $C000   ; addr, public, , m_c, code_compiler, m.c:1\n");
+        o.scripts = {tmp_file("mixed.jds", "on execute @_banked_add once do log \"B\" end\non execute @_func do stop end\n")};
+        const bool ok = g.start(o);
+        const bool held = g.engine_subs() == 0 && g.host->files().empty() && g.sink.count("names a symbol") == 1;
+        g.dbg->set_mmu_slot(g.dbg->attach({"t", jnext::dbg::ClientKind::Test}).value, 6, 20);
+        g.dbg->load_program_sidecars(kZNex);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        const bool loaded = g.host->program_loaded();
+        g.run(4);
+        check("SCRIPT-HOST-SRC-11", "a script naming a final banked symbol and then a load-bound one is held, and the "
+                                    "second rule fires on the page the load maps (Page{20})",
+              ok && held && loaded && g.dbg->state().paused && g.emu.cpu().get_registers().PC == 0xC000, g.sink.tail(3));
     }
 }
 
