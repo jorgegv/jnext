@@ -563,7 +563,7 @@ struct Debugger::Impl {
     bool         coverage_on = false;
     void publish_coverage() { ds().set_coverage_sink(coverage_on ? &coverage : nullptr); }
 
-    // ── GH #388 (E23-25, INS-21) — memory coverage ──────────────────────────
+    // ── GH #388 (E23-25, INS-21) - memory coverage ──────────────────────────
     //
     // Same arrangement as INS-20 above: the set and its switch are BACKEND
     // state; the machine only holds a pointer (`DebugState::mem_coverage_sink()`).

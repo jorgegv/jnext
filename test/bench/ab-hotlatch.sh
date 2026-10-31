@@ -51,9 +51,9 @@
 # unchanged.
 #
 # AB_SET=coverage (GH #388, E23-25) answers the question the memory-coverage hook
-# raises — what does `--coverage` cost, and what does the hook cost with it OFF
+# raises - what does `--coverage` cost, and what does the hook cost with it OFF
 # (the read and write sites now test DebugState::mem_gate_live() where they tested
-# watchpoints_live())? — and runs B U V on all five workloads of design 4.7,
+# watchpoints_live())? - and runs B U V on all five workloads of design 4.7,
 # writing test/bench/coverage-<sha>.txt. B is the baseline binary, U this tree with
 # nothing armed (the OFF cost: U vs B is the acceptance, design 4.7), V this tree
 # started with `--coverage` (V vs U is reported, no gate).
@@ -121,7 +121,7 @@ emit() { printf '%s\n' "$*" | tee -a "$OUT"; }
 if [[ "$AB_SET" == attach ]]; then
     emit "# GH #278 Q WP2 — the cost of an attached client, interleaved A/B"
 elif [[ "$AB_SET" == coverage ]]; then
-    emit "# GH #388 (E23-25) — the cost of memory coverage, interleaved A/B"
+    emit "# GH #388 (E23-25) - the cost of memory coverage, interleaved A/B"
 else
     emit "# GH #276 §11 item 3 — hot-latch interleaved A/B"
 fi
