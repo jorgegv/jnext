@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 class SourceMap;
 class SymbolTable;
@@ -17,6 +18,14 @@ struct SourceMapLoadResult {
     /// z88dk only: the non-data line ranges stored that no section binary covers,
     /// so the program identity (if any) does not check them.
     int unchecked = 0;
+    /// z88dk only (GH #348): the `--list` listings beside the map that were used,
+    /// the map line records they were cross-checked against, how many of those
+    /// they place elsewhere, and a sentence for each listing that was ignored or
+    /// dropped and for each other thing worth telling the user.
+    int listings = 0;
+    int listing_checks = 0;
+    int listing_disagreements = 0;
+    std::vector<std::string> listing_notes;
 
     explicit operator bool() const { return count >= 0; }
 };

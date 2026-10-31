@@ -14,7 +14,9 @@ Under them, a line naming the position — `main.bas:120  $8A3C  page 2E`, or
 `ROM or overlay` when no RAM page supplies the address — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
-use the disassembly there.
+use the disassembly there. The start-up code of a z88dk program built with `--list`
+shows its m4 text from the listing, the label ending `(m4 output, from prog.lis)`;
+**Locate File...** does not apply to it.
 
 With [memory coverage](../functions/15-memory-coverage.md) on, every line of the
 shown file that ran has a pale green background (the current line keeps its

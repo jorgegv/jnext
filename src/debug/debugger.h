@@ -1029,6 +1029,11 @@ public:
         /// (" (program identity not verified: no section binaries beside it)", or
         /// verified with some code ranges unchecked); empty for an SLD with none.
         std::string identity_note;
+        /// z88dk only (GH #348): the `--list` listings beside the map that supplied
+        /// the lines (0 none), and what to tell the user about the ones that did not
+        /// hold up, the notes joined with "; " (empty when there is nothing to say).
+        int listings = 0;
+        std::string listing_note;
         /// SLD labels put in the symbol table; 0 none in the file; -1 refused, or
         /// the symbols you loaded (Load MAP, Load Memory.txt, --map) kept.
         int labels = -1;

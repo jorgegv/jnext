@@ -181,8 +181,11 @@ carries a binary identity attaches at once and each memory space it
 covers is checked the first time the program runs its code there; a
 space that does not match drops the map and the symbols that came with
 it, with the reason in the log. A map given with **--map** or loaded by
-hand is kept over them. A map built for another binary, or a file over
-64 MiB, is refused, with the reason in the log.
+hand is kept over them. z88dk’s `--list` listings beside the map
+(*NAME*`.lis`, *FILE*`.lis`) are read too when they match the map, and
+add assembly lines and sdcc’s lines on z88dk 2.4; a listing that does
+not match is skipped with a note in the log. A map built for another
+binary, or a file over 64 MiB, is refused, with the reason in the log.
 
 **--nex-args** *LINE*  
 Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim and
@@ -1151,12 +1154,13 @@ cannot be loaded, or holds no symbols, is a startup error.
 Attach a source map, an sjasmplus SLD or a z88dk `-debug` `.map` (told
 apart by its contents), to the program **--load** loads, as if loaded by
 hand with **Debug \> Source \> Load Source Map…**. A z88dk map gives
-source lines only; its symbols stay with **--map**. Requires **--load**.
-A map whose binary identity does not match the program, or that cannot
-be loaded, is a startup error (exit status 1). With a tape program
-(`.tap`, `.tzx`, `.wav`) the map attaches at once and is checked the
-first time the program runs its code; a mismatch then drops it, and the
-run exits with status 1.
+source lines only (and reads the `--list` listings beside it); its
+symbols stay with **--map**. Requires **--load**. A map whose binary
+identity does not match the program, or that cannot be loaded, is a
+startup error (exit status 1). With a tape program (`.tap`, `.tzx`,
+`.wav`) the map attaches at once and is checked the first time the
+program runs its code; a mismatch then drops it, and the run exits with
+status 1.
 
 **--source-dir** *DIR*  
 Also search *DIR* for the source files a source map names, in the Source

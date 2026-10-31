@@ -707,11 +707,14 @@ void DebuggerManager::on_load_sld() {
         r = dbg_.load_source_map(path.toStdString(), /*accept_identity_mismatch=*/true);
     }
     if (r.count >= 0) {
-        QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
-            r.labels > 0
-                ? QObject::tr("Loaded %1 source traces and %2 labels from:\n%3")
-                      .arg(r.count).arg(r.labels).arg(path)
-                : QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path));
+        QString text = r.labels > 0
+            ? QObject::tr("Loaded %1 source traces and %2 labels from:\n%3")
+                  .arg(r.count).arg(r.labels).arg(path)
+            : QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path);
+        if (r.listings == 1) text += QObject::tr("\nwith 1 z88dk listing");
+        else if (r.listings > 1) text += QObject::tr("\nwith %1 z88dk listings").arg(r.listings);
+        if (!r.listing_note.empty()) text += "\n\n" + QString::fromStdString(r.listing_note);
+        QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"), text);
         refresh_panels();
         update_actions();
     } else {
