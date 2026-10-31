@@ -16,17 +16,6 @@ std::string fmt(const char* f, unsigned v) {
     return b;
 }
 
-// The offset inside the space's store: a 16 KB image for Rom/AltRom/Config
-// (zxnext.vhd:3044-3057, :3116-3123), an 8 KB page for everything else.
-uint32_t offset_in(MemSpace s, uint16_t addr) {
-    switch (s.kind) {
-        case Kind::Rom:
-        case Kind::AltRom:
-        case Kind::Config: return addr & 0x3FFFu;
-        default:           return addr & 0x1FFFu;
-    }
-}
-
 std::string sram(uint32_t a) { return fmt("$%06X", a); }
 
 // [A-Z0-9]+ digits of `d` as a number, `n` digits exactly.
@@ -120,7 +109,7 @@ std::optional<MemSpace> parse_space_tag(std::string_view tag) {
 }
 
 std::string physical_text(MemSpace s, uint16_t addr) {
-    const uint32_t off = offset_in(s, addr);
+    const uint32_t off = space_offset(s, addr);
     switch (s.kind) {
         case Kind::Cpu:      return "";
         case Kind::Floating: return "FLOAT";
