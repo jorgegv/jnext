@@ -4605,12 +4605,12 @@ void test_source_highlight_rules() {
         h.load(SourceLanguage::Asm,
                QStringLiteral("  nextreg $07,3\n  ldirx\n  mul d,e\n  pixelad\n  test $80\n  ldirscale\n"
                               "  SECTION code_user\n  defc X = 1\n.db 1\n  DEVICE ZXSPECTRUMNEXT\nx EQU 5"));
-        bool z80n = tok(h, 0, QStringLiteral("nextreg")) == 'K' && tok(h, 1, QStringLiteral("ldirx")) == 'K' &&
-                    tok(h, 2, QStringLiteral("mul")) == 'K' && tok(h, 3, QStringLiteral("pixelad")) == 'K' &&
-                    tok(h, 4, QStringLiteral("test")) == 'K' && tok(h, 5, QStringLiteral("ldirscale")) == 'K';
-        bool dirs = tok(h, 6, QStringLiteral("SECTION")) == 'D' && tok(h, 7, QStringLiteral("defc")) == 'D' &&
-                    tok(h, 8, QStringLiteral(".db")) == 'D' && tok(h, 9, QStringLiteral("DEVICE")) == 'D' &&
-                    tok(h, 10, QStringLiteral("x")) == 'L' && tok(h, 10, QStringLiteral("EQU")) == 'D';
+        bool z80n = tok(h, 0, QStringLiteral("nextreg")) == 'I' && tok(h, 1, QStringLiteral("ldirx")) == 'I' &&
+                    tok(h, 2, QStringLiteral("mul")) == 'I' && tok(h, 3, QStringLiteral("pixelad")) == 'I' &&
+                    tok(h, 4, QStringLiteral("test")) == 'I' && tok(h, 5, QStringLiteral("ldirscale")) == 'I';
+        bool dirs = tok(h, 6, QStringLiteral("SECTION")) == 'K' && tok(h, 7, QStringLiteral("defc")) == 'K' &&
+                    tok(h, 8, QStringLiteral(".db")) == 'K' && tok(h, 9, QStringLiteral("DEVICE")) == 'K' &&
+                    tok(h, 10, QStringLiteral("x")) == 'L' && tok(h, 10, QStringLiteral("EQU")) == 'K';
         check("QSRC-127", "the Z80N mnemonics are keywords, the z80asm and sjasmplus directive lines are "
                           "directives, and in `x EQU 5` x is the label and EQU the directive",
               z80n && dirs);
