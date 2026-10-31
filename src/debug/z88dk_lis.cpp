@@ -255,6 +255,78 @@ struct Occurrence {
     int64_t pos = 0;
 };
 
+// A MACRO definition (preproc.cpp: `MACRO name`, `name MACRO` or `name: MACRO`,
+// ended by ENDM) is listed once, at its definition, and never assembled there.
+struct MacroInfo {
+    bool switches = false;               // its body has SECTION, PHASE or DEPHASE
+    std::vector<std::string> calls;      // macros its body invokes
+};
+
+std::string first_token(std::string_view s)
+{
+    s = skip_blanks(s);
+    size_t q = 0;
+    while (q < s.size() && ident_char(s[q])) ++q;
+    return std::string(s.substr(0, q));
+}
+
+// The macro a row defines, or empty. Only the text before a `;` comment counts, so
+// `; Macro to allow ...` is not a definition.
+std::string macro_defined_by(const Split& sp)
+{
+    if (upper(sp.word) == "MACRO")
+        return sp.label.empty() ? first_token(sp.rest) : sp.label;
+    if (sp.label.empty() && !sp.word.empty() && upper(first_token(sp.rest)) == "MACRO")
+        return sp.word;
+    return {};
+}
+
+bool is_switch_word(const std::string& upper_word)
+{
+    return upper_word == "SECTION" || upper_word == "PHASE" || upper_word == "DEPHASE";
+}
+
+// Marks the rows inside a definition (its first row to its ENDM) and collects what
+// each body does. Nested definitions count depth.
+std::vector<char> scan_macros(const std::vector<Z88dkListingRow>& rows,
+                              std::map<std::string, MacroInfo>& macros)
+{
+    std::vector<char> inside(rows.size(), 0);
+    std::vector<std::string> open;
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const std::string& text = rows[i].text;
+        const Split sp = split_text(std::string_view(text).substr(0, text.find(';')));
+        if (const std::string defined = macro_defined_by(sp); !defined.empty()) {
+            macros[defined];
+            open.push_back(defined);
+            inside[i] = 1;
+            continue;
+        }
+        if (open.empty()) continue;
+        inside[i] = 1;
+        const std::string word = upper(sp.word);
+        if (word == "ENDM") {
+            open.pop_back();
+        } else if (is_switch_word(word)) {
+            macros[open.back()].switches = true;
+        } else if (!sp.word.empty()) {
+            macros[open.back()].calls.push_back(sp.word);
+        }
+    }
+    return inside;
+}
+
+bool macro_switches(const std::map<std::string, MacroInfo>& macros, const std::string& name,
+                    std::set<std::string>& seen)
+{
+    const auto it = macros.find(name);
+    if (it == macros.end() || !seen.insert(name).second) return false;
+    if (it->second.switches) return true;
+    for (const std::string& call : it->second.calls)
+        if (macro_switches(macros, call, seen)) return true;
+    return false;
+}
+
 } // namespace
 
 std::optional<Z88dkListing> parse_z88dk_listing(const std::string& path, std::string& why)
@@ -332,17 +404,37 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
     std::string module;
     std::string line_file;
     bool has_c_line = false;
-    for (const Z88dkListingRow& r : listing.rows) {
+    std::map<std::string, MacroInfo> macros;
+    const std::vector<char> in_macro = scan_macros(listing.rows, macros);
+    int rept_depth = 0;
+    for (size_t i = 0; i < listing.rows.size(); ++i) {
+        if (in_macro[i]) continue;
+        const Z88dkListingRow& r = listing.rows[i];
         const Split sp = split_text(r.text);
         if (sp.word.empty()) continue;
         const std::string word = upper(sp.word);
-        if (word == "MODULE" && module.empty()) {
+        if (word == "MODULE") {
+            // z80asm keeps the last one (zcc's own `MODULE zxn_crt0_asm` comes first).
             const std::string_view arg = skip_blanks(sp.rest);
             module = std::string(arg.substr(0, arg.find_first_of(" \t;")));
         } else if (word == "LINE" && line_file.empty()) {
             if (const LineOps ops = parse_line_ops(sp.rest); ops.ok && ops.has_str) line_file = ops.str;
         } else if (word == "C_LINE") {
             has_c_line = true;
+        } else if (word == "REPT" || word == "REPTC" || word == "REPTI") {
+            ++rept_depth;
+        } else if (word == "ENDR" && rept_depth > 0) {
+            --rept_depth;
+        } else if (rept_depth > 0 && is_switch_word(word)) {
+            note("line " + std::to_string(r.phys) + ": a " + word + " inside a REPT body; the bytes "
+                 "of its expansion cannot be attributed to a section");
+            return result;
+        }
+        std::set<std::string> seen;
+        if (macros.count(sp.word) && macro_switches(macros, sp.word, seen)) {
+            note("line " + std::to_string(r.phys) + ": macro '" + sp.word + "' switches section; the "
+                 "bytes of its expansion cannot be attributed to a section");
+            return result;
         }
     }
     if (module.empty()) {
@@ -377,7 +469,7 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
 
     std::map<std::string, const Z88dkMapLine*> symbol;   // module-local `addr` symbols
     for (const Z88dkMapLine& s : *view.symbols)
-        if (s.module == module && !s.section.empty() && s.value <= 0xFFFFFF)
+        if (s.module == module && s.value <= 0xFFFFFF)
             symbol.emplace(s.name, &s);
 
     // The walk.
@@ -393,13 +485,15 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
     std::map<std::string, std::vector<std::string>> texts;
     int markers = 0;
 
-    for (const Z88dkListingRow& r : listing.rows) {
+    for (size_t row_index = 0; row_index < listing.rows.size(); ++row_index) {
+        const Z88dkListingRow& r = listing.rows[row_index];
         const std::string& header = listing.headers[static_cast<size_t>(r.header)];
         if (ends_with_ci(header, ".m4") && r.col >= 1 && r.col <= kMaxTextLine) {
             auto& lines = texts[header];
             if (lines.size() < static_cast<size_t>(r.col)) lines.resize(static_cast<size_t>(r.col));
             lines[static_cast<size_t>(r.col) - 1] = r.text;
         }
+        if (in_macro[row_index]) continue;   // listed at its definition, never assembled there
         const Split sp = split_text(r.text);
         const bool has_bytes = !r.bytes.empty();
         Piece& piece = pieces[section];
@@ -454,6 +548,17 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
             continue;
         }
 
+        // A byte row outside PHASE sits at its section's pc, and a section not seen
+        // yet starts at 0. A break means the walk lost the section (a SECTION in a
+        // false IF branch, say): drop the listing rather than place it wrong.
+        if (!phased && static_cast<int64_t>(r.addr) != piece.pc) {
+            char b[96];
+            std::snprintf(b, sizeof b, "expected $%04llX, the listing has $%04X",
+                          static_cast<unsigned long long>(piece.pc), r.addr);
+            note("line " + std::to_string(r.phys) + ": section '" + section + "': " + b
+                 + "; the listing cannot be followed");
+            return result;
+        }
         Item item;
         item.row = &r;
         item.section = section;

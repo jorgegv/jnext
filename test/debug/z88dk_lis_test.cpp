@@ -167,6 +167,26 @@ static bool edit_file(const fs::path& path, const std::string& from, const std::
     return true;
 }
 
+static bool ends_with(const std::string& s, const char* suffix) {
+    const std::string x = suffix;
+    return s.size() >= x.size() && s.compare(s.size() - x.size(), x.size(), x) == 0;
+}
+
+static bool is_in(const SourceLocation* l, const char* file_suffix, int line) {
+    return l && l->line == line && ends_with(l->file, file_suffix);
+}
+
+static std::vector<uint8_t> read_bytes(const fs::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+static bool any_line_zero(const SourceMap& m, FetchSource space, uint16_t address) {
+    for (const SourceLocation* l : m.lookup_all(space, address))
+        if (l->line == 0) return true;
+    return false;
+}
+
 int main() {
     std::printf("z88dk --list listing adapter\n");
 
@@ -293,7 +313,7 @@ int main() {
         const auto rm = load(mm, master / "sdcc-debug" / "prog.map");
         const SourceText* tx = so2.embedded_text(CRT24);
         const SourceText* txm = mm.embedded_text(CRTM);
-        check("Z88LIS-10", "prog.lis gives the CRT its lines on 2.4 and master: $8000 is the .inc's :3, $8001 the m4's :9470, :9462 resolves to $8000, $800C (code_crt_init, no label) :9148, $8032 :9524, $8036 the exit .inc's :3; the m4 text has 9689 lines (9470 = push iy, 9462 = __Start:) from prog.lis; the .inc has none",
+        check("Z88LIS-10", "prog.lis gives the CRT its lines on 2.4 and master: $8000 is the .inc's :3, $8001 the m4's :9470, :9462 resolves to $8000, $800C (code_crt_init, no label) :9148, $8032 :9524, $8036 the exit .inc's :3; the m4 text has 9689 lines (9470 is exactly the listing's \"      push iy\", 9462 \"__Start:\") from prog.lis; the .inc has none",
               so2_r && rm &&
                   is_at(so2.lookup(P4, 0x8000), DI24, 3) && is_at(so2.lookup(P4, 0x8001), CRT24, 9470) &&
                   is_at(so2.lookup(P4, 0x8002), CRT24, 9470) &&
@@ -302,8 +322,8 @@ int main() {
                   is_at(mm.lookup(P4, 0x8000), DIM, 3) && is_at(mm.lookup(P4, 0x8001), CRTM, 9470) &&
                   is_at(mm.lookup(P4, 0x800C), CRTM, 9148) && is_at(mm.lookup(P4, 0x8032), CRTM, 9524) &&
                   is_at(mm.lookup(P4, 0x8036), EXITM, 3) &&
-                  tx && tx->lines.size() == 9689 && tx->lines[9469].find("push iy") != std::string::npos &&
-                  tx->lines[9461].find("__Start:") != std::string::npos &&
+                  tx && tx->lines.size() == 9689 && tx->lines[9469] == "      push iy" &&
+                  tx->lines[9461] == "__Start:" &&
                   tx->origin.size() >= 8 && tx->origin.compare(tx->origin.size() - 8, 8, "prog.lis") == 0 &&
                   txm && txm->lines.size() == 9689 && !so2.embedded_text(DI24));
     }
@@ -513,6 +533,202 @@ int main() {
         const auto r = load(m, dir / "z22" / "d.map");
         check("Z88LIS-22", "a DivMMC section in the listing drops the whole listing: no source lines, a note naming DIV_1, and the code_user part is not kept either",
               r && r.count == 0 && r.listings == 0 && any_note_has(r, "DIV_1") && !m.lookup(P4, 0x8000));
+    }
+
+    // ── Z88LIS-23 / -24: the classic CRT (last MODULE, MACRO bodies skipped) ──
+    {
+        bool ok23 = true;
+        bool ok24 = true;
+        for (const char* install : {"v2.4", "master"}) {
+            const fs::path d = (std::string(install) == "v2.4" ? v24 : master) / "classic-bank10";
+            const std::vector<uint8_t> prog = read_bytes(d / "prog");
+            SourceMap m;
+            SourceMap without;
+            const auto r = load(m, d / "prog.map");
+            const fs::path dc = copy_fixture(dir, d, install[0] == 'v' ? "z23a" : "z23b");
+            fs::remove(dc / "prog.lis");
+            const auto rw = load(without, dc / "prog.map");
+            ok23 = ok23 && r && rw && prog.size() > 0x42 && r.listings == 4 && r.listing_notes.empty() &&
+                   r.count - rw.count == 47 && prog[0] == 0xFD && prog[0x41] == 0xAF &&
+                   is_in(m.lookup(P4, 0x8000), "classic/ram_crt0.asm", 25) &&
+                   is_in(m.lookup(P4, 0x8041), "crt_initialise_bss.inc", 5) &&
+                   is_at(m.lookup(P20, 0xC000), "banked.c", 6);
+            ok24 = ok24 && r && is_in(m.lookup(P4, 0x8041), "crt_initialise_bss.inc", 5) &&
+                   !is_in(m.lookup(P4, 0x8010), "crt_initialise_bss.inc", 5);
+        }
+        check("Z88LIS-23", "classic CRT (2.4 and master): prog.lis is used as module zxn_crt0 (the LAST MODULE line; zcc's zxn_crt0_asm comes first): 4 listings, no note, 47 placed rows, $8000 is ram_crt0.asm:25 over prog's $FD, $8041 crt_initialise_bss.inc:5 over prog's $AF, and the 24-bit BANK_10 code is banked.c:6 in page 20",
+              ok23);
+        check("Z88LIS-24", "the classic CRT's '; Macro to allow ...' comment is not a MACRO definition: the code after it is still placed ($8041, not the $8010 a swallowed or obeyed macro body gives)",
+              ok24);
+    }
+
+    // ── Z88LIS-25: a SECTION in a false IF branch drops the listing (z80asm 2.4 / latest output of g.asm) ──
+    {
+        std::string lis = "g.asm:\n";
+        lis += lis_row(1, nullptr, nullptr, " SECTION code_user");
+        lis += lis_row(2, nullptr, nullptr, " ORG $8000");
+        lis += lis_row(3, nullptr, nullptr, " PUBLIC _a");
+        lis += lis_row(4, nullptr, nullptr, "_a:");
+        lis += lis_row(5, "0000", "00", " nop");
+        lis += lis_row(6, nullptr, nullptr, " IF 0");
+        lis += lis_row(7, nullptr, nullptr, " SECTION data_user");
+        lis += lis_row(8, nullptr, nullptr, " ENDIF");
+        lis += lis_row(9, "0001", "3e01", " ld a,1");
+        lis += lis_row(10, nullptr, nullptr, " SECTION data_user");
+        lis += lis_row(11, nullptr, nullptr, "_d:");
+        lis += lis_row(12, "0000", "05", " defb 5");
+        lis += lis_row(13, nullptr, nullptr, "");
+        write_text(dir / "z25" / "g.asm.lis", lis);
+        write_text(dir / "z25" / "g.map",
+            "__code_user_head                = $8000 ; const, public, def, , ,\n"
+            "__code_user_size                = $0003 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8003 ; const, public, def, , ,\n"
+            "__data_user_head                = $8003 ; const, public, def, , ,\n"
+            "__data_user_size                = $0001 ; const, public, def, , ,\n"
+            "__data_user_tail                = $8004 ; const, public, def, , ,\n"
+            "__head                          = $0000 ; const, public, def, , ,\n"
+            "__size                          = $8004 ; const, public, def, , ,\n"
+            "__tail                          = $8004 ; const, public, def, , ,\n"
+            "_a                              = $8000 ; addr, public, , g, code_user, g.asm:4\n"
+            "_d                              = $8003 ; addr, local, , g, data_user, g.asm:11\n");
+        SourceMap m;
+        const auto r = load(m, dir / "z25" / "g.map");
+        check("Z88LIS-25", "a SECTION data_user in a false IF branch (listed, never assembled): the ld a,1 row at $0001 breaks data_user's pc (expected $0000), so the whole listing is dropped, with a note naming it, the section and both addresses, and nothing is placed",
+              r && r.count == 0 && r.listings == 0 && !m.lookup(P4, 0x8000) && !m.lookup(P4, 0x8003) &&
+                  any_note_has(r, "g.asm.lis") && any_note_has(r, "data_user") &&
+                  any_note_has(r, "$0000") && any_note_has(r, "$0001"));
+    }
+
+    // ── Z88LIS-26: MACRO bodies are skipped, REPT and plain macro bytes are placed (z80asm output of n.asm) ──
+    {
+        std::string lis = "n.asm:\n";
+        lis += lis_row(1, nullptr, nullptr, " SECTION code_user");
+        lis += lis_row(2, nullptr, nullptr, " ORG $8000");
+        lis += lis_row(3, nullptr, nullptr, " PUBLIC _n");
+        lis += lis_row(4, nullptr, nullptr, "mac2 MACRO");
+        lis += lis_row(5, nullptr, nullptr, " SECTION never_used");
+        lis += lis_row(6, nullptr, nullptr, " nop");
+        lis += lis_row(7, nullptr, nullptr, "ENDM");
+        lis += lis_row(8, nullptr, nullptr, "plain MACRO");
+        lis += lis_row(9, nullptr, nullptr, " nop");
+        lis += lis_row(10, nullptr, nullptr, " nop");
+        lis += lis_row(11, nullptr, nullptr, "ENDM");
+        lis += lis_row(12, nullptr, nullptr, "_n:");
+        lis += lis_row(13, nullptr, nullptr, " REPT 3");
+        lis += lis_row(14, nullptr, nullptr, " inc a");
+        lis += lis_row(15, "0000", "3c3c3c", " ENDR");
+        lis += lis_row(16, "0003", "0000", " plain");
+        lis += lis_row(17, nullptr, nullptr, " SECTION rodata_user");
+        lis += lis_row(18, "0000", "0102", "tab: defb 1,2");
+        lis += lis_row(19, nullptr, nullptr, " SECTION code_user");
+        lis += lis_row(20, "0005", "c9", "more: ret");
+        lis += lis_row(21, nullptr, nullptr, "");
+        write_text(dir / "z26" / "n.asm.lis", lis);
+        write_text(dir / "z26" / "n.map",
+            "__code_user_head                = $8000 ; const, public, def, , ,\n"
+            "__code_user_size                = $0006 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8006 ; const, public, def, , ,\n"
+            "__rodata_user_head              = $8006 ; const, public, def, , ,\n"
+            "__rodata_user_size              = $0002 ; const, public, def, , ,\n"
+            "__rodata_user_tail              = $8008 ; const, public, def, , ,\n"
+            "_n                              = $8000 ; addr, public, , n, code_user, n.asm:12\n"
+            "more                            = $8005 ; addr, local, , n, code_user, n.asm:20\n"
+            "tab                             = $8006 ; addr, local, , n, rodata_user, n.asm:18\n");
+        SourceMap m;
+        const auto r = load(m, dir / "z26" / "n.map");
+        check("Z88LIS-26", "a MACRO body holding SECTION never_used is skipped (both definition forms), the REPT's 3 bytes sit on the ENDR row (:15), the plain macro's on its own row (:16), the table and the ret follow; no note",
+              r && r.listings == 1 && r.listing_notes.empty() &&
+                  is_at(m.lookup(P4, 0x8000), "n.asm", 15) && is_at(m.lookup(P4, 0x8002), "n.asm", 15) &&
+                  is_at(m.lookup(P4, 0x8003), "n.asm", 16) && is_at(m.lookup(P4, 0x8004), "n.asm", 16) &&
+                  is_at(m.lookup(P4, 0x8005), "n.asm", 20) && is_at(m.lookup(P4, 0x8006), "n.asm", 18) &&
+                  starts_are(m.resolve("n.asm:12"), {{P4, 0x8000}}));
+    }
+
+    // ── Z88LIS-27: an invoked section-switching macro drops the listing (z80asm output of m.asm) ──
+    {
+        std::string lis = "m.asm:\n";
+        lis += lis_row(1, nullptr, nullptr, " SECTION code_user");
+        lis += lis_row(2, nullptr, nullptr, " ORG $8000");
+        lis += lis_row(3, nullptr, nullptr, " PUBLIC _m");
+        lis += lis_row(4, nullptr, nullptr, "MACRO mm");
+        lis += lis_row(5, nullptr, nullptr, " SECTION bss_user");
+        lis += lis_row(6, nullptr, nullptr, " defs 2");
+        lis += lis_row(7, nullptr, nullptr, " SECTION code_user");
+        lis += lis_row(8, nullptr, nullptr, "ENDM");
+        lis += lis_row(9, nullptr, nullptr, "_m:");
+        lis += lis_row(10, "0000", "00", " nop");
+        lis += lis_row(11, "0001", "0000", " mm");
+        lis += lis_row(12, nullptr, nullptr, "");
+        write_text(dir / "z27" / "m.asm.lis", lis);
+        write_text(dir / "z27" / "m.map",
+            "__bss_user_head                 = $8001 ; const, public, def, , ,\n"
+            "__bss_user_size                 = $0002 ; const, public, def, , ,\n"
+            "__bss_user_tail                 = $8003 ; const, public, def, , ,\n"
+            "__code_user_head                = $8000 ; const, public, def, , ,\n"
+            "__code_user_size                = $0001 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8001 ; const, public, def, , ,\n"
+            "_m                              = $8000 ; addr, public, , m, code_user, m.asm:9\n");
+        SourceMap m;
+        const auto r = load(m, dir / "z27" / "m.map");
+        check("Z88LIS-27", "mm's body switches section, so its invocation's bytes cannot be attributed: the whole listing is dropped, the note names mm, nothing is placed",
+              r && r.count == 0 && r.listings == 0 && !m.lookup(P4, 0x8001) && !m.lookup(P4, 0x8000) &&
+                  any_note_has(r, "'mm'") && any_note_has(r, "m.asm.lis"));
+    }
+
+    // ── Z88LIS-28: line-0 records (an #include after a function) with listings ──
+    {
+        bool ok = true;
+        const struct { const fs::path dirp; uint16_t at; uint16_t zero; int checks; } cases[] = {
+            {v24 / "sccz80-incmid", 0x8C6E, 0x8C76, 12},
+            {master / "sccz80-incmid", 0x8C6E, 0x8C76, 10},
+            {master / "80cc-incmid", 0x8C65, 0x8C72, 10},
+        };
+        for (const auto& c : cases) {
+            SourceMap m;
+            const auto r = load(m, c.dirp / "prog.map");
+            ok = ok && r && r.count > 0 && r.listings == 1 && is_at(m.lookup(P4, c.at), "incmid.c", 3) &&
+                 m.lookup(P4, c.zero) && !any_line_zero(m, P4, c.zero) &&
+                 r.listing_checks == c.checks && r.listing_disagreements == 0 && r.listing_notes.empty();
+        }
+        check("Z88LIS-28", "sccz80 (2.4, master) and 80cc maps with a line-0 record in a code section ($8C76, $8C76, $8C72) attach with the listing: incmid.c:3 where the listing puts it, no location at the record's address has line 0, cross-check 12/0, 10/0, 10/0",
+              ok);
+    }
+
+    // ── Z88LIS-29: a zero-width line that qualifies twice takes its FIRST owner ──
+    {
+        std::string lis = "t.c:\n";
+        lis += lis_row(1, nullptr, nullptr, " MODULE t_c");
+        lis += lis_row(2, nullptr, nullptr, " SECTION code_user");
+        lis += lis_row(3, nullptr, nullptr, "_f:");
+        lis += lis_row(4, nullptr, nullptr, " C_LINE 5,\"t.c\"");
+        lis += lis_row(5, nullptr, nullptr, " C_LINE 6,\"t.c\"");
+        lis += lis_row(6, "0000", "00", " nop");
+        lis += lis_row(7, nullptr, nullptr, " C_LINE 5,\"t.c\"");
+        lis += lis_row(8, nullptr, nullptr, " C_LINE 7,\"t.c\"");
+        lis += lis_row(9, "0001", "00", " nop");
+        lis += lis_row(10, nullptr, nullptr, "");
+        write_text(dir / "z29" / "t.c.lis", lis);
+        write_text(dir / "z29" / "t.map",
+            "__code_user_head                = $8000 ; const, public, def, , ,\n"
+            "__code_user_size                = $0002 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8002 ; const, public, def, , ,\n"
+            "_f                              = $8000 ; addr, public, , t_c, code_user, t.c:3\n");
+        SourceMap m;
+        const auto r = load(m, dir / "z29" / "t.map");
+        check("Z88LIS-29", "t.c:5 is zero-width twice (before line 6's byte and before line 7's): it resolves to the FIRST owner, $8000, not the last, $8001",
+              r && r.listings == 1 && is_at(m.lookup(P4, 0x8000), "t.c", 6) && is_at(m.lookup(P4, 0x8001), "t.c", 7) &&
+                  starts_are(m.resolve("t.c:5"), {{P4, 0x8000}}));
+    }
+
+    // ── Z88LIS-30: a second listing of a module is ignored ──
+    {
+        const fs::path d = copy_fixture(dir, master / "sdcc-debug", "z30");
+        fs::copy_file(d / "main.c.lis", d / "util.h.lis");
+        SourceMap m;
+        const auto r = load(m, d / "prog.map");
+        check("Z88LIS-30", "util.h.lis (a copy of main.c.lis, a candidate because main_c's records name util.h) is read after main.c.lis and ignored with a note naming main_c: 4 listings, 222 ranges as in Z88LIS-07",
+              r && r.listings == 4 && r.count == 222 && any_note_has(r, "util.h.lis") && any_note_has(r, "main_c") &&
+                  r.listing_notes.size() == 1);
     }
 
     fs::remove_all(dir);

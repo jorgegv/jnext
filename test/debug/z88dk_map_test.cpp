@@ -595,6 +595,27 @@ int main() {
                   z88dk_section_space("code_compiler", 0x8000, no_head).kind == Z88dkSpace::Kind::BindAtLoad);
     }
 
+    // ── Z88MAP-30 (GH #348): line 0 is z80asm's file-entry marker, no code ──
+    {
+        bool ok = true;
+        const struct { fs::path map; uint16_t at; uint16_t zero; } cases[] = {
+            {v24 / "sccz80-incmid" / "prog.map", 0x8C6E, 0x8C76},
+            {master / "sccz80-incmid" / "prog.map", 0x8C6E, 0x8C76},
+            {master / "80cc-incmid" / "prog.map", 0x8C65, 0x8C72},
+        };
+        for (const auto& c : cases) {
+            SourceMap m;
+            const auto r = load(m, c.map);
+            bool zero_line = false;
+            for (const SourceLocation* l : m.lookup_all(P4, c.zero)) zero_line = zero_line || l->line == 0;
+            ok = ok && r && r.count > 0 && r.error.empty() && is_at(m.lookup(P4, c.at), "incmid.c", 3) &&
+                 m.lookup(P4, c.zero) && !zero_line;
+        }
+        check("Z88MAP-30", "a record of line 0 in a code section (sccz80 and 80cc write one for an #include after a function) is no code: the map attaches, incmid.c:3 is where its record puts it, and no location at the line-0 record's address has line 0",
+              ok);
+    }
+
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

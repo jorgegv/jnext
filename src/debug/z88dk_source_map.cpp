@@ -99,6 +99,15 @@ std::optional<Location> parse_location(std::string_view text)
     return out;
 }
 
+// `...:0`: sccz80 and 80cc write `C_LINE 0,"<file>::<func>::0::1"` on entering a file,
+// which z80asm turns into a record of line 0. No source line is numbered 0.
+bool is_line_zero(std::string_view location)
+{
+    const size_t colon = location.rfind(':');
+    if (colon == std::string_view::npos || colon == 0 || colon + 1 >= location.size()) return false;
+    return location.find_first_not_of('0', colon + 1) == std::string_view::npos;
+}
+
 bool is_data_section(std::string_view section)
 {
     std::string lower(section.substr(0, 4));
@@ -198,6 +207,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         if (raw.malformed) return failed(where + "malformed line record");
         const Z88dkMapLine& m = raw.parsed;
         if (m.section.empty()) continue;   // no code (G2)
+        if (is_line_zero(m.location)) continue;   // z80asm's file-entry marker, not a line (GH #348)
         if (m.value > 0xFFFFFF)
             return failed(where + "address $" + hex(m.value) + " does not fit 24 bits");
         const auto loc = parse_location(m.location);
@@ -301,7 +311,8 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     if (beside) {
         std::vector<Z88dkMapLine> line_records;
         for (const RawLine& raw : raws)
-            if (!raw.malformed && !raw.parsed.section.empty()) line_records.push_back(raw.parsed);
+            if (!raw.malformed && !raw.parsed.section.empty() && !is_line_zero(raw.parsed.location))
+                line_records.push_back(raw.parsed);
         Z88dkMapView view;
         view.symbols = &symbols;
         view.line_records = &line_records;
