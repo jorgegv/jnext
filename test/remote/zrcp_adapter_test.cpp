@@ -2249,8 +2249,6 @@ static std::array<jnext::dbg::SlotInfo, 8> legacy_slots(int rom, int top) {
     for (int i = 0; i < 2; ++i) {
         s[static_cast<std::size_t>(i)].is_rom         = true;
         s[static_cast<std::size_t>(i)].effective_page = static_cast<std::uint8_t>(rom * 2 + i);
-        // A Next at reset reads the boot ROM there (zxnext.vhd:1856-1857).
-        s[static_cast<std::size_t>(i)].now            = jnext::dbg::MemSpace::boot_rom();
     }
     for (int b = 0; b < 3; ++b)
         for (int h = 0; h < 2; ++h) {
