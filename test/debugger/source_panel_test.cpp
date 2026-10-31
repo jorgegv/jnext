@@ -3590,7 +3590,8 @@ void test_source_context_menu() {
         const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
         fx.backend->load_source_map(write_sld("ctx-two.sld",
             "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
-            "main.bas|12||0|" + a + "|32773|T|\n" + "main.bas|11||0|" + b + "|36864|T|\n"), false);
+            "main.bas|12||0|" + a + "|32773|T|\n" + "main.bas|11||0|" + b + "|36864|T|\n" +
+            "main.bas|10||0|" + std::to_string(fx.p80 + 2) + "|32768|T|\n"), false);   // line 10 also in an unmapped page
         write_main({});
         BreakpointModel& m = fx.mgr->breakpoints();
         SrcView v(fx, m);
@@ -3634,7 +3635,7 @@ void test_source_context_menu() {
 
         const QString t = [&]() {
             auto at = [&](unsigned ad, unsigned page) { return BreakpointModel::address_text(ad, pg(page)); };
-            return QString("main.bas:9  -  REM line 9\nmain.bas:10  ") + at(0x8000, fx.p80) +
+            return QString("main.bas:9  -  REM line 9\nmain.bas:10  ") + at(0x8000, fx.p80) + ", " + at(0x8000, fx.p80 + 2) +
                    "  REM line 10\nmain.bas:11  " + at(0x8002, fx.p80) + ", " + at(0x9000, fx.p90) +
                    "  REM line 11\n";
         }();
@@ -3896,14 +3897,15 @@ void test_source_context_menu() {
                             t.contains("Break on Write 'counter' ($9000)");
         WatchPanel* wp = fx.dbg()->watch_panel();
         const int w0 = wp->watch_count();
-        for (const char* a : {"Watch 'counter' ($9000)", "Break on Read 'counter' ($9000)",
-                              "Break on Write 'counter' ($9000)"})
-            if (QAction* act = menu_action(*menu, a)) act->trigger();
+        menu_action(*menu, "Watch 'counter' ($9000)")->trigger();
+        menu_action(*menu, "Break on Read 'counter' ($9000)")->trigger();
+        const bool read_only = m.exists(BreakpointModel::Read, 0x9000) && !m.exists(BreakpointModel::Write, 0x9000);
+        menu_action(*menu, "Break on Write 'counter' ($9000)")->trigger();
         check("QSRC-113", "a click on the label `counter` ($9000) in a source line offers Watch, Break on Read "
                           "and Break on Write for 'counter' ($9000); they add a watch labelled counter and a Read "
                           "and a Write data breakpoint at $9000, each of its own kind",
               listed && wp->watch_count() == w0 + 1 && cell(wp, w0, 1) == "counter" &&
-                  cell(wp, w0, 0).contains("9000") && m.exists(BreakpointModel::Read, 0x9000) &&
+                  cell(wp, w0, 0).contains("9000") && read_only && m.exists(BreakpointModel::Read, 0x9000) &&
                   m.exists(BreakpointModel::Write, 0x9000),
               s(t.join("|")));
     });
