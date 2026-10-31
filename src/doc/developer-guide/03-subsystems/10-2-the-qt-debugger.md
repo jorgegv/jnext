@@ -251,13 +251,33 @@ not listed anywhere: they are enumerated once from `disasm_one()` over the seven
 coloured the day the disassembler names it. The directive, C and Boriel tables are committed with the upstream file
 and commit they were read from (z80asm `scan_def.h` and `keyword.def`, sjasmplus `directives.cpp`, ISO C11 6.4.1,
 Boriel `keywords.py`). The scanners are hand-written, linear per line, allocation-free per word, and carry multi-line
-comments and embedded assembly in the block state. Formats set the foreground colour and nothing else (the line
-geometry and the gutter alignment equal Plain's); the light constants are used on a light palette and
-`palette_tint::ink()` of them on a dark one. `SourcePanel::set_source_text()` is the one way a text enters the editor:
-the language first, then the text, so a load is highlighted once with its own language; `refresh()` calls
-`apply_palette()`, which rehighlights only when a colour changed (a scheme switch), never on a paused tick. The
-current-line marker is the same `ExtraSelection` as before, and Qt draws a selection's colours over the layout's
-formats, so the syntax colours never show on that line.
+comments and embedded assembly in the block state. The classes are the owner's ten (`Role`: Text, Keyword,
+Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment); Text is the editor palette's text colour
+and never a format. Punctuation, grouping and operators (the one literal `kKeywordPunct`) are Keyword, tested at each
+scanner's fall-through point after comment, string, char, number and word detection, so those win; Qt merges adjacent
+equal formats, so `->` or `<<=` is one Keyword range. A sign is part of a number only inside an exponent (`-5` is a
+Keyword and an Integer); C and Boriel numbers have their own scanners (Float = a point or an exponent, including
+the C hex-float `p` exponent; Boriel's `t_HEXA`/`t_OCTAL`/`t_BIN` before `t_NUMBER`, and a `$`/`%` suffix belongs to
+its identifier). Formats set the foreground colour and nothing else (the line geometry and the gutter alignment equal
+Plain's). `SourcePanel::set_source_text()` is the one way a text enters the editor: the language first, then the text,
+so a load is highlighted once with its own language.
+The colours are a scheme (`SourceScheme` in `platform/source_scheme.h`, the order of the words of the
+`source.colour_scheme` key: Auto, Light, Dark, Borland; `static_assert`ed in `app_config.cpp` and
+`source_highlighter.cpp`). `SourceHighlighter::scheme_colours()` holds one table per concrete scheme: background, text,
+the current-line bar's two colours, and a colour per class. Dark is not hand-kept: it is `palette_tint::ink()` of the
+Light colours over a fixed dark palette (Base `#242424`, Text `#F0F0F0`), so it does not depend on the application's own
+dark palette. Every scheme must meet one legibility rule, which `QSRC-195` checks for all of them: text and classes
+4.5:1 against the background (WCAG 1.4.3), bar text 4.5:1, bar against background 3:1, and any two colours at least
+CIE76 12 apart unless the scheme declares them shared (Borland's owner-given groups). `SourcePanel::apply_scheme_()`
+takes the PANEL's palette (the application's, never the editor's) in, resolves Auto against it, hands the classes to
+the highlighter (`apply_palette()` rehighlights only when a class colour changed, never on a paused tick or a repeat)
+and puts the background, text and the bar colours on the EDITOR's palette (`Base`, `Text`, `Highlight`,
+`HighlightedText`): the background is a palette role, not a format, so it fills the whole viewport. `set_colour_scheme()`
+applies at once (Preferences Apply while the machine runs). The current-line marker is the same `ExtraSelection` as
+before, reading the editor's `Highlight`, and Qt draws a selection's colours over the layout's formats, so no syntax
+colour shows on that line. The gutter and its header paint from the panel's palette, so a scheme never reaches
+them, and the breakpoint marks stay as they are. The setting is `DebuggerManager::set_source_scheme()` (held there
+and pushed by `ensure_window()`, because the window is created lazily), fed by `MainWindow::apply_startup_config()`.
 The editor is a private `QPlainTextEdit` subclass (`SourceEdit`) with a gutter widget in a left
 viewport margin and a header strip above it (`setViewportMargins`; objects `source_gutter` and
 `source_gutter_header`), because the visible blocks' geometry is protected. The gutter

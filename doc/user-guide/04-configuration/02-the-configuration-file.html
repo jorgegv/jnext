@@ -3639,6 +3639,9 @@ with <code>gain_beeper_db</code>, <code>gain_ay0_db</code>, <code>gain_ay1_db</c
 <code>gain_dac_db</code> for the individual sources. Each accepts -24 through +24; an
 invalid value falls back to 0 dB. An explicit matching <code>--audio-gain-...-db</code>
 value overrides the saved setting for that run.</p>
+<p>The Source tab's colour scheme is stored in the <code>[source]</code> section as <code>colour_scheme</code>: <code>auto</code>, <code>light</code>,
+<code>dark</code> or <code>borland</code>. Anything else in that key keeps <code>auto</code>. It is the persistent form of the
+Preferences <strong>Debugger</strong> setting and of <code>--set source.colour_scheme</code>.</p>
 <p>Redefined debugger keys are stored in the <code>[debugger_keys]</code> section, one line
 per action, for example <code>step_over=F10</code>. <strong>Only the keys you have changed
 appear</strong> — a configuration file in which you have never touched a debugger key

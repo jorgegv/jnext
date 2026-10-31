@@ -22,8 +22,25 @@ The text is coloured by its language: C (`.c`, `.h`), Z80 and Z80N assembly (`.a
 `.z80`, `.inc`; the sjasmplus and z88dk z80asm directives are recognised) and Boriel ZX Basic
 (`.bas`). A file with another extension is recognised by its first lines, and shown plain when
 they do not decide. Assembly written inside C (`#asm`, `__asm`) or inside Boriel Basic (`asm` ...
-`end asm`) is coloured as assembly. The colours follow the light or dark scheme. They change
-only the colour of the text: the current line keeps its highlight, and the gutter is not affected.
+`end asm`) is coloured as assembly.
+
+Ten classes are coloured: *Text* (identifiers and everything else), *Keyword*, *Instruction*,
+*Preprocessor*, *Label*, *String*, *Char*, *Integer*, *Float* and *Comment*. In C, a keyword is a
+Keyword, a `#` line is Preprocessor and a character constant is Char; a number is Integer, or Float
+when it has a point or an exponent (`1.5`, `1e-3`, `0x1p-3`). In assembly, a directive (`defb`,
+`section`, `include`, ...) is a Keyword, a mnemonic or a register is an Instruction, a label at the
+start of the line is a Label and every number is an Integer. In Boriel ZX Basic, a Basic keyword is
+a Keyword, a `#` line is Preprocessor, a line number is a Label and a number is Integer or Float. The
+punctuation and operators (`: , ; ( ) [ ] { } + - * / = < > & | ! ~ ^ % ? .`, a multi-character one
+such as `->` or `<<=` as a whole) are coloured as keywords; a comment, string, character or number
+keeps its own colour.
+
+The colours come from a scheme, chosen in **Settings > Preferences… > Debugger** or for one run with
+`--set source.colour_scheme=WORD`: **Auto** (the default) is Light or Dark after the application's
+theme, **Light** and **Dark** are the two fixed schemes, and **Borland** is Borland C++ 3.1, yellow
+text on a blue background. A scheme sets the Source tab's background, text colour and syntax colours
+and the colours of the current-line bar, and applies at once. The current line keeps its bar in every
+scheme, and the gutter (line numbers and breakpoint marks) is not affected.
 
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
