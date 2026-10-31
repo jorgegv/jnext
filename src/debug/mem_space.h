@@ -164,6 +164,20 @@ constexpr bool operator==(MemSpace a, MemSpace b) {
 }
 constexpr bool operator!=(MemSpace a, MemSpace b) { return !(a == b); }
 
+/// The size in bytes of the store a space names: 16 KB for the three 16 KB
+/// kinds (`Rom`, `AltRom`, `Config`), 8 KB for every other one (GH #388).
+constexpr uint16_t space_size(MemSpace::Kind k) {
+    return (k == MemSpace::Kind::Rom || k == MemSpace::Kind::AltRom ||
+            k == MemSpace::Kind::Config) ? 0x4000 : 0x2000;
+}
+
+/// The offset within `s`'s store of the byte a CPU address `logical` reaches:
+/// `& 0x3FFF` for the 16 KB kinds, `& 0x1FFF` for the rest. Every route the
+/// arbiter produces has exactly this offset (mmu_integration_test FSRC-19).
+constexpr uint16_t space_offset(MemSpace s, uint16_t logical) {
+    return static_cast<uint16_t>(logical & (space_size(s.kind) - 1));
+}
+
 /// The same type in the role the read arbiter uses it: what SUPPLIES an opcode
 /// fetch or a read (GH #339). Five consumer sub-issues of epic #23 name this
 /// role; the alias makes a grep find them. It is not a second type.

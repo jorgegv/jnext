@@ -16,6 +16,8 @@ so breakpoint dots stay visible.
   clicking its gutter still removes it. The gutter draws and changes only this window's own
   breakpoints, never one that GDB, ZRCP, DeZog or a script set: see
   [Whose breakpoints the gutters show and change](08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change).
+- With [memory coverage](../functions/15-memory-coverage.md) on, a green bar
+  sits left of the address on every line whose instruction ran.
 - **Click and drag** over the listing to select a range of lines, or click one
   line to select just that one. **Shift+click** extends the selection from
   where it started, and **Shift + ↑ ↓ Page Up/Down Home End** do the same from

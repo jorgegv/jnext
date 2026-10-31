@@ -7,6 +7,7 @@
 
 namespace jnext { namespace dbg {
 class EventTable;
+class MemCoverage;
 struct LatchEntry;
 } }
 
@@ -138,6 +139,19 @@ public:
     /// changed it, so the eight Mmu sites execute exactly the load-and-branch
     /// they executed when they read armed() directly.
     bool watchpoints_live() const { return wp_live_; }
+
+    /// GH #388 (E23-25) - the Mmu's ONE gate for "is anything watching this
+    /// guest access": a watchpoint (`wp_live_`) OR a memory-coverage client
+    /// (`mem_cov_live_`). Folded into one cached bool so that, with nothing
+    /// armed, the memory hot path executes the load-and-branch it always did.
+    /// `watchpoints_live()` keeps its meaning for every other reader (ports).
+    bool mem_gate_live() const { return mem_gate_live_; }
+
+    /// The memory-coverage set an access is recorded into, or null: the
+    /// published sink, and only while the machine is EXECUTING (the same
+    /// guest-access rule as a watchpoint - the debugger's own reads and the
+    /// loaders never record).
+    jnext::dbg::MemCoverage* mem_coverage_live() const { return mem_cov_live_; }
 
     /// Is the emulated machine currently executing? See GuestExecutionScope.
     /// Public for the one assertion that enforces the invariant, and for
@@ -616,6 +630,18 @@ public:
     std::bitset<65536>* coverage_sink() const { return coverage_; }
     void set_coverage_sink(std::bitset<65536>* s) { coverage_ = s; }
 
+    // ── GH #388 (E23-25) - memory coverage by execute / read / write ─────
+    //
+    // The same arrangement as the INS-20 sink above: the set is the BACKEND's
+    // (`Debugger::Impl::mem_cov`), this is where the Mmu finds it, published
+    // by `Impl::publish_mem_coverage()` and retired by `~Debugger()`. Setting it
+    // recomputes the Mmu gate (`mem_gate_live()`).
+    jnext::dbg::MemCoverage* mem_coverage_sink() const { return mem_cov_sink_; }
+    void set_mem_coverage_sink(jnext::dbg::MemCoverage* s) {
+        mem_cov_sink_ = s;
+        refresh_gates_();
+    }
+
     // ── GH #276 B4 — CAP-01, a screenshot is waiting for a rendered frame ─
     //
     // Set by the backend while a deferred capture is queued; ORed into
@@ -660,6 +686,10 @@ private:
         attached_    = clients_attached_;
         raster_live_ = live_raster_;
         wp_live_ = armed_ && guest_access_;
+        // GH #388: the coverage half of the Mmu gate. Same rule as wp_live_:
+        // nothing records unless the emulator itself declared it is executing.
+        mem_cov_live_  = guest_access_ ? mem_cov_sink_ : nullptr;
+        mem_gate_live_ = wp_live_ || mem_cov_live_ != nullptr;
         // Disarming breakpoints drops any pending step-off with them. The gate
         // that consumes it does not run while !armed(), so PC moves on freely
         // and a surviving arm would suppress an unrelated test the moment
@@ -731,6 +761,11 @@ private:
     // construction rather than by remembering to say so.
     bool guest_access_ = false;
     bool wp_live_ = false;
+    // GH #388 - read by the Mmu on every access (mem_gate_live_) and, behind it,
+    // by the recording hook (mem_cov_live_). Written only by refresh_gates_().
+    bool mem_gate_live_ = false;
+    jnext::dbg::MemCoverage* mem_cov_live_ = nullptr;
+    jnext::dbg::MemCoverage* mem_cov_sink_ = nullptr;
     // GH #276 B3 — the two gates that replace active() in the hot path, and the
     // one input only they read. Precomputed by refresh_gates_(). After wp_live_
     // rather than between it and armed_, which the comment above keeps adjacent.

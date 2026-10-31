@@ -18,6 +18,10 @@ use the disassembly there. The start-up code of a z88dk program built with `--li
 shows its m4 text from the listing, the label ending `(m4 output, from prog.lis)`;
 **Locate File...** does not apply to it.
 
+With [memory coverage](../functions/15-memory-coverage.md) on, every line of the
+shown file that ran has a pale green background (the current line keeps its
+highlight).
+
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a

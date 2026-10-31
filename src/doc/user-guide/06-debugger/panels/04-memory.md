@@ -19,6 +19,10 @@ eight, and the ASCII rendering.
 - In `CPU View`, rows are colour-coded: the row containing `SP` in orange,
   pixel VRAM `$4000`–`$57FF` in cyan, and attributes `$5800`–`$5AFF` in yellow.
 
+With [memory coverage](../functions/15-memory-coverage.md) on, each byte the
+program executed, read or wrote has a three-part underline (green X, blue R,
+orange-red W) and the top bar shows the key.
+
 To edit, click a byte and type two hex digits — the write happens on the second
 digit and the selection advances to the next byte. Arrow keys move the
 selection, **Page Up/Down**, **Home** and **End** scroll, and **Esc** clears

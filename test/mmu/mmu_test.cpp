@@ -21,6 +21,7 @@
 // Run: ./build/test/mmu/mmu_test
 
 #include "memory/mmu.h"
+#include "debug/mem_coverage.h"   // GH #388 (MCOV rows)
 #include "memory/ram.h"
 #include "memory/rom.h"
 #include "memory/contention.h"
@@ -7272,6 +7273,355 @@ void test_cat32_fetch_identity() {
 }
 
 
+// ── GH #388 (E23-25): memory coverage by execute, read and write ─────────────
+//
+// The coverage hook sits in Mmu behind DebugState::mem_gate_live(), fed by the
+// same route as the byte (route_bits_, given the direction): X for the first
+// opcode byte of an M1, R for any other read, W for a write that LANDED, keyed by
+// the space the arbiter named. Only a guest access (inside GuestExecutionScope,
+// not under InspectionScope) records.
+namespace {
+
+using jnext::dbg::MemCoverage;
+using jnext::dbg::COVERAGE_EXEC;
+using jnext::dbg::COVERAGE_READ;
+using jnext::dbg::COVERAGE_WRITE;
+
+struct CovFx : RouteFx {
+    DebugState  ds;
+    MemCoverage cov;
+    CovFx() {
+        mmu.set_debug_state(&ds);
+        ds.set_mem_coverage_sink(&cov);
+    }
+};
+
+size_t cov_total(const MemCoverage& c) {
+    size_t n = 0;
+    for (const MemSpace& sp : c.spaces())
+        for (uint32_t o = 0; o < jnext::dbg::space_size(sp.kind); ++o)
+            if (c.get(sp, static_cast<uint16_t>(o))) ++n;
+    return n;
+}
+
+// Exactly one byte of the whole map is marked: `flag` at (sp, off).
+bool cov_only(const MemCoverage& c, MemSpace sp, uint16_t off, uint8_t flag) {
+    return cov_total(c) == 1 && c.get(sp, off) == flag;
+}
+
+}  // namespace
+
+void test_cat33_mem_coverage() {
+    set_group("Cat33 memory coverage (GH #388)");
+
+    // FSRC-18: the write direction has no boot-ROM arm. The boot ROM is in the
+    // cpu_di read mux only (zxnext.vhd:1856-1857); a write goes through the SRAM
+    // arbiter whatever bootrom_en says.
+    {
+        RouteFx f;
+        std::vector<uint8_t> boot(0x2000, 0x42);
+        f.mmu.set_boot_rom(boot.data(), boot.size());
+        f.mmu.set_boot_rom_enabled(true);
+        RouteCheck rc;
+        f.mmu.set_page(0, 0x20);                         // MMU0 a RAM page
+        const Mmu::Route w = f.mmu.write_route(0x0010);
+        rc.ok = w.space == MemSpace::page(0x20) && w.offset == 0x0010 && w.ptr != nullptr;
+        const bool landed = f.mmu.write_landed(0x0010, 0x99);
+        rc.ok = rc.ok && landed && f.mmu.nr_page_ptr(0x20)[0x10] == 0x99;
+        rc.ok = rc.ok && f.mmu.read(0x0010) == 0x42;      // the read still sees the boot ROM
+        f.mmu.set_page(0, 0xE5);                          // MMU0 >= 0xE0: the legacy ROM; config mode: Config{5}
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(5);
+        const Mmu::Route c = f.mmu.write_route(0x0010);
+        rc.ok = rc.ok && c.space == MemSpace::config(5) && c.ptr != nullptr;
+        rc.ok = rc.ok && f.mmu.write_landed(0x0010, 0x77) && f.ram.page_ptr(10)[0x10] == 0x77;
+        rc.ok = rc.ok && boot[0x10] == 0x42 && f.mmu.read(0x0010) == 0x42;
+        check("FSRC-18",
+              "a write with the boot ROM enabled lands where the SRAM arbiter puts it (the MMU RAM page, "
+              "or the config window) and the boot ROM byte is unchanged and still what a read returns -- "
+              "VHDL zxnext.vhd:1856-1857 (read data mux only), 3081-3132",
+              rc.ok, fmt("page=%u/%u ptr=%d cfg=%u/%u", unsigned(w.space.kind), unsigned(w.space.index),
+                         int(w.ptr != nullptr), unsigned(c.space.kind), unsigned(c.space.index)));
+    }
+
+    // MCOV-01: a read marks R at (the route's space, the route's offset) for
+    // every read arm, and nothing else; a floating read marks nothing.
+    {
+        struct Arm {
+            const char* what;
+            void (*setup)(CovFx&);
+            uint16_t addr;
+            MemSpace sp;
+            uint16_t off;
+        };
+        const Arm arms[] = {
+            {"boot ROM (mirror)", [](CovFx& f) {
+                 static std::vector<uint8_t> b(0x2000, 0x11);
+                 f.mmu.set_boot_rom(b.data(), b.size());
+                 f.mmu.set_boot_rom_enabled(true);
+             }, 0x2010, MemSpace::boot_rom(), 0x0010},
+            {"Multiface ROM", [](CovFx& f) { f.mf_on(); }, 0x0100, MemSpace::multiface_rom(), 0x0100},
+            {"Multiface RAM", [](CovFx& f) { f.mf_on(); }, 0x2100, MemSpace::multiface_ram(), 0x0100},
+            {"DivMMC ROM", [](CovFx& f) { f.divmmc_conmem(0x80); }, 0x0100, MemSpace::divmmc_rom(), 0x0100},
+            {"DivMMC RAM bank 5", [](CovFx& f) { f.divmmc_conmem(0x85); }, 0x2100,
+             MemSpace::divmmc_ram(5), 0x0100},
+            {"Layer 2", [](CovFx& f) { f.mmu.set_l2_port(0x04, 9); }, 0x2100, MemSpace::layer2(0x13), 0x0100},
+            {"alt ROM second half", [](CovFx& f) { f.mmu.map_128k_bank(0x00); f.mmu.set_nr_8c(0x80); },
+             0x2100, MemSpace::alt_rom(0), 0x2100},
+            {"config window", [](CovFx& f) { f.mmu.set_config_mode(true); f.mmu.set_nr_04_romram_bank(9); },
+             0x2100, MemSpace::config(9), 0x2100},
+            {"ROM first half", [](CovFx& f) { f.mmu.map_128k_bank(0x00); }, 0x0100, MemSpace::rom(0), 0x0100},
+            {"ROM second half (slot 1)", [](CovFx& f) { f.mmu.map_128k_bank(0x00); }, 0x2100,
+             MemSpace::rom(0), 0x2100},
+            {"MMU page", [](CovFx& f) { f.mmu.set_page(2, 0x20); }, 0x4100, MemSpace::page(0x20), 0x0100},
+        };
+        RouteCheck rc;
+        for (const Arm& a : arms) {
+            CovFx f;
+            a.setup(f);
+            {
+                DebugState::GuestExecutionScope g(f.ds);
+                (void)f.mmu.read(a.addr);
+            }
+            if (!cov_only(f.cov, a.sp, a.off, COVERAGE_READ)) {
+                rc.ok = false;
+                rc.why += fmt("%s: total=%zu flag=%u; ", a.what, cov_total(f.cov),
+                              unsigned(f.cov.get(a.sp, a.off)));
+            }
+        }
+        {
+            CovFx f;                                    // a floating read: nothing answers, nothing is recorded
+            f.mmu.set_page(3, 0xE5);
+            DebugState::GuestExecutionScope g(f.ds);
+            (void)f.mmu.read(0x6100);
+            if (cov_total(f.cov) != 0) { rc.ok = false; rc.why += "floating read marked; "; }
+        }
+        check("MCOV-01",
+              "a read marks R at the route's (space, offset) for every read arm -- boot ROM, Multiface "
+              "ROM/RAM, DivMMC ROM/RAM, Layer 2, alt ROM, config window, both ROM halves, an MMU page -- "
+              "and nothing else, and a floating read marks nothing -- VHDL zxnext.vhd:1856-1857, "
+              "3030-3035, 3084-3131",
+              rc.ok, rc.why);
+    }
+
+    // MCOV-02: the M1 (first opcode byte) is X only; a prefix's inner M1 is nothing.
+    {
+        CovFx f;
+        f.mmu.set_page(2, 0x20);
+        bool ok = true;
+        {
+            DebugState::GuestExecutionScope g(f.ds);
+            (void)f.mmu.read_m1(0x4000);
+        }
+        ok = ok && cov_only(f.cov, MemSpace::page(0x20), 0x0000, COVERAGE_EXEC);
+        {
+            DebugState::GuestExecutionScope g(f.ds);
+            (void)f.mmu.read_fetch(0x4001);
+        }
+        ok = ok && cov_only(f.cov, MemSpace::page(0x20), 0x0000, COVERAGE_EXEC);   // unchanged
+        {
+            DebugState::GuestExecutionScope g(f.ds);
+            (void)f.mmu.read(0x4002);
+        }
+        ok = ok && cov_total(f.cov) == 2 && f.cov.get(MemSpace::page(0x20), 2) == COVERAGE_READ;
+        check("MCOV-02",
+              "read_m1 marks X (not R) at the fetched byte, read_fetch (a prefix's inner M1) marks "
+              "nothing, and an operand read marks R -- VHDL zxnext.vhd:1827 (M1 is the opcode fetch cycle)",
+              ok, fmt("total=%zu", cov_total(f.cov)));
+    }
+
+    // MCOV-03: W where a write landed, at the space the write route names;
+    // nothing where it was dropped.
+    {
+        struct Wr {
+            const char* what;
+            void (*setup)(CovFx&);
+            uint16_t addr;
+            bool lands;
+            MemSpace sp;
+            uint16_t off;
+        };
+        const Wr wrs[] = {
+            {"Multiface RAM", [](CovFx& f) { f.mf_on(); }, 0x2100, true, MemSpace::multiface_ram(), 0x0100},
+            {"DivMMC RAM bank 1", [](CovFx& f) { f.divmmc_conmem(0x81); }, 0x2100, true,
+             MemSpace::divmmc_ram(1), 0x0100},
+            {"Layer 2 write-over (read mapping off)", [](CovFx& f) { f.mmu.set_l2_port(0xC1, 9); }, 0x4100,
+             true, MemSpace::layer2(0x14), 0x0100},
+            {"alt ROM en+rw", [](CovFx& f) { f.mmu.map_128k_bank(0x00); f.mmu.set_nr_8c(0xC0); }, 0x0100,
+             true, MemSpace::alt_rom(0), 0x0100},
+            {"config window", [](CovFx& f) { f.mmu.set_config_mode(true); f.mmu.set_nr_04_romram_bank(9); },
+             0x0100, true, MemSpace::config(9), 0x0100},
+            {"MMU page", [](CovFx& f) { f.mmu.set_page(2, 0x20); }, 0x4100, true, MemSpace::page(0x20), 0x0100},
+            {"Multiface ROM half (dropped)", [](CovFx& f) { f.mf_on(); }, 0x0100, false, MemSpace{}, 0},
+            {"DivMMC ROM (dropped)", [](CovFx& f) { f.divmmc_conmem(0x80); }, 0x0100, false, MemSpace{}, 0},
+            {"DivMMC MAPRAM bank 3 (dropped)", [](CovFx& f) { f.divmmc_conmem(0xC3); }, 0x2100, false,
+             MemSpace{}, 0},
+            {"ROM slot (dropped)", [](CovFx& f) { f.mmu.map_128k_bank(0x00); }, 0x0100, false, MemSpace{}, 0},
+            {"Layer 2 inactive page (dropped)", [](CovFx& f) { f.mmu.set_l2_port(0x01, 0x70); }, 0x0100,
+             false, MemSpace{}, 0},
+            {"floating slot (dropped)", [](CovFx& f) { f.mmu.set_page(3, 0xE5); }, 0x6100, false, MemSpace{}, 0},
+        };
+        RouteCheck rc;
+        for (const Wr& w : wrs) {
+            CovFx f;
+            w.setup(f);
+            bool landed;
+            {
+                DebugState::GuestExecutionScope g(f.ds);
+                landed = f.mmu.write_landed(w.addr, 0x5A);
+            }
+            const bool good = w.lands ? (landed && cov_only(f.cov, w.sp, w.off, COVERAGE_WRITE))
+                                      : (!landed && cov_total(f.cov) == 0);
+            if (!good) {
+                rc.ok = false;
+                rc.why += fmt("%s: landed=%d total=%zu; ", w.what, int(landed), cov_total(f.cov));
+            }
+        }
+        check("MCOV-03",
+              "a write marks W at the route's (space, offset) where it landed -- Multiface RAM, DivMMC RAM, "
+              "Layer 2 write-over, alt ROM en+rw, config window, an MMU page -- and marks nothing where it "
+              "was dropped -- the Multiface ROM half, DivMMC ROM, MAPRAM bank 3, a ROM slot, an inactive "
+              "Layer 2 page, a floating slot -- VHDL zxnext.vhd:3035, 3056, 3089, 3097, 3101-3102, 3060-3061, "
+              "3154; divmmc.vhd:100",
+              rc.ok, rc.why);
+    }
+
+    // MCOV-04: only guest accesses mark.
+    {
+        CovFx f;
+        f.mmu.set_page(2, 0x20);
+        bool ok = true;
+        (void)f.mmu.read(0x4000);                       // outside GuestExecutionScope
+        (void)f.mmu.read_m1(0x4000);
+        f.mmu.write(0x4001, 1);
+        (void)f.mmu.peek(0x4002);
+        ok = ok && cov_total(f.cov) == 0;
+        {
+            DebugState::GuestExecutionScope g(f.ds);
+            (void)f.mmu.peek(0x4003);                    // peek inside execution: an InspectionScope
+            {
+                DebugState::InspectionScope in(f.ds);
+                (void)f.mmu.read(0x4004);
+                f.mmu.write(0x4005, 1);
+                (void)f.mmu.write_landed(0x4006, 1);
+            }
+            ok = ok && cov_total(f.cov) == 0;
+            (void)f.mmu.read(0x4007);                    // positive control
+        }
+        ok = ok && cov_only(f.cov, MemSpace::page(0x20), 7, COVERAGE_READ);
+        check("MCOV-04",
+              "only guest accesses mark: a read, fetch or write outside GuestExecutionScope, a peek, and "
+              "any access under InspectionScope mark nothing; the same read inside execution marks R",
+              ok, fmt("total=%zu", cov_total(f.cov)));
+    }
+
+    // MCOV-05: the Mmu gate equals its inputs across every transition.
+    {
+        DebugState ds;
+        MemCoverage cov;
+        bool ok = true;
+        std::string why;
+        auto verify = [&](const char* when) {
+            const bool live_ok = ds.mem_coverage_live() ==
+                                 (ds.guest_access() ? ds.mem_coverage_sink() : nullptr);
+            const bool gate_ok = ds.mem_gate_live() ==
+                                 (ds.watchpoints_live() || ds.mem_coverage_live() != nullptr);
+            if (!live_ok || !gate_ok) {
+                ok = false;
+                why += fmt("%s: live_ok=%d gate_ok=%d; ", when, int(live_ok), int(gate_ok));
+            }
+        };
+        verify("fresh");
+        ds.set_mem_coverage_sink(&cov);
+        verify("sink set");
+        {
+            DebugState::GuestExecutionScope g(ds);
+            verify("guest in");
+            ok = ok && ds.mem_coverage_live() == &cov && ds.mem_gate_live();
+            {
+                DebugState::InspectionScope in(ds);
+                verify("inspection in");
+                ok = ok && !ds.mem_gate_live();
+            }
+            verify("inspection out");
+            ds.set_persistent_breakpoints(true);
+            verify("armed");
+            ds.set_mem_coverage_sink(nullptr);
+            verify("sink cleared inside guest");
+            ok = ok && ds.mem_gate_live() == ds.watchpoints_live();
+            ds.set_mem_coverage_sink(&cov);
+            {
+                DebugState::SuspendScope sus(ds);
+                verify("suspend in");
+            }
+            verify("suspend out");
+            ds.set_persistent_breakpoints(false);
+            verify("disarmed");
+        }
+        verify("guest out");
+        ds.set_clients_attached(true);
+        verify("client attached outside guest");
+        ds.set_clients_attached(false);
+        verify("client detached");
+        check("MCOV-05",
+              "mem_gate_live == (watchpoints_live || mem_coverage_live) and mem_coverage_live == "
+              "(guest access ? sink : null) after every transition: sink set/clear, guest and inspection "
+              "scope in/out, persistent breakpoints, a client attaching, SuspendScope in/out",
+              ok, why);
+    }
+
+    // MCOV-06: the key is the decode path, not the logical slot: a Layer 2
+    // write-over with the read mapping off marks W in Layer2{p}, and the read of
+    // the same address marks R in the slot's Page{n}; Page{n} gets no W.
+    {
+        CovFx f;
+        f.mmu.set_page(0, 0x20);
+        f.mmu.set_l2_port(0x01, 9);                      // write mapping only, segment 00, bank 9
+        {
+            DebugState::GuestExecutionScope g(f.ds);
+            (void)f.mmu.write_landed(0x0100, 0x33);
+            (void)f.mmu.read(0x0100);
+        }
+        const bool ok = cov_total(f.cov) == 2 &&
+                        f.cov.get(MemSpace::layer2(0x12), 0x0100) == COVERAGE_WRITE &&
+                        f.cov.get(MemSpace::page(0x20), 0x0100) == COVERAGE_READ;
+        check("MCOV-06",
+              "Layer 2 write-over with the read mapping off: the write marks W in Layer2{p}, the read of "
+              "the same address marks R in the slot's Page{n}, and Page{n} has no W -- VHDL zxnext.vhd:"
+              "3077 (write enable on a write, read enable on a read), 3100",
+              ok, fmt("total=%zu l2=%u page=%u", cov_total(f.cov),
+                      unsigned(f.cov.get(MemSpace::layer2(0x12), 0x0100)),
+                      unsigned(f.cov.get(MemSpace::page(0x20), 0x0100))));
+    }
+
+    // MCOV-07: the same offset in another page stays clear, and a remap marks
+    // the new page too.
+    {
+        CovFx f;
+        f.mmu.set_page(6, 0x20);
+        bool ok = true;
+        {
+            DebugState::GuestExecutionScope g(f.ds);
+            (void)f.mmu.read(0xC010);
+        }
+        ok = ok && cov_only(f.cov, MemSpace::page(0x20), 0x10, COVERAGE_READ) &&
+             f.cov.get(MemSpace::page(0x21), 0x10) == 0 && f.cov.get(MemSpace::layer2(0x20), 0x10) == 0;
+        f.mmu.set_page(6, 0x21);
+        {
+            DebugState::GuestExecutionScope g(f.ds);
+            (void)f.mmu.read(0xC010);
+        }
+        ok = ok && cov_total(f.cov) == 2 && f.cov.get(MemSpace::page(0x20), 0x10) == COVERAGE_READ &&
+             f.cov.get(MemSpace::page(0x21), 0x10) == COVERAGE_READ;
+        check("MCOV-07",
+              "MMU6 = 0x20: a read of 0xC010 marks R at Page{0x20}+0x10 only (Page{0x21} and Layer2{0x20} "
+              "stay clear); remapped to 0x21 the next read marks Page{0x21}+0x10 too, one bit each -- "
+              "VHDL zxnext.vhd:3059-3065 (the MMU page names the SRAM page)",
+              ok, fmt("total=%zu", cov_total(f.cov)));
+    }
+}
+
+
 int main() {
     std::printf("MMU/Memory Compliance Test Runner (Phase 2 rewrite)\n");
     std::printf("====================================================\n\n");
@@ -7323,6 +7673,7 @@ int main() {
     test_cat27_v11_mem_01_save_load_high_page();
     test_cat28_bank7_bram_standin();
     test_cat32_fetch_identity();
+    test_cat33_mem_coverage();
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
