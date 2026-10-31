@@ -7,7 +7,6 @@
 #include <string>
 #include <map>
 #include <optional>
-#include <set>
 #include <string_view>
 #include <utility>
 
@@ -26,8 +25,11 @@ struct SymbolLabel {
     std::string name;
     std::optional<jnext::dbg::FetchSource> space;
     bool bind_at_load = false;
+    /// A z88dk C symbol (design 10.6): `name` is `_x` and the label also has the C name `x`.
+    bool c_symbol = false;
     bool operator==(const SymbolLabel& o) const
-    { return name == o.name && space == o.space && bind_at_load == o.bind_at_load; }
+    { return name == o.name && space == o.space && bind_at_load == o.bind_at_load &&
+             c_symbol == o.c_symbol; }
 };
 
 /// The address a name resolves to, and the memory it was assembled for (nullopt:
@@ -130,9 +132,11 @@ public:
     /// first of a name. Returns whether the key was free (the entry stored).
     /// A `bind_at_load` label is added unbound (`space` nullopt); `bind()` gives
     /// it its memory.
+    /// `c_symbol` marks a z88dk C symbol (design 10.6): its C name (`name` without the
+    /// first `_`) then resolves to this label's key, the first C symbol of a C name winning.
     bool add_label(const std::string& name, uint16_t addr,
                    std::optional<jnext::dbg::FetchSource> space,
-                   bool bind_at_load = false);
+                   bool bind_at_load = false, bool c_symbol = false);
 
     /// Give every `bind_at_load` label, and name, the memory `space_of(addr)`
     /// says supplies its address, when that is a RAM page; any other memory
@@ -168,10 +172,10 @@ public:
     std::optional<std::string> lookup_assembler(jnext::dbg::FetchSource space,
                                                 uint16_t addr) const;
 
-    /// The name views show for a label named `name`: the C name (`name` without
-    /// its first `_`) when `name` is a z88dk C symbol and nothing else holds the C
-    /// name (a label, an alias or a name-only value of any source); else `name`
-    /// unchanged. So every shown name resolves to the symbol it labels.
+    /// The name views show for the symbol `name` (an assembler or a C name) resolves to:
+    /// its C name when it is a z88dk C symbol that owns that C name (nothing else holds
+    /// the C name, and no earlier C symbol has it); else the label's own name; an
+    /// unknown `name` comes back unchanged. So a shown C name resolves to its own symbol.
     std::string shown_name(const std::string& name) const;
 
     /// The visible label with the greatest address <= `addr` (address and name):
@@ -225,9 +229,11 @@ private:
     std::map<std::string, SymbolNameKey> name_to_key_;
     /// Name-only values, consulted by `find_name()` after the labels.
     std::map<std::string, uint16_t> const_by_name_;
-    /// Assembler names (`_counter`) of the z88dk C symbols that own their name in
-    /// `name_to_key_` (design 10.6): `find_name()` also answers to the C name
-    /// (`counter`) and `lookup()` shows it, unless something else holds it.
-    std::set<std::string> c_symbols_;
+    /// C name (`counter`) to the key of the z88dk C SYMBOL that has it (design 10.6; the
+    /// first one wins): `find_name()` falls back to it after every exact name. Per symbol,
+    /// not per assembler name, so an asm `_dup` and a C `_dup` stay two symbols.
+    std::map<std::string, SymbolNameKey> c_name_to_key_;
+    /// The name `lookup()` shows for `label` at `addr`.
+    std::string shown_label(const SymbolLabel& label, uint16_t addr) const;
     std::string loaded_file_;
 };
