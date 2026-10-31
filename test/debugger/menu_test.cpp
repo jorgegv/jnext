@@ -1867,6 +1867,8 @@ static void test_breakpoint_owners()
         check("BPOW-03", "a master switch flipped outside the panel reaches its control", false, "fixture failed");
         check("BPOW-04", "another client's Execute breakpoint draws no gutter dot", false, "fixture failed");
         check("BPOW-05", "Edit on another client's row is refused", false, "fixture failed");
+        check("BPOW-06", "a second gutter click removes the GUI's own breakpoint and leaves the other "
+              "client's in the list", false, "fixture failed");
         return;
     }
     GuiBps bps{fx.mgr->breakpoints()};
