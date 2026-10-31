@@ -174,11 +174,13 @@ struct Fixture {
 
     /// `attach_override`: GH #417's `--set debugger.attached=`, handed to the manager
     /// before the window is built (it is created lazily).
-    explicit Fixture(std::optional<bool> attach_override = std::nullopt) {
+    explicit Fixture(std::optional<bool> attach_override = std::nullopt,
+                     std::optional<bool> physical_override = std::nullopt) {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         if (attach_override) mgr->set_attach_override(*attach_override);
+        if (physical_override) mgr->set_physical_override(*physical_override);   // GH #360
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
@@ -799,6 +801,58 @@ static void test_attach_override(const QString& dir)
     wipe_dir(dir);
 }
 
+// DWK-04 (GH #360): `--set debugger.physical_addresses=` governs the run and never the file; the
+// Debug > Physical Addresses toggle writes the file at once. Oracle: the same contract as DWK-02,
+// read from the real file with a fresh QSettings.
+static void test_physical_override(const QString& dir)
+{
+    set_group("DWK");
+    const QString conf = dir + QStringLiteral("/jnext.conf");
+    const QString key = QString::fromStdString(config_keys::path(config_keys::KeyId::DebuggerPhysicalAddresses));
+    const auto file_value = [&]() { QSettings s(conf, QSettings::IniFormat); return s.value(key).toString(); };
+
+    wipe_dir(dir);
+    { QSettings s(conf, QSettings::IniFormat); s.setValue(key, false); s.sync(); }
+    bool ok = true, physical = false, checked = false, friendly_after = false, reopened_physical = false;
+    QString opened, saved, toggled_on, toggled_off;
+    {
+        Fixture fx(std::nullopt, true);
+        ok = ok && fx.ok;
+        if (fx.ok) {
+            QAction* act = nullptr;
+            for (QAction* a : fx.dbg->findChildren<QAction*>())
+                if (a->text().remove(QLatin1Char('&')) == QLatin1String("Physical Addresses")) act = a;
+            ok = ok && act;
+            physical = fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical;
+            checked = act && act->isChecked();
+            opened = file_value();
+            fx.dbg->save_position();   // what a hide writes: the override is not the file's
+            saved = file_value();
+            if (act) {
+                act->trigger();        // unchecks: the toggle IS a change of the saved setting
+                toggled_off = file_value();
+                friendly_after = fx.dbg->address_style() == jnext::dbg::AddressStyle::Friendly;
+                act->trigger();
+                toggled_on = file_value();
+            }
+            fx.dbg->close();
+        }
+    }
+    {   // a new window over the file's last value starts as that value says
+        Fixture fx;
+        ok = ok && fx.ok;
+        reopened_physical = fx.ok && fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical;
+    }
+    check("DWK-04", "a physical-addresses override opens the window in the physical style and a save leaves the file's "
+                    "value; toggling Physical Addresses then writes the toggled value at once, and a new window "
+                    "starts as the file says",
+          ok && physical && checked && opened == QLatin1String("false") && saved == QLatin1String("false") &&
+              toggled_off == QLatin1String("false") && friendly_after && toggled_on == QLatin1String("true") &&
+              reopened_physical,
+          (opened + "|" + saved + "|" + toggled_off + "|" + toggled_on).toStdString());
+    wipe_dir(dir);
+}
+
 int main(int argc, char** argv)
 {
     // The debugger window owns QWidgets, so a QApplication is required — but
@@ -825,6 +879,7 @@ int main(int argc, char** argv)
     std::printf("  Group: DCF            — done\n");
     test_key_names(cfg.path());
     test_attach_override(cfg.path());
+    test_physical_override(cfg.path());
     std::printf("  Group: DWK            - done\n");
 
     std::printf("\n=====================================\n");
