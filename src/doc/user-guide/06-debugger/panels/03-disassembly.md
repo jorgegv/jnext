@@ -13,7 +13,9 @@ so breakpoint dots stay visible.
   as a red dot). A breakpoint that has been
   [suspended](08-breakpoints.md) — unticked in the Breakpoints panel, or
   covered by its master switch — is drawn as a hollow red ring instead;
-  clicking its gutter still removes it.
+  clicking its gutter still removes it. The gutter draws and changes only this window's own
+  breakpoints, never one that GDB, ZRCP, DeZog or a script set: see
+  [Whose breakpoints the gutters show and change](08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change).
 - With [memory coverage](../functions/15-memory-coverage.md) on, a green bar
   sits left of the address on every line whose instruction ran.
 - **Click and drag** over the listing to select a range of lines, or click one

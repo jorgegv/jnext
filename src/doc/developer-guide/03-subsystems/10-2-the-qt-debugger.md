@@ -252,7 +252,16 @@ any instruction whose primary line (`lookup`) is the line. Every start of the li
 is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. `breakpoint_glyph.h` paints the glyph for both panels. A click calls
 `SourcePanel::toggle_breakpoint_at_line()`, the one toggle: it removes what the line shows plus a
 hidden group tied to an unmapped page, else `add_source_line()` (not idempotent, hence the check);
-the context menu of GH #423 calls the same function. The file a record names is found by `source_search::resolve()` (`debug/source_search.h`, Qt-free so
+the context menu of GH #423 calls the same function.
+That menu (`SourcePanel::fill_context_menu()`, from the editor's and the gutter's `contextMenuEvent`) offers the
+Disassembly's actions on the source line: Copy / Copy with Addresses / Select All, Toggle Breakpoint, Run to Here
+(`run_to_line_requested`, which `DebuggerManager` runs as `Debugger::run_to_source_line` behind its corruption
+gate; Enter in the editor and the bindable Run to Cursor, while the tab has the focus, are the same request), Show in
+Disassembly (`show_address_requested`, `DisasmPanel::show_address()`), and the watch and data-breakpoint entries.
+Those entries are built by `operand_menu.{h,cpp}` (`add_operand_actions()`), shared with the Disassembly's own menu so
+the two cannot differ; the Source tab fills a `MenuOperands` from the labels at the line's places and the word under
+the pointer. A word is classified as a register in parentheses, a number or a name, and a name goes through
+`SourcePanel::symbol_for_word()`, the single seam for GH #424's C names (`resolve_key("@" + word)`; `@` forces a symbol). The file a record names is found by `source_search::resolve()` (`debug/source_search.h`, Qt-free so
 the SDL-only and Windows trees test it and a later surface can print the same path): an absolute
 name, then the map's directory and each parent, then the search directories, tried suffix-major
 (the longest trailing part of the normalised name first, then the directories in order; a leading
