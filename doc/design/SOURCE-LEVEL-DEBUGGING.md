@@ -971,7 +971,7 @@ location is; a `space` on a kind other than `Execute` is refused.
   carry a breakpoint. Rows QSRC-79..98.
 - **Syntax highlighting** (E23-29 (#422)): `source_highlighter.*` colours C, Z80/Z80N assembly and Boriel ZX Basic,
   chosen by extension (`.m4` stripped) and then by the first 200 lines; assembly inside C and Boriel is coloured as
-  assembly. Colour only, light or dark, and the current-line selection stays on top. Rows QSRC-120..137.
+  assembly. Colour only, light or dark, and the current-line selection stays on top. Rows QSRC-120..137, 139 and 145..149.
 - **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
   Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
   Settings > Preferences... > Debugger Keys like the other debugger actions
@@ -1450,7 +1450,7 @@ text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRC
 the tree.
 
 
-E23-29 (#422) added QSRC-120 to QSRC-137 (`debugger_source_panel_test`: language by extension and content, the assembly, C
+E23-29 (#422) added QSRC-120 to QSRC-137, QSRC-139 and QSRC-145 to QSRC-149 (`debugger_source_panel_test`: language by extension and content, the assembly, C
 and Boriel rules, colour-only formats, light and dark, the current line and the gutter marks, one highlighting pass per
 load) and DASM-Z80N-01 (`debugger_backend_test`: the disassembler names ED B6 LDIRSCALE and no longer names ED C6).
 E23-30 (#423) added QSRC-99 to QSRC-119 (`debugger_source_panel_test`: the Source tab's context menu, Run to Here, Show in

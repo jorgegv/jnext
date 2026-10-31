@@ -4240,6 +4240,23 @@ void test_source_highlight_detection() {
               lang("x.txt", padded(197)) == SourceLanguage::Asm &&
               lang("x.txt", padded(198)) == SourceLanguage::Plain &&
               lang("x.txt", padded(200)) == SourceLanguage::Plain);
+
+    // QSRC-145: what counts as evidence. Each condition has a text on either side of it.
+    {
+        const QString braces = QStringLiteral("{\n}\n{\n");
+        const QString two_braces = QStringLiteral("{\n}\n");
+        const QString labelled = QStringLiteral("a1: ld a,1\nb2: nop\nc3: ret\n");
+        const QString label_unknown = QStringLiteral("a1: zork\nb2: zork\nc3: zork\n");
+        const QString under = QStringLiteral("__naked\n__banked\n__critical\n");
+        const QString single = QStringLiteral("_naked\n_banked\n_critical\n");
+        check("QSRC-145", "content evidence: three brace-only lines are C and two are not enough; a "
+                          "column-0 label is skipped to the instruction behind it (and an unknown "
+                          "word behind it is no evidence); three __ words are C and three _ words are not",
+              lang("t.txt", braces) == SourceLanguage::C && lang("t.txt", two_braces) == SourceLanguage::Plain &&
+                  lang("t.txt", labelled) == SourceLanguage::Asm &&
+                  lang("t.txt", label_unknown) == SourceLanguage::Plain &&
+                  lang("t.txt", under) == SourceLanguage::C && lang("t.txt", single) == SourceLanguage::Plain);
+    }
 }
 
 void test_source_highlight_rules() {
@@ -4378,6 +4395,51 @@ void test_source_highlight_rules() {
               kw && pre && str && nums && cmt && ret,
               std::to_string(kw) + std::to_string(pre) + std::to_string(str) + std::to_string(nums) +
                   std::to_string(cmt) + std::to_string(ret));
+    }
+    {   // QSRC-146
+        Hl h;
+        h.load(SourceLanguage::C, QStringLiteral("\"a\\\"b\" int x;\n'\\'' int y;"));
+        check("QSRC-146", "C string and character literals honour a backslash escape: the quote of "
+                          "\"a\\\"b\" and of '\\'' does not end the literal, so int after each is a keyword",
+              tok(h, 0, QStringLiteral("\"a\\\"b\"")) == 'S' && tok(h, 0, QStringLiteral("int")) == 'K' &&
+                  tok(h, 1, QStringLiteral("'\\''")) == 'S' && tok(h, 1, QStringLiteral("int")) == 'K',
+              role_mask(h, 0) + " " + role_mask(h, 1));
+    }
+    {   // QSRC-147
+        Hl h;
+        h.load(SourceLanguage::Asm, QStringLiteral("ld a,1 /* x */ nop\nld b,2"));
+        check("QSRC-147", "an assembly /* ... */ closed on its own line ends there: the code behind "
+                          "it is coloured and the next line is not a comment",
+              tok(h, 0, QStringLiteral("/* x */")) == 'C' && tok(h, 0, QStringLiteral("nop")) == 'K' &&
+                  tok(h, 1, QStringLiteral("ld")) == 'K' && !has_role(h, 1, 'C'),
+              role_mask(h, 0) + " " + role_mask(h, 1));
+    }
+    {   // QSRC-148
+        Hl h;
+        h.load(SourceLanguage::Asm,
+               QStringLiteral(".local: jr .local\n.end: jr nz,.end\n  db word\n  .end\nx EQU 5"));
+        check("QSRC-148", "a column-0 word ending in ':' is a label even when it is named like a "
+                          "directive, and a word behind the instruction word is never a directive; "
+                          "a directive that opens its statement still is one",
+              tok(h, 0, QStringLiteral(".local:")) == 'L' && tok(h, 0, QStringLiteral("jr")) == 'K' &&
+                  tok(h, 0, QStringLiteral(".local"), 8) == '.' &&
+                  tok(h, 1, QStringLiteral(".end:")) == 'L' && tok(h, 1, QStringLiteral("nz")) == 'R' &&
+                  tok(h, 1, QStringLiteral(".end"), 6) == '.' &&
+                  tok(h, 2, QStringLiteral("db")) == 'D' && tok(h, 2, QStringLiteral("word")) == '.' &&
+                  tok(h, 3, QStringLiteral(".end")) == 'D' && tok(h, 4, QStringLiteral("EQU")) == 'D',
+              role_mask(h, 0) + " " + role_mask(h, 1) + " " + role_mask(h, 2));
+    }
+    {   // QSRC-149
+        Hl h;
+        h.load(SourceLanguage::C,
+               QStringLiteral("#define X 1 /* long\ncomment */ int z;\n#define Y \"/*\"\nint w;"));
+        check("QSRC-149", "a /* opened on a # line goes on to the next line (the # line stays a "
+                          "directive), and a /* inside a string on a # line opens nothing",
+              role_mask(h, 0) == std::string(h.doc.findBlockByNumber(0).text().size(), 'D') &&
+                  tok(h, 1, QStringLiteral("comment */")) == 'C' && tok(h, 1, QStringLiteral("int")) == 'K' &&
+                  role_mask(h, 2) == std::string(h.doc.findBlockByNumber(2).text().size(), 'D') &&
+                  tok(h, 3, QStringLiteral("int")) == 'K' && !has_role(h, 3, 'C'),
+              role_mask(h, 1) + " " + role_mask(h, 3));
     }
     {   // QSRC-130
         Hl h;
@@ -4655,6 +4717,29 @@ void test_source_highlight_panel() {
                   std::to_string(ticks) + " reload=" + std::to_string(reload) + "/" +
                   std::to_string(blocks2) + " dark=" + std::to_string(to_dark) + " dticks=" +
                   std::to_string(dark_ticks) + " light=" + std::to_string(to_light));
+    }
+    {   // QSRC-139
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        auto go = [&](uint16_t pc) {
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = pc;
+            fx.emu.cpu().set_registers(r);
+            v.sp->refresh();
+            QApplication::processEvents();
+        };
+        const bool loaded = v.sp->source_language() == SourceLanguage::Basic;
+        go(0xA000);   // no source record here: the tab shows a message
+        const bool msg = v.sp->source_language() == SourceLanguage::Plain &&
+                         v.ed->document()->toPlainText().isEmpty();
+        go(0x8000);
+        check("QSRC-139", "a message in the tab leaves no language behind: Plain while it shows, and "
+                          "the file is coloured again when it returns",
+              loaded && msg && v.sp->source_language() == SourceLanguage::Basic &&
+                  panel_mask(v.sp, 12).substr(0, 3) == "CCC");
     }
     {   // QSRC-137
         Fixture fx;

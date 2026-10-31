@@ -476,14 +476,19 @@ int SourceHighlighter::scan_asm(const QString& t, int i, AsmCtx ctx, bool& ended
         const QStringView bare = (w[0] == QLatin1Char('.') || w[0] == QLatin1Char('@')) ? w.mid(1) : w;
         const bool end_word = (ctx == AsmCtx::CSdcc && w == QLatin1String("__endasm")) ||
                               (ctx == AsmCtx::Basic && ci_equals(w, "end"));
-        if (!is_directive_word(w) && !in_set(disasm_words().mnemonics, bare) && !end_word) {
+        // A word ending in ':' is a label whatever its name (sjasmplus ".end:", ".local:").
+        const bool colon = e < n && t[e] == QLatin1Char(':');
+        if (!end_word && (colon || (!is_directive_word(w) && !in_set(disasm_words().mnemonics, bare)))) {
             int le = e;
-            if (le < n && t[le] == QLatin1Char(':')) ++le;
+            if (colon) ++le;
             paint(0, le, Role::Label);
             i = le;
         }
     }
 
+    // A directive is the first word of its statement: a ".end" after the instruction word
+    // is a label reference (jr nz,.end), not a directive.
+    bool op_seen = false;
     while (i < n) {
         const QChar c = t[i];
         if (c.isSpace()) { ++i; continue; }
@@ -530,10 +535,12 @@ int SourceHighlighter::scan_asm(const QString& t, int i, AsmCtx ctx, bool& ended
                     return ne;
                 }
             }
-            if (is_directive_word(w)) {
+            if (!op_seen && is_directive_word(w)) {
                 paint(i, e, Role::Directive);
+                op_seen = true;
             } else if (in_set(disasm_words().mnemonics, w)) {
                 paint(i, e, Role::Keyword);
+                op_seen = true;
             } else if (in_set(disasm_words().registers, w)) {
                 paint(i, e, Role::Register);
             }
@@ -603,7 +610,25 @@ void SourceHighlighter::highlight_c(const QString& t)
             while (w < n && t[w].isSpace()) ++w;
             const int we = word_end(t, w);
             paint(0, n, Role::Directive);
-            setCurrentBlockState(QStringView(t).mid(w, we - w) == QLatin1String("asm") ? HashAsm : Normal);
+            if (QStringView(t).mid(w, we - w) == QLatin1String("asm")) {
+                setCurrentBlockState(HashAsm);
+                return;
+            }
+            // A /* opened on the line (outside a string) goes on to the next line.
+            int k = we;
+            bool open_comment = false;
+            while (k < n) {
+                if (t[k] == QLatin1Char('"') || t[k] == QLatin1Char('\'')) { k = string_end(t, k, true); continue; }
+                if (t[k] == QLatin1Char('/') && k + 1 < n && t[k + 1] == QLatin1Char('/')) break;
+                if (t[k] == QLatin1Char('/') && k + 1 < n && t[k + 1] == QLatin1Char('*')) {
+                    const int close = static_cast<int>(t.indexOf(QLatin1String("*/"), k + 2));
+                    if (close < 0) { open_comment = true; break; }
+                    k = close + 2;
+                    continue;
+                }
+                ++k;
+            }
+            setCurrentBlockState(open_comment ? BlockComment : Normal);
             return;
         }
     }
