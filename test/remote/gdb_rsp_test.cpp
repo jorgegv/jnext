@@ -1913,6 +1913,30 @@ static void monitor_rows() {
                   in21[0] == "$C004 = gfx.draw.loop+16364\n",
               join(byname) + join(in20) + join(in30) + join(in21));
     }
+    {
+        // GDB-MON-14 (GH #424): a z88dk map's C symbol answers to its C name and is named by it. Oracle: the
+        // fixture's map ($8F59 counter, $8F5A table; module main_c) and zcc's MODULE naming.
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        const auto loaded = rig.dbg->load_map(JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.map",
+                                              jnext::dbg::MapFormat::Z88dk);
+        Client c(rig);
+        open_session(c);
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 4, 4);
+        const bool premise = rig.dbg->source_page(0x8F59) == jnext::dbg::MemSpace::page(4);
+        std::string f;
+        const auto by_c = c.monitor("sym counter", f);
+        const auto by_addr = c.monitor("sym $8F59", f);
+        const auto inside = c.monitor("sym $8F5B", f);
+        const auto by_asm = c.monitor("sym _counter", f);
+        const auto not_c = c.monitor("sym asm_bump", f);
+        check("GDB-MON-14", "monitor sym takes a z88dk C name and names an address by it: counter = $8F59, "
+                            "$8F59 = counter, $8F5B = table+1, _counter still works, asm_bump (asm module) is no symbol",
+              loaded.status == Result::Ok && premise && by_c.size() == 1 && by_c[0] == "counter = $8F59\n" &&
+                  by_addr.size() == 1 && by_addr[0] == "$8F59 = counter\n" && inside.size() == 1 &&
+                  inside[0] == "$8F5B = table+1\n" && by_asm.size() == 1 && by_asm[0] == "_counter = $8F59\n" &&
+                  not_c.size() == 1 && not_c[0] == "no symbol asm_bump\n",
+              join(by_c) + join(by_addr) + join(inside) + join(by_asm) + join(not_c));
+    }
 }
 
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────

@@ -4802,7 +4802,7 @@ int main() {
                       m.dbg->source_map().format() == "z88dk" &&
                       st.state == Debugger::SourceMapStatus::State::Attached && !st.by_user &&
                       line_of(*m.dbg, 0x8CB8) == "main.c:19" &&
-                      m.dbg->lookup(0x8C92) == std::string("_main") &&
+                      m.dbg->lookup(0x8C92) == std::string("main") &&
                       has(log, "Loaded 19 z88dk symbols from '" + map1 + "'") &&
                       has(log, "Loaded 46 z88dk source lines from '" + map1 +
                                    "' (program identity verified)"),
@@ -6674,8 +6674,8 @@ int main() {
             const std::string main40 = lookup_at(m, 0x8C62);
             check("SRCDBG-SYM-18", "a banked z88dk label names its address only while its page is mapped, and a "
                                    "code symbol only in the RAM page the program loaded it in",
-                  r.symbols == 10 && p20 && at20 == "_banked_add" && at21 == "-" && at0 == "-" && p4 &&
-                      main4 == "_main" && main40 == "-",
+                  r.symbols == 10 && p20 && at20 == "banked_add" && at21 == "-" && at0 == "-" && p4 &&
+                      main4 == "main" && main40 == "-",
                   at20 + "/" + at21 + "/" + at0 + " " + main4 + "/" + main40);
         }
         {   // SRCDBG-SYM-19
@@ -6687,18 +6687,18 @@ int main() {
             Machine m(false, MachineType::ZXN_ISSUE2);
             nr(m, 0x54, 40);
             m.dbg->load_map((d / "prog.map").string(), jnext::dbg::MapFormat::Z88dk);
-            const bool in40 = lookup_at(m, 0x8C62) == "_main";
+            const bool in40 = lookup_at(m, 0x8C62) == "main";
             nr(m, 0x54, 4);
             const bool gone4 = lookup_at(m, 0x8C62) == "-";
             z88_load(m, alone / "game.nex");
             const bool premise = m.dbg->source_page(0x8C62) == MemSpace::page(4);
             const auto r = m.dbg->load_program_sidecars((alone / "game.nex").string());
-            const bool rebound = lookup_at(m, 0x8C62) == "_main" && in_space(m, "_main", 0x8C62, MemSpace::page(4)) &&
+            const bool rebound = lookup_at(m, 0x8C62) == "main" && in_space(m, "_main", 0x8C62, MemSpace::page(4)) &&
                                  key_of(m, "_main")->bind_at_load;
             nr(m, 0x54, 40);
             const bool gone40 = lookup_at(m, 0x8C62) == "-";
             nr(m, 0x56, 20);
-            const bool b20 = lookup_at(m, 0xC000) == "_banked_add";
+            const bool b20 = lookup_at(m, 0xC000) == "banked_add";
             nr(m, 0x56, 0);
             const bool b0 = lookup_at(m, 0xC000) == "-";
             check("SRCDBG-SYM-19", "a map loaded before its program is bound when loaded and again at the program load "
@@ -6711,7 +6711,7 @@ int main() {
             Machine m(false, MachineType::ZXN_ISSUE2);
             const bool premise = m.dbg->source_page(0x8CA1) == MemSpace::page(4);
             const auto r = m.dbg->load_program_sidecars(tap);
-            const bool live = lookup_at(m, 0x8CA1) == "_main" && in_space(m, "_main", 0x8CA1, MemSpace::page(4));
+            const bool live = lookup_at(m, 0x8CA1) == "main" && in_space(m, "_main", 0x8CA1, MemSpace::page(4));
             nr(m, 0x54, 40);
             const bool gone40 = lookup_at(m, 0x8CA1) == "-";
             const fs::path d2 = sdir / "s20b";
@@ -6735,7 +6735,7 @@ int main() {
             const bool in40 = in_space(m, "_main", 0x8CA1, MemSpace::page(40));
             nr(m, 0x54, 4);
             m.dbg->load_program_sidecars((alone / "game.tap").string());
-            const bool in4 = in_space(m, "_main", 0x8CA1, MemSpace::page(4)) && lookup_at(m, 0x8CA1) == "_main";
+            const bool in4 = in_space(m, "_main", 0x8CA1, MemSpace::page(4)) && lookup_at(m, 0x8CA1) == "main";
             nr(m, 0x54, 40);
             check("SRCDBG-SYM-21", "the user's map is rebound at a tape load",
                   in40 && in4 && lookup_at(m, 0x8CA1) == "-");
@@ -6759,17 +6759,36 @@ int main() {
             const bool s1 = run_to(0x8CAE);
             const MemSpace before = m.dbg->source_page(0xC000);
             const bool premise1 = !(before == MemSpace::page(20)) && m.dbg->source_page(0x8CAE) == MemSpace::page(4);
-            const bool main_named = lookup_at(m, 0x8CAE) == "_main" && lookup_at(m, 0xC000) == "-";
+            const bool main_named = lookup_at(m, 0x8CAE) == "main" && lookup_at(m, 0xC000) == "-";
             const bool s2 = run_to(0xC000);
             const bool in20 = m.dbg->source_page(0xC000) == MemSpace::page(20) &&
-                              lookup_at(m, 0xC000) == "_banked_add" && m.dbg->lookup_name("_banked_add") == 0xC000;
+                              lookup_at(m, 0xC000) == "banked_add" && m.dbg->lookup_name("_banked_add") == 0xC000;
             const bool s3 = run_to(0x8CBE);
             const bool out = m.dbg->source_page(0xC000) == before && lookup_at(m, 0xC000) == "-";
-            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: _banked_add (a 24-bit $14C000 "
-                                   "in the map) names $C000 only while banked_call has page 20 mapped",
+            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: banked_add (_banked_add, a 24-bit "
+                                   "$14C000 in the map) names $C000 only while banked_call has page 20 mapped",
                   r.symbols == 9 && has(log, "(program identity verified)") && s1 && premise1 && main_named && s2 &&
                       in20 && s3 && out,
                   log);
+        }
+        {   // SRCDBG-CN-01: GH #424, a C symbol under its C name through the real attach
+            // Oracle: the fixture's own bytes (`32 59 8F` at $8C9A is ld (_counter),a, main.c.lis:624;
+            // `21 59 8F` at $8D65 is ld hl,_counter) and zcc's MODULE naming (main_c).
+            const fs::path d = sdir / "cn1";
+            z88_copy("v2.4/sccz80-debug", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const auto mnemonic = [&](uint16_t addr) {
+                return std::string(m.dbg->disassemble(addr, 1, &m.dbg->symbols())[0].mnemonic);
+            };
+            const auto k = m.dbg->symbols().resolve_key("counter");
+            check("SRCDBG-CN-01", "after the attach of a z88dk program, `counter` names `_counter`'s address and page, "
+                                  "lookup() shows counter, and disassemble() prints the C name",
+                  r.symbols == 19 && m.dbg->lookup_name("counter") == std::optional<uint16_t>(0x8F59) &&
+                      k && k->space && *k->space == MemSpace::page(4) && lookup_at(m, 0x8F59) == "counter" &&
+                      mnemonic(0x8C9A) == "LD (counter),A" && mnemonic(0x8D65) == "LD HL,counter",
+                  mnemonic(0x8C9A) + " | " + mnemonic(0x8D65));
         }
     }
 

@@ -34,7 +34,7 @@ mis-attributions (OD-7). Cut 1 is E23-00 to E23-16; the close-out is E23-19 (#34
 z88dk support follows the owner's rules of section 2.3.
 
 **After cut 1, in the epic.** Per-line asm in z88dk projects and sdcc lines on 2.4, E23-17
-(#348); `.cdb`/`.adb` input, E23-20 (#350, OD-2); dot commands, E23-21 (#351, OD-14); the
+(#348); `.cdb`/`.adb` input, E23-20 (#350, OD-2: z88dk writes no such file, section 9.6); dot commands, E23-21 (#351, OD-14); the
 page-aware symbol table, E23-23 (#375); and a thin reverse-engineering layer (owner decision
 on #378): user labels and comments, E23-24 (#387), memory coverage, E23-25 (#388), skoolkit
 and ghidra interop, E23-26 (#389). E23-22 (#360) follows E23-08 (#340). The GUI items cut 1
@@ -118,8 +118,12 @@ supersede the planning examples where the two differ (master sccz80 equals the p
   `;file:line:` comments, only with `--c-code-in-asm`; `SECTION` lines; no page.
 - `prog_<GROUP>.bin` (`-create-app`): one file per section group, from its `__<group>_head`:
   the linked bytes, the source of the program identity (section 9.7).
-- No `.cdb`/`.adb` file on either tree (zsdcc runs in `--c1mode` over stdin; master folds the
-  records into the map, 29da3be373). No SLD and no DWARF in any z88dk branch: a search of the
+- No `.cdb`/`.adb` file on either tree (E23-20, section 9.6). No `.cdb`: sdcc's comes from
+  its linker (`sdld -y`), z88dk has none and z80asm writes the map instead. 2.4: zsdcc runs in
+  `--c1mode` over stdin and opens the `.adb` only with a source file name (`SDCCmain.c:1758`),
+  so none is written. Master: zsdcc writes a temporary `.adb` (7e0bebd667), zcc folds it into
+  the asm as `__CDBINFO__` (2bafa2baee, 29da3be373; only at `-O1` and above, the `+zx`/`+zxn`
+  cfgs set `-O2`) and deletes it. No SLD and no DWARF in any z88dk branch: a search of the
   history since 2025-01-01 found no such commit, and the tree at 39421a01cd names neither.
 - Naming traps: `+zxn` defaults to `-clib=sdcc_iy -O2 -SO2` (`lib/config/zxn.cfg`), so a bare
   `zcc +zxn` is sdcc; sccz80 needs `-clib=new` (or classic). `-clib=classic -debug` fails on
@@ -307,7 +311,7 @@ scripts) sees the same source map and symbols.
 | `*.lis` and `prog.map` | z88dk listings | `SourceMap` | done (E23-17 (#348)) |
 | `prog_<GROUP>.bin` | program identity | `SourceMap` | done (E23-13 (#344)) |
 | `--sym` / `--exp` files | EQU symbols | `SymbolTable` | #390 |
-| `.cdb` / `.adb` | CDB | `SourceMap` | E23-20 (#350), if the files exist |
+| `.cdb` / `.adb` | none: z88dk writes no such file; the same records are the map's `__CDBINFO__` | `SourceMap` | E23-20 (#350), 9.6 |
 | project file | annotations reader and writer | user annotations | E23-24 (#387) |
 | `__CDBINFO__` records | CDB variables | `VariableStore` | follow-up epic #353 |
 
@@ -381,7 +385,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
-| `.cdb` / `.adb` | none | 9.6 | E23-20 (#350) |
+| `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
 | Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
 | skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
 
@@ -1181,10 +1185,27 @@ byte row is a range of its length, capped at its 8K page. The line source is `C_
 
 ### 9.6 `.cdb` / `.adb` (E23-20 (#350), OD-2)
 
-Neither tree produced a standalone file in the planning builds. E23-20 establishes whether
-sdcc's own `--debug` path can produce them through zcc on either install, and with which flags.
-If it can, the adapter follows this contract (spaces by 9.4); if not, E23-20 closes with the
-evidence (commands, z88dk commits, outputs).
+z88dk writes no `.cdb` and no usable `.adb` (zcc 2.4 and master 39421a01cd, `+zxn`/`+zx`,
+`sdcc_iy`/`sdcc_ix`, `-debug`, `-c`, `-S`, `-no-cleanup`, `-Cs--debug`; no file in the build
+dir; on master only a temporary one in `$TMPDIR` that zcc deletes):
+
+- No `.cdb` exists: it is sdld's product and z88dk has no sdld.
+- The `.adb` is a temporary file on master only (7e0bebd667). zcc folds it into the asm
+  (`zsdcc_embed_adb()`, `zcc.c:2041-2072`, 2bafa2baee) and deletes it (`zcc.c:3988`); only
+  `-no-cleanup` leaves it. On 2.4 zsdcc writes none (`SDCCmain.c:1758`).
+- The folding runs only at `-O1` and above (`if (peepholeopt)`, `zcc.c:1551`; the default is 0,
+  the `+zx`/`+zxn` cfgs set `-O2`). At `-O0` the map has no `__CDBINFO__` and the `.adb` is
+  deleted unread, so there are no CDB records at all (a limit of #353's input).
+- Its records (`M:`/`F:`/`S:`/`T:`, no addresses, no lines) are the map's `__CDBINFO__` symbols
+  once zcc's rename of the temporary module name to the source name is applied (`M:`,
+  `F<module>$`, `L<module>.` carry it): equal one for one, 16 = 16 on four sdcc builds. The
+  map has the real name where the `.adb` has the temporary one. The rename covers only `/`
+  (`zcc.c:2052-2053`; sdcc mangles every non-alphanumeric, `SDCCmain.c:1719-1720`), so a
+  `TMPDIR` with non-alphanumerics other than `/` and `_` (sdcc leaves `_` as is) leaves the
+  temporary name in the map (#353 scope keys).
+  Line addresses come from the map's `__C_LINE_` (E23-13) and the `.lis` (E23-17).
+- So a `SourceMap` adapter has nothing to read. The CDB-record reader is #353's (`VariableStore`),
+  fed from the map.
 
 ### 9.7 Program identity
 
@@ -1262,7 +1283,8 @@ The disassembly asks with each line's identity (the PC line predicted, other lin
 space that supplies it now. A paged name gives its space to a consumer that can carry one (an
 Execute breakpoint or `on execute @name` stops only in that space, as a source-line breakpoint
 does); a consumer that cannot gets the 16-bit address (4.6's rule). The verbs' signatures, the
-UI, and the rule for a name already used at another key are E23-24's.
+UI, and the rule for a name already used at another key are E23-24's. After both layers, the
+toolchain layer's by-name read also answers to the C name of a z88dk C symbol (10.6).
 
 ### 10.4 Page rules per adapter
 
@@ -1304,6 +1326,42 @@ UI, and the rule for a name already used at another key are E23-24's.
   line, and only then is the user layer replaced. An unknown record kind or version is refused.
 - Opened and saved by the user (a menu action); never attached automatically beside a program;
   not part of `.jns`.
+
+### 10.6 C names (E23-31, #424)
+
+z88dk's compilers write every C identifier with a leading `_` (sccz80 `Z80ASM_PREFIX`; sdcc and 80cc
+the same), so the map lists `_counter` for `int counter;`. The user types and reads `counter`.
+
+- **Which symbols (D1).** A `; addr` symbol that was placed, whose name is `_` followed by a
+  character other than `_`, and whose module ends in `_c`. zcc heads every file it assembles with
+  `MODULE <file name, non-alphanumerics to _>` (`zcc.c`), so a `.c` file is `<file>_c` and an `.asm`
+  file `<file>_asm`; every fixture, compiler and install agrees, with or without `-debug`. Constants,
+  `__x`, module-less lines and other modules are not C. Rejected: every `_x` (it would rename
+  C-callable asm such as `_asm_bump`, the library's `_memset`, an asm program's own `_loop`), the
+  location field (it varies by compiler and flags), the CDB records alone (absent without `-debug`).
+  Known limit: C compiled from `.c.m4` or `.i` has another module name and keeps its assembler names
+  (they still resolve). The owner may prefer that asm functions callable from C also answer to `x`.
+- **Where (D8).** `SymbolTable` marks each C label (`SymbolLabel::c_symbol`) and keeps the key of the
+  first C symbol of each C name (`c_name_to_key_`, filled by the one z88dk reader, so the sidecar, Load
+  MAP and `--map` all get it). The rule is per SYMBOL, not per assembler name: a C `_dup` and an asm
+  `_dup` are two symbols, and `dup` is the C one in either file order. `find_name()` falls back to
+  `c_name_to_key_` after every exact name and constant; `lookup()`/`nearest()` show a C label's C name.
+  No panel has code of its own, except the Disassembly copy and the watch label.
+- **Same C name twice.** Two C modules with a local `_inc`: `inc` resolves to the first (file order, as
+  every name); the second shows its assembler name `_inc`, so a shown C name always resolves to the symbol
+  it labels. (`_inc` itself is the first one's, as before: equal assembler names cannot be told apart.)
+- **Ambiguity (D2).** An exact name always wins, in any load or merge order. A C symbol whose C name
+  belongs to something else (a label, an alias, a constant, an earlier C symbol) is shown by its
+  assembler name, so every shown C name resolves to the symbol it labels. Storing the C names as aliases was rejected: the map is sorted by name, `_counter` comes
+  before `counter`, and first-wins would let the alias beat the real symbol.
+- **Copy (D4).** The Disassembly copy writes the assembler name (`lookup_assembler()`, through
+  `symbol_namer(..., true)`): the user guide promises that a copy assembles, and z88dk's assembler knows
+  `_counter`, not `counter`. The painter and the context menu show the C name.
+- **Views (D3, D5).** Only the C name is shown (as `Memory.txt` does for Boriel); an auto-filled watch
+  label is the shown name.
+- **Not touched (D7).** SLD, sjasmplus `--sym`/`--exp`, simple maps and `Memory.txt`. A reader of the
+  map's `__CDBINFO__` records (#353) should reuse `SymbolLabel::c_symbol` and `c_name_to_key_`: its
+  records give the C names directly. (#350 is closed: z88dk writes no `.cdb`/`.adb`; see 9.6.)
 
 ## 11. Coverage and reverse-engineering interop
 
@@ -1460,6 +1518,10 @@ zero-width lines, the cross-check, dropped listings, the classic CRT, MACRO/REPT
 SRCTXT-01 (`source_map_test`), Z88MAP-30, SRCDBG-LIS-01 to 04 (`source_debug_test`) and QSRC-140/141
 (`debugger_source_panel_test`).
 
+Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22 when E23-17 made the two
+`classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
+2026-10-31.
+
 **Planned.** The functional rows `source-map-func` (a looked-up line, E23-15) and
 `z88dk-source-func` (E23-15).
 
@@ -1487,6 +1549,17 @@ QSRC-66..78 (the fixture map in `build/` with its sources in `src/`, Locate File
 and a wrong name, the z88dk `.m4` message, the past-the-end message, the lazy window, the located
 directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..06 (file,
 command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
+
+**E23-31 (#424), C names.** `z88dk_map_test` Z88CN-01..16 (resolve under every binding, shown names, what is
+not C, every compiler and install, banked, ambiguity both file orders, merge, reload, `shown_name()`, the
+invariant over every committed z88dk map, `lookup_assembler()`, the rule per symbol in either file order, two C modules with one name); `source_debug_test` SRCDBG-CN-01;
+`script_events_test` SCRIPT-HOST-CN-01/02; `gdb_rsp_test` GDB-MON-14; `debugger_source_panel_test`
+QCN-01..05; `debugger_verbs_test` QMAP-08; `debugger_disasm_copy_test` DCN-01/02. Ten existing rows asserted
+the shown `_name` of a C symbol and now assert the C name (owner-approved): Z88SYM-01, Z88SYM-04,
+Z88SYM-08, SYM-14, SRCDBG-Z88-01, SRCDBG-SYM-18..22. Two more existing assertions changed, for the same
+reason, and are owner-approved (2026-10-31): Z88MAP-15 (shown `_main` is now `main`) and SYM-31 (its "no sjasmplus
+entry loaded" check compares the sjasmplus ADDRESS, because `main` and `counter` now resolve as C names of
+the z88dk map).
 
 **Row IDs are global**: the duplicate-ID gate refuses a reuse. IDs written into a sub-issue's
 text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRCDBG-SIDE-12`,

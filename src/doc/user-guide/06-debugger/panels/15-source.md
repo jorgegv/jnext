@@ -53,9 +53,10 @@ inside it, the selection stays (so a dragged range can be copied).
   mapped now is disabled.
 - **Watch** and **Break on Read / Write** entries, as in the disassembly menu, for the labels at
   the line's address, and for what is under the pointer: a symbol (a label or a name of the
-  map, written as the map has it), a number (`$5800`, `0x5800`, `5800h`, `#5800` or decimal),
+  map; a z88dk C variable or function is offered under its C name, `counter`, whether the source
+  writes `counter` or `_counter`), a number (`$5800`, `0x5800`, `5800h`, `#5800` or decimal),
   or a register in parentheses (`(hl)`, `(ix+2)`). They are by CPU address, whatever is mapped
-  there. A C variable is found under its map name today (`_counter`), not as `counter`.
+  there.
 
 On a line with no code Toggle Breakpoint, Run to Here and Show in Disassembly are disabled, and
 their tooltip says *no code at main.bas:3*.
