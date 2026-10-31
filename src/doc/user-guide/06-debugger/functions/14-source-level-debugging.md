@@ -302,6 +302,14 @@ What z88dk and the library can do changes the result:
   section and the address.
 - **DivMMC sections** (`DIV_n`) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.
+- **`--list` listings beside the map**: with `--list`, z88dk writes a z80asm
+  listing for each source (`main.c.lis`, `prog.lis`) and JNEXT can read them. A
+  listing that cannot be followed is dropped, with a note, and its module
+  keeps the map's lines: that covers a section switched inside an `IF` branch
+  the listing cannot judge, a macro or `REPT` body that switches section, and
+  a listing that does not match the map or the section binaries. Classic
+  builds have no section binaries, so their placement rests on the labels of
+  the map and on that check alone.
 - Code in a section that names no page (`CODE`, `code_compiler`, the program
   itself) is tied to the RAM page the MMU maps at that address when the program
   is in memory (page 4 at $8000 for a NEX).

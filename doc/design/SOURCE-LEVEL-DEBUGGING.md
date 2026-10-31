@@ -225,6 +225,22 @@ The `-debug` map once broke jnext's symbol loader (the C-line markers named the 
 labels). #352 fixed it in v1.1.45: `load_z88dk_map` skips `__C_LINE_`, `__ASM_LINE_` and
 `__CDBINFO__`.
 
+**Listing facts (GH #348, evidence in `test/fixtures/z88dk`).**
+
+- F9. z80asm keeps the LAST `MODULE`: the classic CRT listing has zcc's `MODULE zxn_crt0_asm` and then
+  `MODULE zxn_crt0`, and the map names `zxn_crt0`.
+- F10. A false `IF` branch is listed exactly like a taken one, with its text and line number, only without
+  bytes; the listing does not say which branch was assembled.
+- F11. MACRO bodies are listed once, at their definition (`MACRO name`, `name MACRO`, `name: MACRO`, to `ENDM`).
+  A macro invocation row carries all the bytes the expansion emitted, even those that went to another section;
+  REPT bytes sit on the `ENDR` row.
+- F12. A section piece's listed addresses start at 0 and are continuous; ORG does not change them, ALIGN and DEFS
+  list their fill bytes.
+- F13. With MACRO bodies skipped and the last MODULE used, the classic CRT places exactly (47 rows, every
+  instruction's first byte equal to the binary); the start-up code is in the default section.
+- F14. Line 0 is z80asm's file-entry marker (`C_LINE 0,"<file>::<func>::0::1"` after an `#include` following a
+  function), never a source line.
+
 ### 2.4 sjasmplus EQU files
 
 `--sym=FILE` writes the whole symbol table and `--exp=FILE` only the `EXPORT` labels, one
@@ -1107,15 +1123,28 @@ flags per compiler and z88dk version, and the G4, G5 and G7 limits) from E23-13 
 
 ### 9.5 z88dk `.lis` and map (E23-17 (#348))
 
-Relocation is per (module, section piece): offset = map(label) - lis(label), re-anchored at
-each label (DeZog's `z88dkMapOffset`). Then every instruction is a range of its byte length.
-The line source is, for sccz80, `C_LINE`; for sdcc, the `;file:line:` comments, every
-occurrence, so line 18 gets both of its ranges; for an asm file, its own line numbers. The
-space comes from the `SECTION` line by 9.4's rules. There is one `.lis` per source (z88dk
-writes `main.c.lis`, `util.c.lis`), found beside the map or by a glob. With a `-debug` map
-present, its C lines are cross-checked against the listing and the listing wins, because it is
-exact and has every occurrence: the reverse of DeZog, which takes its C lines from the map.
-The listing is the only per-line asm source and the only sdcc line source on 2.4 (G6, G12).
+As built (`src/debug/z88dk_lis.*`, `z88dk_source_map.cpp`). The listings beside the map are `<map
+stem>.lis` (the start-up code) and `<file>.lis` for every file the map's module symbols name. Each is
+interpreted on its own, and a listing that does not hold up is dropped alone, with a note naming it: its
+module keeps the map's records (never the half). The listing wins over the map for a module it covers, the
+reverse of DeZog; the map's line records are cross-checked against it under z80asm's first-occurrence rules and
+a disagreement is a warning.
+
+- B1. The listing's module is its LAST `MODULE` line outside MACRO bodies.
+- B2. MACRO definition bodies (three forms, nesting counted, text before a `;` only) are skipped.
+- B3. An invoked macro whose body, transitively, switches section (SECTION, PHASE, DEPHASE) drops the listing.
+- B4. A REPT body that does the same drops the listing; otherwise the `ENDR` row is an ordinary byte row.
+- B5. False IF branches are not modelled (F10): their directives are obeyed.
+- B6. Continuity guard: a byte row outside PHASE whose listed address is not its section's pc (an unseen section
+  starts at 0) drops the whole listing, with the line, the section and both addresses.
+- B7. The default section is an ordinary section (anchored by the map's symbols in it, placed by 9.4's rule 4).
+- B8. A map line record of line 0 is "no code" (the map half and the cross-check); a C_LINE marker of line 0
+  attributes nothing.
+
+Relocation is one offset per (module, section piece), from the labels whose map symbol is defined at that very
+line; all must agree, and a label-less piece that is its section's whole content starts at `__<s>_head`. Every
+byte row is a range of its length, capped at its 8K page. The line source is `C_LINE` when the listing has it, the
+`;file:line:` comments for a C module otherwise (sdcc 2.4), z80asm's own file and line for assembly.
 
 ### 9.6 `.cdb` / `.adb` (E23-20 (#350), OD-2)
 
