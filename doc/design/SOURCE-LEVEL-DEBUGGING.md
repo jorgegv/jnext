@@ -34,7 +34,7 @@ mis-attributions (OD-7). Cut 1 is E23-00 to E23-16; the close-out is E23-19 (#34
 z88dk support follows the owner's rules of section 2.3.
 
 **After cut 1, in the epic.** Per-line asm in z88dk projects and sdcc lines on 2.4, E23-17
-(#348); `.cdb`/`.adb` input, E23-20 (#350, OD-2); dot commands, E23-21 (#351, OD-14); the
+(#348); `.cdb`/`.adb` input, E23-20 (#350, OD-2: z88dk writes no such file, section 9.6); dot commands, E23-21 (#351, OD-14); the
 page-aware symbol table, E23-23 (#375); and a thin reverse-engineering layer (owner decision
 on #378): user labels and comments, E23-24 (#387), memory coverage, E23-25 (#388), skoolkit
 and ghidra interop, E23-26 (#389). E23-22 (#360) follows E23-08 (#340). The GUI items cut 1
@@ -118,8 +118,12 @@ supersede the planning examples where the two differ (master sccz80 equals the p
   `;file:line:` comments, only with `--c-code-in-asm`; `SECTION` lines; no page.
 - `prog_<GROUP>.bin` (`-create-app`): one file per section group, from its `__<group>_head`:
   the linked bytes, the source of the program identity (section 9.7).
-- No `.cdb`/`.adb` file on either tree (zsdcc runs in `--c1mode` over stdin; master folds the
-  records into the map, 29da3be373). No SLD and no DWARF in any z88dk branch: a search of the
+- No `.cdb`/`.adb` file on either tree (E23-20, section 9.6). No `.cdb`: sdcc's comes from
+  its linker (`sdld -y`), z88dk has none and z80asm writes the map instead. 2.4: zsdcc runs in
+  `--c1mode` over stdin and opens the `.adb` only with a source file name (`SDCCmain.c:1758`),
+  so none is written. Master: zsdcc writes a temporary `.adb` (7e0bebd667), zcc folds it into
+  the asm as `__CDBINFO__` (2bafa2baee, 29da3be373; only at `-O1` and above, the `+zx`/`+zxn`
+  cfgs set `-O2`) and deletes it. No SLD and no DWARF in any z88dk branch: a search of the
   history since 2025-01-01 found no such commit, and the tree at 39421a01cd names neither.
 - Naming traps: `+zxn` defaults to `-clib=sdcc_iy -O2 -SO2` (`lib/config/zxn.cfg`), so a bare
   `zcc +zxn` is sdcc; sccz80 needs `-clib=new` (or classic). `-clib=classic -debug` fails on
@@ -291,7 +295,7 @@ scripts) sees the same source map and symbols.
 | `*.lis` and `prog.map` | z88dk listings | `SourceMap` | E23-17 (#348) |
 | `prog_<GROUP>.bin` | program identity | `SourceMap` | done (E23-13 (#344)) |
 | `--sym` / `--exp` files | EQU symbols | `SymbolTable` | #390 |
-| `.cdb` / `.adb` | CDB | `SourceMap` | E23-20 (#350), if the files exist |
+| `.cdb` / `.adb` | none: z88dk writes no such file; the same records are the map's `__CDBINFO__` | `SourceMap` | E23-20 (#350), 9.6 |
 | project file | annotations reader and writer | user annotations | E23-24 (#387) |
 | `__CDBINFO__` records | CDB variables | `VariableStore` | follow-up epic #353 |
 
@@ -365,7 +369,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
-| `.cdb` / `.adb` | none | 9.6 | E23-20 (#350) |
+| `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
 | Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
 | skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
 
@@ -1146,10 +1150,27 @@ The listing is the only per-line asm source and the only sdcc line source on 2.4
 
 ### 9.6 `.cdb` / `.adb` (E23-20 (#350), OD-2)
 
-Neither tree produced a standalone file in the planning builds. E23-20 establishes whether
-sdcc's own `--debug` path can produce them through zcc on either install, and with which flags.
-If it can, the adapter follows this contract (spaces by 9.4); if not, E23-20 closes with the
-evidence (commands, z88dk commits, outputs).
+z88dk writes no `.cdb` and no usable `.adb` (zcc 2.4 and master 39421a01cd, `+zxn`/`+zx`,
+`sdcc_iy`/`sdcc_ix`, `-debug`, `-c`, `-S`, `-no-cleanup`, `-Cs--debug`; no file in the build
+dir; on master only a temporary one in `$TMPDIR` that zcc deletes):
+
+- No `.cdb` exists: it is sdld's product and z88dk has no sdld.
+- The `.adb` is a temporary file on master only (7e0bebd667). zcc folds it into the asm
+  (`zsdcc_embed_adb()`, `zcc.c:2041-2072`, 2bafa2baee) and deletes it (`zcc.c:3988`); only
+  `-no-cleanup` leaves it. On 2.4 zsdcc writes none (`SDCCmain.c:1758`).
+- The folding runs only at `-O1` and above (`if (peepholeopt)`, `zcc.c:1551`; the default is 0,
+  the `+zx`/`+zxn` cfgs set `-O2`). At `-O0` the map has no `__CDBINFO__` and the `.adb` is
+  deleted unread, so there are no CDB records at all (a limit of #353's input).
+- Its records (`M:`/`F:`/`S:`/`T:`, no addresses, no lines) are the map's `__CDBINFO__` symbols
+  once zcc's rename of the temporary module name to the source name is applied (`M:`,
+  `F<module>$`, `L<module>.` carry it): equal one for one, 16 = 16 on four sdcc builds. The
+  map has the real name where the `.adb` has the temporary one. The rename covers only `/`
+  (`zcc.c:2052-2053`; sdcc mangles every non-alphanumeric, `SDCCmain.c:1719-1720`), so a
+  `TMPDIR` with non-alphanumerics other than `/` and `_` (sdcc leaves `_` as is) leaves the
+  temporary name in the map (#353 scope keys).
+  Line addresses come from the map's `__C_LINE_` (E23-13) and the `.lis` (E23-17).
+- So a `SourceMap` adapter has nothing to read. The CDB-record reader is #353's (`VariableStore`),
+  fed from the map.
 
 ### 9.7 Program identity
 
