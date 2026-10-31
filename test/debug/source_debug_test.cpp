@@ -3137,9 +3137,16 @@ int main() {
         // there and ends the INT frame, whatever the SP rule would say.
         Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
         interrupt_machine(m);
-        poke_page(m, 0x56, 0x12, 0xC000, {0x76, 0x00});   // HALT; NOP
+        // The callee shape, so the SP rule would give the wrong answer: POP DE; POP BC; PUSH DE
+        // moves the return slot up 2, then HALT; NOP.
+        poke_page(m, 0x56, 0x12, 0xC000, {0xD1, 0xC1, 0xD5, 0x76, 0x00});
+        {
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.SP = 0xFEFE;                       // one argument word above the CALL's slot
+            m.emu.cpu().set_registers(r);
+        }
         m.dbg->step_into(m.a);                   // CALL $C000
-        m.dbg->step_into(m.a);                   // HALT
+        for (int i = 0; i < 4; ++i) m.dbg->step_into(m.a);   // POP DE, POP BC, PUSH DE, HALT
         m.emu.cpu().request_interrupt(0xFF);
         m.dbg->step_into(m.a);                   // the INT
         const auto& f = m.dbg->call_stack();
@@ -3149,7 +3156,7 @@ int main() {
         m.dbg->step_into(m.a);                   // RET
         check("SRCDBG-CS-15", "an INT that ended a HALT has the HALT as its caller, and the ISR's RET "
                               "to the HALT's successor ends it, leaving the interrupted CALL's frame",
-              taken && caller == 0xC000 && m.pc() == 0xC001 && f.size() == 1 &&
+              taken && caller == 0xC003 && m.pc() == 0xC004 && f.size() == 1 &&
                   f[0].type == CallType::CALL,
               "caller " + hex(caller) + " pc " + hex(m.pc()) + " frames " + std::to_string(f.size()));
     }
