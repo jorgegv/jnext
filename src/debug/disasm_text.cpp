@@ -35,11 +35,13 @@ uint16_t extract_immediate16(const char* mnemonic)
     return 0;
 }
 
-SymbolNamer symbol_namer(const SymbolTable* table, const SymbolSpaceOf& space_of)
+SymbolNamer symbol_namer(const SymbolTable* table, const SymbolSpaceOf& space_of,
+                         bool assembler_names)
 {
     if (!table) return {};
-    return [table, space_of](uint16_t addr) {
-        return table->lookup(space_of ? space_of(addr) : jnext::dbg::MemSpace::cpu(), addr);
+    return [table, space_of, assembler_names](uint16_t addr) {
+        const auto space = space_of ? space_of(addr) : jnext::dbg::MemSpace::cpu();
+        return assembler_names ? table->lookup_assembler(space, addr) : table->lookup(space, addr);
     };
 }
 

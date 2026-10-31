@@ -66,7 +66,8 @@ bounds such as `__data_crt_head`) are kept in a separate name-only table, so
 `@__data_crt_head` resolves while the disassembler and `lookup(addr)` never
 name an address after a constant (`SymbolTable::lookup_name()`). A name defined
 twice resolves to its first definition, a constant as an address; a name that
-is both is the address (row SYM-13).
+is both is the address (row SYM-13). A z88dk C symbol (module `<file>_c`) also resolves by its C name,
+`@counter` for `_counter`, after the exact names and constants (rows SCRIPT-HOST-CN-01/02).
 The `-debug` records of a map (names starting `__C_LINE_`, `__ASM_LINE_` or
 `__CDBINFO__`) are not symbols: the loader drops them (rows SYM-14 to SYM-18).
 
