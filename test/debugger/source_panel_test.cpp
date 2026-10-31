@@ -2060,8 +2060,9 @@ void test_call_stack_pages() {
 
 void test_long_address_views() {
     {   // QLADDR-08: the recorded identities, not the live page
-        Fixture fx;
+        Fixture fx(0, MachineType::ZXN_ISSUE2);
         fx.enable();
+        fx.emu.mmu().set_boot_rom_enabled(false);
         fx.emu.mmu().write(0x8003, 0x00);
         fx.emu.mmu().write(0x8004, 0xC0);
         fx.emu.mmu().write(0xC000, 0x00);
@@ -2078,12 +2079,15 @@ void test_long_address_views() {
         fx.emu.mmu().set_page(6, 21);                      // then the slot is paged on
         if (cs) cs->refresh();
         const QString caller = cell(cs, 0, 5), target = cell(cs, 0, 6);
+        if (cs) { cs->set_address_style(jnext::dbg::AddressStyle::Physical); cs->refresh(); }
+        const QString caller_phys = cell(cs, 0, 5), target_phys = cell(cs, 0, 6);
         check("QLADDR-08",
               "Call Stack: Caller memory and Target memory are the identities recorded (P04 and P14, the "
               "target at its first fetch), not the live page 21 now in slot 6; before that fetch the "
-              "target shows the prediction",
-              fx.p80 == 4 && fx.pc() == 0xC001 && predicted == "P14" && caller == "P04" && target == "P14",
-              s(predicted) + "|" + s(caller) + "|" + s(target));
+              "target shows the prediction; physical $048002 and $068000",
+              fx.p80 == 4 && fx.pc() == 0xC001 && predicted == "P14" && caller == "P04" && target == "P14" &&
+                  caller_phys == "$048002" && target_phys == "$068000",
+              s(predicted) + "|" + s(caller) + "|" + s(target) + "|" + s(caller_phys) + "|" + s(target_phys));
     }
     {   // QLADDR-10: the Source tab names the memory of the PC, in either style
         Fixture fx(0, MachineType::ZXN_ISSUE2);
