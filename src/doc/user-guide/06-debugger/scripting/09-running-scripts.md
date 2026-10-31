@@ -13,9 +13,13 @@ Scripts load **before the machine runs**, in every frontend: `--headless`, the
 SDL build and the Qt GUI. A script that cannot be read, or that has any error,
 is reported as *file*:*line*:*column*: *message* and JNEXT exits 1 without
 running anything — nothing of any script runs partially, the good ones loaded
-before it included. A script that names a source line (`on execute main.c:19`) cannot be
-checked before the program is loaded, so with `--load` it waits, with every script
-after it, until the program and its source map are in; an error then exits 1 too. A `--map` that cannot be loaded or holds no symbols is the
+before it included. With `--load`, a script that names a source line (`on execute main.c:19`) or any
+`@symbol` cannot be checked before the program is loaded (its source map, its
+sidecar `.map`/`.sld` symbols and the memory a `--map` symbol sits in come with it),
+so it waits, with every script after it, until the program is in; a script that names
+neither starts at once. Every script is still read and parsed first, so a typo is
+reported before the machine runs; a name or line that does not resolve exits 1
+once the program has loaded. A `--map` that cannot be loaded or holds no symbols is the
 same kind of error.
 
 `--script-key` needs `--headless`, and a `--script` (or a `--record-script`)

@@ -18,7 +18,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../gdb-functions.inc"
 #   2. the GDB server of a headless run answers `monitor src`: $8CB8 is main.c:19 in
 #      P04, `monitor src main` is $8C92 main.c:15, `monitor src` alone is the PC (in the
 #      idle loop, lines 25-27);
-#   3. a script naming a line the map does not have (main.c:99) exits 1 and says so.
+#   3. a script naming a line the map does not have (main.c:99) exits 1 and says so, in
+#      headless, Qt and SDL;
+#   1b. a script naming a symbol of the sidecar map (`on execute @_main`, no --map) waits
+#      for the program too and fires at $8C92.
 if want z88dk-source-func; then
     begin_func z88dk-source-func
     fx="$PROJECT_DIR/test/fixtures/z88dk/v2.4/sccz80-debug"
@@ -32,6 +35,8 @@ on execute main.c:19 do set hits = hits + 1 end
 on execute main.c:23 once do log "Z88SRC main.c:19 ran ${hits:d} times" end
 JDS
     printf '%s\n' 'on execute main.c:99 do stop end' > "$d/bad.jds"
+    # A symbol of the program's own sidecar map (no --map): it exists only once the program is loaded.
+    printf '%s\n' 'on execute @_main once do log "Z88SRC sym main at ${PC:x4}" end' > "$d/sym.jds"
     fails=()
 
     # 1. the script in the three frontends
@@ -69,6 +74,16 @@ JDS
             fails+=("frontend $n: no 'names a source line' line")
     done
     [[ $g_rc == 0:0:0 ]] || fails+=("exit codes $g_rc, not 0:0:0")
+
+    # 1b. a script naming a symbol of the sidecar map waits for the program too
+    run_all_script y "$d/sym.jds"
+    n=0
+    for v in "$y_hl" "$y_qt" "$y_sdl"; do
+        n=$((n + 1))
+        [[ $(grep -c 'Z88SRC sym main at 8C92' <<<"$v") -eq 1 ]] ||
+            fails+=("frontend $n: not exactly one 'sym main at 8C92'")
+    done
+    [[ $y_rc == 0:0:0 ]] || fails+=("symbol script exit codes $y_rc, not 0:0:0")
 
     # 2. the GDB server
     log="$TMP_DIR/z88src-gdb.log"
@@ -120,14 +135,15 @@ PY
     fi
     gdb_stop
 
-    # 3. a line the map does not have
-    rcb=0
-    ob=$(LANG=C timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
-        "${SD_CARD_ARGS[@]}" --silent --load "$d/prog.nex" --script "$d/bad.jds" \
-        --delayed-automatic-exit-frames 60 2>&1) || rcb=$?
-    [[ $rcb -eq 1 ]] || fails+=("main.c:99 script exited $rcb, not 1")
-    grep -Eq "SCRIPT ERROR [^ ]*bad\.jds:1:12: .*main\.c:99" <<<"$ob" ||
-        fails+=("no 'SCRIPT ERROR ... main.c:99' line")
+    # 3. a line the map does not have: exit 1 in every frontend, the error logged
+    run_all_script b "$d/bad.jds"
+    n=0
+    for v in "$b_hl" "$b_qt" "$b_sdl"; do
+        n=$((n + 1))
+        grep -Eq "SCRIPT ERROR [^ ]*bad\.jds:1:12: .*main\.c:99" <<<"$v" ||
+            fails+=("frontend $n: no 'SCRIPT ERROR ... main.c:99' line")
+    done
+    [[ $b_rc == 1:1:1 ]] || fails+=("main.c:99 script exit codes $b_rc, not 1:1:1")
 
     if [[ ${#fails[@]} -eq 0 ]]; then
         pass_row " (on execute main.c:19 waits for the --load program in headless, Qt and SDL and sees 8 runs; monitor src answers the line and memory; an unknown line exits 1)"

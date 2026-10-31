@@ -60,8 +60,10 @@ struct ScriptHostOptions {
     /// when the host goes (or at a Stop Recording). Empty = not recording.
     std::string record_file;
     /// A CLI `--load` program is still to be applied (GH #346): a `--script`
-    /// that names a source line waits for `program_loaded()`, because the
-    /// program's source map does not exist yet.
+    /// that names a source line or any `@symbol` waits for `program_loaded()`
+    /// (with every script after it), because the program's source map and
+    /// sidecar symbols, and the page its rule-4 symbols take, do not exist yet.
+    /// Read and parse errors are still reported by `start()`.
     bool program_pending = false;
 };
 
@@ -91,7 +93,7 @@ public:
     bool start(dbg::Debugger& dbg, const ScriptHostOptions& opt);
 
     /// The `--load` program and its maps are in (or its load failed): load the
-    /// scripts `start()` held back (the first one naming a source line, and
+    /// scripts `start()` held back (the first one naming a source line or a symbol, and
     /// every later one, in order). False - logged, nothing of any script left
     /// loaded, an exit(1) requested when `exits` - if one fails. A no-op
     /// (true) when nothing waits.

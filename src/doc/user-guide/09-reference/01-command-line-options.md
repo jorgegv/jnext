@@ -1076,13 +1076,15 @@ with status 1.
     scripts load, and their rules run, in the order given. A script that
     cannot be read, or that has any error, is reported as
     *file*:*line*:*column*: *message* and jnext exits 1 before the
-    machine runs - nothing of it runs partially. A script that names a
-    source line (`on execute main.c:19`) waits, with the scripts after
-    it, until the **--load** program and its source map are in; an error
-    then also exits 1. In **--headless** and the SDL-only build a script
-    decides the exit status: `exit` *N* exits *N*, a `stop` or a failed
-    `assert` exits 3, a run-time error exits 1. In the Qt GUI a script
-    never ends the program: `stop` and `exit` pause the machine instead.
+    machine runs - nothing of it runs partially. With **--load**, a
+    script that names a source line (`on execute main.c:19`) or any
+    `@symbol` waits, with the scripts after it, until the program, its
+    source map and its sidecar symbols are in (it is still read and
+    parsed at once); an error then also exits 1. In **--headless** and
+    the SDL-only build a script decides the exit status: `exit` *N*
+    exits *N*, a `stop` or a failed `assert` exits 3, a run-time error
+    exits 1. In the Qt GUI a script never ends the program: `stop` and
+    `exit` pause the machine instead.
 
 **--script-key** *FRAME* *N*
 :   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*

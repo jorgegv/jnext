@@ -250,10 +250,14 @@ tab's verdict line.
 and schedules `--script-key`. Any failure is logged and fails the start, so the
 loop owner exits 1 before the machine runs.
 
-A script that names a source line cannot be resolved before the `--load` program
-and its maps are in, and the frontends load the program after `start()`. So
-with `ScriptHostOptions::program_pending` (a CLI `--load`, not an `.rzx`) such a
-script, and every script after it, is held back; each frontend calls
+A script that names a source line or any `@symbol` cannot be resolved before the
+`--load` program and its maps are in (the sidecar symbols, the source map and the
+page a `--map` rule-4 symbol binds to all come with the load), and the frontends
+load the program after `start()`. So with `ScriptHostOptions::program_pending` (a
+CLI `--load`, not an `.rzx`; `load_pending_for_scripts()`) `start()` reads and
+parses every script at once (read and parse errors fail the start), and such a
+script, and every script after it, has its check, resolution and registration
+held back; each frontend calls
 `program_loaded()` right after its `--load` block (also when the load failed), which
 loads them through the normal path. A failure there unloads every script, logs it
 and, in headless and SDL, requests exit 1.

@@ -569,7 +569,7 @@ static void lex_rows() {
               dstr(a.error) + dstr(b.error) + dstr(c.error));
     }
     check("LEX-28", "no FileLine where the old lexing stands: `lbl: on`, `main.c :19`, `main.c: 19`, `x:y`, "
-                    "`\"${PC:x4}\"`, `@main.loop`, `1..2`, and `a:1b` (still the malformed-number error)",
+                    "`\"${PC:x4}\"`, `@main.loop`, `1..2`, a comment straight after a word (`end//main.c:19`), and `a:1b` (still the malformed-number error)",
           kinds("lbl: on") == std::vector<Tok>{Tok::Ident, Tok::Colon, Tok::Ident, Tok::Eof} &&
               kinds("main.c :19") == std::vector<Tok>{Tok::Ident, Tok::Dot, Tok::Ident, Tok::Colon, Tok::Int, Tok::Eof} &&
               kinds("main.c: 19") == std::vector<Tok>{Tok::Ident, Tok::Dot, Tok::Ident, Tok::Colon, Tok::Int, Tok::Eof} &&
@@ -577,6 +577,7 @@ static void lex_rows() {
               kinds("\"${PC:x4}\"") == std::vector<Tok>{Tok::String, Tok::Eof} &&
               kinds("@main.loop") == std::vector<Tok>{Tok::Symbol, Tok::Eof} &&
               kinds("1..2") == std::vector<Tok>{Tok::Int, Tok::DotDot, Tok::Int, Tok::Eof} &&
+              kinds("end//main.c:19") == std::vector<Tok>{Tok::Ident, Tok::Eof} &&
               lex("a:1b").error.has_value());
 }
 

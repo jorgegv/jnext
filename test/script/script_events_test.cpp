@@ -3076,6 +3076,21 @@ static void src_rows() {
               dstr(g.last.errors) + " " + show(s));
     }
     {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool rd = g.load("on read @banked do stop end\n");
+        const auto sr = g.subs();
+        Rig h(kPark, MachineType::ZXN_ISSUE2);
+        h.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool wr = h.load("on write @banked do stop end\n");
+        const auto sw = h.subs();
+        check("DSL-SYMSP-05", "`on read @banked` and `on write @banked` load with no memory qualifier (the backend "
+                              "refuses one on a Mem subscription)",
+              rd && wr && sr.size() == 1 && sw.size() == 1 && sr[0].filter.space == MemSpace::cpu() &&
+                  sw[0].filter.space == MemSpace::cpu(),
+              dstr(g.last.errors) + dstr(h.last.errors));
+    }
+    {
         HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
         ScriptHostOptions o;
         o.program_pending = true;
@@ -3122,6 +3137,111 @@ static void src_rows() {
               ok && before == 1 && loaded && r.size() == 3 && r[0].file == o.scripts[0] &&
                   r[1].file == o.scripts[1] && r[2].file == o.scripts[2] && g.host->files().size() == 3,
               g.sink.tail(4));
+    }
+    {
+        // R1: no --load pending: a source line resolves at once.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("nopend.jds", "on execute main.c:19 do stop end\n")};
+        const bool refused = !g.start(o);
+        const bool said = g.sink.count("`main.c:19`: no source map is loaded") == 1;
+        HostRig h(kPark, true, MachineType::ZXN_ISSUE2);
+        attach_program(h.emu, *h.dbg, kZNex);
+        const bool ok = h.start(o);
+        check("SCRIPT-HOST-SRC-04", "with no --load pending a source-line script is not held: with no map start() "
+                                    "fails at once ('no source map is loaded'), with the map attached it registers",
+              refused && said && ok && h.engine_subs() == 1, g.sink.tail(3));
+    }
+    {
+        // R2: a second program_loaded() (File > Open, a cold boot) is a no-op.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("twice.jds", "on execute main.c:19 do stop end\n")};
+        g.start(o);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool first = g.host->program_loaded();
+        const size_t subs = g.engine_subs();
+        const size_t files = g.host->files().size();
+        const bool second = g.host->program_loaded();
+        check("SCRIPT-HOST-SRC-05", "program_loaded() twice: the second call returns true and registers nothing more",
+              first && second && subs == 1 && g.engine_subs() == 1 && files == 1 && g.host->files().size() == 1 &&
+                  g.host->engine()->rules().size() == 1,
+              g.sink.tail(3));
+    }
+    check("SCRIPT-HOST-SRC-06", "load_pending_for_scripts(): empty, .rzx and .RZX are not a pending program; .nex, .tap, .NEX "
+                                "and a name with no extension are",
+          !load_pending_for_scripts("") && load_pending_for_scripts("a.nex") && load_pending_for_scripts("a.tap") &&
+              load_pending_for_scripts("A.NEX") && load_pending_for_scripts("noext") &&
+              !load_pending_for_scripts("r.rzx") && !load_pending_for_scripts("R.RZX"));
+    {
+        // R7: read and parse errors are reported by start(), whatever is held.
+        const std::string good = "on execute main.c:19 do stop end\n";
+        ScriptHostOptions o;
+        o.program_pending = true;
+        HostRig a(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("broken1.jds", "on frame 0 do\n  log \"x\" +\nend\n")};
+        const bool broken_alone = !a.start(o) && a.sink.count("SCRIPT ERROR " + o.scripts[0]) == 1;
+        HostRig b(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {sev_tmp("no-such-script.jds")};
+        const bool unreadable = !b.start(o) && b.sink.count("cannot be read") >= 1;
+        HostRig c(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("line9.jds", good), tmp_file("broken9.jds", "on frame 0 do\n  log \"x\" +\nend\n")};
+        const bool after_line = !c.start(o) && c.sink.count("SCRIPT ERROR " + o.scripts[1]) == 1 && !c.host->active();
+        HostRig d(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("line10.jds", good), sev_tmp("no-such-script-2.jds")};
+        const bool unreadable_after = !d.start(o) && d.sink.count("cannot be read") >= 1;
+        check("SCRIPT-HOST-SRC-07", "with a --load pending, a broken script, an unreadable one, and a broken or unreadable "
+                                    "one after a held source-line script each make start() fail at once",
+              broken_alone && unreadable && after_line && unreadable_after,
+              a.sink.tail(2) + b.sink.tail(2) + c.sink.tail(2) + d.sink.tail(2));
+    }
+    {
+        // N2: a symbol of the program's own sidecar map exists only after the load.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("sidecar-sym.jds", "on execute @_main do stop end\n")};
+        const bool ok = g.start(o);
+        const bool waits = g.engine_subs() == 0 && g.sink.count("names a symbol; it loads when the --load program has loaded") == 1;
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool loaded = g.host->program_loaded();
+        const auto s = g.host->engine() ? g.dbg->subscriptions(true) : std::vector<SubscriptionInfo>{};
+        size_t mine = 0;
+        bool shape = false;
+        for (const auto& x : s)
+            if (x.owner == g.host->engine()->client()) {
+                ++mine;
+                shape = x.filter.lo == 0x8C92 && x.filter.space == jnext::dbg::MemSpace::page(4);
+            }
+        // The same for a symbol that appears only in a string interpolation.
+        HostRig h(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("interp-sym.jds", "on frame 0 do log \"${@_main}\" end\n")};
+        const bool held_interp = h.start(o) && h.host->files().empty() && h.sink.count("names a symbol") == 1;
+        check("SCRIPT-HOST-SRC-08", "a script naming only a symbol of the sidecar map (also inside a ${...}) waits for the "
+                                    "program and then arms @_main = $8C92 in Page{4}",
+              ok && waits && loaded && mine == 1 && shape && held_interp, g.sink.tail(3));
+    }
+    {
+        // N1: a --map rule-4 symbol takes the memory the program's load maps, not the one mapped at init.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.map_file = tmp_file("rule4.map", "_func = $C000 ; addr, public, , m_c, code_compiler, m.c:1\n");
+        o.scripts = {tmp_file("rule4.jds", "on execute @_func do stop end\n")};
+        const bool ok = g.start(o);
+        g.dbg->set_mmu_slot(g.dbg->attach({"t", jnext::dbg::ClientKind::Test}).value, 6, 20);   // the program's load
+        g.dbg->load_program_sidecars(kZNex);                                                  // rebinds rule-4 symbols
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        const bool loaded = g.host->program_loaded();
+        g.run(4);
+        check("SCRIPT-HOST-SRC-09", "a --map rule-4 symbol in a script takes the memory mapped after the program's load "
+                                    "(Page{20}), not the init-time one: the rule fires at $C000",
+              ok && loaded && g.dbg->state().paused && g.emu.cpu().get_registers().PC == 0xC000, g.sink.tail(3));
     }
 }
 

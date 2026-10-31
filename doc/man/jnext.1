@@ -1239,9 +1239,11 @@ Repeatable: the scripts load, and their rules run, in the order given.
 A script that cannot be read, or that has any error, is reported as
 \f[I]file\f[R]:\f[I]line\f[R]:\f[I]column\f[R]: \f[I]message\f[R] and
 jnext exits 1 before the machine runs \- nothing of it runs partially.
-A script that names a source line (\f[CR]on execute main.c:19\f[R])
-waits, with the scripts after it, until the \f[B]\-\-load\f[R] program
-and its source map are in; an error then also exits 1.
+With \f[B]\-\-load\f[R], a script that names a source line
+(\f[CR]on execute main.c:19\f[R]) or any \f[CR]\(atsymbol\f[R] waits,
+with the scripts after it, until the program, its source map and its
+sidecar symbols are in (it is still read and parsed at once); an error
+then also exits 1.
 In \f[B]\-\-headless\f[R] and the SDL\-only build a script decides the
 exit status: \f[CR]exit\f[R] \f[I]N\f[R] exits \f[I]N\f[R], a
 \f[CR]stop\f[R] or a failed \f[CR]assert\f[R] exits 3, a run\-time error

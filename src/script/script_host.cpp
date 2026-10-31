@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "script/lexer.h"
 #include "script/parser.h"
 
 namespace jnext {
@@ -121,18 +122,21 @@ bool ScriptHost::ensure_engine() {
     return true;
 }
 
-// Whether the script in `file` has a rule on a source line. An unreadable or
-// unparsable file says no: load_one() reports it, at once, as it always did.
-static bool names_source_line(const std::string& file) {
-    std::ifstream in(file, std::ios::binary);
-    if (!in) return false;
-    std::ostringstream text;
-    text << in.rdbuf();
-    const ParseResult pr = parse_script(text.str());
-    if (!pr.ok()) return false;
+// What a script needs of the program (GH #346): a rule on a source line, or any
+// `@symbol` (a sidecar's symbols and a `--map` rule-4 binding exist only once the
+// program is loaded). Found from the tokens and the parse, not the text.
+// 0 = no, 1 = a source line, 2 = a symbol.
+static int needs_program(const std::string& text, const ParseResult& pr) {
     for (const Rule& r : pr.script.rules)
-        if (!r.event.file_line.empty()) return true;
-    return false;
+        if (!r.event.file_line.empty()) return 1;
+    const LexResult lr = lex(text);
+    for (const Token& t : lr.tokens) {
+        if (t.kind == Tok::FileLine) return 1;
+        if (t.kind == Tok::Symbol) return 2;
+        for (const StrPiece& p : t.pieces)
+            if (p.is_expr && p.text.find('@') != std::string::npos) return 2;
+    }
+    return 0;
 }
 
 LoadResult ScriptHost::load_one(const std::string& file, const char* origin) {
@@ -194,13 +198,42 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
 
     bool ok = true;
     waiting_.clear();
-    for (const std::string& file : opt.scripts) {
-        if (waiting_.empty() && opt.program_pending && names_source_line(file)) {
-            dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
-                    "SCRIPT " + file + ": names a source line; it loads when the --load program has loaded");
-            waiting_.push_back(file);
+    // With a `--load` pending every script is read and parsed here, so a read or
+    // parse error is reported at once (exit 1 before the machine runs). Only the
+    // loading (check, resolution, registration) of a script that needs the
+    // program, and of every script after it, waits for program_loaded().
+    std::vector<bool> held(opt.scripts.size(), false);
+    if (opt.program_pending) {
+        bool hold = false;
+        for (std::size_t i = 0; i < opt.scripts.size(); ++i) {
+            const std::string& file = opt.scripts[i];
+            std::ifstream in(file, std::ios::binary);
+            if (!in) {
+                error("--script " + file + ": cannot be read");
+                ok = false;
+                continue;
+            }
+            std::ostringstream text;
+            text << in.rdbuf();
+            const ParseResult pr = parse_script(text.str());
+            if (!pr.ok()) {
+                error("SCRIPT ERROR " + file + ":" + pr.error->to_string());
+                error("--script " + file + ": not loaded (1 error)");
+                ok = false;
+                continue;
+            }
+            if (const int need = hold ? 0 : needs_program(text.str(), pr)) {
+                dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
+                        "SCRIPT " + file + (need == 1 ? ": names a source line" : ": names a symbol") +
+                            "; it loads when the --load program has loaded");
+                hold = true;
+            }
+            held[i] = hold;
         }
-        else if (!waiting_.empty()) waiting_.push_back(file);
+    }
+    for (std::size_t i = 0; ok && i < opt.scripts.size(); ++i) {
+        const std::string& file = opt.scripts[i];
+        if (held[i]) waiting_.push_back(file);
         else if (load_one(file, "--script").ok()) files_.push_back(file);
         else ok = false;
     }
