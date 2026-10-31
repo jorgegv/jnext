@@ -3821,6 +3821,9 @@ copper move wait halt at dma start byte page mask value log indent assert exit
 dump_regs dump_mmu dump_mem snap unsnap dump_diff enable disable screenshot
 save_snapshot compare_scr press for release joystick set out if then else and
 or not true false mem mem16 phys mmu stack changed depth</code>.</p>
+<p>A source line is written <code>main.c:19</code> (a file, a colon and a line number, with no
+space), only after <code>on execute</code>; a file name with spaces or a drive letter is
+written in quotes, <code>"dir with space/main.c:19"</code>.</p>
 <p>A MAP symbol is written <code>@name</code> and can be any name at all, keywords included
 (<code>@start</code> is fine). An sjasmplus label keeps its dots: <code>@main.loop</code>,
 <code>@gfx.draw.loop</code>. A <code>.</code> joins the parts of a name only when a letter or <code>_</code>

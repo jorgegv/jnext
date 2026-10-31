@@ -149,6 +149,9 @@ event       ::= "execute"  addr_spec
 addr_spec   ::= expr [ ".." expr ] [ "page" expr ]   # inclusive 16-bit logical range, optionally
               | "page" expr [ ".." expr ]          #   qualified by / replaced with a PHYSICAL 8K page
                                                    #   (set) — the backend's first-class page filter
+              | FILE_LINE | STRING                #   `execute` only (GH #346 as built): `main.c:19` or the quoted
+                                                   #   form; every start of the line, each in its own memory; no
+                                                   #   range, no `page`
 port_spec   ::= expr [ ".." expr ]                 # GH #222 semantics: 0x00xx = low-byte decode,
               | "mask" expr "value" expr           #   else exact; or explicit mask/value. A range
                                                    #   decodes like a single port, so it lies wholly

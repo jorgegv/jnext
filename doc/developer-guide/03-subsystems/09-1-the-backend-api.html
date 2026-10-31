@@ -2937,6 +2937,9 @@ own, in the map format; and in one read, because <code>--map &lt;(cmd)</code> is
 a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
 the functional row <code>script-map-pipe-func</code>).</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
+<p>Remote and script consumers of the map (GH #346): the GDB server's <code>monitor src</code>
+reads <code>source_location()</code>; the DSL's <code>on execute file:line</code> reads
+<code>source_map().resolve()</code> and subscribes one <code>Execute</code> per start.</p>
 <p>The backend also owns one <code>SourceMap</code> (<code>src/debug/source_map.*</code>): records of
 ranges <code>{space, lo, hi_excl, location}</code> (file, line, column) keyed by the
 <code>FetchSource</code> that supplies the code, filled by a format adapter —

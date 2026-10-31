@@ -353,6 +353,7 @@ bool QtApp::init(int argc, char* argv[]) {
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.program_pending = jnext::script::load_pending_for_scripts(config_.load_file);   // GH #346
         so.exits    = false;  // the GUI pauses; it never exits from a script (§6.3)
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
@@ -705,6 +706,9 @@ bool QtApp::TickEffects::pre_frames() {
             }
         }
         a.config_.source_map_file.clear();
+        // GH #346 - the scripts held back for the program's maps (the GUI keeps
+        // running on a failure, as for a failed --source-map).
+        if (!a.script_host_.program_loaded()) a.exit_code_ = 1;
         // A File > Open load that failed gets its dialog (deferred to the
         // event loop by the window; this is inside the frame tick).
         if (a.main_window_) a.main_window_->load_finished(a.load_file_, loaded);

@@ -5,6 +5,9 @@
 #include <fstream>
 #include <sstream>
 
+#include "script/lexer.h"
+#include "script/parser.h"
+
 namespace jnext {
 namespace script {
 
@@ -119,6 +122,33 @@ bool ScriptHost::ensure_engine() {
     return true;
 }
 
+// What a script needs of the loaded program (GH #346): 1 = a rule on a source
+// line; 2 = an `@symbol` that is unknown now (the sidecar map brings it) or whose
+// memory is bound at the program load (a z88dk `--map` rule-4 symbol); 0 = nothing,
+// the script loads at once. Found from the parse and the tokens, strings'
+// `${...}` pieces included.
+static int needs_program(const dbg::Debugger& dbg, const std::string& text, const ParseResult& pr) {
+    for (const Rule& r : pr.script.rules)
+        if (!r.event.file_line.empty()) return 1;
+    int need = 0;
+    auto symbol = [&](const std::string& name) {
+        const auto key = dbg.symbols().find_name(name);
+        if (!key || key->bind_at_load) need = 2;
+    };
+    const LexResult lr = lex(text);
+    for (const Token& t : lr.tokens) {
+        if (t.kind == Tok::FileLine) return 1;
+        if (t.kind == Tok::Symbol) symbol(t.text);
+        for (const StrPiece& p : t.pieces) {
+            if (!p.is_expr) continue;
+            const LexResult in = lex(p.text, p.pos, /*embedded=*/true);
+            for (const Token& u : in.tokens)
+                if (u.kind == Tok::Symbol) symbol(u.text);
+        }
+    }
+    return need;
+}
+
 LoadResult ScriptHost::load_one(const std::string& file, const char* origin) {
     LoadResult r;
     r.file = file;
@@ -177,16 +207,72 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
     if (!ensure_engine()) return false;
 
     bool ok = true;
-    for (const std::string& file : opt.scripts)
-        if (load_one(file, "--script").ok()) files_.push_back(file);
+    waiting_.clear();
+    // With a `--load` pending every script is read and parsed here, so a read or
+    // parse error is reported at once (exit 1 before the machine runs). Only the
+    // loading (check, resolution, registration) of a script that needs the
+    // program, and of every script after it, waits for program_loaded().
+    std::vector<bool> held(opt.scripts.size(), false);
+    if (opt.program_pending) {
+        bool hold = false;
+        for (std::size_t i = 0; i < opt.scripts.size(); ++i) {
+            const std::string& file = opt.scripts[i];
+            std::ifstream in(file, std::ios::binary);
+            if (!in) {
+                error("--script " + file + ": cannot be read");
+                ok = false;
+                continue;
+            }
+            std::ostringstream text;
+            text << in.rdbuf();
+            const ParseResult pr = parse_script(text.str());
+            if (!pr.ok()) {
+                error("SCRIPT ERROR " + file + ":" + pr.error->to_string());
+                error("--script " + file + ": not loaded (1 error)");
+                ok = false;
+                continue;
+            }
+            if (const int need = hold ? 0 : needs_program(dbg, text.str(), pr)) {
+                dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
+                        "SCRIPT " + file + (need == 1 ? ": names a source line" : ": names a symbol") +
+                            "; it loads when the --load program has loaded");
+                hold = true;
+            }
+            held[i] = hold;
+        }
+    }
+    for (std::size_t i = 0; ok && i < opt.scripts.size(); ++i) {
+        const std::string& file = opt.scripts[i];
+        if (held[i]) waiting_.push_back(file);
+        else if (load_one(file, "--script").ok()) files_.push_back(file);
         else ok = false;
+    }
     if (!ok) {
+        waiting_.clear();
         engine_.reset();  // nothing of any script stays registered
         files_.clear();
         error("--script: not starting; no script is loaded (exit 1)");
         return false;
     }
     for (const auto& k : opt.keys) engine_->queue_host_key(k.first, k.second);
+    return true;
+}
+
+bool ScriptHost::program_loaded() {
+    if (waiting_.empty()) return true;
+    const std::vector<std::string> held = std::move(waiting_);
+    waiting_.clear();
+    for (const std::string& file : held) {
+        if (load_one(file, "--script").ok()) {
+            files_.push_back(file);
+            continue;
+        }
+        engine_.reset();  // nothing of any script stays registered
+        files_.clear();
+        error("--script: no script is loaded (exit 1)");
+        if (exits_) request(1);
+        return false;
+    }
     return true;
 }
 

@@ -78,6 +78,7 @@ bool HeadlessApp::init(int argc, char* argv[]) {
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.program_pending = jnext::script::load_pending_for_scripts(config_.load_file);   // GH #346
         so.exits    = true;
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
@@ -659,6 +660,8 @@ void HeadlessApp::run() {
                 }
             }
             config_.source_map_file.clear();
+            // GH #346 - the scripts held back for the program's maps.
+            if (!script_host_.program_loaded()) exit_code_ = 1;
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {
             --load_countdown_;

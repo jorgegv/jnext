@@ -3793,7 +3793,17 @@
 SDL build and the Qt GUI. A script that cannot be read, or that has any error,
 is reported as <em>file</em>:<em>line</em>:<em>column</em>: <em>message</em> and JNEXT exits 1 without
 running anything — nothing of any script runs partially, the good ones loaded
-before it included. A <code>--map</code> that cannot be loaded or holds no symbols is the
+before it included. With <code>--load</code>, a script is held until the program is in if it names a source line
+(<code>on execute main.c:19</code>), or an <code>@symbol</code> that <code>--map</code> does not know (the program's own
+<code>.map</code>/<code>.sld</code> brings it), or a z88dk <code>--map</code> symbol of a section that names no page (it takes the memory the program's
+load maps). It is held together with every script after it, to keep their order. A
+script whose symbols are all known and fixed (an sjasmplus <code>--map</code>, say) starts at once.
+Every script is still read and parsed first, so a typo is reported before the machine
+runs; a name or line that does not resolve exits 1 once the program has loaded.</p>
+<p>A held script's rules start at the load: an <code>on frame N</code>, or a <code>--script-key</code>, due before
+it never fires (a <code>.tzx</code> or <code>.wav</code> loads about 100 frames in; <code>.nex</code>, <code>.tap</code> and snapshots
+load at the first tick). Rules that are needed before the load belong in a script of their
+own, given first, that names no source line and no such symbol. A <code>--map</code> that cannot be loaded or holds no symbols is the
 same kind of error.</p>
 <p><code>--script-key</code> needs <code>--headless</code>, and a <code>--script</code> (or a <code>--record-script</code>)
 for the key to go to:</p>

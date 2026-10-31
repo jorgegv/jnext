@@ -381,7 +381,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
-| Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
+| Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line, a symbol unknown at start or a load-bound symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
@@ -1054,14 +1054,19 @@ location is; a `space` on a kind other than `Execute` is refused.
 The rule of 4.6 governs every protocol: each carries as much of the identity as its vocabulary
 allows, and none is extended.
 
-- **GDB.** `z88dk-gdb` maps sources itself, so nothing is required. E23-15 (#346) adds
+- **GDB.** `z88dk-gdb` maps sources itself, so nothing is required. E23-15 (#346) added (as built:
+  `$8CB8 main.c:19 P04` / `$8CB8 unmapped P28`, primary location only, a symbol accepted, the PC when
+  no argument; the memory spelling is an interim helper that #360 replaces)
   `monitor src [ADDR]`: the location and the space of an address, else "unmapped", which makes
   the source map observable in headless and SDL. `monitor sym` exists. E23-22 puts the identity
   in its text form into `monitor src` and `monitor mmu`.
 - **DZRP and ZRCP.** DeZog maps sources from `.lis`, `.map` and `.sld` itself, so there are no
   new commands. Banked breakpoints keep the legacy qualifier (4.5); the slot views are as in 4.6.
 - **DSL.** `addr_spec` accepts `file:line` (E23-15), resolved at load through the backend like
-  `@name`. An unresolvable one is a load error, and a multi-location line arms every start.
+  `@name` (as built, GH #346: bare, or quoted for a name with spaces; `execute` only, no range, no
+  `page`; with a CLI `--load` the script, and the ones after it, load once the program and its map
+  are in; `on execute @name` takes a paged label's own memory, an explicit `page N` keeping its
+  legacy meaning). An unresolvable one is a load error, and a multi-location line arms every start.
   Saving GUI source-line breakpoints as `.jds` (#376) needs it.
 
 ### 8.4 Headless and SDL
@@ -1612,8 +1617,9 @@ Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22
 `classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
 2026-10-31.
 
-**Planned.** The functional rows `source-map-func` (a looked-up line, E23-15) and
-`z88dk-source-func` (E23-15).
+E23-15 (#346) added GDB-MON-30..34 (`monitor src`), LEX-27/28 and PARSE-SRC-01..03, DSL-SRC-01..08,
+DSL-SYMSP-01..05, SCRIPT-HOST-SRC-01..11, and the functional rows `source-map-func` (a looked-up line
+over `monitor src`) and `z88dk-source-func` (scripts on a line or a symbol in three frontends, `monitor src`).
 
 **Oracles.**
 

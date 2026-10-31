@@ -68,7 +68,15 @@ on write @buffer..(@buffer + 255) do … ; symbols and expressions
 on write 0x5C00..0x5CFF page 0x0A do … ; …and only when the slot holds page 0x0A
 on write page 0x0A..0x0B do …          ; any address, while in pages 0x0A..0x0B
 on execute page 0x00 do …              ; any instruction in page 0x00
+on execute main.c:19 do …              ; a source line (needs a source map)
+on execute "my dir/main.c:19" do …     ; the same, for a name with spaces
 ```
+
+An `execute` rule on a **source line** fires at every place the line's code
+starts, each in the memory it was built for (a line the compiler placed twice
+is two places). It takes no range and no `page`, and a line that is not in the
+loaded source map, or that has no code, is a load error that names it. It is
+the same line the debugger's Breakpoints panel takes.
 
 An address is a 16-bit CPU address (0 to 0xFFFF). **`page`** is a physical 8K
 page — the one the MMU has mapped behind the address at the time of the access

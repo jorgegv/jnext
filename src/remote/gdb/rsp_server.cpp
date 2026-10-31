@@ -111,6 +111,28 @@ bool parse_number(const std::string& s, std::uint32_t& out) {
     return true;
 }
 
+// INTERIM (GH #346): the memory-identity spellings of GH #360 (E23-22), printed
+// by hand so `monitor src` already speaks them. #360's `space_tag()`
+// (debug/long_address.h) replaces this function with no change to a literal.
+std::string space_text(MemSpace s) {
+    using K = MemSpace::Kind;
+    switch (s.kind) {
+        case K::Cpu:          return "CPU";
+        case K::Page:         return strf("P%02X", static_cast<unsigned>(s.index));
+        case K::Rom:          return strf("ROM%u", static_cast<unsigned>(s.index));
+        case K::BootRom:      return "BOOT";
+        case K::MultifaceRom: return "MFROM";
+        case K::MultifaceRam: return "MFRAM";
+        case K::DivMmcRom:    return "DIVROM";
+        case K::DivMmcRam:    return strf("DIVRAM%u", static_cast<unsigned>(s.index));
+        case K::AltRom:       return strf("ALTROM%u", static_cast<unsigned>(s.index));
+        case K::Layer2:       return strf("L2P%02X", static_cast<unsigned>(s.index));
+        case K::Config:       return strf("CFG%02X", static_cast<unsigned>(s.index));
+        case K::Floating:     return "FLOAT";
+    }
+    return "CPU";
+}
+
 std::vector<std::string> split_words(const std::string& s) {
     std::vector<std::string> out;
     std::string              w;
@@ -825,6 +847,7 @@ void GdbServer::pkt_monitor(const std::string& body) {
     else if (verb == "in")      ok = monitor_in(args);
     else if (verb == "out")     ok = monitor_out(args);
     else if (verb == "sym")     ok = monitor_sym(args);
+    else if (verb == "src")     ok = monitor_src(args);
     else if (verb == "time")    ok = monitor_time(args);
     else if (verb == "reset")   ok = monitor_reset(args);
     else if (verb == "bp")      ok = monitor_bp(args);
@@ -848,6 +871,7 @@ void GdbServer::monitor_help() {
         "  in PORT                    read a port - PERTURBING: runs its read side effects",
         "  out PORT VAL               write a port - PERTURBING, as a guest OUT",
         "  sym NAME|ADDR              a symbol's address, or the symbol at/below ADDR",
+        "  src [ADDR]                 the source line of ADDR (default PC) and its memory",
         "  time                       frame, cycle, T-states, raster position",
         "  reset [soft|hard]          reset the machine; it stays stopped",
         "  bp                         every breakpoint and watchpoint, with its owner",
@@ -1002,6 +1026,35 @@ bool GdbServer::monitor_sym(const std::vector<std::string>& args) {
     const auto a = dbg_.lookup_name(args[0]);
     if (!a) monitor_line("no symbol " + printable(args[0], 64));
     else    monitor_line(args[0] + strf(" = $%04X", *a));
+    return true;
+}
+
+// CAP-SRC (GH #346) - the source line jnext's own map gives an address, in the
+// memory mapped there now: `$8CB8 main.c:19 P04`, or `$8CB8 unmapped P28`.
+// ADDR is a number, a symbol name (a leading `@` allowed) or, absent, the PC.
+bool GdbServer::monitor_src(const std::vector<std::string>& args) {
+    if (args.size() > 1) return false;
+    std::uint32_t addr = dbg_.registers().PC;
+    if (!args.empty()) {
+        if (parse_number(args[0], addr)) {
+            if (addr > 0xFFFF) return false;
+        } else {
+            const std::string name = args[0][0] == '@' ? args[0].substr(1) : args[0];
+            const auto a = dbg_.lookup_name(name);
+            if (!a) {
+                monitor_line("no symbol " + printable(args[0], 64));
+                return true;
+            }
+            addr = *a;
+        }
+    }
+    const std::uint16_t a16 = static_cast<std::uint16_t>(addr);
+    const std::string   mem = space_text(dbg_.source_page(a16));
+    const auto*         loc = dbg_.source_location(a16);
+    const std::string   head = strf("$%04X ", addr);
+    if (!loc) monitor_line(head + "unmapped " + mem);
+    else      monitor_line(head + printable(loc->file, 200) + ":" + std::to_string(loc->line) +
+                           " " + mem);
     return true;
 }
 
