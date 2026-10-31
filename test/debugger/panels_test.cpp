@@ -1925,8 +1925,6 @@ std::vector<std::pair<int, int>> bar_runs(const QImage& img, int x, QRgb want) {
 
 }  // namespace
 
-static QPalette dark_test_palette();   // defined with the QDARK rows below
-
 static void test_coverage_panels() {
     set_group("QCOV");
 
