@@ -2964,9 +2964,10 @@ struct SrcView {
         const bool l2 = red(img, cx - 2, y), r2 = red(img, cx + 2, y);
         const bool l3 = red(img, cx - 3, y), r3 = red(img, cx + 3, y);
         const bool l4 = red(img, cx - 4, y), r4 = red(img, cx + 4, y);
-        if (l2 && r2 && l3 && r3) return "disc";
+        const bool l5 = red(img, cx - 5, y);   // the r=5 disc's edge; a smaller disc misses it
+        if (l2 && r2 && l3 && r3 && l5) return "disc";
         if (!l2 && !r2 && l4 && r4) return "ring";
-        if (l2 && l3 && !r2 && !r3) return "half-disc";
+        if (l2 && l3 && l5 && !r2 && !r3) return "half-disc";
         if (!l2 && !r2 && l4 && !r4) return "half-ring";
         if (!l2 && !r2 && !l3 && !r3 && !l4 && !r4) return "none";
         return "?";
@@ -3020,11 +3021,14 @@ void test_source_gutter() {
         const QImage img = v.gutter_image();
         const bool cells = v.number_is(img, 1, "1") && v.number_is(img, 10, "10") &&
                            v.number_is(img, 13, "13");
-        const bool distinct = !v.number_is(img, 10, "9") && !v.number_is(img, 10, "11");
+        // the file's final newline starts no line: its blank last block is not numbered
+        const bool distinct = !v.number_is(img, 10, "9") && !v.number_is(img, 10, "11") &&
+                              !v.number_is(img, 14, "14");
         const bool margin = v.ed->viewport()->geometry().left() >= v.gutter->geometry().right() &&
                             v.gutter->geometry().top() == v.ed->viewport()->geometry().top();
         check("QSRC-79", "the gutter numbers the file's own lines (1, 10, 13), line 10's cell is not "
-                         "9's or 11's, and the text starts right of the gutter",
+                         "9's or 11's, the final newline's blank block has no number, and the text "
+                         "starts right of the gutter",
               cells && distinct && margin,
               "cells=" + std::to_string(cells) + " distinct=" + std::to_string(distinct) +
                   " margin=" + std::to_string(margin));
@@ -3079,9 +3083,8 @@ void test_source_gutter() {
         sb->setValue(119);
         QApplication::processEvents();
         // The top visible block is line 120; its cell is at the viewport's top.
-        const QTextBlock top = v.ed->firstVisibleBlock();
-        const QImage img = v.gutter_image();
-        const bool shows = top.blockNumber() == 119 && v.number_is(img, 120, "120");
+                const QImage img = v.gutter_image();
+        const bool shows = v.ed->cursorForPosition(QPoint(0, 0)).blockNumber() == 119 && v.number_is(img, 120, "120");
         v.click(120);
         const auto rows = m.rows();
         const bool armed = rows.size() == 1 && rows[0].addr == 0x8000;
@@ -3293,10 +3296,11 @@ void test_source_gutter() {
         Z80Registers r = fx.emu.cpu().get_registers();
         r.PC = 0x8C6B;
         fx.emu.cpu().set_registers(r);
-        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});
         BreakpointModel& m = fx.mgr->breakpoints();
         SrcView v(fx, m);
-        if (!v.gutter || v.sp->shown_file().empty()) { check("QSRC-96", "the Source tab shows main.c", false); return; }
+        v.sp->set_search_dirs({root + "/src"});
+        QApplication::processEvents();
+        if (!v.gutter || v.sp->shown_file().empty()) { check("QSRC-96", "the Source tab shows main.c", false, s(v.sp->location_text())); return; }
         const QString file = QString::fromStdString(v.sp->shown_file());
         m.add_source_line(file + ":14");   // an alias of 17: they share $8C6B
         const std::string alias = v.mark(14) + "/" + v.mark(17);

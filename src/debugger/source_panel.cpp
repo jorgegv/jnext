@@ -40,6 +40,12 @@
 // is protected. The marks themselves are SourcePanel's (line_mark()).
 namespace {
 
+// The lines of the file shown: the final newline does not start one (GH #420).
+int file_line_count(const QTextDocument* doc)
+{
+    return doc->blockCount() - (doc->lastBlock().length() <= 1 ? 1 : 0);
+}
+
 class SourceEdit;
 
 class SourceGutter : public QWidget {
@@ -91,7 +97,7 @@ public:
     int header_height() const { return QFontMetrics(header_font()).height() + 4; }
     int gutter_width() const
     {
-        const int digits = std::max(3, QString::number(blockCount()).size());
+        const int digits = std::max(3, static_cast<int>(QString::number(blockCount()).size()));
         const int numbers = fontMetrics().horizontalAdvance(QString(digits, QLatin1Char('9')));
         const int title = QFontMetrics(header_font()).horizontalAdvance(QStringLiteral("Line"));
         return kBreakpointColumnWidth + 4 + std::max(numbers, title) + 6;
@@ -133,7 +139,8 @@ public:
         qreal top = blockBoundingGeometry(block).translated(contentOffset()).top();
         while (block.isValid() && top <= ev->rect().bottom()) {
             const qreal h = blockBoundingRect(block).height();
-            if (block.isVisible() && top + h >= ev->rect().top()) {
+            if (block.isVisible() && top + h >= ev->rect().top() &&
+                block.blockNumber() < file_line_count(document())) {
                 const int line = block.blockNumber() + 1;
                 using LM = SourcePanel::LineMark;
                 const LM mark = panel_->line_mark(line);
@@ -479,7 +486,7 @@ void SourcePanel::refresh_()
     location_label_->setToolTip(source_path);
     // GH #420 - a line past the end of the file found: it is not the text the build used.
     const QTextDocument* doc = editor_->document();
-    const int file_lines = doc->blockCount() - (doc->lastBlock().length() <= 1 ? 1 : 0);
+    const int file_lines = file_line_count(doc);
     if (location->line > file_lines) {
         location_label_->setText(tr("%1:%2 - %3 has only %4 lines; it is not the text the build used")
                                      .arg(QString::fromStdString(location->file))
@@ -635,7 +642,7 @@ QString SourcePanel::line_tooltip(int line) const
 void SourcePanel::toggle_breakpoint_at_line(int line)
 {
     BreakpointModel* bps = bp_model_.data();
-    if (!bps || shown_file_.empty() || line < 1 || line > editor_->document()->blockCount()) return;
+    if (!bps || shown_file_.empty() || line < 1 || line > file_line_count(editor_->document())) return;
     const LineState st = line_state(line);
     std::vector<BreakpointModel::PcBreakpoint> remove = st.drawn;
     remove.insert(remove.end(), st.hidden.begin(), st.hidden.end());
