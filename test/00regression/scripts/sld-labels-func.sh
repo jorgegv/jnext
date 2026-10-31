@@ -66,7 +66,7 @@ PY
             "sym Start" 'sym $8000' "mmu" 2>&1) || true
         grep -Fq 'Start = $8000' <<<"$answer" ||
             fails+=("monitor sym Start answered: $(sed -n 1p <<<"$answer")")
-        grep -Fq '$8000 = Start' <<<"$answer" ||
+        grep -Fq '$8000 P04 = Start' <<<"$answer" ||
             fails+=("monitor sym \$8000 answered: $(sed -n 2p <<<"$answer") (mmu: $(tail -n +3 <<<"$answer" | tr '\n' ' '))")
     else
         fails+=("the headless jnext never logged 'gdb: listening on'")
