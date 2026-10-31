@@ -68,6 +68,10 @@ would at its own breakpoint. If the condition matters, put it in `when` — `on
 execute @f when A == 0 do stop end` — rather than in an `if` inside the body,
 which only the script can evaluate.
 
+In the debugger window such a rule stops the machine and is listed in the Breakpoints panel as `Execute (client N)`,
+read-only. It is not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not
+remove it (see [Whose breakpoints the gutters show and change](../panels/08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)).
+
 ## `assert`
 
 ```

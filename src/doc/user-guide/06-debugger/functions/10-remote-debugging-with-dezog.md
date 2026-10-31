@@ -57,6 +57,9 @@ where it stopped.
   machine whether that window is open or closed, and they are removed when
   DeZog disconnects. A DeZog session that crashes cannot leave the machine
   stopped on one of them.
+  In JNEXT's debugger window they appear in the Breakpoints panel as `Execute (client N)`, read-only, but are not
+  drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not remove them
+  (see [Whose breakpoints the gutters show and change](../panels/08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)).
 - **Disconnecting resumes the machine** if the pause was DeZog's own and
   nothing else is attached. If JNEXT's debugger window is open, or another
   remote debugger is connected, the machine stays paused and the pause becomes
