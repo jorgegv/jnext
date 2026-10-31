@@ -5,7 +5,8 @@ The source line the CPU is running, read from the program's source map
 
 At the top, the source steps — **Into**, **Over**, **Out**, **Back** and
 **Reverse** — and **Load Source Map...** / **Load Memory.txt...** to load a source map (an SLD or a z88dk map)
-or NextBuild symbols by hand. The steps are available while the machine is
+or NextBuild symbols by hand, and **Locate File...**, enabled while the tab says
+*source file not found*. The steps are available while the machine is
 paused and a source map is loaded; **Back** and **Reverse** also need the trace
 log and rewind. The same steps and loads are also in **Debug ▸ Source**.
 
@@ -34,5 +35,7 @@ again.
 
 The source file is found from the name the map records: as it is, if absolute,
 else relative to the map's own directory or one of its parents (the map's
-location is remembered as a full path, whatever directory you loaded it from). A file that
-changes on disk is reloaded at the next pause.
+location is remembered as a full path, whatever directory you loaded it from),
+else in the directories of the source search path
+([Where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files)).
+A file that changes on disk is reloaded at the next pause.

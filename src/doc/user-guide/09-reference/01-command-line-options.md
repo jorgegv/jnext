@@ -465,7 +465,10 @@ with status 1.
     download is not — jnext then starts without the Pi. On Linux and
     macOS the link is a pair of FIFOs; on Windows (QEMU for Windows, its
     folder on `PATH` or set in Preferences) it is a loopback TCP socket
-    QEMU listens on.
+    QEMU listens on. **--nextpi** starts the Pi with any machine (the
+    header and UART 1 are there in every personality); the saved
+    preference starts it only when jnext starts the ZX Next. Changing
+    the machine while jnext runs neither starts nor stops it.
 
 **--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
@@ -475,9 +478,9 @@ with status 1.
 :   The NextPi directory for this run (default `~/.jnext/nextpi`), over
     the value saved under **Settings \> Preferences \> NextPi**. An
     empty value means the default. It is used when NextPi starts, so it
-    goes with **--nextpi** (or a saved preference that enables it);
-    given when NextPi is not enabled for the run, this and the four
-    options below are ignored, with a warning naming each.
+    goes with **--nextpi** (or the saved preference, when it starts
+    NextPi); given when NextPi is not enabled for the run, this and the
+    four options below are ignored, with a warning naming each.
 
 **--nextpi-release** *NAME*
 :   The NextPi release for this run: a release name on the mirror, or
@@ -1111,6 +1114,22 @@ with status 1.
     once and is checked the first time the program runs its code; a
     mismatch then drops it, and the run exits with status 1.
 
+**--source-dir** *DIR*
+:   Also search *DIR* for the source files a source map names, in the
+    Source tab of the debugger (the Qt window with the debugger;
+    elsewhere a warning, and ignored). One directory per option, repeat
+    it for more; the list separator (`:`, `;` on Windows) is refused.
+    The Source tab tries a file beside the source map and in its parent
+    directories first, then these directories, the longest matching
+    trailing part of the recorded name first and the directories in the
+    order given. For this run only, like **--set** `paths.source_dirs`,
+    whose list it appends to (a later **--set** of that key replaces
+    what came before). A list given on the command line REPLACES the
+    saved one for the run; directories added by **Locate File…** still
+    apply. A relative *DIR* is taken from the working directory. The
+    saved list is edited under **Preferences \> Paths**, and **Locate
+    File…** in the Source tab adds a directory.
+
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional,
     for example `0x00FF`).
@@ -1212,6 +1231,13 @@ use the key: the Qt window, the SDL-only build (both interactive) or
 
 `paths.screenshot_dir` *PATH*
 :   The directory the Save Screenshot dialog opens in. The Qt window.
+
+`paths.source_dirs` *DIRS*
+:   The directories the debugger’s Source tab also searches for source
+    files, separated by `:` (`;` on Windows); **--source-dir** appends
+    one. Empty means none. Given on the command line, the list REPLACES
+    the saved one for that run. A relative directory is taken from the
+    working directory. The Qt window with the debugger.
 
 `screenshot.quick_dir` *PATH*
 :   The Quick Screenshot directory; empty means `~/.jnext/screenshots`.

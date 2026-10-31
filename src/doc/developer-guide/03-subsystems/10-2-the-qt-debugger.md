@@ -239,6 +239,23 @@ map loads as source lines only. Its mismatch box and failure title do not name a
 `source_map_status().pending` is set (a tape program's map, waiting for its program) the panel
 appends a note line, *Source map not verified yet: it is checked when the program first runs its
 code*, to whatever it shows.
+The file a record names is found by `source_search::resolve()` (`debug/source_search.h`, Qt-free so
+the SDL-only and Windows trees test it and a later surface can print the same path): an absolute
+name, then the map's directory and each parent, then the search directories, tried suffix-major
+(the longest trailing part of the normalised name first, then the directories in order; a leading
+`..` is dropped). `DebuggerManager` owns the list: `set_source_dirs()` takes the configured one
+(`MainWindow::push_source_dirs()`: the command line's, else the saved one, from the manager's
+creation and from `apply_startup_config()`), the panel's **Locate File...** adds to a second,
+session-only list through `on_source_dir_located()` (kept when the configured list changes), and
+the effective list (configured, then located, duplicates dropped) is pushed to the panel on every
+change and again in `ensure_window()`, since the window is lazy. Locate derives the directory with
+`source_search::root_for()`, refuses a file of another name, and asks whether to save it
+(`source_dir_save_requested`, which MainWindow appends to `[paths] source_dirs`, refusing a directory
+that holds the list separator, as Preferences and `--source-dir` do: it would load back as two). The manager
+announces each change (`source_dirs_changed`; `src/debugger/` names no logger) and MainWindow logs
+`Source search path: ...`. Two records get a message of their own: a z88dk record in a `.m4` file, decided before any file is
+read (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
+file found, decided after it is read (its line count ignores the final newline). The label's tooltip is the path found.
 Load MAP (`on_load_map_z88dk()`, `on_load_map_simple()`) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug > Source actions
 connect to the same `DebuggerManager` slots as its buttons, and their enabled

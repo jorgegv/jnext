@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "memory/contention.h"            // MachineType
 #include "core/sdcard_provisioner.h"   // DownloadFn / ConfirmFn / ProgressFn / BusyFn
 
 /// The NextPi directory, prepared on first use (`--nextpi`).
@@ -151,14 +152,18 @@ struct ProvisionResult {
 struct StartRequest {
     bool wanted       = false;   ///< try to start it
     bool asked_on_cli = false;   ///< --nextpi was given (a failure is then an error)
+    bool held_for_machine = false;   ///< the preference would start it, but the startup machine is not the ZX Next
 };
 
 /// main.cpp's decision. `gui` is a GUI session — the only kind that reads
 /// Preferences; `cli_set` is "--nextpi or --no-nextpi was given" and
 /// `cli_value` which one; `saved_enabled` is the [nextpi] `enabled`
 /// preference. The command line wins either way; without it, a GUI session
-/// follows the preference and a headless one starts nothing. Pure.
-StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled);
+/// follows the preference and a headless one starts nothing. The preference starts it only when
+/// `startup_machine` (the machine the session boots) is the ZX Next (GH #419); --nextpi starts it
+/// on any machine. Pure.
+StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled,
+                           MachineType startup_machine);
 
 /// The five text settings of Preferences > NextPi (empty = the built-in default), and the
 /// optional command-line flag that sets each for one run (GH #407): --nextpi-dir,

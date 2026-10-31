@@ -909,13 +909,13 @@ static void test_nextpi_review2_rows() {
             return r.wanted == wanted && r.asked_on_cli == asked;
         };
         const bool table =
-            is(start_request(true, true, true, false), true, true) &&     // GUI --nextpi, pref off
-            is(start_request(true, true, false, true), false, false) &&   // GUI --no-nextpi, pref on
-            is(start_request(true, false, false, true), true, false) &&   // GUI, pref on
-            is(start_request(true, false, false, false), false, false) && // GUI, pref off
-            is(start_request(false, true, true, false), true, true) &&    // headless --nextpi
-            is(start_request(false, false, false, true), false, false) && // headless: no Preferences
-            is(start_request(false, true, false, true), false, false);    // headless --no-nextpi
+            is(start_request(true, true, true, false, MachineType::ZXN_ISSUE2), true, true) &&     // GUI --nextpi, pref off
+            is(start_request(true, true, false, true, MachineType::ZXN_ISSUE2), false, false) &&   // GUI --no-nextpi, pref on
+            is(start_request(true, false, false, true, MachineType::ZXN_ISSUE2), true, false) &&   // GUI, pref on
+            is(start_request(true, false, false, false, MachineType::ZXN_ISSUE2), false, false) && // GUI, pref off
+            is(start_request(false, true, true, false, MachineType::ZXN_ISSUE2), true, true) &&    // headless --nextpi
+            is(start_request(false, false, false, true, MachineType::ZXN_ISSUE2), false, false) && // headless: no Preferences
+            is(start_request(false, true, false, true, MachineType::ZXN_ISSUE2), false, false);    // headless --no-nextpi
         check("PI-38",
               "whether NextPi starts: --nextpi and --no-nextpi win, otherwise a GUI session follows "
               "the [nextpi] preference and a headless one starts nothing; only --nextpi makes a "
@@ -2562,6 +2562,44 @@ void test_nextpi_extra_args_rows() {
               "enabled (GH #407; jnext-only, no VHDL counterpart)",
               nextpi::given_flags(none).empty() && nextpi::given_flags(some) == w_some &&
                   nextpi::given_flags(all) == w_all);
+    }
+
+    // PIT-65 - the preference starts NextPi only when the startup machine is the ZX Next; the command
+    // line starts it on any machine; --no-nextpi and a headless session are never "held".
+    {
+        struct Case { bool gui, cli_set, cli_value, saved; MachineType m; bool wanted, asked, held; };
+        const MachineType N = MachineType::ZXN_ISSUE2, K48 = MachineType::ZX48K;
+        const Case cases[] = {
+            {true,  false, false, true,  N,                      true,  false, false},
+            {true,  false, false, true,  K48,                    false, false, true},
+            {true,  false, false, true,  MachineType::ZX128K,    false, false, true},
+            {true,  false, false, true,  MachineType::ZX_PLUS3,  false, false, true},
+            {true,  false, false, true,  MachineType::PENTAGON,  false, false, true},
+            {true,  false, false, false, K48,                    false, false, false},
+            {true,  true,  true,  false, K48,                    true,  true,  false},
+            {true,  true,  true,  true,  MachineType::PENTAGON,  true,  true,  false},
+            {true,  true,  false, true,  K48,                    false, false, false},
+            {false, true,  true,  false, K48,                    true,  true,  false},
+            {false, false, false, true,  K48,                    false, false, false},
+        };
+        bool ok = true;
+        int bad = -1;
+        for (int i = 0; i < 11; ++i) {
+            const Case& c = cases[i];
+            const nextpi::StartRequest r =
+                nextpi::start_request(c.gui, c.cli_set, c.cli_value, c.saved, c.m);
+            if (r.wanted != c.wanted || r.asked_on_cli != c.asked || r.held_for_machine != c.held) {
+                ok = false;
+                if (bad < 0) bad = i + 1;
+            }
+        }
+        check("PIT-65",
+              "whether NextPi starts depends on the machine only for the preference: a GUI session with "
+              "the [nextpi] preference on starts it only when the startup machine is the ZX Next "
+              "(held_for_machine otherwise); --nextpi starts it on any machine; --no-nextpi and a headless "
+              "session are never 'held' (GH #419; jnext-only, no VHDL counterpart; the Pi header's UART is "
+              "decoded in every personality, NR 0x83 bit 4, zxnext.vhd:2420)",
+              ok, fmt("first wrong case: %d", bad));
     }
 
     // PIT-61 - build_args puts the extras after jnext's own, in order, on both transports.

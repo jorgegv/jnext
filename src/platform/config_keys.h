@@ -34,6 +34,7 @@ enum class Type : uint8_t {
     Text,         // verbatim
     TrimmedText,  // surrounding whitespace removed, as load() does
     Path,         // verbatim
+    PathList,     // directories separated by source_search::kListSeparator; no empty entry; empty = the empty list
     HostList,     // comma-separated host names; empty = the empty list
     DeviceId,     // a controller id (input/joy_source.h); empty = Automatic
     Keep,         // 1..1000000 or `unlimited`
@@ -70,6 +71,7 @@ enum class KeyId : uint8_t {
     PathsLastLoadDir,
     PathsSdCardPath,
     PathsScreenshotDir,
+    PathsSourceDirs,
     RecentFiles,
     ScreenshotQuickDir,
     ScreenshotQuickFormat,
@@ -176,6 +178,9 @@ inline constexpr Key KEYS[] = {
     { KeyId::PathsScreenshotDir, "paths", "screenshot_dir", Type::Path, 0, 0,
       "PATH", nullptr, QT, false, Owner::AppConfig, nullptr,
       "Directory the Save Screenshot dialog opens in" },
+    { KeyId::PathsSourceDirs, "paths", "source_dirs", Type::PathList, 0, 0,
+      "DIRS", "--source-dir", QT, true, Owner::AppConfig, nullptr,
+      "Source search path of the debugger's Source tab: directories separated by ':' (';' on Windows)" },
     { KeyId::RecentFiles, "recent", "files", Type::Text, 0, 0,
       "", nullptr, QT, false, Owner::AppConfig,
       "it is File > Recent Files, a history the program keeps", "Recent files" },
@@ -315,5 +320,10 @@ bool parse_assignment(const char* arg, Assignment& out, std::string& why);
 /// Preferences "CRT effect" pop-up; the caller maps the effect word to the three
 /// values (cli::parse_crt_effect).
 void append_crt_effect(std::vector<Assignment>& out, bool filter, bool shader, int style);
+
+/// `--source-dir DIR` as a step of the one-string list `canon` (paths.source_dirs):
+/// appends `dir` after the entries already there. Refuses an empty `dir` and one
+/// holding the list separator (which would be read as two), with `why` naming the flag.
+bool append_list_entry(std::string& canon, const char* dir, std::string& why);
 
 } // namespace config_keys

@@ -22,6 +22,7 @@
 #include "platform/pok_trainers.h"    // GH #381
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
+#include "debug/source_search.h"
 #include <stdexcept>
 #include "core/screenshot.h"
 #include "core/quick_snapshot.h"
@@ -437,6 +438,33 @@ void MainWindow::set_emulator(Emulator* emu) {
         // built now, and a keymap pushed only when it is first SHOWN would
         // leave the emulator window forwarding keys the debugger does not have.
         push_debug_keymap();
+        // GH #420 - the Source tab's search path, and the Yes of Locate File... .
+        connect(debugger_mgr_, &DebuggerManager::source_dirs_changed, this,
+                [](const QStringList& dirs) {
+            std::vector<std::string> list;
+            for (const QString& d : dirs) list.push_back(d.toStdString());
+            Log::platform()->info("Source search path: {}",
+                                  list.empty() ? std::string("none") : source_search::join_list(list));
+        });
+        push_source_dirs();
+        connect(debugger_mgr_, &DebuggerManager::source_dir_save_requested, this,
+                [this](const QString& dir) {
+            // Only the saved list: the located directory is in force through the manager's
+            // own list, and a command-line list stays in force.
+            // A directory holding the list separator would load back as two: refused,
+            // as --source-dir refuses it. It stays searched for this session.
+            if (dir.contains(QChar(QLatin1Char(source_search::kListSeparator)))) {
+                QMessageBox::warning(this, tr("Source search path"),
+                                     tr("The directory \"%1\" contains '%2', which separates directories "
+                                        "in the saved list, so it is not saved. It stays searched for "
+                                        "this session.").arg(dir, QChar(QLatin1Char(source_search::kListSeparator))));
+                return;
+            }
+            QStringList& saved = app_config_.data().source_dirs;
+            if (saved.contains(dir)) return;
+            saved << dir;
+            app_config_.save();
+        });
     }
 #endif
 }
@@ -2881,6 +2909,8 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
     // dialog's. Either way app_config_ (what is saved) is not touched here.
     session_ = { cfg.last_load_dir, cfg.screenshot_dir, cfg.quick_screenshot_dir,
                  cfg.quick_screenshot_format };
+    source_dirs_ = cfg.source_dirs;   // GH #420
+    push_source_dirs();
     // Machine type and silent are deliberately NOT applied here: main.cpp
     // already merged them into the EmulatorConfig used for Emulator::init()
     // (CLI wins when given), so re-applying the raw AppConfigData value here
@@ -3051,7 +3081,7 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     if (emulator_ && (emulator_->pi_uart() != nullptr) != cfg.nextpi_enabled) {
         Log::platform()->info(
             "Preferences: NextPi {} saved but NOT applied to the running "
-            "machine; it takes effect the next time jnext starts.",
+            "machine; it takes effect the next time jnext starts on the ZX Next.",
             cfg.nextpi_enabled ? "enabled" : "disabled");
     }
 
@@ -3082,6 +3112,12 @@ void MainWindow::set_debugger_attach_override(bool attached) {
                           "(jnext.conf keeps its value until the Attach item is toggled)", attached);
 }
 #endif
+
+void MainWindow::push_source_dirs() {
+#ifdef ENABLE_DEBUGGER
+    if (debugger_mgr_) debugger_mgr_->set_source_dirs(source_dirs_);
+#endif
+}
 
 void MainWindow::push_debug_keymap() {
 #ifdef ENABLE_DEBUGGER

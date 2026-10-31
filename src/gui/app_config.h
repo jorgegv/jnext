@@ -108,6 +108,11 @@ struct AppConfigData {
     QString last_load_dir;    // seeds "Load Program..." / "Open Tape File..."
     QString sd_card_path;     // default --sdcard when the CLI gives none
     QString screenshot_dir;   // seeds "Save Screenshot..."
+    // GH #420 - the debugger's Source tab also looks for source files in these
+    // directories. Saved as ONE string joined with source_search::kListSeparator
+    // (the spelling `--set paths.source_dirs` takes). Carried through untouched by
+    // a build without the debugger, which has no control for it.
+    QStringList source_dirs;
     // GH #406 - File > Recent Files, most recent first, at most
     // recent_files::kMax. Kept by MainWindow, not editable in Preferences
     // (which carries it through untouched).

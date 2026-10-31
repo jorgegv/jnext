@@ -458,6 +458,7 @@ int main(int argc, char* argv[]) {
     std::vector<config_keys::Assignment> qt_assignments;        // the keys only the Qt window has
     std::vector<std::pair<std::string, std::string>> debug_key_assignments;   // debugger_keys.ID=COMBO
     std::optional<bool> debugger_attached_opt;                  // debugger.attached
+    std::optional<std::string> source_dirs_text;                // paths.source_dirs / --source-dir (GH #420)
     // How each key was spelled on the command line, for the "has no effect" warnings.
     std::vector<std::pair<config_keys::KeyId, std::string>> given_as;
     auto note_given = [&](config_keys::KeyId id, const std::string& spelling) {
@@ -537,6 +538,9 @@ int main(int argc, char* argv[]) {
         case KeyId::AudioGainDacDb:    gain(cli::OptId::AudioGainDacDb); break;
         case KeyId::PathsSdCardPath:
             sd_card_image = t;
+            break;
+        case KeyId::PathsSourceDirs:
+            source_dirs_text = t;   // a later --set replaces everything before it; --source-dir appends
             break;
         case KeyId::SnapshotQuickKeep:
             quick_snapshot_keep = (t == "unlimited") ? 0 : static_cast<int>(num);
@@ -869,6 +873,20 @@ int main(int argc, char* argv[]) {
             case cli::OptId::SourceMap:
                 source_map_file = v[0];
                 break;
+            case cli::OptId::SourceDir: {
+                // ONE directory per occurrence, appended to the list --set may have
+                // given (the esp-allow semantics). Merged into the Qt session's copy
+                // below; never written to jnext.conf.
+                std::string list = source_dirs_text.value_or(std::string());
+                std::string why;
+                if (!config_keys::append_list_entry(list, v[0], why)) {
+                    fprintf(stderr, "%s\n", why.c_str());
+                    return 1;
+                }
+                source_dirs_text = list;
+                note_given(config_keys::KeyId::PathsSourceDirs, arg);
+                break;
+            }
             case cli::OptId::RecordScript:
                 record_script_file = v[0];
                 break;
@@ -1656,6 +1674,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // GH #420 - a --set / --source-dir list goes to the session copy, like the other Qt keys.
+    if (source_dirs_text)
+        qt_assignments.push_back({ config_keys::KeyId::PathsSourceDirs, {}, *source_dirs_text });
+
     // Task 66 (Configurability) — load saved GUI preferences once, early
     // enough to seed the SD-card resolution below. Only ever done for the
     // real (non-headless) Qt GUI path: HeadlessApp never runs through here
@@ -1952,6 +1974,18 @@ int main(int argc, char* argv[]) {
     // goes on without it. Declining the download is neither — a choice the
     // dialog says leads to "NextPi is not started", and that is all.
     // ---------------------------------------------------------------------
+    // The machine this session boots (GH #419): the CLI-over-saved merge, then the machine a
+    // snapshot/.jns/RZX load names. configure_and_run uses the same two values for cfg.type.
+    const MachineType configured_machine = [&] {
+#ifdef ENABLE_QT_UI
+        if (!headless)
+            return merge_cli_precedence(machine_type_set, machine_type,
+                                        gui_app_config.data().machine_type);
+#endif
+        return machine_type;
+    }();
+    const MachineType startup_machine = emulator_startup_machine(
+        load_file.empty() ? rzx_play_file : load_file, configured_machine, machine_type_set);
     {
         bool gui = false, saved_enabled = false;
         nextpi::ProvisionOptions popts;
@@ -1979,13 +2013,22 @@ int main(int argc, char* argv[]) {
         // The decision (nextpi::start_request) and what follows a failed start
         // (nextpi::start_outcome) are pure functions, so both are tested; the
         // one `asked_on_cli` drives the report, the policy and the exit.
-        const nextpi::StartRequest req =
-            nextpi::start_request(gui, nextpi_enabled_set, nextpi_enabled, saved_enabled);
+        const nextpi::StartRequest req = nextpi::start_request(
+            gui, nextpi_enabled_set, nextpi_enabled, saved_enabled, startup_machine);
+        if (req.held_for_machine)   // GH #419: the preference starts NextPi on the ZX Next only
+            Log::uart()->info("NextPi is not started: the machine is the {}, and Settings > Preferences "
+                              "> NextPi starts it only on the ZX Next (use --nextpi to start it on any "
+                              "machine)", machine_type_str(startup_machine));
         if (!req.wanted) {
             // A setting flag with no NextPi to apply it to: say so, do not drop it quietly.
-            for (const std::string& f : nextpi::given_flags(nextpi_cli))
-                Log::uart()->warn("{} is ignored: NextPi is not enabled (use --nextpi, or enable it in "
-                                  "Settings > Preferences > NextPi)", f);
+            for (const std::string& f : nextpi::given_flags(nextpi_cli)) {
+                if (req.held_for_machine)
+                    Log::uart()->warn("{} is ignored: NextPi is not started on the {} (use --nextpi to "
+                                      "start it on any machine)", f, machine_type_str(startup_machine));
+                else
+                    Log::uart()->warn("{} is ignored: NextPi is not enabled (use --nextpi, or enable it in "
+                                      "Settings > Preferences > NextPi)", f);
+            }
         }
         if (req.wanted) {
             std::function<void(const std::string&)> report = [](const std::string& m) {
@@ -2086,7 +2129,7 @@ int main(int argc, char* argv[]) {
     auto configure_and_run = [&](auto& app) -> int {
         // Configure emulator before init.
         EmulatorConfig cfg;
-        cfg.type = machine_type;
+        cfg.type = configured_machine;
         cfg.sd_card_image = sd_card_image;
         cfg.sd_card_readonly = sdcard_readonly;
         cfg.warm_start_regenerate = warm_start_regenerate;
@@ -2181,8 +2224,6 @@ int main(int argc, char* argv[]) {
         // flag and its own CLI value.
 #ifdef ENABLE_QT_UI
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>) {
-            cfg.type   = merge_cli_precedence(machine_type_set, machine_type,
-                                               gui_app_config.data().machine_type);
             cfg.silent = merge_cli_precedence(silent_set, silent, gui_app_config.data().silent);
             cfg.quick_snapshot_keep = merge_cli_precedence(
                 quick_snapshot_keep_set, quick_snapshot_keep,
@@ -2263,7 +2304,7 @@ int main(int argc, char* argv[]) {
         // machine too and win even over --machine.
         {
             const MachineType given = cfg.type;
-            cfg.type = emulator_startup_machine(cfg.load_file, cfg.type, machine_type_set);
+            cfg.type = startup_machine;
             // GH #323: a snapshot runs on the machine it was saved on, even
             // over an explicit --machine; say so rather than do it silently.
             if (machine_type_set && cfg.type != given)

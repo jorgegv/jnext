@@ -43,6 +43,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #       it), tape_auto_play=false reads "off", tape_fast_load=true reads "fast".
 #   S1  SDL-only: --set startup.cpu_speed, tape_fast_load=false, and a Qt-only key
 #       (window_scale) that warns and runs on.
+#   Q6  Qt (GH #420): the Source tab's search path. A saved [paths] source_dirs is
+#       what the debugger manager logs ("Source search path: src-saved"); repeated
+#       --source-dir replaces it for the run, appending in order; --set paths.source_dirs
+#       and --source-dir combine in argument order (a later --set replaces what came
+#       before); and the file, which the run saved, still reads the saved list.
+#   S2  SDL-only and --headless: --source-dir warns "has no effect" and runs on (exit 0).
+#   U1  --source-dir with an empty value, or one holding the list separator, is a usage
+#       error (exit 1).
 if want cli-set-func; then
     begin_func cli-set-func
     cs_dir="$TMP_DIR/cli-set"
@@ -146,6 +154,45 @@ if want cli-set-func; then
     grep -qF "silent=true" "$cs_conf" && grep -qF "tape_auto_play=true" "$cs_conf" && grep -qF "tape_fast_load=false" "$cs_conf" \
         || cs_faults+=("Q5: a command-line boolean was written to the file: $(tr '\n' ' ' < "$cs_conf")")
 
+    # --- Q6 (GH #420): the Source tab's search path. The separator is the platform's
+    # path-list one (';' where a drive letter holds a ':'). ---
+    cs_sep=':'; [[ "${JNEXT_TARGET_OS:-linux}" != windows ]] || cs_sep=';'
+    printf '[paths]\nsource_dirs=src-saved\n' > "$cs_conf"
+    cs_qt "$cs_dir/q6a.log" --load "$cs_tap" || cs_faults+=("Q6: the saved-list run failed")
+    grep -qF "Source search path: src-saved" "$cs_dir/q6a.log" \
+        || cs_faults+=("Q6: the saved source_dirs did not reach the debugger manager")
+    cs_qt "$cs_dir/q6b.log" --source-dir src-cli-a --source-dir src-cli-b --load "$cs_tap" \
+        || cs_faults+=("Q6: the --source-dir run failed")
+    grep -qF "Source search path: src-cli-a${cs_sep}src-cli-b" "$cs_dir/q6b.log" \
+        || cs_faults+=("Q6: two --source-dir are not 'src-cli-a${cs_sep}src-cli-b' in the manager")
+    ! grep -qF "src-saved" "$cs_dir/q6b.log" || cs_faults+=("Q6: the saved list was still in force over --source-dir")
+    cs_qt "$cs_dir/q6c.log" --set paths.source_dirs=set-a --source-dir add-b \
+        || cs_faults+=("Q6: the --set then --source-dir run failed")
+    grep -qF "Source search path: set-a${cs_sep}add-b" "$cs_dir/q6c.log" \
+        || cs_faults+=("Q6: --set paths.source_dirs=set-a then --source-dir add-b is not 'set-a${cs_sep}add-b'")
+    cs_qt "$cs_dir/q6d.log" --source-dir before --set paths.source_dirs=after \
+        || cs_faults+=("Q6: the --source-dir then --set run failed")
+    grep -qF "Source search path: after" "$cs_dir/q6d.log" && ! grep -qF "Source search path: before" "$cs_dir/q6d.log" \
+        || cs_faults+=("Q6: a later --set paths.source_dirs did not replace the earlier --source-dir")
+    grep -qF "source_dirs=src-saved" "$cs_conf" && ! grep -qE "src-cli|set-a|add-b|source_dirs=after" "$cs_conf" \
+        || cs_faults+=("Q6: the file no longer reads the saved list: $(tr '\n' ' ' < "$cs_conf")")
+    grep -qF "slow_gap.tap" "$cs_conf" || cs_faults+=("Q6: the file was not rewritten during the run, so the leak check proves nothing")
+
+    # --- U1 (GH #420): a bad --source-dir is refused before anything starts ---
+    for cs_bad in "" "a${cs_sep}b"; do
+        if QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 60s "$JNEXT" --silent --machine 48k \
+               "${SD_CARD_ARGS[@]}" --source-dir "$cs_bad" --delayed-automatic-exit-frames 5 >"$cs_dir/u1.log" 2>&1; then
+            cs_faults+=("U1: --source-dir '$cs_bad' was accepted")
+        else
+            grep -qF -- "--source-dir: DIR must" "$cs_dir/u1.log" || cs_faults+=("U1: --source-dir '$cs_bad' was refused without the reason")
+        fi
+    done
+
+    # --- S2 (GH #420): the Qt-window setting warns where there is no Source tab ---
+    cs_qt "$cs_dir/s2h.log" --headless --source-dir nowhere || cs_faults+=("S2: the --headless --source-dir run did not exit 0")
+    grep -qF "warning: --source-dir has no effect with --headless" "$cs_dir/s2h.log" \
+        || cs_faults+=("S2: no --source-dir warning with --headless")
+
     # --- Q4: the Qt window itself (X11 under Xvfb, Linux only) ---
     cs_legs="Qt, SDL-only"
     if [[ "${JNEXT_TARGET_OS:-linux}" == linux ]]; then
@@ -215,10 +262,13 @@ if want cli-set-func; then
         cs_sdl "$cs_dir/s1c.log" --set startup.window_scale=2 || cs_faults+=("S1: the window_scale run did not exit 0")
         grep -qF "warning: --set startup.window_scale has no effect in the SDL-only build" "$cs_dir/s1c.log" \
             || cs_faults+=("S1: no warning for a Qt-only key in the SDL-only build")
+        cs_sdl "$cs_dir/s2s.log" --source-dir nowhere || cs_faults+=("S2: the SDL-only --source-dir run did not exit 0")
+        grep -qF "warning: --source-dir has no effect in the SDL-only build" "$cs_dir/s2s.log" \
+            || cs_faults+=("S2: no --source-dir warning in the SDL-only build")
     fi
 
     if [[ ${#cs_faults[@]} -eq 0 ]]; then
-        pass_row " ($cs_legs: --set cpu_speed 33, real-time and fast tape, auto play off, silent=false, empty joy1_device = Automatic, the file unchanged after runs that saved it; the later of --cpu-speed and --set wins; SDL-only: cpu speed, tape mode, warning on a Qt-only key)"
+        pass_row " ($cs_legs: --set cpu_speed 33, real-time and fast tape, auto play off, silent=false, empty joy1_device = Automatic, the file unchanged after runs that saved it; the later of --cpu-speed and --set wins; SDL-only: cpu speed, tape mode, warning on a Qt-only key; --source-dir: the manager logs the saved list, repeated options replace it in order, --set and --source-dir combine in argument order, the file keeps the saved list, a bad value exits 1, SDL-only and --headless warn)"
     else
         fail_row " ($(IFS=';'; echo "${cs_faults[*]}"))"
     fi

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.104</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.104</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3747,7 +3747,7 @@ refused whatever you put here, and your own LAN stays reachable.</p>
 <p>Turning the ESP on here does not put a running program on the network — see
 below — and while it <em>is</em> running with the ESP on, the status bar always
 carries an ESP cell, so it can never be on invisibly.</p>
-<p><strong>NextPi</strong> starts NextPi under QEMU with JNEXT, and holds its directory, the release downloaded on first use, the QEMU program, where the Pi's sound goes and extra QEMU arguments; see <a href="../05-running-programs/10-the-raspberry-pi-serial-link.html">5.10</a>.</p>
+<p><strong>NextPi</strong> starts NextPi under QEMU when JNEXT starts the ZX Next, and holds its directory, the release downloaded on first use, the QEMU program, where the Pi's sound goes and extra QEMU arguments; see <a href="../05-running-programs/10-the-raspberry-pi-serial-link.html">5.10</a>.</p>
 <p><strong>Paths</strong> remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
 and where screenshots go. It also holds the two settings <strong>File &gt; Quick
@@ -3755,7 +3755,12 @@ Screenshot</strong> needs, since that capture never asks: the directory it write
 (blank means <code>~/.jnext/screenshots</code>) and whether it writes PNG or SCR. Those
 two are a deliberate choice rather than a memory of the last dialog, so the
 quick capture always lands in the same place. It also sets how many Quick Save snapshots to keep
-(<strong>Unlimited</strong> at 0); <code>--quick-snapshot-keep</code> overrides it.</p>
+(<strong>Unlimited</strong> at 0); <code>--quick-snapshot-keep</code> overrides it. In a build with the
+debugger it also holds the <strong>Source search path</strong>: the directories, one per line,
+where the Source tab looks for the files a source map names when they are not
+beside the map (<a href="../06-debugger/functions/14-source-level-debugging.html">6.1.14</a>);
+a list given with <code>--source-dir</code> or <code>--set paths.source_dirs</code> replaces it for that run (the
+file is not changed).</p>
 <p><strong>Debugger Keys</strong> rebinds the debugger's own keys — see
 <a href="../06-debugger/functions/09-changing-the-keys.html">6.3.9</a>. The tab is only
 present in a build with the debugger compiled in.</p>

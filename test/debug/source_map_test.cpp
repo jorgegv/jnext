@@ -10,6 +10,8 @@
 //              labels, name-only values, nearest(), resolve_key() (GH #375)
 //   SLDL-*     the SLD `L` records into a SymbolTable (GH #375)
 //   Z88FIX-*   the committed z88dk ground-truth fixtures match their manifest
+//   SRCPATH-*  where the Source tab finds the file a record names: the map's
+//              directory first, then the search path (GH #420)
 //
 // Pure: no machine. The looping-link row (SLD-18) needs a symlink, so it is in
 // source_debug_posix_test. Run: ./build/test/source_map_test
@@ -17,6 +19,8 @@
 #include "debug/sld_loader.h"
 #include "debug/source_file.h"
 #include "debug/source_map.h"
+#include "debug/source_search.h"
+#include "debug/z88dk_source_map.h"
 #include "core/sha256.h"
 #include "debug/symbol_table.h"
 
@@ -919,6 +923,156 @@ int main() {
                   !rr && rr.count == -1 && !rr.error.empty() && rr.labels == 1 && l.lookup(p4, 0x8000) == name("ok") &&
                       m.empty() && !r2 && r2.labels == -1 && untouched.size() == 1 &&
                       untouched.lookup(MemSpace::cpu(), 0x1234) == name("keep"));
+        }
+    }
+
+    // ── SRCPATH-01..13 (GH #420): source_search::resolve / root_for ──────
+    // The oracles are the issue (the map's directory and its parents first, the search
+    // path after), the committed z88dk fixture's recorded names, and the z88dk builds
+    // GH #420 inspected (toolchain files absolute, user files relative). Every file is
+    // made under its own subdirectory of `dir`; names are unlike anything in /tmp, since
+    // the map-directory rule walks up to the root.
+    {
+        const fs::path sp = dir / "srcpath";
+        auto mk = [](const fs::path& p) {
+            fs::create_directories(p.parent_path());
+            write_text(p, "x\n");
+            return p;
+        };
+        auto same = [](const std::string& got, const fs::path& want) {
+            std::error_code ec;
+            return !got.empty() && fs::equivalent(got, want, ec);
+        };
+        auto S = [](const fs::path& p) { return p.string(); };
+        using source_search::resolve;
+        using source_search::root_for;
+
+        {
+            const fs::path a = mk(sp / "a1/game/sp_util.c");
+            mk(sp / "d1/game/sp_util.c");
+            check("SRCPATH-01", "an absolute recorded name that exists is returned, although a search "
+                                "directory holds a file with the same trailing components",
+                  same(resolve(S(a), "", {S(sp / "d1")}), a));
+        }
+        {
+            const fs::path near = mk(sp / "b2/build/sp_main.c");
+            mk(sp / "b2/dirs/sp_main.c");
+            check("SRCPATH-02", "a file beside the map wins over a search directory holding it",
+                  same(resolve("sp_main.c", S(sp / "b2/build/prog.map"), {S(sp / "b2/dirs")}), near));
+        }
+        {
+            const fs::path up = mk(sp / "b3/sp_main.c");
+            mk(sp / "b3/dirs/sp_main.c");
+            check("SRCPATH-03", "a file in the map's grandparent wins over a search directory holding it",
+                  same(resolve("sp_main.c", S(sp / "b3/x/y/prog.map"), {S(sp / "b3/dirs")}), up));
+        }
+        {
+            const fs::path t = sp / "b4";
+            const fs::path file = mk(t / "src/sp_main.c");
+            const std::string map = S(t / "v2.4/sccz80-debug/prog.map");
+            check("SRCPATH-04", "the committed fixture's layout (build directory beside src/): found "
+                                "through the search path, not found without it",
+                  same(resolve("sp_main.c", map, {S(t / "src")}), file) &&
+                      resolve("sp_main.c", map, {}).empty());
+        }
+        {
+            const fs::path a = mk(sp / "b5/a/sp_main.c");
+            mk(sp / "b5/b/sp_main.c");
+            check("SRCPATH-05", "two search directories holding the file: the first one given",
+                  same(resolve("sp_main.c", "", {S(sp / "b5/a"), S(sp / "b5/b")}), a));
+        }
+        {
+            mk(sp / "b6/a/sp_util.c");
+            const fs::path deep = mk(sp / "b6/b/game/sp_util.c");
+            check("SRCPATH-06", "the longest matching trailing part beats the directory order: "
+                                "game/sp_util.c is B's game/sp_util.c, not A's sp_util.c",
+                  same(resolve("game/sp_util.c", "", {S(sp / "b6/a"), S(sp / "b6/b")}), deep));
+        }
+        std::string crt_name;
+        {
+            // The name the committed fixture map records for the NEX entry ($8000).
+            auto nex_space = [](uint16_t address) {
+                static const int kPage[8] = {-1, -1, 10, 11, 4, 5, 0, 1};
+                const int slot = address >> 13;
+                return slot < 2 ? MemSpace::rom(0) : MemSpace::page(static_cast<uint16_t>(kPage[slot]));
+            };
+            SourceMap m;
+            const auto rr = load_z88dk_source_map(
+                m, S(fs::path(JNEXT_Z88DK_FIXTURE_DIR) / "v2.4/sccz80-debug/prog.map"), nex_space);
+            const SourceLocation* loc = rr.count > 0 ? m.lookup(MemSpace::page(4), 0x8000) : nullptr;
+            if (loc) crt_name = loc->file;
+            const fs::path rel = "libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4";
+            const fs::path r1 = mk(sp / "b7/inst" / rel);
+            const fs::path r2 = mk(sp / "b7/inst2/z88dk" / rel);   // the normalised name spelt in full
+            check("SRCPATH-07", "the fixture's recorded CRT name (z88dk/lib/config/../..//libsrc/...) is found "
+                                "under an install root holding libsrc/..., and under one holding z88dk/libsrc/... "
+                                "(the name is normalised first)",
+                  loc && crt_name.find("zxn_crt.asm.m4") != std::string::npos &&
+                      same(resolve(crt_name, "", {S(sp / "b7/inst")}), r1) &&
+                      same(resolve(crt_name, "", {S(sp / "b7/inst2")}), r2) &&
+                      resolve(crt_name, "", {}).empty());
+        }
+        {
+            const fs::path rel = "libsrc/_DEVELOPMENT/target/clib_variables.inc";
+            const fs::path f = mk(sp / "b8/inst" / rel);
+            check("SRCPATH-08", "an absolute name from another machine (/opt/z88dk/libsrc/...), absent here, "
+                                "is found under a search directory holding the same libsrc/... tail",
+                  same(resolve("/opt/z88dk/" + rel.generic_string(), "", {S(sp / "b8/inst")}), f));
+        }
+        {
+            mk(sp / "b9/secret/sp_x.c");   // D/../secret/sp_x.c, which a search must not reach
+            const fs::path d = sp / "b9/d";
+            fs::create_directories(d);
+            const bool escaped = !resolve("../secret/sp_x.c", "", {S(d)}).empty();
+            const fs::path inside = mk(d / "secret/sp_x.c");
+            check("SRCPATH-09", "leading .. components never leave a search directory: ../secret/sp_x.c "
+                                "is not found above it, and is found as secret/sp_x.c below it",
+                  !escaped && same(resolve("../secret/sp_x.c", "", {S(d)}), inside));
+        }
+        {
+            const fs::path d = sp / "b10";
+            fs::create_directories(d / "sp_adir.c");
+            check("SRCPATH-10", "nothing anywhere gives an empty answer, and a directory named like the "
+                                "file is not the file",
+                  resolve("sp_nowhere.c", S(sp / "b10/v/prog.map"), {S(d)}).empty() &&
+                      resolve("sp_adir.c", "", {S(d)}).empty() && resolve("", "", {S(d)}).empty());
+        }
+        {
+            const fs::path f = mk(sp / "b11/inst/libsrc/sp_x.asm");
+            check("SRCPATH-11", "a Windows-spelt absolute name (C:/z88dk/libsrc/sp_x.asm), as the store holds "
+                                "it, is found under a search directory on every OS",
+                  same(resolve("C:/z88dk/libsrc/sp_x.asm", "", {S(sp / "b11/inst")}), f));
+        }
+        {
+            const fs::path rel = "libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4";
+            const fs::path inst = sp / "b12/inst";
+            const fs::path crt = mk(inst / rel);
+            const fs::path util = mk(sp / "b12/p/game/sp_util.c");
+            const fs::path top = mk(sp / "b12/p/src/sp_main.c");
+            mk(sp / "b12/sp_main.cpp");
+            const std::string r_crt = root_for(crt_name, S(crt));
+            const std::string r_util = root_for("game/sp_util.c", S(util));
+            const std::string r_top = root_for("sp_main.c", S(top));
+            check("SRCPATH-12", "root_for gives the directory that makes resolve() find the picked file: the "
+                                "install root for the CRT, the project root for game/sp_util.c, src/ for a bare "
+                                "name; a different file name gives none",
+                  same(r_crt, inst) && same(r_util, sp / "b12/p") && same(r_top, sp / "b12/p/src") &&
+                      root_for("sp_main.c", S(sp / "b12/sp_main.cpp")).empty() &&
+                      same(resolve(crt_name, "", {r_crt}), crt) &&
+                      same(resolve("game/sp_util.c", "", {r_util}), util) &&
+                      same(resolve("sp_main.c", "", {r_top}), top));
+        }
+        {
+            const std::string sep(1, source_search::kListSeparator);
+            const std::vector<std::string> dirs = {"/a b", "rel/dir", "/c,d"};
+            const std::string joined = source_search::join_list(dirs);
+            check("SRCPATH-13", "join_list / split_list round-trip with the platform separator; empty text "
+                                "is the empty list and empty entries are dropped",
+                  joined == "/a b" + sep + "rel/dir" + sep + "/c,d" &&
+                      source_search::split_list(joined) == dirs &&
+                      source_search::split_list("").empty() &&
+                      source_search::split_list(sep + "a" + sep + sep + "b" + sep) ==
+                          std::vector<std::string>({"a", "b"}));
         }
     }
 
