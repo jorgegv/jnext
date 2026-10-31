@@ -2914,7 +2914,7 @@ symbols. <code>find_name()</code> tries <code>c_name_to_key_</code> after every 
 nothing else holds it and its own key is the one the C name resolves to (else its assembler name, which is the
 case of a second C module's local <code>_util_inc</code>); <code>shown_name(name)</code> gives the same for a typed name.
 <code>lookup_assembler()</code> keeps the assembler name for text that must assemble. <code>merge()</code> carries <code>c_name_to_key_</code>
-for the names the receiving table does not own, and <code>clear()</code> empties it (rows Z88CN-01..14).
+for the names the receiving table does not own, and <code>clear()</code> empties it (rows Z88CN-01..16).
 <code>MapFormat::NextBuild</code> reads a NextBuild / Boriel ZX Basic <code>Memory.txt</code> (<code>8000: ._Main</code>): the shown name drops the <code>.</code> and the
 compiler's <code>_</code>, and the raw label resolves by name too. <code>SymbolTable::resolve()</code>
 turns an address field's text into an address: hex first (<code>4000</code>, <code>$4000</code>,

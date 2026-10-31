@@ -1481,7 +1481,7 @@ command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
 not C, every compiler and install, banked, ambiguity both file orders, merge, reload, `shown_name()`, the
 invariant over every committed z88dk map, `lookup_assembler()`, the rule per symbol in either file order, two C modules with one name); `source_debug_test` SRCDBG-CN-01;
 `script_events_test` SCRIPT-HOST-CN-01/02; `gdb_rsp_test` GDB-MON-14; `debugger_source_panel_test`
-QCN-01..04; `debugger_verbs_test` QMAP-08; `debugger_disasm_copy_test` DCN-01/02. Ten existing rows asserted
+QCN-01..05; `debugger_verbs_test` QMAP-08; `debugger_disasm_copy_test` DCN-01/02. Ten existing rows asserted
 the shown `_name` of a C symbol and now assert the C name (owner-approved): Z88SYM-01, Z88SYM-04,
 Z88SYM-08, SYM-14, SRCDBG-Z88-01, SRCDBG-SYM-18..22. Two more existing assertions changed, for the same
 reason, and are not yet owner-approved: Z88MAP-15 (shown `_main` is now `main`) and SYM-31 (its "no sjasmplus

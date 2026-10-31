@@ -215,7 +215,7 @@ its own page when it has one, a Call Stack frame the page its target was entered
 in, and a breakpoint dialog keeps the page of a name assembled for one
 (`resolve_key()`). A z88dk C symbol is shown by its C name (`lookup()`, design 10.6); the Disassembly copy
 asks `symbol_namer(..., true)` for the assembler name so the paste still assembles, and the watch dialog
-labels an auto-filled watch with `SymbolTable::shown_name()` (rows QCN-01..04, DCN-01/02, QMAP-08).
+labels an auto-filled watch with `SymbolTable::shown_name()` (rows QCN-01..05, DCN-01/02, QMAP-08); the Source tab's word menu offers the shown name too.
 
 The three Map > Load MAP File items (Z88DK, Simple, sjasmplus) are three handlers
 in `DebuggerManager`, each calling `load_map()` and then `refresh_panels()`. The
