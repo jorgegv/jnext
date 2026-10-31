@@ -4620,9 +4620,9 @@ void test_source_highlight_rules() {
         h.load(SourceLanguage::Asm, QStringLiteral("ld a,1 // c\n/* a\nb\n*/ nop"));
         check("QSRC-128", "sjasmplus comments: // to the end of the line, and /* ... */ across lines, "
                           "after which the code is coloured again",
-              tok(h, 0, QStringLiteral("ld")) == 'K' && tok(h, 0, QStringLiteral("// c")) == 'C' &&
+              tok(h, 0, QStringLiteral("ld")) == 'I' && tok(h, 0, QStringLiteral("// c")) == 'C' &&
                   role_mask(h, 1) == "CCCC" && role_mask(h, 2) == "C" &&
-                  tok(h, 3, QStringLiteral("*/")) == 'C' && tok(h, 3, QStringLiteral("nop")) == 'K');
+                  tok(h, 3, QStringLiteral("*/")) == 'C' && tok(h, 3, QStringLiteral("nop")) == 'I');
     }
     {   // QSRC-129
         Hl h;
