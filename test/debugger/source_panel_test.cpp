@@ -3357,7 +3357,7 @@ void test_source_gutter() {
         check("QSRC-97", "hovering line 11's gutter row sets the tooltip to the line's words, naming "
                          "main.bas:11 and both places with their pages",
               tip == v.sp->line_tooltip(11) && tip.contains(QStringLiteral("main.bas:11")) &&
-                  tip.contains("$8002 @" + hex80) && tip.contains("$9000 @" + hex90),
+                  tip.contains("$8002 P" + hex80) && tip.contains("$9000 P" + hex90),
               s(tip));
 
         // QSRC-86 / QSRC-87: one location removed (the Disassembly gutter's click): a half mark
