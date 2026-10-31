@@ -84,18 +84,20 @@ with status 1.
     *NAME*`.Memory.txt` (or `Memory.txt`), NextBuild / Boriel ZX Basic
     symbols, beside a `.nex`, and *NAME*`.map`, a z88dk map (`-m`),
     beside a `.nex`, `.tap` or `.sna`: its symbols join the others (not
-    when a `Memory.txt` exists), and with `-debug` also its source
-    lines, which attach when there is no SLD. z88dk’s **-create-app**
-    also writes the section binaries (*NAME*`_CODE.bin`, …) that the map
-    is checked against; without them it attaches unverified. Beside a
-    tape (`.tap`, `.tzx`, `.wav`), whose program is not in memory yet, a
-    map that carries a binary identity attaches at once and each memory
-    space it covers is checked the first time the program runs its code
-    there; a space that does not match drops the map and the symbols
-    that came with it, with the reason in the log. A map given with
-    **--map** or loaded by hand is kept over them. A map built for
-    another binary, or a file over 64 MiB, is refused, with the reason
-    in the log.
+    when a `Memory.txt` exists; a symbol of a `BANK_n` or `PAGE_n`
+    section names its address only while its page is mapped, the others
+    take the page mapped at their address when the program is loaded,
+    from tape too), and with `-debug` also its source lines, which
+    attach when there is no SLD. z88dk’s **-create-app** also writes the
+    section binaries (*NAME*`_CODE.bin`, …) that the map is checked
+    against; without them it attaches unverified. Beside a tape (`.tap`,
+    `.tzx`, `.wav`), whose program is not in memory yet, a map that
+    carries a binary identity attaches at once and each memory space it
+    covers is checked the first time the program runs its code there; a
+    space that does not match drops the map and the symbols that came
+    with it, with the reason in the log. A map given with **--map** or
+    loaded by hand is kept over them. A map built for another binary, or
+    a file over 64 MiB, is refused, with the reason in the log.
 
 **--nex-args** *LINE*
 :   Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim
@@ -1100,8 +1102,12 @@ with status 1.
     `--exp` file, told apart by its contents (z88dk’s assembler also
     writes a `.sym`, in the map format), so a script can name an address
     as `@symbol` (an sjasmplus label is `@main.loop`), and the debugger
-    shows the names (the same table **Map \> Load MAP** fills). A file
-    that cannot be loaded, or holds no symbols, is a startup error.
+    shows the names (the same table **Map \> Load MAP** fills). A z88dk
+    map’s symbols take their pages as its source lines do: a banked one
+    only while its page is mapped, the rest in the page mapped at their
+    address when the program is loaded (a map read before **--load**
+    takes them then). A file that cannot be loaded, or holds no symbols,
+    is a startup error.
 
 **--source-map** *FILE*
 :   Attach a source map, an sjasmplus SLD or a z88dk `-debug` `.map`

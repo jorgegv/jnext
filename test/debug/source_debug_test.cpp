@@ -6354,6 +6354,139 @@ int main() {
         }
     }
 
+    // ── GH #375 stage 3: z88dk map symbols take their pages ─────────────────────
+    // Oracle: the fixtures' NEX placement (prog_PAGE_20.bin and prog_BANK_10.bin at NEX
+    // bank 10 +0 = page 20, prog_CODE.bin at bank 2 +0 = page 4), design 9.4 rules 1-4
+    // and 10.4 (one derivation, one binding function), #344 D17 for tapes.
+    {
+        const fs::path sdir = dir / "sym375";
+        const auto nr = [](Machine& m, uint8_t reg, uint8_t v) { m.dbg->nextreg_write(m.a, reg, v); };
+        const auto lookup_at = [](Machine& m, uint16_t a) {
+            return m.dbg->lookup(a).value_or("-");
+        };
+        const auto key_of = [](Machine& m, const char* n) { return m.dbg->symbols().find_name(n); };
+        const auto in_space = [&](Machine& m, const char* n, uint16_t addr, const MemSpace& sp) {
+            const auto k = key_of(m, n);
+            return k && k->addr == addr && k->space && *k->space == sp;
+        };
+        {   // SRCDBG-SYM-18: the issue row
+            const fs::path d = sdir / "s18";
+            z88_copy("v2.4/sccz80-page20", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            nr(m, 0x56, 20);
+            const bool p20 = m.dbg->source_page(0xC000) == MemSpace::page(20);
+            const std::string at20 = lookup_at(m, 0xC000);
+            nr(m, 0x56, 21);
+            const std::string at21 = lookup_at(m, 0xC000);
+            nr(m, 0x56, 0);
+            const std::string at0 = lookup_at(m, 0xC000);
+            const bool p4 = m.dbg->source_page(0x8C62) == MemSpace::page(4);
+            const std::string main4 = lookup_at(m, 0x8C62);
+            nr(m, 0x54, 40);
+            const std::string main40 = lookup_at(m, 0x8C62);
+            check("SRCDBG-SYM-18", "a banked z88dk label names its address only while its page is mapped, and a "
+                                   "code symbol only in the RAM page the program loaded it in",
+                  r.symbols == 10 && p20 && at20 == "_banked_add" && at21 == "-" && at0 == "-" && p4 &&
+                      main4 == "_main" && main40 == "-",
+                  at20 + "/" + at21 + "/" + at0 + " " + main4 + "/" + main40);
+        }
+        {   // SRCDBG-SYM-19
+            const fs::path d = sdir / "s19";
+            z88_copy("v2.4/sccz80-page20", d);
+            const fs::path alone = sdir / "s19alone";
+            fs::create_directories(alone);
+            fs::copy_file(d / "prog.nex", alone / "game.nex", fs::copy_options::overwrite_existing);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            nr(m, 0x54, 40);
+            m.dbg->load_map((d / "prog.map").string(), jnext::dbg::MapFormat::Z88dk);
+            const bool in40 = lookup_at(m, 0x8C62) == "_main";
+            nr(m, 0x54, 4);
+            const bool gone4 = lookup_at(m, 0x8C62) == "-";
+            z88_load(m, alone / "game.nex");
+            const bool premise = m.dbg->source_page(0x8C62) == MemSpace::page(4);
+            const auto r = m.dbg->load_program_sidecars((alone / "game.nex").string());
+            const bool rebound = lookup_at(m, 0x8C62) == "_main" && in_space(m, "_main", 0x8C62, MemSpace::page(4)) &&
+                                 key_of(m, "_main")->bind_at_load;
+            nr(m, 0x54, 40);
+            const bool gone40 = lookup_at(m, 0x8C62) == "-";
+            nr(m, 0x56, 20);
+            const bool b20 = lookup_at(m, 0xC000) == "_banked_add";
+            nr(m, 0x56, 0);
+            const bool b0 = lookup_at(m, 0xC000) == "-";
+            check("SRCDBG-SYM-19", "a map loaded before its program is bound when loaded and again at the program load "
+                                   "(the user's store is kept)",
+                  in40 && gone4 && premise && r.symbols == -1 && rebound && gone40 && b20 && b0);
+        }
+        {   // SRCDBG-SYM-20
+            const fs::path d = sdir / "s20";
+            const std::string tap = tape_copy("v2.4/sccz80-tape", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool premise = m.dbg->source_page(0x8CA1) == MemSpace::page(4);
+            const auto r = m.dbg->load_program_sidecars(tap);
+            const bool live = lookup_at(m, 0x8CA1) == "_main" && in_space(m, "_main", 0x8CA1, MemSpace::page(4));
+            nr(m, 0x54, 40);
+            const bool gone40 = lookup_at(m, 0x8CA1) == "-";
+            const fs::path d2 = sdir / "s20b";
+            const std::string tap2 = tape_copy("v2.4/sccz80-tape", d2, /*bins=*/false);
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            const auto r2 = n.dbg->load_program_sidecars(tap2);
+            check("SRCDBG-SYM-20", "beside a tape the map's symbols are bound at the attach and live while the check "
+                                   "is pending; a map with no identity binds the same way",
+                  premise && r.sources_pending && r.symbols == 19 && m.dbg->source_map_status().pending && live &&
+                      gone40 && !r2.sources_pending && in_space(n, "_main", 0x8CA1, MemSpace::page(4)));
+        }
+        {   // SRCDBG-SYM-21
+            const fs::path d = sdir / "s21";
+            tape_copy("v2.4/sccz80-tape", d);
+            const fs::path alone = sdir / "s21alone";
+            fs::create_directories(alone);
+            write_text(alone / "game.tap", "");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            nr(m, 0x54, 40);
+            m.dbg->load_map((d / "prog.map").string(), jnext::dbg::MapFormat::Z88dk);
+            const bool in40 = in_space(m, "_main", 0x8CA1, MemSpace::page(40));
+            nr(m, 0x54, 4);
+            m.dbg->load_program_sidecars((alone / "game.tap").string());
+            const bool in4 = in_space(m, "_main", 0x8CA1, MemSpace::page(4)) && lookup_at(m, 0x8CA1) == "_main";
+            nr(m, 0x54, 40);
+            check("SRCDBG-SYM-21", "the user's map is rebound at a tape load",
+                  in40 && in4 && lookup_at(m, 0x8CA1) == "-");
+        }
+        {   // SRCDBG-SYM-22
+            const fs::path d = sdir / "s22";
+            z88_copy("master/sdcc-banked-run", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            const auto run_to = [&](uint16_t addr) {
+                const auto id = m.dbg->subscribe(m.a, execute_stop(addr)).value;
+                m.dbg->run(m.a);
+                for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+                m.dbg->unsubscribe(m.a, id);
+                return m.dbg->state().paused && m.pc() == addr;
+            };
+            const bool s1 = run_to(0x8CAE);
+            const MemSpace before = m.dbg->source_page(0xC000);
+            const bool premise1 = !(before == MemSpace::page(20)) && m.dbg->source_page(0x8CAE) == MemSpace::page(4);
+            const bool main_named = lookup_at(m, 0x8CAE) == "_main" && lookup_at(m, 0xC000) == "-";
+            const bool s2 = run_to(0xC000);
+            const bool in20 = m.dbg->source_page(0xC000) == MemSpace::page(20) &&
+                              lookup_at(m, 0xC000) == "_banked_add" && m.dbg->lookup_name("_banked_add") == 0xC000;
+            const bool s3 = run_to(0x8CBE);
+            const bool out = m.dbg->source_page(0xC000) == before && lookup_at(m, 0xC000) == "-";
+            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: _banked_add (a 24-bit $14C000 "
+                                   "in the map) names $C000 only while banked_call has page 20 mapped",
+                  r.symbols == 9 && has(log, "(program identity verified)") && s1 && premise1 && main_named && s2 &&
+                      in20 && s3 && out,
+                  log);
+        }
+    }
+
     fs::remove_all(dir);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

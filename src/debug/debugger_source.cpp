@@ -494,12 +494,15 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     SourceMap zsrc;
     SourceMapLoadResult zparsed;
     int zn = -1;
+    // The ONE function that places a rule-4 record or symbol (design 9.4, 10.4):
+    // the RAM page the MMU maps at its address now, as `source_page()` answers.
+    // A tape binds at the load call too (#344 D17).
+    const SymbolSpaceOf fetch_space = [this](uint16_t a) { return impl_->emu.predict_fetch(a); };
     if (zpath) {
         zn = zsyms.load_z88dk_map(zpath->string());
+        zsyms.bind(fetch_space);
         if (parsed.file.empty())
-            zparsed = load_z88dk_source_map(zsrc, zpath->string(), [this](uint16_t a) {
-                return impl_->emu.predict_fetch(a);
-            });
+            zparsed = load_z88dk_source_map(zsrc, zpath->string(), fetch_space);
         else
             zparsed.count = 0;   // the SLD speaks for the source half
     }
@@ -520,6 +523,9 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     // sidecar symbols never survive into a program they do not describe —
     // not when it has no symbol sidecar, and not when its Memory.txt is unusable.
     if (impl_->symbols_owner == Owner::User) {
+        // The user's map (`--map`, Load MAP) takes its rule-4 pages at every
+        // program load, whatever sidecars exist (design 9.4).
+        impl_->symbols.bind(fetch_space);
         if (memory)
             log->info("Kept the loaded symbols '{}'; not loading '{}'",
                       impl_->symbols.loaded_file(), memory->string());

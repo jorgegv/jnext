@@ -9,6 +9,10 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
   never name an address in the views below. A name the file defines twice
   takes its first definition; a name that is both an address and a constant
   is the address.
+  A symbol of a banked section (`BANK_n`, `PAGE_n`, and classic z88dk's
+  `$AC000` form) names its address only while that page is mapped there; the
+  other symbols are tied to the page mapped at their address when the map or
+  the program is loaded.
   A map built with `zcc -debug` is accepted: its per-line markers
   (`__C_LINE_…`, `__ASM_LINE_…`) and C debug records (`__CDBINFO__…`) are
   not symbols and are ignored, so the function labels keep their addresses.
@@ -50,7 +54,9 @@ or `--exp` file. It tells them apart by the file's first line, not by its name
 (z88dk's assembler also writes a `.sym`, in the map format). A file sjasmplus
 wrote starts with a symbol line; one edited to start with a comment is read as
 a z88dk map, so load it with **Map ▸ Load MAP File** instead. A script names a
-symbol as `@name`, an sjasmplus label with its dots as `@main.loop`: see
+symbol as `@name`, an sjasmplus label with its dots as `@main.loop`. A z88dk
+map read before `--load` takes its page-bound symbols again at the program
+load: see
 [Symbols](../scripting/04-reading-the-machine.md#symbols-name).
 
 NextBuild / Boriel ZX Basic programs come with a `Memory.txt` instead, which

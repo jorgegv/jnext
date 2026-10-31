@@ -3791,18 +3791,20 @@ its address only while that page is mapped), beside any program,
 <em>NAME</em><code>.Memory.txt</code> (or <code>Memory.txt</code>), NextBuild / Boriel ZX Basic
 symbols, beside a <code>.nex</code>, and <em>NAME</em><code>.map</code>, a z88dk map (<code>-m</code>),
 beside a <code>.nex</code>, <code>.tap</code> or <code>.sna</code>: its symbols join the others (not
-when a <code>Memory.txt</code> exists), and with <code>-debug</code> also its source
-lines, which attach when there is no SLD. z88dk’s <strong>-create-app</strong>
-also writes the section binaries (<em>NAME</em><code>_CODE.bin</code>, …) that the map
-is checked against; without them it attaches unverified. Beside a
-tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>), whose program is not in memory yet, a
-map that carries a binary identity attaches at once and each memory
-space it covers is checked the first time the program runs its code
-there; a space that does not match drops the map and the symbols
-that came with it, with the reason in the log. A map given with
-<strong>--map</strong> or loaded by hand is kept over them. A map built for
-another binary, or a file over 64 MiB, is refused, with the reason
-in the log.</p>
+when a <code>Memory.txt</code> exists; a symbol of a <code>BANK_n</code> or <code>PAGE_n</code>
+section names its address only while its page is mapped, the others
+take the page mapped at their address when the program is loaded,
+from tape too), and with <code>-debug</code> also its source lines, which
+attach when there is no SLD. z88dk’s <strong>-create-app</strong> also writes the
+section binaries (<em>NAME</em><code>_CODE.bin</code>, …) that the map is checked
+against; without them it attaches unverified. Beside a tape (<code>.tap</code>,
+<code>.tzx</code>, <code>.wav</code>), whose program is not in memory yet, a map that
+carries a binary identity attaches at once and each memory space it
+covers is checked the first time the program runs its code there; a
+space that does not match drops the map and the symbols that came
+with it, with the reason in the log. A map given with <strong>--map</strong> or
+loaded by hand is kept over them. A map built for another binary, or
+a file over 64 MiB, is refused, with the reason in the log.</p>
 </dd>
 <dt><strong>--nex-args</strong> <em>LINE</em></dt>
 <dd>Argument line for a NEX <strong>V1.3</strong> program. <em>LINE</em> is placed, verbatim
@@ -4692,8 +4694,12 @@ frontend.</dd>
 <code>--exp</code> file, told apart by its contents (z88dk’s assembler also
 writes a <code>.sym</code>, in the map format), so a script can name an address
 as <code>@symbol</code> (an sjasmplus label is <code>@main.loop</code>), and the debugger
-shows the names (the same table <strong>Map &gt; Load MAP</strong> fills). A file
-that cannot be loaded, or holds no symbols, is a startup error.</dd>
+shows the names (the same table <strong>Map &gt; Load MAP</strong> fills). A z88dk
+map’s symbols take their pages as its source lines do: a banked one
+only while its page is mapped, the rest in the page mapped at their
+address when the program is loaded (a map read before <strong>--load</strong>
+takes them then). A file that cannot be loaded, or holds no symbols,
+is a startup error.</dd>
 <dt><strong>--source-map</strong> <em>FILE</em></dt>
 <dd>Attach a source map, an sjasmplus SLD or a z88dk <code>-debug</code> <code>.map</code>
 (told apart by its contents), to the program <strong>--load</strong> loads, as if
