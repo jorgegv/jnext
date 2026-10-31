@@ -1220,7 +1220,8 @@ The disassembly asks with each line's identity (the PC line predicted, other lin
 space that supplies it now. A paged name gives its space to a consumer that can carry one (an
 Execute breakpoint or `on execute @name` stops only in that space, as a source-line breakpoint
 does); a consumer that cannot gets the 16-bit address (4.6's rule). The verbs' signatures, the
-UI, and the rule for a name already used at another key are E23-24's.
+UI, and the rule for a name already used at another key are E23-24's. After both layers, the
+toolchain layer's by-name read also answers to the C name of a z88dk C symbol (10.6).
 
 ### 10.4 Page rules per adapter
 
@@ -1262,6 +1263,36 @@ UI, and the rule for a name already used at another key are E23-24's.
   line, and only then is the user layer replaced. An unknown record kind or version is refused.
 - Opened and saved by the user (a menu action); never attached automatically beside a program;
   not part of `.jns`.
+
+### 10.6 C names (E23-31, #424)
+
+z88dk's compilers write every C identifier with a leading `_` (sccz80 `Z80ASM_PREFIX`; sdcc and 80cc
+the same), so the map lists `_counter` for `int counter;`. The user types and reads `counter`.
+
+- **Which symbols (D1).** A `; addr` symbol that was placed, whose name is `_` followed by a
+  character other than `_`, and whose module ends in `_c`. zcc heads every file it assembles with
+  `MODULE <file name, non-alphanumerics to _>` (`zcc.c`), so a `.c` file is `<file>_c` and an `.asm`
+  file `<file>_asm`; every fixture, compiler and install agrees, with or without `-debug`. Constants,
+  `__x`, module-less lines and other modules are not C. Rejected: every `_x` (it would rename
+  C-callable asm such as `_asm_bump`, the library's `_memset`, an asm program's own `_loop`), the
+  location field (it varies by compiler and flags), the CDB records alone (absent without `-debug`).
+  Known limit: C compiled from `.c.m4` or `.i` has another module name and keeps its assembler names
+  (they still resolve). The owner may prefer that asm functions callable from C also answer to `x`.
+- **Where (D8).** `SymbolTable` holds the assembler names of the C symbols that own their name
+  (`c_symbols_`, filled by the one z88dk reader, so the sidecar, Load MAP and `--map` all get it).
+  `find_name()` falls back to `"_" + name` after every exact name and constant; `lookup()`/`nearest()`
+  return `shown_name()`. No panel has code of its own, except the Disassembly copy and the watch label.
+- **Ambiguity (D2).** An exact name always wins, in any load or merge order. A C symbol whose C name
+  belongs to something else is shown by its assembler name, so every shown name resolves to the symbol
+  it labels. Storing the C names as aliases was rejected: the map is sorted by name, `_counter` comes
+  before `counter`, and first-wins would let the alias beat the real symbol.
+- **Copy (D4).** The Disassembly copy writes the assembler name (`lookup_assembler()`, through
+  `symbol_namer(..., true)`): the user guide promises that a copy assembles, and z88dk's assembler knows
+  `_counter`, not `counter`. The painter and the context menu show the C name.
+- **Views (D3, D5).** Only the C name is shown (as `Memory.txt` does for Boriel); an auto-filled watch
+  label is the shown name.
+- **Not touched (D7).** SLD, sjasmplus `--sym`/`--exp`, simple maps and `Memory.txt`. The CDB reader
+  (#350) should reuse `c_symbols_`: its records give the C names directly.
 
 ## 11. Coverage and reverse-engineering interop
 
@@ -1438,6 +1469,14 @@ QSRC-66..78 (the fixture map in `build/` with its sources in `src/`, Locate File
 and a wrong name, the z88dk `.m4` message, the past-the-end message, the lazy window, the located
 directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..06 (file,
 command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
+
+**E23-31 (#424), C names.** `z88dk_map_test` Z88CN-01..11 (resolve under every binding, shown names, what is
+not C, every compiler and install, banked, ambiguity both file orders, merge, reload, `shown_name()`, the
+invariant over every committed z88dk map, `lookup_assembler()`); `source_debug_test` SRCDBG-CN-01;
+`script_events_test` SCRIPT-HOST-CN-01/02; `gdb_rsp_test` GDB-MON-14; `debugger_source_panel_test`
+QCN-01..04; `debugger_verbs_test` QMAP-08; `debugger_disasm_copy_test` DCN-01/02. Ten existing rows asserted
+the shown `_name` of a C symbol and now assert the C name (owner approval pending): Z88SYM-01, Z88SYM-04,
+Z88SYM-08, SYM-14, SRCDBG-Z88-01, SRCDBG-SYM-18..22.
 
 **Row IDs are global**: the duplicate-ID gate refuses a reuse. IDs written into a sub-issue's
 text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRCDBG-SIDE-12`,

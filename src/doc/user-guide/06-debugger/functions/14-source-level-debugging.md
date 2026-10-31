@@ -252,7 +252,7 @@ disassembly gutter removes only that place. A line with no code is refused with 
 gutter sets or clears the same breakpoint on the line shown, and removing one place in the
 disassembly leaves a half mark on the Source tab's line. A number wins over a symbol: `FE` or `B` is that
 address even when the program has a variable called `FE` or `B`. Write `@FE`
-to mean the symbol. A breakpoint on a line of banked code is tied to
+to mean the symbol (a z88dk C variable takes its C name: `counter`, not `_counter`). A breakpoint on a line of banked code is tied to
 the memory that supplies it (shown as `$C000 @2E` for a RAM page): it fires only
 while that memory supplies the address, and the disassembly gutter shows it only then.
 
@@ -283,6 +283,10 @@ module, the end of its section, 1 KB or the end of its 8K page, whichever comes
 first. Two lines that start at the same address are one range owned by the
 later line, and the earlier one is its alias if both are in the same function
 (the compiler put them there); otherwise the earlier line has no code.
+
+C names: `counter` works wherever `_counter` does (the compiler adds the `_`):
+in the Add dialogs, Go to Address and a script's `@counter`, and the views show
+`counter`; see [Symbols from MAP files](05-symbols-from-z88dk-map-files.md).
 
 What z88dk and the library can do changes the result:
 

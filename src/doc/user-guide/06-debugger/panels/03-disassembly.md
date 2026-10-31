@@ -50,6 +50,9 @@ $8003  00           NOP
 $8004  CD 00 80     CALL entry
 ```
 
+A z88dk C symbol is painted by its C name (`counter`) but copied by its
+assembler name (`_counter`), so the pasted text still assembles.
+
 Right-clicking inside the selection keeps it; right-clicking outside collapses
 it onto the line you clicked, so **Copy** on a line you have not selected
 copies that one line. Both chords only apply while the disassembly panel has

@@ -309,6 +309,12 @@ are dropped by the loader, so they never name an address or resolve by name.
 over the size cap before opening it, with the table untouched, and say why
 through their optional `why` argument; a file that merely fails to open leaves it
 empty (rows Z88MAP-27).
+A symbol of a z88dk C module (`; addr`, name `_x`, module `<file>_c`; design 10.6) also has a C name. The
+loader records the assembler names that own their name in `c_symbols_`; `find_name()` tries `"_" + name`
+after every exact name and constant (so `resolve()`, `resolve_key()` and `lookup_name()` take `counter`),
+`shown_name()` gives the C name unless something else holds it, and `lookup()`/`nearest()` return it.
+`lookup_assembler()` keeps the assembler name for text that must assemble. `merge()` carries `c_symbols_`
+for the names the receiving table does not own, and `clear()` empties it (rows Z88CN-01..11).
 `MapFormat::NextBuild` reads a NextBuild / Boriel ZX Basic `Memory.txt` (`8000: ._Main`): the shown name drops the `.` and the
 compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
 turns an address field's text into an address: hex first (`4000`, `$4000`,

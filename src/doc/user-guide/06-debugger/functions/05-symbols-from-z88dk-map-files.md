@@ -16,6 +16,15 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
   A map built with `zcc -debug` is accepted: its per-line markers
   (`__C_LINE_…`, `__ASM_LINE_…`) and C debug records (`__CDBINFO__…`) are
   not symbols and are ignored, so the function labels keep their addresses.
+  **C names:** a C global or function (`int counter;` is `_counter` in the
+  map, because the compiler prefixes every C name with `_`) also answers to its
+  C name wherever you type an address or symbol (`counter`, `@counter`), and
+  every view shows it as `counter`. Only the symbols of a C module count (the
+  map's module column ends in `_c`, as `main_c` for `main.c`): assembler labels
+  keep their names, `_asm_bump` of an `.asm` file included, and so do names
+  that start with two underscores. A real `counter` in the table wins: the C
+  one is then shown as `_counter`. The disassembly *copy* writes the assembler
+  name (`LD HL,_counter`), so the pasted text still assembles.
 - **Simple Format (48K ROM)…** — plain `NAME = $ADDR` lines, one per line,
   `;` for comments.
 - **sjasmplus Format (--sym, --exp)…** — the symbol file sjasmplus writes with
