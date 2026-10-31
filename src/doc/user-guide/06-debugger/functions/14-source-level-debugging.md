@@ -166,9 +166,12 @@ directory (the one holding `libsrc/` and `include/`) to the search path, or
 locate one of its files: one pick covers every file under it.
 
 The start-up code (`zxn_crt.asm.m4`, which holds the program's first
-instruction) cannot be shown. z88dk numbers its lines in the output of the `m4`
-macro processor, which the build does not keep, so no file on disk has them. The
-tab says so and you use the disassembly there.
+instruction) has no file on disk to show: z88dk numbers its lines in the output of
+the `m4` macro processor, which the build does not keep. When the program was
+built with `--list`, the listing `prog.lis` beside the map holds that text, and
+the tab shows it, labelled `(m4 output, from prog.lis)`; the `.inc` files the
+start-up code includes are ordinary files, found as any other. Without the
+listing the tab says so and you use the disassembly there.
 
 A program loaded or reloaded (**Alt+L**) while the machine is paused leaves it
 paused: a paused machine stays paused, at the new program counter. A NEX file
@@ -287,7 +290,7 @@ What z88dk and the library can do changes the result:
 | compiler / library | z88dk 2.4 | z88dk master (from 2026-04) |
 |---|---|---|
 | sccz80 newlib | `zcc +zxn -clib=new -debug -m -create-app -subtype=nex`: works, but part of a statement can show on the next line | works |
-| sdcc newlib | `-debug` fails to build: no source lines from the map | `-clib=sdcc_iy -debug -m -create-app`: works, header code may show the wrong line |
+| sdcc newlib | `-debug` fails to build: no source lines from the map; `--c-code-in-asm --list` gives them from the listings | `-clib=sdcc_iy -debug -m -create-app`: works, header code may show the wrong line |
 | 80cc | not available | `-compiler=80cc -clib=new -debug`: works (some lines are shared, e.g. 19 and 20 in the fixture) |
 | classic | `-debug` fails | fails |
 
@@ -309,9 +312,16 @@ What z88dk and the library can do changes the result:
 - **DivMMC sections** (`DIV_n`) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.
 - **`--list` listings beside the map**: with `--list`, z88dk writes a z80asm
-  listing for each source (`main.c.lis`, `prog.lis`) and JNEXT can read them. A
-  listing that cannot be followed is dropped, with a note, and its module
-  keeps the map's lines: that covers a section switched inside an `IF` branch
+  listing for each source (`main.c.lis`, `prog.lis`) and JNEXT reads the ones
+  beside the map by itself (the log says `and 4 listings`; Load Source Map...
+  says `with 4 z88dk listings`). They add every assembly line, every address of
+  a C line, exact instruction extents and the start-up code's text; on z88dk
+  2.4, where sdcc's `-debug` does not build, `zcc +zxn -clib=sdcc_iy
+  --c-code-in-asm --list -m -create-app` gives sdcc's C lines from the
+  listings alone. sccz80 without `-debug` marks only the start of each
+  function. Code in a `PHASE` block is not placed. A listing that cannot be
+  followed is dropped, with a note (rebuild with `--list`, or delete stale
+  `.lis` files), and its module keeps the map's lines: that covers a section switched inside an `IF` branch
   the listing cannot judge, a macro or `REPT` body that switches section, and
   a listing that does not match the map or the section binaries. Classic
   builds have no section binaries, so their placement rests on the labels of
