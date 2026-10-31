@@ -343,12 +343,13 @@ bool QtApp::init(int argc, char* argv[]) {
     // (post_frames() below). platform/debug_servers.h.
     if (!debug_servers_.start(*debugger_, config_)) return false;
     // ── end GH #12 ──────────────────────────────────────────────────────────
-    // GH #351 - --source-map without --load: the map of a z88dk dot command, attached
+    // GH #351 - --source-map without --load (or with an RZX replay): the map of a z88dk dot command, attached
     // now (before the scripts, so a `file:line` rule resolves) and pending until the
     // guest runs the command. Any other map needs a program: refused.
-    if (!config_.source_map_file.empty() && config_.load_file.empty()) {
+    if (!config_.source_map_file.empty() && config_.source_map_no_program != 0) {
         const auto sm = emulator_attach_cli_source_map(
-            *debugger_, config_.source_map_file, /*deferred=*/false, /*dot_only=*/true);
+            *debugger_, config_.source_map_file, /*deferred=*/false, /*dot_only=*/true,
+            /*rzx=*/config_.source_map_no_program == 2);
         if (!sm.ok) {
             Log::platform()->error("{}", sm.line);
             return false;

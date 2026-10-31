@@ -137,16 +137,27 @@ struct Debugger::Impl {
         bool noted          = false;   ///< the 'not the one' line was told, still pending
         enum class DotEvent : uint8_t { None, Verified, NotTheOne } dot_event = DotEvent::None;
         std::vector<SourceMap::VerifySpan> held;   ///< spans of the units not armed yet
+        /// The state after each change, by clock cycle and load generation (see
+        /// `dot_record()`): what a ring landing reads back.
+        struct DotSnap {
+            uint64_t gen = 0, cycle = 0;
+            bool entry_ok = false;
+            std::vector<FetchSource> units;
+            std::vector<SourceMap::VerifySpan> spans, held;
+        };
+        std::vector<DotSnap> history;
     };
+    static constexpr size_t kDotHistoryMax = 256;
+    void dot_record(DeferredCheck& c);
+    void dot_adopt();
     /// The DivMMC unit of a dot command's map, judged at its entry.
     static FetchSource dot_entry_unit();
     /// Back to "waiting for the entry": every unit to judge, the others not armed.
     static void dot_reset(DeferredCheck& c);
     /// The entry matched: the DivMMC unit is done, the other units are armed.
     static void dot_match(DeferredCheck& c);
-    /// A landing: the dot's state is where the CPU is now (verified only when it is
-    /// fetching from the dot's bank and the bank holds this command).
-    void dot_landing();
+    /// A landing: fresh = pending; a ring landing = what the original run showed at that cycle.
+    void dot_landing(bool fresh);
     std::vector<DeferredCheck> checks;
     bool verify_due = false;           ///< the hook judged a unit since recheck() last ran
     void add_check(const SourceMap& map, bool user, bool sources, bool symbols);

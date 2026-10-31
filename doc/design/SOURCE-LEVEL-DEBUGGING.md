@@ -847,10 +847,20 @@ Two tiers. (The clock-based model, `sidecar_attach_cycle`, is gone.)
 
 3. **Dot commands (E23-21 (#351)).** A landing never drops or stales a dot map (6.2): a reset puts
    the CPU elsewhere and NextZXOS's own boot resets the machine long before the user types the
-   command. At every landing, fresh or a ring restore, the dot map is verified exactly when the
-   CPU is fetching from the dot's bank (`DivMmcRam{2}`) and the bank's bytes match, and pending
-   otherwise (its other units not armed); the ring needs no cached copy of the check, since the
-   state is derived from the machine the landing restored.
+   command. A FRESH landing (reset, state load, program load, cold boot) starts a new history and
+   leaves the map pending until the next entry. A RING landing reads back what the original run
+   showed at that instant: the check records its state (entry verdict, units still to judge) with
+   the clock cycle and load generation at each change, and a landing to cycle T takes the last
+   record of that generation strictly before T (a verdict at C applies to the instruction about to
+   run at C, which a landing at C has not run), else pending. So a rewind into a dotx's main part, or
+   into a plain dot's code outside bank 2, shows the map verified, as it was, and one to before
+   the entry shows it pending. A hand load of a dot map made while the CPU is already running
+   inside the command (paused in bank 2 with the bytes matching) judges like a landing at that
+   point: verified. A re-run of the same cycles replaces what the first run recorded from there
+   on; the history is capped at 256 records (the oldest go, so a landing older than the oldest
+   reads pending). Known limit: a record for a future that was abandoned by running on after a
+   rewind, with no entry or unit verdict in the replay, stays until a later verdict at an earlier
+   cycle replaces it.
 
 How it is built:
 

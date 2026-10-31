@@ -107,17 +107,21 @@ struct CliSourceMapResult {
 /// `dot_only` (GH #351): there is no `--load`, so only a z88dk dot command's map is
 /// accepted; it attaches pending (the guest loads the command when it is typed) and is
 /// judged when the command starts. Any other map is refused: no program to judge it by.
+/// `rzx`: the refusal names the RZX replay (--rzx-play, --load R.rzx).
 template <typename Dbg>
 inline CliSourceMapResult emulator_attach_cli_source_map(Dbg& dbg, const std::string& file,
                                                          bool deferred = false,
-                                                         bool dot_only = false) {
+                                                         bool dot_only = false,
+                                                         bool rzx = false) {
     const auto r = dbg.load_source_map(file, /*accept_identity_mismatch=*/false, deferred, dot_only);
     CliSourceMapResult out;
     out.ok = r.count >= 0;
     out.pending = out.ok && r.pending;
     if (r.not_dot) {
-        out.line = "--source-map requires --load FILE, or the map of a z88dk dot command: '" +
-                   file + "' is not one";
+        out.line = rzx ? "--source-map with an RZX replay accepts only the map of a z88dk dot command: '" +
+                             file + "' is not one"
+                       : "--source-map requires --load FILE, or the map of a z88dk dot command: '" +
+                             file + "' is not one";
         return out;
     }
     out.line = "--source-map '" + file + "': " +

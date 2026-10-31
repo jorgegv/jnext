@@ -370,7 +370,7 @@ zcc +zxn -subtype=dot -clib=new -debug -m --list -create-app -o prog dot.c dutil
 2. Start JNEXT with the map and **no** `--load`: `jnext --source-map prog.map` (or **Load
    Source Map...** in the debugger). The map attaches at once and says *Source map not
    verified yet: it is checked when the dot command runs*.
-3. Set `dot.c:8` in the Breakpoints panel (or in a script), and type `.prog` at the NextZXOS
+3. Set `dot.c:8` in the Breakpoints panel, and type `.prog` at the NextZXOS
    prompt. The machine stops inside the command, and the Source tab, **Into / Over / Out**
    and the Call Stack work in `dot.c` as for any program.
 
@@ -388,4 +388,6 @@ pending again.
 from `extra/PROG.X` by the command) is checked when it first runs (the crt needs `CLEAR
 32767` first). `-subtype=dotn` is not supported: its main bank is a set of pages NextZXOS
 allocates when the command runs, so the map cannot place them; build it as a dotx to debug it.
-Any other map without `--load` is refused (exit status 1).
+Any other map without `--load` is refused (exit status 1). The same holds for an RZX replay
+(`--rzx-play R` or `--load R.rzx`): a dot command's map attaches pending as above, any other map is
+refused at start-up, saying so (exit status 1).

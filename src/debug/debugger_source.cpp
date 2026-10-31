@@ -204,17 +204,62 @@ void Debugger::Impl::dot_match(DeferredCheck& c) {
     c.noted    = false;
 }
 
-void Debugger::Impl::dot_landing() {
+// The check's state at the clock now, kept so a ring landing can read back what the
+// original run showed (design 6.5(3)). Per generation; a re-run of the same cycles
+// replaces what the first run recorded from there on; at most kDotHistoryMax kept
+// (the oldest go: a landing older than the oldest reads pending).
+void Debugger::Impl::dot_record(DeferredCheck& c) {
+    const uint64_t cycle = emu.clock().get();
+    const uint64_t gen   = ds().load_generation();
+    c.history.erase(std::remove_if(c.history.begin(), c.history.end(),
+                                   [&](const DeferredCheck::DotSnap& h) {
+                                       return h.gen == gen && h.cycle >= cycle;
+                                   }),
+                    c.history.end());
+    c.history.push_back({gen, cycle, c.entry_ok, c.units, c.spans, c.held});
+    if (c.history.size() > kDotHistoryMax)
+        c.history.erase(c.history.begin(),
+                        c.history.begin() + static_cast<std::ptrdiff_t>(c.history.size() - kDotHistoryMax));
+}
+
+// A landing. A fresh one (reset, state load, program load, cold boot) puts the CPU
+// elsewhere and starts a new history: pending until the next entry. A ring landing
+// restores what the original run showed at the landed cycle: the last verdict strictly
+// before it in this generation (a verdict at cycle C applies to the instruction about to
+// run at C, which a landing at C has not run), else pending.
+void Debugger::Impl::dot_landing(bool fresh) {
+    const uint64_t gen   = ds().load_generation();
+    const uint64_t cycle = emu.clock().get();
     for (auto& c : checks) {
         if (!c.dot || !c.user) continue;
-        // A reset or load puts the CPU elsewhere; a state load or a rewind may put it
-        // inside the dot. The map is verified exactly when it is fetching from the dot's
-        // bank and the bank holds this command.
+        if (fresh) c.history.clear();
+        std::vector<DeferredCheck::DotSnap> keep;
+        keep.swap(c.history);
         dot_reset(c);
+        c.history.swap(keep);
+        if (fresh) continue;
+        const DeferredCheck::DotSnap* last = nullptr;
+        for (const auto& h : c.history)
+            if (h.gen == gen && h.cycle < cycle && (!last || h.cycle >= last->cycle)) last = &h;
+        if (!last) continue;
+        c.entry_ok = last->entry_ok;
+        c.units    = last->units;
+        c.spans    = last->spans;
+        c.held     = last->held;
+    }
+}
+
+// A hand load of a dot map judges like a landing at this point: verified when the CPU is
+// fetching from the dot's bank and the bank holds this command.
+void Debugger::Impl::dot_adopt() {
+    for (auto& c : checks) {
+        if (!c.dot || !c.user) continue;
         const uint16_t pc = emu.cpu().get_registers().PC;
-        if (emu.predict_fetch(pc) != dot_entry_unit()) continue;
-        const std::optional<bool> id = verify_identity_unit(*c.map, dot_entry_unit());
-        if (id && *id) dot_match(c);
+        if (emu.predict_fetch(pc) == dot_entry_unit()) {
+            const std::optional<bool> id = verify_identity_unit(*c.map, dot_entry_unit());
+            if (id && *id) dot_match(c);
+        }
+        dot_record(c);
     }
 }
 
@@ -270,6 +315,8 @@ void Debugger::Impl::verify_hook(uint16_t pc) {
     const MemSpace here = emu.predict_fetch(pc);
     bool any = false;
     for (auto& c : checks) {
+        const bool   was_ok    = c.entry_ok;
+        const size_t was_units = c.units.size();
         // GH #351 - a dot command is judged where it starts (design 6.2).
         if (c.dot && pc == kDotEntry && here == dot_entry_unit()) {
             const std::optional<bool> id = verify_identity_unit(*c.map, dot_entry_unit());
@@ -309,6 +356,7 @@ void Debugger::Impl::verify_hook(uint16_t pc) {
             c.judged.push_back(unit);
         }
         any = any || !hit.empty();
+        if (c.dot && !c.mismatch && (c.entry_ok != was_ok || c.units.size() != was_units)) dot_record(c);
     }
     if (any) {
         verify_due = true;
@@ -460,6 +508,7 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     impl_->source_reason.clear();
     if (defer) {
         impl_->add_check(impl_->source_map, /*user=*/true, /*sources=*/true, /*symbols=*/false);
+        if (impl_->source_map.dot()) impl_->dot_adopt();
         impl_->sync_verify_window();
     }
     out.pending = impl_->sources_pending();
@@ -876,7 +925,7 @@ void Debugger::Impl::recheck() {
         if (source_map.dot()) {
             // GH #351: a dot command's map is never judged whole from memory, nor made
             // stale by a landing - the guest loads the command when it is typed. Its
-            // checks are re-armed by dot_landing() below.
+            // checks are re-derived by dot_landing() below.
             user_sources_gen   = g;
             user_sources_stale = false;
             source_reason.clear();
@@ -909,7 +958,7 @@ void Debugger::Impl::recheck() {
     if (landing_pending || ring_pending) {
         const bool fresh = landing_pending && g == generation_counter;
         landing_pending = ring_pending = false;
-        if (sources_owner == StoreOwner::User && source_map.dot()) dot_landing();
+        if (sources_owner == StoreOwner::User && source_map.dot()) dot_landing(fresh);
         if (fresh) {
             // Tier 2: a program, snapshot, RZX or reset put this machine here.
             if (symbols_owner == StoreOwner::Sidecar || sources_owner == StoreOwner::Sidecar) {

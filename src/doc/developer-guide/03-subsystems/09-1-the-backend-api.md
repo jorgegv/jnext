@@ -451,7 +451,7 @@ once at start-up, before `ScriptHost::start()`, with `dot_only`: only a z88dk do
 `SourceMapLoad::not_dot` (`main.cpp` still refuses it with `--rzx-play`). A dot map always
 attaches pending, whatever `verify_at_first_execution` says, and is judged at its entry (the CPU
 about to execute `$2000` fetched from `DivMmcRam{2}`, `kNextZxosDotBank`): see the design, 6.2
-and 6.5; `DeferredCheck::dot` carries it, `SourceMapStatus::dot` tells the Source tab. `peek`
+and 6.5; `DeferredCheck::dot` carries it, `SourceMapStatus::dot` tells the Source tab. The check keeps a capped history of its state by clock cycle and generation (`dot_record()`): a ring landing reads back the state the original run had at that cycle (`dot_landing()`), a fresh landing leaves it pending, and a hand load judges like a landing (`dot_adopt()`). `--source-map` with `--rzx-play` / `--load R.rzx` is the no-`--load` case (`EmulatorConfig::source_map_no_program` = 2; the refusal names RZX). `peek`
 reads `DivMmcRam{b}` (read-only; `poke` refuses it). With a tape
 `--load` the helper passes `deferred` (`program_loads_later()`), the map attaches pending
 (*Tapes*), and the frontend watches it with `emulator_poll_cli_source_map()` once per tick

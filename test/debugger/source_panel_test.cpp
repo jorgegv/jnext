@@ -2604,10 +2604,12 @@ void test_dot_command() {
     for (size_t i = 0; i < code.size(); ++i) bank2[i] = static_cast<uint8_t>(code[i]);
     fx.emu.port().write(0xE3, 0x82);   // conmem + bank 2, as NextZXOS runs a dot command
     Z80Registers r = fx.emu.cpu().get_registers();
-    r.PC = 0x2D62;   // dot.c:14
+    r.PC = 0x6000;
     r.SP = 0xFF00;
     fx.emu.cpu().set_registers(r);
-    const auto out = fx.backend->load_source_map(map, false);
+    const auto out = fx.backend->load_source_map(map, false);   // loaded outside the command: pending
+    r.PC = 0x2D62;   // dot.c:14
+    fx.emu.cpu().set_registers(r);
     fx.mgr->refresh_panels();
     SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
     const QString note = QStringLiteral("Source map not verified yet: it is checked when the dot command runs");

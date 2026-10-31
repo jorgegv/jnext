@@ -1290,6 +1290,44 @@ int main() {
             check("Z88DOT-08", "a 2.4 sdcc dot command has no C line in its map (-SO2 --c-code-in-asm): the dot.c lines come from dot.c.lis and are in DivMMC RAM bank 2",
                   r && r.listings > 0 && m.dot() && only_in(m, D2) && !m.resolve("dot.c:14").starts.empty());
         }
+        {   // Z88DOT-09 (review R4): the dotn refusal, pure
+            const std::function<std::optional<uint16_t>(int)> head_c000 = [](int) { return std::optional<uint16_t>(0xC000); };
+            const Z88dkDot dn{Z88dkDot::Variant::Dotn}, dd{Z88dkDot::Variant::Dot}, dx{Z88dkDot::Variant::Dotx};
+            const auto page_n = z88dk_section_space("PAGE_20", 0xC010, head_c000, &dn);
+            const auto div_n  = z88dk_section_space("DIV_3", 0x2010, head_c000, &dn);
+            const auto cdiv_n = z88dk_section_space("CODE_DIV_3", 0x2010, head_c000, &dn);
+            const auto main_n = z88dk_section_space("code_compiler", 0x87D5, head_c000, &dn);
+            const auto dot_n  = z88dk_section_space("code_compiler", 0x2D5F, head_c000, &dn);
+            bool same = true;
+            for (const Z88dkDot* v : {&dd, &dx}) {
+                const auto pg  = z88dk_section_space("PAGE_20", 0xC010, head_c000, v);
+                const auto dv  = z88dk_section_space("DIV_3", 0x2010, head_c000, v);
+                const auto mn  = z88dk_section_space("code_compiler", 0x87D5, head_c000, v);
+                same = same && pg.kind == Z88dkSpace::Kind::Paged && pg.space == P20 && pg.addr16 == 0xC010 &&
+                       dv.kind == Z88dkSpace::Kind::Unpaged && mn.kind == Z88dkSpace::Kind::BindAtLoad && mn.addr16 == 0x87D5;
+            }
+            check("Z88DOT-09", "section_space with a dotn context: PAGE_20, DIV_3, CODE_DIV_3 and an unnumbered section outside $2000-$3FFF are Refused saying NextZXOS "
+                               "allocates those pages; its $2000-$3FFF code is DivMmcRam{2}; with a dot or dotx context the same PAGE_20 stays page 20, DIV_3 Unpaged and the "
+                               "main part rule 4",
+                  page_n.kind == Z88dkSpace::Kind::Refused && div_n.kind == Z88dkSpace::Kind::Refused &&
+                      cdiv_n.kind == Z88dkSpace::Kind::Refused && main_n.kind == Z88dkSpace::Kind::Refused &&
+                      page_n.why.find("NextZXOS allocates") != std::string::npos && div_n.why.find("NextZXOS allocates") != std::string::npos &&
+                      dot_n.kind == Z88dkSpace::Kind::Paged && dot_n.space == MemSpace::divmmc_ram(kNextZxosDotBank) && same);
+        }
+        {   // Z88DOT-10 (review R3): the module-symbol bound of an extent, inside DivMMC bank 2
+            // dutil.c:7 is the last line of the map; with no `__code_compiler_tail`, a library
+            // symbol of another module at $2DD1 is the only thing that ends its range there.
+            const std::string base = text_of(v24 / "sccz80-dot" / "prog.map");
+            SourceMap m;
+            const auto r = load(m, synth("z10.map", edited(base, "__code_compiler_tail",
+                "l_rev_lib = $2DD1 ; addr, public, , l_rev_lib_asm, code_l, l_rev.asm:1\n")), prompt);
+            SourceMap plain;
+            const auto rp = load(plain, synth("z10b.map", edited(base, "__code_compiler_tail", "")), prompt);
+            check("Z88DOT-10", "an addr symbol of another module bounds a dot command's line range in DivMMC bank 2: dutil.c:7 ($2DC8) ends at the module's symbol at $2DD1, "
+                               "and without that symbol it runs on (to the 1 KB cap)",
+                  r && rp && is_at(m.lookup(D2, 0x2DD0), "dutil.c", 7) && !m.lookup(D2, 0x2DD1) &&
+                      is_at(plain.lookup(D2, 0x2DD1), "dutil.c", 7));
+        }
     }
 
 

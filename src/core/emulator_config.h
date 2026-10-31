@@ -274,6 +274,9 @@ struct EmulatorConfig {
     std::string                                map_file;
     /// `--source-map`: a source map to attach after the first `--load` (empty = none).
     std::string                                source_map_file;
+    /// GH #351: 0 a program loads (--source-map follows it); 1 no --load; 2 an RZX replay.
+    /// 1 and 2 accept only a z88dk dot command's map, attached at start-up.
+    uint8_t                                    source_map_no_program = 0;
     // GH #26 WP6 / #20 — `--record-script FILE`: record the session as a
     // replay script (any frontend). Empty = not recording.
     std::string                                record_script_file;
