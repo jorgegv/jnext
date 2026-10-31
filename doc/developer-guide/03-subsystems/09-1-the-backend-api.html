@@ -2594,8 +2594,8 @@ the design documents refer to it.</p>
 <td><strong>asynchronous</strong>: the stop arrives later as a <code>Paused</code> push</td>
 </tr>
 <tr>
-<td><code>run_to(by, addr)</code>, <code>run_to_cycle(by, c)</code>, <code>run_to_frame(by, f)</code>, <code>run_to_end_of_frame(by)</code>, <code>run_to_end_of_scanline(by)</code></td>
-<td>resume until a target</td>
+<td><code>run_to(by, addr)</code>, <code>run_to_source_line(by, "file:line")</code>, <code>run_to_cycle(by, c)</code>, <code>run_to_frame(by, f)</code>, <code>run_to_end_of_frame(by)</code>, <code>run_to_end_of_scanline(by)</code></td>
+<td>resume until a target. <code>run_to_source_line</code> arms a transient <code>Execute</code> group at every start of the line (each tied to its memory, <code>subscribe_source_line</code>); the first one reached stops the machine and the stop reads <code>RunTo</code> with that address. It is refused, the machine untouched, for a line with no code. A run-to issued while the machine RUNS first drops the caller's own transient targets (a second Run to Here replaces the first), never another client's</td>
 </tr>
 <tr>
 <td><code>step_back(by, n)</code>, <code>rewind_to_frame(by, f)</code></td>

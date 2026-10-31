@@ -44,6 +44,9 @@
 #include "debugger/watch_panel.h"
 
 #include <QAbstractButton>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QKeySequence>
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
@@ -80,6 +83,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <string>
 #include "../row_id.h"
@@ -3434,7 +3438,7 @@ void test_source_gutter() {
               v.sp->shown_file().empty() && tip.isEmpty() && gui_subs(fx, m) == 0,
               s(tip) + " " + std::to_string(gui_subs(fx, m)));
     }
-    {   // GH #421 review 1: hover bounds (two.sld shows 13 lines and the final newline's blank block)
+    {   // GH #421 review 1: hover bounds (the default map shows 13 lines and the final newline's blank block)
         Fixture fx;
         fx.enable();
         fx.load_map();
@@ -3454,6 +3458,662 @@ void test_source_gutter() {
         check("QSRC-155", "hovering the gutter beside the final newline's blank block, or below the text, "
                           "shows no tooltip (a stale one is cleared)",
               real && blank.isEmpty() && under.isEmpty(), s(blank) + " | " + s(under));
+    }
+}
+
+
+// ── GH #423: the Source tab's context menu ───────────────────────────────
+// Oracle for all: the issue text, the owner's parity rule (the Source tab offers the
+// Disassembly's actions) and the Disassembly's own menu; jnext-internal GUI, no VHDL.
+
+QStringList menu_texts(const QMenu& m) {
+    QStringList t;
+    for (QAction* a : m.actions())
+        if (!a->isSeparator()) t << a->text();
+    return t;
+}
+
+QAction* menu_action(const QMenu& m, const QString& text) {
+    for (QAction* a : m.actions())
+        if (!a->isSeparator() && a->text() == text) return a;
+    return nullptr;
+}
+
+/// main.bas with "REM line N" lines, `over` replacing the given ones.
+void write_main(std::initializer_list<std::pair<int, const char*>> over) {
+    std::string text;
+    for (int i = 1; i <= 13; ++i) {
+        std::string line = "REM line " + std::to_string(i);
+        for (const auto& o : over)
+            if (o.first == i) line = o.second;
+        text += line + "\n";
+    }
+    write_text(g_tmp->path().toStdString() + "/main.bas", text);
+}
+
+/// What a real context-menu event opens: its items (with their chords) and, when
+/// `pick` is non-empty, that item triggered.
+struct Popup {
+    bool seen = false;
+    QStringList items;
+    QStringList chords;   // "Copy=Ctrl+C", ...
+};
+
+Popup right_click(QWidget* target, const QPoint& pos, const QString& pick = QString()) {
+    Popup out;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || out.seen) return;
+        out.seen = true;
+        for (QAction* a : menu->actions()) {
+            if (a->isSeparator()) continue;
+            out.items << a->text();
+            if (!a->shortcut().isEmpty())
+                out.chords << a->text() + "=" + a->shortcut().toString(QKeySequence::PortableText);
+            if (!pick.isEmpty() && a->text() == pick) a->trigger();
+        }
+        menu->close();
+    });
+    timer.start(1);
+    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, target->mapToGlobal(pos));
+    QApplication::sendEvent(target, &ev);
+    timer.stop();
+    QApplication::processEvents();
+    return out;
+}
+
+void set_cpu(Fixture& fx, uint16_t pc, uint16_t hl = 0, uint16_t ix = 0) {
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = pc;
+    r.HL = hl;
+    r.IX = ix;
+    fx.emu.cpu().set_registers(r);
+}
+
+void run_until_stop(Fixture& fx, int frames = 4) {
+    for (int i = 0; i < frames && !fx.backend->state().paused; ++i) fx.emu.run_frame();
+    QApplication::processEvents();
+}
+
+int transient_subs(Fixture& fx) {
+    int n = 0;
+    for (const auto& si : fx.backend->subscriptions(true))
+        if (si.transient) ++n;
+    return n;
+}
+
+/// The character column just inside `needle` in `text` (where a click lands on it).
+int col_in(const QString& text, const char* needle) { return text.indexOf(QLatin1String(needle)) + 1; }
+
+SourcePanel* window_source_panel(Fixture& fx) {
+    SourcePanel* sp = fx.dbg()->source_panel();
+    for (auto* tw : fx.dbg()->findChildren<QTabWidget*>())
+        if (tw->indexOf(sp) >= 0) tw->setCurrentWidget(sp);
+    fx.dbg()->show();
+    QApplication::processEvents();
+    return sp;
+}
+
+void test_source_context_menu() {
+    const QStringList base{"Copy", "Copy with Addresses", "Select All", "Toggle Breakpoint", "Run to Here",
+                           "Show in Disassembly"};
+    const std::string tmp = g_tmp->path().toStdString();
+    {
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.ed) { check("QSRC-99", "the Source tab has an editor", false); return; }
+        const Popup p = right_click(v.ed->viewport(), QPoint(5, v.row_y(12)));
+        check("QSRC-99", "a real right click on line 12's text pops the menu: Copy, Copy with Addresses, "
+                         "Select All, Toggle Breakpoint, Run to Here, Show in Disassembly; Copy is Ctrl+C and "
+                         "Select All Ctrl+A; Qt's stock Copy Link Location is gone",
+              p.seen && p.items == base && p.chords.contains("Copy=Ctrl+C") &&
+                  p.chords.contains("Select All=Ctrl+A"),
+              s(p.items.join("|")) + " " + s(p.chords.join("|")));
+
+        // QSRC-118: the gutter's right click is the same menu
+        const Popup g = right_click(v.gutter, QPoint(kGutterW / 2, v.row_y(12)), "Toggle Breakpoint");
+        check("QSRC-118", "a real right click on the gutter at line 12 pops the line menu (QSRC-99's items, "
+                          "no operand entry) and its Toggle Breakpoint arms $8005",
+              g.seen && g.items == base && v.sp->line_mark(12) == SourcePanel::LineMark::Armed &&
+                  m.exists(BreakpointModel::Execute, 0x8005, pg(fx.p80)),
+              s(g.items.join("|")));
+        m.clear_all();
+    }
+    {   // QSRC-100: Toggle Breakpoint is the gutter's toggle
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("ctx-two.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32773|T|\n" + "main.bas|11||0|" + b + "|36864|T|\n" +
+            "main.bas|10||0|" + std::to_string(fx.p80 + 2) + "|32768|T|\n"), false);   // line 10 also in an unmapped page
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        QMenu menu1;
+        v.sp->fill_context_menu(menu1, 11, 0);
+        menu_action(menu1, "Toggle Breakpoint")->trigger();
+        const auto rows = m.rows();
+        const bool one = rows.size() == 1 && rows[0].group != jnext::dbg::GROUP_NONE && rows[0].locations == 2 &&
+                         v.sp->line_mark(11) == SourcePanel::LineMark::Armed;
+        QMenu menu2;
+        v.sp->fill_context_menu(menu2, 11, 0);
+        menu_action(menu2, "Toggle Breakpoint")->trigger();
+        check("QSRC-100", "two-place line 11, Toggle Breakpoint from its menu: one GUI row (a group of 2), the "
+                          "line armed; triggered again: no GUI subscription and no mark",
+              one && gui_subs(fx, m) == 0 && v.sp->line_mark(11) == SourcePanel::LineMark::None,
+              std::to_string(rows.size()) + " subs=" + std::to_string(gui_subs(fx, m)));
+
+        // QSRC-110 (selection rule), QSRC-111 (Copy with Addresses) on this map
+        QGuiApplication::clipboard()->clear();
+        QMenu c1;
+        v.sp->fill_context_menu(c1, 11, 0);
+        const QString one_line = v.ed->textCursor().selectedText();
+        menu_action(c1, "Copy")->trigger();
+        const QString clip1 = QGuiApplication::clipboard()->text();
+        QTextCursor range(v.ed->document()->findBlockByNumber(9));
+        range.setPosition(v.ed->document()->findBlockByNumber(11).position() +
+                              v.ed->document()->findBlockByNumber(11).length() - 1,
+                          QTextCursor::KeepAnchor);
+        v.ed->setTextCursor(range);
+        QMenu c2;
+        v.sp->fill_context_menu(c2, 11, 2);
+        const int kept = v.ed->textCursor().selectedText().split(QChar::ParagraphSeparator).size();
+        QMenu c3;
+        v.sp->fill_context_menu(c3, 5, 0);
+        const QString five = v.ed->textCursor().selectedText();
+        check("QSRC-110", "right click on line 11 with no selection selects \"REM line 11\" and Copy copies it; "
+                          "inside a 3-line selection it keeps the 3 lines; on line 5 outside it, the selection "
+                          "becomes \"REM line 5\"",
+              one_line == "REM line 11" && clip1 == "REM line 11" && kept == 3 && five == "REM line 5",
+              s(one_line) + "|" + s(clip1) + "|" + std::to_string(kept) + "|" + s(five));
+
+        const QString t = [&]() {
+            auto at = [&](unsigned ad, unsigned page) { return BreakpointModel::address_text(ad, pg(page)); };
+            return QString("main.bas:9  -  REM line 9\nmain.bas:10  ") + at(0x8000, fx.p80) + ", " + at(0x8000, fx.p80 + 2) +
+                   "  REM line 10\nmain.bas:11  " + at(0x8002, fx.p80) + ", " + at(0x9000, fx.p90) +
+                   "  REM line 11\n";
+        }();
+        QTextCursor sel(v.ed->document()->findBlockByNumber(8));
+        sel.setPosition(v.ed->document()->findBlockByNumber(10).position() +
+                            v.ed->document()->findBlockByNumber(10).length() - 1,
+                        QTextCursor::KeepAnchor);
+        v.ed->setTextCursor(sel);
+        const QString got = v.sp->selection_text_with_addresses();
+        QMenu c4;
+        v.sp->fill_context_menu(c4, 10, 2);
+        QGuiApplication::clipboard()->clear();
+        menu_action(c4, "Copy with Addresses")->trigger();
+        check("QSRC-111", "lines 9-11 selected: selection_text_with_addresses() is file:line, every place "
+                          "(mapped or not, with its page) or '-', and the text; the menu action puts it on the "
+                          "clipboard",
+              got == t && QGuiApplication::clipboard()->text() == t, s(got) + " || " + s(t));
+    }
+    {   // QSRC-101: a line with no code
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        set_cpu(fx, 0x8000);
+        QMenu menu;
+        v.sp->fill_context_menu(menu, 3, 0);
+        bool all = true;
+        for (const char* t : {"Toggle Breakpoint", "Run to Here", "Show in Disassembly"}) {
+            QAction* a = menu_action(menu, t);
+            all = all && a && !a->isEnabled() && a->toolTip() == "no code at main.bas:3";
+            if (a) a->trigger();
+        }
+        check("QSRC-101", "line 3 (no code): Toggle Breakpoint, Run to Here and Show in Disassembly are present, "
+                          "disabled, with the tooltip \"no code at main.bas:3\", and no operand entry; "
+                          "triggering them adds nothing and runs nothing",
+              all && menu_texts(menu) == base && gui_subs(fx, m) == 0 && fx.backend->state().paused &&
+                  fx.pc() == 0x8000,
+              s(menu_texts(menu).join("|")));
+    }
+    {   // QSRC-102 / 103 / 104 / 105: Run to Here through the real manager
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        set_cpu(fx, 0x8000);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = window_source_panel(fx);
+        QMenu menu;
+        sp->fill_context_menu(menu, 12, 0);
+        menu_action(menu, "Run to Here")->trigger();
+        run_until_stop(fx);
+        fx.mgr->refresh_panels();
+        check("QSRC-102", "Run to Here on line 12 from $8000, through the real manager: paused at $8005 on "
+                          "line 12, the backend lists no subscription, the Breakpoints panel no row",
+              fx.pc() == 0x8005 && fx.backend->state().paused && sp->highlighted_line() == 12 &&
+                  fx.backend->subscriptions(true).empty() && fx.mgr->breakpoints().rows().empty(),
+              std::to_string(fx.pc()) + " line=" + std::to_string(sp->highlighted_line()));
+
+        // QSRC-105: a second Run to Here before any frame runs
+        set_cpu(fx, 0x8000);
+        fx.mgr->refresh_panels();
+        QMenu m12, m13;
+        sp->fill_context_menu(m12, 12, 0);
+        menu_action(m12, "Run to Here")->trigger();
+        sp->fill_context_menu(m13, 13, 0);
+        menu_action(m13, "Run to Here")->trigger();
+        run_until_stop(fx);
+        check("QSRC-105", "Run to Here on line 12 and, before a frame ran, on line 13: the machine stops at "
+                          "$8006, not $8005",
+              fx.pc() == 0x8006 && fx.backend->subscriptions(true).empty(), std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("ctx-both.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32773|T|\n" + "main.bas|12||0|" + b + "|36864|T|\n" +
+            "main.bas|13||0|" + a + "|32774|T|\n"), false);
+        write_main({});
+        set_cpu(fx, 0x8002);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = window_source_panel(fx);
+        QMenu menu;
+        sp->fill_context_menu(menu, 12, 0);
+        menu_action(menu, "Run to Here")->trigger();
+        run_until_stop(fx);
+        check("QSRC-103", "line 12 at $8005 and $9000, PC at the CALL: Run to Here stops at $9000 (reached "
+                          "first), no transient left",
+              fx.pc() == 0x9000 && transient_subs(fx) == 0, std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), far = std::to_string(fx.p80 + 2);
+        fx.backend->load_source_map(write_sld("ctx-banked.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + far + "|32773|T|\n" + "main.bas|13||0|" + a + "|32774|T|\n"), false);
+        write_main({});
+        set_cpu(fx, 0x8000);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = window_source_panel(fx);
+        QMenu menu;
+        sp->fill_context_menu(menu, 12, 0);
+        QAction* rt = menu_action(menu, "Run to Here");
+        const bool enabled = rt && rt->isEnabled();
+        rt->trigger();
+        const auto armed = fx.backend->subscriptions(true);
+        const bool one = armed.size() == 1 && armed[0].transient && armed[0].filter.space == pg(fx.p80 + 2);
+        for (int i = 0; i < 20; ++i) fx.emu.run_frame();
+        const bool running = !fx.backend->state().paused;
+        fx.backend->pause(jnext::dbg::CLIENT_NONE);
+        check("QSRC-104", "line 12 only in a page that is not mapped: Run to Here is enabled and arms one "
+                          "transient member tied to that page; 20 frames passing $8005 do not stop it; a Pause "
+                          "leaves nothing armed",
+              enabled && one && running && transient_subs(fx) == 0,
+              "enabled=" + std::to_string(enabled) + " one=" + std::to_string(one) +
+                  " running=" + std::to_string(running));
+
+        // QSRC-109: Show in Disassembly for the same unmapped place
+        QMenu sm;
+        sp->fill_context_menu(sm, 12, 0);
+        QAction* show = menu_action(sm, "Show in Disassembly");
+        const uint16_t before = fx.dbg()->disasm_panel()->selected_address();
+        if (show) show->trigger();
+        check("QSRC-109", "line 12 at $8005 in an unmapped page: Show in Disassembly is disabled with a "
+                          "\"not mapped now\" tooltip, and the Disassembly's selection is unchanged",
+              show && !show->isEnabled() && show->toolTip().contains("not mapped now") &&
+                  fx.dbg()->disasm_panel()->selected_address() == before,
+              show ? s(show->toolTip()) : "no item");
+    }
+    {   // QSRC-106 / 107: Enter, and Run to Cursor by focus
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        set_cpu(fx, 0x8000);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = window_source_panel(fx);
+        auto* ed = sp->findChild<QPlainTextEdit*>();
+        auto click_line = [&](int line) {
+            QTextBlock b = ed->document()->findBlockByNumber(line - 1);
+            const QRect r = ed->cursorRect(QTextCursor(b));
+            QTest::mouseClick(ed->viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(5, r.center().y()));
+        };
+        click_line(12);
+        const int cur12 = ed->textCursor().blockNumber() + 1;
+        QTest::keyClick(ed, Qt::Key_Return);
+        run_until_stop(fx);
+        check("QSRC-106", "cursor on line 12 (a left click), Return in the editor: stops at $8005, as Run to Here",
+              cur12 == 12 && fx.pc() == 0x8005, "cursor=" + std::to_string(cur12) + " pc=" + std::to_string(fx.pc()));
+
+        QAction* rtc = nullptr;
+        for (QAction* a : fx.dbg()->findChildren<QAction*>())
+            if (a->text() == "Run to Cursor") rtc = a;
+        set_cpu(fx, 0x8000);
+        fx.mgr->refresh_panels();
+        click_line(13);
+        ed->setFocus();
+        const bool focused = sp->has_text_focus();
+        if (rtc) rtc->trigger();
+        run_until_stop(fx);
+        const uint16_t from_source = fx.pc();
+
+        set_cpu(fx, 0x8000);
+        fx.mgr->refresh_panels();
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        dp->show_address(0x8005);
+        dp->setFocus();
+        const bool lost = !sp->has_text_focus();
+        if (rtc) rtc->trigger();
+        run_until_stop(fx);
+        check("QSRC-107", "Run to Cursor with the focus in the Source editor (cursor on line 13) stops at $8006; "
+                          "with the focus in the Disassembly (caret $8005) at $8005",
+              rtc && focused && lost && from_source == 0x8006 && fx.pc() == 0x8005,
+              "focused=" + std::to_string(focused) + " lost=" + std::to_string(lost) + " src=" +
+                  std::to_string(from_source) + " dis=" + std::to_string(fx.pc()));
+    }
+    {   // QSRC-108: Show in Disassembly
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = window_source_panel(fx);
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        QMenu menu;
+        sp->fill_context_menu(menu, 12, 0);
+        menu_action(menu, "Show in Disassembly")->trigger();
+        uint16_t lo = 0, hi = 0;
+        const bool sel = dp->selection_range(lo, hi);
+        const bool plain = dp->selected_address() == 0x8005 && sel && lo == 0x8005 && hi == 0x8005;
+
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("ctx-show.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + b + "|36864|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        fx.mgr->refresh_panels();
+        QMenu two;
+        sp->fill_context_menu(two, 11, 0);
+        QAction* sub = menu_action(two, "Show in Disassembly");
+        QStringList items;
+        if (sub && sub->menu())
+            for (QAction* it : sub->menu()->actions()) items << it->text();
+        const QStringList want{BreakpointModel::address_text(0x8002, pg(fx.p80)),
+                               BreakpointModel::address_text(0x9000, pg(fx.p90))};
+        if (sub && sub->menu() && sub->menu()->actions().size() == 2) sub->menu()->actions()[1]->trigger();
+        check("QSRC-108", "line 12: Show in Disassembly selects $8005 (the range is that one line); a two-place "
+                          "line 11 has a submenu \"$8002 @pp\", \"$9000 @qq\" and the second selects $9000",
+              plain && items == want && dp->selected_address() == 0x9000,
+              s(items.join("|")) + " sel=" + std::to_string(plain));
+    }
+    {   // QSRC-112: the keyboard
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        v.ed->setFocus();
+        QGuiApplication::clipboard()->clear();
+        QTest::keyClick(v.ed, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(v.ed, Qt::Key_C, Qt::ControlModifier);
+        std::string full;
+        {
+            std::ifstream in(tmp + "/main.bas", std::ios::binary);
+            full.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        check("QSRC-112", "Ctrl+A then Ctrl+C in the editor: the clipboard holds the file's whole text",
+              QGuiApplication::clipboard()->text() == QString::fromStdString(full),
+              s(QGuiApplication::clipboard()->text()));
+    }
+    // The operands: one fixture per row, main.bas rewritten before the panel loads it.
+    auto operands = [&](std::initializer_list<std::pair<int, const char*>> text, const std::function<void(Fixture&)>& setup,
+                        const std::function<void(Fixture&, SrcView&, BreakpointModel&)>& body) {
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main(text);
+        setup(fx);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        v.sp->set_watch_panel(fx.dbg()->watch_panel());
+        body(fx, v, m);
+    };
+    auto menu_of = [](SrcView& v, int line, const char* needle) {
+        auto m = std::make_unique<QMenu>();
+        const QString text = v.ed->document()->findBlockByNumber(line - 1).text();
+        v.sp->fill_context_menu(*m, line, needle ? col_in(text, needle) : -1);
+        return m;
+    };
+    operands({{11, "ld a,(counter)"}},
+             [](Fixture& fx) { const_cast<SymbolTable&>(fx.backend->symbols()).add_label("counter", 0x9000, std::nullopt); },
+             [&](Fixture& fx, SrcView& v, BreakpointModel& m) {
+        auto menu = menu_of(v, 11, "counter");
+        const QStringList t = menu_texts(*menu);
+        const bool listed = t.contains("Watch 'counter' ($9000)") && t.contains("Break on Read 'counter' ($9000)") &&
+                            t.contains("Break on Write 'counter' ($9000)");
+        WatchPanel* wp = fx.dbg()->watch_panel();
+        const int w0 = wp->watch_count();
+        menu_action(*menu, "Watch 'counter' ($9000)")->trigger();
+        menu_action(*menu, "Break on Read 'counter' ($9000)")->trigger();
+        const bool read_only = m.exists(BreakpointModel::Read, 0x9000) && !m.exists(BreakpointModel::Write, 0x9000);
+        menu_action(*menu, "Break on Write 'counter' ($9000)")->trigger();
+        check("QSRC-113", "a click on the label `counter` ($9000) in a source line offers Watch, Break on Read "
+                          "and Break on Write for 'counter' ($9000); they add a watch labelled counter and a Read "
+                          "and a Write data breakpoint at $9000, each of its own kind",
+              listed && wp->watch_count() == w0 + 1 && cell(wp, w0, 1) == "counter" &&
+                  cell(wp, w0, 0).contains("9000") && read_only && m.exists(BreakpointModel::Read, 0x9000) &&
+                  m.exists(BreakpointModel::Write, 0x9000),
+              s(t.join("|")));
+    });
+    operands({{1, "ld hl,$5800"}, {2, "ld hl,0x5800"}, {3, "ld hl,5800h"}, {4, "ld hl,#5800"}, {5, "ld hl,22528"},
+              {6, "ld hl,$10000"}},
+             [](Fixture&) {},
+             [&](Fixture&, SrcView& v, BreakpointModel&) {
+        const QStringList want{"Watch $5800", "Break on Read $5800", "Break on Write $5800"};
+        bool all = true;
+        std::string seen;
+        const char* needles[] = {"5800", "5800", "5800", "5800", "225"};
+        for (int i = 0; i < 5; ++i) {
+            auto menu = menu_of(v, i + 1, needles[i]);
+            const QStringList t = menu_texts(*menu);
+            const bool has = t.contains(want[0]) && t.contains(want[1]) && t.contains(want[2]);
+            all = all && has;
+            seen += has ? "y" : "n";
+        }
+        auto big = menu_of(v, 6, "1000");
+        bool none = true;
+        for (const QString& t : menu_texts(*big)) none = none && !t.startsWith("Watch") && !t.startsWith("Break");
+        check("QSRC-114", "the literals $5800, 0x5800, 5800h, #5800 and 22528 each offer Watch $5800 and Break on "
+                          "Read/Write $5800 (the Disassembly's words); $10000 offers none",
+              all && none, seen);
+    });
+    operands({{1, "ld (hl),a"}, {2, "ld b,(ix+2)"}, {3, "push hl"}},
+             [](Fixture& fx) { set_cpu(fx, 0x8000, 0x4000, 0x6000); },
+             [&](Fixture&, SrcView& v, BreakpointModel&) {
+        const QStringList hl = menu_texts(*menu_of(v, 1, "hl"));
+        const QStringList ix = menu_texts(*menu_of(v, 2, "ix"));
+        const QStringList push = menu_texts(*menu_of(v, 3, "hl"));
+        bool none = true;
+        for (const QString& t : push) none = none && !t.startsWith("Watch") && !t.startsWith("Break");
+        check("QSRC-115", "a click on hl in `ld (hl),a` offers Watch and Break on Read/Write (HL) = $4000, on ix in "
+                          "`ld b,(ix+2)` the (IX) = $6000 ones, and on hl in `push hl` nothing",
+              hl.contains("Watch (HL) = $4000") && hl.contains("Break on Read (HL) = $4000") &&
+                  hl.contains("Break on Write (HL) = $4000") && ix.contains("Watch (IX) = $6000") &&
+                  ix.contains("Break on Read (IX) = $6000") && ix.contains("Break on Write (IX) = $6000") && none,
+              s(hl.join("|")) + " / " + s(ix.join("|")));
+    });
+    operands({{11, "jp BEEF"}},
+             [](Fixture& fx) { const_cast<SymbolTable&>(fx.backend->symbols()).add_label("BEEF", 0x8005, std::nullopt); },
+             [&](Fixture&, SrcView& v, BreakpointModel&) {
+        auto plain = menu_of(v, 10, "REM");   // no label on line 10, no operand under "REM"
+        auto word = menu_of(v, 11, "BEEF");
+        const QStringList wt = menu_texts(*word);
+        check("QSRC-116", "no symbol under the click: no watch or break entry and no separator after Show in "
+                          "Disassembly; with a label BEEF at $8005 a click on BEEF is the NAME ('BEEF' ($8005)), "
+                          "not the number $BEEF",
+              menu_texts(*plain) == base && plain->actions().last()->text() == "Show in Disassembly" &&
+                  wt.contains("Watch 'BEEF' ($8005)") && !wt.contains("Watch $beef"),
+              s(wt.join("|")));
+    });
+    operands({{12, "Landing: nop"}},
+             [](Fixture& fx) { const_cast<SymbolTable&>(fx.backend->symbols()).add_label("Landing", 0x8005, std::nullopt); },
+             [&](Fixture&, SrcView& v, BreakpointModel&) {
+        auto gutter = menu_of(v, 12, nullptr);
+        auto word = menu_of(v, 12, "Landing");
+        check("QSRC-117", "label Landing at line 12's start: the gutter's menu (no word) has Watch 'Landing' "
+                          "($8005); a click on the word lists it once",
+              menu_texts(*gutter).contains("Watch 'Landing' ($8005)") &&
+                  menu_texts(*word).count("Watch 'Landing' ($8005)") == 1,
+              s(menu_texts(*gutter).join("|")) + " / " + s(menu_texts(*word).join("|")));
+    });
+    {   // QSRC-119: the Disassembly's menu, as before the shared builder
+        Fixture fx;
+        fx.enable();
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        for (int i = -300; i < 300; i += 3) {   // every visible line is the same instruction
+            fx.emu.mmu().write(static_cast<uint16_t>(0xA000 + i + 0), 0x21);
+            fx.emu.mmu().write(static_cast<uint16_t>(0xA000 + i + 1), 0x00);
+            fx.emu.mmu().write(static_cast<uint16_t>(0xA000 + i + 2), 0x40);
+        }
+        dp->show_address(0xA000);
+        const Popup p = right_click(dp, QPoint(120, 52 + 9));
+        const QStringList want{"Copy", "Copy with Addresses", "Select All", "Toggle Breakpoint", "Run to Here",
+                               "Go to Address...", "Watch $4000", "Break on Read $4000", "Break on Write $4000"};
+        check("QSRC-119", "the Disassembly's menu on a `LD HL,$4000` line (watch panel set, no symbols) lists "
+                          "exactly Copy, Copy with Addresses, Select All, Toggle Breakpoint, Run to Here, Go to "
+                          "Address..., Watch $4000, Break on Read $4000, Break on Write $4000, in that order",
+              p.seen && p.items == want, s(p.items.join("|")));
+    }
+}
+
+
+// ── GH #423 review 1 ──────────────────────────────────────────────────────
+
+void test_source_menu_review() {
+    {   // QSRC-160 / 161: Run to Here on a corrupt machine goes through the corruption prompt
+        auto make = [](Fixture& fx) {
+            fx.enable();
+            fx.load_map();
+            fx.mgr->refresh_panels();
+            const uint8_t garbage[4] = {0, 0, 0, 0};
+            StateReader r(garbage, sizeof(garbage));
+            fx.emu.load_state(r);   // the Task-60b corrupt state, through the real path
+            fx.backend->load_source_map(fx.sld, false);   // the restore may have reset the view
+            fx.mgr->refresh_panels();
+        };
+        Fixture no;
+        make(no);
+        SourcePanel* sp = window_source_panel(no);
+        QMenu menu;
+        sp->fill_context_menu(menu, 12, 0);
+        QAction* rt = menu_action(menu, "Run to Here");
+        const int asked = drive_modals([](QWidget* w, int) { click_box(w, QMessageBox::No); },
+                                       [&]() { if (rt) rt->trigger(); });
+        run_until_stop(no, 2);
+        check("QSRC-160", "on a corrupt machine Run to Here asks first; answering No leaves it paused at the same PC "
+                          "with nothing armed",
+              rt && asked == 1 && no.backend->state().paused && no.pc() == 0x8000 &&
+                  no.backend->subscriptions(true).empty() && no.backend->resume_blocked_by_corruption().has_value(),
+              "asked=" + std::to_string(asked) + " pc=" + std::to_string(no.pc()));
+
+        Fixture yes;
+        make(yes);
+        SourcePanel* sy = window_source_panel(yes);
+        QMenu menu2;
+        sy->fill_context_menu(menu2, 12, 0);
+        QAction* rt2 = menu_action(menu2, "Run to Here");
+        const int asked2 = drive_modals([](QWidget* w, int) { click_box(w, QMessageBox::Yes); },
+                                        [&]() { if (rt2) rt2->trigger(); });
+        run_until_stop(yes);
+        check("QSRC-161", "answering Yes acknowledges the corruption and runs: stopped at $8005, no incident left",
+              rt2 && asked2 == 1 && yes.pc() == 0x8005 && !yes.backend->resume_blocked_by_corruption().has_value(),
+              "asked=" + std::to_string(asked2) + " pc=" + std::to_string(yes.pc()));
+    }
+    {   // QSRC-162: the submenu's unmapped place
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), far = std::to_string(fx.p80 + 2);
+        fx.backend->load_source_map(write_sld("ctx-sub.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + far + "|36864|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        write_main({});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = window_source_panel(fx);
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        dp->show_address(0x8005);
+        uint16_t lo = 0, hi = 0;
+        dp->selection_range(lo, hi);
+        QMenu menu;
+        sp->fill_context_menu(menu, 11, 0);
+        QAction* sub = menu_action(menu, "Show in Disassembly");
+        QMenu* sm = sub ? sub->menu() : nullptr;
+        bool shape = sm && sm->actions().size() == 2;
+        QAction* mapped = shape ? sm->actions()[0] : nullptr;
+        QAction* unmapped = shape ? sm->actions()[1] : nullptr;
+        const bool states = shape && mapped->isEnabled() && !unmapped->isEnabled() &&
+                            unmapped->toolTip().contains("not mapped now");
+        if (unmapped) unmapped->trigger();
+        uint16_t lo2 = 0, hi2 = 0;
+        const bool kept = dp->selection_range(lo2, hi2) && lo2 == lo && hi2 == hi && dp->selected_address() == 0x8005;
+        check("QSRC-162", "line 11 at one mapped and one unmapped place: the submenu's unmapped item is disabled with "
+                          "the \"not mapped now\" tooltip, and triggering it leaves the Disassembly's selection alone",
+              states && kept, "states=" + std::to_string(states) + " kept=" + std::to_string(kept));
+    }
+    {   // QSRC-163: Go to Address only centres the view
+        Fixture fx;
+        fx.enable();
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        dp->select_all_visible();
+        uint16_t lo = 0, hi = 0, lo2 = 0, hi2 = 0;
+        const bool had = dp->selection_range(lo, hi);
+        QLineEdit* box = dp->findChild<QLineEdit*>();
+        if (box) {
+            box->setText(QStringLiteral("9000"));
+            QTest::keyClick(box, Qt::Key_Return);
+        }
+        const bool still = dp->selection_range(lo2, hi2);
+        check("QSRC-163", "Go to Address (the address box) centres the view and leaves a selected range alone",
+              box && had && still && lo2 == lo && hi2 == hi,
+              "had=" + std::to_string(had) + " still=" + std::to_string(still));
+    }
+    {   // QSRC-164: a click never removes another client's breakpoint
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "gdb-like";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const jnext::dbg::ClientId other = fx.backend->attach(ci).value;
+        jnext::dbg::Subscription sub;
+        sub.kind = jnext::dbg::EventKind::Execute;
+        sub.action = jnext::dbg::Action::Stop;
+        sub.filter.lo = sub.filter.hi = 0x8005;
+        fx.backend->subscribe(other, sub);
+        auto foreign = [&]() {
+            int n = 0;
+            for (const auto& si : fx.backend->subscriptions(false))
+                if (si.owner == other) ++n;
+            return n;
+        };
+        const std::string before = v.mark(12);
+        v.click(12);
+        const std::string added = v.mark(12);
+        const int own1 = gui_subs(fx, m), foreign1 = foreign();
+        v.click(12);
+        const int own2 = gui_subs(fx, m), foreign2 = foreign();
+        check("QSRC-164", "another client's Execute breakpoint on line 12's address: the BP column draws nothing, a click "
+                          "adds the window's own beside it, and the next click removes only the window's own",
+              before == "none" && added == "disc" && own1 == 1 && foreign1 == 1 && own2 == 0 && foreign2 == 1,
+              before + " " + added + " own=" + std::to_string(own1) + "/" + std::to_string(own2) +
+                  " foreign=" + std::to_string(foreign1) + "/" + std::to_string(foreign2));
+        fx.backend->detach(other);
     }
 }
 
@@ -3505,6 +4165,8 @@ int main(int argc, char** argv) {
     test_z88dk_source_map();
     test_source_search();
     test_source_gutter();
+    test_source_context_menu();
+    test_source_menu_review();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

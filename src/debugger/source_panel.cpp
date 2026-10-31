@@ -6,8 +6,19 @@
 #include "debug/debugger.h"
 #include "debug/ram_page.h"
 #include "debug/source_search.h"
+#include "debug/disasm_text.h"
+#include "debug/symbol_table.h"
+#include "debugger/operand_menu.h"
+#include "debugger/watch_panel.h"
 
+#include <QAction>
+#include <QClipboard>
+#include <QContextMenuEvent>
 #include <QDateTime>
+#include <QGuiApplication>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QMenu>
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
@@ -32,6 +43,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cctype>
 #include <utility>
 
 // GH #421 - the Source tab's editor: the stock read-only text view with a gutter
@@ -55,6 +67,7 @@ protected:
     void paintEvent(QPaintEvent* ev) override;
     void mousePressEvent(QMouseEvent* ev) override;
     void mouseMoveEvent(QMouseEvent* ev) override;
+    void contextMenuEvent(QContextMenuEvent* ev) override;
 private:
     int line_at(const QMouseEvent* ev) const;
     SourceEdit*  edit_;
@@ -177,6 +190,29 @@ public:
     }
 
 protected:
+    // GH #423 - the stock menu (Copy, Select All, Copy Link Location) gives way to
+    // the Disassembly's actions on the line and the word under the pointer.
+    void contextMenuEvent(QContextMenuEvent* ev) override
+    {
+        const QTextCursor at = ev->reason() == QContextMenuEvent::Keyboard
+                                   ? textCursor() : cursorForPosition(ev->pos());
+        const int line = panel_->shown_file().empty() ? 0
+                         : ev->reason() == QContextMenuEvent::Keyboard ? at.blockNumber() + 1
+                                                                       : line_at(ev->pos().y());
+        QMenu menu(this);
+        panel_->fill_context_menu(menu, line, at.positionInBlock());
+        menu.exec(ev->globalPos());
+    }
+    // Enter is Run to Here on the cursor line, as in the Disassembly.
+    void keyPressEvent(QKeyEvent* ev) override
+    {
+        if (ev->key() == Qt::Key_Return || ev->key() == Qt::Key_Enter) {
+            panel_->run_to_cursor();
+            ev->accept();
+            return;
+        }
+        QPlainTextEdit::keyPressEvent(ev);
+    }
     void resizeEvent(QResizeEvent* ev) override
     {
         QPlainTextEdit::resizeEvent(ev);
@@ -223,7 +259,7 @@ int SourceGutter::line_at(const QMouseEvent* ev) const
 
 void SourceGutter::mousePressEvent(QMouseEvent* ev)
 {
-    if (ev->button() != Qt::LeftButton) return;   // the context menu is GH #423's
+    if (ev->button() != Qt::LeftButton) return;   // the right button is the context menu's (GH #423)
     const int line = line_at(ev);
     if (line > 0) panel_->toggle_breakpoint_at_line(line);
 }
@@ -232,6 +268,16 @@ void SourceGutter::mouseMoveEvent(QMouseEvent* ev)
 {
     const int line = line_at(ev);
     setToolTip(line > 0 ? panel_->line_tooltip(line) : QString());
+}
+
+void SourceGutter::contextMenuEvent(QContextMenuEvent* ev)
+{
+    // GH #423 - the line menu, without a word under the cursor.
+    const int line = panel_->shown_file().empty() ? 0 : edit_->line_at(ev->pos().y());
+    if (line < 1) return;
+    QMenu menu(this);
+    panel_->fill_context_menu(menu, line, -1);
+    menu.exec(ev->globalPos());
 }
 
 void SourceGutterHeader::paintEvent(QPaintEvent*) { edit_->paint_header(); }
@@ -307,6 +353,26 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     mono.setStyleHint(QFont::Monospace);
     editor_->setFont(mono);
     layout->addWidget(editor_, 1);
+
+    // GH #423 - the clipboard commands are QActions on the editor, as the
+    // Disassembly's are on its widget: the menu shows the chord, and the chord
+    // fires only while the text has focus.
+    copy_action_ = new QAction(tr("Copy"), this);
+    copy_action_->setShortcut(QKeySequence::Copy);
+    copy_action_->setShortcutContext(Qt::WidgetShortcut);
+    connect(copy_action_, &QAction::triggered, this, [this]() { editor_->copy(); });
+    editor_->addAction(copy_action_);
+    copy_addresses_action_ = new QAction(tr("Copy with Addresses"), this);
+    copy_addresses_action_->setToolTip(tr("Copy the selected lines with their file, line and addresses"));
+    connect(copy_addresses_action_, &QAction::triggered, this, [this]() {
+        const QString text = selection_text_with_addresses();
+        if (!text.isEmpty()) QGuiApplication::clipboard()->setText(text);
+    });
+    select_all_action_ = new QAction(tr("Select All"), this);
+    select_all_action_->setShortcut(QKeySequence::SelectAll);
+    select_all_action_->setShortcutContext(Qt::WidgetShortcut);
+    connect(select_all_action_, &QAction::triggered, this, [this]() { editor_->selectAll(); });
+    editor_->addAction(select_all_action_);
 
     update_buttons(false);
 }
@@ -564,7 +630,7 @@ SourcePanel::LineState SourcePanel::line_state(int line) const
 {
     LineState st;
     BreakpointModel* bps = bp_model_.data();
-    if (!dbg_ || !bps || shown_file_.empty() || line < 1) return st;
+    if (!dbg_ || shown_file_.empty() || line < 1) return st;
     st.file = shown_file_;
     const SourceMap& map = dbg_->source_map();
     const SourceResolution res = map.resolve(shown_file_ + ":" + std::to_string(line));
@@ -572,6 +638,7 @@ SourcePanel::LineState SourcePanel::line_state(int line) const
     st.error = res.error;
     for (const SourceAddress& s : st.starts)
         if (dbg_->source_page(s.address) == s.space) st.placed.push_back(s);
+    if (!bps) return st;   // the places are known without the GUI's breakpoints (GH #423)
     for (const BreakpointModel::PcBreakpoint& m : bps->pc_breakpoints()) {
         const jnext::dbg::MemSpace sp = dbg_->source_page(m.addr);
         if (m.space == jnext::dbg::MemSpace::cpu() || m.space == sp) {
@@ -665,4 +732,238 @@ void SourcePanel::toggle_breakpoint_at_line(int line)
             QToolTip::showText(QCursor::pos(), why, g);
         }
     }
+}
+
+// ── GH #423: the context menu ────────────────────────────────────────────
+
+void SourcePanel::set_watch_panel(WatchPanel* watches) { watch_panel_ = watches; }
+
+std::optional<SymbolNameKey> SourcePanel::symbol_for_word(const QString& word) const
+{
+    return dbg_->symbols().resolve_key(("@" + word).toStdString());
+}
+
+bool SourcePanel::has_text_focus() const
+{
+    if (!editor_->isVisible()) return false;
+    const QWidget* f = window()->focusWidget();
+    return f && (f == editor_ || editor_->isAncestorOf(f));
+}
+
+void SourcePanel::run_to_cursor()
+{
+    if (shown_file_.empty()) return;
+    const int line = editor_->textCursor().blockNumber() + 1;
+    if (line < 1 || line > file_line_count(editor_->document())) return;
+    if (line_state(line).starts.empty()) return;
+    emit run_to_line_requested(QString::fromStdString(shown_file_) + QLatin1Char(':') + QString::number(line));
+}
+
+QString SourcePanel::selection_text_with_addresses() const
+{
+    const QTextCursor cur = editor_->textCursor();
+    if (!cur.hasSelection() || shown_file_.empty()) return QString();
+    const QTextDocument* doc = editor_->document();
+    const QTextBlock first = doc->findBlock(cur.selectionStart());
+    QTextBlock last = doc->findBlock(cur.selectionEnd());
+    // A selection that ends at the very start of a block (a line selected through
+    // its newline) does not take that block.
+    if (last.position() == cur.selectionEnd() && last != first) last = last.previous();
+    const int lines = file_line_count(doc);
+    QString out;
+    for (QTextBlock b = first; b.isValid() && b.blockNumber() <= last.blockNumber(); b = b.next()) {
+        const int line = b.blockNumber() + 1;
+        if (line > lines) break;
+        QStringList places;
+        for (const SourceAddress& s : line_state(line).starts)
+            places << BreakpointModel::address_text(s.address, s.space);
+        out += QString::fromStdString(shown_file_) + QLatin1Char(':') + QString::number(line) +
+               QStringLiteral("  ") + (places.isEmpty() ? QStringLiteral("-") : places.join(QStringLiteral(", "))) +
+               QStringLiteral("  ") + b.text() + QLatin1Char('\n');
+    }
+    return out;
+}
+
+namespace {
+
+bool word_char(QChar c)
+{
+    const ushort u = c.unicode();
+    return u < 128 && (std::isalnum(u) || u == '_' || u == '.');
+}
+
+bool all_hex(const QString& t)
+{
+    if (t.isEmpty()) return false;
+    for (QChar c : t)
+        if (c.unicode() >= 128 || !std::isxdigit(c.unicode())) return false;
+    return true;
+}
+
+bool all_dec(const QString& t)
+{
+    if (t.isEmpty()) return false;
+    for (QChar c : t)
+        if (c.unicode() < '0' || c.unicode() > '9') return false;
+    return true;
+}
+
+// The value of a numeric literal in `run` (`$FF`/`#FF` with the character before it
+// passed in, `0xFF`, `FFh`, decimal), or none when it is not one; a value too
+// big for the type is 0x10000, i.e. out of the 16-bit range the caller refuses.
+std::optional<unsigned> literal_value(const QString& run, QChar before)
+{
+    auto value = [](const QString& digits, int base) -> unsigned {
+        bool ok = false;
+        const qulonglong v = digits.toULongLong(&ok, base);
+        return ok && v <= 0xFFFF ? static_cast<unsigned>(v) : 0x10000u;
+    };
+    if ((before == QLatin1Char('$') || before == QLatin1Char('#')) && all_hex(run)) return value(run, 16);
+    if (run.size() > 2 && (run.startsWith(QLatin1String("0x")) || run.startsWith(QLatin1String("0X"))) &&
+        all_hex(run.mid(2)))
+        return value(run.mid(2), 16);
+    if (run.size() > 1 && run[0].isDigit() && (run.endsWith(QLatin1Char('h')) || run.endsWith(QLatin1Char('H'))) &&
+        all_hex(run.left(run.size() - 1)))
+        return value(run.left(run.size() - 1), 16);
+    if (all_dec(run)) return value(run, 10);
+    return std::nullopt;
+}
+
+}  // namespace
+
+void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
+{
+    menu.setToolTipsVisible(true);
+    menu.addAction(copy_action_);
+    const QTextDocument* doc = editor_->document();
+    const bool on_line = !shown_file_.empty() && line >= 1 && line <= file_line_count(doc);
+    if (on_line) menu.addAction(copy_addresses_action_);
+    menu.addAction(select_all_action_);
+    if (!on_line) return;
+
+    // The Disassembly's rule: a right click inside the selection keeps it (that is how
+    // a range just dragged out is copied); outside it, the selection becomes that line.
+    const QTextBlock block = doc->findBlockByNumber(line - 1);
+    const QTextCursor cur = editor_->textCursor();
+    bool inside = false;
+    if (cur.hasSelection()) {
+        const int s = cur.selectionStart(), e = cur.selectionEnd();
+        if (column >= 0)
+            inside = block.position() + std::min(column, block.length() - 1) >= s &&
+                     block.position() + std::min(column, block.length() - 1) <= e;
+        else
+            inside = block.position() < e && block.position() + block.length() - 1 >= s;
+    }
+    if (!inside) {
+        QTextCursor c(block);
+        c.movePosition(QTextCursor::StartOfBlock);
+        c.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        editor_->setTextCursor(c);
+    }
+
+    const LineState st = line_state(line);
+    const QString file = QString::fromStdString(shown_file_);
+    const QString where = file + QLatin1Char(':') + QString::number(line);
+    const QString nocode = st.error.empty() ? tr("no code at %1").arg(where) : QString::fromStdString(st.error);
+
+    menu.addSeparator();
+    auto* toggle = menu.addAction(tr("Toggle Breakpoint"));
+    const bool can_toggle = bp_model_ && (!st.starts.empty() || !st.drawn.empty() || !st.hidden.empty());
+    toggle->setEnabled(can_toggle);
+    if (!can_toggle) toggle->setToolTip(nocode);
+    connect(toggle, &QAction::triggered, this, [this, line]() { toggle_breakpoint_at_line(line); });
+
+    auto* run_to = menu.addAction(tr("Run to Here"));
+    run_to->setEnabled(!st.starts.empty());
+    if (st.starts.empty()) run_to->setToolTip(nocode);
+    connect(run_to, &QAction::triggered, this, [this, where]() { emit run_to_line_requested(where); });
+
+    menu.addSeparator();
+    auto place_text = [](const SourceAddress& s) { return BreakpointModel::address_text(s.address, s.space); };
+    auto mapped = [this](const SourceAddress& s) { return dbg_->source_page(s.address) == s.space; };
+    if (st.starts.size() > 1) {
+        QMenu* sub = menu.addMenu(tr("Show in Disassembly"));
+        sub->setToolTipsVisible(true);
+        for (const SourceAddress& s : st.starts) {
+            QAction* a = sub->addAction(place_text(s));
+            a->setEnabled(mapped(s));
+            if (!mapped(s)) a->setToolTip(tr("%1 is not mapped now").arg(place_text(s)));
+            const uint16_t addr = s.address;
+            connect(a, &QAction::triggered, this, [this, addr]() { emit show_address_requested(addr); });
+        }
+    } else {
+        QAction* a = menu.addAction(tr("Show in Disassembly"));
+        if (st.starts.empty()) {
+            a->setEnabled(false);
+            a->setToolTip(nocode);
+        } else if (!mapped(st.starts[0])) {
+            a->setEnabled(false);
+            a->setToolTip(tr("%1 is not mapped now").arg(place_text(st.starts[0])));
+        }
+        const uint16_t addr = st.starts.empty() ? 0 : st.starts[0].address;
+        connect(a, &QAction::triggered, this, [this, addr]() { emit show_address_requested(addr); });
+    }
+
+    // The operand entries: the line's own labels, and the word under the pointer.
+    MenuOperands ops;
+    const auto namer = disasm_text::symbol_namer(&dbg_->symbols(), [this](uint16_t a) {
+        return dbg_->source_page(a);
+    });
+    std::optional<std::pair<std::string, uint16_t>> word_symbol;
+    if (column >= 0) {
+        const QString text = block.text();
+        int at = -1;
+        if (column < text.size() && word_char(text[column])) at = column;
+        else if (column > 0 && column <= text.size() && word_char(text[column - 1])) at = column - 1;
+        if (at >= 0) {
+            int a = at, b = at;
+            while (a > 0 && word_char(text[a - 1])) --a;
+            while (b + 1 < text.size() && word_char(text[b + 1])) ++b;
+            const QString run = text.mid(a, b - a + 1);
+            const QChar before = a > 0 ? text[a - 1] : QChar();
+            int k = a - 1;
+            while (k >= 0 && text[k].isSpace()) --k;
+            const bool paren = k >= 0 && text[k] == QLatin1Char('(');
+            // The Disassembly's six register-indirect operands; a bare register is
+            // not an operand of the menu.
+            const auto regs = dbg_->registers();
+            struct { const char* name; uint16_t value; } reg_table[] = {
+                {"HL", regs.HL}, {"DE", regs.DE}, {"BC", regs.BC},
+                {"IX", regs.IX}, {"IY", regs.IY}, {"SP", regs.SP}};
+            bool is_reg = false;
+            for (const auto& r : reg_table)
+                if (run.compare(QLatin1String(r.name), Qt::CaseInsensitive) == 0) {
+                    is_reg = true;
+                    if (paren) ops.regs.push_back({r.name, r.value});
+                }
+            if (!is_reg) {
+                if (const auto num = literal_value(run, before)) {
+                    if (*num <= 0xFFFF) {
+                        ops.immediate = static_cast<uint16_t>(*num);
+                        if (const auto n = namer(*ops.immediate)) ops.immediate_label = *n;
+                    }
+                } else if (run[0].isLetter() || run[0] == QLatin1Char('_') || run[0] == QLatin1Char('.')) {
+                    auto key = symbol_for_word(run);
+                    QString used = run;
+                    if (!key && run.contains(QLatin1Char('.'))) {
+                        int ca = at - a, cs = ca, ce = ca;   // the dotted component under the pointer
+                        while (cs > 0 && run[cs - 1] != QLatin1Char('.')) --cs;
+                        while (ce + 1 < run.size() && run[ce + 1] != QLatin1Char('.')) ++ce;
+                        used = run.mid(cs, ce - cs + 1);
+                        if (!used.isEmpty()) key = symbol_for_word(used);
+                    }
+                    if (key) word_symbol = std::make_pair(used.toStdString(), key->addr);
+                }
+            }
+        }
+    }
+    if (word_symbol) ops.symbol = word_symbol;
+    for (const SourceAddress& s : st.placed)
+        if (const auto n = namer(s.address)) {
+            const MenuOperands::Named label{*n, s.address};
+            const bool dup = word_symbol && *word_symbol == label;
+            if (!dup && std::find(ops.labels.begin(), ops.labels.end(), label) == ops.labels.end())
+                ops.labels.push_back(label);
+        }
+    add_operand_actions(menu, this, ops, watch_panel_.data(), bp_model_.data());
 }

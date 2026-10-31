@@ -29,9 +29,34 @@ listed in the Breakpoints panel as `main.bas:11 (2 locations)`, and a second cli
 *no code at main.bas:3*. Hover the gutter for the words: the addresses and pages of the
 breakpoint, how many of the places carry it, or why there is none. A line of banked code is
 marked only while its page is mapped; a click on it still removes the breakpoint, and the
-tooltip says *not mapped now*. The column shows the debugger window's own breakpoints, as the
-disassembly does; those of GDB, ZRCP or a script are in the Breakpoints list only. It works
+tooltip says *not mapped now*. The column shows and edits only the debugger window's own breakpoints, as the
+disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints list only, and a click
+never removes them ([whose breakpoints the gutters show and change](08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)). It works
 while the machine runs.
+
+### Right-click menu
+
+Right-click in the text, or in the gutter, for the same actions the disassembly offers,
+on the line under the pointer. A right-click outside the selection first selects that line;
+inside it, the selection stays (so a dragged range can be copied).
+
+- **Copy** (Ctrl+C), **Copy with Addresses** and **Select All** (Ctrl+A). Copy with Addresses
+  puts each selected line on the clipboard as `main.bas:11  $8002 @05, $9000 @06  REM line 11`:
+  every address the line compiled to, with its page, or `-` for a line with no code.
+- **Toggle Breakpoint**: the gutter click.
+- **Run to Here**, also **Enter** in the text: run until the first place of the line is reached
+  (see [Running to a source line](../functions/14-source-level-debugging.md#running-to-a-source-line)).
+- **Show in Disassembly**: the disassembly moves to the line's address and selects it. A line
+  that compiled to several places has a submenu, one item per place; a place whose page is not
+  mapped now is disabled.
+- **Watch** and **Break on Read / Write** entries, as in the disassembly menu, for the labels at
+  the line's address, and for what is under the pointer: a symbol (a label or a name of the
+  map, written as the map has it), a number (`$5800`, `0x5800`, `5800h`, `#5800` or decimal),
+  or a register in parentheses (`(hl)`, `(ix+2)`). They are by CPU address, whatever is mapped
+  there. A C variable is found under its map name today (`_counter`), not as `counter`.
+
+On a line with no code Toggle Breakpoint, Run to Here and Show in Disassembly are disabled, and
+their tooltip says *no code at main.bas:3*.
 
 A tape program's map is attached before the program has loaded, and the tab adds
 *Source map not verified yet: it is checked when the program first runs its code*

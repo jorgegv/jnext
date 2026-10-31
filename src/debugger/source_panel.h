@@ -4,13 +4,18 @@
 #include <QWidget>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
 class BreakpointModel;
+class QAction;
 class QLabel;
+class QMenu;
 class QPlainTextEdit;
 class QPushButton;
+class WatchPanel;
+struct SymbolNameKey;
 namespace jnext { namespace dbg { class Debugger; } }
 
 /// CAP-SRC — the Source tab: the source file the PC's statement came from,
@@ -60,6 +65,32 @@ public:
     /// The map's name of the file shown, empty when the tab shows a message.
     const std::string& shown_file() const { return shown_file_; }
 
+    /// GH #423 - the Watches panel, which the menu's "Watch ..." entries add to
+    /// (the Disassembly's menu offers them with one set, and without it not at all).
+    void set_watch_panel(WatchPanel* watches);
+
+    /// GH #423 - the right-click menu of source line `line` (one-based) with the
+    /// Disassembly's actions: Copy, Copy with Addresses, Select All, Toggle
+    /// Breakpoint, Run to Here, Show in Disassembly, and the watch and data
+    /// breakpoint entries for the labels of the line and for the symbol, number
+    /// or register in parentheses under character `column` (-1: no word, the
+    /// gutter's). Like the Disassembly's menu, a right click outside the
+    /// selection first selects the line. Line 0 (or no file shown) gives the
+    /// copy entries only. Called by the editor's and the gutter's context menu
+    /// events, and by the tests.
+    void fill_context_menu(QMenu& menu, int line, int column);
+
+    /// GH #423 - Run to Here on the cursor line (Enter in the tab, and the
+    /// bindable Run to Cursor while the tab has focus). Nothing when no file is
+    /// shown or the line has no code.
+    void run_to_cursor();
+    /// Whether the keyboard focus is in the source text (not a button or another panel).
+    bool has_text_focus() const;
+    /// Each line the selection touches as `file:line  places  text`, one per
+    /// line; the places are every address the line compiled to, `-` for none.
+    /// Empty without a selection.
+    QString selection_text_with_addresses() const;
+
     /// What the panel shows right now (for tests and the status line).
     QString location_text() const;
     /// The label's tooltip: the path of the file shown (empty when none is).
@@ -82,6 +113,11 @@ signals:
     void source_dir_located(const QString& dir);
     /// ... and the user chose to keep it for later sessions.
     void source_dir_save_requested(const QString& dir);
+    /// GH #423 - Run to Here on `file_line` ("main.bas:12"): DebuggerManager runs
+    /// Debugger::run_to_source_line behind its corruption gate.
+    void run_to_line_requested(const QString& file_line);
+    /// GH #423 - Show in Disassembly: put the Disassembly on `addr`.
+    void show_address_requested(uint16_t addr);
 
 private:
     void refresh_();
@@ -89,6 +125,11 @@ private:
     /// Everything the BP column derives for one line (see source_panel.cpp).
     struct LineState;
     LineState line_state(int line) const;
+    /// The symbol a word of the source names, or none. THE seam for the names
+    /// the source uses (GH #424: C names): it asks the backend's resolver with
+    /// '@', which forces a symbol, so the word BEEF is a name and not the
+    /// number $BEEF.
+    std::optional<SymbolNameKey> symbol_for_word(const QString& word) const;
     QString resolve_source_file(const std::string& source_name) const;
     /// Locate File...: ask for the file the map names and derive the directory to search.
     void locate_file();
@@ -109,6 +150,10 @@ private:
     QPushButton* reverse_btn_ = nullptr;
     QPushButton* locate_btn_ = nullptr;
     QPointer<BreakpointModel> bp_model_;
+    QPointer<WatchPanel> watch_panel_;
+    QAction* copy_action_ = nullptr;
+    QAction* copy_addresses_action_ = nullptr;
+    QAction* select_all_action_ = nullptr;
     std::string shown_file_;
     std::vector<std::string> search_dirs_;
     std::string unresolved_name_;

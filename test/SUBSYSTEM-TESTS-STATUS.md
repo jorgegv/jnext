@@ -119,9 +119,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source maps + symbols |      106 |      106 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk -debug map adapter |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |      288 |      288 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      296 |      296 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1474 |     1474 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1475 |     1475 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -174,11 +174,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Key Bindings |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Menus        |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Menus        |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       89 |       89 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Source panel |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14543**| **14543**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Source panel |      176 |      176 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **14579**| **14579**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

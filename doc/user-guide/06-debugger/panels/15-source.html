@@ -2163,6 +2163,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="15-source.html" class="md-nav__link md-nav__link--active">
         
   
@@ -2179,6 +2197,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#right-click-menu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Right-click menu
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -3632,9 +3680,32 @@ listed in the Breakpoints panel as <code>main.bas:11 (2 locations)</code>, and a
 <em>no code at main.bas:3</em>. Hover the gutter for the words: the addresses and pages of the
 breakpoint, how many of the places carry it, or why there is none. A line of banked code is
 marked only while its page is mapped; a click on it still removes the breakpoint, and the
-tooltip says <em>not mapped now</em>. The column shows the debugger window's own breakpoints, as the
-disassembly does; those of GDB, ZRCP or a script are in the Breakpoints list only. It works
+tooltip says <em>not mapped now</em>. The column shows and edits only the debugger window's own breakpoints, as the
+disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints list only, and a click
+never removes them (<a href="08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">whose breakpoints the gutters show and change</a>). It works
 while the machine runs.</p>
+<h3 id="right-click-menu">Right-click menu<a class="headerlink" href="#right-click-menu" title="Permanent link">&para;</a></h3>
+<p>Right-click in the text, or in the gutter, for the same actions the disassembly offers,
+on the line under the pointer. A right-click outside the selection first selects that line;
+inside it, the selection stays (so a dragged range can be copied).</p>
+<ul>
+<li><strong>Copy</strong> (Ctrl+C), <strong>Copy with Addresses</strong> and <strong>Select All</strong> (Ctrl+A). Copy with Addresses
+  puts each selected line on the clipboard as <code>main.bas:11  $8002 @05, $9000 @06  REM line 11</code>:
+  every address the line compiled to, with its page, or <code>-</code> for a line with no code.</li>
+<li><strong>Toggle Breakpoint</strong>: the gutter click.</li>
+<li><strong>Run to Here</strong>, also <strong>Enter</strong> in the text: run until the first place of the line is reached
+  (see <a href="../functions/14-source-level-debugging.html#running-to-a-source-line">Running to a source line</a>).</li>
+<li><strong>Show in Disassembly</strong>: the disassembly moves to the line's address and selects it. A line
+  that compiled to several places has a submenu, one item per place; a place whose page is not
+  mapped now is disabled.</li>
+<li><strong>Watch</strong> and <strong>Break on Read / Write</strong> entries, as in the disassembly menu, for the labels at
+  the line's address, and for what is under the pointer: a symbol (a label or a name of the
+  map, written as the map has it), a number (<code>$5800</code>, <code>0x5800</code>, <code>5800h</code>, <code>#5800</code> or decimal),
+  or a register in parentheses (<code>(hl)</code>, <code>(ix+2)</code>). They are by CPU address, whatever is mapped
+  there. A C variable is found under its map name today (<code>_counter</code>), not as <code>counter</code>.</li>
+</ul>
+<p>On a line with no code Toggle Breakpoint, Run to Here and Show in Disassembly are disabled, and
+their tooltip says <em>no code at main.bas:3</em>.</p>
 <p>A tape program's map is attached before the program has loaded, and the tab adds
 <em>Source map not verified yet: it is checked when the program first runs its code</em>
 under the position line until it has; if the program then does not match, the map

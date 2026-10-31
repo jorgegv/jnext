@@ -238,7 +238,7 @@ Result Debugger::run_to(ClientId by, uint16_t addr) {
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
-    if (!impl_->ds().paused()) impl_->ds().pause();
+    impl_->retarget_pause(by);
     // GH #276 B2 — the same transient `Execute`, for the same reasons as
     // step_over() above. CTL-06 is "Run to Here", and RSP's `i<len>` is
     // `run_to(pc + len)`.
@@ -252,6 +252,29 @@ Result Debugger::run_to(ClientId by, uint16_t addr) {
     impl_->ds().run_to_subscribed();
     impl_->arm_target(PauseReason::Kind::RunTo, by, addr,
                       t.status == Result::Ok ? t.value : EVENT_NONE);
+    return Result::Ok;
+}
+
+Result Debugger::run_to_source_line(ClientId by, const std::string& file_line) {
+    if (const Result nested = impl_->refuse_inside_delivery("run_to_source_line"); nested != Result::Ok)
+        return nested;
+    const Result gate = impl_->execute_gate();
+    if (gate != Result::Ok) return gate;
+    // Refused with the machine untouched: before the pause, so a running machine
+    // keeps running when the line has no code.
+    if (impl_->client_gone(by)) return Result::RefusedUnavailable;
+    const SourceResolution r = source_map().resolve(file_line);
+    if (r.starts.empty()) return Result::RefusedUnavailable;
+
+    impl_->retarget_pause(by);
+    Subscription like;
+    like.kind      = EventKind::Execute;
+    like.transient = true;
+    like.action    = Action::Stop;
+    (void)subscribe_source_line(by, file_line, like);   // cannot be refused: the checks above ran
+    impl_->ds().run_to_subscribed();
+    impl_->arm_target(PauseReason::Kind::RunTo, by, r.starts.front().address, EVENT_NONE);
+    for (const SourceAddress& s : r.starts) impl_->armed_targets.push_back(s.address);
     return Result::Ok;
 }
 

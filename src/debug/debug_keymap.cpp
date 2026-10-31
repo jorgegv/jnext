@@ -221,7 +221,7 @@ bool validate_combo(const Combo& c, std::string& why, bool host_mod_is_ctrl) {
 
     // GH #21: the disassembly panel's Copy / Select All.
     if (c.mods == MOD_CTRL && (c.key == Key::C || c.key == Key::A)) {
-        why = "reserved by the disassembly panel for Copy / Select All";
+        why = "reserved by the disassembly panel and the Source tab for Copy / Select All";
         return false;
     }
 
