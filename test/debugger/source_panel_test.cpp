@@ -5024,11 +5024,11 @@ void test_source_highlight_panel() {
         const bool bas1 = v.sp->source_language() == SourceLanguage::Basic && panel_mask(v.sp, 1).substr(0, 3) == "CCC";
         go(0x9000);
         const bool asm_ok = v.sp->source_language() == SourceLanguage::Asm &&
-                            panel_mask(v.sp, 1) == "..KK.R.N";
+                            panel_mask(v.sp, 1) == "..II.IKN";
         go(0x8000);
         const std::string back = panel_mask(v.sp, 1);
         const bool bas2 = v.sp->source_language() == SourceLanguage::Basic && back.substr(0, 3) == "CCC" &&
-                          back.find('D') == std::string::npos && back.find('R') == std::string::npos;
+                          back.find('K') == std::string::npos && back.find('I') == std::string::npos;
         check("QSRC-137", "the language follows the file: sub.asm is assembly (ld a,1 coloured), and "
                           "going back to main.bas is Boriel again with no assembly colour left",
               bas1 && asm_ok && bas2, panel_mask(v.sp, 1) + " " + back);
