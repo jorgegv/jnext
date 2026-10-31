@@ -3419,6 +3419,24 @@ static void test_l2log_tags() {
               fmt("@50 %02X (22), then write: @50 %02X (33) @40 %02X (22) @20 %02X (11)",
                   p1, p2, p3, p4));
     }
+
+    // L2LOG-TAG-11 (GH #388) - a CPU write through the CONFIG window (NR 0x03 config
+    // mode, SRAM page (NR 0x04 << 1) | cpu_a(13), zxnext.vhd:3044-3050) reaches the
+    // same SRAM Layer 2 fetches from, so it is logged at the CPU's own position like
+    // the write-over and the slot writes. The refactor merged this arm into a shared
+    // one and nothing pinned that it kept the log.
+    {
+        L2LogBed b;
+        b.mmu.set_config_mode(true);
+        b.mmu.set_nr_04_romram_bank(8);        // SRAM page 16: the byte at kL2Sram
+        b.cpu_write(0x0123, 0x22, 50, 200);
+        const uint8_t before = b.seen(50, 199), at = b.seen(50, 200);
+        check("L2LOG-TAG-11",
+              "zxnext.vhd:3044-3050 - a CPU write through the config window is logged for "
+              "Layer 2 at the CPU's own (line, hc)",
+              before == 0x11 && at == 0x22,
+              fmt("before=0x%02X (want 0x11) at=0x%02X (want 0x22)", before, at));
+    }
 }
 
 // ── GH #339 FSRC: the read arbiter names the store, and the fetch records it ──
