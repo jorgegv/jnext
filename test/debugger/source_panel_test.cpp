@@ -4407,10 +4407,10 @@ struct Hl {
     }
 };
 
-/// One char per column of the block: K keyword, R register, D directive, N number,
-/// S string, C comment, L label, '.' no colour.
+/// One char per column of the block: K keyword, I instruction, P preprocessor, L label,
+/// S string, Q char, N integer, F float, C comment, '.' no colour (Text has no format).
 std::string role_mask(const SourceHighlighter& hl, const QTextBlock& b) {
-    static const char kChars[SourceHighlighter::kRoles + 1] = "KRDNSCL";
+    static const char kChars[SourceHighlighter::kRoles + 1] = ".KIPLSQNFC";
     std::string m(static_cast<size_t>(b.length() - 1), '.');
     for (const QTextLayout::FormatRange& fr : b.layout()->formats())
         for (int r = 0; r < SourceHighlighter::kRoles; ++r)
