@@ -360,7 +360,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
-| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; no click-to-break, Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
+| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); no Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
@@ -949,7 +949,7 @@ the group. One predicate, `EventFilter::matches(ev)`, replaces the three copies 
 the gate (`execute_gate` to `filter_matches`), `probe_execute()` and `history_stop_at()` all
 call it. The disassembly gutter draws, toggles and patches from the same identity:
 `BreakpointModel::pc_marked(addr, space)` takes the `FetchSource` where it took a page number.
-Clicking a Source tab line toggles its group (E23-16); a click on a gutter dot removes only that
+Clicking a Source tab line toggles its group (E23-28 (#421)); a click on a gutter dot removes only that
 location. As built: the group verbs are `Debugger::subscribe_source_line(by, file_line, like)`,
 `unsubscribe_group(by, group)` and `set_group_enabled(by, group, on)`, with `SubscriptionInfo::group`;
 the model folds a group into one row (`Row::group`, `Row::locations`), enabled only while every
@@ -964,14 +964,17 @@ location is; a `space` on a kind other than `Execute` is refused.
   the tab. E23-27 (#420) adds a source search path after those two steps (Preferences > Paths,
   `--source-dir`, `paths.source_dirs`), tried longest trailing part of the name first, and a
   **Locate File...** button that adds the directory of the file the user picks.
+- **Source gutter** (E23-28 (#421)): `BP | Line | text` with a header, the Disassembly's
+  glyphs from one header (`breakpoint_glyph.h`); a click toggles the line's group through
+  `SourcePanel::toggle_breakpoint_at_line()`; a half glyph marks a line only some of whose places
+  carry a breakpoint. Rows QSRC-79..98.
 - **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
   Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
   Settings > Preferences... > Debugger Keys like the other debugger actions
   (`src/debug/debug_keymap.cpp`). Decided by the owner on #337 (2026-10-22): source Into,
   Over and Out default to Ctrl+F6, Ctrl+F7 and Ctrl+F8; Back and Reverse Continue ship
   unbound; the emulator window does not forward them. Done.
-- **Source tab completion** (E23-16 (#347)): click a line number to toggle its source
-  breakpoint group; Run to Line (a transient group, then Continue); the current-line marker; the
+- **Source tab completion** (E23-16 (#347)): Run to Line (a transient group, then Continue); the current-line marker; the
   "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab
   and the disassembly.
 - **Address fields**: a number first, `@` forces a symbol, `$` or `0x` force hex (OD-12; done).

@@ -239,7 +239,19 @@ map loads as source lines only. Its mismatch box and failure title do not name a
 `source_map_status().pending` is set (a tape program's map, waiting for its program) the panel
 appends a note line, *Source map not verified yet: it is checked when the program first runs its
 code*, to whatever it shows.
-The file a record names is found by `source_search::resolve()` (`debug/source_search.h`, Qt-free so
+The editor is a private `QPlainTextEdit` subclass (`SourceEdit`) with a gutter widget in a left
+viewport margin and a header strip above it (`setViewportMargins`; objects `source_gutter` and
+`source_gutter_header`), because the visible blocks' geometry is protected. The gutter
+(GH #421) is `BP | Line`: the number is `blockNumber() + 1`, and the mark of a line is computed at
+paint time for the visible lines only (`SourcePanel::line_mark()`, so it is never stale and needs no
+cache): this GUI's own Execute breakpoints (`BreakpointModel::pc_breakpoints()`) that the
+Disassembly would draw (a logical one, or one tied to `source_page(addr)`) and that sit on a start
+the memory mapped now supplies (`source_map().resolve(file:line)`, so an alias line is marked) or on
+any instruction whose primary line (`lookup`) is the line. Every start of the line armed (by a breakpoint at its address, logical or tied to its memory, mapped now or not)
+is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. `breakpoint_glyph.h` paints the glyph for both panels. A click calls
+`SourcePanel::toggle_breakpoint_at_line()`, the one toggle: it removes what the line shows plus a
+hidden group tied to an unmapped page, else `add_source_line()` (not idempotent, hence the check);
+the context menu of GH #423 calls the same function. The file a record names is found by `source_search::resolve()` (`debug/source_search.h`, Qt-free so
 the SDL-only and Windows trees test it and a later surface can print the same path): an absolute
 name, then the map's directory and each parent, then the search directories, tried suffix-major
 (the longest trailing part of the normalised name first, then the directories in order; a leading
