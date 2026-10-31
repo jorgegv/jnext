@@ -1076,6 +1076,25 @@ int main() {
         }
     }
 
+    // ── SRCTXT-01 (GH #348): the text of a source file the toolchain did not keep ──
+    {
+        SourceMap m;
+        std::map<std::string, SourceText> texts;
+        texts[".\\x\\y.m4"] = SourceText{"prog.lis", {"one", "two", ""}};
+        m.replace({}, {}, std::nullopt, "t.map", "z88dk", std::move(texts));
+        const SourceText* t = m.embedded_text("x/y.m4");
+        const bool kept = t && t->origin == "prog.lis" && t->lines.size() == 3 && t->lines[1] == "two";
+        const bool exact = !m.embedded_text("y.m4") && !m.embedded_text("x/z.m4") && !m.embedded_text("");
+        SourceMap again = m;
+        again.replace({}, {}, std::nullopt, "u.map", "z88dk");
+        const bool replaced = !again.embedded_text("x/y.m4");
+        SourceMap cleared = m;
+        cleared.clear();
+        check("SRCTXT-01", "replace() keeps the embedded texts under their normalised names, embedded_text() "
+                           "matches the exact name only, and clear() and a later replace() without texts drop them",
+              kept && exact && replaced && !cleared.embedded_text("x/y.m4"));
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
