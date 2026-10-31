@@ -55,6 +55,10 @@ public:
     /// the same thing "Run to Here" on the current line has always done.
     void run_to_selected();
 
+    /// GH #423 - centre the view on `addr` and select that line (the caret, so
+    /// Run to Cursor and a copy act on it): the Source tab's "Show in Disassembly".
+    void show_address(uint16_t addr);
+
     /// Activate "Follow PC" mode (called when Break or Step is used).
     void activate_follow_pc();
 

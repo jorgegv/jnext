@@ -569,7 +569,9 @@ void DebuggerWindow::create_menus() {
     // window-wide shortcut context without putting it in the menu tree.
     run_to_cursor_action_ = new QAction(tr("Run to Cursor"), this);
     connect(run_to_cursor_action_, &QAction::triggered, this, [this]() {
-        if (disasm_panel_) disasm_panel_->run_to_selected();
+        // GH #423 - with the focus in the Source tab the cursor is its line.
+        if (source_panel_ && source_panel_->has_text_focus()) source_panel_->run_to_cursor();
+        else if (disasm_panel_) disasm_panel_->run_to_selected();
     });
     addAction(run_to_cursor_action_);
 
@@ -1319,6 +1321,10 @@ void DebuggerWindow::create_panels() {
     // so the list and the gutter track it without either of them (or any
     // mutation route) knowing the other exists. The two hand-wired directions
     // this replaced had each shipped broken once.
+
+    // GH #423 - the Source tab's "Show in Disassembly".
+    connect(source_panel_, &SourcePanel::show_address_requested, disasm_panel_,
+            &DisasmPanel::show_address);
 
     mmu_panel_ = new MmuPanel(&dbg_);
 
