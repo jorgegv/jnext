@@ -6485,6 +6485,25 @@ int main() {
                       in20 && s3 && out,
                   log);
         }
+        {   // SRCDBG-CN-01: GH #424, a C symbol under its C name through the real attach
+            // Oracle: the fixture's own bytes (`32 59 8F` at $8C9A is ld (_counter),a, main.c.lis:624;
+            // `21 59 8F` at $8D65 is ld hl,_counter) and zcc's MODULE naming (main_c).
+            const fs::path d = sdir / "cn1";
+            z88_copy("v2.4/sccz80-debug", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const auto mnemonic = [&](uint16_t addr) {
+                return std::string(m.dbg->disassemble(addr, 1, &m.dbg->symbols())[0].mnemonic);
+            };
+            const auto k = m.dbg->symbols().resolve_key("counter");
+            check("SRCDBG-CN-01", "after the attach of a z88dk program, `counter` names `_counter`'s address and page, "
+                                  "lookup() shows counter, and disassemble() prints the C name",
+                  r.symbols == 19 && m.dbg->lookup_name("counter") == std::optional<uint16_t>(0x8F59) &&
+                      k && k->space && *k->space == MemSpace::page(4) && lookup_at(m, 0x8F59) == "counter" &&
+                      mnemonic(0x8C9A) == "LD (counter),A" && mnemonic(0x8D65) == "LD HL,counter",
+                  mnemonic(0x8C9A) + " | " + mnemonic(0x8D65));
+        }
     }
 
     fs::remove_all(dir);

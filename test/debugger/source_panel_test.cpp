@@ -3457,6 +3457,123 @@ void test_source_gutter() {
     }
 }
 
+// ── QCN-01..04: z88dk C names in every address field (GH #424, design 10.6) ──
+// Oracle: the fixture map (`_counter` $8F59, `_main` $8C92, `_square` $8C78; module main_c) and zcc's MODULE
+// naming. Every dialog and Go to resolves through the one SymbolTable.
+void test_z88dk_c_names() {
+    const std::string tmp = g_tmp->path().toStdString();
+    Fixture fx;
+    fx.enable();
+    const std::string map = tmp + "/qcn/prog.map";
+    copy_z88dk("v2.4/sccz80-debug", "prog.map", map);
+    fx.backend->load_map(map, jnext::dbg::MapFormat::Z88dk);
+    // A symbol of a section naming no page is bound to the page mapped at its address when loaded.
+    const MemSpace page = fx.backend->source_page(0x8F59);
+    BreakpointModel& m = fx.mgr->breakpoints();
+    WatchPanel* wp = fx.dbg() ? fx.dbg()->watch_panel() : nullptr;
+    BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
+    QAction* add_exec = fx.dbg() ? menu_action(fx.dbg(), QStringLiteral("Add &Execute Breakpoint...")) : nullptr;
+    if (!wp || !bp || !add_exec) {
+        check("QCN-01", "panels and menu", false);
+        return;
+    }
+    {   // QCN-01
+        const bool seen = answer_modal(QStringLiteral("counter"), [&]() { wp->on_add_watch(); }) &&
+                          answer_modal(QStringLiteral("_counter"), [&]() { wp->on_add_watch(); }) &&
+                          answer_modal(QStringLiteral("@counter"), [&]() { wp->on_add_watch(); });
+        bool all = seen;
+        for (int row = 0; row < 3; ++row)
+            all = all && cell(wp, row, 0).contains(QStringLiteral("8F59")) &&
+                  cell(wp, row, 1) == QStringLiteral("counter");
+        check("QCN-01", "Add Watch with counter, _counter and @counter watches $8F59 three times, each labelled "
+                        "with the C name",
+              all, s(cell(wp, 0, 0)) + "/" + s(cell(wp, 0, 1)) + " " + s(cell(wp, 1, 0)) + "/" +
+                       s(cell(wp, 1, 1)) + " " + s(cell(wp, 2, 0)) + "/" + s(cell(wp, 2, 1)));
+    }
+    {   // QCN-02
+        const bool seen = answer_modal(QStringLiteral("main"), [&]() { add_exec->trigger(); });
+        const auto rows = m.rows();
+        bp->refresh();
+        check("QCN-02", "Debug > Add Execute Breakpoint with `main` sets an Execute row at $8C92 on the name's "
+                        "page, and the Breakpoints Symbol column reads main",
+              seen && rows.size() == 1 && rows[0].type == BreakpointModel::Execute && rows[0].addr == 0x8C92 &&
+                  rows[0].space == page && cell(bp, 0, 3) == QStringLiteral("main"),
+              "rows=" + std::to_string(rows.size()) + " sym=" + s(cell(bp, 0, 3)));
+        m.clear_all();
+    }
+    {   // QCN-03
+        const auto drive = [&](const QString& name, int type, bool edit) {
+            return drive_modals(
+                [&](QWidget* w, int n) {
+                    auto* dlg = qobject_cast<QDialog*>(w);
+                    if (!dlg) return;
+                    if (n == 0) {
+                        if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText(name);
+                        if (auto* c = dlg->findChild<QComboBox*>()) c->setCurrentIndex(type);
+                        dlg->accept();
+                        return;
+                    }
+                    dlg->reject();
+                },
+                [&]() { edit ? bp->on_edit() : bp->on_add(); });
+        };
+        drive(QStringLiteral("counter"), BreakpointModel::Write, false);
+        const auto added = m.rows();
+        bp->refresh();
+        const QString sym_added = cell(bp, 0, 3);
+        if (auto* table = bp->findChild<QTableWidget*>()) table->setCurrentCell(0, 1);
+        drive(QStringLiteral("square"), BreakpointModel::Write, true);
+        const auto edited = m.rows();
+        bp->refresh();
+        check("QCN-03", "the Breakpoints panel's own dialog takes C names: `counter` adds a Write row at $8F59 "
+                        "with Symbol counter, and editing it to `square` moves it to $8C78",
+              added.size() == 1 && added[0].type == BreakpointModel::Write && added[0].addr == 0x8F59 &&
+                  sym_added == QStringLiteral("counter") && edited.size() == 1 &&
+                  edited[0].type == BreakpointModel::Write && edited[0].addr == 0x8C78 &&
+                  cell(bp, 0, 3) == QStringLiteral("square"),
+              "added=" + std::to_string(added.size()) + " sym=" + s(sym_added) + " edited=" +
+                  std::to_string(edited.size()) + " sym=" + s(cell(bp, 0, 3)));
+        m.clear_all();
+    }
+    {   // QCN-04
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        QLineEdit* dgo = line_edit(dp, QStringLiteral("Address..."));
+        auto* dsb = dp ? dp->findChild<QScrollBar*>() : nullptr;
+        int by_number = -1, by_name = -1, start = -1;
+        if (dgo && dsb) {
+            dsb->setValue(0x4000);
+            start = dsb->value();
+            dgo->setText(QStringLiteral("8C92"));
+            emit dgo->returnPressed();
+            by_number = dsb->value();
+            dsb->setValue(0x4000);
+            dgo->setText(QStringLiteral("main"));
+            emit dgo->returnPressed();
+            by_name = dsb->value();
+        }
+        MemoryPanel* mp = fx.dbg()->memory_panel();
+        QLineEdit* mgo = line_edit(mp, QStringLiteral("$0000"));
+        auto* msb = mp ? mp->findChild<QScrollBar*>() : nullptr;
+        int m_number = -1, m_name = -1, m_start = -1;
+        if (mgo && msb) {
+            msb->setValue(0);
+            m_start = msb->value();
+            mgo->setText(QStringLiteral("8F59"));
+            emit mgo->returnPressed();
+            m_number = msb->value();
+            msb->setValue(0);
+            mgo->setText(QStringLiteral("counter"));
+            emit mgo->returnPressed();
+            m_name = msb->value();
+        }
+        check("QCN-04", "Go to Address takes a C name: the disassembly's `main` lands where 8C92 does, the memory "
+                        "panel's `counter` where 8F59 does",
+              by_number != start && by_name == by_number && m_number != m_start && m_name == m_number,
+              std::to_string(start) + " " + std::to_string(by_number) + " " + std::to_string(by_name) + " | " +
+                  std::to_string(m_start) + " " + std::to_string(m_number) + " " + std::to_string(m_name));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -3505,6 +3622,7 @@ int main(int argc, char** argv) {
     test_z88dk_source_map();
     test_source_search();
     test_source_gutter();
+    test_z88dk_c_names();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

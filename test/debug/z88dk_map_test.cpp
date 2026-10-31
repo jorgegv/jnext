@@ -12,12 +12,14 @@
 // counterpart. Pure: no machine; the NEX files are read by the test itself.
 // Run: ./build/test/z88dk_map_test
 
+#include "debug/disasm_text.h"
 #include "debug/source_file.h"
 #include "debug/source_map.h"
 #include "debug/symbol_table.h"
 #include "debug/z88dk_source_map.h"
 #include "debug/z88dk_space.h"
 
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -25,6 +27,7 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -752,6 +755,277 @@ int main() {
                                "flagged and unbound, then in the RAM page mapped at its address, and in no other page",
                   unbound && is_key(t, "start", 0x8000, P4, true) && name_is(t.lookup(P4, 0x8000), "start") &&
                       !t.lookup(MemSpace::page(40), 0x8000) && !t.lookup(MemSpace::cpu(), 0x8000));
+        }
+    }
+
+    // ── Z88CN-*: C names for z88dk C symbols, GH #424 stage 1 (design 10.6) ────
+    // Oracle: zcc heads each file with `MODULE <file, non-alnum -> _>` (zcc.c) and its
+    // compilers write every C identifier with a leading `_` (sccz80 Z80ASM_PREFIX); the
+    // fixture maps' own __CDBINFO__ records name the C identifiers; the issue text ("that
+    // symbol wins") for the ambiguity rows, written in the real map line format.
+    {
+        const auto at = [&](const SymbolTable& t, const char* n) { return t.find_name(n); };
+        const auto shown = [](const std::optional<std::string>& got, const char* want) {
+            return got && *got == want;
+        };
+        const auto load_c = [](SymbolTable& t, const fs::path& map) {
+            return t.load_z88dk_map(map.string());
+        };
+        // The C identifiers the map's own debug records declare: global and file-scope variables and
+        // functions (`S:G$x`, `S:Ffile$x`, `F:G$x`, `F:Ffile$x`), their names un-escaped (`_xx` is a hex byte).
+        const auto cdb_names = [](const fs::path& map) {
+            std::set<std::string> names;
+            std::ifstream in(map);
+            std::string line;
+            while (std::getline(in, line)) {
+                if (line.compare(0, 11, "__CDBINFO__") != 0) continue;
+                std::string raw, dec;
+                for (size_t i = 11; i < line.size() && line[i] != ' '; ++i) raw += line[i];
+                for (size_t i = 0; i < raw.size(); ++i) {
+                    if (raw[i] == '_' && i + 2 < raw.size() + 0 && std::isxdigit(static_cast<unsigned char>(raw[i + 1])) &&
+                        std::isxdigit(static_cast<unsigned char>(raw[i + 2]))) {
+                        dec += static_cast<char>(std::stoi(raw.substr(i + 1, 2), nullptr, 16));
+                        i += 2;
+                    } else {
+                        dec += raw[i];
+                    }
+                }
+                if (dec.size() < 4 || (dec[0] != 'S' && dec[0] != 'F') || dec[1] != ':') continue;
+                const size_t kind = dec[2] == 'G' ? 1 : dec[2] == 'F' ? 2 : 0;   // `L` records are locals
+                if (!kind) continue;
+                const size_t d1 = dec.find('$');
+                const size_t d2 = d1 == std::string::npos ? d1 : dec.find('$', d1 + 1);
+                if (d2 != std::string::npos) names.insert(dec.substr(d1 + 1, d2 - d1 - 1));
+            }
+            return names;
+        };
+        const fs::path sc_map = v24 / "sccz80-debug" / "prog.map";
+
+        {   // Z88CN-01
+            SymbolTable t;
+            load_c(t, sc_map);
+            struct Sym { const char* c; const char* a; uint16_t addr; };
+            const Sym syms[] = {{"counter", "_counter", 0x8F59}, {"main", "_main", 0x8C92},
+                                {"square", "_square", 0x8C78}, {"table", "_table", 0x8F5A},
+                                {"util_twice", "_util_twice", 0x8D35}};
+            const auto all_same = [&](const SymbolTable& tt) {
+                for (const Sym& y : syms) {
+                    const auto k = at(tt, y.a);
+                    if (!k || k->addr != y.addr) return false;
+                    if (!(at(tt, y.c) == k)) return false;
+                    if (!(tt.resolve_key(y.c) == k) || !(tt.resolve_key(std::string("@") + y.c) == k)) return false;
+                    if (tt.resolve(y.c) != std::optional<uint16_t>(y.addr)) return false;
+                }
+                return true;
+            };
+            const bool unbound = all_same(t);
+            t.bind(nex_space);
+            const bool bound = all_same(t) && at(t, "counter") == std::optional<SymbolNameKey>(SymbolNameKey{0x8F59, P4, true});
+            t.bind({});
+            const bool unbound_again = all_same(t);
+            const std::set<std::string> cdb = cdb_names(sc_map);
+            const std::set<std::string> want = {"counter", "main", "square", "table", "util_twice"};
+            check("Z88CN-01", "a C symbol (module main_c / util_c) answers to its C name with the very key of its assembler "
+                              "name, unbound, bound to page 4 and unbound again; the C names are the map's own __CDBINFO__ ones",
+                  unbound && bound && unbound_again && cdb == want);
+        }
+        {   // Z88CN-02
+            SymbolTable t;
+            load_c(t, sc_map);
+            const auto names_ok = [&](const SymbolTable& tt, const MemSpace& sp) {
+                return shown(tt.lookup(sp, 0x8F59), "counter") && shown(tt.lookup(sp, 0x8F5A), "table") &&
+                       shown(tt.lookup(sp, 0x8C92), "main") && shown(tt.lookup(sp, 0x8C78), "square") &&
+                       shown(tt.lookup(sp, 0x8D35), "util_twice");
+            };
+            const bool unpaged = names_ok(t, MemSpace::cpu());
+            t.bind(nex_space);
+            const auto near = t.nearest(0x8F5B, nex_space);
+            check("Z88CN-02", "views show the C name: lookup() on the unpaged branch (before bind) and on the paged one "
+                              "(page 4, after), and nearest() uses the same",
+                  unpaged && names_ok(t, P4) && near && near->first == 0x8F5A && near->second == "table");
+        }
+        {   // Z88CN-03
+            SymbolTable t;
+            load_c(t, sc_map);
+            SymbolTable s;
+            const int n = s.load_z88dk_map(synth("cn3.map",
+                "_main                           = $8000 ; addr, public\n" +
+                rec("__xinit_c", 0x8100, "main_c", "code_compiler", "m.c:1") +
+                rec("_k", 0x8200, "main_c", "code_compiler", "m.c:2", "const") +
+                rec("_y", 0x8300, "y_c_asm", "code_compiler", "y.asm:1")).string());
+            check("Z88CN-03", "not C: an asm module's _asm_bump, a main_c symbol with no _ (i_2), a module-less _main, __x, "
+                              "a _k constant and a module that only contains _c keep their names and their C name is unresolved",
+                  shown(t.lookup(MemSpace::cpu(), 0x8D65), "_asm_bump") && !at(t, "asm_bump") &&
+                      shown(t.lookup(MemSpace::cpu(), 0x8CA6), "i_2") && at(t, "i_2") &&
+                      n == 3 && shown(s.lookup(MemSpace::cpu(), 0x8000), "_main") && !at(s, "main") &&
+                      shown(s.lookup(MemSpace::cpu(), 0x8100), "__xinit_c") && !at(s, "_xinit_c") &&
+                      at(s, "_k") && !s.lookup(MemSpace::cpu(), 0x8200) && !at(s, "k") &&
+                      shown(s.lookup(MemSpace::cpu(), 0x8300), "_y") && !at(s, "y"));
+        }
+        {   // Z88CN-04
+            struct Prog { const fs::path map; uint16_t counter; };
+            const Prog progs[] = {{v24 / "sdcc-SO0" / "prog.map", 0x8ED5}, {v24 / "sdcc-SO2" / "prog.map", 0x8ECD},
+                                  {master / "sccz80-debug" / "prog.map", 0x8F59},
+                                  {master / "sdcc-debug" / "prog.map", 0x8EBE},
+                                  {master / "80cc-debug" / "prog.map", 0x8EFB}};
+            bool all = true;
+            for (const Prog& p : progs) {
+                SymbolTable t;
+                load_c(t, p.map);
+                t.bind(nex_space);
+                all = all && t.resolve("counter") == std::optional<uint16_t>(p.counter) &&
+                      t.resolve("_counter") == std::optional<uint16_t>(p.counter) &&
+                      shown(t.lookup(P4, p.counter), "counter");
+            }
+            SymbolTable sub;
+            load_c(sub, v24 / "sccz80-subdir" / "prog.map");
+            check("Z88CN-04", "every compiler and install writes the same _name in a <file>_c module: counter resolves and is shown "
+                              "on sdcc-SO0, sdcc-SO2 and master sccz80, sdcc and 80cc; game/util.c (module game_util_c) is C too",
+                  all && sub.resolve("util_twice") == std::optional<uint16_t>(0x8D35));
+        }
+        {   // Z88CN-05
+            const auto banked = [&](const fs::path& map) {
+                SymbolTable t;
+                load_c(t, map);
+                const auto k = at(t, "banked_add");
+                return k && k->addr == 0xC000 && k->space == std::optional<FetchSource>(P20) && !k->bind_at_load &&
+                       k == at(t, "_banked_add") && shown(t.lookup(P20, 0xC000), "banked_add") &&
+                       !t.lookup(P21, 0xC000) && !t.lookup(MemSpace::cpu(), 0xC000);
+            };
+            SymbolTable far;
+            far.load_z88dk_map(synth("cn5.map", rec("_far", 0x1C000, "m_c", "code_compiler", "m.c:1")).string());
+            check("Z88CN-05", "a banked C function is C too, in its page only (v2.4 sccz80-page20, master sdcc-banked, both "
+                              "classic-bank10 with their 24-bit values); a refused symbol leaves its C name unresolved",
+                  banked(v24 / "sccz80-page20" / "prog.map") && banked(master / "sdcc-banked" / "prog.map") &&
+                      banked(v24 / "classic-bank10" / "prog.map") && banked(master / "classic-bank10" / "prog.map") &&
+                      !at(far, "_far") && !at(far, "far"));
+        }
+        {   // Z88CN-06
+            const std::string c_line = rec("_counter", 0x9000, "main_c", "code_compiler", "m.c:1");
+            const std::string a_line = rec("counter", 0x9100, "asmfn_asm", "code_compiler", "a.asm:1");
+            bool a_ok = true;
+            for (int order = 0; order < 2; ++order) {
+                SymbolTable t;
+                t.load_z88dk_map(synth("cn6a.map", order ? a_line + c_line : c_line + a_line).string());
+                a_ok = a_ok && t.resolve("counter") == std::optional<uint16_t>(0x9100) &&
+                       t.resolve("_counter") == std::optional<uint16_t>(0x9000) &&
+                       shown(t.lookup(MemSpace::cpu(), 0x9000), "_counter") &&
+                       shown(t.lookup(MemSpace::cpu(), 0x9100), "counter") && t.shown_name("_counter") == "_counter";
+            }
+            bool b_ok = true;
+            const std::string s_line = rec("_size", 0x9200, "main_c", "code_compiler", "m.c:2");
+            const std::string k_line = rec("size", 0x10, "", "", "", "const");
+            for (int order = 0; order < 2; ++order) {
+                SymbolTable t;
+                t.load_z88dk_map(synth("cn6b.map", order ? k_line + s_line : s_line + k_line).string());
+                b_ok = b_ok && t.resolve("size") == std::optional<uint16_t>(0x10) &&
+                       shown(t.lookup(MemSpace::cpu(), 0x9200), "_size") && t.resolve("_size") == std::optional<uint16_t>(0x9200);
+            }
+            SymbolTable d;
+            d.load_z88dk_map(synth("cn6c.map",
+                rec("_dup", 0x9300, "x_asm", "code_compiler", "x.asm:1") +
+                rec("_dup", 0x9400, "main_c", "code_compiler", "m.c:3")).string());
+            check("Z88CN-06", "an exact name wins in either file order: a real `counter` label, or a `size` constant, "
+                              "beats the C name of _counter / _size, which is then shown as written; a name an asm "
+                              "module already owns is not C",
+                  a_ok && b_ok && !at(d, "dup") && shown(d.lookup(MemSpace::cpu(), 0x9300), "_dup") &&
+                      shown(d.lookup(MemSpace::cpu(), 0x9400), "_dup"));
+        }
+        {   // Z88CN-07
+            SymbolTable b;
+            load_c(b, sc_map);
+            SymbolTable a1;
+            a1.add_label("counter", 0x9100, std::nullopt);
+            a1.merge(b);
+            SymbolTable a2;
+            a2.add_label("counter", 0x9100, std::nullopt);
+            SymbolTable b2 = b;
+            b2.merge(a2);
+            SymbolTable e;
+            e.merge(b);
+            SymbolTable a3;
+            a3.add_label("_counter", 0x9500, std::nullopt);
+            a3.merge(b);
+            check("Z88CN-07", "merge(): a real `counter` wins whichever side holds it and the C one is shown as _counter; "
+                              "into an empty table the C names survive; an asm `_counter` already there is not C",
+                  a1.resolve("counter") == std::optional<uint16_t>(0x9100) && shown(a1.lookup(MemSpace::cpu(), 0x8F59), "_counter") &&
+                      b2.resolve("counter") == std::optional<uint16_t>(0x9100) &&
+                      shown(b2.lookup(MemSpace::cpu(), 0x8F59), "_counter") &&
+                      e.resolve("counter") == std::optional<uint16_t>(0x8F59) && shown(e.lookup(MemSpace::cpu(), 0x8F59), "counter") &&
+                      !at(a3, "counter") && shown(a3.lookup(MemSpace::cpu(), 0x9500), "_counter"));
+        }
+        {   // Z88CN-08
+            SymbolTable t;
+            load_c(t, sc_map);
+            t.load_z88dk_map(synth("cn8.map", rec("_counter", 0x9000, "asmfn_asm", "code_user", "a.asm:1")).string());
+            const bool reloaded = !at(t, "counter") && shown(t.lookup(MemSpace::cpu(), 0x9000), "_counter");
+            SymbolTable u;
+            load_c(u, sc_map);
+            u.load_sjasmplus_equ((fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sym").string());
+            SymbolTable v;
+            v.load_z88dk_or_sjasmplus(sc_map.string());
+            check("Z88CN-08", "a reload replaces the C names with the new file's (an asm-only map has none), a sjasmplus file "
+                              "loaded after keeps none of them, and --map's loader gives them as the .map loader does",
+                  reloaded && !at(u, "_counter") && u.resolve("counter") == std::optional<uint16_t>(6) &&
+                      v.resolve("counter") == std::optional<uint16_t>(0x8F59) &&
+                      shown(v.lookup(MemSpace::cpu(), 0x8F59), "counter"));
+        }
+        {   // Z88CN-09
+            SymbolTable t;
+            load_c(t, sc_map);
+            check("Z88CN-09", "shown_name(): a C symbol's assembler name gives its C name; its C name, an asm label, a "
+                              "double-underscore name and an unknown one come back as given",
+                  t.shown_name("_counter") == "counter" && t.shown_name("counter") == "counter" &&
+                      t.shown_name("_asm_bump") == "_asm_bump" && t.shown_name("nope") == "nope" &&
+                      t.shown_name("__xinit_c") == "__xinit_c");
+        }
+        {   // Z88CN-10
+            std::vector<fs::path> maps;
+            for (const auto& root : {v24, master})
+                for (const auto& d : fs::directory_iterator(root))
+                    if (fs::exists(d.path() / "prog.map")) maps.push_back(d.path() / "prog.map");
+            maps.push_back(fs::path(JNEXT_ZDEBUGMAP_DIR) / "debug.map");
+            maps.push_back(kNoDebugMap);
+            bool all = !maps.empty();
+            bool each_differs = true;
+            for (const fs::path& map : maps) {
+                SymbolTable t;
+                load_c(t, map);
+                t.bind(nex_space);
+                bool differs = false;
+                for (const auto& [addr, label] : t.symbols()) {
+                    const FetchSource sp = label.space ? *label.space : MemSpace::cpu();
+                    const auto name = t.lookup(sp, addr);
+                    if (!name) { all = false; continue; }
+                    // The label lookup() answers for: the shown name resolves to the same key as its own name.
+                    const auto answered = t.lookup_assembler(sp, addr);
+                    if (!answered || !(t.find_name(*name) == t.find_name(*answered))) all = false;
+                    if (*name != *answered) differs = true;
+                }
+                each_differs = each_differs && differs;
+            }
+            SymbolTable inc;
+            load_c(inc, master / "sdcc-debug" / "prog.map");
+            inc.bind(nex_space);
+            int shown_inc = 0;
+            for (const auto& [addr, label] : inc.symbols())
+                if (label.name == "_util_inc" && shown(inc.lookup(P4, addr), "util_inc")) ++shown_inc;
+            check("Z88CN-10", "over every committed z88dk map, after bind: the shown name of each label resolves to the "
+                              "symbol the label's own name does, and each map shows at least one C name; both _util_inc "
+                              "labels of sdcc-debug show util_inc and it resolves to the first",
+                  all && each_differs && shown_inc == 2 && inc.find_name("util_inc") == inc.find_name("_util_inc"));
+        }
+        {   // Z88CN-11
+            SymbolTable t;
+            load_c(t, sc_map);
+            t.bind(nex_space);
+            const auto aname = disasm_text::symbol_namer(&t, nex_space, true);
+            const auto cname = disasm_text::symbol_namer(&t, nex_space);
+            check("Z88CN-11", "lookup_assembler() keeps the assembler name of a C symbol (and of an asm label); the namer "
+                              "built with assembler_names asks it, the default namer gives the C name",
+                  shown(t.lookup_assembler(P4, 0x8F59), "_counter") && shown(t.lookup(P4, 0x8F59), "counter") &&
+                      shown(t.lookup_assembler(P4, 0x8D65), "_asm_bump") && aname(0x8F59) == std::optional<std::string>("_counter") &&
+                      cname(0x8F59) == std::optional<std::string>("counter"));
         }
     }
 
