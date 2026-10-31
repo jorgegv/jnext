@@ -952,7 +952,9 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
                         used = run.mid(cs, ce - cs + 1);
                         if (!used.isEmpty()) key = symbol_for_word(used);
                     }
-                    if (key) word_symbol = std::make_pair(used.toStdString(), key->addr);
+                    // The shown name, as the Disassembly names it: a z88dk C symbol is `counter`, not `_counter`.
+                    if (key)
+                        word_symbol = std::make_pair(dbg_->symbols().shown_name(used.toStdString()), key->addr);
                 }
             }
         }

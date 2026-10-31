@@ -4233,6 +4233,52 @@ void test_source_menu_review() {
     }
 }
 
+// ── QCN-05: the Source tab's word menu offers a z88dk C symbol under its C name (GH #424 stage 2) ──
+// Oracle: the owner's parity rule (the Source tab offers what the Disassembly offers, which shows
+// `counter` for `_counter`) and zcc's MODULE naming (main_c); a map in the real line format.
+void test_z88dk_c_names_source() {
+    Fixture fx;
+    fx.enable();
+    fx.load_map();
+    const std::string map = g_tmp->path().toStdString() + "/qcn5.map";
+    write_text(map,
+               "_counter                        = $9000 ; addr, public, , main_c, bss_compiler, main.c:2\n"
+               "_main                           = $8005 ; addr, public, , main_c, code_compiler, main.c:12\n"
+               "_asm_bump                       = $9100 ; addr, public, , asmfn_asm, code_user, asmfn.asm:5\n");
+    fx.backend->load_map(map, jnext::dbg::MapFormat::Z88dk);
+    write_main({{10, "    counter = 0;"}, {11, "    ld hl,_counter"}, {12, "int main(void)"}, {13, "    ld hl,_asm_bump"}});
+    BreakpointModel& m = fx.mgr->breakpoints();
+    SrcView v(fx, m);
+    v.sp->set_watch_panel(fx.dbg()->watch_panel());
+    const auto menu_of = [&](int line, const char* needle) {
+        auto menu = std::make_unique<QMenu>();
+        const QString text = v.ed->document()->findBlockByNumber(line - 1).text();
+        v.sp->fill_context_menu(*menu, line, col_in(text, needle));
+        return menu;
+    };
+    WatchPanel* wp = fx.dbg()->watch_panel();
+    const auto c_word = menu_of(10, "counter");       // the C word, as in main.c
+    const auto asm_word = menu_of(11, "_counter");    // the assembler word, as in asmfn.asm
+    const auto main_word = menu_of(12, "main");       // the function's own line: its label is main too
+    const auto asm_fn = menu_of(13, "_asm_bump");     // an asm symbol keeps its name
+    const int w0 = wp->watch_count();
+    QAction* watch = menu_action(*asm_word, "Watch 'counter' ($9000)");
+    if (watch) watch->trigger();
+    check("QCN-05", "the Source tab offers a z88dk C symbol under its C name: `counter` and `_counter` both give "
+                    "Watch/Break on Read/Write 'counter' ($9000) and the watch is labelled counter; `main` on its own "
+                    "line gives one 'main' entry; an asm symbol keeps `_asm_bump`",
+          menu_texts(*c_word).contains("Watch 'counter' ($9000)") &&
+              menu_texts(*c_word).contains("Break on Read 'counter' ($9000)") &&
+              menu_texts(*asm_word).contains("Break on Write 'counter' ($9000)") &&
+              !menu_texts(*asm_word).contains("Watch '_counter' ($9000)") && watch &&
+              wp->watch_count() == w0 + 1 && cell(wp, w0, 1) == "counter" &&
+              menu_texts(*main_word).count("Watch 'main' ($8005)") == 1 &&
+              menu_texts(*asm_fn).contains("Watch '_asm_bump' ($9100)"),
+          s(menu_texts(*c_word).join("|")) + " / " + s(menu_texts(*asm_word).join("|")) + " / " +
+              s(menu_texts(*main_word).join("|")));
+    m.clear_all();
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -4284,6 +4330,7 @@ int main(int argc, char** argv) {
     test_z88dk_c_names();
     test_source_context_menu();
     test_source_menu_review();
+    test_z88dk_c_names_source();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
