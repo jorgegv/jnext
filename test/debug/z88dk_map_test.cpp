@@ -650,7 +650,8 @@ int main() {
             SymbolTable a, b;
             const int na = load_sym(a, v24 / "classic-bank10" / "prog.map");
             const int nb = load_sym(b, master / "classic-bank10" / "prog.map");
-            check("Z88SYM-03", "a classic 24-bit value in a numbered section ($AC000, $14C000) is a label of its page: "
+            check("Z88SYM-03", "a classic 24-bit value in a numbered section ($AC000, $14C000) is a label of its page "
+                               "(6 fixture-module symbols + 16 of the classic CRT kept by KEEP_CRT, GH #348): "
                                "the bits above 15 are not read; the 24-bit constant stays no name",
                   na == 22 && nb == 22 && is_key(a, "_banked_add", 0xC000, P20, false) &&
                       is_key(b, "_banked_add", 0xC000, P20, false) && !key(a, "__BANK_10_head") &&

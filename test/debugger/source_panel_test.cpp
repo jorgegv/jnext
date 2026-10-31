@@ -2725,6 +2725,26 @@ void test_z88dk_listings() {
                   box.contains(QStringLiteral("main.c.lis")) && box.contains(QStringLiteral("$8C6B")),
               s(box));
     }
+    {   // QSRC-144: one listing is singular in the Load box
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q144/prog.map";
+        copy_z88dk("v2.4/sccz80-incmid", "prog.map", map);
+        copy_z88dk("v2.4/sccz80-incmid", "incmid.c.lis", tmp + "/q144/incmid.c.lis");
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        check("QSRC-144", "Load Source Map... of a map with exactly one listing says 'with 1 z88dk listing', not 'listings'",
+              load && box.contains(QStringLiteral("with 1 z88dk listing")) &&
+                  !box.contains(QStringLiteral("z88dk listings")),
+              s(box));
+    }
     {   // QSRC-143: a reloaded listing of the same name refreshes the shown text
         Fixture fx;
         fx.enable();
