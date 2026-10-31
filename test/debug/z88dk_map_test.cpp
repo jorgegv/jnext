@@ -614,6 +614,134 @@ int main() {
                   !ro && ro.error.find("has no __PAGE_20_head") != std::string::npos);
     }
 
+    // ── Z88SYM-*: the symbol half of the same map, GH #375 stage 3 ──────────────
+    // Oracle: the fixtures' NEX placement (prog_PAGE_20.bin / prog_BANK_10.bin at NEX bank
+    // 10 +0 = page 20; prog_CODE.bin at bank 2 +0 = page 4), design 9.4 and #344 D8.
+    {
+        using Key = SymbolNameKey;
+        const auto key = [](const SymbolTable& t, const char* n) { return t.find_name(n); };
+        const auto is_key = [&](const SymbolTable& t, const char* n, uint16_t a,
+                                std::optional<FetchSource> sp, bool bind) {
+            return key(t, n) == std::optional<Key>(Key{a, sp, bind});
+        };
+        const auto name_is = [](const std::optional<std::string>& got, const char* want) {
+            return got && *got == want;
+        };
+        const auto load_sym = [](SymbolTable& t, const fs::path& map) {
+            return t.load_z88dk_map(map.string());
+        };
+
+        {   // Z88SYM-01 / 02
+            SymbolTable a, b, c;
+            const int na = load_sym(a, v24 / "sccz80-page20" / "prog.map");
+            const int nb = load_sym(b, master / "sdcc-banked" / "prog.map");
+            check("Z88SYM-01", "rule 1 through the symbol loader: _banked_add of a PAGE_20 section is a label of page 20 "
+                               "(sccz80 on 2.4, sdcc on master), named in page 20 only",
+                  na == 10 && nb == 9 && is_key(a, "_banked_add", 0xC000, P20, false) &&
+                      is_key(b, "_banked_add", 0xC000, P20, false) &&
+                      name_is(a.lookup(P20, 0xC000), "_banked_add") && !a.lookup(P21, 0xC000) &&
+                      !a.lookup(MemSpace::cpu(), 0xC000) && name_is(b.lookup(P20, 0xC000), "_banked_add") &&
+                      !b.lookup(P21, 0xC000));
+            const int nc = load_sym(c, v24 / "sccz80-bank10" / "prog.map");
+            check("Z88SYM-02", "rule 2: _banked_add of a BANK_10 section is a label of page 20 at $C000",
+                  nc == 10 && is_key(c, "_banked_add", 0xC000, P20, false) && !c.lookup(P21, 0xC000));
+        }
+        {   // Z88SYM-03
+            SymbolTable a, b;
+            const int na = load_sym(a, v24 / "classic-bank10" / "prog.map");
+            const int nb = load_sym(b, master / "classic-bank10" / "prog.map");
+            check("Z88SYM-03", "a classic 24-bit value in a numbered section ($AC000, $14C000) is a label of its page: "
+                               "the bits above 15 are not read; the 24-bit constant stays no name",
+                  na == 6 && nb == 6 && is_key(a, "_banked_add", 0xC000, P20, false) &&
+                      is_key(b, "_banked_add", 0xC000, P20, false) && !key(a, "__BANK_10_head") &&
+                      !key(b, "__BANK_10_head"));
+        }
+        {   // Z88SYM-04
+            SymbolTable t;
+            load_sym(t, v24 / "sccz80-debug" / "prog.map");
+            const bool unbound = t.symbols().find(0x8C92)->second.bind_at_load &&
+                                 !t.symbols().find(0x8C92)->second.space &&
+                                 name_is(t.lookup(MemSpace::cpu(), 0x8C92), "_main");
+            t.bind(nex_space);
+            const bool in4 = name_is(t.lookup(P4, 0x8C92), "_main") && !t.lookup(MemSpace::cpu(), 0x8C92) &&
+                             !t.lookup(MemSpace::page(40), 0x8C92) && is_key(t, "_main", 0x8C92, P4, true);
+            t.bind([](uint16_t) { return MemSpace::page(40); });
+            const bool in40 = is_key(t, "_main", 0x8C92, MemSpace::page(40), true);
+            t.bind({});
+            const bool unbound_again = is_key(t, "_main", 0x8C92, std::nullopt, true);
+            SymbolTable p;
+            load_sym(p, v24 / "sccz80-page20" / "prog.map");
+            p.bind(nex_space);
+            check("Z88SYM-04", "rule 4: a symbol of a section naming no page is stored unbound and flagged; bind() gives it "
+                               "the RAM page mapped at its address and touches no paged label",
+                  unbound && in4 && in40 && unbound_again && is_key(p, "_main", 0x8C62, P4, true) &&
+                      is_key(p, "_banked_add", 0xC000, P20, false) && is_key(p, "_result", 0x8E82, P4, true));
+        }
+        {   // Z88SYM-05
+            SymbolTable t;
+            load_sym(t, master / "sdcc-banked" / "prog.map");
+            t.bind(nex_space);
+            const bool rom = name_is(t.lookup(MemSpace::cpu(), 0x0000), "zxn") && !key(t, "zxn")->space;
+            SymbolTable lo;
+            lo.load_z88dk_map(synth("z5.map", rec("_low", 0x2000, "m", "code_user", "m.asm:1")).string());
+            lo.bind([](uint16_t) { return MemSpace::page(30); });
+            const bool ram = is_key(lo, "_low", 0x2000, MemSpace::page(30), true);
+            lo.bind([](uint16_t) { return MemSpace::divmmc_ram(3); });
+            check("Z88SYM-05", "a rule-4 symbol whose address is not in a RAM page (ROM, DivMMC) stays unpaged",
+                  rom && ram && is_key(lo, "_low", 0x2000, std::nullopt, true));
+        }
+        {   // Z88SYM-06
+            SymbolTable t;
+            const int n = t.load_z88dk_map(synth("z6.map",
+                rec("_d", 0x2100, "m", "DIV_3", "m.asm:1") +
+                rec("_dbig", 0x32100, "m", "DIV_3", "m.asm:1") +
+                rec("_nohead", 0xC000, "m", "PAGE_16", "m.asm:1") +
+                rec("_oor", 0xD000, "m", "BANK_200", "m.asm:1") +
+                rec("_big", 0x1C000, "m", "code_compiler", "m.asm:1") +
+                rec("_huge", 0x1000000, "m", "BANK_10", "m.asm:1") +
+                rec("_ok", 0xC010, "m", "BANK_10", "m.asm:1")).string());
+            check("Z88SYM-06", "what the symbol half does with an Unpaged or Refused result: DIV, a head-less PAGE and an "
+                               "out-of-range number stay unpaged (16-bit values), the rest are skipped",
+                  n == 4 && is_key(t, "_d", 0x2100, std::nullopt, false) && !key(t, "_dbig") &&
+                      is_key(t, "_nohead", 0xC000, std::nullopt, false) &&
+                      is_key(t, "_oor", 0xD000, std::nullopt, false) && !key(t, "_big") && !key(t, "_huge") &&
+                      is_key(t, "_ok", 0xC010, P20, false));
+        }
+        {   // Z88SYM-07
+            const fs::path m = synth("z7.map",
+                rec("__banked_init", 0xC010, "m", "PAGE_16", "m.asm:1") +
+                rec("__PAGE_16_head", 0xC000, "", "", "", "const") +
+                rec("_late", 0xEEE0, "m", "PAGE_16", "m.asm:2"));
+            SymbolTable a, b, c;
+            a.load_z88dk_map(m.string());
+            b.load_z88dk_or_sjasmplus(m.string());
+            c.load_z88dk_or_sjasmplus((v24 / "sccz80-page20" / "prog.map").string());
+            check("Z88SYM-07", "the symbol loader reads the file in two passes (a page head after its symbols counts) and --map's "
+                               "loader does the same: $EEE0 of PAGE_16 at $C000 is page 17",
+                  is_key(a, "__banked_init", 0xC010, MemSpace::page(16), false) &&
+                      is_key(a, "_late", 0xEEE0, MemSpace::page(17), false) && a.symbols() == b.symbols() &&
+                      is_key(b, "_late", 0xEEE0, MemSpace::page(17), false) &&
+                      is_key(c, "_banked_add", 0xC000, P20, false));
+        }
+        {   // Z88SYM-08
+            SymbolTable a, b, c;
+            const int na = load_sym(a, master / "sdcc-banked-run" / "prog.map");
+            const int nb = load_sym(b, v24 / "sccz80-banked-run" / "prog.map");
+            const int nc = c.load_z88dk_map(synth("z8.map",
+                rec("__PAGE_21_head", 0x14E000, "", "", "", "const") +
+                rec("_b21", 0x14E000, "b_c", "PAGE_21", "b.c:3") +
+                rec("__PAGE_30_head", 0x100C000, "", "", "", "const") +
+                rec("_over", 0xC000, "o_c", "PAGE_30", "o.c:3")).string());
+            check("Z88SYM-08", "a 24-bit __PAGE_n_head ($14C000, the runnable __banked builds) places the symbols by its low "
+                               "16 bits; the 24-bit constant is no name; a head past 24 bits is no head",
+                  na == 9 && nb == 11 && is_key(a, "_banked_add", 0xC000, P20, false) &&
+                      is_key(b, "_banked_add", 0xC000, P20, false) && name_is(a.lookup(P20, 0xC000), "_banked_add") &&
+                      !a.lookup(P21, 0xC000) && !a.lookup(MemSpace::cpu(), 0xC000) && !key(a, "__PAGE_20_head") &&
+                      nc == 2 && is_key(c, "_b21", 0xE000, MemSpace::page(21), false) &&
+                      is_key(c, "_over", 0xC000, std::nullopt, false));
+        }
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

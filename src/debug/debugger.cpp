@@ -256,6 +256,9 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
     if (n >= 0) {
         impl_->symbols_owner    = Impl::StoreOwner::User;
         impl_->symbols_from_sld = false;
+        // A z88dk map's rule-4 symbols take the RAM page mapped now (and again
+        // at the program load), the function `source_page()` answers with.
+        impl_->symbols.bind([this](uint16_t a) { return impl_->emu.predict_fetch(a); });
     }
     // Both loaders return -1 on a file that cannot be read or parsed. That is
     // not a refusal of the verb by the machine's state, and it is not "there is

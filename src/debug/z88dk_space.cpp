@@ -180,6 +180,15 @@ Z88dkSpace z88dk_section_space(
     return unpaged(addr16, "section '" + text + "'");
 }
 
+std::optional<uint16_t> z88dk_page_head(const std::map<std::string, uint64_t>& consts, int n)
+{
+    const auto it = consts.find("__PAGE_" + std::to_string(n) + "_head");
+    if (it == consts.end() || it->second > 0xFFFFFF) return std::nullopt;
+    // Design 9.4 rule 1: in a numbered section the head's bits above 16 are
+    // not read (newlib puts the page there for __banked; GH #345).
+    return static_cast<uint16_t>(it->second & 0xFFFF);
+}
+
 namespace {
 
 std::string_view trim(std::string_view text, std::string_view chars = " \t\r\n")

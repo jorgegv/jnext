@@ -2292,6 +2292,39 @@ static void host_rows() {
               g.sink.tail(4));
     }
     {
+        // GH #375 stage 3 (N2): --map with the symbols of z88dk's newlib banked layout
+        // (z88dk #3214/#3217: PAGE_21 and BANK_10_H at $14E000, PAGE_20 at $14C000). A
+        // script's `@name` is 16-bit (D13): the page byte is the linker's banked_call
+        // convention, not an address. A 24-bit value in a section that names no page is
+        // refused (design 9.4 rule 3), so `_far` is no name.
+        const std::string body =
+            "__PAGE_20_head = $14C000 ; const, public, def, , ,\n"
+            "__PAGE_21_head = $14E000 ; const, public, def, , ,\n"
+            "_banked_add    = $14E000 ; addr, public, , banked_c, PAGE_21, banked.c:5\n"
+            "_in20          = $14C010 ; addr, public, , banked_c, PAGE_20, banked.c:9\n"
+            "_hi            = $14E004 ; addr, public, , b_c, BANK_10_H, b.c:3\n"
+            "_far           = $14E000 ; addr, public, , m_c, code_compiler, m.c:3\n"
+            "_main          = $8000   ; addr, public, , m_c, code_compiler, m.c:1\n";
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = tmp_file("banked.map", body);
+        o.scripts  = {tmp_file("z88bank.jds",
+                               "on frame 0 do log \"Z ${@_banked_add} ${@_in20} ${@_hi}\" end\n")};
+        const bool ok = g.start(o);
+        g.run(1);
+        HostRig h;
+        ScriptHostOptions p;
+        p.map_file = o.map_file;
+        p.scripts  = {tmp_file("z88far.jds", "on frame 0 do log \"F ${@_far}\" end\n")};
+        const bool refused = !h.start(p);
+        check("SCRIPT-HOST-MAP-Z88BANK", "--map's 24-bit banked z88dk symbols resolve as 16-bit @names ($14E000 of "
+                                         "PAGE_21 is 57344, $14C010 of PAGE_20 49168, BANK_10_H $14E004 57348); "
+                                         "`_far`, 24-bit in an unpaged section, is no name",
+              ok && g.sink.count("--map " + o.map_file + ": 4 symbols") == 1 && g.sink.count("Z 57344 49168 57348") == 1 &&
+                  refused && h.sink.count("unknown symbol `@_far` (not in any loaded MAP)") == 1,
+              g.sink.tail(4) + h.sink.tail(3));
+    }
+    {
         // SCRIPT-SLD-01 (GH #375): the labels of an SLD loaded into the backend are the one table the
         // DSL's `@name` reads, as 16-bit addresses (a name's page does not reach the script).
         HostRig g;
