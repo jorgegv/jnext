@@ -35,6 +35,8 @@ struct CallFrame {
 /// Not a real CPU stack — this is a debug-only shadow structure.
 /// Call on_instruction_pre() before and on_instruction_post() after each
 /// instruction. The post-call compares SP to detect taken calls/rets.
+/// A frame ends when a RET lands on the newest CALL's return address, else
+/// when a RET raises SP above its return slot (GH #345).
 class CallStack {
 public:
     /// Call before instruction execution to capture opcode and pre-SP.
@@ -52,6 +54,11 @@ public:
     /// instruction ran at that target.
     void on_instruction_post(uint16_t new_sp, uint16_t new_pc,
                              jnext::dbg::MemSpace fetched = jnext::dbg::MemSpace::cpu());
+
+    /// A slot that completed WITHOUT fetching an opcode and returned (the esxDOS
+    /// shim's: it raises SP by 2 and runs no instruction). The captured opcode
+    /// did not run, so frames end by SP alone. GH #345.
+    void on_slot_without_fetch(uint16_t new_sp);
 
     /// Notify of an interrupt being taken (hardware push of PC), IN PLACE of
     /// on_instruction_post() for that slot: an accepted INT or NMI runs no
@@ -88,6 +95,7 @@ private:
     void push_frame(uint16_t caller, uint16_t target, uint16_t sp, CallType type,
                     jnext::dbg::MemSpace caller_space);
     void pop_frames_to_sp(uint16_t sp);
+    void return_to(uint16_t sp, uint16_t pc);
 
     std::vector<CallFrame> frames_;
     bool enabled_ = false;
