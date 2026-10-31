@@ -4695,10 +4695,10 @@ void test_source_highlight_rules() {
                QStringLiteral("#define X 1 /* long\ncomment */ int z;\n#define Y \"/*\"\nint w;\n"
                               "#if X // note /*\nint a;\n#define D \"x\" /* y */ 1\nint c;"));
         check("QSRC-149", "a /* opened on a # line goes on to the next line (the # line stays a "
-                          "directive), a /* inside a string, after a //, or closed on the line opens nothing",
-              role_mask(h, 0) == std::string(h.doc.findBlockByNumber(0).text().size(), 'D') &&
+                          "preprocessor line), a /* inside a string, after a //, or closed on the line opens nothing",
+              role_mask(h, 0) == std::string(h.doc.findBlockByNumber(0).text().size(), 'P') &&
                   tok(h, 1, QStringLiteral("comment */")) == 'C' && tok(h, 1, QStringLiteral("int")) == 'K' &&
-                  role_mask(h, 2) == std::string(h.doc.findBlockByNumber(2).text().size(), 'D') &&
+                  role_mask(h, 2) == std::string(h.doc.findBlockByNumber(2).text().size(), 'P') &&
                   tok(h, 3, QStringLiteral("int")) == 'K' && !has_role(h, 3, 'C') &&
                   tok(h, 5, QStringLiteral("int")) == 'K' && !has_role(h, 5, 'C') &&
                   tok(h, 7, QStringLiteral("int")) == 'K' && !has_role(h, 7, 'C'),
