@@ -3608,7 +3608,8 @@
 <h1 id="run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline">Run to cursor, run to end of frame, run to end of scanline<a class="headerlink" href="#run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline" title="Permanent link">&para;</a></h1>
 <p><strong>Run to Here</strong> is the run-to-cursor: select a line in the disassembly and press
 <strong>Enter</strong>, or use the right-click menu. Execution resumes and stops when that
-address is reached. If it is never reached, the machine keeps running.</p>
+address is reached. If it is never reached, the machine keeps running. The Source tab has
+its own <strong>Run to Here</strong> on a source line (right-click menu, or <strong>Enter</strong>).</p>
 <p><strong>Run to EOSL</strong> (Run to End of Scan Line) resumes until the end of the current
 scanline. It is the tool for stepping through a raster effect one line at a
 time: run to EOSL, look at the Video panel, repeat.</p>
@@ -3620,7 +3621,7 @@ point, it targets the same position in the next frame.</p>
 to be paused already.</p>
 <p>None of these three has a key out of the box, but all three can be given one —
 Run to Cursor then acts on the disassembly's current line from anywhere in the
-debugger window. See <a href="09-changing-the-keys.html">Changing the keys</a>.</p>
+debugger window, or on the Source tab's cursor line while that tab has the keyboard focus. See <a href="09-changing-the-keys.html">Changing the keys</a>.</p>
 
 
 

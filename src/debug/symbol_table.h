@@ -18,10 +18,15 @@ using SymbolSpaceOf = std::function<jnext::dbg::FetchSource(uint16_t)>;
 /// One named address. A PAGED label (`space` set) names its address only while
 /// that memory supplies it (a sjasmplus SLD label assembled for page 20); an
 /// UNPAGED one (`space` nullopt) names it in every memory (GH #375).
+/// `bind_at_load` marks a z88dk symbol of a section that names no page (design
+/// 9.4 rule 4): its memory is the RAM page mapped at its address when the table
+/// is bound (`SymbolTable::bind()`); unbound, it is unpaged.
 struct SymbolLabel {
     std::string name;
     std::optional<jnext::dbg::FetchSource> space;
-    bool operator==(const SymbolLabel& o) const { return name == o.name && space == o.space; }
+    bool bind_at_load = false;
+    bool operator==(const SymbolLabel& o) const
+    { return name == o.name && space == o.space && bind_at_load == o.bind_at_load; }
 };
 
 /// The address a name resolves to, and the memory it was assembled for (nullopt:
@@ -29,7 +34,9 @@ struct SymbolLabel {
 struct SymbolNameKey {
     uint16_t addr = 0;
     std::optional<jnext::dbg::FetchSource> space;
-    bool operator==(const SymbolNameKey& o) const { return addr == o.addr && space == o.space; }
+    bool bind_at_load = false;   // as SymbolLabel::bind_at_load
+    bool operator==(const SymbolNameKey& o) const
+    { return addr == o.addr && space == o.space && bind_at_load == o.bind_at_load; }
 };
 
 /// Symbol table loaded from a MAP file (e.g. Z88DK linker output), a
@@ -47,6 +54,14 @@ public:
     /// The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or
     /// `__CDBINFO__`) are skipped entirely: they are not symbols, and would
     /// otherwise name the function labels' addresses (GH #352).
+    /// Each "; addr" symbol takes its page from its section, by
+    /// `z88dk_section_space()` (design 9.4): a `BANK_n` / `PAGE_n` symbol is a
+    /// paged label, 24-bit classic values included (the page head comes from
+    /// `z88dk_page_head()`, whatever the order of the file); a symbol of a section
+    /// that names no page is `bind_at_load`, unpaged until `bind()`; a DivMMC
+    /// section, a head-less PAGE section or a number out of range is unpaged
+    /// (when the value fits 16 bits); a 24-bit value in a section that names no
+    /// page, or past 24 bits, is skipped.
     /// Returns the number of "; addr" symbols loaded, or -1 on error. A file that
     /// is not a regular file or is over the size cap is refused before it is
     /// opened, the table untouched, and `why`, when given, says so; a file that
@@ -108,8 +123,19 @@ public:
     /// Add a label. A paged label (`space` set) keys on (space, addr), an
     /// unpaged one on addr; the first label of a key wins and, apart, the
     /// first of a name. Returns whether the key was free (the entry stored).
+    /// A `bind_at_load` label is added unbound (`space` nullopt); `bind()` gives
+    /// it its memory.
     bool add_label(const std::string& name, uint16_t addr,
-                   std::optional<jnext::dbg::FetchSource> space);
+                   std::optional<jnext::dbg::FetchSource> space,
+                   bool bind_at_load = false);
+
+    /// Give every `bind_at_load` label, and name, the memory `space_of(addr)`
+    /// says supplies its address, when that is a RAM page; any other memory
+    /// (ROM, DivMMC, ...) leaves the symbol unpaged (rule 4 is "the RAM page the
+    /// MMU maps": the symbol half's lenient form of the source half's refusal,
+    /// #344 D8). An empty `space_of` unbinds them all. Nothing else changes, and
+    /// no label is merged on a key collision.
+    void bind(const SymbolSpaceOf& space_of);
 
     /// Add a NAME-ONLY value (a size, an offset, a section bound): `find_name()`
     /// resolves it, no address is ever named by it. The first of a name wins.
@@ -152,7 +178,8 @@ public:
     /// Returns true if no symbols are loaded.
     bool empty() const { return labels_.empty(); }
 
-    /// Number of labels loaded: distinct (memory, address) keys.
+    /// Number of labels loaded: distinct (memory, address) keys. A `bind()` can
+    /// make two labels share a key (a bound rule-4 label and a paged one).
     size_t size() const { return labels_.size(); }
 
     /// Get the loaded file path (empty if none loaded).
@@ -168,7 +195,7 @@ private:
     /// Name `name` (first wins) without storing a label: the aliases a
     /// Memory.txt label also answers to.
     void add_name(const std::string& name, uint16_t addr,
-                  std::optional<jnext::dbg::FetchSource> space);
+                  std::optional<jnext::dbg::FetchSource> space, bool bind_at_load = false);
 
     std::multimap<uint16_t, SymbolLabel> labels_;
     std::map<std::string, SymbolNameKey> name_to_key_;

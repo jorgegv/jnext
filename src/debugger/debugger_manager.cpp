@@ -351,8 +351,17 @@ void DebuggerManager::ensure_window() {
     }
     if (auto* dp = debugger_window_->disasm_panel())
         dp->set_breakpoint_model(bp_model_);
-    if (auto* sp = debugger_window_->source_panel())   // GH #421: the BP column
+    if (auto* sp = debugger_window_->source_panel()) {   // GH #421: the BP column
         sp->set_breakpoint_model(bp_model_);
+        // GH #423 - the menu's Watch entries, and Run to Here on a source line.
+        sp->set_watch_panel(debugger_window_->watch_panel());
+        connect(sp, &SourcePanel::run_to_line_requested, this, [this](const QString& file_line) {
+            if (!confirm_resume_if_corrupt()) return;
+            if (dbg_.run_to_source_line(client_, file_line.toStdString()) != jnext::dbg::Result::Ok)
+                return;
+            apply_pause_state(false);
+        });
+    }
     // GH #278 WP4c — a watch is a peek through the backend (§3.5).
     if (auto* wp = debugger_window_->watch_panel())
         wp->set_backend(&dbg_);

@@ -2,7 +2,8 @@
 
 **Run to Here** is the run-to-cursor: select a line in the disassembly and press
 **Enter**, or use the right-click menu. Execution resumes and stops when that
-address is reached. If it is never reached, the machine keeps running.
+address is reached. If it is never reached, the machine keeps running. The Source tab has
+its own **Run to Here** on a source line (right-click menu, or **Enter**).
 
 **Run to EOSL** (Run to End of Scan Line) resumes until the end of the current
 scanline. It is the tool for stepping through a raster effect one line at a
@@ -18,4 +19,4 @@ to be paused already.
 
 None of these three has a key out of the box, but all three can be given one —
 Run to Cursor then acts on the disassembly's current line from anywhere in the
-debugger window. See [Changing the keys](09-changing-the-keys.md).
+debugger window, or on the Source tab's cursor line while that tab has the keyboard focus. See [Changing the keys](09-changing-the-keys.md).

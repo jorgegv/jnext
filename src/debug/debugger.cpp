@@ -14,6 +14,7 @@
 
 #include "debug/debugger_impl.h"
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 #include <utility>
@@ -256,6 +257,9 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
     if (n >= 0) {
         impl_->symbols_owner    = Impl::StoreOwner::User;
         impl_->symbols_from_sld = false;
+        // A z88dk map's rule-4 symbols take the RAM page mapped now (and again
+        // at the program load), the function `source_page()` answers with.
+        impl_->symbols.bind([this](uint16_t a) { return impl_->emu.predict_fetch(a); });
     }
     // Both loaders return -1 on a file that cannot be read or parsed. That is
     // not a refusal of the verb by the machine's state, and it is not "there is
@@ -379,10 +383,13 @@ RunState Debugger::state() const {
         case PauseReason::Kind::RunTo:
             // A run-to stops at its target OR earlier, on a breakpoint the run
             // crossed. Which one it was is readable: the target address.
-            if (!impl_->has_target || impl_->armed_target == st.pc) {
+            if (!impl_->has_target || impl_->armed_target == st.pc ||
+                std::find(impl_->armed_targets.begin(), impl_->armed_targets.end(), st.pc) !=
+                    impl_->armed_targets.end()) {
                 st.pause_reason.kind = PauseReason::Kind::RunTo;
                 st.pause_reason.by   = impl_->armed_by;
-                st.pause_reason.addr = impl_->armed_target;
+                // GH #423: a source line has several targets; the one reached is the PC.
+                st.pause_reason.addr = impl_->armed_targets.empty() ? impl_->armed_target : st.pc;
                 st.pause_reason.id   = impl_->armed_target_id;
                 return st;
             }

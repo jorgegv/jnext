@@ -2748,6 +2748,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#running-to-a-source-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running to a source line
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watching-a-variable-from-the-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching a variable from the source
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#breakpoints-on-a-source-line" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3803,7 +3825,9 @@ there, and the others stay pending. When the last one matches the log says
 tape does not match its binary identity</code>), and so are the symbols that came with
 it; with <code>--source-map</code> the run then exits with status 1. A map with no binary
 identity (no section binaries, an SLD without a hash) attaches unverified, as for
-any program, and nothing is waited for. A reset before the program has arrived
+any program, and nothing is waited for. The map's symbols take the page mapped at
+the tape's load call, as its source lines do, and work at once, while the check is
+pending; the map you loaded yourself is bound again at each program load. A reset before the program has arrived
 drops a program's pending map, since the program will not, and makes the one you
 loaded yourself stale (load it again once the program is in memory).</p>
 <p><strong>Binary identity.</strong> An SLD may record the SHA-256 of the program's bytes as it
@@ -3923,6 +3947,17 @@ the debugger window is open. <strong>Back</strong> and <strong>Reverse</strong> 
 rewind, like <strong>Step Back</strong>
 (<a href="07-backward-execution-rewind.html">Backward execution (rewind)</a>); they look for
 their target in the instructions the trace has kept.</p>
+<h2 id="running-to-a-source-line">Running to a source line<a class="headerlink" href="#running-to-a-source-line" title="Permanent link">&para;</a></h2>
+<p><strong>Run to Here</strong> in the Source tab's right-click menu (or <strong>Enter</strong> on the line) runs the machine
+until the line is reached. A line that compiled to several places stops at the first one
+reached; a line of banked code stops only when its page supplies the code there. No
+breakpoint is left behind, and it works while the machine runs: a second Run to Here replaces
+the first. Run to Cursor, once bound, acts on the Source tab's cursor line while that tab has
+the focus. A breakpoint on the way still stops the run first. See
+<a href="02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html">Run to cursor</a>.</p>
+<h2 id="watching-a-variable-from-the-source">Watching a variable from the source<a class="headerlink" href="#watching-a-variable-from-the-source" title="Permanent link">&para;</a></h2>
+<p>The same menu offers <strong>Watch</strong> and <strong>Break on Read / Write</strong> for the label, number or register
+under the pointer (<a href="../panels/15-source.html#right-click-menu">the Source tab's menu</a>).</p>
 <h2 id="breakpoints-on-a-source-line">Breakpoints on a source line<a class="headerlink" href="#breakpoints-on-a-source-line" title="Permanent link">&para;</a></h2>
 <p>In the Breakpoints panel's <strong>Add</strong> dialog, the address can be a number
 (<code>8000</code>, <code>$8000</code>, <code>0x8000</code>), a symbol (<code>PlayerTick</code>), or, for an Execute
@@ -4000,7 +4035,10 @@ later line, and the earlier one is its alias if both are in the same function
   while its 8K page is mapped where it runs (the Source tab, Call Stack and
   Breakpoints panels all follow the page). The map's address for a <code>BANK_n</code>
   section carries the bank in its high bits; JNEXT reads the page from the
-  section and the address. z88dk's <code>__banked</code> on newlib <code>+zxn</code> needs
+  section and the address, and the map's symbols follow the page as its lines
+  do (<code>@name</code> and the disassembly name a banked symbol only while its page is
+  mapped); the 24-bit <code>__PAGE_&lt;n&gt;_head</code> that the pragma below produces is read
+  by its low 16 bits. z88dk's <code>__banked</code> on newlib <code>+zxn</code> needs
   <code>-pragma-define:CRT_ORG_PAGE_&lt;n&gt;=0x&lt;page&gt;&lt;org&gt;</code> (the page in the top byte,
   for example <code>0x14C000</code> for <code>PAGE_20</code>) and a stack below the banking segment
   (<code>-pragma-define:REGISTER_SP=0xC000</code>): without them the program itself calls

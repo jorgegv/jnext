@@ -10,6 +10,30 @@ breakpoint, a source line (`main.bas:120`); see
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.
 The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.
 
+## Whose breakpoints the gutters show and change
+
+Every breakpoint belongs to whoever set it. The debugger window is one owner; GDB
+(`z88dk-gdb`, a GDB-protocol client), ZRCP, DZRP (DeZog in VS Code) and a debugger script are
+others, each its own. They all stop the same machine, and the **Breakpoints panel** lists all
+of them together, but the **breakpoint column of the Disassembly and of the Source tab** draws
+and edits only the debugger window's own breakpoints:
+
+- **Drawing.** A red dot or ring in either column is a breakpoint this window set (a gutter
+  click, **Toggle Breakpoint**, the Add dialog, the Breakpoints menu). An Execute breakpoint
+  that GDB, ZRCP, DeZog or a script set at the same address draws nothing there. It is a row in
+  the Breakpoints panel, marked `(client N)` after its type, read-only: its **On** box cannot be
+  ticked, and **Edit** and **Remove** refuse it.
+- **Clicking.** A click on a line that carries only someone else's breakpoint **adds the window's
+  own** breakpoint beside it (two rows in the list, the line now shows a dot) and does not touch
+  the other. A click on a line with the window's own breakpoint removes **that** one only. The
+  window never removes another client's breakpoint, from a gutter, from the right-click menu,
+  from **Remove** or from **Clear All Breakpoints** (which clears only the window's own).
+- **Seeing and removing the others.** Read them in the Breakpoints panel. To remove one, use the
+  tool that set it (`delete` in GDB, the breakpoint list in DeZog, the ZRCP command, the
+  script). The **Breakpoints enabled** master switch below is shared: unticking it suspends every
+  owner's breakpoints.
+- **Data breakpoints** (Read, Write, ports) are not drawn in the gutters at all, whoever owns them.
+
 ## Turning breakpoints off without losing them
 
 Deleting a breakpoint to get past it, and typing the address back in

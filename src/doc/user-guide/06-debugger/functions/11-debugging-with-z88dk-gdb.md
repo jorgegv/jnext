@@ -79,6 +79,9 @@ Press **Ctrl-C** while the program runs to stop it.
   and nothing else is attached; with JNEXT's debugger window open, or another
   remote debugger connected, it stays paused and the pause becomes theirs. A
   pause you made in JNEXT's debugger window stays.
+  In that window they appear in the Breakpoints panel as `Execute (client N)`, read-only, but are not drawn as a dot
+  in the Disassembly or Source breakpoint columns, and a click there does not remove them (use `delete` in
+  `z88dk-gdb`; see [Whose breakpoints the gutters show and change](../panels/08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)).
 - **Both can drive the machine.** JNEXT's debugger window and `z88dk-gdb`
   control the same machine, and whichever acted last wins. If something else
   stops the machine while `z88dk-gdb` has it running, the client is told it

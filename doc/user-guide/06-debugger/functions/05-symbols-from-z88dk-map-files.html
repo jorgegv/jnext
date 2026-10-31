@@ -3615,6 +3615,10 @@
   never name an address in the views below. A name the file defines twice
   takes its first definition; a name that is both an address and a constant
   is the address.
+  A symbol of a banked section (<code>BANK_n</code>, <code>PAGE_n</code>, and classic z88dk's
+  <code>$AC000</code> form) names its address only while that page is mapped there; the
+  other symbols are tied to the page mapped at their address when the map or
+  the program is loaded.
   A map built with <code>zcc -debug</code> is accepted: its per-line markers
   (<code>__C_LINE_…</code>, <code>__ASM_LINE_…</code>) and C debug records (<code>__CDBINFO__…</code>) are
   not symbols and are ignored, so the function labels keep their addresses.</li>
@@ -3653,7 +3657,9 @@ or <code>--exp</code> file. It tells them apart by the file's first line, not by
 (z88dk's assembler also writes a <code>.sym</code>, in the map format). A file sjasmplus
 wrote starts with a symbol line; one edited to start with a comment is read as
 a z88dk map, so load it with <strong>Map ▸ Load MAP File</strong> instead. A script names a
-symbol as <code>@name</code>, an sjasmplus label with its dots as <code>@main.loop</code>: see
+symbol as <code>@name</code>, an sjasmplus label with its dots as <code>@main.loop</code>. A z88dk
+map read before <code>--load</code> takes its page-bound symbols again at the program
+load: see
 <a href="../scripting/04-reading-the-machine.html#symbols-name">Symbols</a>.</p>
 <p>NextBuild / Boriel ZX Basic programs come with a <code>Memory.txt</code> instead, which
 JNEXT loads by itself when the program is loaded: see

@@ -120,6 +120,9 @@ the machine by hand.
   Conditions are ZEsarUX's (`PC=8000H`, `SP>=65280`,
   `PC=PEEKW(SP-2) AND SP>=65280`, `A<>0 AND (HL&FFH)=5`, ...); `help
   set-breakpoint` lists the terms JNEXT honours.
+  With JNEXT's debugger window open they appear in its Breakpoints panel as `Execute (client N)`, read-only, but
+  are not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not remove them
+  (see [Whose breakpoints the gutters show and change](../panels/08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)).
 - **The history, the coverage and the call tracking are the machine's.** A
   client that turns one on turns it off again when it leaves; one that was
   already on — the trace you enabled in the debugger window — stays on. A

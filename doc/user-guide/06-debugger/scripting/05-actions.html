@@ -3859,6 +3859,10 @@ machine with its own stepping loop — ZRCP's <code>run</code>, for one — stop
 would at its own breakpoint. If the condition matters, put it in <code>when</code> — <code>on
 execute @f when A == 0 do stop end</code> — rather than in an <code>if</code> inside the body,
 which only the script can evaluate.</p>
+<p>In the debugger window every event rule of a loaded script except <code>on stop</code> is listed in the Breakpoints panel,
+read-only, as its kind with <code>(client N)</code> after it (<code>Execute</code>, <code>Write</code>, <code>Frame</code>, ...). The script engine may add a
+<code>Frame</code> row of its own once it needs one (for example after an <code>exit</code> or a run-time error). The <code>execute</code> rules are not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not
+remove them; the <code>stop</code>-only one is the rule that stops the machine like a breakpoint (see <a href="../panels/08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change</a>).</p>
 <h2 id="assert"><code>assert</code><a class="headerlink" href="#assert" title="Permanent link">&para;</a></h2>
 <pre><code>assert mem[@trap_target] == 0 &quot;the trapped write never happened&quot;
 </code></pre>
