@@ -22,7 +22,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT); stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" '
@@ -52,6 +52,7 @@ BAD=0
 # build <install> <instdir> <name> <kind> <zcc flags...>   (EXPECT_FAIL=1: recorded failure)
 #   kind = plain  : main.c util.c asmfn.asm
 #          subdir : main.c game/util.c asmfn.asm
+#          single:<file> : just that file (GH #348: the #include-after-a-function program)
 #          tape   : main.c util.c asmfn.asm for +zx (a .tap, GH #344 stage 3)
 #          banked:<SEG>[:kw] : banked.c -c --codeseg<SEG>, then bmain.c bankin.asm banked.o
 build() {
@@ -64,6 +65,7 @@ build() {
     case $kind in
         plain)  files=(main.c util.c asmfn.asm) ;;
         tape)   files=(main.c util.c asmfn.asm); zcc[${#zcc[@]}-1]=+zx; link=(-m --list -o prog -create-app) ;;
+        single:*) files=("${kind#single:}") ;;
         subdir) mkdir -p "$b/game"; mv "$b/util.c" "$b/game/util.c"; files=(main.c game/util.c asmfn.asm); set -- "$@" -I. ;;
         banked:*) local seg=${kind#banked:} kw=; [[ $seg == *:kw ]] && { kw=-DUSE_BANKED_KW; seg=${seg%:kw}; }
                   echo "+ zcc +zxn $* $kw --codeseg$seg --list -c banked.c -o banked.o"
@@ -86,7 +88,7 @@ build() {
     # KEEP_CRT=1: also keep the CRT listing (prog.lis) and the CRT module's own map lines (GH #348)
     local crt=
     if (( ${KEEP_CRT:-0} )); then
-        crt=$(awk '$2 == "MODULE" { print $3; exit }' "$b/prog.lis")
+        crt=$(awk '$2 == "MODULE" { m = $3 } END { print m }' "$b/prog.lis")
         [[ -n $crt ]] || { echo "KEEP_CRT: no MODULE line in $inst/$name prog.lis" >&2; BAD=1; }
         normalise "$Z" < "$b/prog.lis" > "$out/prog.lis"
     fi
@@ -124,17 +126,20 @@ build "$Z24" v2.4 sccz80-page20 banked:PAGE_20 -clib=new -debug
 build "$Z24" v2.4 sccz80-bank10 banked:BANK_10 -clib=new -debug
 build "$Z24" v2.4 sccz80-banked banked:PAGE_20:kw -clib=new -debug
 build "$Z24" v2.4 sdcc-banked   banked:PAGE_20:kw -clib=sdcc_iy --c-code-in-asm
-build "$Z24" v2.4 classic-bank10 banked:BANK_10 -clib=classic
+KEEP_CRT=1 build "$Z24" v2.4 classic-bank10 banked:BANK_10 -clib=classic
 EXPECT_FAIL=1 build "$Z24" v2.4 classic-debug plain          -clib=classic -debug
 build "$Z24" v2.4 sccz80-subdir subdir         -clib=new -debug
+build "$Z24" v2.4 sccz80-incmid single:incmid.c -clib=new -debug
 build "$Z24" v2.4 sccz80-tape   tape           -clib=new -debug
 
 provenance "$ZM" master
 build "$ZM" master sccz80-debug plain          -clib=new -debug
 KEEP_CRT=1 build "$ZM" master sdcc-debug   plain          -clib=sdcc_iy -debug
 build "$ZM" master 80cc-debug   plain          -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-incmid single:incmid.c -clib=new -debug
+build "$ZM" master 80cc-incmid  single:incmid.c -clib=new -compiler=80cc -debug
 build "$ZM" master sdcc-banked  banked:PAGE_20:kw -clib=sdcc_iy -debug
-build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
+KEEP_CRT=1 build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
 EXPECT_FAIL=1 build "$ZM" master classic-debug  banked:BANK_10 -clib=classic -debug
 
 # every file the rows hash: sources, this script, the outputs (README.md and the manifest itself excluded)
