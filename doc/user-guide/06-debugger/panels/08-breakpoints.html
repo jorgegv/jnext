@@ -3713,7 +3713,12 @@ a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (<code>main.bas:120</code>); see
 <a href="../functions/14-source-level-debugging.html">Source-level debugging</a>.
 <strong>Add</strong>, <strong>Edit</strong> and <strong>Remove</strong> manage them; double-clicking a row edits it.
-The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.</p>
+The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.
+A breakpoint qualified with the memory its opcode comes from reads <code>$8005 P04</code> or
+<code>$0008 DIVROM</code> in the address column
+(<a href="../index.html#which-memory-an-address-is-in">which memory an address is in</a>); the <code>@14</code>
+of <code>$C000 @14</code> is another client's <em>page</em> qualifier (a DZRP or script breakpoint), which
+is a different thing.</p>
 <h2 id="whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change<a class="headerlink" href="#whose-breakpoints-the-gutters-show-and-change" title="Permanent link">&para;</a></h2>
 <p>Every breakpoint belongs to whoever set it. The debugger window is one owner; GDB
 (<code>z88dk-gdb</code>, a GDB-protocol client), ZRCP, DZRP (DeZog in VS Code) and a debugger script are

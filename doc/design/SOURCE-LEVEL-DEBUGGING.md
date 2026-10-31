@@ -382,7 +382,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
-| The identity in every view; remote vocabularies | PARTIAL (E23-22 (#360) stage 1): `debug/long_address.h` (`space_tag()`, `parse_space_tag()`, `physical_text()`, `long_address()`), `SlotInfo::now`, `memory_reader()` reads the PC instruction as the CPU fetches it, the trace export prints `FETCH=<tag>`; stage 2 (remote) DONE: GDB `monitor mmu` / `monitor sym`, DZRP slot bytes, ZRCP `get-memory-pages` (4.6); the Qt views are stage 3 | 4.6 | E23-22 (#360) |
+| The identity in every view; remote vocabularies | DONE (E23-22 (#360)): `debug/long_address.h` (`space_tag()`, `parse_space_tag()`, `physical_text()`, `long_address()`), `SlotInfo::now`, `memory_reader()` reads the PC instruction as the CPU fetches it, the trace export prints `FETCH=<tag>`; GDB `monitor mmu` / `monitor sym`, DZRP slot bytes and ZRCP `get-memory-pages` (4.6); the Qt views name the memory in the Disassembly, Memory, MMU, Stack, Watches, Call Stack, Breakpoints and Source tab, with a physical style (4.6) | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
@@ -653,6 +653,17 @@ NR value). ZRCP `get-memory-pages` is named from `now`: `RO`, `O<2*image+half>`,
 `SR<NR 0x04>`, `DIV` (also over a RAM-mapped slot; segment 0 on the legacy machines); overlays with no
 ZEsarUX spelling print the slot's own mapping; `MMU=` is unchanged. ZRCP `cpu-step-over` reads the
 opcode at the PC as the CPU fetches it.
+
+As built, Qt (stage 3): one `AddressStyle` held by `DebuggerWindow` (Debug > Physical Addresses,
+`debugger.physical_addresses`, `--set` as a run override) and handed to every panel. The line at
+`PC` and the Source tab show the fetch prediction; the other Disassembly lines, the MMU panel, the
+Memory panel's CPU view, Watches and Stack show `SlotInfo::now`; the Memory panel's Slot and Page
+views show the space shown (`FLOAT` for a page index >= 0xE0); the Call Stack and the Breakpoints
+list show the recorded identity (an unrecorded call target: the prediction). Layout: a qualifier
+already printed is replaced in place (Breakpoints, Source tab, the Memory selector); otherwise a
+column is added (Disassembly **Mem**, MMU **Memory**, Watches and Stack **Memory**, Call Stack
+**Caller memory** and **Target memory**) and the Memory panel's tag follows its ASCII item. Another
+client's legacy page qualifier keeps `@NN`.
 
 **Remote protocols** (owner decision on #360, 2026-10-18). Each carries as much of the identity
 as its existing vocabulary allows, and none is extended: no new commands, codes or fields on a
@@ -1591,6 +1602,14 @@ any store, the offsets, and the hook per arm, direction, scope and gate), INS-21
 and HOST-COV-01 (`debugger_backend_test`), SRCDBG-COV-01/02 (`source_debug_test`), CLI-COV-01
 (`cli_options_test`) and QCOV-01 to QCOV-07 (`debugger_menu_test`, `debugger_panels_test`,
 `debugger_source_panel_test`).
+
+E23-22 (#360) added LADDR-01 to LADDR-22 (`debugger_backend_test`, `source_debug_test`, `zrcp_adapter_test`: the formatter and
+parser, `SlotInfo::now` per overlay, the PC instruction read as the CPU fetches it, step over, the trace
+export), GDB-MON-40 to GDB-MON-43, DZRP-REG-08, ZRCP-FMT-15 to ZRCP-FMT-18 and ZRCP-PG-02 (the remote
+vocabularies), QLADDR-01 to QLADDR-10 (`debugger_panels_test`, `debugger_source_panel_test`: every view's text
+in both styles), QLADDR-11 (`debugger_menu_test`: Debug > Physical Addresses) and DWK-04
+(`debugger_window_size_test`: the `--set` run override). QBPM-02, QBPM-17, QSRC-24, QSRC-44, QSRC-87,
+QSRC-90, QSRC-97, QMP-03 and DWK-01 changed their spelling or count only (owner, 2026-10-31).
 
 E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug_test`: the live gate,
 the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group

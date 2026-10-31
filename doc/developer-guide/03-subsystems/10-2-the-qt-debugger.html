@@ -2576,6 +2576,26 @@ each labelled with the VHDL signal it mirrors; <code>cvc</code> is labelled as w
 0x1E/0x1F report. The derivation lives in <code>src/debug/raster_state.*</code> and takes
 the live <code>VideoTiming</code> by reference, so there is no second table of raster
 constants in <code>src/debugger/</code>.</p>
+<p><strong>Which memory an address is in (GH #360).</strong> Every view names the memory behind
+an address through <code>debug/long_address.h</code> (<a href="09-1-the-backend-api.html">3.9.1</a>), and
+nowhere else: <code>src/debugger/memory_text.h</code> is the one Qt-side wrapper
+(<code>memtext::text(dbg, style, space, addr)</code>, with the Next-layout test the Physical
+style needs). <code>DebuggerWindow</code> holds one <code>AddressStyle</code> and hands it to each panel
+(<code>set_address_style()</code>, <code>apply_address_style()</code>) and to the <code>BreakpointModel</code>, whose
+rows are spelled in it; a toggle refreshes them all. The view rules follow design
+10.3: the line at <code>PC</code> and the Source tab show the fetch prediction
+(<code>source_page()</code>); the other Disassembly lines, the MMU panel, the Memory panel's
+CPU view, Watches and Stack show the live data route of the address's slot
+(<code>SlotInfo::now</code>), the memory the bytes beside the tag came from; the Memory panel's
+Slot and Page views show the space shown (a slot paged to nothing, NR &gt;= 0xE0, is
+<code>FLOAT</code>, never a page the tag grammar refuses); the Call Stack and the Breakpoints
+list show the recorded identity. Where a qualifier was already printed the tag
+replaces it in place; elsewhere a column was added (Disassembly <strong>Mem</strong>, MMU
+<strong>Memory</strong>, Watches/Stack <strong>Memory</strong>, Call Stack <strong>Caller/Target memory</strong>), and the
+Memory panel paints its tag as the item after the ASCII column, so <code>dump_row()</code>
+and the coverage underline never move. The legacy page qualifier of another client
+keeps its <code>@NN</code> (a different thing). The style is <code>debugger.physical_addresses</code>
+(Debug &gt; Physical Addresses, <code>--set</code>, a run override like <code>debugger.attached</code>).</p>
 <h2 id="the-key-bindings-are-data">The key bindings are data<a class="headerlink" href="#the-key-bindings-are-data" title="Permanent link">&para;</a></h2>
 <p>No shortcut in the debugger window is written at its call site. The inventory is
 a table in <code>src/debug/debug_keymap.cpp</code> — each action with a config-file id, a

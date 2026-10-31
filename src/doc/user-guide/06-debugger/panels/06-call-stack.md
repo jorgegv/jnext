@@ -8,6 +8,10 @@ the source line each call was made from
 ([Source-level debugging](../functions/14-source-level-debugging.md)); for an
 `INT` or `NMI` frame that is the line the interrupt interrupted. Code fetched
 from a ROM or an overlay has a line only if the source map names that memory.
+**Caller memory** and **Target memory** name the memory each end ran in, as it was
+when the call was made, so a bank switch since does not change them; a call whose
+target has not been fetched yet shows the memory predicted for it
+([which memory an address is in](../index.md#which-memory-an-address-is-in)).
 
 A frame ends when a `RET` returns to where its call (or interrupt) came from;
 any other `RET` ends the frames whose return address it has passed on the stack;

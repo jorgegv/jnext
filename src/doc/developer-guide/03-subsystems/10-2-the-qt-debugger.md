@@ -156,6 +156,27 @@ each labelled with the VHDL signal it mirrors; `cvc` is labelled as what NR
 the live `VideoTiming` by reference, so there is no second table of raster
 constants in `src/debugger/`.
 
+**Which memory an address is in (GH #360).** Every view names the memory behind
+an address through `debug/long_address.h` ([3.9.1](09-1-the-backend-api.md)), and
+nowhere else: `src/debugger/memory_text.h` is the one Qt-side wrapper
+(`memtext::text(dbg, style, space, addr)`, with the Next-layout test the Physical
+style needs). `DebuggerWindow` holds one `AddressStyle` and hands it to each panel
+(`set_address_style()`, `apply_address_style()`) and to the `BreakpointModel`, whose
+rows are spelled in it; a toggle refreshes them all. The view rules follow design
+10.3: the line at `PC` and the Source tab show the fetch prediction
+(`source_page()`); the other Disassembly lines, the MMU panel, the Memory panel's
+CPU view, Watches and Stack show the live data route of the address's slot
+(`SlotInfo::now`), the memory the bytes beside the tag came from; the Memory panel's
+Slot and Page views show the space shown (a slot paged to nothing, NR >= 0xE0, is
+`FLOAT`, never a page the tag grammar refuses); the Call Stack and the Breakpoints
+list show the recorded identity. Where a qualifier was already printed the tag
+replaces it in place; elsewhere a column was added (Disassembly **Mem**, MMU
+**Memory**, Watches/Stack **Memory**, Call Stack **Caller/Target memory**), and the
+Memory panel paints its tag as the item after the ASCII column, so `dump_row()`
+and the coverage underline never move. The legacy page qualifier of another client
+keeps its `@NN` (a different thing). The style is `debugger.physical_addresses`
+(Debug > Physical Addresses, `--set`, a run override like `debugger.attached`).
+
 ## The key bindings are data
 
 No shortcut in the debugger window is written at its call site. The inventory is
