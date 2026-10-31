@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3114,7 +3114,8 @@ built later shows it too). A remote <code>load()</code> reports the problem to e
 listener as a Warn line.</p>
 <p><code>source_step(by, kind)</code> steps by statement. <code>Into</code>, <code>Over</code> and <code>Out</code> run
 <code>Emulator::debugger_step()</code> in a loop, as many Steps, until the mapped position
-changes (and, for Over / Out, the call-stack depth allows). <code>debugger_step()</code>
+changes (and, for Over / Out, the call-stack depth allows; the depth is <code>CallStack</code>'s: a RET that lands on the newest CALL's return address ends that frame, so
+Out and Over cross <code>banked_call</code> and <code>l_debug_push_frame</code>). <code>debugger_step()</code>
 delivers no <code>Execute</code> event, so between instructions the loop gives each next PC
 <code>run_frame()</code>'s delivery itself — <code>DebugState::should_break()</code>, then
 <code>run_execute_gate()</code> under a <code>GuestExecutionScope</code> — so handlers run and a

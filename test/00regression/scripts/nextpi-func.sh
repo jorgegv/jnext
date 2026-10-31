@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# THIRTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
+# SEVENTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
 # playing a tone into the audio pipe):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
@@ -59,7 +59,20 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      the log say what the dialog would, in order: the line naming what is
 #      fetched and from where (after 1 s), then the stalled note (after 5 s),
 #      then the question that carries on.
-# Facts 3, 4 and 10-12 run the GUI on Qt's offscreen platform, where the warning
+#  14. (GH #407) Enabled in Preferences with an unterminated quote in the saved extra
+#      QEMU arguments, NextPi is not started and the log says why with the position
+#      (exit 0, the Preferences-only path). The check runs BEFORE the QEMU lookup:
+#      "qemu-system-arm not found" is NOT logged, so no download would be offered.
+#  15. (GH #407) The same from the command line, headless: `--nextpi --nextpi-qemu-args`
+#      with an unterminated quote exits 1 with the same message and position, and does not
+#      get as far as looking for QEMU.
+#  16. (GH #407) A --nextpi-* setting flag with NextPi not enabled (no --nextpi, or
+#      --no-nextpi) is warned about by name and the run goes on: exit 0.
+#  17. (GH #419) The Preferences tick starts NextPi only when the machine the session
+#      boots is the ZX Next: with it on and QEMU absent, a 48K (--machine, the saved
+#      machine, or a 48K snapshot) logs that NextPi is not started and never looks for
+#      QEMU, while --nextpi on a 48K still tries (and fails, exit 1).
+# Facts 3, 4, 10-12 and 14 run the GUI on Qt's offscreen platform, where the warning
 # dialogs are not shown (nobody could dismiss them); SdcardGuiProvisioner writes
 # the title and text it would have shown to the platform log at debug level
 # (--log-level platform=debug), and that is what the row reads.
@@ -179,7 +192,7 @@ if want nextpi-func; then
     conf_saved=""
     [[ -e "$conf" ]] && conf_saved="$TMP_DIR/nextpi-func-jnext.conf" && cp "$conf" "$conf_saved"
     gui_run() {
-        printf '[nextpi]\nenabled=true\n' >"$conf"
+        printf '[nextpi]\nenabled=true\n%s' "${gui_extra_conf:-}" >"$conf"
         rm -rf "$np"
         mkdir -p "$np/boot"
         : >"$np/nextpi.img"
@@ -208,6 +221,70 @@ if want nextpi-func; then
     if grep -q 'error: NextPi:' <<<"$out"; then
         fails+=("a Preferences-only NextPi failure was reported as a command-line error")
     fi
+
+    # Fact 14 - a malformed extra-arguments value refuses the start before QEMU is looked up.
+    gui_extra_conf='qemu_args="-name '"'"'my pi"'$'\n'
+    gui_run
+    gui_extra_conf=""
+    [[ $rc -eq 0 ]] || fails+=("a Preferences-only NextPi with an unterminated quote in its extra QEMU arguments exited $rc, want 0")
+    grep -qF "NextPi: extra QEMU arguments (--nextpi-qemu-args or Settings > Preferences > NextPi): unterminated ' quote (it opens at character 7)" <<<"$out" \
+        || fails+=("an unterminated quote in the extra QEMU arguments was not reported with its position")
+    if grep -q 'qemu-system-arm not found' <<<"$out"; then
+        fails+=("the extra QEMU arguments were checked AFTER the QEMU lookup (an install hint or a download would be offered)")
+    fi
+
+    # Fact 15 - the same refusal from --nextpi-qemu-args, in a headless session (exit 1, the --nextpi path).
+    rc=0
+    out=$(timeout --foreground --kill-after=5s 60s \
+        env PATH="$no_qemu_path" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+        --nextpi --nextpi-qemu-args "-name 'my pi" --delayed-automatic-exit-frames 2 </dev/null 2>&1) || rc=$?
+    [[ $rc -eq 1 ]] || fails+=("--nextpi-qemu-args with an unterminated quote exited $rc, want 1")
+    grep -qF "NextPi: extra QEMU arguments (--nextpi-qemu-args or Settings > Preferences > NextPi): unterminated ' quote (it opens at character 7)" <<<"$out" \
+        || fails+=("--nextpi-qemu-args with an unterminated quote was not reported with its position")
+    if grep -q 'qemu-system-arm not found' <<<"$out"; then
+        fails+=("--nextpi-qemu-args was checked AFTER the QEMU lookup")
+    fi
+
+    # Fact 16 - a setting flag with NextPi off is reported, not dropped quietly.
+    for nf16 in "" "--no-nextpi"; do
+        rc=0
+        out=$(timeout --foreground --kill-after=5s 60s \
+            env PATH="$no_qemu_path" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+            ${nf16:+"$nf16"} --nextpi-qemu-args "-name x" --nextpi-dir "$TMP_DIR/nf16" \
+            --delayed-automatic-exit-frames 2 </dev/null 2>&1) || rc=$?
+        [[ $rc -eq 0 ]] || fails+=("a --nextpi-* flag with NextPi not enabled (${nf16:-no flag}) exited $rc, want 0")
+        for f in --nextpi-qemu-args --nextpi-dir; do
+            grep -qF -- "$f is ignored: NextPi is not enabled (use --nextpi, or enable it in Settings > Preferences > NextPi)" <<<"$out" \
+                || fails+=("$f with NextPi not enabled (${nf16:-no flag}) was not warned about")
+        done
+    done
+
+    # Fact 17 - the preference starts NextPi on a ZX Next only (GH #419); --nextpi starts it anywhere.
+    sna48="$TMP_DIR/nf17-48k.sna"
+    timeout --foreground --kill-after=5s 60s "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+        --machine 48k --delayed-snapshot "$sna48" --delayed-snapshot-frames 5 \
+        --delayed-automatic-exit-frames 6 </dev/null >"$TMP_DIR/nf17-mk.log" 2>&1 || true
+    [[ -s "$sna48" ]] || fails+=("fact 17: the 48K snapshot fixture was not written")
+    nf17_held() {   # <what>: after a gui_run, the preference was held for the 48K
+        [[ $rc -eq 0 ]] || fails+=("$1 exited $rc, want 0")
+        if grep -q 'qemu-system-arm' <<<"$out"; then fails+=("$1 still looked for QEMU"); fi
+        grep -qF 'NextPi is not started: the machine is the 48K' <<<"$out" \
+            || fails+=("$1 did not log that NextPi is not started on the 48K")
+    }
+    gui_run --machine 48k --nextpi-dir "$TMP_DIR/np17"
+    nf17_held "the preference on a 48K (--machine)"
+    grep -qF -- '--nextpi-dir is ignored: NextPi is not started on the 48K' <<<"$out" \
+        || fails+=("--nextpi-dir with the preference held on a 48K was not warned about by machine")
+    gui_extra_conf=$'[startup]\nmachine_type=48k\n'
+    gui_run
+    gui_extra_conf=""
+    nf17_held "the preference with a saved 48K startup machine"
+    gui_run --load "$sna48"
+    nf17_held "the preference with a 48K snapshot loaded"
+    gui_run --machine 48k --nextpi
+    [[ $rc -eq 1 ]] || fails+=("--nextpi on a 48K with the preference on exited $rc, want 1")
+    grep -q 'NextPi: qemu-system-arm not found' <<<"$out" \
+        || fails+=("--nextpi on a 48K did not try to start NextPi")
 
     # nf_text <fixed text> <file> <what>: the text is in that file (CR removed: Windows writes CRLF).
     nf_text() {

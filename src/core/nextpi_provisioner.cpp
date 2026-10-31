@@ -189,11 +189,35 @@ bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
     return ok;
 }
 
-StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled) {
+StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled,
+                           MachineType startup_machine) {
     StartRequest r;
-    r.wanted       = cli_set ? cli_value : (gui && saved_enabled);
-    r.asked_on_cli = cli_set && cli_value;
+    const bool pref = !cli_set && gui && saved_enabled;
+    const bool next = startup_machine == MachineType::ZXN_ISSUE2;
+    r.wanted           = cli_set ? cli_value : (pref && next);
+    r.asked_on_cli     = cli_set && cli_value;
+    r.held_for_machine = pref && !next;
     return r;
+}
+
+std::vector<std::string> given_flags(const CliSettings& cli) {
+    std::vector<std::string> v;
+    if (cli.dir) v.push_back("--nextpi-dir");
+    if (cli.release) v.push_back("--nextpi-release");
+    if (cli.qemu_binary) v.push_back("--nextpi-qemu");
+    if (cli.audio) v.push_back("--nextpi-audio");
+    if (cli.qemu_args) v.push_back("--nextpi-qemu-args");
+    return v;
+}
+
+Settings merge_settings(const Settings& saved, const CliSettings& cli) {
+    Settings s = saved;
+    if (cli.dir) s.dir = *cli.dir;
+    if (cli.release) s.release = *cli.release;
+    if (cli.qemu_binary) s.qemu_binary = *cli.qemu_binary;
+    if (cli.audio) s.audio = *cli.audio;
+    if (cli.qemu_args) s.qemu_args = *cli.qemu_args;
+    return s;
 }
 
 StartOutcome start_outcome(bool asked_on_cli, sdcard::ProvisionStatus provisioned, bool started) {

@@ -265,11 +265,39 @@ void DebuggerManager::set_keymap(const jnext::dbgkeys::Keymap& km) {
         debugger_window_->set_keymap(km);
 }
 
+QStringList DebuggerManager::source_dirs() const {
+    QStringList all;
+    for (const QStringList* list : {&configured_source_dirs_, &located_source_dirs_})
+        for (const QString& d : *list)
+            if (!d.isEmpty() && !all.contains(d)) all << d;
+    return all;
+}
+
+void DebuggerManager::push_source_dirs(bool log) {
+    std::vector<std::string> dirs;
+    for (const QString& d : source_dirs()) dirs.push_back(d.toStdString());
+    if (debugger_window_ && debugger_window_->source_panel())
+        debugger_window_->source_panel()->set_search_dirs(dirs);
+    if (log) emit source_dirs_changed(source_dirs());
+}
+
+void DebuggerManager::set_source_dirs(const QStringList& configured) {
+    const QStringList before = source_dirs();
+    configured_source_dirs_ = configured;
+    if (source_dirs() != before) push_source_dirs(true);
+}
+
+void DebuggerManager::on_source_dir_located(const QString& dir) {
+    if (dir.isEmpty() || located_source_dirs_.contains(dir)) return;
+    located_source_dirs_ << dir;
+    push_source_dirs(true);
+}
+
 void DebuggerManager::ensure_window() {
     if (debugger_window_)
         return;
 
-    debugger_window_ = new DebuggerWindow(dbg_, nullptr);
+    debugger_window_ = new DebuggerWindow(dbg_, nullptr, attach_override_);
     debugger_window_->set_debugger_manager(this);
     // GH #1 — BEFORE anything else touches the window. The window is created
     // lazily (the first time the debugger is enabled, from the menu, a magic
@@ -278,6 +306,13 @@ void DebuggerManager::ensure_window() {
     // about: rebinding and then opening the debugger for the first time left
     // the toolbar on the old keys.
     debugger_window_->set_keymap(keymap_);
+    // GH #420 - the same for the Source tab's search path, and its Locate File... .
+    if (auto* sp = debugger_window_->source_panel()) {
+        connect(sp, &SourcePanel::source_dir_located, this, &DebuggerManager::on_source_dir_located);
+        connect(sp, &SourcePanel::source_dir_save_requested, this,
+                &DebuggerManager::source_dir_save_requested);
+    }
+    push_source_dirs(false);
 
     // Closing the debugger window disables the debugger.
     connect(debugger_window_, &DebuggerWindow::window_closed, this, [this]() {
@@ -316,6 +351,8 @@ void DebuggerManager::ensure_window() {
     }
     if (auto* dp = debugger_window_->disasm_panel())
         dp->set_breakpoint_model(bp_model_);
+    if (auto* sp = debugger_window_->source_panel())   // GH #421: the BP column
+        sp->set_breakpoint_model(bp_model_);
     // GH #278 WP4c — a watch is a peek through the backend (§3.5).
     if (auto* wp = debugger_window_->watch_panel())
         wp->set_backend(&dbg_);

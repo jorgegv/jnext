@@ -22,6 +22,7 @@
 #include "debugger/debugger_manager.h"
 #include "debug/debugger.h"
 #include "debugger/window_attach.h"
+#include "platform/config_keys.h"
 
 #include <QCloseEvent>
 #include <QGuiApplication>
@@ -55,6 +56,12 @@
 #include <QDir>
 
 namespace {
+
+// GH #417: the [debugger] key names live in platform/config_keys.h.
+QString config_key(config_keys::KeyId id) {
+    return QString::fromStdString(config_keys::path(id));
+}
+
 // Debugger window geometry lives in the [debugger] section of the main GUI
 // config, ~/.jnext/jnext.conf (see src/gui/app_config.cpp): a plain INI file
 // rather than the platform default (~/.config/JNEXT/...), so all of jnext's
@@ -118,7 +125,8 @@ int title_bar_height(const QWidget* w) {
 }
 } // namespace
 
-DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
+DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
+                               std::optional<bool> attach_override)
     : QMainWindow(parent)
     , dbg_(dbg)
 {
@@ -152,7 +160,7 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
     int want_w = kDefaultWidth;
     int want_h = kDefaultHeight;
     int w = 0, h = 0;
-    if (read_int_pair(settings.value("debugger/size"), w, h)) {
+    if (read_int_pair(settings.value(config_key(config_keys::KeyId::DebuggerSize)), w, h)) {
         // GH #114: any sane saved size is honoured, not just one at least as
         // wide as the old 1170 minimum — deliberately shrinking the window and
         // having it come back that way is the point of the issue.
@@ -169,13 +177,14 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
         jnext::clamp_window_size_to_screen(want_w, want_h, work, deco_h);
     resize(fit.w, fit.h);
 
-    attach_enabled_ = settings.value("debugger/attached", true).toBool();
+    attach_saved_   = settings.value(config_key(config_keys::KeyId::DebuggerAttached), true).toBool();
+    attach_enabled_ = attach_override.value_or(attach_saved_);
 
     if (!attach_enabled_ || !attach_supported_) {
         // Detached (by choice or by platform): honour the saved position so a
         // debugger deliberately parked on a second monitor comes back there.
         int x = 0, y = 0;
-        if (read_int_pair(settings.value("debugger/position"), x, y)) {
+        if (read_int_pair(settings.value(config_key(config_keys::KeyId::DebuggerPosition)), x, y)) {
             // Only accept a position that still lands on a screen that exists —
             // a monitor may have been unplugged since it was saved, and an
             // unreachable debugger window is precisely what this issue forbids.
@@ -854,7 +863,7 @@ bool DebuggerWindow::migrate_legacy_config() {
     QSettings dest(debugger_config_path(), QSettings::IniFormat);
     for (const QString& key : legacy.allKeys()) {
         const QVariant v = legacy.value(key);
-        if ((key == QLatin1String("debugger/size") || key == QLatin1String("debugger/position"))
+        if ((key == config_key(config_keys::KeyId::DebuggerSize) || key == config_key(config_keys::KeyId::DebuggerPosition))
             && v.userType() == QMetaType::QByteArray) {
             const QByteArray blob = v.toByteArray();
             QDataStream ds(blob);
@@ -879,16 +888,18 @@ void DebuggerWindow::save_geometry() {
     // Ensure the config dir exists — QSettings will not persist to a missing dir.
     QDir().mkpath(jnext_config_dir());
     QSettings settings(debugger_config_path(), QSettings::IniFormat);
-    settings.setValue("debugger/size",
+    settings.setValue(config_key(config_keys::KeyId::DebuggerSize),
                       QStringList{QString::number(width()), QString::number(height())});
 
-    settings.setValue("debugger/attached", attach_enabled_);
+    // GH #417: the saved value, not this run's: a closed window must not write a
+    // command-line override into the file.
+    settings.setValue(config_key(config_keys::KeyId::DebuggerAttached), attach_saved_);
 
     // Issue #39: only a DETACHED window owns its position. An attached one
     // derives it from the emulator window, so saving it would pin a stale
     // coordinate that the next attach immediately overrides.
     if (!attach_enabled_ || !attach_supported_) {
-        settings.setValue("debugger/position",
+        settings.setValue(config_key(config_keys::KeyId::DebuggerPosition),
                           QStringList{QString::number(x()), QString::number(y())});
     }
 }
@@ -1178,7 +1189,7 @@ void DebuggerWindow::give_up_on_attachment() {
     // no placement is issued regardless of the user's toggle.
     //
     // `attach_enabled_` is deliberately NOT touched. It is the user's stored
-    // preference — save_geometry() writes it to "debugger/attached" on every
+    // preference - save_geometry() writes it to "debugger/attached" (config_keys::KeyId::DebuggerAttached) on every
     // close — and this is the PLATFORM giving up, not the user turning
     // attachment off. Clearing it here silently downgraded that preference to
     // false for the next session, so a machine where attachment works (or a
@@ -1212,6 +1223,7 @@ void DebuggerWindow::give_up_on_attachment() {
 
 void DebuggerWindow::set_attach_enabled(bool on) {
     attach_enabled_ = on;
+    attach_saved_   = on;   // the toggle IS a change of the saved setting (written below)
 
     if (on && !attach_platform_blocked_) {
         // An explicit re-enable is the recovery path from a measured give-up:
@@ -1227,7 +1239,7 @@ void DebuggerWindow::set_attach_enabled(bool on) {
     if (attach_action_) attach_action_->setChecked(on);
 
     QSettings settings(debugger_config_path(), QSettings::IniFormat);
-    settings.setValue("debugger/attached", on);
+    settings.setValue(config_key(config_keys::KeyId::DebuggerAttached), on);
 
     if (on && debugger_mgr_) {
         // Snap back into place immediately rather than waiting for the user to

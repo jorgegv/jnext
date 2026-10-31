@@ -130,6 +130,57 @@ binary, a file that is not an SLD or a map, not a regular file, or over 64 MiB),
 why: the reason is in the log, in the main window's status bar for ten
 seconds, and in the Source tab in place of "No source map loaded".
 
+## Where the Source tab finds the files
+
+A map names its files as the compiler saw them, and the build may have run
+somewhere else: in a `build/` directory beside the sources, on another machine,
+or in a container. The Source tab looks for each file in this order:
+
+1. the name as recorded, when it is an absolute path that exists;
+2. beside the map, then in each of its parent directories;
+3. your **source search path**: for each directory in it, the whole recorded
+   name, then the name without its first directory, and so on down to the file
+   name alone. The longest matching part of the name wins over the order of the
+   directories, so `game/util.c` is `game/util.c` in the second directory rather
+   than `util.c` in the first. A `..` at the start of a name is ignored, so a
+   search never leaves the directory it was given.
+
+Add to the search path with **Preferences ▸ Paths ▸ Source search path** (one
+directory per line, saved), with `--source-dir DIR` (repeat it; `paths.source_dirs`
+with `--set`), or with **Locate File...**. A list given on the command line
+**replaces** the saved one for that run and is never written to the file;
+directories added by **Locate File...** still apply. A relative directory is
+taken from the working directory JNEXT was started in. When the
+tab says `main.c:19 - source file not found`, **Locate File...** asks for the
+file the map names; the directory it is in is searched from then on, and JNEXT
+asks whether to save it in Preferences too (the default is No). Choosing a file
+of another name is refused. The saved list is one line of `jnext.conf` with the directories
+separated by `:` (`;` on Windows), so a directory whose name holds that character is refused by
+Preferences, by `--source-dir` and by the Save question of **Locate File...** (it is still searched
+for the session).
+
+z88dk records its own library files too: the headers (`stdint.h`) and the
+`.inc` files, with absolute names. A map built on this machine finds them where
+the compiler left them. For a map built elsewhere, add the z88dk install
+directory (the one holding `libsrc/` and `include/`) to the search path, or
+locate one of its files: one pick covers every file under it.
+
+The start-up code (`zxn_crt.asm.m4`, which holds the program's first
+instruction) cannot be shown. z88dk numbers its lines in the output of the `m4`
+macro processor, which the build does not keep, so no file on disk has them. The
+tab says so and you use the disassembly there.
+
+A program loaded or reloaded (**Alt+L**) while the machine is paused leaves it
+paused: a paused machine stays paused, at the new program counter. A NEX file
+stops at its entry point, which for z88dk is that start-up code (`__Start`) and
+not yet `main`: press **Continue**, or set a breakpoint on `main` first. A
+running machine keeps running.
+
+When the file is found but is shorter than the line the map names, the tab says
+so (`main.c:19 - /path/main.c has only 12 lines; it is not the text the build
+used`): it is not the file the program was built from. The label's tooltip
+shows the path of the file that was found.
+
 ## Banked code
 
 A Next program pages code in and out, so one address can hold different code
@@ -195,7 +246,9 @@ path (`game/main.bas:120`) when two files share a name. A line the program
 compiled to several places (a routine in two banks, say) is ONE breakpoint,
 armed at each place and listed as one row, "main.bas:120 (2 locations)": Enabled,
 Edit and Remove act on all its places, and a click on the dot of one place in the
-disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A number wins over a symbol: `FE` or `B` is that
+disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A click in the Source tab's
+gutter sets or clears the same breakpoint on the line shown, and removing one place in the
+disassembly leaves a half mark on the Source tab's line. A number wins over a symbol: `FE` or `B` is that
 address even when the program has a variable called `FE` or `B`. Write `@FE`
 to mean the symbol. A breakpoint on a line of banked code is tied to
 the memory that supplies it (shown as `$C000 @2E` for a RAM page): it fires only
@@ -246,7 +299,13 @@ What z88dk and the library can do changes the result:
   while its 8K page is mapped where it runs (the Source tab, Call Stack and
   Breakpoints panels all follow the page). The map's address for a `BANK_n`
   section carries the bank in its high bits; JNEXT reads the page from the
-  section and the address.
+  section and the address. z88dk's `__banked` on newlib `+zxn` needs
+  `-pragma-define:CRT_ORG_PAGE_<n>=0x<page><org>` (the page in the top byte,
+  for example `0x14C000` for `PAGE_20`) and a stack below the banking segment
+  (`-pragma-define:REGISTER_SP=0xC000`): without them the program itself calls
+  page 0 or loses its stack. **Over** and **Out** step across `banked_call` and
+  the `-debug` helpers; **Out** lands on the calling line at the return address
+  (mid-statement), as gdb's `finish` does.
 - **DivMMC sections** (`DIV_n`) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.
 - Code in a section that names no page (`CODE`, `code_compiler`, the program

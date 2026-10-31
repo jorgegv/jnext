@@ -22,6 +22,7 @@
 #include "platform/pok_trainers.h"    // GH #381
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
+#include "debug/source_search.h"
 #include <stdexcept>
 #include "core/screenshot.h"
 #include "core/quick_snapshot.h"
@@ -437,6 +438,33 @@ void MainWindow::set_emulator(Emulator* emu) {
         // built now, and a keymap pushed only when it is first SHOWN would
         // leave the emulator window forwarding keys the debugger does not have.
         push_debug_keymap();
+        // GH #420 - the Source tab's search path, and the Yes of Locate File... .
+        connect(debugger_mgr_, &DebuggerManager::source_dirs_changed, this,
+                [](const QStringList& dirs) {
+            std::vector<std::string> list;
+            for (const QString& d : dirs) list.push_back(d.toStdString());
+            Log::platform()->info("Source search path: {}",
+                                  list.empty() ? std::string("none") : source_search::join_list(list));
+        });
+        push_source_dirs();
+        connect(debugger_mgr_, &DebuggerManager::source_dir_save_requested, this,
+                [this](const QString& dir) {
+            // Only the saved list: the located directory is in force through the manager's
+            // own list, and a command-line list stays in force.
+            // A directory holding the list separator would load back as two: refused,
+            // as --source-dir refuses it. It stays searched for this session.
+            if (dir.contains(QChar(QLatin1Char(source_search::kListSeparator)))) {
+                QMessageBox::warning(this, tr("Source search path"),
+                                     tr("The directory \"%1\" contains '%2', which separates directories "
+                                        "in the saved list, so it is not saved. It stays searched for "
+                                        "this session.").arg(dir, QChar(QLatin1Char(source_search::kListSeparator))));
+                return;
+            }
+            QStringList& saved = app_config_.data().source_dirs;
+            if (saved.contains(dir)) return;
+            saved << dir;
+            app_config_.save();
+        });
     }
 #endif
 }
@@ -515,8 +543,16 @@ void MainWindow::resync_input_dispatchers() {
     if (mouse_dispatcher_) mouse_dispatcher_->resync();
 }
 
-void MainWindow::persist_joy_config() {
+// GH #417: only what this menu pick CHANGED reaches the file: the connector picked and, when the
+// emulator's one-cursor / one-controller rules moved the other, that one. A connector the pick did
+// not touch may be running a command-line value (`--joy2-source keys`), which must stay out of
+// jnext.conf.
+void MainWindow::persist_joy_config(int connector, const JoySource before_source[2],
+                                    const JoyDeviceRef before_device[2]) {
     for (int i = 0; i < 2; ++i) {
+        if (i != connector && emulator_->joystick_source(i) == before_source[i] &&
+            emulator_->joystick_device(i).id == before_device[i].id)
+            continue;
         app_config_.data().joy_source[i] = emulator_->joystick_source(i);
         app_config_.data().joy_device[i] =
             QString::fromStdString(emulator_->joystick_device(i).id);
@@ -528,6 +564,8 @@ void MainWindow::persist_joy_config() {
 
 void MainWindow::on_joy_choice_selected(int connector, const JoyChoice& choice) {
     if (!emulator_) return;
+    const JoySource before_source[2] = { emulator_->joystick_source(0), emulator_->joystick_source(1) };
+    const JoyDeviceRef before_device[2] = { emulator_->joystick_device(0), emulator_->joystick_device(1) };
     // The emulator enforces the one-cursor-connector and one-controller-per-
     // connector rules (it may reset the other connector), so read the
     // effective state back for both the menu and the persisted config.
@@ -558,7 +596,7 @@ void MainWindow::on_joy_choice_selected(int connector, const JoyChoice& choice) 
         break;
     }
     sync_joy_source_menu();
-    persist_joy_config();
+    persist_joy_config(connector, before_source, before_device);
 }
 
 void MainWindow::sync_joy_source_menu() {
@@ -941,7 +979,7 @@ void MainWindow::create_menus() {
         const QString scr_filter = tr("ZX Screen Dumps (*.scr)");
         QString selected = png_filter;
         QString path = QFileDialog::getSaveFileName(
-            this, tr("Save Screenshot"), app_config_.data().screenshot_dir,
+            this, tr("Save Screenshot"), screenshot_dialog_seed(),
             png_filter + QStringLiteral(";;") + scr_filter
                 + QStringLiteral(";;") + tr("All Files (*)"),
             &selected);
@@ -955,8 +993,7 @@ void MainWindow::create_menus() {
                                              : QStringLiteral(".png");
         }
         // Task 66 — remember the containing directory for the next dialog.
-        app_config_.data().screenshot_dir = QFileInfo(path).absolutePath();
-        app_config_.save();
+        remember_screenshot_dir(QFileInfo(path).absolutePath());
         write_screenshot(path);
     });
 
@@ -1669,15 +1706,28 @@ void MainWindow::on_recent_file(const QString& path) {
     }
     // As Load Program: remember the directory for the next dialog, then the
     // same route.
-    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
-    app_config_.save();
+    remember_load_dir(QFileInfo(path).absolutePath());
     handle_load_path(path);
 }
 
 QString MainWindow::load_dialog_seed() const {
     return QString::fromStdString(recent_files::dialog_seed(
         recent_list(app_config_.data().recent_files),
-        app_config_.data().last_load_dir.toStdString()));
+        session_load_dir().toStdString()));
+}
+
+// GH #417 - a directory the user just picked: remembered for the session AND saved
+// (the GUI change takes over from a command-line value).
+void MainWindow::remember_load_dir(const QString& dir) {
+    session_.last_load_dir.reset();
+    app_config_.data().last_load_dir = dir;
+    app_config_.save();
+}
+
+void MainWindow::remember_screenshot_dir(const QString& dir) {
+    session_.screenshot_dir.reset();
+    app_config_.data().screenshot_dir = dir;
+    app_config_.save();
 }
 
 void MainWindow::on_load_nex() {
@@ -1686,8 +1736,7 @@ void MainWindow::on_load_nex() {
         load_filter());
     if (!path.isEmpty()) {
         // Task 66 — remember the containing directory for the next dialog.
-        app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
-        app_config_.save();
+        remember_load_dir(QFileInfo(path).absolutePath());
         handle_load_path(path);
     }
 }
@@ -1709,11 +1758,10 @@ void MainWindow::on_pok_trainers() {
 
 void MainWindow::on_pok_open() {
     const QString path = QFileDialog::getOpenFileName(
-        this, tr("Open POK File"), app_config_.data().last_load_dir,
+        this, tr("Open POK File"), session_load_dir(),
         tr("POK Trainers (*.pok *.POK);;All Files (*)"));
     if (path.isEmpty()) return;
-    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
-    app_config_.save();
+    remember_load_dir(QFileInfo(path).absolutePath());
     open_pok_file(path);
 }
 
@@ -2162,8 +2210,7 @@ void MainWindow::on_tape_open() {
         tr("Tape Files (*.tap *.tzx *.wav);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;All Files (*)"));
     if (path.isEmpty() || !emulator_) return;
 
-    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
-    app_config_.save();
+    remember_load_dir(QFileInfo(path).absolutePath());
     handle_tape_path(path);
 }
 
@@ -2222,7 +2269,7 @@ void MainWindow::on_tape_save_start() {
     if (!emulator_) return;
     QString filter;
     QString path = QFileDialog::getSaveFileName(
-        this, tr("Save to Tape File"), app_config_.data().last_load_dir,
+        this, tr("Save to Tape File"), session_load_dir(),
         tr("TZX Files (*.tzx);;WAV Files (*.wav);;TAP Files (*.tap)"), &filter,
         // Saving appends to an existing file, so there is nothing to confirm.
         QFileDialog::DontConfirmOverwrite);
@@ -2623,16 +2670,18 @@ bool MainWindow::write_screenshot(const QString& path) {
 
 void MainWindow::on_quick_screenshot() {
     if (!emulator_) return;
-    const AppConfigData& cfg = app_config_.data();
+    // GH #417: the session's values (the command line's, or Preferences'), not the file's.
     // An empty setting means the built-in default rather than the current
     // working directory: a capture with no dialog must still land somewhere
     // the user can find, and "wherever jnext was started from" is not that.
-    const QString dir = cfg.quick_screenshot_dir.isEmpty()
+    const QString quick_dir = session_.quick_dir.value_or(app_config_.data().quick_screenshot_dir);
+    const QString dir = quick_dir.isEmpty()
         ? QString::fromStdString(default_quick_screenshot_dir())
-        : cfg.quick_screenshot_dir;
+        : quick_dir;
 
     const std::string path = auto_screenshot_path(
-        dir.toStdString(), cfg.quick_screenshot_format, std::time(nullptr));
+        dir.toStdString(),
+        session_.quick_format.value_or(app_config_.data().quick_screenshot_format), std::time(nullptr));
     if (path.empty()) {
         // auto_screenshot_path() has already logged the reason (a directory
         // it could not create, or 99 names taken inside one second).
@@ -2855,6 +2904,13 @@ void MainWindow::on_save_snapshot() {
 // ---------------------------------------------------------------------------
 
 void MainWindow::apply_startup_config(const AppConfigData& cfg) {
+    // GH #417 - the session's paths and quick-screenshot format. At start-up cfg is the
+    // saved file with the command line's values over it; from Preferences it is the
+    // dialog's. Either way app_config_ (what is saved) is not touched here.
+    session_ = { cfg.last_load_dir, cfg.screenshot_dir, cfg.quick_screenshot_dir,
+                 cfg.quick_screenshot_format };
+    source_dirs_ = cfg.source_dirs;   // GH #420
+    push_source_dirs();
     // Machine type and silent are deliberately NOT applied here: main.cpp
     // already merged them into the EmulatorConfig used for Emulator::init()
     // (CLI wins when given), so re-applying the raw AppConfigData value here
@@ -3025,7 +3081,7 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     if (emulator_ && (emulator_->pi_uart() != nullptr) != cfg.nextpi_enabled) {
         Log::platform()->info(
             "Preferences: NextPi {} saved but NOT applied to the running "
-            "machine; it takes effect the next time jnext starts.",
+            "machine; it takes effect the next time jnext starts on the ZX Next.",
             cfg.nextpi_enabled ? "enabled" : "disabled");
     }
 
@@ -3040,6 +3096,27 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     // QtApp::init() time and MainWindow has no handle to it) — persisted
     // only, applied on next launch. Host output gain is deliberately different:
     // apply_startup_config() updates the mixer immediately.
+}
+
+void MainWindow::set_session_debug_keys(const jnext::dbgkeys::Keymap& km) {
+    debug_keys_ = km;
+    push_debug_keymap();
+    Log::platform()->info("debugger keys: the --set debugger_keys entries are in force for this run "
+                          "(jnext.conf keeps the saved bindings)");
+}
+
+#ifdef ENABLE_DEBUGGER
+void MainWindow::set_debugger_attach_override(bool attached) {
+    if (debugger_mgr_) debugger_mgr_->set_attach_override(attached);
+    Log::platform()->info("debugger window: attached={} for this run by --set debugger.attached "
+                          "(jnext.conf keeps its value until the Attach item is toggled)", attached);
+}
+#endif
+
+void MainWindow::push_source_dirs() {
+#ifdef ENABLE_DEBUGGER
+    if (debugger_mgr_) debugger_mgr_->set_source_dirs(source_dirs_);
+#endif
 }
 
 void MainWindow::push_debug_keymap() {

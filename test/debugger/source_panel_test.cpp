@@ -63,6 +63,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSignalSpy>
 #include <QScrollBar>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -82,6 +83,7 @@
 #include <memory>
 #include <string>
 #include "../row_id.h"
+#include "dark_test_palette.h"
 
 namespace {
 
@@ -2576,6 +2578,885 @@ void test_z88dk_source_map() {
     }
 }
 
+// ── QSRC-66..74: the source search path and Locate File... (GH #420) ─────────
+// Oracle: the issue (the committed z88dk fixture map in a build/ directory with the
+// sources in a sibling src/ is found through a search path, and Locate File... adds the
+// directory), the z88dk fixtures' recorded names, and the design doc (SOURCE-LEVEL-
+// DEBUGGING.md 2.3 G4: PC $8CB5 is main.c:19).
+/// write_text() for a path whose directories may not exist yet.
+void put_file(const std::string& path, const std::string& text) {
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+    write_text(path, text);
+}
+
+std::string numbered_lines(int n, const char* prefix = "/* line ") {
+    std::string out;
+    for (int i = 1; i <= n; ++i) out += prefix + std::to_string(i) + " */\n";
+    return out;
+}
+
+/// The z88dk fixture map copied to <root>/build/prog.map and loaded, with the PC on main.c:19.
+std::string z88dk_in_build(Fixture& fx, const std::string& root, uint16_t pc = 0x8CB5) {
+    const std::string map = root + "/build/prog.map";
+    copy_z88dk("v2.4/sccz80-debug", "prog.map", map);
+    fx.backend->load_source_map(map, true);
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = pc;
+    fx.emu.cpu().set_registers(r);
+    return map;
+}
+
+/// Click Locate File... and answer its dialogs: pick `picked`, then `answer` the question.
+/// Returns what the warning box said, when there was one.
+QString locate(SourcePanel* sp, const std::string& picked, QMessageBox::StandardButton answer,
+               int* modals = nullptr) {
+    QString warning;
+    const int n = drive_modals(
+        [&](QWidget* w, int) {
+            if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+                if (mb->icon() == QMessageBox::Warning) { warning = mb->text(); click_box(w, QMessageBox::Ok); }
+                else click_box(w, answer);
+                return;
+            }
+            choose_file(w, QString::fromStdString(picked));
+        },
+        [&]() { button(sp, QStringLiteral("Locate File..."))->click(); });
+    if (modals) *modals = n;
+    return warning;
+}
+
+void test_source_search() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-66
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q66";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-66", "the z88dk fixture map in build/ and its sources in a sibling src/: with src/ on the "
+                         "search path the Source tab shows main.c with line 19 highlighted, and the label's "
+                         "tooltip names the file found",
+              sp->highlighted_line() == 19 && sp->location_text().startsWith(QStringLiteral("main.c:19")) &&
+                  s(sp->location_tooltip()) == root + "/src/main.c",
+              s(sp->location_text()) + " | " + s(sp->location_tooltip()));
+    }
+    {   // QSRC-67
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q67";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QPushButton* loc = button(sp, QStringLiteral("Locate File..."));
+        const bool off_before = loc && !loc->isEnabled();   // nothing shown yet: disabled
+        fx.mgr->refresh_panels();
+        const bool missing = sp->location_text() == QStringLiteral("main.c:19 - source file not found");
+        const bool on_when_missing = loc && loc->isEnabled();
+        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});
+        fx.mgr->refresh_panels();
+        check("QSRC-67", "with the file missing the tab says 'main.c:19 - source file not found' and Locate "
+                         "File... is enabled; once a search directory finds it, the button is disabled",
+              loc && missing && on_when_missing && !loc->isEnabled() && sp->highlighted_line() == 19,
+              std::to_string(off_before) + " " + s(sp->location_text()));
+    }
+    {   // QSRC-68
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q68";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QSignalSpy saved(fx.mgr, &DebuggerManager::source_dir_save_requested);
+        int modals = 0;
+        locate(sp, root + "/src/main.c", QMessageBox::No, &modals);
+        check("QSRC-68", "Locate File... with a pick and No: the file shows at once (line 19), the manager "
+                         "searches the picked file's directory, and nothing is asked to be saved",
+              modals == 2 && sp->highlighted_line() == 19 &&
+                  fx.mgr->source_dirs() == QStringList{QString::fromStdString(root + "/src")} &&
+                  saved.count() == 0,
+              std::to_string(modals) + " " + s(sp->location_text()));
+    }
+    {   // QSRC-69
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q69";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QSignalSpy saved(fx.mgr, &DebuggerManager::source_dir_save_requested);
+        QString question;
+        drive_modals(
+            [&](QWidget* w, int) {
+                if (auto* mb = qobject_cast<QMessageBox*>(w)) { question = mb->text(); click_box(w, QMessageBox::Yes); return; }
+                choose_file(w, QString::fromStdString(root + "/src/main.c"));
+            },
+            [&]() { button(sp, QStringLiteral("Locate File..."))->click(); });
+        check("QSRC-69", "Locate File... answered Yes asks once for the directory to be saved, and the question "
+                         "names it",
+              saved.count() == 1 && saved.value(0).value(0).toString() == QString::fromStdString(root + "/src") &&
+                  question.contains(QString::fromStdString(root + "/src")) &&
+                  question.contains(QStringLiteral("Paths > Source search path")),
+              s(question));
+    }
+    {   // QSRC-70
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q70";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        put_file(root + "/src/other.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QSignalSpy located(sp, &SourcePanel::source_dir_located);
+        int modals = 0;
+        const QString warning = locate(sp, root + "/src/other.c", QMessageBox::Yes, &modals);
+        check("QSRC-70", "Locate File... with a file of another name is refused in a box ('other.c is not "
+                         "main.c'), and nothing is added",
+              modals == 2 && warning.startsWith(QStringLiteral("other.c is not main.c")) &&
+                  located.count() == 0 && fx.mgr->source_dirs().isEmpty() &&
+                  sp->location_text() == QStringLiteral("main.c:19 - source file not found"),
+              s(warning));
+    }
+    {   // QSRC-71
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q71";
+        const std::string inst = root + "/inst";
+        put_file(inst + "/libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4", numbered_lines(1051, "; crt "));
+        z88dk_in_build(fx, root, 0x8000);
+        fx.mgr->set_source_dirs({QString::fromStdString(inst)});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const SourceLocation* loc = fx.backend->source_location(0x8000);
+        const QString want = loc ? QString::fromStdString(loc->file) + ":" + QString::number(loc->line) +
+                                       QStringLiteral(" - the line counts the m4 output of this file, which "
+                                                      "the build did not keep; use the disassembly")
+                                 : QString();
+        const bool z88_ok = loc && loc->line == 9462 && sp->location_text() == want &&
+                            sp->highlighted_line() == 0 &&
+                            !button(sp, QStringLiteral("Locate File..."))->isEnabled();
+        // The rule is the z88dk format's: an SLD naming x.m4 shows the file.
+        Fixture fy;
+        fy.enable();
+        put_file(root + "/sld/x.m4", numbered_lines(12));
+        put_file(root + "/sld/prog.sld",
+                   std::string("|SLD.data.version|1\nx.m4|10||0") + kNextDevice + "x.m4|10||0|" +
+                       std::to_string(fy.p80) + "|32768|T|\n");
+        fy.backend->load_source_map(root + "/sld/prog.sld", false);
+        fy.mgr->refresh_panels();
+        SourcePanel* sy = fy.dbg()->source_panel();
+        check("QSRC-71", "a z88dk record in a .m4 file (the CRT's line 9462 at $8000) says the line counts the "
+                         "m4 output the build did not keep, with no highlight and no Locate; an SLD record in "
+                         "x.m4 is shown and highlighted",
+              z88_ok && sy->highlighted_line() == 10,
+              s(sp->location_text()) + " | " + s(sy->location_text()));
+    }
+    {   // QSRC-72
+        const std::string root = tmp + "/q72";
+        put_file(root + "/nowhere.bas", numbered_lines(9, "REM "));
+        auto sld_at = [&](Fixture& f, int line) {
+            put_file(root + "/prog.sld",
+                       std::string("|SLD.data.version|1\nnowhere.bas|") + std::to_string(line) + "||0" +
+                           kNextDevice + "nowhere.bas|" + std::to_string(line) + "||0|" +
+                           std::to_string(f.p80) + "|32768|T|\n");
+            f.backend->load_source_map(root + "/prog.sld", false);
+            f.mgr->refresh_panels();
+        };
+        Fixture fx;
+        fx.enable();
+        sld_at(fx, 10);
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const QString past = sp->location_text();
+        const int past_line = sp->highlighted_line();
+        Fixture fy;
+        fy.enable();
+        sld_at(fy, 9);
+        SourcePanel* sy = fy.dbg()->source_panel();
+        check("QSRC-72", "a record past the end of the file found says the file has only 9 lines and is not "
+                         "the text the build used, with no highlight; the last line (9) is highlighted",
+              past == QString::fromStdString("nowhere.bas:10 - " + root + "/nowhere.bas has only 9 lines; "
+                                             "it is not the text the build used") &&
+                  past_line == 0 && sy->highlighted_line() == 9,
+              s(past) + " | " + s(sy->location_text()));
+    }
+    {   // QSRC-73
+        Fixture fx;
+        const std::string root = tmp + "/q73";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});   // no window yet
+        const bool none_yet = fx.dbg() == nullptr;
+        fx.enable();
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-73", "a search path set before the debugger window exists reaches the Source tab when "
+                         "the window is built",
+              none_yet && sp->highlighted_line() == 19 &&
+                  sp->search_dirs() == std::vector<std::string>{root + "/src"},
+              s(sp->location_text()));
+    }
+    {   // QSRC-74
+        Fixture fx;
+        fx.enable();
+        fx.mgr->on_source_dir_located(QStringLiteral("/b"));
+        fx.mgr->on_source_dir_located(QStringLiteral("/b"));   // twice: kept once
+        fx.mgr->set_source_dirs({QStringLiteral("/a")});
+        const QStringList both = fx.mgr->source_dirs();
+        fx.mgr->set_source_dirs({QStringLiteral("/b"), QStringLiteral("/c")});   // /b is configured now
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-74", "a directory Locate File... added survives a change of the configured list: "
+                         "configured then located, an exact duplicate dropped",
+              both == QStringList({QStringLiteral("/a"), QStringLiteral("/b")}) &&
+                  fx.mgr->source_dirs() == QStringList({QStringLiteral("/b"), QStringLiteral("/c")}) &&
+                  sp->search_dirs() == std::vector<std::string>({"/b", "/c"}),
+              s(fx.mgr->source_dirs().join("|")));
+    }
+    {   // QSRC-75
+        // The same past-the-end rule for a file WITHOUT a final newline: its last line is still
+        // line 9, so line 9 is highlighted and line 10 says "has only 9 lines".
+        const std::string root = tmp + "/q75";
+        std::string text = numbered_lines(9, "REM ");
+        while (!text.empty() && text.back() == '\n') text.pop_back();
+        put_file(root + "/nowhere.bas", text);
+        auto sld_at = [&](Fixture& f, int line) {
+            put_file(root + "/prog.sld",
+                       std::string("|SLD.data.version|1\nnowhere.bas|") + std::to_string(line) + "||0" +
+                           kNextDevice + "nowhere.bas|" + std::to_string(line) + "||0|" +
+                           std::to_string(f.p80) + "|32768|T|\n");
+            f.backend->load_source_map(root + "/prog.sld", false);
+            f.mgr->refresh_panels();
+        };
+        Fixture fx;
+        fx.enable();
+        sld_at(fx, 10);
+        const QString past = fx.dbg()->source_panel()->location_text();
+        Fixture fy;
+        fy.enable();
+        sld_at(fy, 9);
+        check("QSRC-75", "a file with no final newline still has its last line counted: line 9 of 9 is "
+                         "highlighted and line 10 says the file has only 9 lines",
+              past == QString::fromStdString("nowhere.bas:10 - " + root + "/nowhere.bas has only 9 lines; "
+                                             "it is not the text the build used") &&
+                  fx.dbg()->source_panel()->highlighted_line() == 0 && fy.dbg()->source_panel()->highlighted_line() == 9,
+              s(past) + " | " + std::to_string(fy.dbg()->source_panel()->highlighted_line()));
+    }
+    {   // QSRC-76
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q76";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        bool asked = false, no_default = false;
+        drive_modals(
+            [&](QWidget* w, int) {
+                if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+                    asked = true;
+                    no_default = mb->defaultButton() && mb->defaultButton() == mb->button(QMessageBox::No);
+                    click_box(w, QMessageBox::No);
+                    return;
+                }
+                choose_file(w, QString::fromStdString(root + "/src/main.c"));
+            },
+            [&]() { button(sp, QStringLiteral("Locate File..."))->click(); });
+        check("QSRC-76", "the 'save this directory?' question of Locate File... has No as its default button",
+              asked && no_default, std::to_string(asked) + std::to_string(no_default));
+    }
+    {   // QSRC-77
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q77";
+        put_file(root + "/src/main.c", numbered_lines(25));
+        z88dk_in_build(fx, root);
+        fx.mgr->set_source_dirs({QString::fromStdString(root + "/src")});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const bool shown = s(sp->location_tooltip()) == root + "/src/main.c";
+        fx.mgr->set_source_dirs({});   // the file is no longer found: a message replaces it
+        fx.mgr->refresh_panels();
+        check("QSRC-77", "the location tooltip names the file found, and is empty once the tab shows a "
+                         "message instead",
+              shown && sp->location_text() == QStringLiteral("main.c:19 - source file not found") &&
+                  sp->location_tooltip().isEmpty(),
+              s(sp->location_text()) + " | " + s(sp->location_tooltip()));
+    }
+    {   // QSRC-78
+        Fixture fx;
+        fx.enable();
+        QSignalSpy changed(fx.mgr, &DebuggerManager::source_dirs_changed);
+        fx.mgr->on_source_dir_located(QStringLiteral("/b"));
+        const int after_first = changed.count();
+        fx.mgr->on_source_dir_located(QStringLiteral("/b"));   // the same directory again
+        const int after_again = changed.count();
+        fx.mgr->set_source_dirs({QStringLiteral("/a")});       // /a, /b
+        const int after_set = changed.count();
+        fx.mgr->set_source_dirs({QStringLiteral("/a")});       // unchanged
+        fx.mgr->set_source_dirs({QStringLiteral("/a"), QStringLiteral("/b")});   // /b was located: same list
+        check("QSRC-78", "the search path is announced once per real change: a directory located twice, "
+                         "and a configured list that leaves the effective list as it was, announce nothing",
+              after_first == 1 && after_again == 1 && after_set == 2 && changed.count() == 2,
+              std::to_string(after_first) + std::to_string(after_again) + std::to_string(after_set) +
+                  std::to_string(changed.count()));
+    }
+}
+
+// ── GH #421: line numbers and a breakpoint column in the Source tab ────────
+//
+// Oracle: the issue's text and the Disassembly's gutter (the same glyphs, the same
+// click); jnext-internal GUI, no VHDL counterpart. The marks are read from the
+// gutter's PIXELS, as GutterView::red_dot() reads the Disassembly's: the glyph is
+// centred at x = 10 on the line's row (a disc r=5, a ring r=4 pen 2, or the left
+// half of either).
+
+struct SrcView {
+    QMainWindow win;
+    SourcePanel* sp = nullptr;
+    QPlainTextEdit* ed = nullptr;
+    QWidget* gutter = nullptr;
+    QWidget* header = nullptr;
+    struct Counter : QObject {
+        int n = 0;
+        bool eventFilter(QObject*, QEvent* e) override {
+            if (e->type() == QEvent::Paint) ++n;
+            return false;
+        }
+    } paints;
+
+    SrcView(Fixture& fx, BreakpointModel& m) {
+        sp = new SourcePanel(fx.backend.get());
+        sp->set_breakpoint_model(&m);
+        win.setCentralWidget(sp);
+        win.resize(700, 520);
+        win.show();
+        QApplication::processEvents();
+        sp->refresh();
+        QApplication::processEvents();
+        ed = sp->findChild<QPlainTextEdit*>();
+        gutter = ed ? ed->findChild<QWidget*>(QStringLiteral("source_gutter")) : nullptr;
+        header = ed ? ed->findChild<QWidget*>(QStringLiteral("source_gutter_header")) : nullptr;
+        if (gutter) gutter->installEventFilter(&paints);
+    }
+    QRect cell(int line) const {
+        return ed->cursorRect(QTextCursor(ed->document()->findBlockByNumber(line - 1)));
+    }
+    int row_y(int line) const { return cell(line).center().y(); }
+    QImage gutter_image() const {
+        QImage img(gutter->size(), QImage::Format_ARGB32);
+        img.fill(Qt::magenta);
+        gutter->render(&img);
+        return img;
+    }
+    static bool red(const QImage& img, int x, int y) {
+        const QRgb c = img.pixel(x, y);
+        return qRed(c) > 180 && qGreen(c) < 120 && qBlue(c) < 120;
+    }
+    /// "none", "disc", "ring", "half-disc" or "half-ring", from the pixels of the line's row.
+    std::string mark(int line) const {
+        const QImage img = gutter_image();
+        const int cx = kGutterW / 2, y = row_y(line);
+        const bool l2 = red(img, cx - 2, y), r2 = red(img, cx + 2, y);
+        const bool l3 = red(img, cx - 3, y), r3 = red(img, cx + 3, y);
+        const bool l4 = red(img, cx - 4, y), r4 = red(img, cx + 4, y);
+        const bool l5 = red(img, cx - 5, y);   // the r=5 disc's edge; a smaller disc misses it
+        if (l2 && r2 && l3 && r3 && l5) return "disc";
+        if (!l2 && !r2 && l4 && r4) return "ring";
+        if (l2 && l3 && l5 && !r2 && !r3) return "half-disc";
+        if (!l2 && !r2 && l4 && !r4) return "half-ring";
+        if (!l2 && !r2 && !l3 && !r3 && !l4 && !r4) return "none";
+        return "?";
+    }
+    void mouse(QEvent::Type type, int line, Qt::MouseButton button) {
+        const QPoint pos(kGutterW / 2, row_y(line));
+        QMouseEvent ev(type, QPointF(pos), gutter->mapToGlobal(pos), button,
+                       type == QEvent::MouseButtonPress ? button : Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(gutter, &ev);
+        QApplication::processEvents();
+    }
+    void click(int line) { mouse(QEvent::MouseButtonPress, line, Qt::LeftButton); }
+    void hover(int line) { mouse(QEvent::MouseMove, line, Qt::NoButton); }
+    /// The number cell of `line` is empty: nothing but the gutter's background.
+    bool number_blank(const QImage& img, int line) const {
+        const QRect c = cell(line);
+        const QImage cellimg = img.copy(QRect(kGutterW + 4, c.top(), gutter->width() - kGutterW - 4 - 6, c.height()));
+        for (int y = 0; y < cellimg.height(); ++y)
+            for (int x = 0; x < cellimg.width(); ++x)
+                if (cellimg.pixel(x, y) != qRgb(255, 255, 255)) return false;
+        return true;
+    }
+    /// The number cell of `line` as the gutter paints it equals `text` painted by hand.
+    bool number_is(const QImage& img, int line, const QString& text) const {
+        const QRect c = cell(line);
+        const QRect r(kGutterW + 4, c.top(), gutter->width() - kGutterW - 4 - 6, c.height());
+        QImage ref(r.size(), QImage::Format_ARGB32);
+        ref.fill(Qt::white);
+        QPainter p(&ref);
+        p.setFont(ed->font());
+        p.setPen(QColor(100, 100, 100));
+        p.drawText(QRect(QPoint(0, 0), r.size()), Qt::AlignRight | Qt::AlignVCenter, text);
+        p.end();
+        return img.copy(r) == ref;
+    }
+};
+
+int gui_subs(Fixture& fx, BreakpointModel& m) {
+    int n = 0;
+    for (const auto& si : fx.backend->subscriptions(false))
+        if (si.owner == m.client()) ++n;
+    return n;
+}
+
+std::string write_sld(const std::string& name, const std::string& body) {
+    const std::string path = g_tmp->path().toStdString() + "/" + name;
+    write_text(path, std::string("|SLD.data.version|1\n") + "main.bas|10||0" + kNextDevice + body);
+    return path;
+}
+
+void test_source_gutter() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // The default map: main.bas lines 10-13 at $8000/$8002/$8005/$8006
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.ed || !v.gutter || !v.header) { check("QSRC-79", "the Source tab has a gutter", false); return; }
+        const QImage img = v.gutter_image();
+        const bool cells = v.number_is(img, 1, "1") && v.number_is(img, 10, "10") &&
+                           v.number_is(img, 13, "13");
+        // the file's final newline starts no line: its blank last block is not numbered
+        const bool distinct = !v.number_is(img, 10, "9") && !v.number_is(img, 10, "11") &&
+                              v.number_blank(img, 14);
+        const bool margin = v.ed->viewport()->geometry().left() >= v.gutter->geometry().right() &&
+                            v.gutter->geometry().top() == v.ed->viewport()->geometry().top() &&
+                            v.ed->viewport()->geometry().top() > v.header->geometry().bottom() &&
+                            v.gutter->accessibleName() == QStringLiteral("Breakpoints and line numbers");
+        check("QSRC-79", "the gutter numbers the file's own lines (1, 10, 13), line 10's cell is not "
+                         "9's or 11's, the final newline's blank block has no number, and the text "
+                         "starts right of and below the gutter and its header, and the gutter is named for "
+                         "accessibility",
+              cells && distinct && margin,
+              "cells=" + std::to_string(cells) + " distinct=" + std::to_string(distinct) +
+                  " margin=" + std::to_string(margin));
+
+        {   // QSRC-81
+            QImage h(v.header->size(), QImage::Format_ARGB32);
+            h.fill(Qt::magenta);
+            v.header->render(&h);
+            QFont f = v.ed->font();
+            f.setBold(true);
+            f.setPointSize(8);
+            auto label = [&](const QRect& r, const QString& text) {
+                QImage ref(r.size(), QImage::Format_ARGB32);
+                ref.fill(Qt::white);
+                QPainter p(&ref);
+                p.setFont(f);
+                p.setPen(QColor(80, 80, 80));
+                p.drawText(QRect(QPoint(0, 0), r.size()), Qt::AlignLeft | Qt::AlignVCenter, text);
+                p.end();
+                return ref;
+            };
+            const QRect bp(2, 0, kGutterW - 2, v.header->height() - 0);
+            const QRect line(kGutterW + 4, 0, v.header->width() - kGutterW - 4 - 1, v.header->height());
+            const bool bp_ok = h.copy(bp) == label(bp, "BP");
+            const bool line_ok = h.copy(line) == label(line, "Line");
+            const bool swapped = h.copy(bp) == label(bp, "Line");
+            check("QSRC-81", "the header strip reads BP over the breakpoint column and Line over the "
+                             "numbers, in bold 8 pt",
+                  bp_ok && line_ok && !swapped && v.header->width() == v.gutter->width(),
+                  "bp=" + std::to_string(bp_ok) + " line=" + std::to_string(line_ok));
+        }
+    }
+    {   // QSRC-80: a long file scrolled to line 120
+        Fixture fx;
+        fx.enable();
+        const std::string sld = write_sld("long.sld",
+            "main.bas|120||0|" + std::to_string(fx.p80) + "|32768|T|\n");
+        std::string text;
+        for (int i = 1; i <= 200; ++i) text += "REM long " + std::to_string(i) + "\n";
+        write_text(tmp + "/main.bas", text);
+        fx.backend->load_source_map(sld, false);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        QScrollBar* sb = v.ed ? v.ed->verticalScrollBar() : nullptr;
+        if (!sb || !v.gutter) { check("QSRC-80", "the Source tab has a gutter", false); return; }
+        sb->setValue(119);
+        QApplication::processEvents();
+        v.paints.n = 0;
+        sb->setValue(118);
+        QApplication::processEvents();
+        const int repainted = v.paints.n;
+        sb->setValue(119);
+        QApplication::processEvents();
+        // The top visible block is line 120; its cell is at the viewport's top.
+                const QImage img = v.gutter_image();
+        const bool shows = v.ed->cursorForPosition(QPoint(0, 0)).blockNumber() == 119 && v.number_is(img, 120, "120");
+        v.click(120);
+        const auto rows = m.rows();
+        const bool armed = rows.size() == 1 && rows[0].addr == 0x8000;
+        m.clear_all();
+        text.clear();
+        for (int i = 1; i <= 13; ++i) text += "REM line " + std::to_string(i) + "\n";
+        write_text(tmp + "/main.bas", text);
+        check("QSRC-80", "scrolled to line 120, the gutter repaints, its top cell reads 120, and a click "
+                         "on it sets that line's breakpoint",
+              repainted > 0 && shows && armed,
+              "repainted=" + std::to_string(repainted) + " shows=" + std::to_string(shows) +
+                  " armed=" + std::to_string(armed));
+    }
+    {   // two.sld: main.bas:11 at $8002 p80 and $9000 p90
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        const std::string two = write_sld("gut-two.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32773|T|\n" + "main.bas|11||0|" + b + "|36864|T|\n");
+        fx.backend->load_source_map(two, false);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-82", "the Source tab has a gutter", false); return; }
+        const MemSpace p80 = pg(fx.p80), p90 = pg(fx.p90);
+        v.click(11);
+        {
+            const auto rows = m.rows();
+            bool a_ok = false, b_ok = false;
+            for (const auto& si : fx.backend->subscriptions(false)) {
+                if (si.owner != m.client()) continue;
+                if (si.filter.lo == 0x8002 && si.filter.space == p80) a_ok = true;
+                if (si.filter.lo == 0x9000 && si.filter.space == p90) b_ok = true;
+            }
+            check("QSRC-82", "one click on line 11 sets ONE group of two locations ($8002 in its page, "
+                             "$9000 in its page) and the line shows the filled disc, its neighbours none",
+                  rows.size() == 1 && rows[0].group != jnext::dbg::GROUP_NONE && rows[0].locations == 2 &&
+                      a_ok && b_ok && v.mark(11) == "disc" && v.mark(10) == "none" && v.mark(12) == "none",
+                  "rows=" + std::to_string(rows.size()) + " mark11=" + v.mark(11));
+        }
+        // QSRC-97 while the group is armed: the hover words
+        v.hover(11);
+        const QString tip = v.gutter->toolTip();
+        const QString hex80 = QString::asprintf("%02X", fx.p80), hex90 = QString::asprintf("%02X", fx.p90);
+        check("QSRC-97", "hovering line 11's gutter row sets the tooltip to the line's words, naming "
+                         "main.bas:11 and both places with their pages",
+              tip == v.sp->line_tooltip(11) && tip.contains(QStringLiteral("main.bas:11")) &&
+                  tip.contains("$8002 @" + hex80) && tip.contains("$9000 @" + hex90),
+              s(tip));
+
+        // QSRC-86 / QSRC-87: one location removed (the Disassembly gutter's click): a half mark
+        m.remove(BreakpointModel::Execute, 0x9000, p90);
+        check("QSRC-86", "with one of line 11's two places removed the line shows the half disc, and "
+                         "the tooltip says 1 of 2 places",
+              v.mark(11) == "half-disc" && v.sp->line_tooltip(11).contains(QStringLiteral("1 of 2 places")),
+              v.mark(11) + " | " + s(v.sp->line_tooltip(11)));
+        m.set_enabled(BreakpointModel::Execute, 0x8002, false, p80);
+        check("QSRC-87", "the same partial line, disabled, shows the half ring and its tooltip says suspended, 1 of 2",
+              v.mark(11) == "half-ring" &&
+                  v.sp->line_tooltip(11) == QStringLiteral("main.bas:11: suspended breakpoint at $8002 @") +
+                                                QString::asprintf("%02X", fx.p80) +
+                                                QStringLiteral(" (1 of 2 places)"),
+              v.mark(11) + " | " + s(v.sp->line_tooltip(11)));
+        m.clear_all();
+
+        v.click(11);
+        v.click(11);
+        check("QSRC-83", "a second click on line 11 removes the whole group: the GUI owns no "
+                         "subscription and the line shows nothing",
+              gui_subs(fx, m) == 0 && v.mark(11) == "none",
+              std::to_string(gui_subs(fx, m)) + " " + v.mark(11));
+        v.click(3);
+        check("QSRC-84", "a click on line 3 (no code) adds nothing and the gutter's tooltip says why",
+              gui_subs(fx, m) == 0 && v.gutter->toolTip() == QStringLiteral("no code at main.bas:3"),
+              std::to_string(gui_subs(fx, m)) + " " + s(v.gutter->toolTip()));
+
+        v.click(11);
+        const auto row = m.rows().empty() ? BreakpointModel::Row() : m.rows()[0];
+        m.set_enabled(row, false);
+        const std::string off = v.mark(11);
+        const bool words = v.sp->line_tooltip(11).contains(QStringLiteral("main.bas:11: suspended breakpoint at"));
+        m.set_enabled(row, true);
+        m.set_master_enabled(false);
+        const std::string master_off = v.mark(11);
+        m.set_master_enabled(true);
+        const std::string armed_again = v.mark(11);
+        // a live group with a disabled logical breakpoint on the line can still fire: the disc
+        m.clear_all();
+        v.click(11);
+        m.add(BreakpointModel::Execute, 0x8002);
+        m.set_enabled(BreakpointModel::Execute, 0x8002, false);
+        const std::string mixed_live = v.mark(11);
+        check("QSRC-85", "a group unticked, or the master switch off, shows the ring; armed again, the disc; "
+                         "a live group with a disabled logical breakpoint is still the disc (live while any is)",
+              off == "ring" && master_off == "ring" && armed_again == "disc" && words &&
+                  mixed_live == "disc",
+              off + " " + master_off + " " + armed_again + " words=" + std::to_string(words) + " " + mixed_live);
+        m.clear_all();
+    }
+    {   // The default map again, for breakpoints set by address
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-88", "the Source tab has a gutter", false); return; }
+        m.add(BreakpointModel::Execute, 0x8005);
+        const std::string drawn = v.mark(12);
+        v.click(12);
+        check("QSRC-88", "a logical breakpoint set by address at line 12's start shows the filled disc "
+                         "there, and a click on the line removes it and adds no group",
+              drawn == "disc" && gui_subs(fx, m) == 0, drawn + " " + std::to_string(gui_subs(fx, m)));
+
+        m.add(BreakpointModel::Execute, 0x8003);   // inside main.bas:11's range, not a start
+        const std::string mid = v.mark(11);
+        v.click(11);
+        check("QSRC-89", "a breakpoint inside line 11 (not at its start) shows the half disc, and a "
+                         "click removes it",
+              mid == "half-disc" && gui_subs(fx, m) == 0, mid + " " + std::to_string(gui_subs(fx, m)));
+
+        m.add(BreakpointModel::Execute, 0x8005, pg(fx.p80 + 1));
+        check("QSRC-92", "a breakpoint at line 12's address tied to ANOTHER page marks nothing",
+              v.mark(12) == "none", v.mark(12));
+        m.clear_all();
+
+        jnext::dbg::ClientInfo ci;
+        ci.name = "other";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const jnext::dbg::ClientId other = fx.backend->attach(ci).value;
+        jnext::dbg::Subscription sub;
+        sub.kind = jnext::dbg::EventKind::Execute;
+        sub.action = jnext::dbg::Action::Stop;
+        sub.filter.lo = sub.filter.hi = 0x8005;
+        fx.backend->subscribe(other, sub);
+        m.add(BreakpointModel::Execute, 0x8000);   // the model re-reads the listing on its own mutations
+        m.remove(BreakpointModel::Execute, 0x8000);
+        const auto rows = m.rows();
+        check("QSRC-93", "another client's Execute breakpoint at line 12's address is listed but not "
+                         "drawn in the BP column",
+              rows.size() == 1 && !rows[0].own && v.mark(12) == "none",
+              std::to_string(rows.size()) + " " + v.mark(12));
+        fx.backend->detach(other);
+    }
+    {   // line 12 compiled into a page that is not mapped
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p80 + 2);
+        const std::string sld = write_sld("gut-banked.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + b + "|32773|T|\n" + "main.bas|13||0|" + a + "|32774|T|\n" +
+            "main.bas|13||0|" + b + "|40960|T|\n");
+        fx.backend->load_source_map(sld, false);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-90", "the Source tab has a gutter", false); return; }
+        // line 13 has a place that is mapped and one that is not: only the mapped one counts
+        v.click(13);
+        const std::string mixed = v.mark(13);
+        v.click(13);
+        v.click(12);
+        const bool set = gui_subs(fx, m) == 1;
+        check("QSRC-90", "a breakpoint on a line whose page is not mapped now is set, shows no mark, and "
+                         "the tooltip names that breakpoint and says its memory is not mapped now; a line with one mapped and one "
+                         "unmapped place shows the full disc once the mapped place is armed",
+              set && v.mark(12) == "none" && v.sp->line_tooltip(12) == QStringLiteral("main.bas:12: breakpoint at $8005 @") +
+                                                QString::asprintf("%02X", fx.p80 + 2) +
+                                                QStringLiteral(", not mapped now") &&
+                  mixed == "disc",
+              std::to_string(gui_subs(fx, m)) + " " + v.mark(12) + " | " + s(v.sp->line_tooltip(12)) + " mixed=" + mixed);
+        v.click(12);
+        const int left = gui_subs(fx, m);
+        // a logical breakpoint at the address of a start whose page is not mapped marks nothing on that line
+        m.add(BreakpointModel::Execute, 0x8005);
+        const std::string logical = v.mark(12);
+        m.clear_all();
+        check("QSRC-91", "a click on that line removes the hidden group instead of stacking a second; a logical "
+                         "breakpoint at the unmapped place's address does not mark the line",
+              left == 0 && logical == "none", std::to_string(left) + " " + logical);
+    }
+    {   // the default map: repaint, palette, running
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-94", "the Source tab has a gutter", false); return; }
+        QTest::qWait(50);   // let the first paints of the shown window settle
+        v.paints.n = 0;
+        v.sp->refresh();    // the manager's tick while paused: the mapping may have changed
+        QApplication::processEvents();
+        const int refresh_paints = v.paints.n;
+        QTest::qWait(50);
+        v.paints.n = 0;
+        m.add_source_line(QStringLiteral("main.bas:12"));   // what the Breakpoints panel's Add does
+        QApplication::processEvents();
+        const int repainted = v.paints.n;   // before mark(): rendering the gutter paints it too
+        const std::string disc = v.mark(12);
+        check("QSRC-94", "a breakpoint added through the model repaints the gutter without a panel "
+                         "refresh, a panel refresh repaints it too, and line 12 then shows the disc",
+              repainted > 0 && disc == "disc" && refresh_paints > 0,
+              std::to_string(repainted) + " " + disc + " refresh=" + std::to_string(refresh_paints));
+        m.clear_all();
+
+        const QPalette light = QApplication::palette();
+        m.add(BreakpointModel::Execute, 0x8005);
+        QApplication::setPalette(dark_test_palette());
+        QApplication::processEvents();
+        const QImage dark = v.gutter_image();
+        const QColor bg = QColor::fromRgb(dark.pixel(kGutterW + 1, 1));
+        int ink = 0;
+        const QRect c = v.cell(10);
+        for (int y = c.top(); y <= c.bottom(); ++y)
+            for (int x = kGutterW + 4; x < v.gutter->width() - 6; ++x)
+                ink = std::max(ink, QColor::fromRgb(dark.pixel(x, y)).lightness());
+        const std::string dark_mark = v.mark(12);
+        QApplication::setPalette(light);
+        QApplication::processEvents();
+        const QColor bg_back = QColor::fromRgb(v.gutter_image().pixel(kGutterW + 1, 1));
+        check("QSRC-95", "on a dark palette the gutter is dark with lighter numbers and the breakpoint "
+                         "stays red; the light palette restores white",
+              bg.lightness() < 100 && ink > 150 && dark_mark == "disc" &&
+                  bg_back.lightness() > 240,
+              std::to_string(bg.lightness()) + " ink=" + std::to_string(ink) + " " + dark_mark +
+                  " back=" + std::to_string(bg_back.lightness()));
+        m.clear_all();
+
+        v.sp->refresh();
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        v.sp->refresh();   // the manager's tick while running
+        v.click(12);
+        check("QSRC-98", "while the machine runs, a click on line 12 sets its group and the next paint "
+                         "shows the disc, without a pause",
+              !fx.backend->state().paused && gui_subs(fx, m) == 1 && v.mark(12) == "disc",
+              std::to_string(gui_subs(fx, m)) + " " + v.mark(12));
+        m.clear_all();
+    }
+    {   // a z88dk sdcc map: an alias line, and a line with two starts
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q96";
+        copy_z88dk("master/sdcc-debug", "prog.map", root + "/build/prog.map");
+        std::filesystem::create_directories(root + "/src");
+        std::filesystem::copy_file(std::filesystem::path(JNEXT_Z88DK_FIXTURE_DIR) / "src/main.c",
+                                   root + "/src/main.c", std::filesystem::copy_options::overwrite_existing);
+        fx.backend->load_source_map(root + "/build/prog.map", true);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x8C6B;
+        fx.emu.cpu().set_registers(r);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        v.sp->set_search_dirs({root + "/src"});
+        QApplication::processEvents();
+        if (!v.gutter || v.sp->shown_file().empty()) { check("QSRC-96", "the Source tab shows main.c", false, s(v.sp->location_text())); return; }
+        const QString file = QString::fromStdString(v.sp->shown_file());
+        m.add_source_line(file + ":14");   // an alias of 17: they share $8C6B
+        const std::string alias = v.mark(14) + "/" + v.mark(17);
+        m.clear_all();
+        m.add_source_line(file + ":18");   // two starts: $8C6F and $8C89
+        const std::string both = v.mark(18);
+        m.remove(BreakpointModel::Execute, 0x8C89, pg(4));
+        const std::string one = v.mark(18);
+        check("QSRC-96", "z88dk sdcc map: a breakpoint on main.c:14 marks it and its target line 17; "
+                         "main.c:18 shows the disc with both starts armed and the half disc with one",
+              alias == "disc/disc" && both == "disc" && one == "half-disc",
+              alias + " " + both + " " + one);
+        m.clear_all();
+    }
+    {   // GH #421 review 1: line 12 compiled to $8005 in TWO pages
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p80 + 2);
+        const std::string sld = write_sld("gut-twopage.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32773|T|\n" + "main.bas|12||0|" + b + "|32773|T|\n" +
+            "main.bas|13||0|" + a + "|32774|T|\n");
+        fx.backend->load_source_map(sld, false);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-150", "the Source tab has a gutter", false); return; }
+        v.click(12);
+        const std::string both = v.mark(12);
+        m.remove(BreakpointModel::Execute, 0x8005, pg(fx.p80 + 2));   // the place out of view, removed
+        const std::string part = v.mark(12);
+        const QString part_tip = v.sp->line_tooltip(12);
+        m.clear_all();
+        v.click(12);
+        m.remove(BreakpointModel::Execute, 0x8005, pg(fx.p80));       // the mapped place, removed
+        const std::string none = v.mark(12);
+        const QString none_tip = v.sp->line_tooltip(12);
+        m.clear_all();
+        check("QSRC-150", "a line compiled to the same address in two pages: both places armed show the disc; "
+                          "with the place in the other page removed, the half disc and 1 of 2 places; with the "
+                          "mapped place removed, no mark and the tooltip says not mapped now",
+              both == "disc" && part == "half-disc" && part_tip.contains(QStringLiteral("(1 of 2 places)")) &&
+                  none == "none" && none_tip.contains(QStringLiteral("not mapped now")),
+              both + " " + part + " " + s(part_tip) + " | " + none + " " + s(none_tip));
+    }
+    {   // GH #421 review 1: the default map
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-151", "the Source tab has a gutter", false); return; }
+        v.mouse(QEvent::MouseButtonPress, 12, Qt::RightButton);
+        check("QSRC-151", "a right click in the gutter sets nothing (the context menu is another feature's)",
+              gui_subs(fx, m) == 0, std::to_string(gui_subs(fx, m)));
+
+        m.add(BreakpointModel::Write, 0x8005);   // a watchpoint at a code address
+        const std::string watch = v.mark(12);
+        v.click(12);
+        bool group = false;
+        for (const auto& r : m.rows())
+            if (r.type == BreakpointModel::Execute && r.group != jnext::dbg::GROUP_NONE) group = true;
+        check("QSRC-152", "a data breakpoint at a line's address marks nothing, and a click then sets the "
+                          "line's execute group",
+              watch == "none" && group, watch + " group=" + std::to_string(group));
+        m.clear_all();
+
+        m.add(BreakpointModel::Execute, 0x9000);   // sub.bas:1, not main.bas
+        const std::string other = v.mark(1) + "/" + v.mark(10);
+        m.clear_all();
+        check("QSRC-153", "an execute breakpoint in another source file marks no line of this one",
+              other == "none/none", other);
+
+        // a message in place of the file: the gutter has nothing to number or toggle
+        fx.backend->clear_source_map();
+        v.sp->refresh();
+        QApplication::processEvents();
+        v.hover(1);
+        const QString tip = v.gutter->toolTip();
+        v.click(1);
+        check("QSRC-154", "after the tab shows a message instead of a file, it names no file, its gutter "
+                          "has no tooltip and a click sets nothing",
+              v.sp->shown_file().empty() && tip.isEmpty() && gui_subs(fx, m) == 0,
+              s(tip) + " " + std::to_string(gui_subs(fx, m)));
+    }
+    {   // GH #421 review 1: hover bounds (two.sld shows 13 lines and the final newline's blank block)
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.gutter) { check("QSRC-155", "the Source tab has a gutter", false); return; }
+        v.hover(13);
+        const bool real = !v.gutter->toolTip().isEmpty();
+        v.hover(14);   // the blank block after the final newline is no line
+        const QString blank = v.gutter->toolTip();
+        v.hover(13);
+        const QPoint below(kGutterW / 2, v.gutter->height() - 3);
+        QMouseEvent ev(QEvent::MouseMove, QPointF(below), v.gutter->mapToGlobal(below), Qt::NoButton,
+                       Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(v.gutter, &ev);
+        const QString under = v.gutter->toolTip();
+        check("QSRC-155", "hovering the gutter beside the final newline's blank block, or below the text, "
+                          "shows no tooltip (a stale one is cleared)",
+              real && blank.isEmpty() && under.isEmpty(), s(blank) + " | " + s(under));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -2622,6 +3503,8 @@ int main(int argc, char** argv) {
     test_call_stack_non_page_caller();
     test_source_menu();
     test_z88dk_source_map();
+    test_source_search();
+    test_source_gutter();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2715,6 +2715,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-the-source-tab-finds-the-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the Source tab finds the files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#banked-code" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3816,6 +3827,51 @@ binary and were not checked. Only upper-case section names are looked for
 binary, a file that is not an SLD or a map, not a regular file, or over 64 MiB), says
 why: the reason is in the log, in the main window's status bar for ten
 seconds, and in the Source tab in place of "No source map loaded".</p>
+<h2 id="where-the-source-tab-finds-the-files">Where the Source tab finds the files<a class="headerlink" href="#where-the-source-tab-finds-the-files" title="Permanent link">&para;</a></h2>
+<p>A map names its files as the compiler saw them, and the build may have run
+somewhere else: in a <code>build/</code> directory beside the sources, on another machine,
+or in a container. The Source tab looks for each file in this order:</p>
+<ol>
+<li>the name as recorded, when it is an absolute path that exists;</li>
+<li>beside the map, then in each of its parent directories;</li>
+<li>your <strong>source search path</strong>: for each directory in it, the whole recorded
+   name, then the name without its first directory, and so on down to the file
+   name alone. The longest matching part of the name wins over the order of the
+   directories, so <code>game/util.c</code> is <code>game/util.c</code> in the second directory rather
+   than <code>util.c</code> in the first. A <code>..</code> at the start of a name is ignored, so a
+   search never leaves the directory it was given.</li>
+</ol>
+<p>Add to the search path with <strong>Preferences ▸ Paths ▸ Source search path</strong> (one
+directory per line, saved), with <code>--source-dir DIR</code> (repeat it; <code>paths.source_dirs</code>
+with <code>--set</code>), or with <strong>Locate File...</strong>. A list given on the command line
+<strong>replaces</strong> the saved one for that run and is never written to the file;
+directories added by <strong>Locate File...</strong> still apply. A relative directory is
+taken from the working directory JNEXT was started in. When the
+tab says <code>main.c:19 - source file not found</code>, <strong>Locate File...</strong> asks for the
+file the map names; the directory it is in is searched from then on, and JNEXT
+asks whether to save it in Preferences too (the default is No). Choosing a file
+of another name is refused. The saved list is one line of <code>jnext.conf</code> with the directories
+separated by <code>:</code> (<code>;</code> on Windows), so a directory whose name holds that character is refused by
+Preferences, by <code>--source-dir</code> and by the Save question of <strong>Locate File...</strong> (it is still searched
+for the session).</p>
+<p>z88dk records its own library files too: the headers (<code>stdint.h</code>) and the
+<code>.inc</code> files, with absolute names. A map built on this machine finds them where
+the compiler left them. For a map built elsewhere, add the z88dk install
+directory (the one holding <code>libsrc/</code> and <code>include/</code>) to the search path, or
+locate one of its files: one pick covers every file under it.</p>
+<p>The start-up code (<code>zxn_crt.asm.m4</code>, which holds the program's first
+instruction) cannot be shown. z88dk numbers its lines in the output of the <code>m4</code>
+macro processor, which the build does not keep, so no file on disk has them. The
+tab says so and you use the disassembly there.</p>
+<p>A program loaded or reloaded (<strong>Alt+L</strong>) while the machine is paused leaves it
+paused: a paused machine stays paused, at the new program counter. A NEX file
+stops at its entry point, which for z88dk is that start-up code (<code>__Start</code>) and
+not yet <code>main</code>: press <strong>Continue</strong>, or set a breakpoint on <code>main</code> first. A
+running machine keeps running.</p>
+<p>When the file is found but is shorter than the line the map names, the tab says
+so (<code>main.c:19 - /path/main.c has only 12 lines; it is not the text the build
+used</code>): it is not the file the program was built from. The label's tooltip
+shows the path of the file that was found.</p>
 <h2 id="banked-code">Banked code<a class="headerlink" href="#banked-code" title="Permanent link">&para;</a></h2>
 <p>A Next program pages code in and out, so one address can hold different code
 at different times. Each source record names the 8K RAM page its code was built
@@ -3872,7 +3928,9 @@ path (<code>game/main.bas:120</code>) when two files share a name. A line the pr
 compiled to several places (a routine in two banks, say) is ONE breakpoint,
 armed at each place and listed as one row, "main.bas:120 (2 locations)": Enabled,
 Edit and Remove act on all its places, and a click on the dot of one place in the
-disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A number wins over a symbol: <code>FE</code> or <code>B</code> is that
+disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A click in the Source tab's
+gutter sets or clears the same breakpoint on the line shown, and removing one place in the
+disassembly leaves a half mark on the Source tab's line. A number wins over a symbol: <code>FE</code> or <code>B</code> is that
 address even when the program has a variable called <code>FE</code> or <code>B</code>. Write <code>@FE</code>
 to mean the symbol. A breakpoint on a line of banked code is tied to
 the memory that supplies it (shown as <code>$C000 @2E</code> for a RAM page): it fires only
@@ -3939,7 +3997,13 @@ later line, and the earlier one is its alias if both are in the same function
   while its 8K page is mapped where it runs (the Source tab, Call Stack and
   Breakpoints panels all follow the page). The map's address for a <code>BANK_n</code>
   section carries the bank in its high bits; JNEXT reads the page from the
-  section and the address.</li>
+  section and the address. z88dk's <code>__banked</code> on newlib <code>+zxn</code> needs
+  <code>-pragma-define:CRT_ORG_PAGE_&lt;n&gt;=0x&lt;page&gt;&lt;org&gt;</code> (the page in the top byte,
+  for example <code>0x14C000</code> for <code>PAGE_20</code>) and a stack below the banking segment
+  (<code>-pragma-define:REGISTER_SP=0xC000</code>): without them the program itself calls
+  page 0 or loses its stack. <strong>Over</strong> and <strong>Out</strong> step across <code>banked_call</code> and
+  the <code>-debug</code> helpers; <strong>Out</strong> lands on the calling line at the return address
+  (mid-statement), as gdb's <code>finish</code> does.</li>
 <li><strong>DivMMC sections</strong> (<code>DIV_n</code>) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.</li>
 <li>Code in a section that names no page (<code>CODE</code>, <code>code_compiler</code>, the program

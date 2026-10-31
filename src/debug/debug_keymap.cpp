@@ -340,4 +340,37 @@ Keymap build_keymap(const std::vector<std::pair<std::string, std::string>>& entr
     return map;
 }
 
+bool apply_overrides(Keymap& map, const std::vector<std::pair<std::string, std::string>>& cli,
+                     std::string& why, bool host_mod_is_ctrl) {
+    Keymap work = map;
+    bool cli_set[ACTION_COUNT] = {};
+    for (const auto& e : cli) {
+        const ActionInfo* a = find_action(e.first);
+        if (!a) {
+            why = "unknown debugger action '" + e.first + "'";
+            return false;
+        }
+        Combo c;
+        std::string reason;
+        if (!parse_combo(e.second, c, reason)) {
+            why = "'" + e.first + "': \"" + e.second + "\" is not a key combination: " + reason;
+            return false;
+        }
+        if (!validate_combo(c, reason, host_mod_is_ctrl)) {
+            why = "'" + e.first + "': " + render_combo(c) + " is not allowed: " + reason;
+            return false;
+        }
+        work.set(a->action, c);
+        cli_set[static_cast<int>(a->action)] = true;
+    }
+    for (const Conflict& k : find_conflicts(work)) {
+        if (!cli_set[static_cast<int>(k.loser)] && !cli_set[static_cast<int>(k.winner)]) continue;
+        why = "'" + std::string(info(k.loser).id) + "' and '" + std::string(info(k.winner).id) +
+              "' would both be bound to " + render_combo(k.combo);
+        return false;
+    }
+    map = work;
+    return true;
+}
+
 } // namespace jnext::dbgkeys

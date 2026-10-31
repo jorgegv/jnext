@@ -5,15 +5,22 @@
 ### User Features
 - File > Recent Files and Reload Last File (Alt+L); load dialogs open on the last file loaded
 - macOS: host shortcuts use Command, Control acts as Symbol Shift; Command never reaches the guest
+- NextPi: extra QEMU arguments (e.g. a second telnet serial port); every NextPi setting has a --nextpi-* flag
+- Every Preferences setting can be set from the command line: --set section.key=value, plus --cpu-speed, --scale and --crt
+
+### Developer Features
+- Debugger Watches panel shows every integer watch in hex and decimal, e.g. $D0 (208d)
 
 ### Bug Fixes
 - JNEXT no longer becomes unresponsive after loading a tape: fast load only sprints while the tape is read
 - ULA scrolling (NR 0x26/0x27/0x68) now works in Timex hi-colour and hi-res modes
 - macOS: the green full-screen button works and fills the screen; no duplicate Enter Full Screen menu item
 - Debugger Video panel shows the just-finished frame after Break instead of a dark placeholder
+- Windows build under wine 11.7+: downloads no longer freeze waiting for a slow server; progress, stall note and cancel work
+- NextPi enabled in Preferences no longer starts QEMU when jnext starts a non-Next machine
 
 ### Contributors in this release
-- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar
+- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj
 
 ## v1.1.87 (2026-10-24)
 

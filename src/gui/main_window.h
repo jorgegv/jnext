@@ -1,9 +1,11 @@
 #pragma once
 
+#include <optional>
 #include <QMainWindow>
 #include <QLabel>
 #include <QActionGroup>
 #include <QPoint>
+#include <QStringList>
 #include <functional>
 #include <memory>
 #include <string>
@@ -224,6 +226,16 @@ public:
 
     void on_recent_file(const QString& path);
     QString load_dialog_seed() const;
+    /// GH #417 - the directory every file dialog that opens "where the last load was"
+    /// starts in (Load, Open Tape, Open POK, Save to Tape): this session's value, else the
+    /// saved one. The ONE reader of the saved `last_load_dir` (PA-34 greps for it).
+    QString session_load_dir() const {
+        return session_.last_load_dir.value_or(app_config_.data().last_load_dir);
+    }
+    /// GH #417 - where File > Save Screenshot... opens: this session's directory.
+    QString screenshot_dialog_seed() const {
+        return session_.screenshot_dir.value_or(app_config_.data().screenshot_dir);
+    }
 
     /// GH #392 - the window's POK session and whether its dialog is showing
     /// (an archive's bundled trainers make a session without opening it).
@@ -344,6 +356,11 @@ public:
     /// apply_preferences(), so a rebind applies live rather than at next launch.
     void push_debug_keymap();
 
+    /// GH #420 - hand the Source tab's search directories (source_dirs_) to the
+    /// debugger manager. No-op without ENABLE_DEBUGGER or before the manager exists;
+    /// called when the manager is created and from apply_startup_config().
+    void push_source_dirs();
+
     /// Update status bar information.  Called once per second from the frame timer.
     /// Refresh the status bar. `fps` is the EMULATED frame rate (run_frame()
     /// calls/s); `presented_fps` is the rate at which frames actually reached
@@ -370,6 +387,18 @@ public:
     /// Access to the live, on-disk-backed preferences (Preferences dialog
     /// reads/writes through this).
     AppConfig& app_config() { return app_config_; }
+
+    /// GH #417 - the debugger key bindings of THIS run: the saved ones with the
+    /// command line's `--set debugger_keys.X=...` over them. They go live in both
+    /// windows (debug_keys_); app_config_, and so jnext.conf, keeps the saved ones.
+    void set_session_debug_keys(const jnext::dbgkeys::Keymap& km);
+
+#ifdef ENABLE_DEBUGGER
+    /// GH #417 - `--set debugger.attached=` for this run: the debugger window opens
+    /// attached or detached as told, whatever jnext.conf says, and the file keeps
+    /// what it had until the Attach menu item is toggled.
+    void set_debugger_attach_override(bool attached);
+#endif
 
 signals:
     /// Emitted when a scale factor is selected from the View menu.
@@ -676,8 +705,10 @@ private:
     std::function<std::vector<JoyDeviceInfo>()> joy_device_provider_;
     // Live-apply + persist a pick from a connector's submenu.
     void on_joy_choice_selected(int connector, const JoyChoice& choice);
-    // Copy the emulator's effective sources and assignments into the config and save.
-    void persist_joy_config();
+    // Copy the emulator's effective source and assignment of the connector just picked, and of the
+    // other one if the pick changed it, into the config and save (GH #417).
+    void persist_joy_config(int connector, const JoySource before_source[2],
+                            const JoyDeviceRef before_device[2]);
 
     // Screenshot actions
     QAction* screenshot_action_ = nullptr;
@@ -698,4 +729,27 @@ private:
     // persist it. Both the emulator window's own forwarding and the push into
     // the debugger window read THIS, so the two windows can never disagree.
     jnext::dbgkeys::Keymap debug_keys_;
+
+    // GH #420 - the Source tab's search directories IN EFFECT (the command line's, else
+    // the saved list; Preferences takes over). Not app_config_'s, for the same reason
+    // as session_ below: a command-line list must never reach jnext.conf.
+    QStringList source_dirs_;
+
+    // GH #417 - the four paths/format settings this session reads LIVE, kept apart
+    // from app_config_ so a command-line value (`--set paths.last_load_dir=...`)
+    // governs the run without ever reaching jnext.conf: any unrelated app_config_
+    // save (the recent-file list, a joystick toggle) would persist it otherwise.
+    // Empty until apply_startup_config() sets them (the command line's values at
+    // start-up, the dialog's from Preferences OK/Apply); empty means "what
+    // app_config_ holds". A dialog that remembers a directory writes app_config_ and
+    // empties the override: the GUI change takes over.
+    struct SessionPaths {
+        std::optional<QString>          last_load_dir;
+        std::optional<QString>          screenshot_dir;
+        std::optional<QString>          quick_dir;
+        std::optional<ScreenshotFormat> quick_format;
+    } session_;
+
+    void remember_load_dir(const QString& dir);
+    void remember_screenshot_dir(const QString& dir);
 };

@@ -34,7 +34,7 @@ mentions them, so a test can no longer be absent from this document.
 | DivMMC+SPI                                 |   163 |  163 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
-| UART+I2C/RTC                               |   243 |  243 |    0 |    0 |       0 |          0 |
+| UART+I2C/RTC                               |   252 |  252 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
@@ -65,10 +65,10 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: input_integration_test          |    46 |   46 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
-| Companion: nextpi_test                     |    79 |   79 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6056 | 6056 |    0 |    0 |       0 |          0 |
+| Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6074 | 6074 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6056**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5588**. Rows the 171 suites declared in `test/unit-tests.conf` run live: **14370**.
+Rows the sections above carry: **6074**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5597**. Rows the 173 suites declared in `test/unit-tests.conf` run live: **14527**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 124 suites (8866 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 126 suites (9014 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -90,6 +90,7 @@ These 124 suites (8866 live rows) have no VHDL-derived plan row to map, so they 
 | `esxdos_stub_test` | 185 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 6 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
 | `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
+| `pgo_map_parse_test` | 4 | GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle |
 | `phantom_typist_test` | 26 | jnext auto-typing state machine (host keystroke injection) |
 | `esp_wiring_test` | 127 | jnext host ESP policy/visibility/wiring, no core counterpart |
 | `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
@@ -97,7 +98,7 @@ These 124 suites (8866 live rows) have no VHDL-derived plan row to map, so they 
 | `sdcard_file_add_posix_test` | 13 | rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_file_add_linux_test` | 1 | SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
-| `sdcard_provisioner_test` | 139 | jnext SD-image download/patch policy (host side) |
+| `sdcard_provisioner_test` | 140 | jnext SD-image download/patch policy (host side) |
 | `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
 | `warm_start_test` | 47 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
@@ -129,7 +130,8 @@ These 124 suites (8866 live rows) have no VHDL-derived plan row to map, so they 
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 44 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_test` | 58 | CLI flag table vs the man page (see `make cli-check`) |
+| `config_keys_test` | 24 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
 | `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
 | `nex_loader_test` | 147 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 79 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
@@ -147,9 +149,9 @@ These 124 suites (8866 live rows) have no VHDL-derived plan row to map, so they 
 | `resume_guard_test` | 11 | debugger resume-confirmation policy (jnext-internal) |
 | `debug_qt_free_test` | 13 | source-tree layout lint (GH #278 WP1: no Qt under src/debug/), no hardware behaviour |
 | `step_out_test` | 50 | debugger Step Out execution control (jnext-internal); the T80N core has no debugger |
-| `source_map_test` | 92 | source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger |
-| `z88dk_map_test` | 28 | z88dk -debug map source adapter (sections to pages, extents, identity; jnext-internal); the T80N core has no debugger |
-| `source_debug_test` | 263 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
+| `source_map_test` | 105 | source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger |
+| `z88dk_map_test` | 29 | z88dk -debug map source adapter (sections to pages, extents, identity; jnext-internal); the T80N core has no debugger |
+| `source_debug_test` | 283 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
 | `source_debug_posix_test` | 8 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
 | `debugger_backend_test` | 1474 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
@@ -165,7 +167,7 @@ These 124 suites (8866 live rows) have no VHDL-derived plan row to map, so they 
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
 | `zrcp_adapter_test` | 216 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
 | `crt_shader_policy_test` | 14 | OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI) |
-| `app_config_test` | 165 | jnext.conf schema/precedence (host settings file) |
+| `app_config_test` | 175 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
 | `mouse_release_test` | 17 | captured-mouse release gesture in the Qt window (host UI, GH #365) |
@@ -193,21 +195,21 @@ These 124 suites (8866 live rows) have no VHDL-derived plan row to map, so they 
 | `sdcard_dialog_test` | 9 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 8 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
-| `preferences_apply_test` | 87 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 96 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 122 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 14 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
 | `debugger_inspect_watchpoint_test` | 18 | debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus |
-| `debugger_window_size_test` | 36 | debugger window geometry (host GUI) |
+| `debugger_window_size_test` | 38 | debugger window geometry (host GUI) |
 | `debugger_window_grow_test` | 4 | debugger window geometry (host GUI) |
 | `debugger_accel_test` | 8 | debugger keyboard accelerators (host GUI) |
 | `debugger_keymap_test` | 44 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
-| `debugger_menu_test` | 53 | debugger menu reachability (host GUI) |
+| `debugger_menu_test` | 60 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 41 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
-| `debugger_panels_test` | 85 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
+| `debugger_panels_test` | 89 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
 | `debugger_verbs_test` | 80 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
-| `debugger_source_panel_test` | 111 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_source_panel_test` | 150 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->
@@ -845,8 +847,8 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | G10-G05-02 | row<change uses baseline clip; row>=change uses new clip | layer2.vhd:134,167 | pass | test/layer2/layer2_test.cpp:2289 |
 | G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220,1135 | pass | test/layer2/layer2_test.cpp:2318 |
 | G10-G09-02 | rows<64 sample old bank 0x08; rows>=64 sample new 0x10 | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:2378 |
-| G10-G14-01 | Layer2 set_enabled write logged with current scanline | zxnext.vhd:3916,3924-3925 | pass | test/layer2/layer2_test.cpp:3058 |
-| G10-G14-02 | rows<50 hidden; 50<=row<150 visible; row>=150 hidden | layer2.vhd:175,197-198 | pass | test/layer2/layer2_test.cpp:3128 |
+| G10-G14-01 | Layer2 set_enabled write logged with current scanline | zxnext.vhd:3916,3924-3925 | pass | test/layer2/layer2_test.cpp:3061 |
+| G10-G14-02 | rows<50 hidden; 50<=row<150 visible; row>=150 hidden | layer2.vhd:175,197-198 | pass | test/layer2/layer2_test.cpp:3131 |
 | L2-BR-01 | layer2.vhd hc_eff = hc + 1 - a byte written in the post-display lines is seen by the next frame only | layer2.vhd | pass | test/layer2/layer2_test.cpp:1627 |
 | L2-BR-02 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:510-522 - 256x192: pixel 50 is fetched at raw hc 178; a write 2 ticks after is old, 2 ticks before is new | layer2.vhd, zxula_timing.vhd:510-522 | pass | test/layer2/layer2_test.cpp:1644 |
 | L2-BR-03 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:476-492 - 320x256: column 100 is fetched at raw hc 196 (whc origin, not phc); a write 2 ticks after is old, 2 ticks before is new | layer2.vhd, zxula_timing.vhd:476-492 | pass | test/layer2/layer2_test.cpp:1661 |
@@ -955,31 +957,31 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | L2-GH270-08 | two writes at one column coalesce into one segment, last wins | — | pass | test/layer2/layer2_test.cpp:2664 |
 | L2-GH270-09 | out-of-order hpos is clamped forward onto the previous segment, never applied earlier | — | pass | test/layer2/layer2_test.cpp:2708 |
 | L2-GH270-10 | a new scanline re-arms the column tag: an unpositioned write is one span covering the whole line | — | pass | test/layer2/layer2_test.cpp:2746 |
-| L2-GH270-11 | bank and scroll segments interleave by column even when the logs disagree with that order | — | pass | test/layer2/layer2_test.cpp:2790 |
-| L2-GH270-12 | render_scanline with no segment list uses the live registers | — | pass | test/layer2/layer2_test.cpp:2814 |
-| L2-GH270-13 | render_scanline_debug draws its forced bank across the whole row and leaves the segment list intact | — | pass | test/layer2/layer2_test.cpp:2857 |
-| L2-GH270-14 | rewind_to_baseline drops the segment list, so a render before the next replay uses the rewound live registers | — | pass | test/layer2/layer2_test.cpp:2898 |
-| L2-GH270-15 | a hard reset drops the segment list with the change logs it is derived from | — | pass | test/layer2/layer2_test.cpp:2920 |
-| L2-GH270-16 | start_frame clears the before-display flag: a positioned write after it still splits its line | — | pass | test/layer2/layer2_test.cpp:2945 |
-| L2-GH270-17 | 320x256: vblank bank + X scroll writes (columns 339, 284, 234 of their line) own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3023 |
-| L2-GH270-18 | 640x256: vblank bank + X scroll writes own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3030 |
-| G10-G14-01a | two enable writes appended to log | — | pass | test/layer2/layer2_test.cpp:3058 |
-| G10-G14-01b | rewind+replay matches per-line enable transitions | — | pass | test/layer2/layer2_test.cpp:3075 |
-| G11-00a | palette layer2_priority_high(K) == true | — | pass | test/layer2/layer2_test.cpp:3200 |
-| G11-00b | palette layer2_priority_high(K+1) == false | — | pass | test/layer2/layer2_test.cpp:3202 |
-| G11-00c | palette layer2_priority_high(K+2) == true | — | pass | test/layer2/layer2_test.cpp:3204 |
-| G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3234 |
-| G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:3240 |
-| G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3246 |
-| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:3270 |
-| G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:3290 |
-| G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:3324 |
-| G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:3328 |
-| G11-04a | 640px: left nibble (idx 0x01) writes priority TRUE at col*2 | — | pass | test/layer2/layer2_test.cpp:3365 |
-| G11-04b | 640px: right nibble (idx 0x02) writes priority FALSE at col*2+1 | — | pass | test/layer2/layer2_test.cpp:3369 |
-| G11-05a | 640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0 | — | pass | test/layer2/layer2_test.cpp:3403 |
-| G11-05b | 640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1 | — | pass | test/layer2/layer2_test.cpp:3407 |
-| G11-06 | nullptr priority_dst: render still emits colour, no crash | — | pass | test/layer2/layer2_test.cpp:3433 |
+| L2-GH270-11 | bank and scroll segments interleave by column even when the logs disagree with that order | — | pass | test/layer2/layer2_test.cpp:2793 |
+| L2-GH270-12 | render_scanline with no segment list uses the live registers | — | pass | test/layer2/layer2_test.cpp:2817 |
+| L2-GH270-13 | render_scanline_debug draws its forced bank across the whole row and leaves the segment list intact | — | pass | test/layer2/layer2_test.cpp:2860 |
+| L2-GH270-14 | rewind_to_baseline drops the segment list, so a render before the next replay uses the rewound live registers | — | pass | test/layer2/layer2_test.cpp:2901 |
+| L2-GH270-15 | a hard reset drops the segment list with the change logs it is derived from | — | pass | test/layer2/layer2_test.cpp:2923 |
+| L2-GH270-16 | start_frame clears the before-display flag: a positioned write after it still splits its line | — | pass | test/layer2/layer2_test.cpp:2948 |
+| L2-GH270-17 | 320x256: vblank bank + X scroll writes (columns 339, 284, 234 of their line) own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3026 |
+| L2-GH270-18 | 640x256: vblank bank + X scroll writes own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3033 |
+| G10-G14-01a | two enable writes appended to log | — | pass | test/layer2/layer2_test.cpp:3061 |
+| G10-G14-01b | rewind+replay matches per-line enable transitions | — | pass | test/layer2/layer2_test.cpp:3078 |
+| G11-00a | palette layer2_priority_high(K) == true | — | pass | test/layer2/layer2_test.cpp:3203 |
+| G11-00b | palette layer2_priority_high(K+1) == false | — | pass | test/layer2/layer2_test.cpp:3205 |
+| G11-00c | palette layer2_priority_high(K+2) == true | — | pass | test/layer2/layer2_test.cpp:3207 |
+| G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3237 |
+| G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:3243 |
+| G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3249 |
+| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:3273 |
+| G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:3293 |
+| G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:3327 |
+| G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:3331 |
+| G11-04a | 640px: left nibble (idx 0x01) writes priority TRUE at col*2 | — | pass | test/layer2/layer2_test.cpp:3368 |
+| G11-04b | 640px: right nibble (idx 0x02) writes priority FALSE at col*2+1 | — | pass | test/layer2/layer2_test.cpp:3372 |
+| G11-05a | 640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0 | — | pass | test/layer2/layer2_test.cpp:3406 |
+| G11-05b | 640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1 | — | pass | test/layer2/layer2_test.cpp:3410 |
+| G11-06 | nullptr priority_dst: render still emits colour, no crash | — | pass | test/layer2/layer2_test.cpp:3436 |
 
 ## Sprites — `test/sprites/sprites_test.cpp`
 
@@ -2832,32 +2834,32 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-62 | restoring a snapshot taken while the Pi's EAR comparator was 1 leaves it 0 (it is not in the stream), and port 0xFE bit 6 then reads the relaxed issue-2 MIC level at once (zxnext.vhd:2361-2373; jnext-only: snapshots have no VHDL counterpart) | zxnext.vhd:2361-2373 | pass | test/uart/uart_posix_test.cpp:2153 |
 | PI-63 | under --silent a rewind replay does not consume the Pi's sound, and a live run does (jnext-only: --silent and the rewind replay have no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2193 |
 | PI-64 | a tape save made while NR 0xA2 bit 0 sends a Pi square wave to the EAR input records the comparator's edges: the MIC jack carries i_AUDIO_EAR, which includes pi_fe_ear (zxnext.vhd:6503, zxnext_top_issue2.vhd:673) | zxnext.vhd:6503, zxnext_top_issue2.vhd:673 | pass | test/uart/uart_posix_test.cpp:2233 |
-| PIT-01 | nextpi::md5_file returns the RFC 1321 digest of a file (empty, short, and one crossing the 1 MiB read buffer) and "" for a file that does not exist | — | pass | test/uart/nextpi_test.cpp:2441 |
-| PIT-02 | the socket transport's QEMU command line puts the console UART on a loopback-only, non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no pipe chardev, the monitor on stdio on Windows and off elsewhere, and the rest of the raspi0 command line unchanged | — | pass | test/uart/nextpi_test.cpp:2480 |
-| PIT-03 | the host back-end per OS: dsound on Windows, coreaudio on macOS, pa elsewhere | — | pass | test/uart/nextpi_test.cpp:2499 |
-| PIT-04 | the TCP endpoint carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): the host's bytes reach port 0x143B, the guest's reach the host, UART 0 hears nothing, and the link is described as TCP 127.0.0.1:<port> | zxnext.vhd:2278-2281 | pass | test/uart/nextpi_test.cpp:2540 |
-| PIT-05 | a TCP cable with no listener is not a fault: for over two seconds nothing is heard, nothing is faulted or discarded; once a listener appears the link connects by itself, both directions flow and the byte sent in the meantime arrives | — | pass | test/uart/nextpi_test.cpp:2593 |
-| PIT-06 | when a TCP peer goes away its conversation is discarded, not handed to the next one: the byte it had sent and the byte that could not be delivered are dropped (the latter counted in unsent()) without a fault, and a new peer on the same listener gets traffic again and receives only what was sent after the loss, including a second byte sent straight after it; an orderly close and a reset seen by a read are reconnected too without a fault | — | pass | test/uart/nextpi_test.cpp:2684 |
-| PIT-07 | link_config turns the launcher's transport into Emulator configuration (the port for the socket transport, the two FIFO paths for the FIFO one, never both: stale values of the other are cleared, and with both set the FIFO pair wins) and the warm-start recording machine gets neither while the machine itself is kept | — | pass | test/uart/nextpi_test.cpp:2753 |
-| PIT-08 | NextPi end to end over the socket transport: with a space and a comma in the directory name and QEMU found on PATH, jnext creates the overlay and starts QEMU with exactly the documented arguments, the guest reads the Pi's SUP> on UART 1 and the Pi receives the guest's byte; destroying the launcher stops QEMU the orderly way, not by force | — | pass | test/uart/nextpi_test.cpp:2803 |
-| PIT-09 | a rebuilt Emulator (a hard reset) reconnects to the same running Pi over the socket; the Pi received both machines' bytes in order | — | pass | test/uart/nextpi_test.cpp:2843 |
-| PIT-10 | starting NextPi is refused, leaving nothing running, when QEMU is not on PATH, when the only match on PATH is a directory, and when QEMU exits at once; a QEMU path given without its .exe is completed | — | pass | test/uart/nextpi_test.cpp:2899 |
-| PIT-11 | a QEMU that ignores the orderly stop is killed once the stop grace period is over, and stop() returns | — | pass | test/uart/nextpi_test.cpp:2941 |
-| PIT-12 | the exit status of a QEMU that ends on its own reaches jnext: exit_status() decodes to the status QEMU exited with | — | pass | test/uart/nextpi_test.cpp:2973 |
-| PIT-13 | when the process running NextPi is killed outright, QEMU is stopped with it instead of being left orphaned with the overlay locked | — | pass | test/uart/nextpi_test.cpp:2997 |
-| PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:3023 |
-| PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:3067 |
-| PIT-16 | an empty Pi audio setting is the Next's mixer (QEMU's wav back-end into the audio FIFO, or the named pipe on Windows) on every OS; `host` is the host output (dsound, coreaudio, pa) and never the mixer (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3100 |
-| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader (also on the socket transport, in a runtime directory of its own that stop() removes, never in the current directory); on Windows the FIFO is a named pipe that exists when QEMU starts and is gone after stop(); link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3173 |
-| PIT-18 | NextPi's sound reaches the Next's mixer over I2S on every OS: QEMU's wav back-end writes it to the FIFO (a named pipe on Windows) PiQemu serves, and NR 0xA2 gates it (0x00 silent, 0xC0 the square wave, left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359) | i2s.vhd:177-180, zxnext.vhd:2358-2359 | pass | test/uart/nextpi_test.cpp:3308 |
+| PIT-01 | nextpi::md5_file returns the RFC 1321 digest of a file (empty, short, and one crossing the 1 MiB read buffer) and "" for a file that does not exist | — | pass | test/uart/nextpi_test.cpp:2700 |
+| PIT-02 | the socket transport's QEMU command line puts the console UART on a loopback-only, non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no pipe chardev, the monitor on stdio on Windows and off elsewhere, and the rest of the raspi0 command line unchanged | — | pass | test/uart/nextpi_test.cpp:2739 |
+| PIT-03 | the host back-end per OS: dsound on Windows, coreaudio on macOS, pa elsewhere | — | pass | test/uart/nextpi_test.cpp:2758 |
+| PIT-04 | the TCP endpoint carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): the host's bytes reach port 0x143B, the guest's reach the host, UART 0 hears nothing, and the link is described as TCP 127.0.0.1:<port> | zxnext.vhd:2278-2281 | pass | test/uart/nextpi_test.cpp:2799 |
+| PIT-05 | a TCP cable with no listener is not a fault: for over two seconds nothing is heard, nothing is faulted or discarded; once a listener appears the link connects by itself, both directions flow and the byte sent in the meantime arrives | — | pass | test/uart/nextpi_test.cpp:2852 |
+| PIT-06 | when a TCP peer goes away its conversation is discarded, not handed to the next one: the byte it had sent and the byte that could not be delivered are dropped (the latter counted in unsent()) without a fault, and a new peer on the same listener gets traffic again and receives only what was sent after the loss, including a second byte sent straight after it; an orderly close and a reset seen by a read are reconnected too without a fault | — | pass | test/uart/nextpi_test.cpp:2943 |
+| PIT-07 | link_config turns the launcher's transport into Emulator configuration (the port for the socket transport, the two FIFO paths for the FIFO one, never both: stale values of the other are cleared, and with both set the FIFO pair wins) and the warm-start recording machine gets neither while the machine itself is kept | — | pass | test/uart/nextpi_test.cpp:3012 |
+| PIT-08 | NextPi end to end over the socket transport: with a space and a comma in the directory name and QEMU found on PATH, jnext creates the overlay and starts QEMU with exactly the documented arguments, the guest reads the Pi's SUP> on UART 1 and the Pi receives the guest's byte; destroying the launcher stops QEMU the orderly way, not by force | — | pass | test/uart/nextpi_test.cpp:3062 |
+| PIT-09 | a rebuilt Emulator (a hard reset) reconnects to the same running Pi over the socket; the Pi received both machines' bytes in order | — | pass | test/uart/nextpi_test.cpp:3102 |
+| PIT-10 | starting NextPi is refused, leaving nothing running, when QEMU is not on PATH, when the only match on PATH is a directory, and when QEMU exits at once; a QEMU path given without its .exe is completed | — | pass | test/uart/nextpi_test.cpp:3158 |
+| PIT-11 | a QEMU that ignores the orderly stop is killed once the stop grace period is over, and stop() returns | — | pass | test/uart/nextpi_test.cpp:3200 |
+| PIT-12 | the exit status of a QEMU that ends on its own reaches jnext: exit_status() decodes to the status QEMU exited with | — | pass | test/uart/nextpi_test.cpp:3232 |
+| PIT-13 | when the process running NextPi is killed outright, QEMU is stopped with it instead of being left orphaned with the overlay locked | — | pass | test/uart/nextpi_test.cpp:3256 |
+| PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:3282 |
+| PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:3326 |
+| PIT-16 | an empty Pi audio setting is the Next's mixer (QEMU's wav back-end into the audio FIFO, or the named pipe on Windows) on every OS; `host` is the host output (dsound, coreaudio, pa) and never the mixer (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3359 |
+| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader (also on the socket transport, in a runtime directory of its own that stop() removes, never in the current directory); on Windows the FIFO is a named pipe that exists when QEMU starts and is gone after stop(); link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3432 |
+| PIT-18 | NextPi's sound reaches the Next's mixer over I2S on every OS: QEMU's wav back-end writes it to the FIFO (a named pipe on Windows) PiQemu serves, and NR 0xA2 gates it (0x00 silent, 0xC0 the square wave, left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359) | i2s.vhd:177-180, zxnext.vhd:2358-2359 | pass | test/uart/nextpi_test.cpp:3567 |
 | PIT-19 | a writer that leaves and the next one that connects: the second stream's header is skipped and the first's half frame is not glued to it (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1033 |
 | PIT-20 | a writer sending far more than the ring holds is never blocked: the ring keeps its 131072 frames, the rest is counted as dropped, and the next pop flushes it (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1076 |
 | PIT-21 | closing the Pi audio reader returns within a second whether or not a writer ever connected, and the name can be served again afterwards (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1122 |
 | PIT-22 | with no writer connected the Pi audio reader neither spins nor polls fast: under 100 ms of CPU, at most 60 writer-gone reads and at most 60 wakeups in a second (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1156 |
-| PIT-23 | when the Pi's audio pipe cannot be made, starting NextPi fails with that error and starts no QEMU (PI-51 for the portable launcher; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3370 |
-| PIT-24 | the stop grace period is measured on the clock, not counted in sleeps: with every launcher poll sleep stretched five-fold (and seen to be, during stop()), a stubborn QEMU is still killed at the grace, not after it (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3220 |
-| PIT-25 | the startup window for a QEMU that dies at once is measured on the clock, not counted in polls: with every launcher poll sleep stretched five-fold (and seen to be, during start()), start() of a healthy QEMU returns in about a window, not five times that (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3263 |
-| PIT-26 | PiQemu::find_programs, asked before NextPi is offered or downloaded, refuses a missing QEMU naming qemu-system-arm, refuses QEMU without qemu-img naming qemu-img only while the directory has no overlay, and otherwise returns the programs start() will run, a QEMU given by path included (GH #357; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3424 |
+| PIT-23 | when the Pi's audio pipe cannot be made, starting NextPi fails with that error and starts no QEMU (PI-51 for the portable launcher; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3629 |
+| PIT-24 | the stop grace period is measured on the clock, not counted in sleeps: with every launcher poll sleep stretched five-fold (and seen to be, during stop()), a stubborn QEMU is still killed at the grace, not after it (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3479 |
+| PIT-25 | the startup window for a QEMU that dies at once is measured on the clock, not counted in polls: with every launcher poll sleep stretched five-fold (and seen to be, during start()), start() of a healthy QEMU returns in about a window, not five times that (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3522 |
+| PIT-26 | PiQemu::find_programs, asked before NextPi is offered or downloaded, refuses a missing QEMU naming qemu-system-arm, refuses QEMU without qemu-img naming qemu-img only while the directory has no overlay, and otherwise returns the programs start() will run, a QEMU given by path included (GH #357; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3683 |
 | PIT-27 | an archive and its .md5 already in the NextPi directory are checked and installed with no question and no download, then deleted (GH #358; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1204 |
 | PIT-28 | an archive with no .md5 beside it is checked against the mirror's .md5, which is the only thing fetched, and installed with no question (GH #358; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1222 |
 | PIT-29 | a download step that fails after the whole archive arrived does not delete it: the next run checks it, fetches nothing and installs it without asking again (GH #358; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1258 |
@@ -2888,6 +2890,15 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-54 | a release list that takes 1200 ms and then gets no data for 5 s says its line and then the dialog's stalled note ('Stalled: no data received for 5 s ... jnext gives up after 30 s'), as a warning in the log, and the failure is reported as usual with the address (GH #385; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2347 |
 | PIT-55 | an archive download that gets no data for 5200 ms says the stalled note through the progress option provision() hands it, once, in the log as a warning; the short-fetch console says nothing for it (GH #385; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2364 |
 | PIT-56 | NextPi's own progress display heads its line 'Downloading NextPi:', says nothing when the server sent no length, and says the stalled note after its line; the short-fetch console logs its line as 'NextPi: ' + the line at information level and the stalled note as 'NextPi: ' + the note as a warning, through the uart logger (GH #385; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2405 |
+| PIT-57 | the extra-arguments text splits on runs of space, tab, CR and LF: one box holding '-serial telnet::2357,server,nowait' is two arguments, leading and trailing blanks make none, and blank text is no argument (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2455 |
+| PIT-58 | '...' and "..." keep spaces in one argument and are literal, a quote of the other kind inside opens nothing, adjacent pieces join into one argument, and a lone '' or "" is one empty argument while x'' is x (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2473 |
+| PIT-59 | a backslash is an ordinary character (a pasted Windows path is not changed, a trailing backslash inside quotes is kept) and nothing is expanded: $HOME, ~, ;, \|, * and a backtick pass verbatim (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2488 |
+| PIT-60 | an unterminated ' or " quote is refused: false, the output emptied, and the error names the quote and the 1-based character where it opens; a quote inside the other kind opens nothing (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2504 |
+| PIT-61 | build_args, on the FIFO and the socket transport, appends Spec::extra_args after jnext's own arguments, in order and unchanged, so a user -serial comes after the console's -serial chardev:pi; with none set the list is the 22 arguments it was (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2634 |
+| PIT-62 | started for real, QEMU receives the extra arguments after jnext's own, byte for byte, including a space, an embedded double quote, $HOME ; * and a backtick, a trailing backslash and an empty argument: no shell, and on Windows the CreateProcessW quoting (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2666 |
+| PIT-63 | the --nextpi-dir/-release/-qemu/-audio/-qemu-args flags replace their own saved setting and no other, an empty value means the default (it replaces a saved one), and with no flag the saved settings stand (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2543 |
+| PIT-64 | the setting flags given on the command line are named, in order, each once, an empty value included, and none when no flag was given: main.cpp warns about each when NextPi is not enabled (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2559 |
+| PIT-65 | whether NextPi starts depends on the machine only for the preference: a GUI session with the [nextpi] preference on starts it only when the startup machine is the ZX Next (held_for_machine otherwise); --nextpi starts it on any machine; --no-nextpi and a headless session are never 'held' (GH #419; jnext-only, no VHDL counterpart; the Pi header's UART is decoded in every personality, NR 0x83 bit 4, zxnext.vhd:2420) | zxnext.vhd:2420 | pass | test/uart/nextpi_test.cpp:2596 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1776 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1780 |
 | RTC-23 | GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field and a wrong separator are rejected; unpadded digit fields still parse | — | pass | test/uart/uart_test.cpp:2341 |
@@ -6567,26 +6578,35 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-54 | a release list that takes 1200 ms and then gets no data for 5 s says its line and then the dialog's stalled note ('Stalled: no data received for 5 s ... jnext gives up after 30 s'), as a warning in the log, and the failure is reported as usual with the address (GH #385; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2347 |
 | PIT-55 | an archive download that gets no data for 5200 ms says the stalled note through the progress option provision() hands it, once, in the log as a warning; the short-fetch console says nothing for it (GH #385; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2364 |
 | PIT-56 | NextPi's own progress display heads its line 'Downloading NextPi:', says nothing when the server sent no length, and says the stalled note after its line; the short-fetch console logs its line as 'NextPi: ' + the line at information level and the stalled note as 'NextPi: ' + the note as a warning, through the uart logger (GH #385; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2405 |
-| PIT-01 | nextpi::md5_file returns the RFC 1321 digest of a file (empty, short, and one crossing the 1 MiB read buffer) and "" for a file that does not exist | — | pass | test/uart/nextpi_test.cpp:2441 |
-| PIT-02 | the socket transport's QEMU command line puts the console UART on a loopback-only, non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no pipe chardev, the monitor on stdio on Windows and off elsewhere, and the rest of the raspi0 command line unchanged | — | pass | test/uart/nextpi_test.cpp:2480 |
-| PIT-03 | the host back-end per OS: dsound on Windows, coreaudio on macOS, pa elsewhere | — | pass | test/uart/nextpi_test.cpp:2499 |
-| PIT-04 | the TCP endpoint carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): the host's bytes reach port 0x143B, the guest's reach the host, UART 0 hears nothing, and the link is described as TCP 127.0.0.1:<port> | zxnext.vhd:2278-2281 | pass | test/uart/nextpi_test.cpp:2540 |
-| PIT-05 | a TCP cable with no listener is not a fault: for over two seconds nothing is heard, nothing is faulted or discarded; once a listener appears the link connects by itself, both directions flow and the byte sent in the meantime arrives | — | pass | test/uart/nextpi_test.cpp:2593 |
-| PIT-06 | when a TCP peer goes away its conversation is discarded, not handed to the next one: the byte it had sent and the byte that could not be delivered are dropped (the latter counted in unsent()) without a fault, and a new peer on the same listener gets traffic again and receives only what was sent after the loss, including a second byte sent straight after it; an orderly close and a reset seen by a read are reconnected too without a fault | — | pass | test/uart/nextpi_test.cpp:2684 |
-| PIT-07 | link_config turns the launcher's transport into Emulator configuration (the port for the socket transport, the two FIFO paths for the FIFO one, never both: stale values of the other are cleared, and with both set the FIFO pair wins) and the warm-start recording machine gets neither while the machine itself is kept | — | pass | test/uart/nextpi_test.cpp:2753 |
-| PIT-08 | NextPi end to end over the socket transport: with a space and a comma in the directory name and QEMU found on PATH, jnext creates the overlay and starts QEMU with exactly the documented arguments, the guest reads the Pi's SUP> on UART 1 and the Pi receives the guest's byte; destroying the launcher stops QEMU the orderly way, not by force | — | pass | test/uart/nextpi_test.cpp:2803 |
-| PIT-09 | a rebuilt Emulator (a hard reset) reconnects to the same running Pi over the socket; the Pi received both machines' bytes in order | — | pass | test/uart/nextpi_test.cpp:2843 |
-| PIT-10 | starting NextPi is refused, leaving nothing running, when QEMU is not on PATH, when the only match on PATH is a directory, and when QEMU exits at once; a QEMU path given without its .exe is completed | — | pass | test/uart/nextpi_test.cpp:2899 |
-| PIT-11 | a QEMU that ignores the orderly stop is killed once the stop grace period is over, and stop() returns | — | pass | test/uart/nextpi_test.cpp:2941 |
-| PIT-12 | the exit status of a QEMU that ends on its own reaches jnext: exit_status() decodes to the status QEMU exited with | — | pass | test/uart/nextpi_test.cpp:2973 |
-| PIT-13 | when the process running NextPi is killed outright, QEMU is stopped with it instead of being left orphaned with the overlay locked | — | pass | test/uart/nextpi_test.cpp:2997 |
-| PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:3023 |
-| PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:3067 |
-| PIT-16 | an empty Pi audio setting is the Next's mixer (QEMU's wav back-end into the audio FIFO, or the named pipe on Windows) on every OS; `host` is the host output (dsound, coreaudio, pa) and never the mixer (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3100 |
-| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader (also on the socket transport, in a runtime directory of its own that stop() removes, never in the current directory); on Windows the FIFO is a named pipe that exists when QEMU starts and is gone after stop(); link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3173 |
-| PIT-24 | the stop grace period is measured on the clock, not counted in sleeps: with every launcher poll sleep stretched five-fold (and seen to be, during stop()), a stubborn QEMU is still killed at the grace, not after it (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3220 |
-| PIT-25 | the startup window for a QEMU that dies at once is measured on the clock, not counted in polls: with every launcher poll sleep stretched five-fold (and seen to be, during start()), start() of a healthy QEMU returns in about a window, not five times that (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3263 |
-| PIT-18 | NextPi's sound reaches the Next's mixer over I2S on every OS: QEMU's wav back-end writes it to the FIFO (a named pipe on Windows) PiQemu serves, and NR 0xA2 gates it (0x00 silent, 0xC0 the square wave, left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359) | i2s.vhd:177-180, zxnext.vhd:2358-2359 | pass | test/uart/nextpi_test.cpp:3308 |
-| PIT-23 | when the Pi's audio pipe cannot be made, starting NextPi fails with that error and starts no QEMU (PI-51 for the portable launcher; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3370 |
-| PIT-26 | PiQemu::find_programs, asked before NextPi is offered or downloaded, refuses a missing QEMU naming qemu-system-arm, refuses QEMU without qemu-img naming qemu-img only while the directory has no overlay, and otherwise returns the programs start() will run, a QEMU given by path included (GH #357; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3424 |
+| PIT-57 | the extra-arguments text splits on runs of space, tab, CR and LF: one box holding '-serial telnet::2357,server,nowait' is two arguments, leading and trailing blanks make none, and blank text is no argument (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2455 |
+| PIT-58 | '...' and "..." keep spaces in one argument and are literal, a quote of the other kind inside opens nothing, adjacent pieces join into one argument, and a lone '' or "" is one empty argument while x'' is x (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2473 |
+| PIT-59 | a backslash is an ordinary character (a pasted Windows path is not changed, a trailing backslash inside quotes is kept) and nothing is expanded: $HOME, ~, ;, \|, * and a backtick pass verbatim (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2488 |
+| PIT-60 | an unterminated ' or " quote is refused: false, the output emptied, and the error names the quote and the 1-based character where it opens; a quote inside the other kind opens nothing (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2504 |
+| PIT-63 | the --nextpi-dir/-release/-qemu/-audio/-qemu-args flags replace their own saved setting and no other, an empty value means the default (it replaces a saved one), and with no flag the saved settings stand (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2543 |
+| PIT-64 | the setting flags given on the command line are named, in order, each once, an empty value included, and none when no flag was given: main.cpp warns about each when NextPi is not enabled (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2559 |
+| PIT-65 | whether NextPi starts depends on the machine only for the preference: a GUI session with the [nextpi] preference on starts it only when the startup machine is the ZX Next (held_for_machine otherwise); --nextpi starts it on any machine; --no-nextpi and a headless session are never 'held' (GH #419; jnext-only, no VHDL counterpart; the Pi header's UART is decoded in every personality, NR 0x83 bit 4, zxnext.vhd:2420) | zxnext.vhd:2420 | pass | test/uart/nextpi_test.cpp:2596 |
+| PIT-61 | build_args, on the FIFO and the socket transport, appends Spec::extra_args after jnext's own arguments, in order and unchanged, so a user -serial comes after the console's -serial chardev:pi; with none set the list is the 22 arguments it was (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2634 |
+| PIT-62 | started for real, QEMU receives the extra arguments after jnext's own, byte for byte, including a space, an embedded double quote, $HOME ; * and a backtick, a trailing backslash and an empty argument: no shell, and on Windows the CreateProcessW quoting (GH #407; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:2666 |
+| PIT-01 | nextpi::md5_file returns the RFC 1321 digest of a file (empty, short, and one crossing the 1 MiB read buffer) and "" for a file that does not exist | — | pass | test/uart/nextpi_test.cpp:2700 |
+| PIT-02 | the socket transport's QEMU command line puts the console UART on a loopback-only, non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no pipe chardev, the monitor on stdio on Windows and off elsewhere, and the rest of the raspi0 command line unchanged | — | pass | test/uart/nextpi_test.cpp:2739 |
+| PIT-03 | the host back-end per OS: dsound on Windows, coreaudio on macOS, pa elsewhere | — | pass | test/uart/nextpi_test.cpp:2758 |
+| PIT-04 | the TCP endpoint carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): the host's bytes reach port 0x143B, the guest's reach the host, UART 0 hears nothing, and the link is described as TCP 127.0.0.1:<port> | zxnext.vhd:2278-2281 | pass | test/uart/nextpi_test.cpp:2799 |
+| PIT-05 | a TCP cable with no listener is not a fault: for over two seconds nothing is heard, nothing is faulted or discarded; once a listener appears the link connects by itself, both directions flow and the byte sent in the meantime arrives | — | pass | test/uart/nextpi_test.cpp:2852 |
+| PIT-06 | when a TCP peer goes away its conversation is discarded, not handed to the next one: the byte it had sent and the byte that could not be delivered are dropped (the latter counted in unsent()) without a fault, and a new peer on the same listener gets traffic again and receives only what was sent after the loss, including a second byte sent straight after it; an orderly close and a reset seen by a read are reconnected too without a fault | — | pass | test/uart/nextpi_test.cpp:2943 |
+| PIT-07 | link_config turns the launcher's transport into Emulator configuration (the port for the socket transport, the two FIFO paths for the FIFO one, never both: stale values of the other are cleared, and with both set the FIFO pair wins) and the warm-start recording machine gets neither while the machine itself is kept | — | pass | test/uart/nextpi_test.cpp:3012 |
+| PIT-08 | NextPi end to end over the socket transport: with a space and a comma in the directory name and QEMU found on PATH, jnext creates the overlay and starts QEMU with exactly the documented arguments, the guest reads the Pi's SUP> on UART 1 and the Pi receives the guest's byte; destroying the launcher stops QEMU the orderly way, not by force | — | pass | test/uart/nextpi_test.cpp:3062 |
+| PIT-09 | a rebuilt Emulator (a hard reset) reconnects to the same running Pi over the socket; the Pi received both machines' bytes in order | — | pass | test/uart/nextpi_test.cpp:3102 |
+| PIT-10 | starting NextPi is refused, leaving nothing running, when QEMU is not on PATH, when the only match on PATH is a directory, and when QEMU exits at once; a QEMU path given without its .exe is completed | — | pass | test/uart/nextpi_test.cpp:3158 |
+| PIT-11 | a QEMU that ignores the orderly stop is killed once the stop grace period is over, and stop() returns | — | pass | test/uart/nextpi_test.cpp:3200 |
+| PIT-12 | the exit status of a QEMU that ends on its own reaches jnext: exit_status() decodes to the status QEMU exited with | — | pass | test/uart/nextpi_test.cpp:3232 |
+| PIT-13 | when the process running NextPi is killed outright, QEMU is stopped with it instead of being left orphaned with the overlay locked | — | pass | test/uart/nextpi_test.cpp:3256 |
+| PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:3282 |
+| PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:3326 |
+| PIT-16 | an empty Pi audio setting is the Next's mixer (QEMU's wav back-end into the audio FIFO, or the named pipe on Windows) on every OS; `host` is the host output (dsound, coreaudio, pa) and never the mixer (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3359 |
+| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader (also on the socket transport, in a runtime directory of its own that stop() removes, never in the current directory); on Windows the FIFO is a named pipe that exists when QEMU starts and is gone after stop(); link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3432 |
+| PIT-24 | the stop grace period is measured on the clock, not counted in sleeps: with every launcher poll sleep stretched five-fold (and seen to be, during stop()), a stubborn QEMU is still killed at the grace, not after it (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3479 |
+| PIT-25 | the startup window for a QEMU that dies at once is measured on the clock, not counted in polls: with every launcher poll sleep stretched five-fold (and seen to be, during start()), start() of a healthy QEMU returns in about a window, not five times that (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3522 |
+| PIT-18 | NextPi's sound reaches the Next's mixer over I2S on every OS: QEMU's wav back-end writes it to the FIFO (a named pipe on Windows) PiQemu serves, and NR 0xA2 gates it (0x00 silent, 0xC0 the square wave, left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359) | i2s.vhd:177-180, zxnext.vhd:2358-2359 | pass | test/uart/nextpi_test.cpp:3567 |
+| PIT-23 | when the Pi's audio pipe cannot be made, starting NextPi fails with that error and starts no QEMU (PI-51 for the portable launcher; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3629 |
+| PIT-26 | PiQemu::find_programs, asked before NextPi is offered or downloaded, refuses a missing QEMU naming qemu-system-arm, refuses QEMU without qemu-img naming qemu-img only while the directory has no overlay, and otherwise returns the programs start() will run, a QEMU given by path included (GH #357; jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:3683 |
 

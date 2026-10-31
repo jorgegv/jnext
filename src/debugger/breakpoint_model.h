@@ -117,6 +117,20 @@ public:
     bool pc_marked(uint16_t addr, jnext::dbg::MemSpace space) const;
     bool pc_marked_live(uint16_t addr, jnext::dbg::MemSpace space) const;
 
+    /// GH #421 -- one of this GUI's own Execute breakpoints, as the Source tab's
+    /// gutter reads them (another client's are not the GUI's to draw).
+    struct PcBreakpoint {
+        uint16_t             addr;
+        jnext::dbg::MemSpace space;   ///< `cpu()` for a logical breakpoint
+        bool                 live;
+    };
+    std::vector<PcBreakpoint> pc_breakpoints() const;
+
+    /// The Address column's spelling of an address and its qualifier:
+    /// `$8002`, `$8002 @04`, `$8002 @01:00`. One spelling for the list and the
+    /// Source tab's tooltip.
+    static QString address_text(uint16_t addr, jnext::dbg::MemSpace space);
+
     /// GH #225's master switch — the backend's, one for every client.
     bool master_enabled() const;
     void set_master_enabled(bool enabled);

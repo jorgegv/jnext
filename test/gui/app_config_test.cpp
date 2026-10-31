@@ -18,13 +18,17 @@
 
 #include "gui/app_config.h"
 
+#include "platform/config_keys.h"
 #include "debug/debug_keymap.h"
+#include "debug/source_search.h"
+#include "core/cli_options.h"
 
 #include <QDir>
 #include <QDateTime>
 #include <QFile>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QSet>
 #include <QTemporaryDir>
 
 #include <cstdio>
@@ -427,6 +431,79 @@ static void test_recent_files(QTemporaryDir& dir) {
               r.data().recent_files[0] == "/p/f0.nex" && r.data().recent_files[3] == "/p/f3.nex" &&
               !r.data().recent_files.contains(QString()),
           r.data().recent_files.join('|').toStdString());
+}
+
+// ── AC-91..93: GH #407: [nextpi] qemu_args, and a free-text value with an unquoted comma ──
+
+static void test_nextpi_qemu_args(QTemporaryDir& dir) {
+    set_group("AC-QEMUARGS");
+    const QString none = fresh_ini_path(dir, "qemuargs-none");
+    AppConfig absent(none);
+    absent.load();
+    check("AC-91", "nextpi_qemu_args defaults to empty (no extra QEMU arguments), in a fresh struct and after load()",
+          AppConfigData{}.nextpi_qemu_args.isEmpty() && absent.data().nextpi_qemu_args.isEmpty());
+
+    const QString p = fresh_ini_path(dir, "qemuargs-rt");
+    const QString text = QStringLiteral("-serial telnet::2357,server,nowait -name \"my pi\" 'x' -drive file=C:\\pi\\x.img;y");
+    { AppConfig w(p); w.data().nextpi_qemu_args = text; w.save(); }
+    AppConfig r(p);
+    r.load();
+    const QString in_file = QSettings(p, QSettings::IniFormat).value("nextpi/qemu_args").toString();
+    check("AC-92", "nextpi_qemu_args round-trips byte for byte (commas, spaces, both quotes, a backslash path and a semicolon) under [nextpi]",
+          r.data().nextpi_qemu_args == text && in_file == text,
+          r.data().nextpi_qemu_args.toStdString() + " | " + in_file.toStdString());
+
+    // A hand-written file, with no QSettings involved: unquoted values holding a comma. QSettings reads each
+    // as a list and toString() of it is "", so every free-text key used to come back empty.
+    // Only the comma is repaired here; a backslash, a bare quote or a semicolon in a hand-edited value follow Qt's own
+    // INI rules, which the man page (FILES, [nextpi]) spells out. What jnext itself writes round-trips exactly (AC-92).
+    const QString h = fresh_ini_path(dir, "qemuargs-hand");
+    {
+        QFile f(h);
+        const bool opened = f.open(QIODevice::WriteOnly | QIODevice::Truncate);
+        f.write("[paths]\n"
+                "last_load_dir=/srv/a,b\n"
+                "sd_card_path=/srv/c,d.img\n"
+                "screenshot_dir=/srv/e,f\n"
+                "[screenshot]\n"
+                "quick_dir=/srv/g,h\n"
+                "[input]\n"
+                "joy1_device=ff0047df341200000100000000007601\n"
+                "joy1_device_name=Pad, Pro\n"
+                "joy2_device=ff000211785600000200000000007600\n"
+                "joy2_device_name=Pad, Two\n"
+                "[nextpi]\n"
+                "dir=/srv/i,j\n"
+                "release=1_93D,x\n"
+                "qemu_binary=/opt/q,r/qemu\n"
+                "audio=wav:/tmp/s,t.wav\n"
+                "qemu_args=-serial telnet::2357,server,nowait\n");
+        f.close();
+        (void)opened;
+    }
+    AppConfig hr(h);
+    hr.load();
+    const AppConfigData& d = hr.data();
+    struct Want { const char* key; QString got; QString want; };
+    const Want wants[] = {
+        {"last_load_dir", d.last_load_dir, "/srv/a,b"},
+        {"sd_card_path", d.sd_card_path, "/srv/c,d.img"},
+        {"screenshot_dir", d.screenshot_dir, "/srv/e,f"},
+        {"quick_dir", d.quick_screenshot_dir, "/srv/g,h"},
+        {"joy1_device_name", d.joy_device_name[0], "Pad,Pro"},   // Qt's parser drops the space beside the comma
+        {"joy2_device_name", d.joy_device_name[1], "Pad,Two"},
+        {"nextpi dir", d.nextpi_dir, "/srv/i,j"},
+        {"release", d.nextpi_release, "1_93D,x"},
+        {"qemu_binary", d.nextpi_qemu_binary, "/opt/q,r/qemu"},
+        {"audio", d.nextpi_audio, "wav:/tmp/s,t.wav"},
+        {"qemu_args", d.nextpi_qemu_args, "-serial telnet::2357,server,nowait"},
+    };
+    std::string bad;
+    for (const Want& w : wants)
+        if (w.got != w.want) bad += std::string(w.key) + "='" + w.got.toStdString() + "' ";
+    check("AC-93", "every free-text key (paths, quick_dir, joystick names, the nextpi fields) reads an UNQUOTED hand-edited "
+          "value holding a comma whole, instead of silently dropping it",
+          bad.empty(), bad);
 }
 
 // ── AC-80..83: GH #321 — [snapshot] quick_keep (Quick Save retention) ────
@@ -1176,11 +1253,14 @@ static void test_file_layout(QTemporaryDir& dir) {
     const QString p7 = fresh_ini_path(dir, "layout_idem");
     { AppConfig c(p7); c.save(); }
     const QDateTime past = QDateTime::fromSecsSinceEpoch(1000000000);
-    { QFile f(p7); f.open(QIODevice::ReadWrite); f.setFileTime(past, QFileDevice::FileModificationTime); }
+    bool touched = false;
+    { QFile f(p7); touched = f.open(QIODevice::ReadWrite)
+                              && f.setFileTime(past, QFileDevice::FileModificationTime); }
     const QByteArray before = slurp(p7);
     { AppConfig c(p7); c.load(); }
     check("CF-07", "load() of a new-format file leaves its bytes and mtime unchanged",
-          slurp(p7) == before && QFileInfo(p7).lastModified() == past);
+          touched && slurp(p7) == before && QFileInfo(p7).lastModified() == past,
+          touched ? std::string() : std::string("touched=0 (test setup could not set the mtime)"));
 
     // A hand-edited rejected value survives the legacy rewrite.
     const QString p8 = fresh_ini_path(dir, "layout_banana");
@@ -1266,6 +1346,359 @@ static void test_file_layout(QTemporaryDir& dir) {
           slurp(p14).toStdString());
 }
 
+// ── AC-94..96: GH #417 - jnext.conf against the table of keys ──────────────
+//
+// Oracle: platform/config_keys.h and AppConfig::load()/save() themselves. No VHDL:
+// a host configuration file.
+//   AC-94  the enforcement row: every key save() writes is a table row, and
+//          every AppConfig-owned row is written. A new persisted field under a
+//          key with no row fails here.
+//   AC-95  a value `--set` accepts means the same in the file: the canonical
+//          text survives load() then save().
+//   AC-96  a value `--set` refuses is one load() keeps at the default.
+
+namespace {
+
+// The raw text of `path` in the file (a list joined with ',').
+std::string raw_text(const QString& file, const std::string& path, bool* present = nullptr) {
+    QSettings s(file, QSettings::IniFormat);
+    const QString k = QString::fromStdString(path);
+    if (present) *present = s.contains(k);
+    const QVariant v = s.value(k);
+    if (v.userType() == QMetaType::QStringList) return v.toStringList().join(QLatin1Char(',')).toStdString();
+    return v.toString().toStdString();
+}
+
+// Per-key sample values `--set` accepts, in the user's spelling.
+std::vector<std::string> accepted_samples(const config_keys::Key& k) {
+    using config_keys::Type;
+    switch (k.type) {
+        case Type::Bool:  return {"true", "false"};
+        case Type::Int: {
+            const long lo = static_cast<long>(k.lo), hi = static_cast<long>(k.hi);
+            return {std::to_string(lo), std::to_string((lo + hi) / 2), std::to_string(hi)};
+        }
+        case Type::Float: return {"-24", "-1.5", "24"};
+        case Type::Word:
+        case Type::Machine: {
+            std::vector<std::string> out;
+            for (int i = 0;; ++i) {
+                const std::string w(config_keys::word_at(k.values, i));
+                if (w.empty()) break;
+                out.push_back(w);
+            }
+            return out;
+        }
+        case Type::Text:
+        case Type::Path:  return {"a b", "x, y", ""};
+        case Type::PathList: return {"a b", "x, y", "", std::string("/a") + source_search::kListSeparator + "/b"};
+        case Type::TrimmedText: return {"a b", "x, y", "  padded ", ""};
+        case Type::HostList: return {"a.example,B.example", ""};
+        case Type::DeviceId: return {"0123456789ABCDEF0123456789abcdef#2", ""};
+        case Type::Keep:  return {"unlimited", "1", "20", "1000000"};
+        case Type::Combo: return {"Ctrl+Shift+F10", "none"};
+    }
+    return {};
+}
+
+// Per-key sample values `--set` refuses.
+std::vector<std::string> refused_samples(const config_keys::Key& k) {
+    using config_keys::Type;
+    switch (k.type) {
+        case Type::Int: {
+            return {std::to_string(static_cast<long>(k.lo) - 1), std::to_string(static_cast<long>(k.hi) + 1), "x"};
+        }
+        case Type::Float: return {"-24.1", "25", "x"};
+        case Type::Word:
+        case Type::Machine: return {"nonsense"};
+        case Type::Keep:  return {"0", "-1", "1000001", "x"};
+        case Type::DeviceId: return {"xyz"};
+        case Type::Combo: return {"Ctrl+"};
+        // The file reader is more permissive than `--set` for these (a QVariant
+        // bool reads 1/yes; blank hosts are dropped), and the text types take
+        // anything: nothing to compare.
+        case Type::Bool:
+        case Type::HostList:
+        case Type::Text:
+        case Type::TrimmedText:
+        case Type::Path:
+        // GH #420 - load() drops an empty entry that --set refuses, so the file is
+        // the more permissive side here too.
+        case Type::PathList: return {};
+    }
+    return {};
+}
+
+// "section/name" of `k`, or of its family member `family`.
+std::string key_path(const config_keys::Key& k, const std::string& family = {}) {
+    return std::string(k.section) + "/" + (family.empty() ? k.name : family.c_str());
+}
+
+} // namespace
+
+static void test_config_keys(QTemporaryDir& dir) {
+    set_group("AC-KEYS");
+    using namespace config_keys;
+
+    // AC-98 - normalise_legacy_layout() names the six gains from the table: EACH of them is
+    // rewritten from a Qt5 float @Variant by load() alone (CF-12 pins only gain_db). One file
+    // per key, because a sync rewrites every float in the file as text: with all six planted
+    // together, dropping one from the list would still pass.
+    {
+        std::string bad;
+        int n = 0;
+        for (const char* k : {"gain_db", "gain_beeper_db", "gain_ay0_db", "gain_ay1_db", "gain_ay2_db", "gain_dac_db"}) {
+            const QString p = fresh_ini_path(dir, (std::string("keys-98-") + k).c_str());
+            plant(p, (std::string("[audio]\n") + k + "=@Variant(\\0\\0\\0\\x87?\\xc0\\0\\0)\n").c_str());
+            { AppConfig c(p); c.load(); }   // no save(): load() alone rewrites the file
+            const QByteArray f = slurp(p);
+            ++n;
+            if (!has_line(f, (std::string(k) + "=1.5").c_str()) || f.contains("@")) bad += std::string(k) + " ";
+        }
+        check("AC-98", "load() alone rewrites each of the six Qt5 float @Variant gains as text (one file per key)",
+              bad.empty() && n == 6, bad);
+    }
+
+    // AC-99 - a root key other than config_version keeps its name, under [config].
+    {
+        const QString p = fresh_ini_path(dir, "keys-99");
+        plant(p, "stray_key=x\n[startup]\ncpu_speed=2\n");
+        { AppConfig c(p); c.load(); }
+        QSettings s(p, QSettings::IniFormat);
+        check("AC-99", "a legacy root key other than config_version lands at config/<key> on load()",
+              s.value("config/stray_key").toString() == "x" && !s.contains("stray_key") &&
+                  !s.contains("startup/stray_key"),
+              slurp(p).toStdString());
+    }
+
+    // AC-94
+    {
+        const QString p = fresh_ini_path(dir, "keys-94");
+        {
+            AppConfig w(p);
+            w.load();
+            w.data().recent_files = QStringList{QStringLiteral("x")};
+            w.data().joy_device[0] = QStringLiteral("0123456789abcdef0123456789abcdef");
+            w.data().joy_device_name[0] = QStringLiteral("Pad");
+            for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i)
+                w.data().debug_keys.set(static_cast<jnext::dbgkeys::Action>(i),
+                    jnext::dbgkeys::Combo{static_cast<uint8_t>(jnext::dbgkeys::MOD_CTRL | jnext::dbgkeys::MOD_SHIFT),
+                        static_cast<jnext::dbgkeys::Key>(static_cast<int>(jnext::dbgkeys::Key::F1) + i)});
+            w.save();
+        }
+        QSet<QString> in_file;
+        {
+            QSettings s(p, QSettings::IniFormat);
+            for (const QString& k : s.allKeys()) in_file.insert(k);
+        }
+        std::string bad;
+        QSet<QString> expect;
+        for (const Key& k : KEYS) {
+            if (k.owner != Owner::AppConfig) continue;
+            if (k.id == KeyId::DebuggerKey) {
+                for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i)
+                    expect.insert(QString::fromStdString(
+                        key_path(k, jnext::dbgkeys::action_table()[i].id)));
+            } else {
+                expect.insert(QString::fromStdString(key_path(k)));
+            }
+        }
+        for (const QString& k : in_file)
+            if (!expect.contains(k)) bad += "written but not in the table: " + k.toStdString() + "; ";
+        for (const QString& k : expect)
+            if (!in_file.contains(k)) bad += "in the table but not written: " + k.toStdString() + "; ";
+        check("AC-94", "every key save() writes is a config_keys row owned by AppConfig, and every such row is written (the debugger_keys family with all 17 actions)",
+              bad.empty() && in_file.size() == expect.size(), bad);
+    }
+
+    // AC-95 / AC-96
+    std::string bad95, bad96;
+    int n95 = 0;
+    int idx = 0;
+    // The default file's raw text, per key, for AC-96.
+    const QString defp = fresh_ini_path(dir, "keys-default");
+    { AppConfig d(defp); d.load(); d.save(); }
+
+    for (const Key& k : KEYS) {
+        if (k.owner != Owner::AppConfig || k.not_setting) continue;
+        const bool fam = k.id == KeyId::DebuggerKey;
+        const std::string fam_id = fam ? "run" : std::string();
+        const std::string sec_key = std::string(k.section) + "." + (fam ? fam_id.c_str() : k.name);
+        const std::string path = key_path(k, fam_id);
+
+        for (const std::string& v : accepted_samples(k)) {
+            Assignment a;
+            std::string why;
+            if (!parse_assignment((sec_key + "=" + v).c_str(), a, why)) {
+                bad95 += sec_key + "=" + v + " refused (" + why + "); ";
+                continue;
+            }
+            const QString p1 = fresh_ini_path(dir, ("keys-a1-" + std::to_string(++idx)).c_str());
+            {
+                QSettings raw(p1, QSettings::IniFormat);
+                raw.setValue(QString::fromStdString(path), QString::fromStdString(v));
+                raw.sync();
+            }
+            { AppConfig c(p1); c.load(); c.save(); }
+            bool present = false;
+            const std::string got = raw_text(p1, path, &present);
+            ++n95;
+            if (!present || got != a.text)
+                bad95 += sec_key + "=" + v + " -> '" + got + "' wanted '" + a.text + "'; ";
+        }
+
+        for (const std::string& v : refused_samples(k)) {
+            Assignment a;
+            std::string why;
+            if (parse_assignment((sec_key + "=" + v).c_str(), a, why)) {
+                bad96 += sec_key + "=" + v + " accepted by --set; ";
+                continue;
+            }
+            const QString p1 = fresh_ini_path(dir, ("keys-r1-" + std::to_string(++idx)).c_str());
+            {
+                QSettings raw(p1, QSettings::IniFormat);
+                raw.setValue(QString::fromStdString(path), QString::fromStdString(v));
+                raw.sync();
+            }
+            { AppConfig c(p1); c.load(); c.save(); }
+            // save() rewrote p1; compare the key with the default file's.
+            bool present_got = false, present_def = false;
+            const std::string got = raw_text(p1, path, &present_got);
+            const std::string def = raw_text(defp, path, &present_def);
+            if (present_got != present_def || got != def)
+                bad96 += sec_key + "=" + v + " kept '" + got + "' not the default '" + def + "'; ";
+        }
+    }
+    check("AC-95", "every value --set accepts for an AppConfig key survives the file: load() then save() writes the canonical text",
+          bad95.empty() && n95 > 100, bad95 + " samples=" + std::to_string(n95));
+    check("AC-96", "every sample value --set refuses for an AppConfig key leaves load() at the default (Bool, HostList and the text types excluded: the file reader is more permissive there)",
+          bad96.empty(), bad96);
+}
+
+// ── AC-97: GH #417 - merge_cli_assignments() ────────────────────────────────
+// Oracle: the contract in the man page's "Settings for --set" (eight Qt-window
+// keys, canonical text, later of a key wins) and Preferences' CRT pop-up, whose
+// combinations --crt reproduces (preferences_dialog.cpp collect()). No VHDL.
+static void test_merge_cli_assignments(QTemporaryDir& dir) {
+    set_group("AC-MERGE");
+    using config_keys::KeyId;
+    const QString saved_path = fresh_ini_path(dir, "merge-saved");
+    const QString merged_path = fresh_ini_path(dir, "merge-merged");
+
+    AppConfigData saved;
+    saved.window_scale = 3;
+    saved.crt_filter = true;
+    saved.crt_shader = true;
+    saved.crt_shader_style = crt_shader::Style::Pc;
+    saved.last_load_dir = "/saved/load";
+    saved.screenshot_dir = "/saved/shots";
+    saved.quick_screenshot_dir = "/saved/quick";
+    saved.quick_screenshot_format = ScreenshotFormat::Png;
+    saved.cpu_speed = CpuSpeed::MHZ_14;
+    saved.silent = true;
+    saved.esp_enabled = true;
+    saved.esp_allowed_hosts = {"keep.example"};
+    saved.nextpi_dir = "/saved/pi";
+    saved.mouse_release = pointer_capture::ReleaseMethod::Esc;
+    saved.joy_source[0] = JoySource::CursorKeys;
+    saved.audio_gain_db = 3.0f;
+    saved.source_dirs = QStringList{QStringLiteral("/saved/src")};
+
+    AppConfigData merged = saved;
+    merge_cli_assignments(merged, {
+        { KeyId::StartupWindowScale, {}, "2" },
+        { KeyId::StartupCrtFilter, {}, "false" },
+        { KeyId::StartupCrtShader, {}, "false" },
+        { KeyId::StartupCrtShaderStyle, {}, "0" },
+        { KeyId::PathsLastLoadDir, {}, "/cli/load" },
+        { KeyId::PathsScreenshotDir, {}, "/cli/shots" },
+        { KeyId::ScreenshotQuickDir, {}, "/cli/quick" },
+        { KeyId::ScreenshotQuickFormat, {}, "scr" },
+        { KeyId::PathsSourceDirs, {}, std::string("/cli/a") + source_search::kListSeparator + "/cli/b" },
+        // A key this function does not own, and a later value for a key already given.
+        { KeyId::StartupSilent, {}, "false" },
+        { KeyId::StartupWindowScale, {}, "1" },
+    });
+    { AppConfig a(saved_path); a.data() = saved; a.save(); }
+    { AppConfig b(merged_path); b.data() = merged; b.save(); }
+    QSettings sa(saved_path, QSettings::IniFormat), sb(merged_path, QSettings::IniFormat);
+    QStringList differ;
+    for (const QString& k : sa.allKeys())
+        if (sa.value(k) != sb.value(k)) differ << k;
+    differ.sort();
+    const QStringList want = {"paths/last_load_dir", "paths/screenshot_dir", "paths/source_dirs",
+                              "screenshot/quick_dir",
+                              "screenshot/quick_format", "startup/crt_filter", "startup/crt_shader",
+                              "startup/crt_shader_style", "startup/window_scale"};
+    const bool merge_ok =
+          differ == want && merged.window_scale == 1 && merged.silent && merged.esp_enabled
+              && merged.last_load_dir == QLatin1String("/cli/load")
+              && merged.quick_screenshot_format == ScreenshotFormat::Scr
+              && merged.source_dirs == QStringList({QStringLiteral("/cli/a"), QStringLiteral("/cli/b")})
+              && merged.crt_shader_style == crt_shader::Style::Tv;
+
+    // --crt: the five effects give the Preferences pop-up's combinations.
+    // Each effect starts from a style different from the one it must leave (a --crt that
+    // forgot to set the style would otherwise pass by coincidence).
+    struct Want { const char* effect; bool filter, shader; crt_shader::Style start, style; };
+    const Want wants[] = {
+        { "off",       false, false, crt_shader::Style::Tv, crt_shader::Style::Tv },   // style untouched
+        { "scanlines", true,  false, crt_shader::Style::Lite, crt_shader::Style::Lite },
+        { "soft",      false, true,  crt_shader::Style::Pc, crt_shader::Style::Lite },
+        { "tv",        false, true,  crt_shader::Style::Pc, crt_shader::Style::Tv },
+        { "pc",        false, true,  crt_shader::Style::Tv, crt_shader::Style::Pc },
+    };
+    std::string bad;
+    for (const Want& w : wants) {
+        cli::CrtEffect e;
+        std::vector<config_keys::Assignment> list;
+        AppConfigData d = saved;
+        d.crt_shader_style = w.start;
+        if (!cli::parse_crt_effect(w.effect, e)) { bad += std::string(w.effect) + ":unparsed "; continue; }
+        config_keys::append_crt_effect(list, e.filter, e.shader, e.style);
+        merge_cli_assignments(d, list);
+        if (d.crt_filter != w.filter || d.crt_shader != w.shader || d.crt_shader_style != w.style)
+            bad += std::string(w.effect) + " ";
+    }
+    cli::CrtEffect none;
+    if (cli::parse_crt_effect("crt", none) || cli::parse_crt_effect("", none) || cli::parse_crt_effect("TV", none))
+        bad += "accepted-bad ";
+    check("AC-97", "merge_cli_assignments() sets its nine keys (the later of one key wins) and leaves every "
+                   "other field at the saved value; the five --crt effects merge to the Preferences pop-up's "
+                   "filter/shader/style combinations",
+          merge_ok && bad.empty(), differ.join(',').toStdString() + " " + bad);
+}
+
+// AC-100 (GH #420): paths/source_dirs is ONE string joined with the platform separator,
+// so a directory name holding a comma (which QSettings would split in a list) survives.
+// Oracle: the issue's contract and the `--set paths.source_dirs=` spelling.
+static void test_source_dirs(QTemporaryDir& dir) {
+    set_group("AC-SRCDIRS");
+    const QString p = fresh_ini_path(dir, "source-dirs");
+    const QStringList dirs = {QStringLiteral("/a b"), QStringLiteral("/c,d")};
+    {
+        AppConfig w(p);
+        w.load();
+        w.data().source_dirs = dirs;
+        w.save();
+    }
+    const QString sep(QLatin1Char(source_search::kListSeparator));
+    bool present = false;
+    const std::string raw = raw_text(p, "paths/source_dirs", &present);
+    AppConfig r(p);
+    r.load();
+    const std::string want = ("/a b" + sep + "/c,d").toStdString();
+    // An empty list is saved as an empty value and loads back as no directory.
+    const QString pe = fresh_ini_path(dir, "source-dirs-empty");
+    { AppConfig w(pe); w.load(); w.save(); }
+    AppConfig re(pe);
+    re.load();
+    check("AC-100", "source_dirs saves as the one string '/a b<sep>/c,d' and loads back as the same two entries "
+                    "(the comma survives); an empty list loads back empty",
+          present && raw == want && r.data().source_dirs == dirs && re.data().source_dirs.isEmpty(),
+          raw + " | " + r.data().source_dirs.join('|').toStdString());
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -1281,6 +1714,7 @@ int main() {
     test_merge_precedence();
     test_quick_keep(dir);
     test_recent_files(dir);
+    test_nextpi_qemu_args(dir);
     test_mouse_release(dir);
     test_default_path();
     test_debug_keys_defaults(dir);
@@ -1292,6 +1726,9 @@ int main() {
     test_debug_keys_conflicts();
     test_file_layout(dir);
     test_gh311_joy_device(dir);
+    test_config_keys(dir);
+    test_merge_cli_assignments(dir);
+    test_source_dirs(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

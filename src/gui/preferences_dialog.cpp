@@ -9,6 +9,8 @@
 
 #include "core/nextpi_provisioner.h"
 #include "peripheral/esp_host_policy.h"
+#include "debug/source_search.h"   // GH #420
+#include <QMessageBox>
 
 #include <QComboBox>
 #include <QSpinBox>
@@ -36,6 +38,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
                                      const std::vector<JoyDeviceInfo>& joy_devices)
     : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
       recent_files_(current.recent_files),
+      source_dirs_saved_(current.source_dirs),
       crt_filter_saved_(current.crt_filter),
       crt_shader_saved_(current.crt_shader),
       crt_shader_style_saved_(current.crt_shader_style),
@@ -111,9 +114,11 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     nextpi_release_combo_->setEditText(current.nextpi_release);
     nextpi_qemu_edit_->setText(current.nextpi_qemu_binary);
     nextpi_audio_combo_->setEditText(current.nextpi_audio);
+    nextpi_qemu_args_edit_->setText(current.nextpi_qemu_args);
     last_load_dir_edit_->setText(current.last_load_dir);
     sd_card_path_edit_->setText(current.sd_card_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
+    if (source_dirs_edit_) source_dirs_edit_->setPlainText(current.source_dirs.join(QLatin1Char('\n')));
     quick_screenshot_dir_edit_->setText(current.quick_screenshot_dir);
     quick_screenshot_fmt_combo_->setCurrentIndex(
         quick_screenshot_fmt_combo_->findData(
@@ -123,11 +128,13 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
     connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
+        if (!source_dirs_ok()) return;
         emit apply_requested(collect());
         accept();
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(buttons->button(QDialogButtonBox::Apply), &QPushButton::clicked, this, [this]() {
+        if (!source_dirs_ok()) return;
         emit apply_requested(collect());
     });
 
@@ -407,7 +414,7 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
 
-    nextpi_enabled_check_ = new QCheckBox(tr("Start NextPi (under QEMU) with jnext"), tab);
+    nextpi_enabled_check_ = new QCheckBox(tr("Start NextPi (under QEMU) when jnext starts the ZX Next"), tab);
     nextpi_enabled_check_->setObjectName(QStringLiteral("nextpiEnabledCheck"));
     nextpi_enabled_check_->setToolTip(
         tr("Boots NextPi under QEMU and connects it to UART 1, the Pi GPIO "
@@ -477,12 +484,23 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
            "\"none\" to mute it, or wav:FILE to record it on its own."));
     form->addRow(tr("Pi audio:"), nextpi_audio_combo_);
 
+    nextpi_qemu_args_edit_ = new QLineEdit(tab);
+    nextpi_qemu_args_edit_->setObjectName(QStringLiteral("nextpiQemuArgsEdit"));
+    nextpi_qemu_args_edit_->setPlaceholderText(
+        tr("none - e.g. -serial telnet:127.0.0.1:2357,server,nowait"));
+    nextpi_qemu_args_edit_->setToolTip(
+        tr("Added after jnext's own QEMU arguments when NextPi starts. Split on "
+           "spaces; '...' or \"...\" keep spaces in one argument; a backslash is an "
+           "ordinary character. There is no shell: nothing is expanded."));
+    form->addRow(tr("Extra QEMU arguments:"), nextpi_qemu_args_edit_);
+
     // Every other control follows the enable tick, so a disabled Pi does not
     // look half-configured.
     for (QWidget* w : {static_cast<QWidget*>(nextpi_dir_edit_->parentWidget()),
                        static_cast<QWidget*>(nextpi_release_combo_),
                        static_cast<QWidget*>(nextpi_qemu_edit_->parentWidget()),
-                       static_cast<QWidget*>(nextpi_audio_combo_)}) {
+                       static_cast<QWidget*>(nextpi_audio_combo_),
+                       static_cast<QWidget*>(nextpi_qemu_args_edit_)}) {
         connect(nextpi_enabled_check_, &QCheckBox::toggled, w, &QWidget::setEnabled);
         w->setEnabled(false);   // the constructor's fill toggles it on
     }
@@ -493,7 +511,10 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
            "directory above, as it does for the SD card image.\n\n"
            "These settings are not applied to the machine that is already "
            "running: they take effect the next time jnext starts. --nextpi and "
-           "--no-nextpi override the tick for a single run."), tab);
+           "--no-nextpi override the tick for a single run. "
+           "The tick starts NextPi only when jnext starts on the ZX Next; "
+           "--nextpi starts it with any machine. Changing the machine while "
+           "jnext runs neither starts nor stops it."), tab);
     note->setWordWrap(true);
     form->addRow(QString(), note);
 
@@ -525,6 +546,35 @@ QWidget* PreferencesDialog::build_paths_tab() {
                  &PreferencesDialog::browse_sd_image);
     add_path_row(tr("Screenshot directory:"), screenshot_dir_edit_,
                  &PreferencesDialog::browse_directory);
+
+#ifdef ENABLE_DEBUGGER
+    // GH #420 - where the debugger's Source tab looks for the files a source map names.
+    // One directory per line, as the ESP hosts are edited.
+    {
+        auto* row = new QWidget(tab);
+        auto* v = new QVBoxLayout(row);
+        v->setContentsMargins(0, 0, 0, 0);
+        source_dirs_edit_ = new QPlainTextEdit(row);
+        source_dirs_edit_->setObjectName(QStringLiteral("sourceDirsEdit"));
+        source_dirs_edit_->setToolTip(
+            tr("One directory per line. The Source tab tries them after the source map's own "
+               "directory and its parents, longest matching part of the file name first. "
+               "--source-dir overrides this list for a single run."));
+        source_dirs_edit_->setFixedHeight(4 * source_dirs_edit_->fontMetrics().lineSpacing() + 12);
+        auto* add = new QPushButton(tr("Add Directory..."), row);
+        add->setObjectName(QStringLiteral("sourceDirsAddButton"));
+        connect(add, &QPushButton::clicked, this, [this]() {
+            const QString dir = QFileDialog::getExistingDirectory(this, tr("Select Directory"));
+            if (dir.isEmpty()) return;
+            QString text = source_dirs_edit_->toPlainText();
+            if (!text.isEmpty() && !text.endsWith(QLatin1Char('\n'))) text += QLatin1Char('\n');
+            source_dirs_edit_->setPlainText(text + dir);
+        });
+        v->addWidget(source_dirs_edit_);
+        v->addWidget(add, 0, Qt::AlignLeft);
+        form->addRow(tr("Source search path:"), row);
+    }
+#endif
 
     // GH #19 — File > Quick Screenshot. Its own directory, not the one above:
     // that one FOLLOWS the Save Screenshot dialog around, this one is chosen.
@@ -570,6 +620,23 @@ void PreferencesDialog::browse_sd_image(QLineEdit* target) {
         this, tr("Select SD Card Image"), target->text(),
         tr("Disk Images (*.img *.bin);;All Files (*)"));
     if (!path.isEmpty()) target->setText(path);
+}
+
+// GH #420 - jnext.conf and --set hold the list as ONE string joined by the platform
+// separator, so a directory that contains it would load back as two. Refused here as
+// --source-dir refuses it.
+bool PreferencesDialog::source_dirs_ok() {
+    if (!source_dirs_edit_) return true;
+    const QChar sep(QLatin1Char(source_search::kListSeparator));
+    for (const QString& line : source_dirs_edit_->toPlainText().split(QLatin1Char('\n'))) {
+        if (!line.contains(sep)) continue;
+        QMessageBox::warning(this, tr("Source search path"),
+                             tr("The directory \"%1\" contains '%2', which separates directories in "
+                                "the saved list and in --set. Rename the directory or reach it through "
+                                "a link.").arg(line.trimmed(), sep));
+        return false;
+    }
+    return true;
 }
 
 AppConfigData PreferencesDialog::collect() const {
@@ -630,6 +697,7 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.nextpi_release     = nextpi_release_combo_->currentText().trimmed();
     cfg.nextpi_qemu_binary = nextpi_qemu_edit_->text().trimmed();
     cfg.nextpi_audio       = nextpi_audio_combo_->currentText().trimmed();
+    cfg.nextpi_qemu_args   = nextpi_qemu_args_edit_->text().trimmed();
     {
         // Through EspHostPolicy::add, exactly as AppConfig::load() and the CLI
         // do: blanks (every stray newline in a text box is one) dropped,
@@ -654,6 +722,16 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();
+    // GH #420 - trimmed, blank lines and exact duplicates dropped, order kept. No
+    // existence check: a missing directory just finds nothing.
+    cfg.source_dirs = source_dirs_saved_;
+    if (source_dirs_edit_) {
+        cfg.source_dirs.clear();
+        for (const QString& line : source_dirs_edit_->toPlainText().split(QLatin1Char('\n'))) {
+            const QString dir = line.trimmed();
+            if (!dir.isEmpty() && !cfg.source_dirs.contains(dir)) cfg.source_dirs << dir;
+        }
+    }
     cfg.recent_files = recent_files_;   // GH #406 - kept by File > Recent Files, no control here
     cfg.debug_keys = debug_keys_;   // GH #1 — including the preserved unknowns
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();

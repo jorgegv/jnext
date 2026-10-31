@@ -35,7 +35,7 @@
 //                  discarded; a 206 with a wrong total is distrusted; a kept
 //                  partial survives a failed resumed attempt; an empty 200 body;
 //                  the SD prompt's continuation note; header-name case.
-//   PROV-STALL-01..10  GH #358 point 2 - a dropped network, through the REAL backend
+//   PROV-STALL-01..11  GH #358 point 2 - a dropped network, through the REAL backend
 //                  (libcurl; WinHTTP under wine) against a loopback server that goes
 //                  silent mid-transfer (range_server.h: stall_after, silent, stall_ms).
 //                  Oracle: the tick / stall / cancel contract in sdcard_provisioner.h
@@ -55,6 +55,9 @@
 //                  completion); a WinHTTP read never asks for more
 //                  than DownloadTimings::read_bytes (10: wine reports at most 8 KiB
 //                  available, so the row lowers the cap to make it bind).
+//                  GH #415: Cancel works while the server has not answered yet (11; wine >= 11.7
+//                  completes WinHttpReceiveResponse in its caller, so the call must not be made
+//                  on the thread that ticks).
 //                  The NextPi twin is PIT-43, the GUI side SDD-01..04
 //                  (test/gui/sdcard_dialog_test.cpp).
 //   PROV-CONF-01   No image + declined confirm → Declined; no download.
@@ -1369,6 +1372,49 @@ void test_stall_rows() {
                   ok && slurp(dest) == body && capped,
                   "ok=" + std::to_string(ok) + " err='" + err + "' biggest_step=" + std::to_string(biggest) +
                       " steps=" + std::to_string(steps) + " exact=" + std::to_string(slurp(dest) == body));
+        }
+    }
+
+    // 11: Cancel works while the server has not answered yet (GH #415). Wine >= 11.7 reads the headers inside
+    // WinHttpReceiveResponse, in its caller: a backend that makes that call on the thread that drives the
+    // ProgressFn is frozen for the whole header wait (here the server's 8 s hold), with no tick and no cancel.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-11", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string dest = dest_in("k");
+            rs::Opts o;
+            o.body = body;
+            o.etag = kEtag;
+            o.silent = true;
+            o.stall_ms = 8000;
+            srv.set(o);
+            Seen seen;
+            double seen_at = -1, cancelled_at = -1;
+            sdcard::ProgressFn pf = [&](uint64_t d, uint64_t t) {
+                const double at = seen.now();
+                seen.calls.push_back({at, d, t});
+                if (d != 0 || t != 0) return true;
+                if (seen_at < 0) { seen_at = at; return true; }
+                if (at - seen_at >= 0.5) { cancelled_at = at; return false; }   // (0, 0) for 0.5 s
+                return true;
+            };
+            std::string err;
+            const Clk::time_point t0 = Clk::now();
+            const bool ok = sdcard::http_download(srv.url(), dest, pf, err, {200, 5000});
+            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            const double after = seen.now() - cancelled_at;
+            check("PROV-STALL-11",
+                  "a ProgressFn that says false once (0, 0) has stood for 0.5 s ends an attempt whose server has "
+                  "not answered within 1.0 s of it (the stall timeout is 5 s, the server holds 8 s) with 'cancelled "
+                  "by user', in under 5.0 s, leaving no dest, .part or record",
+                  !ok && cancelled_at >= 0 && after <= 1.0 && secs < 5.0 && err == "cancelled by user" &&
+                      !exists(dest) && !exists(sdcard::partial_path(dest)) &&
+                      !exists(sdcard::resume_record_path(dest)),
+                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s cancelled_at=" + num(cancelled_at) +
+                      " returned_after=" + num(after) + "s err='" + err + "' calls=" +
+                      std::to_string(seen.calls.size()));
         }
     }
 }

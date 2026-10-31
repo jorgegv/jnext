@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2407,6 +2407,14 @@ as staleness, which is exactly what happened: a runner whose distribution
 shipped an older pandoc than the maintainer's failed <code>docs-check</code> on every run
 from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.</p>
+<p>The container tracks the <code>updates</code> repository of fedora:44, so CI can receive a newer
+package than a developer host that has not upgraded yet: GH #415 was <code>unit-test-win</code> red on
+CI under wine 11.20 and green on a host with 11.0. To see CI's package set locally, build an
+image from <code>ci.yml</code>'s two install lists (the test dependencies, and the MinGW and wine
+packages), and run the same make targets in it against a separate detached worktree, with
+<code>--security-opt label=disable --userns=keep-id</code> and <code>$HOME/.jnext</code> and <code>$HOME/.cache</code>
+mounted, so the host's build trees and wine prefixes are never shared with the container's
+wine. This is a documented local check, not a CI step.</p>
 <h2 id="the-jobs-in-ciyml">The jobs in <code>ci.yml</code><a class="headerlink" href="#the-jobs-in-ciyml" title="Permanent link">&para;</a></h2>
 <p><strong><code>test</code></strong> is the main job: one definition, a matrix of five legs that run in
 parallel on runners of their own (GH #295). Every leg installs the same

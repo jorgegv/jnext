@@ -153,6 +153,9 @@ fixture; the others are from the planning builds.
 - G5. sccz80 `-debug` changes the program: `l_debug_push_frame` and `l_debug_pop_frame` in
   every function (fixture: `_main` at $8C73 without `-debug`, $8C92 with it). The program
   debugged is the `-debug` build, and steps run through the helpers, which have no lines.
+  The helper pops its return address and pushes it back 2 bytes LOWER before it returns, so the
+  frame's slot is below SP after the RET: this is why the tracker's RET rule matches return
+  addresses (section 7), not SP alone.
 - G6. 2.4 only: sdcc line information exists only as `.lis` comments (`--c-code-in-asm`), so
   sdcc on 2.4 needs the listing adapter (E23-17).
 - G7. Optimisation moves code across lines, and the default `-SO2` is already optimised (sdcc,
@@ -166,8 +169,16 @@ fixture; the others are from the planning builds.
   address: D3's hazard (section 9.4).
 - G9. `__banked` calls go through `banked_call`, which pops its return address, switches to a
   private stack, pages the target in and calls it through `l_jphl`. jnext's `CallStack` pops
-  every frame whose `sp_at_call` is below SP on a RET, so the depth comes back right, by luck.
-  E23-14 (#345) pins it with rows (section 7).
+  every frame whose `sp_at_call` was below SP on a RET, so the depth came back right only at the
+  end, by luck: `banked_call`'s frame was lost at `set_mmu`'s RET, before `l_jphl`. E23-14 (#345)
+  fixed it with the return-address rule (section 7): the depth is d0+1 for the whole trampoline,
+  d0+2 inside the target, and d0 after the call. A newlib `+zxn` `__banked` program built with
+  the defaults cannot run: `CRT_ORG_PAGE_20` is 16-bit, so the `defq` page byte is 0, and the
+  stack ($FF58) is in the banking segment. It needs
+  `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` (the `-run`
+  fixtures). z88dk-gdb differs on banked code by design: its `finish` stops in `banked_call`
+  with no source line, its `next` hangs (it runs `nexti` to the `defq`), and it segfaults on a
+  24-bit `__C_LINE_` value; jnext runs unmapped code through (section 2.5).
 - G10. Paths are as the build spelled them: user files relative to the build directory (as
   given to `zcc`), headers as written in `#include`, system headers absolute; the module name
   is the mangled path. Files are therefore found relative to the map's directory (8.2) and
@@ -349,10 +360,10 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
-| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; no click-to-break, Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
+| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); no Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
-| C stepping on real z88dk code | none | 7 | E23-14 (#345) |
+| C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none | 9.6 | E23-20 (#350) |
 | Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
@@ -899,10 +910,19 @@ that waits never holds the frontend. Steps stay synchronous and bounded (OD-11);
 (#347) measures the worst case on the Release build.
 
 **Call depth** is the call-stack tracker's (`set_call_stack_enabled`), which the Qt debugger
-runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) pins it
+runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) fixed it
 on real z88dk code across `banked_call` (G9), the sccz80 `l_debug_push_frame` and
-`l_debug_pop_frame` helpers (G5), RST $08 esxDOS calls and a tail `JP`. A tracker defect found
-there is fixed in `CallStack` for every program, never as a special case for `banked_call`.
+`l_debug_pop_frame` helpers (G5), RST $08 esxDOS calls, `__z88dk_callee` routines and a tail
+`JP`, in `CallStack` for every program, never as a special case for `banked_call`. The rule: a
+frame ends when a RET lands on its own return point, the NEWEST frame only: a CALL frame's is
+`caller_pc + 3`, an INT or NMI frame's is the interrupted PC (`+ 1` when the interrupt ended a
+HALT). Any other taken RET ends every frame whose return slot is below SP (a `PUSH; RET`
+computed jump leaves the frame). RST frames end by SP alone (an inline `DEFW` makes their return
+point vary); the esxDOS shim's return (a slot that fetched no opcode) ends the RST $08 frame it
+serviced and only it. Trade-off: a routine that drops its return address and leaves by JP
+(`POP HL; JP (HL)`) looks like `banked_call`, so its frame stays on the stack until a RET ends
+it by SP. Out from a function lands at the return
+address, mid-line on the call's own line, as gdb's `finish` does.
 
 **Backward** steps search the trace from newest to oldest, considering only entries before the
 machine's current cycle: a Frame Back or a slider jump leaves the abandoned history in the
@@ -929,7 +949,7 @@ the group. One predicate, `EventFilter::matches(ev)`, replaces the three copies 
 the gate (`execute_gate` to `filter_matches`), `probe_execute()` and `history_stop_at()` all
 call it. The disassembly gutter draws, toggles and patches from the same identity:
 `BreakpointModel::pc_marked(addr, space)` takes the `FetchSource` where it took a page number.
-Clicking a Source tab line toggles its group (E23-16); a click on a gutter dot removes only that
+Clicking a Source tab line toggles its group (E23-28 (#421)); a click on a gutter dot removes only that
 location. As built: the group verbs are `Debugger::subscribe_source_line(by, file_line, like)`,
 `unsubscribe_group(by, group)` and `set_group_enabled(by, group, on)`, with `SubscriptionInfo::group`;
 the model folds a group into one row (`Row::group`, `Row::locations`), enabled only while every
@@ -941,15 +961,20 @@ location is; a `space` on a kind other than `Execute` is refused.
   It follows the PC at every stop and says "Running" while the machine runs (done in v1.1.64).
   The file is found from the recorded name, absolute or else relative to the map's directory
   or one of its parents, and reloaded when it changes on disk. A refused sidecar says why in
-  the tab.
+  the tab. E23-27 (#420) adds a source search path after those two steps (Preferences > Paths,
+  `--source-dir`, `paths.source_dirs`), tried longest trailing part of the name first, and a
+  **Locate File...** button that adds the directory of the file the user picks.
+- **Source gutter** (E23-28 (#421)): `BP | Line | text` with a header, the Disassembly's
+  glyphs from one header (`breakpoint_glyph.h`); a click toggles the line's group through
+  `SourcePanel::toggle_breakpoint_at_line()`; a half glyph marks a line only some of whose places
+  carry a breakpoint. Rows QSRC-79..98.
 - **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
   Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
   Settings > Preferences... > Debugger Keys like the other debugger actions
   (`src/debug/debug_keymap.cpp`). Decided by the owner on #337 (2026-10-22): source Into,
   Over and Out default to Ctrl+F6, Ctrl+F7 and Ctrl+F8; Back and Reverse Continue ship
   unbound; the emulator window does not forward them. Done.
-- **Source tab completion** (E23-16 (#347)): click a line number to toggle its source
-  breakpoint group; Run to Line (a transient group, then Continue); the current-line marker; the
+- **Source tab completion** (E23-16 (#347)): Run to Line (a transient group, then Continue); the current-line marker; the
   "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab
   and the disassembly.
 - **Address fields**: a number first, `@` forces a symbol, `$` or `0x` force hex (OD-12; done).
@@ -1069,7 +1094,9 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    if E23-12 (#343) can produce a fixture of such a map; otherwise the value is refused with a
    reason, and the rule waits for a fixture. In a numbered section the bits are not read: they
    are the 16K bank number before 72ea9d221b and the 8K page after it, so they cannot check
-   the name without knowing the version.
+   the name without knowing the version. The same holds for `__PAGE_<n>_head`: `head` is its
+   low 16 bits, and a head up to 24 bits is accepted (newlib puts the page there for
+   `__banked`, E23-14 (#345)).
 4. Any other section (`CODE`, `code_*`, the main program): the RAM page the MMU maps at that
    slot with the program in memory. For a NEX that is banks 5, 2 and 0, the pages 10, 11, 4, 5,
    0 and 1 for $4000-$FFFF, so $8000-$9FFF is `Page{4}`. A map read before the program is in
@@ -1317,6 +1344,11 @@ instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
 
+E23-14 (#345) added SRCSTEP-01 to SRCSTEP-13 and SRCDBG-CS-09 to CS-15 (`source_debug_test`: Into, Over
+and Out on the runnable `__banked` and `-debug` fixtures, the return-address rule, the shim's
+return), Z88MAP-29 (`z88dk_map_test`: a 24-bit page head) and rewrote SRCDBG-CS-08 (the shim's
+return now ends the RST frame; owner-approved 2026-10-30).
+
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).
 
@@ -1377,6 +1409,15 @@ identity from the section binaries, the symbol loaders' file-type refusal).
 - z88dk fixtures are our own sources, generated on both installs and committed with the z88dk
   commit and the command; every row that depends on compiler output names its install (2.3);
   a row checks the fixtures' recorded hashes, since CI has no z88dk.
+
+**E23-27 (#420), the source search path.** `source_map_test` SRCPATH-01..13 (the resolution
+order, the longest trailing part first, the fixture's recorded CRT name, a Windows spelling, no
+escape by `..`, `root_for` and its round trip, the list spelling); `config_keys_test` SETK-17..19;
+`app_config_test` AC-100 (and AC-97 now covers nine keys); `debugger_source_panel_test`
+QSRC-66..78 (the fixture map in `build/` with its sources in `src/`, Locate File... with No, Yes
+and a wrong name, the z88dk `.m4` message, the past-the-end message, the lazy window, the located
+directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..06 (file,
+command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
 
 **Row IDs are global**: the duplicate-ID gate refuses a reuse. IDs written into a sub-issue's
 text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRCDBG-SIDE-12`,

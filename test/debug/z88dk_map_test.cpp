@@ -595,6 +595,25 @@ int main() {
                   z88dk_section_space("code_compiler", 0x8000, no_head).kind == Z88dkSpace::Kind::BindAtLoad);
     }
 
+    {
+        // GH #345: newlib's CRT_ORG_PAGE_n carries the page for __banked, so a runnable
+        // build's __PAGE_n_head is 24-bit ($14C000); design 9.4 rule 1 reads its low 16 bits.
+        SourceMap ms;
+        SourceMap mk;
+        const auto rs = load(ms, master / "sdcc-banked-run" / "prog.map");
+        const auto rk = load(mk, v24 / "sccz80-banked-run" / "prog.map");
+        SourceMap over;
+        const auto ro = load(over, synth("z29.map",
+            rec("__PAGE_20_head", 0x100C000, "", "", "", "const") +
+            rec("__C_LINE_3_a_2ec", 0x14C000, "a_c", "PAGE_20", "a.c:3")));
+        check("Z88MAP-29", "a 24-bit __PAGE_20_head ($14C000, the runnable __banked builds) attaches: banked.c:8 is in page 20 at $C008 (master) and $C003 (v2.4); a head over 24 bits is still refused",
+              rs && rs.count == 35 && starts_are(ms.resolve("banked.c:8"), {{P20, 0xC008}}) &&
+                  is_at(ms.lookup(P20, 0xC000), "banked.c", 5) &&
+                  rk && starts_are(mk.resolve("banked.c:8"), {{P20, 0xC003}}) &&
+                  is_at(mk.lookup(P20, 0xC01B), "banked.c", 9) &&
+                  !ro && ro.error.find("has no __PAGE_20_head") != std::string::npos);
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

@@ -47,7 +47,7 @@ Turning the ESP on here does not put a running program on the network — see
 below — and while it *is* running with the ESP on, the status bar always
 carries an ESP cell, so it can never be on invisibly.
 
-**NextPi** starts NextPi under QEMU with JNEXT, and holds its directory, the release downloaded on first use, the QEMU program and where the Pi's sound goes; see [5.10](../05-running-programs/10-the-raspberry-pi-serial-link.md).
+**NextPi** starts NextPi under QEMU when JNEXT starts the ZX Next, and holds its directory, the release downloaded on first use, the QEMU program, where the Pi's sound goes and extra QEMU arguments; see [5.10](../05-running-programs/10-the-raspberry-pi-serial-link.md).
 
 **Paths** remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
@@ -56,11 +56,26 @@ Screenshot** needs, since that capture never asks: the directory it writes to
 (blank means `~/.jnext/screenshots`) and whether it writes PNG or SCR. Those
 two are a deliberate choice rather than a memory of the last dialog, so the
 quick capture always lands in the same place. It also sets how many Quick Save snapshots to keep
-(**Unlimited** at 0); `--quick-snapshot-keep` overrides it.
+(**Unlimited** at 0); `--quick-snapshot-keep` overrides it. In a build with the
+debugger it also holds the **Source search path**: the directories, one per line,
+where the Source tab looks for the files a source map names when they are not
+beside the map ([6.1.14](../06-debugger/functions/14-source-level-debugging.md));
+a list given with `--source-dir` or `--set paths.source_dirs` replaces it for that run (the
+file is not changed).
 
 **Debugger Keys** rebinds the debugger's own keys — see
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md). The tab is only
 present in a build with the debugger compiled in.
+
+## The same settings from the command line
+
+Every setting in this dialog can be given for one run with `--set
+section.key=value`, using the keys of [the configuration
+file](02-the-configuration-file.md); `--cpu-speed`, `--scale` and `--crt` are
+the shorter forms of the Startup tab's CPU speed, Window scale and CRT effect.
+The dialog always shows the *saved* values, never the command line's, and
+nothing from the command line is saved. How the two combine is in
+[what wins](03-what-wins-the-command-line.md).
 
 ## Apply, OK and Cancel
 

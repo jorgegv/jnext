@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2368,6 +2368,26 @@ not a style preference — it buys three separate guarantees:</p>
 throw on <code>x</code>, which aborts the process, and read <code>5x</code> as 5. A value that is not
 a whole number in the option's range is a usage error: <code>main.cpp</code> prints the
 option and the offending value and exits 1.</p>
+<p><code>--set SECTION.KEY=VALUE</code> (GH #417) is one more row of the table, and its value
+is checked at parse time against a second table, <code>config_keys::KEYS</code> in
+<code>src/platform/config_keys.h</code>: the keys of <code>jnext.conf</code>. A key with a dedicated
+flag (<code>--cpu-speed</code>, <code>--scale</code>, <code>--crt</code>, <code>--silent</code>, <code>--machine</code>, ...) and the
+same key given with <code>--set</code> land in the <strong>same variables</strong>, in argument order,
+so the later of the two wins. Where they take effect differs by frontend, and
+the row of the table says where:</p>
+<ul>
+<li><strong>headless and the SDL-only build</strong> read no <code>jnext.conf</code>; the command-line
+  value is the whole setting. The CPU speed is programmed with the NR 0x07
+  write <code>apply_startup_config()</code> does for the Qt window, right after
+  <code>app.init()</code>. A key the frontend has no use for prints
+  <code>warning: &lt;spelling&gt; has no effect ...</code> and the run goes on.</li>
+<li><strong>the Qt window</strong> merges the Qt-only keys (<code>merge_cli_assignments</code>) and the
+  CPU speed into its own copy of the saved values, then hands that copy to
+  <code>MainWindow::apply_startup_config()</code>. The debugger keys of the run go to
+  <code>set_session_debug_keys()</code> after <code>dbgkeys::apply_overrides()</code> has refused a
+  clash, and <code>debugger.attached</code> to <code>DebuggerManager::set_attach_override()</code>.
+  None of it reaches <code>MainWindow::app_config_</code>, the object that is saved.</li>
+</ul>
 <p>Two argument shapes bypass the table lookup, both on purpose.
 <code>--log-level=VALUE</code> is the one inline-value form and is matched by prefix
 before the lookup happens, because scripts using that spelling predate the

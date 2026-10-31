@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+#include <QStringList>
 #include <QObject>
 #include <QAction>
 #include <QToolBar>
@@ -96,6 +98,19 @@ public:
     /// Applies immediately when a window already exists.
     void set_keymap(const jnext::dbgkeys::Keymap& km);
 
+    /// GH #420 - the directories the Source tab also searches for the source files
+    /// a map names: the configured list (command line, else the saved one; MainWindow
+    /// sets it) and, after it, the ones a Locate File... found this session, which a
+    /// change of the configured list keeps. Held HERE for the same reason as the
+    /// keymap: the window is created lazily. Announces the effective list when it changes.
+    void set_source_dirs(const QStringList& configured);
+    /// The effective list: configured, then located, exact duplicates dropped.
+    QStringList source_dirs() const;
+
+    /// GH #417 - `--set debugger.attached=` for this run, handed to the window when it
+    /// is built (it is created lazily). The file keeps its own value.
+    void set_attach_override(bool attached) { attach_override_ = attached; }
+
     /// GH #278 WP3 — the backend this adapter drives, for the DebuggerWindow's
     /// own controls (rewind toolbar and menu, trace menu, action greying),
     /// which read it rather than the Emulator.
@@ -134,6 +149,8 @@ public slots:
     /// CAP-SRC: the Source tab's Load Memory.txt... and Load Source Map... buttons.
     void on_load_nextbuild_memory();
     void on_load_sld();
+    /// GH #420: the Source tab's Locate File... found `dir`; searched from now on.
+    void on_source_dir_located(const QString& dir);
     /// CAP-SRC: the Source tab's step buttons: step by source statement over
     /// the loaded source map (doc/design/SOURCE-LEVEL-DEBUGGING.md).
     void on_source_step_into();
@@ -156,6 +173,12 @@ public slots:
     void reposition_debugger_window();
 
 signals:
+    /// The user answered Yes to saving a directory Locate File... added (GH #420);
+    /// MainWindow appends it to the saved list.
+    void source_dir_save_requested(const QString& dir);
+    /// The effective source search path changed (GH #420); MainWindow logs it (the
+    /// debugger layer names no logger).
+    void source_dirs_changed(const QStringList& effective);
     void paused();
     void resumed();
     void enabled_changed(bool enabled);
@@ -247,6 +270,11 @@ private:
     // The separate debugger window (created lazily on first enable)
     DebuggerWindow* debugger_window_ = nullptr;
     jnext::dbgkeys::Keymap keymap_;      // GH #1
+    std::optional<bool> attach_override_;   // GH #417
+    QStringList configured_source_dirs_;    // GH #420
+    QStringList located_source_dirs_;
+    /// Hand the effective list to the Source tab (if the window exists) and log it.
+    void push_source_dirs(bool log);
 
     // Enable/disable action (points to View menu's Debugger action)
     QAction* enable_action_ = nullptr;

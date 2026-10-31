@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3615,6 +3615,9 @@ as <code>W, H</code>, <code>position</code> as <code>X, Y</code> while the windo
 A <code>~/.jnext/Debugger.conf</code> left by an older version is merged into that section
 the first time the new version starts, and removed. Section names are
 lowercase, and a value is plain text: no <code>@Invalid()</code> or <code>@ByteArray(...)</code>.</p>
+<p>Every key in the file can be set for a single run, without touching the file,
+with <code>--set section.key=value</code> (for example <code>--set startup.window_scale=2</code>);
+see <a href="03-what-wins-the-command-line.html">what wins</a>.</p>
 <p>Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.</p>

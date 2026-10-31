@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2457,7 +2457,7 @@ work. A breakpoint change another client made arrives as
 </tr>
 <tr>
 <td>Call Stack</td>
-<td><code>call_stack()</code>, a shadow stack built from SP deltas plus a frame per accepted INT or NMI</td>
+<td><code>call_stack()</code>, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a routine that drops its return address and leaves by JP keeps its frame until a later RET ends it by SP</td>
 <td>—</td>
 </tr>
 <tr>
@@ -2638,6 +2638,35 @@ map loads as source lines only. Its mismatch box and failure title do not name a
 <code>source_map_status().pending</code> is set (a tape program's map, waiting for its program) the panel
 appends a note line, <em>Source map not verified yet: it is checked when the program first runs its
 code</em>, to whatever it shows.
+The editor is a private <code>QPlainTextEdit</code> subclass (<code>SourceEdit</code>) with a gutter widget in a left
+viewport margin and a header strip above it (<code>setViewportMargins</code>; objects <code>source_gutter</code> and
+<code>source_gutter_header</code>), because the visible blocks' geometry is protected. The gutter
+(GH #421) is <code>BP | Line</code>: the number is <code>blockNumber() + 1</code>, and the mark of a line is computed at
+paint time for the visible lines only (<code>SourcePanel::line_mark()</code>, so it is never stale and needs no
+cache): this GUI's own Execute breakpoints (<code>BreakpointModel::pc_breakpoints()</code>) that the
+Disassembly would draw (a logical one, or one tied to <code>source_page(addr)</code>) and that sit on a start
+the memory mapped now supplies (<code>source_map().resolve(file:line)</code>, so an alias line is marked) or on
+any instruction whose primary line (<code>lookup</code>) is the line. Every start of the line armed (by a breakpoint at its address, logical or tied to its memory, mapped now or not)
+is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. <code>breakpoint_glyph.h</code> paints the glyph for both panels. A click calls
+<code>SourcePanel::toggle_breakpoint_at_line()</code>, the one toggle: it removes what the line shows plus a
+hidden group tied to an unmapped page, else <code>add_source_line()</code> (not idempotent, hence the check);
+the context menu of GH #423 calls the same function. The file a record names is found by <code>source_search::resolve()</code> (<code>debug/source_search.h</code>, Qt-free so
+the SDL-only and Windows trees test it and a later surface can print the same path): an absolute
+name, then the map's directory and each parent, then the search directories, tried suffix-major
+(the longest trailing part of the normalised name first, then the directories in order; a leading
+<code>..</code> is dropped). <code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> takes the configured one
+(<code>MainWindow::push_source_dirs()</code>: the command line's, else the saved one, from the manager's
+creation and from <code>apply_startup_config()</code>), the panel's <strong>Locate File...</strong> adds to a second,
+session-only list through <code>on_source_dir_located()</code> (kept when the configured list changes), and
+the effective list (configured, then located, duplicates dropped) is pushed to the panel on every
+change and again in <code>ensure_window()</code>, since the window is lazy. Locate derives the directory with
+<code>source_search::root_for()</code>, refuses a file of another name, and asks whether to save it
+(<code>source_dir_save_requested</code>, which MainWindow appends to <code>[paths] source_dirs</code>, refusing a directory
+that holds the list separator, as Preferences and <code>--source-dir</code> do: it would load back as two). The manager
+announces each change (<code>source_dirs_changed</code>; <code>src/debugger/</code> names no logger) and MainWindow logs
+<code>Source search path: ...</code>. Two records get a message of their own: a z88dk record in a <code>.m4</code> file, decided before any file is
+read (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
+file found, decided after it is read (its line count ignores the final newline). The label's tooltip is the path found.
 Load MAP (<code>on_load_map_z88dk()</code>, <code>on_load_map_simple()</code>) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug &gt; Source actions
 connect to the same <code>DebuggerManager</code> slots as its buttons, and their enabled

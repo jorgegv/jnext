@@ -2,9 +2,11 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "memory/contention.h"            // MachineType
 #include "core/sdcard_provisioner.h"   // DownloadFn / ConfirmFn / ProgressFn / BusyFn
 
 /// The NextPi directory, prepared on first use (`--nextpi`).
@@ -150,14 +152,36 @@ struct ProvisionResult {
 struct StartRequest {
     bool wanted       = false;   ///< try to start it
     bool asked_on_cli = false;   ///< --nextpi was given (a failure is then an error)
+    bool held_for_machine = false;   ///< the preference would start it, but the startup machine is not the ZX Next
 };
 
 /// main.cpp's decision. `gui` is a GUI session — the only kind that reads
 /// Preferences; `cli_set` is "--nextpi or --no-nextpi was given" and
 /// `cli_value` which one; `saved_enabled` is the [nextpi] `enabled`
 /// preference. The command line wins either way; without it, a GUI session
-/// follows the preference and a headless one starts nothing. Pure.
-StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled);
+/// follows the preference and a headless one starts nothing. The preference starts it only when
+/// `startup_machine` (the machine the session boots) is the ZX Next (GH #419); --nextpi starts it
+/// on any machine. Pure.
+StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled,
+                           MachineType startup_machine);
+
+/// The five text settings of Preferences > NextPi (empty = the built-in default), and the
+/// optional command-line flag that sets each for one run (GH #407): --nextpi-dir,
+/// --nextpi-release, --nextpi-qemu, --nextpi-audio, --nextpi-qemu-args.
+struct Settings {
+    std::string dir, release, qemu_binary, audio, qemu_args;
+};
+struct CliSettings {
+    std::optional<std::string> dir, release, qemu_binary, audio, qemu_args;
+};
+
+/// The names of the --nextpi-* setting flags that were given, in a fixed order. main.cpp warns
+/// about each when NextPi is not enabled for the run (GH #407). Pure.
+std::vector<std::string> given_flags(const CliSettings& cli);
+
+/// A flag that was given replaces the saved value, an empty one included (it means the
+/// default); a flag that was not given leaves the saved value. Pure.
+Settings merge_settings(const Settings& saved, const CliSettings& cli);
 
 /// What jnext does once it has tried to start NextPi (main.cpp):
 enum class StartOutcome {

@@ -5,7 +5,8 @@ The source line the CPU is running, read from the program's source map
 
 At the top, the source steps — **Into**, **Over**, **Out**, **Back** and
 **Reverse** — and **Load Source Map...** / **Load Memory.txt...** to load a source map (an SLD or a z88dk map)
-or NextBuild symbols by hand. The steps are available while the machine is
+or NextBuild symbols by hand, and **Locate File...**, enabled while the tab says
+*source file not found*. The steps are available while the machine is
 paused and a source map is loaded; **Back** and **Reverse** also need the trace
 log and rewind. The same steps and loads are also in **Debug ▸ Source**.
 
@@ -14,6 +15,23 @@ Under them, a line naming the position — `main.bas:120  $8A3C  page 2E`, or
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.
+
+Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
+own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
+disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a
+suspended one (individually disabled, or the master switch off). A line some of whose
+places carry a breakpoint and some do not (one place of a routine in two banks was removed
+in the disassembly, or a breakpoint sits inside the line, not at its start) shows the
+**left half** of the dot or ring. Click in the gutter to set or clear the line's
+breakpoint: a line that compiled to several places gets ONE breakpoint armed at every place,
+listed in the Breakpoints panel as `main.bas:11 (2 locations)`, and a second click removes it
+(and anything else the line shows). A line with no code adds nothing and the tooltip says
+*no code at main.bas:3*. Hover the gutter for the words: the addresses and pages of the
+breakpoint, how many of the places carry it, or why there is none. A line of banked code is
+marked only while its page is mapped; a click on it still removes the breakpoint, and the
+tooltip says *not mapped now*. The column shows the debugger window's own breakpoints, as the
+disassembly does; those of GDB, ZRCP or a script are in the Breakpoints list only. It works
+while the machine runs.
 
 A tape program's map is attached before the program has loaded, and the tab adds
 *Source map not verified yet: it is checked when the program first runs its code*
@@ -34,5 +52,7 @@ again.
 
 The source file is found from the name the map records: as it is, if absolute,
 else relative to the map's own directory or one of its parents (the map's
-location is remembered as a full path, whatever directory you loaded it from). A file that
-changes on disk is reloaded at the next pause.
+location is remembered as a full path, whatever directory you loaded it from),
+else in the directories of the source search path
+([Where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files)).
+A file that changes on disk is reloaded at the next pause.

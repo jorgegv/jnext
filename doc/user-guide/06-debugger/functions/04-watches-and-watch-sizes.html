@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3619,20 +3619,23 @@
 <tr>
 <td>Byte</td>
 <td>1</td>
-<td><code>$XX</code></td>
+<td><code>$XX (Nd)</code></td>
 </tr>
 <tr>
 <td>Word</td>
 <td>2</td>
-<td><code>$XXXX</code></td>
+<td><code>$XXXX (Nd)</code></td>
 </tr>
 <tr>
 <td>Long</td>
 <td>4</td>
-<td><code>$XXXXXXXX</code></td>
+<td><code>$XXXXXXXX (Nd)</code></td>
 </tr>
 </tbody>
 </table>
+<p>Every value is shown in hex and, in parentheses, in decimal: the same value read
+unsigned (Byte 0 to 255, Word 0 to 65535, Long 0 to 4294967295), for example
+<code>$D0 (208d)</code>.</p>
 <p>Word and Long are assembled little-endian, low byte first, matching the Z80's
 own convention — so a Word watch on a <code>LD (nn),HL</code> destination reads back <code>HL</code>.</p>
 <p>Watches read through the CPU's current view of memory, so a watch on a banked

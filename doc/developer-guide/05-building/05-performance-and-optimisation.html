@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.98</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2654,8 +2654,15 @@ only the trained paths get the profile's benefit.</p>
   which non-PGO target to use instead. No platform falls back to a non-PGO
   binary on its own.</li>
 </ul>
-<p>clang (macOS) has no per-unit equivalent of <code>missing-profile</code>: there a stale
-profile is an error, but a unit without one is not detected.</p>
+<p>clang (macOS) has no <code>missing-profile</code> error: there a stale profile is an
+error (<code>-Werror=profile-instr-out-of-date</code>), but a unit with no profile is only
+a warning (<code>-Wprofile-instr-unprofiled</code>), so a naming mismatch in a linked unit
+is reported, not fatal. clang gets the same unlinked-member exemption by the
+same mechanism: the instrumented link writes ld64's map (<code>-map</code>, a different
+format from GNU ld's), <code>tools/pgo-train.sh</code> files it as <code>jnext.map</code> for both
+compilers, and <code>cmake/JnextPgo.cmake</code> parses either format (and fails the
+configure when it finds no archive member) to add
+<code>-Wno-profile-instr-unprofiled</code> to exactly the members <code>jnext</code> never links.</p>
 <h3 id="retraining-only-when-something-changed">Retraining only when something changed<a class="headerlink" href="#retraining-only-when-something-changed" title="Permanent link">&para;</a></h3>
 <p>Training is skipped when nothing that decides the profile changed. The
 fingerprint <code>tools/pgo-train.sh</code> stores beside the profile covers the
