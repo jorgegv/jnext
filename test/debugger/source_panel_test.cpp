@@ -3369,7 +3369,7 @@ void test_source_gutter() {
         m.set_enabled(BreakpointModel::Execute, 0x8002, false, p80);
         check("QSRC-87", "the same partial line, disabled, shows the half ring and its tooltip says suspended, 1 of 2",
               v.mark(11) == "half-ring" &&
-                  v.sp->line_tooltip(11) == QStringLiteral("main.bas:11: suspended breakpoint at $8002 @") +
+                  v.sp->line_tooltip(11) == QStringLiteral("main.bas:11: suspended breakpoint at $8002 P") +
                                                 QString::asprintf("%02X", fx.p80) +
                                                 QStringLiteral(" (1 of 2 places)"),
               v.mark(11) + " | " + s(v.sp->line_tooltip(11)));
