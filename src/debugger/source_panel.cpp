@@ -5,7 +5,7 @@
 #include "debugger/breakpoint_model.h"
 #include "qt/palette_tint_qt.h"
 #include "debug/debugger.h"
-#include "debug/ram_page.h"
+#include "debugger/memory_text.h"
 #include "debug/source_search.h"
 #include "debug/disasm_text.h"
 #include "debug/symbol_table.h"
@@ -506,11 +506,11 @@ void SourcePanel::refresh_()
         : QString();
 
     const uint16_t pc = dbg_->registers().PC;
-    const uint8_t page = ram_page_of(dbg_->source_page(pc));
     // Upper-case hex, as the rest of the debugger and the user guide print it.
     const QString pc_text = QString::asprintf("%04X", pc);
-    const QString where = page == NOT_RAM_PAGE ? tr("ROM or overlay")
-                                               : tr("page %1").arg(QString::asprintf("%02X", page));
+    // GH #360 - the memory that supplies the opcode at the PC, through the formatter
+    // (`P04`, `DIVROM`, or the physical text), not "ROM or overlay".
+    const QString where = memtext::text(dbg_, style_, dbg_->source_page(pc), pc);
     const SourceLocation* location = dbg_->source_location(pc);
     if (!location) {
         show_message(tr("$%1 (%2): no source mapping; use the disassembly")
@@ -737,9 +737,9 @@ QString SourcePanel::line_tooltip(int line) const
     const LineState st = line_state(line);
     if (st.file.empty()) return QString();
     const QString where = QString::fromStdString(st.file) + QLatin1Char(':') + QString::number(line);
-    auto list = [](const std::vector<BreakpointModel::PcBreakpoint>& v) {
+    auto list = [this](const std::vector<BreakpointModel::PcBreakpoint>& v) {
         QStringList parts;
-        for (const auto& m : v) parts << BreakpointModel::address_text(m.addr, m.space);
+        for (const auto& m : v) parts << BreakpointModel::address_text(m.addr, m.space, style_, memtext::next_layout(dbg_));
         return parts.join(QStringLiteral(", "));
     };
     const LineMark mark = line_mark(line);
@@ -759,7 +759,8 @@ QString SourcePanel::line_tooltip(int line) const
     if (st.placed.empty())
         return where + QStringLiteral(": ") +
                tr("code at %1, not mapped now; click to set")
-                   .arg(BreakpointModel::address_text(st.starts[0].address, st.starts[0].space));
+                   .arg(BreakpointModel::address_text(st.starts[0].address, st.starts[0].space, style_,
+                                                 memtext::next_layout(dbg_)));
     return where + QStringLiteral(": ") + tr("no breakpoint; click to set");
 }
 
@@ -826,7 +827,7 @@ QString SourcePanel::selection_text_with_addresses() const
         if (line > lines) break;
         QStringList places;
         for (const SourceAddress& s : line_state(line).starts)
-            places << BreakpointModel::address_text(s.address, s.space);
+            places << BreakpointModel::address_text(s.address, s.space, style_, memtext::next_layout(dbg_));
         out += QString::fromStdString(shown_file_) + QLatin1Char(':') + QString::number(line) +
                QStringLiteral("  ") + (places.isEmpty() ? QStringLiteral("-") : places.join(QStringLiteral(", "))) +
                QStringLiteral("  ") + b.text() + QLatin1Char('\n');
@@ -929,7 +930,9 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
     connect(run_to, &QAction::triggered, this, [this, where]() { emit run_to_line_requested(where); });
 
     menu.addSeparator();
-    auto place_text = [](const SourceAddress& s) { return BreakpointModel::address_text(s.address, s.space); };
+    auto place_text = [this](const SourceAddress& s) {
+        return BreakpointModel::address_text(s.address, s.space, style_, memtext::next_layout(dbg_));
+    };
     auto mapped = [this](const SourceAddress& s) { return dbg_->source_page(s.address) == s.space; };
     if (st.starts.size() > 1) {
         QMenu* sub = menu.addMenu(tr("Show in Disassembly"));

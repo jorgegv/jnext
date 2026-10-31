@@ -1,5 +1,7 @@
 #pragma once
 
+#include "debug/long_address.h"
+
 #include <QDeadlineTimer>
 #include <QMainWindow>
 #include <QSettings>
@@ -45,8 +47,18 @@ public:
     /// GH #417: `attach_override` (`--set debugger.attached=`) is the attach state for
     /// THIS run. It governs the window, never the file: jnext.conf keeps what it had
     /// until the Attach menu item is toggled (save_geometry() writes `attach_saved_`).
+    ///
+    /// GH #360: `physical_override` (`--set debugger.physical_addresses=`) likewise
+    /// is the address style for THIS run; the file keeps its value until the
+    /// Debug > Physical Addresses item is toggled.
     explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr,
-                            std::optional<bool> attach_override = std::nullopt);
+                            std::optional<bool> attach_override = std::nullopt,
+                            std::optional<bool> physical_override = std::nullopt);
+
+    /// GH #360 - the style every panel prints "which memory" in. Physical differs
+    /// from Friendly only on a Next (plan D3). Applies to every panel and refreshes.
+    jnext::dbg::AddressStyle address_style() const { return address_style_; }
+    void set_address_style(jnext::dbg::AddressStyle style);
 
     /// GH #312: merge a legacy <config-dir>/Debugger.conf into jnext.conf
     /// [debugger] and remove it. Idempotent; true only if it migrated.
@@ -240,6 +252,14 @@ private:
     // Sequences the deferred landing checks and counts consecutive misses.
     // Pure logic, unit-tested in test/debugger/window_attach_test.cpp.
     jnext::AttachMoveTracker attach_tracker_;
+
+    // GH #360 - Debug > Physical Addresses. `physical_saved_` is what jnext.conf says (or
+    // the last toggle wrote); `address_style_` is what this run does; they differ only
+    // while a command-line override is in force.
+    void apply_address_style();
+    jnext::dbg::AddressStyle address_style_ = jnext::dbg::AddressStyle::Friendly;
+    bool     physical_saved_ = false;
+    QAction* physical_action_ = nullptr;
 
     // Trace toolbar state
     QPushButton* trace_toggle_btn_ = nullptr;

@@ -398,6 +398,8 @@ public:
     /// attached or detached as told, whatever jnext.conf says, and the file keeps
     /// what it had until the Attach menu item is toggled.
     void set_debugger_attach_override(bool attached);
+    /// GH #360 - `--set debugger.physical_addresses=` for this run, likewise.
+    void set_debugger_physical_override(bool physical);
 #endif
 
 signals:

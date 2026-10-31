@@ -126,7 +126,8 @@ int title_bar_height(const QWidget* w) {
 } // namespace
 
 DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
-                               std::optional<bool> attach_override)
+                               std::optional<bool> attach_override,
+                               std::optional<bool> physical_override)
     : QMainWindow(parent)
     , dbg_(dbg)
 {
@@ -179,6 +180,12 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
 
     attach_saved_   = settings.value(config_key(config_keys::KeyId::DebuggerAttached), true).toBool();
     attach_enabled_ = attach_override.value_or(attach_saved_);
+
+
+    physical_saved_ = settings.value(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), false).toBool();
+    address_style_  = physical_override.value_or(physical_saved_) ? jnext::dbg::AddressStyle::Physical
+                                                                  : jnext::dbg::AddressStyle::Friendly;
+    apply_address_style();
 
     if (!attach_enabled_ || !attach_supported_) {
         // Detached (by choice or by platform): honour the saved position so a
@@ -240,6 +247,9 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
         connect(source_panel_, &SourcePanel::load_symbols_requested,
                 mgr, &DebuggerManager::on_load_nextbuild_memory);
     }
+
+    // GH #360: the GUI's breakpoint model exists from here on.
+    apply_address_style();
 
     // Create the menu bar with debug actions.
     create_menus();
@@ -654,6 +664,20 @@ void DebuggerWindow::create_menus() {
     });
     sync_coverage_action();                  // a backend already recording (--coverage)
 
+    // GH #360: Physical Addresses. Left WITHOUT a mnemonic ("&Addresses" would be free): DACC-05 pins
+    // the menu tree at 50 mnemonics and is not in the stage-3 list of rows allowed to change.
+    physical_action_ = debug_menu->addAction(tr("Physical Addresses"));
+    physical_action_->setCheckable(true);
+    physical_action_->setChecked(address_style_ == jnext::dbg::AddressStyle::Physical);
+    connect(physical_action_, &QAction::triggered, this, [this](bool checked) {
+        // The toggle IS a change of the saved setting, written at once (as Attach is).
+        physical_saved_ = checked;
+        QDir().mkpath(jnext_config_dir());
+        QSettings settings(debugger_config_path(), QSettings::IniFormat);
+        settings.setValue(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), checked);
+        set_address_style(checked ? jnext::dbg::AddressStyle::Physical : jnext::dbg::AddressStyle::Friendly);
+    });
+
     // Rewind submenu
     debug_menu->addSeparator();
     QMenu* rewind_menu = debug_menu->addMenu(tr("&Rewind"));
@@ -914,6 +938,7 @@ void DebuggerWindow::save_geometry() {
     // GH #417: the saved value, not this run's: a closed window must not write a
     // command-line override into the file.
     settings.setValue(config_key(config_keys::KeyId::DebuggerAttached), attach_saved_);
+    settings.setValue(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), physical_saved_);   // GH #360
 
     // Issue #39: only a DETACHED window owns its position. An attached one
     // derives it from the emulator window, so saving it would pin a stale
@@ -1531,6 +1556,25 @@ void DebuggerWindow::show_add_exec_bp_dialog() {
 void DebuggerWindow::sync_coverage_action() {
     if (coverage_enable_action_)
         coverage_enable_action_->setChecked(dbg_.mem_coverage_enabled());
+}
+
+void DebuggerWindow::set_address_style(jnext::dbg::AddressStyle style) {
+    address_style_ = style;
+    if (physical_action_) physical_action_->setChecked(style == jnext::dbg::AddressStyle::Physical);
+    apply_address_style();
+    refresh_panels();
+}
+
+// GH #360: one style, held here, handed to every panel that names a memory.
+void DebuggerWindow::apply_address_style() {
+    if (disasm_panel_) disasm_panel_->set_address_style(address_style_);
+    if (memory_panel_) memory_panel_->set_address_style(address_style_);
+    if (mmu_panel_) mmu_panel_->set_address_style(address_style_);
+    if (watch_panel_) watch_panel_->set_address_style(address_style_);
+    if (stack_panel_) stack_panel_->set_address_style(address_style_);
+    if (callstack_panel_) callstack_panel_->set_address_style(address_style_);
+    if (source_panel_) source_panel_->set_address_style(address_style_);
+    if (BreakpointModel* m = breakpoint_model()) m->set_address_style(address_style_);
 }
 
 void DebuggerWindow::refresh_panels() {

@@ -23,6 +23,7 @@
 #include <QKeySequence>
 
 #include "debug/debugger.h"
+#include "debugger/memory_text.h"
 #include "debug/symbol_table.h"
 #include "debugger/watch_panel.h"
 
@@ -73,7 +74,7 @@ DisasmPanel::DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     // Calculate paint offset (top bar height + column headers + spacing)
     paint_y_offset_ = 52;
 
-    setMinimumSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
+    setMinimumSize(GUTTER_WIDTH + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH + 200,
                    10 * LINE_HEIGHT + paint_y_offset_);
     setFocusPolicy(Qt::StrongFocus);
 
@@ -261,6 +262,7 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
 
     uint16_t current_pc = dbg_->registers().PC;
     const BreakpointModel* bps = bp_model_.data();
+    const auto sinfo = dbg_->mmu_slots();   // GH #360: the Mem column of the non-PC lines
 
     uint16_t cur = addr;
     for (int i = 0; i < count; ++i) {
@@ -277,6 +279,7 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         entry.has_breakpoint  = bps && bps->pc_marked(cur, space);
         entry.breakpoint_live = bps && bps->pc_marked_live(cur, space);
         entry.space           = space;
+        entry.mem             = entry.is_current_pc ? space : memtext::now_of(sinfo, cur);
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);
@@ -499,6 +502,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     int header_y = paint_y_offset_ - 4;
     painter.drawText(2, header_y, "BP");
     painter.drawText(GUTTER_WIDTH + 4, header_y, "Addr");
+    painter.drawText(GUTTER_WIDTH + 4 + ADDR_WIDTH, header_y, "Mem");   // GH #360
     painter.setFont(mono_font_);
 
     // Draw gutter separator
@@ -574,8 +578,13 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         QString addr_str = QString::asprintf("$%04X", entry.line.addr);
         painter.drawText(x, text_y, addr_str);
 
-        // Hex bytes column
+        // GH #360 - the memory column: which memory the line's bytes came from.
         x += ADDR_WIDTH;
+        painter.setPen(palette_tint::ink(palette(), QColor(0x80, 0x40, 0x80)));
+        painter.drawText(x, text_y, memtext::text(dbg_, style_, entry.mem, entry.line.addr));
+
+        // Hex bytes column
+        x += MEM_WIDTH;
         painter.setPen(palette_tint::ink(palette(), QColor(150, 150, 150)));
         QString bytes_str;
         for (int b = 0; b < entry.line.byte_count && b < 4; ++b) {   // bytes[] holds 4
@@ -932,6 +941,6 @@ void DisasmPanel::resizeEvent(QResizeEvent* event) {
 
 QSize DisasmPanel::sizeHint() const
 {
-    return QSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
+    return QSize(GUTTER_WIDTH + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH + 200,
                  20 * LINE_HEIGHT + paint_y_offset_);
 }

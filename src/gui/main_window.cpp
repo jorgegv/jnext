@@ -3111,6 +3111,12 @@ void MainWindow::set_debugger_attach_override(bool attached) {
     Log::platform()->info("debugger window: attached={} for this run by --set debugger.attached "
                           "(jnext.conf keeps its value until the Attach item is toggled)", attached);
 }
+
+void MainWindow::set_debugger_physical_override(bool physical) {
+    if (debugger_mgr_) debugger_mgr_->set_physical_override(physical);
+    Log::platform()->info("debugger window: physical_addresses={} for this run by --set debugger.physical_addresses "
+                          "(jnext.conf keeps its value until the Physical Addresses item is toggled)", physical);
+}
 #endif
 
 void MainWindow::push_source_dirs() {

@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "debug/long_address.h"
+
 class BreakpointModel;
 class QAction;
 class QLabel;
@@ -98,6 +100,10 @@ public:
     /// One-based line highlighted in the editor, 0 when none.
     int highlighted_line() const { return highlighted_line_; }
 
+    /// GH #360 - Friendly (`P04`) or Physical (`$048000`) wherever the tab names the
+    /// memory of an address: the label, the place lists, the tooltips, the menus.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
+
 signals:
     /// Emitted by update_buttons() with the two enabled states it applied.
     void steps_available(bool forward, bool backward);
@@ -141,6 +147,7 @@ private:
     void show_running();
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QLabel* location_label_ = nullptr;
     QPlainTextEdit* editor_ = nullptr;
     QPushButton* into_btn_ = nullptr;
