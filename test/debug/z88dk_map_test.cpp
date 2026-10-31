@@ -370,7 +370,7 @@ int main() {
         const int n = st.load_z88dk_map((v24 / "sccz80-debug" / "prog.map").string());
         const auto key = st.find_name("_main");
         check("Z88MAP-15", "the same map still gives its 19 addr symbols, with _main at $8C92 and no line record among them",
-              n == 19 && st.lookup(MemSpace::cpu(), 0x8C92) == std::string("_main") && key && key->addr == 0x8C92);
+              n == 19 && st.lookup(MemSpace::cpu(), 0x8C92) == std::string("main") && key && key->addr == 0x8C92);
     }
 
     // ── Z88MAP-16..20: the other compilers, the toolchain's own quirks ──

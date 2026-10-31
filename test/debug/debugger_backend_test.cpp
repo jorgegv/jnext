@@ -8841,6 +8841,14 @@ int main() {
                     if (d.lookup_name(w[i].name)) found += std::string(w[i].name) + " ";
                 return found;
             };
+            // A name that resolves to its sjasmplus ADDRESS: a z88dk map's own `_main` / `_counter` also
+            // answer to the C names `main` / `counter` (GH #424), at their own addresses.
+            auto sjasm_loaded = [](const Debugger& d, const WantName* w, size_t n) {
+                std::string found;
+                for (size_t i = 0; i < n; ++i)
+                    if (d.lookup_name(w[i].name) == std::optional<uint16_t>(w[i].addr)) found += std::string(w[i].name) + " ";
+                return found;
+            };
             Emulator emu; build(emu);
             Debugger dbg(emu);
             auto load_text = [&](const std::string& text) {
@@ -8864,7 +8872,7 @@ int main() {
                 const auto r = load_text(c.text);
                 const size_t want = c.has_map ? kMapN : 0;
                 if (r.status != Result::Ok || r.value != static_cast<int>(want) || dbg.symbols().size() != want ||
-                    !present(dbg, kSym, kSymN).empty() || (c.has_map && !wrong_names(dbg, kMap, kMapN).empty()))
+                    !sjasm_loaded(dbg, kSym, kSymN).empty() || (c.has_map && !wrong_names(dbg, kMap, kMapN).empty()))
                     bad_z88dk += std::string(c.what) + " ";
             }
             check("SYM-31", "a file whose FIRST line is not an sjasmplus EQU line is a z88dk map to its end, "
