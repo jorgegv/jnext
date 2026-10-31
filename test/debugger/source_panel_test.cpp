@@ -5033,6 +5033,61 @@ void test_source_highlight_panel() {
                           "going back to main.bas is Boriel again with no assembly colour left",
               bas1 && asm_ok && bas2, panel_mask(v.sp, 1) + " " + back);
     }
+    {   // QSRC-138
+        // The listing's m4 text is highlighted as assembly, in one pass, like a disk file.
+        // Oracle: z88dk's own listing text (the real fixture prog.lis, found by its text, not
+        // by a line number) and the QSRC-125 role rules (directives D, mnemonics K, registers R).
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q138";
+        const std::string map = root + "/build/prog.map";
+        copy_z88dk("master/sdcc-debug", "prog.map", map);
+        copy_z88dk("master/sdcc-debug", "prog.lis", root + "/build/prog.lis");
+        put_file(root + "/build/z88dk/lib/crt/newlib/crt_start_di.inc", numbered_lines(10, "; di "));
+        fx.backend->load_source_map(map, true);
+        auto at = [&](uint16_t pc) {
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = pc;
+            fx.emu.cpu().set_registers(r);
+            fx.mgr->refresh_panels();
+        };
+        SourcePanel* sp = fx.dbg()->source_panel();
+        auto* hl = sp->findChild<SourceHighlighter*>();
+        auto* editor = sp->findChild<QPlainTextEdit*>();
+        const int b0 = hl ? hl->blocks_highlighted() : 0;
+        at(0x8001);
+        const int pass = hl ? hl->blocks_highlighted() - b0 : -1;
+        int ifndef_line = 0, defc_line = 0;
+        if (editor)
+            for (QTextBlock b = editor->document()->begin(); b.isValid(); b = b.next()) {
+                const QString t = b.text().trimmed();
+                if (!ifndef_line && t.startsWith(QStringLiteral("IFNDEF startup"))) ifndef_line = b.blockNumber() + 1;
+                if (!defc_line && t.startsWith(QStringLiteral("defc startup"))) defc_line = b.blockNumber() + 1;
+            }
+        auto word_mask = [&](int line, QChar first, int len) {
+            if (!line || !editor) return std::string("<none>");
+            const int col = editor->document()->findBlockByNumber(line - 1).text().indexOf(first);
+            return panel_mask(sp, line).substr(static_cast<size_t>(col), static_cast<size_t>(len));
+        };
+        const std::string m_ifndef = word_mask(ifndef_line, QLatin1Char('I'), 6);
+        const std::string m_defc = word_mask(defc_line, QLatin1Char('d'), 4);
+        const std::string m_start = panel_mask(sp, 9462);
+        const std::string m_push = panel_mask(sp, 9470);
+        const bool single_pass = editor && pass == editor->document()->blockCount() + 1;
+        const bool m4_asm = sp->source_language() == SourceLanguage::Asm;
+        const bool label = !m_start.empty() && m_start == std::string(m_start.size(), 'L');
+        const bool m4_label = sp->location_text().endsWith(QStringLiteral("(m4 output, from prog.lis)"));
+        at(0x8000);
+        const bool inc_ok = sp->source_language() == SourceLanguage::Asm &&
+                            panel_mask(sp, 1) == std::string(panel_mask(sp, 1).size(), 'C') &&
+                            !panel_mask(sp, 1).empty();
+        check("QSRC-138", "the start-up code's m4 text from the listing is coloured as assembly in one pass: "
+                          "IFNDEF and defc are directives, __Start: a label, push iy a mnemonic and a register, "
+                          "and crt_start_di.inc after it is assembly with its comment line coloured",
+              m4_asm && m_ifndef == "DDDDDD" && m_defc == "DDDD" && label && single_pass &&
+                  m_push == "......KKKK.RR" && m4_label && inc_ok,
+              m_ifndef + " | " + m_defc + " | " + m_start + " | " + m_push + " | pass=" + std::to_string(pass));
+    }
 }
 
 // ── QCN-05: the Source tab's word menu offers a z88dk C symbol under its C name (GH #424 stage 2) ──

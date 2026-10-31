@@ -547,7 +547,7 @@ void SourcePanel::refresh_()
             QStringList lines;
             lines.reserve(static_cast<int>(embedded->lines.size()));
             for (const std::string& l : embedded->lines) lines << QString::fromUtf8(l.c_str());
-            editor_->setPlainText(lines.join(QLatin1Char('\n')));
+            set_source_text(lines.join(QLatin1Char('\n')), location->file);
             loaded_source_ = source_path;
             loaded_mtime_ = -1;
             placed_ = false;
@@ -579,7 +579,7 @@ void SourcePanel::refresh_()
                 show_message(tr("Could not open %1").arg(source_path));
                 return;
             }
-            editor_->setPlainText(QString::fromUtf8(file.readAll()));
+            set_source_text(QString::fromUtf8(file.readAll()), location->file);
             loaded_source_ = source_path;
             loaded_mtime_ = mtime;
             placed_ = false;   // a new text, or another file, starts at its top
