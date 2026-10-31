@@ -44,15 +44,16 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sdcc-debug | `-clib=sdcc_iy -debug` | **fails rc=1** | G12 |
 | v2.4/sccz80-page20, sccz80-bank10 | `-clib=new -debug`, `PAGE_20` / `BANK_10` | ok | G8 |
 | v2.4/sccz80-banked, sdcc-banked | `-DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
-| v2.4/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic bank prefix |
+| v2.4/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic bank prefix; keeps the classic CRT listing (G19-G21) |
 | v2.4/classic-debug | `-clib=classic -debug` | **fails rc=1** | Z1 |
 | v2.4/sccz80-subdir | `-clib=new -debug -I.`, `game/util.c` | ok | G10 |
+| v2.4/sccz80-incmid, master/sccz80-incmid, master/80cc-incmid | `incmid.c` only: `-clib=new [-compiler=80cc] -debug` | ok | line-0 records in a code section (G22) |
 | v2.4/sccz80-tape | `zcc +zx -clib=new -debug -m --list -o prog -create-app` | ok, a `.tap` | GH #344 stage 3 (tape programs) |
 | master/sccz80-debug | `-clib=new -debug` | ok | G4 fixed |
 | master/sdcc-debug | `-clib=sdcc_iy -debug` | ok | sdcc map lines, Z2; also keeps the CRT listing (G13-G15) |
 | master/80cc-debug | `-clib=new -compiler=80cc -debug` | ok | 80cc map |
 | master/sdcc-banked | `-clib=sdcc_iy -debug -DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
-| master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix |
+| master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix; keeps the classic CRT listing (G19-G21) |
 | master/classic-debug | `-clib=classic -debug`, `BANK_10` | **fails rc=1** | Z1 |
 
 `sccz80-tape` is the one `+zx` build (a 48K tape: `prog.tap` holds a BASIC loader and one
@@ -60,7 +61,7 @@ CODE block at $8000 that equals `prog_CODE.bin`; link flags without `-subtype=ne
 
 Kept per successful build: `prog.map` (trimmed), every user `*.c.lis` / `*.asm.lis`,
 `prog.nex` (`prog.tap` for the tape build), every `prog_<GROUP>.bin` (classic: `prog`). `prog.lis` (the crt0
-listing, 17-18K lines) is kept for exactly two builds, `v2.4/sdcc-SO2` and `master/sdcc-debug`
+listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master/sdcc-debug`, and both `classic-bank10`
 (`KEEP_CRT=1` in `generate.sh`, GH #348); not kept for the others, nor `.sym`, `.o`.
 
 ### Not producible (recorded, `build.log` only)
@@ -99,6 +100,19 @@ listing, 17-18K lines) is kept for exactly two builds, `v2.4/sdcc-SO2` and `mast
   `banked.c` instruction is line 6).
 - G17 at `-SO0` the back jump `jp l_main_00105` is at $8CBF, 3 bytes; `util.h:7` has three starts in
   `v2.4/sdcc-SO2`: $8C48 (main_c copy), $8CBB (util_c copy) and $8CD6 (`inc a` inlined into `util_twice`).
+- G19 z80asm keeps the LAST `MODULE`: the classic CRT listing has zcc's `MODULE zxn_crt0_asm` (line 2) and
+  then `MODULE zxn_crt0` (line 13); the map names `zxn_crt0` (16 `addr` symbols, both installs).
+- G20 a false `IF` branch is listed exactly like a taken one, only without bytes, so the listing cannot say which
+  branch was assembled; MACRO bodies are listed once, at their definition (`MACRO name`, `name MACRO`,
+  `name: MACRO`, to `ENDM`), and a macro invocation row carries all the bytes the expansion emitted, even those
+  that went to another section; REPT bytes sit on the `ENDR` row. The classic CRT defines
+  `MACRO setup_static_fp` whose body switches section.
+- G21 a section's listed addresses start at 0 and are continuous (ORG changes nothing; ALIGN and DEFS list their
+  fill). With MACRO bodies skipped this holds for every listing in the committed fixtures and the z88dk libraries'
+  own. The classic CRT then places exactly: 47 rows, every instruction's first byte equal to `prog`.
+- G22 sccz80 and 80cc write `C_LINE 0,"<file>::<func>::0::1"` on entering a file (an `#include` after a function);
+  inside a code section z80asm turns it into `__C_LINE_0_... ; addr, ..., <file>::<func>::0::1:0`. Line 0 is
+  never a source line (`incmid` builds: $8C76 on 2.4 and master sccz80, $8C72 on 80cc).
 - G18 a listing's `MODULE` line names the file alone (`util_c`), the map the path it was given
   (`game_util_c`) in `sccz80-subdir`.
 - Classic `BANK_10`: `_banked_add` is `$AC000` on 2.4 and `$14C000` on master
