@@ -4818,7 +4818,7 @@ void test_source_highlight_rules() {
         const bool again_dark = hl.apply_palette(dark);
         const bool to_light = hl.apply_palette(light);
         check("QSRC-133", "light colours on a light palette, palette_tint::ink() of them on a dark one, "
-                          "the seven pairwise distinct on both, and apply_palette() reports a change "
+                          "the ten pairwise distinct on both, and apply_palette() reports a change "
                           "only on a scheme switch",
               light_ok && dark_ok && d_light && d_dark && !again_light && to_dark && !again_dark && to_light,
               std::to_string(light_ok) + std::to_string(dark_ok) + std::to_string(d_light) +
