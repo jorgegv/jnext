@@ -32,10 +32,10 @@ namespace {
 // assembles with `MODULE <file name, non-alphanumerics to _>` (zcc.c), so a
 // `.c` file is module `<file>_c`; its compiler writes every C identifier with
 // a leading `_` (sccz80 Z80ASM_PREFIX, sdcc and 80cc alike). `__x` names are
-// compiler/runtime internals and stay as written.
+// compiler/runtime internals and stay as written. Only `; addr` lines reach it.
 bool is_z88dk_c_symbol(const Z88dkMapLine& s)
 {
-    return s.is_addr && !s.is_const && s.name.size() > 1 && s.name[0] == '_' && s.name[1] != '_' &&
+    return s.name.size() > 1 && s.name[0] == '_' && s.name[1] != '_' &&
            s.module.size() > 2 && s.module.compare(s.module.size() - 2, 2, "_c") == 0;
 }
 
