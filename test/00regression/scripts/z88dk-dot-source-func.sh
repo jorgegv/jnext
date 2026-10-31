@@ -40,7 +40,10 @@ if want z88dk-dot-source-func; then
     # dot.c:14 is $2D62 = offset $0D62 of the code binary; the byte there is changed.
     printf '\356' | dd of="$W/bad/prog_CODE.bin" bs=1 seek=$((0xD62)) conv=notrunc status=none
 
-    cat > "$W/count.jds" <<'JDS'
+    # The script types the keys (the boot-nextzxos-dotls menu keys, then `.prog` + ENTER; --delayed-keypress
+    # is headless-only, a script's `press` works in every frontend) and counts the executions.
+    {
+        cat <<'JDS'
 var e3 = 0
 var h8 = 0
 var h14 = 0
@@ -51,6 +54,11 @@ on execute 0x2D62 when (e3 & 0x8F) == 0x82 do set h14 = h14 + 1 end
 on execute 0x2D62 when (e3 & 0x8F) != 0x82 do set rom14 = rom14 + 1 end
 on frame 800 do log "DOTSRC 2D4F=${h8:d} 2D62=${h14:d} 2D62-elsewhere=${rom14:d}" end
 JDS
+        for k in "400 space" "470 down" "500 enter" "560 ." "575 p" "590 r" "605 o" "620 g" "635 enter"; do
+            printf 'on frame %d do press "%s" end\non frame %d do release "%s" end\n' \
+                "${k%% *}" "${k#* }" "$(( ${k%% *} + 5 ))" "${k#* }"
+        done
+    } > "$W/count.jds"
 
     faults=()
 
@@ -65,12 +73,6 @@ JDS
         [[ $rc -eq 0 ]] || faults+=("$1: --sdcard-file-add exited $rc (log: $(tail -n 2 "$W/add-$1.log" 2>/dev/null | tr '\n' ' ' || true))")
     }
 
-    # keys <args...>: NextZXOS menu and `.prog` + ENTER (boot-nextzxos-dotls's keys).
-    keys=(--delayed-keypress-frames 400 space --delayed-keypress-frames 470 down
-          --delayed-keypress-frames 500 enter --delayed-keypress-frames 560 .
-          --delayed-keypress-frames 575 p --delayed-keypress-frames 590 r
-          --delayed-keypress-frames 605 o --delayed-keypress-frames 620 g
-          --delayed-keypress-frames 635 enter)
     FRAMES=810
 
     # run_dot <frontend> <name> <map-dir> <args...>: the output of one run is in $W/<name>-<frontend>.log
@@ -80,18 +82,18 @@ JDS
         local rc=0 log="$W/$name-$fe.log"
         case $fe in
             hl) JNEXT_CONFIG_DIR="$BASE/$name-$fe" LANG=C timeout --foreground --kill-after=5s 180s \
-                    "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" "${keys[@]}" \
+                    "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
                     --source-map "$map/prog.map" --script "$W/count.jds" \
                     --delayed-automatic-exit-frames $FRAMES "$@" > "$log" 2>&1 || rc=$? ;;
             qt) JNEXT_CONFIG_DIR="$BASE/$name-$fe" QT_QPA_PLATFORM=offscreen LANG=C \
                     timeout --foreground --kill-after=5s 240s \
-                    "$JNEXT" --machine next --rtc "$NEXTZXOS_RTC" --silent --speed 400 "${keys[@]}" \
+                    "$JNEXT" --machine next --rtc "$NEXTZXOS_RTC" --silent --speed 400 \
                     --source-map "$map/prog.map" --script "$W/count.jds" \
                     --delayed-automatic-exit-frames $FRAMES "$@" > "$log" 2>&1 || rc=$? ;;
             sdl) if [[ -x "$JNEXT_SDL" ]]; then
                     JNEXT_CONFIG_DIR="$BASE/$name-$fe" env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy \
                         SDL_AUDIODRIVER=dummy LANG=C timeout --foreground --kill-after=5s 240s \
-                        "$JNEXT_SDL" --machine next --rtc "$NEXTZXOS_RTC" --silent --speed 400 "${keys[@]}" \
+                        "$JNEXT_SDL" --machine next --rtc "$NEXTZXOS_RTC" --silent --speed 400 \
                         --source-map "$map/prog.map" --script "$W/count.jds" \
                         --delayed-automatic-exit-frames $FRAMES "$@" > "$log" 2>&1 || rc=$?
                  else
