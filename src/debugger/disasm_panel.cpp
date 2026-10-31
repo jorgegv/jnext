@@ -198,10 +198,20 @@ void DisasmPanel::navigate_to_address(const QString& text)
     const auto resolved = dbg_ ? dbg_->symbols().resolve(text.toStdString())
                                : SymbolTable().resolve(text.toStdString());
     if (!resolved) return;
-    show_address(*resolved);
+    center_on(*resolved);   // the address box only moves the view; the selection stays
 }
 
 void DisasmPanel::show_address(uint16_t addr)
+{
+    center_on(addr);
+    // GH #423 - the line is the caret and the selection, so it is also the target of
+    // Run to Cursor and of a copy.
+    for (int i = 0; i < static_cast<int>(entries_.size()); ++i)
+        if (entries_[i].line.addr == addr) { selected_line_ = i; break; }
+    set_selection(addr, /*extend=*/false);
+}
+
+void DisasmPanel::center_on(uint16_t addr)
 {
     if (!dbg_) return;
 
@@ -237,12 +247,6 @@ void DisasmPanel::show_address(uint16_t addr)
 
     disassemble_from(view_addr_, visible_lines());
     update();
-
-    // GH #423 - the line is the caret and the selection, so it is also the target of
-    // Run to Cursor and of a copy.
-    for (int i = 0; i < static_cast<int>(entries_.size()); ++i)
-        if (entries_[i].line.addr == addr) { selected_line_ = i; break; }
-    set_selection(addr, /*extend=*/false);
 }
 
 void DisasmPanel::disassemble_from(uint16_t addr, int count)

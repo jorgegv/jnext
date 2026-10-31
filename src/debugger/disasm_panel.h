@@ -144,6 +144,8 @@ private:
     void set_selection(uint16_t addr, bool extend);
     bool line_selected(uint16_t addr) const;
     void navigate_to_address(const QString& text);
+    /// Centre the view on `addr`, leaving the selection alone (the address box).
+    void center_on(uint16_t addr);
     /// The gutter click and the context menu's Toggle Breakpoint: remove the
     /// Execute breakpoint drawn at `addr`, or add a logical one.
     void toggle_breakpoint(uint16_t addr, int line);
