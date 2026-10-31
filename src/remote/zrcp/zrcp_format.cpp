@@ -156,6 +156,47 @@ std::uint32_t crc32_ieee(const std::uint8_t* bytes, std::size_t n) {
     return crc ^ 0xFFFFFFFFu;
 }
 
+namespace {
+
+/// ZEsarUX's name for what a Next slot's CPU reads now (GH #360, debug.c:7114-7130,
+/// :7240-7256, :7915-7946; machines/tbblue.c:3171-3179). The values come from the
+/// slot's identity (`SlotInfo::now`), the spellings from ZEsarUX: `O<n>` is the 8 KB
+/// ROM page 2*image + half, `A<n>` a RAM page, `SR<n>` config mode's SRAM bank (the
+/// full NR 0x04, not ZEsarUX's `& 31`), `RO` the boot ROM, `DIV` DivMMC (also over a
+/// RAM-mapped slot, as the VHDL has it). The overlays ZEsarUX has no spelling for
+/// (Multiface, Layer 2, alt ROM, floating) print what the slot's own mapping is.
+struct SlotName { std::string shortname, longname; };
+
+SlotName next_slot_name(const jnext::dbg::SlotInfo& s, int slot) {
+    using K = jnext::dbg::MemSpace::Kind;
+    auto rom_page = [](unsigned n) {
+        return SlotName{"O" + std::to_string(n), "ROM " + std::to_string(n)};
+    };
+    auto ram_page = [](unsigned n) {
+        return SlotName{"A" + std::to_string(n), "RAM " + std::to_string(n)};
+    };
+    switch (s.now.kind) {
+        case K::BootRom:   return {"RO", "ROM"};
+        case K::Rom:       return rom_page(2u * s.now.index + (static_cast<unsigned>(slot) & 1u));
+        case K::Config:    return {"SR" + std::to_string(s.now.index),
+                                   "SRAM " + std::to_string(s.now.index)};
+        case K::DivMmcRom:
+        case K::DivMmcRam: return {"DIV", "Diviface"};
+        case K::Page:      return ram_page(s.now.index);
+        case K::Cpu:
+        case K::MultifaceRom:
+        case K::MultifaceRam:
+        case K::Layer2:
+        case K::AltRom:
+        case K::Floating:  break;
+    }
+    // The slot's own mapping: a ROM image, or the page NR 0x50+slot names.
+    if (s.is_rom) return rom_page(s.effective_page);
+    return ram_page(s.space.kind == K::Page ? s.nr_page : s.effective_page);
+}
+
+}  // namespace
+
 std::string memory_pages(const std::array<jnext::dbg::SlotInfo, 8>& slots, bool verbose,
                          MachineType type) {
     std::string out;
@@ -177,6 +218,14 @@ std::string memory_pages(const std::array<jnext::dbg::SlotInfo, 8>& slots, bool 
                 segs.push_back({sn, ln, seg * 0x4000u, seg * 0x4000u + 0x3FFF});
             }
         }
+        // DivMMC paged in: segment 0 is "Diviface" (debug.c:7932-7936; a non-TBBlue machine
+        // pages the whole 16 K).
+        using K = jnext::dbg::MemSpace::Kind;
+        const K nk = slots[0].now.kind;
+        if (nk == K::DivMmcRom || nk == K::DivMmcRam) {
+            segs[0].shortname = "DIV";
+            segs[0].longname  = "Diviface";
+        }
         for (std::size_t i = 0; i < segs.size(); ++i) {
             if (!verbose) {
                 out += segs[i].shortname + " ";
@@ -192,14 +241,13 @@ std::string memory_pages(const std::array<jnext::dbg::SlotInfo, 8>& slots, bool 
     }
     for (int i = 0; i < 8; ++i) {
         const auto& s = slots[static_cast<std::size_t>(i)];
-        const std::string shortname =
-            s.is_rom ? std::string("RO") : "A" + std::to_string(s.effective_page);
+        const SlotName    name      = next_slot_name(s, i);
+        const std::string shortname = name.shortname;
         if (!verbose) {
             out += shortname + " ";
             continue;
         }
-        const std::string longname =
-            s.is_rom ? std::string("ROM") : "RAM " + std::to_string(s.effective_page);
+        const std::string longname = name.longname;
         std::snprintf(buf, sizeof(buf),
                       "Segment %d\nLong name: %s\nShort name: %s\nStart: %XH\nEnd: %XH\n\n",
                       i + 1, longname.c_str(), shortname.c_str(), i * 0x2000,
