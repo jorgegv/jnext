@@ -8489,7 +8489,7 @@ int main() {
         const auto dbgmap = dbg.load_map(JNEXT_ZDEBUGMAP_DIR "/debug.map", jnext::dbg::MapFormat::Z88dk);
         auto nm = [&](uint16_t a) { const auto n = dbg.lookup(a); return n ? *n : std::string("-"); };
         check("SYM-14", "in a z88dk `-debug` map the function labels keep their addresses: "
-                        "lookup($8C92) = _main and lookup($8C78) = _square, not the __C_LINE_ markers at them",
+                        "lookup($8C92) = main and lookup($8C78) = square (the C names of _main and _square), not the __C_LINE_ markers at them",
               dbgmap.status == Result::Ok && nm(0x8C92) == "main" && nm(0x8C78) == "square" &&
                   nm(0x8D35) == "util_twice",
               nm(0x8C92) + " " + nm(0x8C78) + " " + nm(0x8D35));

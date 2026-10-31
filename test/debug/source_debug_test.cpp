@@ -6479,8 +6479,8 @@ int main() {
                               lookup_at(m, 0xC000) == "banked_add" && m.dbg->lookup_name("_banked_add") == 0xC000;
             const bool s3 = run_to(0x8CBE);
             const bool out = m.dbg->source_page(0xC000) == before && lookup_at(m, 0xC000) == "-";
-            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: _banked_add (a 24-bit $14C000 "
-                                   "in the map) names $C000 only while banked_call has page 20 mapped",
+            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: banked_add (_banked_add, a 24-bit "
+                                   "$14C000 in the map) names $C000 only while banked_call has page 20 mapped",
                   r.symbols == 9 && has(log, "(program identity verified)") && s1 && premise1 && main_named && s2 &&
                       in20 && s3 && out,
                   log);

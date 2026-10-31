@@ -639,7 +639,7 @@ int main() {
             const int na = load_sym(a, v24 / "sccz80-page20" / "prog.map");
             const int nb = load_sym(b, master / "sdcc-banked" / "prog.map");
             check("Z88SYM-01", "rule 1 through the symbol loader: _banked_add of a PAGE_20 section is a label of page 20 "
-                               "(sccz80 on 2.4, sdcc on master), named in page 20 only",
+                               "(sccz80 on 2.4, sdcc on master), shown as banked_add in page 20 only",
                   na == 10 && nb == 9 && is_key(a, "_banked_add", 0xC000, P20, false) &&
                       is_key(b, "_banked_add", 0xC000, P20, false) &&
                       name_is(a.lookup(P20, 0xC000), "banked_add") && !a.lookup(P21, 0xC000) &&
