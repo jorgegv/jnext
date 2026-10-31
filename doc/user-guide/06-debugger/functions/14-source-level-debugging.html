@@ -3803,7 +3803,9 @@ there, and the others stay pending. When the last one matches the log says
 tape does not match its binary identity</code>), and so are the symbols that came with
 it; with <code>--source-map</code> the run then exits with status 1. A map with no binary
 identity (no section binaries, an SLD without a hash) attaches unverified, as for
-any program, and nothing is waited for. A reset before the program has arrived
+any program, and nothing is waited for. The map's symbols take the page mapped at
+the tape's load call, as its source lines do, and work at once, while the check is
+pending; the map you loaded yourself is bound again at each program load. A reset before the program has arrived
 drops a program's pending map, since the program will not, and makes the one you
 loaded yourself stale (load it again once the program is in memory).</p>
 <p><strong>Binary identity.</strong> An SLD may record the SHA-256 of the program's bytes as it
@@ -3997,7 +3999,10 @@ later line, and the earlier one is its alias if both are in the same function
   while its 8K page is mapped where it runs (the Source tab, Call Stack and
   Breakpoints panels all follow the page). The map's address for a <code>BANK_n</code>
   section carries the bank in its high bits; JNEXT reads the page from the
-  section and the address. z88dk's <code>__banked</code> on newlib <code>+zxn</code> needs
+  section and the address, and the map's symbols follow the page as its lines
+  do (<code>@name</code> and the disassembly name a banked symbol only while its page is
+  mapped); the 24-bit <code>__PAGE_&lt;n&gt;_head</code> that the pragma below produces is read
+  by its low 16 bits. z88dk's <code>__banked</code> on newlib <code>+zxn</code> needs
   <code>-pragma-define:CRT_ORG_PAGE_&lt;n&gt;=0x&lt;page&gt;&lt;org&gt;</code> (the page in the top byte,
   for example <code>0x14C000</code> for <code>PAGE_20</code>) and a stack below the banking segment
   (<code>-pragma-define:REGISTER_SP=0xC000</code>): without them the program itself calls

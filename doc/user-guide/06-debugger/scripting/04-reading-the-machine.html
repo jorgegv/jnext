@@ -3962,6 +3962,12 @@ const</code> entries — compile-time constants such as the section bounds
 resolves as <code>@name</code> but never names an address in the disassembly. A name the
 MAP defines twice takes its first definition, and a name that is both a label
 and a constant is the label.</p>
+<p>A z88dk symbol of a <code>BANK_n</code> or <code>PAGE_n</code> section is its 16-bit address in the
+page window, even when the map writes it with the page in the top byte
+(<code>$14E000</code> is <code>@</code> = <code>$E000</code>). <code>on execute @name</code> fires at that address
+whatever page is mapped, until scripts can name a page (add <code>page N</code> to narrow
+it). A 24-bit address in a section that names no page, and a constant that
+does not fit 16 bits, are not names.</p>
 <p>The name after <code>@</code> can be any identifier, keywords included (<code>@start</code>), or
 identifiers joined by dots, the way sjasmplus names a local or a module label:
 <code>@main.loop</code>, <code>@gfx.draw.loop</code>, <code>@point.x</code>. A <code>.</code> joins only when a letter or

@@ -2608,7 +2608,8 @@ on a symbol keeps its name in the list, and a symbol any other client loads
 shows in the panels too. <code>src/debug/symbol_table.*</code> reads z88dk maps
 (<code>load_z88dk_map()</code>), plain <code>SYMBOL = $ADDR</code> lists (<code>load_simple_map()</code>),
 sjasmplus <code>--sym</code> / <code>--exp</code> files (<code>load_sjasmplus_equ()</code>) and NextBuild
-<code>Memory.txt</code> files (<code>load_nextbuild_memory()</code>); the address fields of the
+<code>Memory.txt</code> files (<code>load_nextbuild_memory()</code>); a z88dk name keeps its page in a
+breakpoint dialog as an SLD label does; the address fields of the
 breakpoint and watch dialogs go through <code>SymbolTable::resolve()</code>. The panels
 name an address in the memory that supplies it now (<code>Debugger::source_page()</code>),
 through <code>disasm_text::symbol_namer()</code> for the disassembly; a Breakpoints row uses
