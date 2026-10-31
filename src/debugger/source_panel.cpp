@@ -166,6 +166,10 @@ public:
                 p.drawText(QRect(kBreakpointColumnWidth + 4, int(top),
                                  gutter_->width() - kBreakpointColumnWidth - 4 - 6, int(h)),
                            Qt::AlignRight | Qt::AlignVCenter, QString::number(line));
+                // GH #347 - the PC's line, apart from a selected one: the strip after the numbers.
+                if (line == panel_->highlighted_line())
+                    paint_pc_marker(p, QRect(gutter_->width() - 6, int(top), 5, int(h)),
+                                    palette_tint::ink(pal, pc_marker_light()));
             }
             top += h;
             block = block.next();
@@ -471,6 +475,24 @@ void SourcePanel::refresh()
     update_gutter();   // the marks follow the memory mapped now
 }
 
+// GH #347 (OD-7) - the other places the toolchain attributes `address` to, after the
+// primary one the label names: "  also: f:l, f:l" in lookup_all() order, without the
+// primary's own file:line (a column-only difference) or a repeat.
+QString SourcePanel::also_text(uint16_t address) const
+{
+    const auto all = dbg_->source_map().lookup_all(dbg_->source_page(address), address);
+    std::vector<std::pair<std::string, int>> seen;
+    QStringList others;
+    for (size_t i = 0; i < all.size(); ++i) {
+        const auto key = std::make_pair(all[i]->file, all[i]->line);
+        if (i == 0) { seen.push_back(key); continue; }
+        if (std::find(seen.begin(), seen.end(), key) != seen.end()) continue;
+        seen.push_back(key);
+        others << QStringLiteral("%1:%2").arg(QString::fromStdString(key.first)).arg(key.second);
+    }
+    return others.isEmpty() ? QString() : tr("  also: %1").arg(others.join(QStringLiteral(", ")));
+}
+
 void SourcePanel::refresh_()
 {
     if (!dbg_) return;
@@ -566,7 +588,7 @@ void SourcePanel::refresh_()
                                  .arg(QString::fromStdString(location->file))
                                  .arg(location->line)
                                  .arg(pc_text)
-                                 .arg(where) + note);
+                                 .arg(where) + also_text(pc) + note);
     const QTextBlock block = editor_->document()->findBlockByNumber(location->line - 1);
     if (!block.isValid()) {
         editor_->setExtraSelections({});

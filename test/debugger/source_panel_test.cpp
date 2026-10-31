@@ -42,6 +42,7 @@
 #include "debugger/memory_panel.h"
 #include "debugger/source_panel.h"
 #include "debugger/watch_panel.h"
+#include "qt/palette_tint_qt.h"
 
 #include <QAbstractButton>
 #include <QClipboard>
@@ -4117,6 +4118,202 @@ void test_source_menu_review() {
     }
 }
 
+// ===========================================================================
+// GH #347 stage 1 - the current-line marker (an amber wedge in the gutter's
+// trailing strip) and the "also:" list of the other places of an address (OD-7).
+//
+// Oracle: the issue's text and the plan's decisions D1-D3; SourceMap::lookup_all()
+// order (SRCRNG-04/05). jnext-internal GUI, no VHDL counterpart. The wedge is
+// read from the gutter's PIXELS: the strip is x in [width-6, width-2], clear of
+// the number cell (QSRC-79) and of the BP column's samples (mark()).
+// ===========================================================================
+
+constexpr QRgb kAmber = 0xFFE09A00;   // #E09A00 (the plan's D1 colour), opaque
+
+/// The wedge's pixels at `line`'s row, strip x in [w-6, w-2]: the number of those
+/// pixels equal to `colour`, and whether any pixel of the strip there is not the
+/// gutter's background `bg`.
+struct StripRead { int coloured = 0; bool any = false; };
+StripRead strip_of(const SrcView& v, const QImage& img, int line, QRgb colour, QRgb bg) {
+    StripRead r;
+    const QRect c = v.cell(line);
+    const int w = v.gutter->width();
+    for (int y = c.top(); y <= c.bottom(); ++y)
+        for (int x = w - 6; x <= w - 2; ++x) {
+            if (img.pixel(x, y) == colour) ++r.coloured;
+            if (img.pixel(x, y) != bg) r.any = true;
+        }
+    return r;
+}
+
+void set_pc(Fixture& fx, uint16_t pc) {
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = pc;
+    fx.emu.cpu().set_registers(r);
+}
+
+void test_source_current_line() {
+    {   // QSRC-170, 171, 172
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.ed || !v.gutter) { check("QSRC-170", "the Source tab has a gutter", false); return; }
+        const QRgb white = 0xFFFFFFFF;
+        QImage img = v.gutter_image();
+        const StripRead on10 = strip_of(v, img, 10, kAmber, white);
+        bool others_clear = true;
+        for (int line = 1; line <= 13; ++line)
+            if (line != 10 && strip_of(v, img, line, kAmber, white).any) others_clear = false;
+        // the wedge's tip is on the row's centre line, 5 px wide: the first two columns are filled
+        const int cy = v.row_y(10), w = v.gutter->width();
+        const bool shape = img.pixel(w - 6, cy) == kAmber && img.pixel(w - 2, cy) == kAmber &&
+                           img.pixel(w - 6, cy - 5) == kAmber && img.pixel(w - 6, cy + 5) == kAmber &&
+                           img.pixel(w - 2, cy - 2) != kAmber && img.pixel(w - 6, cy - 6) != kAmber;
+        check("QSRC-170", "at a stop on line 10 the gutter's trailing strip carries an amber wedge on "
+                          "line 10 and on no other line; the number cell and the BP column keep their "
+                          "pixels (the number reads 10, no mark)",
+              on10.coloured == 35 && shape && others_clear && v.number_is(img, 10, "10") &&
+                  v.mark(10) == "none",
+              "amber=" + std::to_string(on10.coloured) + " shape=" + std::to_string(shape) +
+                  " others_clear=" + std::to_string(others_clear));
+
+        set_pc(fx, 0x8002);   // what a source Step Into to line 11 leaves
+        v.sp->refresh();
+        QApplication::processEvents();
+        img = v.gutter_image();
+        const bool moved = strip_of(v, img, 11, kAmber, white).coloured == 35 &&
+                           !strip_of(v, img, 10, kAmber, white).any && v.sp->highlighted_line() == 11;
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        v.sp->refresh();
+        QApplication::processEvents();
+        img = v.gutter_image();
+        bool running_clear = true;
+        for (int line = 1; line <= 13; ++line)
+            if (strip_of(v, img, line, kAmber, white).any) running_clear = false;
+        fx.emu.debug_state().pause();
+        v.sp->refresh();
+        QApplication::processEvents();
+        img = v.gutter_image();
+        const bool back = strip_of(v, img, 11, kAmber, white).coloured == 35;
+        m.add_source_line(QStringLiteral("main.bas:11"));
+        QApplication::processEvents();
+        img = v.gutter_image();
+        const bool both = v.mark(11) == "disc" && strip_of(v, img, 11, kAmber, white).coloured == 35;
+        m.clear_all();
+        check("QSRC-171", "the wedge follows the PC (line 11 after a step: line 10's strip is clear), "
+                          "is gone while the machine runs, returns on the pause, and shares line 11 with "
+                          "a breakpoint's disc",
+              moved && running_clear && back && both,
+              "moved=" + std::to_string(moved) + " running_clear=" + std::to_string(running_clear) +
+                  " back=" + std::to_string(back) + " both=" + std::to_string(both));
+
+        const QPalette light = QApplication::palette();
+        QApplication::setPalette(dark_test_palette());
+        QApplication::processEvents();
+        const QImage dark = v.gutter_image();
+        const QRgb want = palette_tint::ink(dark_test_palette(), QColor(0xE0, 0x9A, 0x00)).rgb();
+        const QRgb dark_bg = dark.pixel(v.gutter->width() - 3, 1);
+        const int dark_on = strip_of(v, dark, 11, want, dark_bg).coloured;
+        QApplication::setPalette(light);
+        QApplication::processEvents();
+        set_pc(fx, 0x8002);
+        v.sp->refresh();   // a message instead of a line: the map is gone
+        fx.backend->clear_source_map();
+        v.sp->refresh();
+        QApplication::processEvents();
+        const QImage msg = v.gutter_image();
+        bool msg_clear = true;
+        for (int y = 0; y < msg.height(); ++y)
+            for (int x = msg.width() - 6; x <= msg.width() - 2; ++x)
+                if (msg.pixel(x, y) != white) msg_clear = false;
+        check("QSRC-172", "on the dark palette the wedge is the palette's mirror of the amber, distinct "
+                          "from the dark gutter; with the map cleared (a message shown) no wedge is drawn",
+              dark_on == 35 && want != 0xFFE09A00 && want != dark_bg && msg_clear,
+              "dark_on=" + std::to_string(dark_on) + " msg_clear=" + std::to_string(msg_clear));
+    }
+    {   // QSRC-173: the PC line is past the end of the text found: no highlight, no wedge
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        std::string short_main;
+        for (int i = 1; i <= 5; ++i) short_main += "REM line " + std::to_string(i) + "\n";
+        write_text(g_tmp->path().toStdString() + "/main.bas", short_main);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        const QImage img = v.gutter_image();
+        bool clear = true;
+        for (int line = 1; line <= 5; ++line)
+            if (strip_of(v, img, line, kAmber, 0xFFFFFFFF).any) clear = false;
+        check("QSRC-173", "a PC line past the end of the file found (line 10 of a 5-line text) has no "
+                          "highlight and no wedge on any line",
+              v.sp->highlighted_line() == 0 && clear && v.sp->location_text().contains(QStringLiteral("has only 5 lines")),
+              "hl=" + std::to_string(v.sp->highlighted_line()) + " clear=" + std::to_string(clear));
+        write_main({});
+    }
+    {   // QSRC-174, 175: the "also" list
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80);
+        fx.backend->load_source_map(write_sld("also-one.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "util.bas|7||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + a + "|32770|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        set_pc(fx, 0x8002);
+        v.sp->refresh();
+        const QString page = QString::asprintf("%02X", ram_page_of(fx.backend->source_page(0x8002)));
+        const QString at8002 = v.sp->location_text();
+        set_pc(fx, 0x8000);
+        v.sp->refresh();
+        const QString at8000 = v.sp->location_text();
+        check("QSRC-174", "two places at $8002 (util.bas:7 emitted first, main.bas:11 later and primary): "
+                          "the label names the primary and lists the other as 'also: util.bas:7'; "
+                          "a one-place address carries no 'also'",
+              at8002 == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
+                  !at8000.contains(QStringLiteral("also")),
+              s(at8002) + " | " + s(at8000));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80);
+        fx.backend->load_source_map(write_sld("also-many.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "c.bas|3||0|" + a + "|32770|T|\n" +
+            "b.bas|2||0|" + a + "|32770|T|\n" + "main.bas|11:5||0|" + a + "|32770|T|\n" +
+            "b.bas|2||0|" + a + "|32770|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        set_pc(fx, 0x8002);
+        v.sp->refresh();
+        // the expectation is derived from lookup_all() itself: its order, minus the
+        // primary's file:line and repeats
+        const auto all = fx.backend->source_map().lookup_all(fx.backend->source_page(0x8002), 0x8002);
+        std::vector<std::string> want;
+        for (size_t i = 1; i < all.size(); ++i) {
+            const std::string k = all[i]->file + ":" + std::to_string(all[i]->line);
+            if (k == all[0]->file + ":" + std::to_string(all[0]->line)) continue;
+            if (std::find(want.begin(), want.end(), k) == want.end()) want.push_back(k);
+        }
+        std::string joined;
+        for (const auto& k : want) joined += (joined.empty() ? "" : ", ") + k;
+        const QString text = v.sp->location_text();
+        const int at = text.indexOf(QStringLiteral("also: "));
+        const QString listed = at < 0 ? QString() : text.mid(at + 6);
+        check("QSRC-175", "five records at $8002 (b.bas:2 twice, c.bas:3, main.bas:11 with and without a "
+                          "column): 'also' lists each other file:line once, in lookup_all order, without "
+                          "the primary's line",
+              all.size() == 5 && want.size() == 2 && listed.toStdString() == joined &&
+                  text.count(QStringLiteral("b.bas:2")) == 1 && text.count(QStringLiteral("c.bas:3")) == 1 &&
+                  !text.contains(QStringLiteral("also: main.bas")) && !listed.contains(QStringLiteral("main.bas")),
+              "n=" + std::to_string(all.size()) + " want=" + joined + " text=" + s(text));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -4167,6 +4364,7 @@ int main(int argc, char** argv) {
     test_source_gutter();
     test_source_context_menu();
     test_source_menu_review();
+    test_source_current_line();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

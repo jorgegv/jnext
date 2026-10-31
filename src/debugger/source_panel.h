@@ -121,6 +121,8 @@ signals:
 
 private:
     void refresh_();
+    /// GH #347 - "  also: f:l, ..." for the other source places of `address` (OD-7), or empty.
+    QString also_text(uint16_t address) const;
     void update_gutter();
     /// Everything the BP column derives for one line (see source_panel.cpp).
     struct LineState;
