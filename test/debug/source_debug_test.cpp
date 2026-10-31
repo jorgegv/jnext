@@ -2730,13 +2730,13 @@ int main() {
             std::getline(f, l0);
             std::getline(f, l1);
         }
-        check("TRACE-ID-04", "the trace export names the fetch identity after ROM=: kind and "
-                             "index in hex, FETCH=01:04 for RAM page 4, FETCH=06:00 for the "
+        check("TRACE-ID-04", "the trace export names the fetch identity after ROM= as the space "
+                             "tag, FETCH=P04 for RAM page 4, FETCH=DIVROM for the "
                              "DivMMC ROM",
               exported && l0.find("  $8000  ") != std::string::npos &&
-                  l0.find(" FETCH=01:04  [") != std::string::npos &&
+                  l0.find(" FETCH=P04  [") != std::string::npos &&
                   l1.find("  $0000  ") != std::string::npos &&
-                  l1.find(" FETCH=06:00  [") != std::string::npos,
+                  l1.find(" FETCH=DIVROM  [") != std::string::npos,
               "'" + l0 + "' / '" + l1 + "'");
     }
     {
