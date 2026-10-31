@@ -4669,8 +4669,8 @@ void test_source_highlight_rules() {
         h.load(SourceLanguage::Asm, QStringLiteral("ld a,1 /* x */ nop\nld b,2"));
         check("QSRC-147", "an assembly /* ... */ closed on its own line ends there: the code behind "
                           "it is coloured and the next line is not a comment",
-              tok(h, 0, QStringLiteral("/* x */")) == 'C' && tok(h, 0, QStringLiteral("nop")) == 'K' &&
-                  tok(h, 1, QStringLiteral("ld")) == 'K' && !has_role(h, 1, 'C'),
+              tok(h, 0, QStringLiteral("/* x */")) == 'C' && tok(h, 0, QStringLiteral("nop")) == 'I' &&
+                  tok(h, 1, QStringLiteral("ld")) == 'I' && !has_role(h, 1, 'C'),
               role_mask(h, 0) + " " + role_mask(h, 1));
     }
     {   // QSRC-148
