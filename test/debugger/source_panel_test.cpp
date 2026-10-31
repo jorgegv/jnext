@@ -4581,12 +4581,12 @@ void test_source_highlight_rules() {
                               "  db $FF #FF 0xFF 0FFh %0101 0b0101 255\n"
                               "  db FFh,$,$\n"
                               "  LD A,(HL)"));
-        const bool line = role_mask(h, 0) == "LLLLL..KK.R..RR..CCCCCC";
-        const bool nums = role_mask(h, 1) == "..DD.NNN.NNN.NNNN.NNNN.NNNNN.NNNNNN.NNN";
-        const bool not_nums = role_mask(h, 2) == "..DD........";
-        const bool upper = role_mask(h, 3) == "..KK.R..RR.";
+        const bool line = role_mask(h, 0) == "LLLLL..II.IKKIIK.CCCCCC";
+        const bool nums = role_mask(h, 1) == "..KK.NNN.NNN.NNNN.NNNN.NNNNN.NNNNNN.NNN";
+        const bool not_nums = role_mask(h, 2) == "..KK....K.K.";
+        const bool upper = role_mask(h, 3) == "..II.IKKIIK";
         check("QSRC-125", "an assembly line: the label, mnemonic, registers and comment are coloured and "
-                          "the punctuation is not; $FF #FF 0xFF 0FFh %0101 0b0101 255 are numbers, FFh "
+                          "the punctuation is Keyword; $FF #FF 0xFF 0FFh %0101 0b0101 255 are numbers, FFh "
                           "and a bare $ are not; upper case is the same as lower",
               line && nums && not_nums && upper,
               role_mask(h, 0) + " " + role_mask(h, 1) + " " + role_mask(h, 2) + " " + role_mask(h, 3));
