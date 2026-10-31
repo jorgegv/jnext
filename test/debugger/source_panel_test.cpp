@@ -4860,11 +4860,11 @@ void test_source_highlight_classes() {
         // 6.4.4 defines no signed constant, so a leading '-' is an operator.
         Hl h;
         h.load(SourceLanguage::C,
-               QStringLiteral("a = 1.5; b = .5; c = 2.f; d = 1e-3; e = 0x1p-3;\n"
+               QStringLiteral("a = 3.25; b = .5; c = 2.f; d = 1e-3; e = 0x1p-3;\n"
                               "f = 0x5800; g = 10u; h = 017; i = 0x1E;\n"
                               "j = 'x'; k = \"s\";\n"
                               "x-1;\n-5;"));
-        const bool floats = tok(h, 0, QStringLiteral("1.5")) == 'F' && tok(h, 0, QStringLiteral(".5")) == 'F' &&
+        const bool floats = tok(h, 0, QStringLiteral("3.25")) == 'F' && tok(h, 0, QStringLiteral(".5")) == 'F' &&
                             tok(h, 0, QStringLiteral("2.f")) == 'F' && tok(h, 0, QStringLiteral("1e-3")) == 'F' &&
                             tok(h, 0, QStringLiteral("0x1p-3")) == 'F';
         const bool ints = tok(h, 1, QStringLiteral("0x5800")) == 'N' && tok(h, 1, QStringLiteral("10u")) == 'N' &&
@@ -4872,7 +4872,7 @@ void test_source_highlight_classes() {
         const bool lit = tok(h, 2, QStringLiteral("'x'")) == 'Q' && tok(h, 2, QStringLiteral("\"s\"")) == 'S';
         const bool minus = tok(h, 3, QStringLiteral("-")) == 'K' && tok(h, 3, QStringLiteral("1")) == 'N' &&
                            tok(h, 4, QStringLiteral("-")) == 'K' && tok(h, 4, QStringLiteral("5")) == 'N';
-        check("QSRC-190", "C numbers and characters: 1.5 .5 2.f 1e-3 0x1p-3 are Float, 0x5800 10u 017 0x1E "
+        check("QSRC-190", "C numbers and characters: 3.25 .5 2.f 1e-3 0x1p-3 are Float, 0x5800 10u 017 0x1E "
                           "(not a float) are Integer, 'x' is Char, \"s\" String, and a leading '-' is a "
                           "Keyword operator in x-1 and -5",
               floats && ints && lit && minus,
@@ -4955,14 +4955,14 @@ void test_source_highlight_classes() {
         // t_BIN, t_NUMBER, t_ID with its $ and % suffix).
         Hl h;
         h.load(SourceLanguage::Basic,
-               QStringLiteral("10 LET a = 1.5 + .5e-3 + 1e3 + 2 + $FF + %0101 + 0FFh + 0E3h + 17o : PRINT a$, n%; CHR$(65)\n"
+               QStringLiteral("10 LET a = 3.25 + .5e-3 + 1e3 + 2 + $FF + %0101 + 0FFh + 0E3h + 17o : PRINT a$, n%; CHR$(65)\n"
                               "IF a <> b THEN\n"
                               "PRINT \"a,b\"\n"
                               "REM a,(b)\n"
                               "' a(b)\n"
                               "#include <x.bas>"));
         const bool ln = tok(h, 0, QStringLiteral("10")) == 'L';
-        const bool fl = tok(h, 0, QStringLiteral("1.5")) == 'F' && tok(h, 0, QStringLiteral(".5e-3")) == 'F' &&
+        const bool fl = tok(h, 0, QStringLiteral("3.25")) == 'F' && tok(h, 0, QStringLiteral(".5e-3")) == 'F' &&
                         tok(h, 0, QStringLiteral("1e3")) == 'F';
         const bool in = tok(h, 0, QStringLiteral("2")) == 'N' &&
                         tok(h, 0, QStringLiteral("$FF")) == 'N' && tok(h, 0, QStringLiteral("%0101")) == 'N' &&
@@ -4978,7 +4978,7 @@ void test_source_highlight_classes() {
         const bool rest = tok(h, 2, QStringLiteral("\"a,b\"")) == 'S' && role_mask(h, 3) == "CCCCCCCCC" &&
                           role_mask(h, 4) == "CCCCCC" &&
                           role_mask(h, 5) == std::string(h.doc.findBlockByNumber(5).text().size(), 'P');
-        check("QSRC-193", "Boriel: 1.5 .5e-3 1e3 are Float, 2 $FF %0101 0FFh 0E3h 17o Integer, punctuation "
+        check("QSRC-193", "Boriel: 3.25 .5e-3 1e3 are Float, 2 $FF %0101 0FFh 0E3h 17o Integer, punctuation "
                           "and <> are Keyword, a$ and n% are plain identifiers, CHR$ a keyword, the line "
                           "number a Label, and strings, comments and # lines keep their class",
               ln && fl && in && pu && id && ne && rest,
