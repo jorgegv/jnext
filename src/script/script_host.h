@@ -59,7 +59,22 @@ struct ScriptHostOptions {
     /// `--record-script FILE` (WP6): record from the first frame, write FILE
     /// when the host goes (or at a Stop Recording). Empty = not recording.
     std::string record_file;
+    /// A CLI `--load` program is still to be applied (GH #346): a `--script`
+    /// that names a source line waits for `program_loaded()`, because the
+    /// program's source map does not exist yet.
+    bool program_pending = false;
 };
+
+/// Whether a CLI `--load FILE` is still to be applied after the scripts load
+/// (GH #346): any program but an `.rzx` replay, which no map describes.
+inline bool load_pending_for_scripts(const std::string& load_file) {
+    if (load_file.empty()) return false;
+    const std::size_t dot = load_file.rfind('.');
+    if (dot == std::string::npos) return true;
+    std::string ext = load_file.substr(dot);
+    for (char& c : ext) c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    return ext != ".rzx";
+}
 
 class ScriptHost {
 public:
@@ -74,6 +89,13 @@ public:
     /// attaches nothing and returns true: a run without scripts is the run it
     /// always was.
     bool start(dbg::Debugger& dbg, const ScriptHostOptions& opt);
+
+    /// The `--load` program and its maps are in (or its load failed): load the
+    /// scripts `start()` held back (the first one naming a source line, and
+    /// every later one, in order). False - logged, nothing of any script left
+    /// loaded, an exit(1) requested when `exits` - if one fails. A no-op
+    /// (true) when nothing waits.
+    bool program_loaded();
 
     /// Whether scripts are running (so the engine exists).
     bool active() const { return engine_ != nullptr; }
@@ -148,6 +170,7 @@ private:
     bool                           requested_ = false;
     int                            code_      = 0;
     std::vector<std::string>       files_;
+    std::vector<std::string>       waiting_;   ///< scripts held for program_loaded()
     std::deque<std::string>        log_;
     uint64_t                       log_seq_ = 0;
     std::unique_ptr<Recorder>      recorder_;

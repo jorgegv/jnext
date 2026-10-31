@@ -555,6 +555,29 @@ static void lex_rows() {
               dstr(dotted.error) + dstr(range.error) + dstr(under.error) + dstr(local.error) +
                   dstr(field.error) + dstr(single.error));
     }
+    {
+        // GH #346 -- `file:line` is one token, by lookahead.
+        const LexResult a = lex("main.c:19");
+        const LexResult b = lex("../src/main.c:19");
+        const LexResult c = lex("my-game_2.asm:7");
+        check("LEX-27", "`main.c:19`, `../src/main.c:19` and `my-game_2.asm:7` are one FileLine each, with that text",
+              !a.error && a.tokens.size() == 2 && a.tokens[0].kind == Tok::FileLine && a.tokens[0].text == "main.c:19" &&
+                  !b.error && b.tokens.size() == 2 && b.tokens[0].kind == Tok::FileLine &&
+                  b.tokens[0].text == "../src/main.c:19" &&
+                  !c.error && c.tokens.size() == 2 && c.tokens[0].kind == Tok::FileLine &&
+                  c.tokens[0].text == "my-game_2.asm:7",
+              dstr(a.error) + dstr(b.error) + dstr(c.error));
+    }
+    check("LEX-28", "no FileLine where the old lexing stands: `lbl: on`, `main.c :19`, `main.c: 19`, `x:y`, "
+                    "`\"${PC:x4}\"`, `@main.loop`, `1..2`, and `a:1b` (still the malformed-number error)",
+          kinds("lbl: on") == std::vector<Tok>{Tok::Ident, Tok::Colon, Tok::Ident, Tok::Eof} &&
+              kinds("main.c :19") == std::vector<Tok>{Tok::Ident, Tok::Dot, Tok::Ident, Tok::Colon, Tok::Int, Tok::Eof} &&
+              kinds("main.c: 19") == std::vector<Tok>{Tok::Ident, Tok::Dot, Tok::Ident, Tok::Colon, Tok::Int, Tok::Eof} &&
+              kinds("x:y") == std::vector<Tok>{Tok::Ident, Tok::Colon, Tok::Ident, Tok::Eof} &&
+              kinds("\"${PC:x4}\"") == std::vector<Tok>{Tok::String, Tok::Eof} &&
+              kinds("@main.loop") == std::vector<Tok>{Tok::Symbol, Tok::Eof} &&
+              kinds("1..2") == std::vector<Tok>{Tok::Int, Tok::DotDot, Tok::Int, Tok::Eof} &&
+              lex("a:1b").error.has_value());
 }
 
 // ── Comments ───────────────────────────────────────────────────────────────
@@ -853,6 +876,41 @@ static void event_rows() {
     check("PERR-EV-NOADDR", "`on execute` with no address",
           err_at(P("on execute do end").error, 1, 12, "expected an address"),
           dstr(P("on execute do end").error));
+    {
+        const ParseResult r  = P("on execute main.c:19 once when A == 1 do stop end");
+        const ParseResult q  = P("on execute \"dir with space/main.c:19\" do stop end");
+        const EventSpec*  e  = ev0(r);
+        const EventSpec*  f  = ev0(q);
+        check("PARSE-SRC-01", "`on execute main.c:19` and the quoted form parse with file_line set and no lo",
+              e && f && e->type == SEvt::Execute && e->file_line == "main.c:19" && !e->lo && !e->hi &&
+                  f->file_line == "dir with space/main.c:19" && !f->lo && r.script.rules[0].once &&
+                  r.script.rules[0].when,
+              dstr(r.error) + dstr(q.error));
+    }
+    {
+        const ParseResult a = P("on read main.c:19 do end");
+        const ParseResult b = P("on write main.c:19 do end");
+        const ParseResult c = P("on dma byte main.c:19 do end");
+        auto names = [](const ParseResult& r) {
+            return r.error && r.error->message.find("main.c:19") != std::string::npos &&
+                   r.error->message.find("`execute`") != std::string::npos;
+        };
+        check("PARSE-SRC-02", "a source line after read, write or dma byte is refused, the message naming it and `execute`",
+              !a.ok() && !b.ok() && !c.ok() && names(a) && names(b) && names(c),
+              dstr(a.error) + dstr(b.error) + dstr(c.error));
+    }
+    {
+        const ParseResult a = P("on execute main.c:19..main.c:20 do end");
+        const ParseResult b = P("on execute main.c:19 page 4 do end");
+        const ParseResult c = P("on execute \"a${PC}.c:1\" do end");
+        const ParseResult d = P("on frame 0 do set mem[main.c:19] = 0 end");
+        check("PARSE-SRC-03", "refused: a range, a `page`, a `${}` in the quoted form, and a source line in an expression",
+              !a.ok() && a.error->message.find("no range and no `page`") != std::string::npos &&
+                  !b.ok() && b.error->message.find("no range and no `page`") != std::string::npos &&
+                  !c.ok() && c.error->message.find("${") != std::string::npos &&
+                  !d.ok() && d.error->message.find("valid only after `on execute`") != std::string::npos,
+              dstr(a.error) + dstr(b.error) + dstr(c.error) + dstr(d.error));
+    }
 }
 
 static void action_rows() {

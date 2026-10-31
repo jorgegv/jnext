@@ -5,6 +5,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "script/parser.h"
+
 namespace jnext {
 namespace script {
 
@@ -119,6 +121,20 @@ bool ScriptHost::ensure_engine() {
     return true;
 }
 
+// Whether the script in `file` has a rule on a source line. An unreadable or
+// unparsable file says no: load_one() reports it, at once, as it always did.
+static bool names_source_line(const std::string& file) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in) return false;
+    std::ostringstream text;
+    text << in.rdbuf();
+    const ParseResult pr = parse_script(text.str());
+    if (!pr.ok()) return false;
+    for (const Rule& r : pr.script.rules)
+        if (!r.event.file_line.empty()) return true;
+    return false;
+}
+
 LoadResult ScriptHost::load_one(const std::string& file, const char* origin) {
     LoadResult r;
     r.file = file;
@@ -177,16 +193,43 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
     if (!ensure_engine()) return false;
 
     bool ok = true;
-    for (const std::string& file : opt.scripts)
-        if (load_one(file, "--script").ok()) files_.push_back(file);
+    waiting_.clear();
+    for (const std::string& file : opt.scripts) {
+        if (waiting_.empty() && opt.program_pending && names_source_line(file)) {
+            dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
+                    "SCRIPT " + file + ": names a source line; it loads when the --load program has loaded");
+            waiting_.push_back(file);
+        }
+        else if (!waiting_.empty()) waiting_.push_back(file);
+        else if (load_one(file, "--script").ok()) files_.push_back(file);
         else ok = false;
+    }
     if (!ok) {
+        waiting_.clear();
         engine_.reset();  // nothing of any script stays registered
         files_.clear();
         error("--script: not starting; no script is loaded (exit 1)");
         return false;
     }
     for (const auto& k : opt.keys) engine_->queue_host_key(k.first, k.second);
+    return true;
+}
+
+bool ScriptHost::program_loaded() {
+    if (waiting_.empty()) return true;
+    const std::vector<std::string> held = std::move(waiting_);
+    waiting_.clear();
+    for (const std::string& file : held) {
+        if (load_one(file, "--script").ok()) {
+            files_.push_back(file);
+            continue;
+        }
+        engine_.reset();  // nothing of any script stays registered
+        files_.clear();
+        error("--script: no script is loaded (exit 1)");
+        if (exits_) request(1);
+        return false;
+    }
     return true;
 }
 

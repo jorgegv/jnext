@@ -31,6 +31,7 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 #include "debug/event_table.h"
+#include "platform/emulator_boot.h"
 #include "peripheral/dma.h"
 
 #include <cstdint>
@@ -1959,9 +1960,10 @@ struct HostRig {
     std::unique_ptr<ScriptHost> host;
     /// `prime` false leaves the backend unpumped, as a loop owner's is before
     /// its first tick.
-    explicit HostRig(const std::vector<uint8_t>& prog = kPark, bool prime = true) {
+    explicit HostRig(const std::vector<uint8_t>& prog = kPark, bool prime = true,
+                     MachineType type = MachineType::ZX48K) {
         EmulatorConfig cfg;
-        cfg.type = MachineType::ZX48K;
+        cfg.type = type;
         emu.init(cfg);
         for (size_t i = 0; i < prog.size(); ++i) emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
         Z80Registers r = emu.cpu().get_registers();
@@ -2855,6 +2857,271 @@ static void static_stop_rows() {
     }
 }
 
+
+// ── GH #346: `on execute FILE:LINE`, and `@name` in its own memory ──────────
+// Oracles. Z = test/fixtures/z88dk/v2.4/sccz80-debug: prog.map `__C_LINE_19` = $8CB5 and
+// `__C_LINE_20` = $8CBE (so main.c:19 is $8CB5..$8CBD), `_main` = $8C92 where lines 14 and 15
+// both start (15, the highest, owns the address; 14 is zero-width: "no code at main.c:14"),
+// the NEX default slot 4 = page 4. M = master/sdcc-debug: main.c:18 starts at $8C6F and $8C89,
+// both page 4. S = an SLD written here with no identity: main.bas:11 at $8000 page 4 AND at
+// $C000 page 20. equlabels.sld: `banked` = $C000 page 20, `other_bank` = $C000 page 30.
+static const char* const kZNex = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.nex";
+
+static void attach_program(Emulator& emu, Debugger& dbg, const std::string& nex) {
+    emulator_apply_load(emu, nex, false);
+    dbg.load_program_sidecars(nex);
+}
+
+static const std::string kSldHead =
+    "|SLD.data.version|1\n"
+    "main.bas|1||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+    "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n";
+
+static std::string s_sld(const std::string& file) {
+    return kSldHead + file + "|11||0|4|32768|T|\n" + file + "|11||0|20|49152|T|\n";
+}
+
+static void src_rows() {
+    using jnext::dbg::MemSpace;
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute main.c:19 do stop end\n");
+        const auto s = g.subs();
+        const bool shape = s.size() == 1 && s[0].kind == EventKind::Execute && s[0].filter.lo == 0x8CB5 &&
+                           s[0].filter.hi == 0x8CB5 && s[0].filter.space == MemSpace::page(4);
+        g.frames(5);
+        check("DSL-SRC-01", "`on execute main.c:19` is ONE Execute subscription at $8CB5 in Page{4} (the map's "
+                            "start), and the run stops at $8CB5",
+              ok && shape && g.paused() && g.pc() == 0x8CB5, dstr(g.last.errors) + " " + show(s));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute main.c:99 do stop end\n");
+        check("DSL-SRC-02", "a line the map does not have is a load error naming `main.c:99`, and registers "
+                            "nothing",
+              !ok && g.last.errors.size() == 1 && g.last.errors[0].message.find("main.c:99") != std::string::npos &&
+                  g.subs().empty(),
+              dstr(g.last.errors));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute main.c:14 do stop end\n");
+        check("DSL-SRC-03", "a zero-width line (main.c:14 starts where 15 does) is the error `no code at main.c:14`",
+              !ok && g.last.errors.size() == 1 && g.last.errors[0].message.find("no code at main.c:14") != std::string::npos &&
+                  g.subs().empty(),
+              dstr(g.last.errors));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const bool ok = g.load("on execute main.c:19 do stop end\n");
+        check("DSL-SRC-04", "with no source map loaded the error says so and names `main.c:19`",
+              !ok && g.last.errors.size() == 1 &&
+                  g.last.errors[0].message.find("`main.c:19`: no source map is loaded") != std::string::npos &&
+                  g.subs().empty(),
+              dstr(g.last.errors));
+    }
+    {
+        Rig m(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(m.emu, *m.dbg, JNEXT_Z88DK_FIXTURE_DIR "/master/sdcc-debug/prog.nex");
+        const bool okm = m.load("on execute main.c:18 do stop end\n");
+        const auto sm = m.subs();
+        const bool shape_m = sm.size() == 2 && sm[0].filter.lo == 0x8C6F && sm[1].filter.lo == 0x8C89 &&
+                             sm[0].filter.space == MemSpace::page(4) && sm[1].filter.space == MemSpace::page(4);
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const std::string sld = sev_tmp("s5.sld");
+        write_file(sld, s_sld("main.bas"));
+        g.dbg->load_source_map(sld, false);
+        const bool oks = g.load("on execute main.bas:11 do stop end\n");
+        const auto ss = g.subs();
+        const bool shape_s = ss.size() == 2 && ss[0].filter.lo == 0x8000 && ss[0].filter.space == MemSpace::page(4) &&
+                             ss[1].filter.lo == 0xC000 && ss[1].filter.space == MemSpace::page(20);
+        g.dbg->set_mmu_slot(g.tc, 6, 20);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        g.frames(4);
+        check("DSL-SRC-05", "a line with two starts is two subscriptions, each in its own memory (main.c:18 of the "
+                            "sdcc build: $8C6F and $8C89, Page{4}; main.bas:11: $8000 Page{4} and $C000 Page{20}), "
+                            "and the second start stops the run",
+              okm && shape_m && oks && shape_s && g.paused() && g.pc() == 0xC000,
+              show(sm) + " " + show(ss));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const std::string sld = sev_tmp("s6.sld");
+        write_file(sld, s_sld("main.bas"));
+        g.dbg->load_source_map(sld, false);
+        const bool ok = g.load("on execute main.bas:11 do stop end\n");
+        g.dbg->set_mmu_slot(g.tc, 6, 21);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        g.frames(4);
+        const bool quiet = !g.paused();
+        g.dbg->set_mmu_slot(g.tc, 6, 20);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        g.frames(4);
+        check("DSL-SRC-06", "the address alone is not enough: $C000 with page 21 mapped does not stop the rule "
+                            "built for page 20, page 20 does",
+              ok && quiet && g.paused() && g.pc() == 0xC000, dstr(g.last.errors));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute \"main.c:19\" do stop end\n");
+        const auto s = g.subs();
+        const bool z = ok && s.size() == 1 && s[0].filter.lo == 0x8CB5 && s[0].filter.space == MemSpace::page(4);
+        Rig h(kPark, MachineType::ZXN_ISSUE2);
+        const std::string sld = sev_tmp("my game.sld");
+        write_file(sld, s_sld("my game.asm"));
+        h.dbg->load_source_map(sld, false);
+        const bool ok2 = h.load("on execute \"my game.asm:11\" do stop end\n");
+        const auto s2 = h.subs();
+        check("DSL-SRC-07", "the quoted form is the same rule, and the only way to name a file with a space",
+              z && ok2 && s2.size() == 2 && s2[0].filter.lo == 0x8000 && s2[1].filter.lo == 0xC000,
+              dstr(g.last.errors) + dstr(h.last.errors) + show(s2));
+    }
+    {
+        Rig m(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(m.emu, *m.dbg, JNEXT_Z88DK_FIXTURE_DIR "/master/sdcc-debug/prog.nex");
+        const bool ok = m.load("on execute main.c:18 do stop end\n");
+        const auto r = m.eng->rules();
+        check("DSL-SRC-08", "the Script tab shows every start of a source-line rule: `execute main.c:18 (8C6F, 8C89)`",
+              ok && r.size() == 1 && r[0].event == "execute main.c:18 (8C6F, 8C89)",
+              r.empty() ? std::string("(no rule)") : r[0].event);
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool ok = g.load("on execute @banked do stop end\n");
+        const auto s = g.subs();
+        const bool shape = ok && s.size() == 1 && s[0].filter.lo == 0xC000 && s[0].filter.space == MemSpace::page(20);
+        auto run_with = [&](unsigned page) {
+            Rig h(kPark, MachineType::ZXN_ISSUE2);
+            h.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+            h.load("on execute @banked do stop end\n");
+            h.dbg->set_mmu_slot(h.tc, 6, static_cast<uint8_t>(page));
+            h.emu.mmu().write(0xC000, 0x18);
+            h.emu.mmu().write(0xC001, 0xFE);
+            Z80Registers r = h.emu.cpu().get_registers();
+            r.PC = 0xC000;
+            h.emu.cpu().set_registers(r);
+            h.frames(4);
+            return h.paused();
+        };
+        const bool stops30 = run_with(30);
+        const bool stops20 = run_with(20);
+        check("DSL-SYMSP-01", "`on execute @banked` (an SLD label of page 20) arms $C000 in Page{20} only: page 30 "
+                              "there does not stop it, page 20 does",
+              shape && !stops30 && stops20, dstr(g.last.errors) + " " + show(s));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool ok = g.load("on execute @banked page 30 do stop end\n");
+        const auto s = g.subs();
+        g.dbg->set_mmu_slot(g.tc, 6, 30);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        g.frames(4);
+        check("DSL-SYMSP-02", "an explicit `page 30` keeps its legacy meaning (the documented workaround): "
+                              "space unqualified, page 30, and the run stops with page 30 mapped",
+              ok && s.size() == 1 && s[0].filter.space == MemSpace::cpu() && s[0].filter.page == 30 &&
+                  g.paused() && g.pc() == 0xC000,
+              dstr(g.last.errors) + " " + show(s));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool a = g.load("on execute @banked+0 do stop end\n");
+        const auto sa = g.subs();
+        Rig h(kPark, MachineType::ZXN_ISSUE2);
+        h.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool b = h.load("on execute @banked..@banked do stop end\n");
+        const auto sb = h.subs();
+        Rig k(kPark, MachineType::ZXN_ISSUE2);
+        k.dbg->load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", jnext::dbg::MapFormat::Z88dkOrSjasmplus);
+        const auto key = k.dbg->symbols().find_name("main");
+        const bool premise = key && !key->space;
+        const bool c = k.load("on execute @main do stop end\n");
+        const auto sc = k.subs();
+        check("DSL-SYMSP-03", "an expression (`@banked+0`, `@banked..@banked`) and a label with no memory of its "
+                              "own (an sjasmplus --sym symbol) stay unqualified",
+              a && b && c && premise && sa.size() == 1 && sb.size() == 1 && sc.size() == 1 &&
+                  sa[0].filter.space == MemSpace::cpu() && sb[0].filter.space == MemSpace::cpu() &&
+                  sc[0].filter.space == MemSpace::cpu(),
+              dstr(g.last.errors) + dstr(h.last.errors) + dstr(k.last.errors));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute @main do stop end\n");
+        const auto s = g.subs();
+        check("DSL-SYMSP-04", "a z88dk C name (`@main`, GH #424) arms $8C92 in Page{4}: find_name is the one resolver",
+              ok && s.size() == 1 && s[0].filter.lo == 0x8C92 && s[0].filter.space == MemSpace::page(4),
+              dstr(g.last.errors) + " " + show(s));
+    }
+    {
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("src1.jds", "on execute main.c:19 do stop end\n")};
+        const bool ok = g.start(o);
+        const bool waits = g.engine_subs() == 0 && g.sink.count("names a source line; it loads when the --load program has loaded") == 1;
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool loaded = g.host->program_loaded();
+        check("SCRIPT-HOST-SRC-01", "with a --load pending, a script naming a source line waits (logged, nothing "
+                                    "registered), and program_loaded() loads it against the program's map",
+              ok && waits && loaded && g.engine_subs() == 1, g.sink.tail(4));
+    }
+    {
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("plain2.jds", "on frame 0 do log \"P\" end\n"),
+                     tmp_file("bad2.jds", "on execute main.c:99 do stop end\n")};
+        const bool ok = g.start(o);
+        const bool early = g.engine_subs() == 1;
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool loaded = g.host->program_loaded();
+        check("SCRIPT-HOST-SRC-02", "a deferred script that fails to resolve fails the whole set: the error with "
+                                    "its position, no script left registered, exit 1 requested",
+              ok && early && !loaded && g.engine_subs() == 0 && !g.host->active() && g.host->exit_requested() &&
+                  g.host->exit_code() == 1 &&
+                  g.sink.count("SCRIPT ERROR " + o.scripts[1] + ":1:12:") == 1 && g.sink.count("main.c:99") >= 1,
+              g.sink.tail(4));
+    }
+    {
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("a3.jds", "on frame 0 do log \"A\" end\n"),
+                     tmp_file("b3.jds", "on execute main.c:19 do stop end\n"),
+                     tmp_file("c3.jds", "on frame 0 do log \"C\" end\n")};
+        const bool ok = g.start(o);
+        const size_t before = g.host->engine() ? g.host->engine()->rules().size() : 99;
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool loaded = g.host->program_loaded();
+        const auto r = g.host->engine()->rules();
+        check("SCRIPT-HOST-SRC-03", "scripts A (plain), B (source line), C (plain): A loads at start, B and C wait "
+                                    "and load in order after the program",
+              ok && before == 1 && loaded && r.size() == 3 && r[0].file == o.scripts[0] &&
+                  r[1].file == o.scripts[1] && r[2].file == o.scripts[2] && g.host->files().size() == 3,
+              g.sink.tail(4));
+    }
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -2883,6 +3150,7 @@ int main() {
     run_group("host_gui", host_gui_rows);
     run_group("static_stop", static_stop_rows);
     run_group("exit", exit_rows);
+    run_group("src", src_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
