@@ -8,7 +8,7 @@ a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (`main.bas:120`); see
 [Source-level debugging](../functions/14-source-level-debugging.md).
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.
-The list and the disassembly gutter stay in sync in both directions.
+The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.
 
 ## Turning breakpoints off without losing them
 
@@ -41,7 +41,7 @@ refresh. Saving a snapshot does not trip one either.
 So you can safely watch an address in a panel and watchpoint it at the same
 time, which is usually what you want to do.
 
-In the disassembly gutter, a suspended breakpoint — individually disabled, or
+In the disassembly gutter and the Source tab's BP column, a suspended breakpoint — individually disabled, or
 any breakpoint while the master switch is off — is drawn as a **hollow red
 ring** instead of a filled red dot. It stays visible, in the same place, so you
 can still see where your breakpoints are; it just does not look armed.

@@ -10,6 +10,7 @@
 #include "debug/disasm.h"
 #include "debug/disasm_text.h"
 #include "debug/events.h"
+#include "debugger/breakpoint_glyph.h"
 
 class QAction;
 class BreakpointModel;
@@ -189,7 +190,7 @@ private:
     int paint_y_offset_ = 0;
 
     // Layout constants
-    static constexpr int GUTTER_WIDTH = 20;   // breakpoint indicator column
+    static constexpr int GUTTER_WIDTH = kBreakpointColumnWidth;   // breakpoint indicator column
     static constexpr int LINE_HEIGHT = 18;    // pixels per line
     int visible_lines() const { return std::max(4, (height() - paint_y_offset_) / LINE_HEIGHT); }
     static constexpr int ADDR_WIDTH = 48;     // address column width

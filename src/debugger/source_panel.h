@@ -1,11 +1,13 @@
 #pragma once
 
+#include <QPointer>
 #include <QWidget>
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
+class BreakpointModel;
 class QLabel;
 class QPlainTextEdit;
 class QPushButton;
@@ -39,6 +41,25 @@ public:
     void set_search_dirs(std::vector<std::string> dirs);
     const std::vector<std::string>& search_dirs() const { return search_dirs_; }
 
+    /// GH #421 - the GUI's breakpoints, which the gutter's BP column draws and
+    /// a click on it edits (the Disassembly's gutter follows the same model).
+    void set_breakpoint_model(BreakpointModel* model);
+
+    /// What the BP column draws on a line of the file shown (one-based).
+    /// `Armed`/`Suspended`: a breakpoint at every place of the line (a disc, a
+    /// ring); `Part*`: at some places only, or only inside the line (its left half).
+    enum class LineMark { None, Armed, Suspended, PartArmed, PartSuspended };
+    LineMark line_mark(int line) const;
+    /// The gutter's hover words for a line: its breakpoint, or why it has none.
+    QString line_tooltip(int line) const;
+    /// The one toggle of a source line (the gutter click; the context menu of
+    /// GH #423 calls it too): removes every breakpoint the line shows, else sets
+    /// ONE group at every place the line compiled to. A line without code adds
+    /// nothing and says so.
+    void toggle_breakpoint_at_line(int line);
+    /// The map's name of the file shown, empty when the tab shows a message.
+    const std::string& shown_file() const { return shown_file_; }
+
     /// What the panel shows right now (for tests and the status line).
     QString location_text() const;
     /// The label's tooltip: the path of the file shown (empty when none is).
@@ -63,6 +84,11 @@ signals:
     void source_dir_save_requested(const QString& dir);
 
 private:
+    void refresh_();
+    void update_gutter();
+    /// Everything the BP column derives for one line (see source_panel.cpp).
+    struct LineState;
+    LineState line_state(int line) const;
     QString resolve_source_file(const std::string& source_name) const;
     /// Locate File...: ask for the file the map names and derive the directory to search.
     void locate_file();
@@ -82,6 +108,8 @@ private:
     QPushButton* back_btn_ = nullptr;
     QPushButton* reverse_btn_ = nullptr;
     QPushButton* locate_btn_ = nullptr;
+    QPointer<BreakpointModel> bp_model_;
+    std::string shown_file_;
     std::vector<std::string> search_dirs_;
     std::string unresolved_name_;
     QString loaded_source_;

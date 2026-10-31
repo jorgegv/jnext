@@ -3672,7 +3672,7 @@ a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (<code>main.bas:120</code>); see
 <a href="../functions/14-source-level-debugging.html">Source-level debugging</a>.
 <strong>Add</strong>, <strong>Edit</strong> and <strong>Remove</strong> manage them; double-clicking a row edits it.
-The list and the disassembly gutter stay in sync in both directions.</p>
+The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.</p>
 <h2 id="turning-breakpoints-off-without-losing-them">Turning breakpoints off without losing them<a class="headerlink" href="#turning-breakpoints-off-without-losing-them" title="Permanent link">&para;</a></h2>
 <p>Deleting a breakpoint to get past it, and typing the address back in
 afterwards, is the thing this panel exists to stop.</p>
@@ -3699,7 +3699,7 @@ stack — is not an access and never stops the machine, however often the panels
 refresh. Saving a snapshot does not trip one either.</p>
 <p>So you can safely watch an address in a panel and watchpoint it at the same
 time, which is usually what you want to do.</p>
-<p>In the disassembly gutter, a suspended breakpoint — individually disabled, or
+<p>In the disassembly gutter and the Source tab's BP column, a suspended breakpoint — individually disabled, or
 any breakpoint while the master switch is off — is drawn as a <strong>hollow red
 ring</strong> instead of a filled red dot. It stays visible, in the same place, so you
 can still see where your breakpoints are; it just does not look armed.</p>

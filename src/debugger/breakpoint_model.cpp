@@ -172,7 +172,7 @@ void BreakpointModel::publish_() {
                 if (r.addr < g->addr) {
                     g->addr      = r.addr;
                     g->space     = r.space;
-                    g->addr_text = QString::asprintf("$%04X", r.addr) + space_suffix(r.space);
+                    g->addr_text = address_text(r.addr, r.space);
                 }
                 seen.push_back(Seen{si.id, si.kind, si.enabled, si.live});
                 continue;
@@ -181,7 +181,7 @@ void BreakpointModel::publish_() {
         }
         if (r.type >= 0) {
             r.type_text = QString::fromLatin1(kTypeNames[r.type]);
-            r.addr_text = QString::asprintf("$%04X", r.addr) + space_suffix(r.space);
+            r.addr_text = address_text(r.addr, r.space);
         } else {
             r.type_text = kind_text(si);
             if (port)
@@ -317,6 +317,17 @@ bool BreakpointModel::pc_marked_live(uint16_t addr, jnext::dbg::MemSpace space) 
     const Member* any = find_own_(Execute, addr);
     const Member* on  = find_own_(Execute, addr, space);
     return (any && any->live) || (on && on->live);
+}
+
+std::vector<BreakpointModel::PcBreakpoint> BreakpointModel::pc_breakpoints() const {
+    std::vector<PcBreakpoint> out;
+    for (const Member& m : members_)
+        if (m.type == Execute) out.push_back(PcBreakpoint{m.addr, m.space, m.live});
+    return out;
+}
+
+QString BreakpointModel::address_text(uint16_t addr, jnext::dbg::MemSpace space) {
+    return QString::asprintf("$%04X", addr) + space_suffix(space);
 }
 
 bool BreakpointModel::master_enabled() const { return dbg_.master_enabled(); }
