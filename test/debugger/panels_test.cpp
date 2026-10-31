@@ -3467,6 +3467,226 @@ static void test_script_panel() {
     }
 }
 
+
+// ===========================================================================
+// QLADDR -- GH #360 (E23-22): which memory backs an address, in every view. The
+// spellings are the formatter's (debug/long_address.h); the expectations are the
+// VHDL's layout (zxnext.vhd:2964 page + 0x20, :6558-6578 the bank-5 BRAM,
+// divmmc.vhd:94-96, :1856 the boot ROM) -- the same oracle as LADDR-04..16.
+// ===========================================================================
+/// The painted text item right after the first item equal to `label`, `skip` items on.
+static QString after_label(const std::vector<PaintedText>& items, const QString& label, int skip = 1) {
+    for (size_t i = 0; i < items.size(); ++i)
+        if (items[i].text == label && i + skip < items.size()) return items[i + skip].text;
+    return QStringLiteral("<no item>");
+}
+static double x_of(const std::vector<PaintedText>& items, const QString& text) {
+    for (const auto& it : items)
+        if (it.text == text) return it.pos.x();
+    return -1;
+}
+static QTableWidget* table_of(QWidget* w) { return w->findChild<QTableWidget*>(); }
+
+static void test_long_address() {
+    set_group("QLADDR");
+    using jnext::dbg::AddressStyle;
+
+    // A Next at a DivMMC instant entry (the source_debug_test fixture): PC = $0000, the M1
+    // there is DivMMC's (divmmc.vhd:147), while a READ of $0000 is still RAM page 10.
+    auto instant = [](Emulator& emu) {
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.nextreg().write(0x50, 10);
+        emu.nextreg().write(0x0A, 0x10);   // automap enable
+        emu.nextreg().write(0xB8, 0x01);
+        emu.nextreg().write(0xB9, 0x01);
+        emu.nextreg().write(0xBA, 0x01);   // instant entry at $0000
+        emu.divmmc().rom_data()[0] = 0x3C;  // INC A
+        emu.divmmc().rom_data()[1] = 0xC9;
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x0000;
+        emu.cpu().set_registers(r);
+        return built;
+    };
+
+    {   // QLADDR-01
+        Emulator emu;
+        const bool built = instant(emu);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.activate_follow_pc();
+        dis.refresh();
+        const auto pc_items = painted(&dis);
+        const QString pc_mem = after_label(pc_items, "$0000"), pc_bytes = after_label(pc_items, "$0000", 2),
+                      pc_mn = after_label(pc_items, "$0000", 3);
+        poke(emu, 0x8000, {0x00});
+        view_disasm_at(&dis, 0x8000);
+        const auto hi_items = painted(&dis);
+        const QString hi_mem = after_label(hi_items, "$8000");
+        check("QLADDR-01",
+              "Disassembly: the PC line at a DivMMC instant entry paints $0000, DIVROM (the fetch "
+              "prediction), 3C and INC A; a line at $8000 paints P04, slot 4's page (the data view)",
+              built && dbg.source_page(0x0000) == jnext::dbg::MemSpace::divmmc_rom() && pc_mem == "DIVROM" &&
+                  pc_bytes == "3C" && pc_mn == "INC A" && hi_mem == "P04",
+              s(pc_mem) + "|" + s(pc_bytes) + "|" + s(pc_mn) + "|" + s(hi_mem));
+    }
+
+    {   // QLADDR-02
+        Emulator emu;
+        const bool built = instant(emu);
+        emu.nextreg().write(0x56, 0x0E);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.activate_follow_pc();
+        dis.refresh();
+        const auto friendly = painted(&dis);
+        dis.set_address_style(AddressStyle::Physical);
+        dis.refresh();
+        const auto phys = painted(&dis);
+        const QString pc_phys = after_label(phys, "$0000");
+        view_disasm_at(&dis, 0xC000);
+        const QString c000 = after_label(painted(&dis), "$C000");
+        // The mnemonic column sits ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH (48 + 96 + 100) right of the
+        // address; the friendly and the physical paint put it at the same x.
+        const double ax = x_of(friendly, "$0000"), mx = x_of(friendly, "INC A");
+        const bool moved = mx - ax == 48 + 96 + 100 && x_of(phys, "INC A") == mx && x_of(phys, "$0000") == ax;
+        const bool fits = QFontMetrics(QFont("Monospace", 10)).horizontalAdvance("BRAM7+$1FFF") <= 96;
+        check("QLADDR-02",
+              "Physical style: the PC line reads $010000 (DivMMC ROM), a $C000 line over page 0x0E "
+              "reads BRAM7+$0000; the mnemonic column is MEM_WIDTH further right and the same in "
+              "both styles; the widest text fits the column",
+              built && pc_phys == "$010000" && c000 == "BRAM7+$0000" && moved && fits,
+              s(pc_phys) + "|" + s(c000) + fmt(" ax=%.0f mx=%.0f", ax, mx));
+    }
+
+    {   // QLADDR-03
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        jnext::dbg::Debugger dbg(emu);
+        emu.port().out(0x00E3, 0x85);   // conmem, bank 5
+        MmuPanel panel(&dbg);
+        panel.refresh();
+        auto mem = [&](int sl) { return text_of(grid_value(&panel, "Memory", sl + 1, 0)); };
+        auto page = [&](int sl) { return text_of(grid_value(&panel, "Page", sl + 1, 0)); };
+        auto type = [&](int sl) { return text_of(grid_value(&panel, "Type", sl + 1, 0)); };
+        const bool friendly = mem(0) == "DIVROM" && mem(1) == "DIVRAM5" && mem(2) == "P0A";
+        // The Page and Type columns are the slots' own, overlay or not.
+        const bool own = page(2) == "0A" && type(2) == "B5" && type(0) == "ROM";
+        panel.set_address_style(AddressStyle::Physical);
+        panel.refresh();
+        const bool phys = mem(0) == "$010000" && mem(1) == "$02A000" && mem(2) == "BRAM5+$0000";
+        check("QLADDR-03",
+              "MMU panel: a Memory column naming what each slot reads now: DivMMC conmem bank 5 gives "
+              "DIVROM, DIVRAM5 for slots 0/1 and P0A for slot 2 (physical $010000, $02A000, BRAM5+$0000); "
+              "the Page and Type columns are unchanged",
+              built && friendly && own && phys,
+              s(mem(0)) + "|" + s(mem(1)) + "|" + s(mem(2)) + "|" + s(page(2)) + "|" + s(type(2)));
+    }
+
+    {   // QLADDR-04
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        jnext::dbg::Debugger dbg(emu);
+        MemoryPanel mem(&dbg);
+        mem.resize(760, 600);
+        mem.refresh();
+        // The tag is the item right after the row's "|...|" ASCII item (label + 18).
+        const QString rom0 = after_label(painted(&mem), "$0010", 18);
+        emu.port().out(0x00E3, 0x80);   // conmem
+        mem.refresh();
+        const QString div = after_label(painted(&mem), "$0010", 18);
+        emu.port().out(0x00E3, 0x00);
+        go_to(&mem, "4000");
+        const auto items = painted(&mem);
+        const QString p0a = after_label(items, "$4000", 18);
+        mem.set_address_style(AddressStyle::Physical);
+        mem.refresh();
+        const QString bram = after_label(painted(&mem), "$4000", 18);
+        auto* combo = mem.findChild<QComboBox*>();
+        mem.set_address_style(AddressStyle::Friendly);
+        select_view(&mem, 1);   // Slot 0
+        mem.refresh();
+        const QString slot0 = after_label(painted(&mem), "$0010", 18);
+        const QString sel = combo ? combo->itemText(1) : QString();
+        check("QLADDR-04",
+              "Memory panel: every row ends with the memory tag after the ASCII item: CPU view $0010 "
+              "ROM0 without DivMMC and DIVROM under conmem, $4000 P0A (BRAM5+$0000 physical); the Slot 0 "
+              "view ROM0 and its selector reads Slot 0 (ROM0)",
+              built && rom0 == "ROM0" && div == "DIVROM" && p0a == "P0A" && bram == "BRAM5+$0000" &&
+                  slot0 == "ROM0" && sel == "Slot 0 (ROM0)",
+              s(rom0) + "|" + s(div) + "|" + s(p0a) + "|" + s(bram) + "|" + s(slot0) + "|" + s(sel));
+    }
+
+    {   // QLADDR-05
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x00);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        wp.add_watch(0xC000, "w", 0);
+        wp.refresh();
+        const QString before = wcell(&wp, 0, 4);
+        emu.nextreg().write(0x56, 0x14);
+        wp.refresh();
+        const QString after = wcell(&wp, 0, 4);
+        check("QLADDR-05",
+              "Watches: a Memory column live to the slot's page: a watch at $C000 shows P00, and P14 after "
+              "NR 0x56 = 0x14 and a refresh; the Address cell still reads $C000",
+              built && before == "P00" && after == "P14" && wcell(&wp, 0, 0) == "$C000",
+              s(before) + "|" + s(after) + "|" + s(wcell(&wp, 0, 0)));
+    }
+
+    {   // QLADDR-06
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.mmu().set_boot_rom_enabled(false);
+        Z80Registers r = emu.cpu().get_registers();
+        r.SP = 0xFF00;
+        emu.cpu().set_registers(r);
+        jnext::dbg::Debugger dbg(emu);
+        StackPanel panel(&dbg);
+        panel.set_paused(true);
+        panel.refresh();
+        QTableWidget* t = table_of(&panel);
+        const QString friendly = t && t->item(0, 4) ? t->item(0, 4)->text() : QString("<none>");
+        panel.set_address_style(AddressStyle::Physical);
+        panel.refresh();
+        const QString phys = t && t->item(0, 4) ? t->item(0, 4)->text() : QString("<none>");
+        check("QLADDR-06",
+              "Stack: SP $FF00 rows show Memory P01 (slot 7's page), physical $043F00",
+              built && t && t->columnCount() == 5 && friendly == "P01" && phys == "$043F00",
+              s(friendly) + "|" + s(phys));
+    }
+
+    {   // QLADDR-07
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.set_address_style(AddressStyle::Physical);
+        dis.activate_follow_pc();
+        dis.refresh();
+        MmuPanel mmu(&dbg);
+        mmu.set_address_style(AddressStyle::Physical);
+        mmu.refresh();
+        const QString d = after_label(painted(&dis), "$0000");
+        const QString m = text_of(grid_value(&mmu, "Memory", 5, 0));
+        check("QLADDR-07",
+              "A 48K machine has no Next memory layout: the physical style shows the friendly tags "
+              "(Disassembly ROM0 at $0000, MMU slot 4 P04)",
+              built && d == "ROM0" && m == "P04", s(d) + "|" + s(m));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -3495,6 +3715,7 @@ int main(int argc, char** argv) {
     test_disasm_latch();
     test_coverage_panels();
     test_script_panel();
+    test_long_address();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
