@@ -151,6 +151,10 @@ resolves as `@name` but never names an address in the disassembly. A name the
 MAP defines twice takes its first definition, and a name that is both a label
 and a constant is the label.
 
+A z88dk C variable or function answers to its C name: `@counter` for `_counter`
+(see [Symbols from MAP files](../functions/05-symbols-from-z88dk-map-files.md)).
+A label or constant really named `counter` wins over it.
+
 A z88dk symbol of a `BANK_n` or `PAGE_n` section is its 16-bit address in the
 page window, even when the map writes it with the page in the top byte
 (`$14E000` is `$E000` as `@name`). `on execute @name` fires at that address

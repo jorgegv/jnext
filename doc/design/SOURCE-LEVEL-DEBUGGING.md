@@ -240,6 +240,22 @@ The `-debug` map once broke jnext's symbol loader (the C-line markers named the 
 labels). #352 fixed it in v1.1.45: `load_z88dk_map` skips `__C_LINE_`, `__ASM_LINE_` and
 `__CDBINFO__`.
 
+**Listing facts (GH #348, evidence in `test/fixtures/z88dk`).**
+
+- F9. z80asm keeps the LAST `MODULE`: the classic CRT listing has zcc's `MODULE zxn_crt0_asm` and then
+  `MODULE zxn_crt0`, and the map names `zxn_crt0`.
+- F10. A false `IF` branch is listed exactly like a taken one, with its text and line number, only without
+  bytes; the listing does not say which branch was assembled.
+- F11. MACRO bodies are listed once, at their definition (`MACRO name`, `name MACRO`, `name: MACRO`, to `ENDM`).
+  A macro invocation row carries all the bytes the expansion emitted, even those that went to another section;
+  REPT bytes sit on the `ENDR` row.
+- F12. A section piece's listed addresses start at 0 and are continuous; ORG does not change them, ALIGN and DEFS
+  list their fill bytes.
+- F13. With MACRO bodies skipped and the last MODULE used, the classic CRT places exactly (47 rows, every
+  instruction's first byte equal to the binary); the start-up code is in the default section.
+- F14. Line 0 is z80asm's file-entry marker (`C_LINE 0,"<file>::<func>::0::1"` after an `#include` following a
+  function), never a source line.
+
 ### 2.4 sjasmplus EQU files
 
 `--sym=FILE` writes the whole symbol table and `--exp=FILE` only the `EXPORT` labels, one
@@ -292,7 +308,7 @@ scripts) sees the same source map and symbols.
 | `Memory.txt` | NextBuild symbols | `SymbolTable` | done |
 | `prog.map` (`-m`) | z88dk map symbols | `SymbolTable` | done (#352) |
 | `prog.map` (`-m -debug`) | z88dk debug map | `SourceMap`, `SymbolTable` | done (E23-13 (#344)) |
-| `*.lis` and `prog.map` | z88dk listings | `SourceMap` | E23-17 (#348) |
+| `*.lis` and `prog.map` | z88dk listings | `SourceMap` | done (E23-17 (#348)) |
 | `prog_<GROUP>.bin` | program identity | `SourceMap` | done (E23-13 (#344)) |
 | `--sym` / `--exp` files | EQU symbols | `SymbolTable` | #390 |
 | `.cdb` / `.adb` | none: z88dk writes no such file; the same records are the map's `__CDBINFO__` | `SourceMap` | E23-20 (#350), 9.6 |
@@ -359,7 +375,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
-| z88dk | DONE (E23-13 (#344), stages 1 to 3): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs attach at once and are judged per space where the CPU first runs them (6.2, stage 3) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
+| z88dk | DONE (E23-13 (#344), stages 1 to 3; the `--list` listings E23-17 (#348)): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs attach at once and are judged per space where the CPU first runs them (6.2, stage 3) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | DONE (E23-23 (#375) stages 1 to 3): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages (stage 3): `z88dk_section_space()` places each symbol, rule-4 symbols are bound by `SymbolTable::bind()` | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
@@ -461,10 +477,17 @@ Layer 2 3100, alternate ROM 3116.
 The VHDL arbiter takes the access direction as an input (`zxnext.vhd:3077`: the Layer 2
 mapping uses its read enable on a read and its write enable on a write; `3078`: the
 alternate-ROM decode). So any later write-side identity (E23-25) comes from the same function,
-given the direction, never from a second copy of the order. `write_landed()` keeps its own
-cascade for now, because write arbitration has other rules (read-only slots, the Layer 2 write
-enable, the alt-ROM write-over). If inlining misses the bench threshold (4.7), the fallback
-goes to the owner, never to a second arbiter.
+given the direction, never from a second copy of the order. As built (E23-25 (#388)):
+`route_bits_<Live, Write>()` takes the direction at compile time, `Mmu::write_route(addr)` is the
+public form, and `write_landed()` is that route followed by a store by the space's kind, so
+`git grep` finds the priority order in `route_bits_()` only. The write direction differs
+exactly where the VHDL does: no boot-ROM arm (`1856`, the `cpu_di` mux), the Layer 2 write
+enable (`3077`), the alt ROM only with en+rw (`3078`, `3056`), and a write lands only where
+`sram_rdonly` is clear (`3154`): the Multiface ROM half (`3035`), the DivMMC ROM and read-only
+RAM (`3089`, `3097`, `divmmc.vhd:100`, which `DivMmc::Overlay::rdonly` now carries for both
+`DivMmc::write()` and the route) and a ROM or unmapped slot are dropped (`ptr == nullptr`, the
+space still named). If inlining misses the bench threshold (4.7), the fallback goes to the
+owner, never to a second arbiter.
 
 `read()` is the route followed by ONE side-effect tail, `finish_read_()`, for every source: the
 +3 floating-bus latch on every contended access (`zxnext.vhd:4498-4509` latches whatever
@@ -695,6 +718,40 @@ throughput A/B (9 runs each) gave best-of-9 differences of -1.9% to +5.0% tstate
 the four unarmed workloads, which is the noise of that host; the medians swung up to 25% between two runs of
 the same code.
 
+**Memory coverage (E23-25 (#388)).** Off must cost nothing measurable; the gate is the interleaved A/B of
+`test/bench/ab-hotlatch.sh` with `AB_SET=coverage` (B = the epic tip 3a4dbb3da, U = this branch with
+nothing armed, V = `--coverage`; 5 pairs, five workloads, one pinned core, run on a quiet host with
+the SMT sibling idle; commit `ac12b723b`, result `test/bench/coverage-ac12b723b.txt`), plus `perf stat -e
+instructions:u,cycles:u` on the same core. The owner accepted the PGO A/B as the gate. Median tstates/s on the
+shipped PGO build (`make gui-release`, each tree trained on its own profile):
+
+| workload | B | U (off) | V (`--coverage`) | U vs B | V vs B |
+|---|---|---|---|---|---|
+| boot-48k | 89,852,692 | 89,736,366 | 83,005,444 | -0.1% | -7.6% |
+| boot-nextzxos | 227,943,656 | 227,673,265 | 210,791,154 | -0.1% | -7.5% |
+| copper-demo | 98,383,048 | 97,986,997 | 94,847,384 | -0.4% | -3.6% |
+| beast | 92,408,246 | 91,850,012 | 89,654,608 | -0.6% | -3.0% |
+| bifrost | 84,614,016 | 84,277,878 | 80,273,863 | -0.4% | -5.1% |
+
+(copper-demo's B spread is VOID, 39.6%: the first run of every copper-demo series is a cold-start outlier, seen
+on the base tree alone three times; the other four workloads have spreads of at most 4.2%.) Counted on the same
+PGO builds: `instructions:u` U vs B -0.03% (48k, 600 frames), +0.06% (next, 400), -0.07% (bifrost); `cycles:u`
++0.30%, -0.51%, -0.61%. With `--coverage` on, V costs a further 3-8% in throughput (+4.6% to +10.0% instructions).
+So in the shipped build **off costs nothing measurable**. The first design (hooks fed from the route) cost +0.58% and
++0.76% in `instructions:u`; re-deriving the route out of line in the cold hook brought that to +0.06% and +0.08%.
+
+The non-PGO development build (`gui-release-non-pgo`) is different and is stated plainly: at the same instruction counts
+(+0.06%, +0.12%, +0.02%) U takes **+5% to +7% more cycles on boot-48k and bifrost and about +1.5% on beast** than B
+(min-of-7 `cycles:u`, B 3.007G / 2.912G / 18.46G cycles; U +4.9% / +5.5% / +1.4%), and +0.1% on boot-nextzxos. Counters
+exclude store-to-load forwarding, 4K aliasing or misalignment, mispredicts and instruction-cache or D-TLB misses
+(all equal or better in U); what grows is frontend starvation (`no_ops_from_frontend` +17%) and L2-BTB corrections
+(`bp_l2_btb_correct` +78%), spread over functions this change did not edit (`render_row`, `AyChip::tick`,
+`tick_devices_after_instruction`) as well as `Mmu::read_m1` (+99 of 1,074 extra samples). Three code-padding variants
+(16, 48, 112 bytes inside the never-hot cold hook) all stay at +5% to +7%, so the gap is not a one-off alignment. We attribute it to code
+placement in the non-PGO LTO link (the function order is the linker's; PGO orders by hotness), **not proven**.
+That is why the gate is the PGO build, and why a non-PGO A/B on this tree reads 5% slower on the 48K workloads
+whatever the instruction count says.
+
 ## 5. The source map and the backend API
 
 ### 5.1 The store (D2)
@@ -706,6 +763,9 @@ the same code.
 - `by_line`: (file, line) to range indices (several, disjoint). `aliases`: (file, line) to a
   range, for the zero-width lines of G3.
 - An optional program identity (9.7).
+- `texts`: source files the toolchain did not keep, taken from a listing (`SourceMap::embedded_text()`, keyed by
+  the normalised name; GH #348): the m4 output of z88dk's start-up code, shown by the Source tab labelled
+  `(m4 output, from prog.lis)`.
 
 `lookup(space, addr)` returns every range that contains `addr` in `space`. The primary
 location is the shortest range; on a tie the record the adapter emitted last wins. The z88dk
@@ -1049,7 +1109,10 @@ An adapter turns one file format into the neutral stores and nothing else. It em
 - symbols (section 10).
 
 It **parses the whole input and fails with a reason before replacing a store.** For a source
-half that is strict: any malformed record refuses the half, and the reason names the line. The
+half that is strict: any malformed record refuses the half, and the reason names the line. The one
+exception is a z88dk `--list` listing (9.5): a listing found beside the map that is malformed, is
+not this build's or does not hold up against the map or the section binaries drops that listing
+alone, with a note naming the file, never the half; its module keeps the map's records. The
 symbol-only loaders keep the MAP rule: a file that cannot be opened, is not a regular file or
 is over the size cap is refused with a reason, and inside a readable file a line that does not
 parse as a symbol is skipped, not fatal (real z88dk maps carry lines of every kind: `; const`
@@ -1166,15 +1229,28 @@ flags per compiler and z88dk version, and the G4, G5 and G7 limits) from E23-13 
 
 ### 9.5 z88dk `.lis` and map (E23-17 (#348))
 
-Relocation is per (module, section piece): offset = map(label) - lis(label), re-anchored at
-each label (DeZog's `z88dkMapOffset`). Then every instruction is a range of its byte length.
-The line source is, for sccz80, `C_LINE`; for sdcc, the `;file:line:` comments, every
-occurrence, so line 18 gets both of its ranges; for an asm file, its own line numbers. The
-space comes from the `SECTION` line by 9.4's rules. There is one `.lis` per source (z88dk
-writes `main.c.lis`, `util.c.lis`), found beside the map or by a glob. With a `-debug` map
-present, its C lines are cross-checked against the listing and the listing wins, because it is
-exact and has every occurrence: the reverse of DeZog, which takes its C lines from the map.
-The listing is the only per-line asm source and the only sdcc line source on 2.4 (G6, G12).
+As built (`src/debug/z88dk_lis.*`, `z88dk_source_map.cpp`). The listings beside the map are `<map
+stem>.lis` (the start-up code) and `<file>.lis` for every file the map's module symbols name. Each is
+interpreted on its own, and a listing that does not hold up is dropped alone, with a note naming it: its
+module keeps the map's records (never the half). The listing wins over the map for a module it covers, the
+reverse of DeZog; the map's line records are cross-checked against it under z80asm's first-occurrence rules and
+a disagreement is a warning.
+
+- B1. The listing's module is its LAST `MODULE` line outside MACRO bodies.
+- B2. MACRO definition bodies (three forms, nesting counted, text before a `;` only) are skipped.
+- B3. An invoked macro whose body, transitively, switches section (SECTION, PHASE, DEPHASE) drops the listing.
+- B4. A REPT body that does the same drops the listing; otherwise the `ENDR` row is an ordinary byte row.
+- B5. False IF branches are not modelled (F10): their directives are obeyed.
+- B6. Continuity guard: a byte row outside PHASE whose listed address is not its section's pc (an unseen section
+  starts at 0) drops the whole listing, with the line, the section and both addresses.
+- B7. The default section is an ordinary section (anchored by the map's symbols in it, placed by 9.4's rule 4).
+- B8. A map line record of line 0 is "no code" (the map half and the cross-check); a C_LINE marker of line 0
+  attributes nothing.
+
+Relocation is one offset per (module, section piece), from the labels whose map symbol is defined at that very
+line; all must agree, and a label-less piece that is its section's whole content starts at `__<s>_head`. Every
+byte row is a range of its length, capped at its 8K page. The line source is `C_LINE` when the listing has it, the
+`;file:line:` comments for a C module otherwise (sdcc 2.4), z80asm's own file and line for assembly.
 
 ### 9.6 `.cdb` / `.adb` (E23-20 (#350), OD-2)
 
@@ -1216,8 +1292,13 @@ dir; on master only a temporary one in `$TMPDIR` that zcc deletes):
   `read_space`. Beside a tape the same bytes are judged later, one memory space at a time
   (`SourceMap::verify_spans()`, `verify_unit()`: the spans of a space are its byte checks
   merged), the first time the CPU is about to run inside it (6.2).
-- The `.lis` bytes are a secondary check only: references to other modules are unrelocated in
-  a listing (`cd0000`), so they verify only the bytes the listing marks as final.
+- The `.lis` bytes are a check on the listing, not an identity of the program. References to
+  other modules are unrelocated in a listing (`cd0000`), so only the FIRST byte of an
+  instruction whose first token is a Z80 or Z80N mnemonic is compared with the section binary
+  covering its address (operands are not). A mismatch drops that listing (9.1, 9.5), with a
+  note naming the line, the address and both bytes; the listing marks no byte as final. The
+  ranges a used listing supplies then get the same byte checks as the map's own (the binary's
+  bytes, above).
 
 ### 9.8 Symbol adapters and pages
 
@@ -1271,7 +1352,8 @@ The disassembly asks with each line's identity (the PC line predicted, other lin
 space that supplies it now. A paged name gives its space to a consumer that can carry one (an
 Execute breakpoint or `on execute @name` stops only in that space, as a source-line breakpoint
 does); a consumer that cannot gets the 16-bit address (4.6's rule). The verbs' signatures, the
-UI, and the rule for a name already used at another key are E23-24's.
+UI, and the rule for a name already used at another key are E23-24's. After both layers, the
+toolchain layer's by-name read also answers to the C name of a z88dk C symbol (10.6).
 
 ### 10.4 Page rules per adapter
 
@@ -1314,6 +1396,42 @@ UI, and the rule for a name already used at another key are E23-24's.
 - Opened and saved by the user (a menu action); never attached automatically beside a program;
   not part of `.jns`.
 
+### 10.6 C names (E23-31, #424)
+
+z88dk's compilers write every C identifier with a leading `_` (sccz80 `Z80ASM_PREFIX`; sdcc and 80cc
+the same), so the map lists `_counter` for `int counter;`. The user types and reads `counter`.
+
+- **Which symbols (D1).** A `; addr` symbol that was placed, whose name is `_` followed by a
+  character other than `_`, and whose module ends in `_c`. zcc heads every file it assembles with
+  `MODULE <file name, non-alphanumerics to _>` (`zcc.c`), so a `.c` file is `<file>_c` and an `.asm`
+  file `<file>_asm`; every fixture, compiler and install agrees, with or without `-debug`. Constants,
+  `__x`, module-less lines and other modules are not C. Rejected: every `_x` (it would rename
+  C-callable asm such as `_asm_bump`, the library's `_memset`, an asm program's own `_loop`), the
+  location field (it varies by compiler and flags), the CDB records alone (absent without `-debug`).
+  Known limit: C compiled from `.c.m4` or `.i` has another module name and keeps its assembler names
+  (they still resolve). The owner may prefer that asm functions callable from C also answer to `x`.
+- **Where (D8).** `SymbolTable` marks each C label (`SymbolLabel::c_symbol`) and keeps the key of the
+  first C symbol of each C name (`c_name_to_key_`, filled by the one z88dk reader, so the sidecar, Load
+  MAP and `--map` all get it). The rule is per SYMBOL, not per assembler name: a C `_dup` and an asm
+  `_dup` are two symbols, and `dup` is the C one in either file order. `find_name()` falls back to
+  `c_name_to_key_` after every exact name and constant; `lookup()`/`nearest()` show a C label's C name.
+  No panel has code of its own, except the Disassembly copy and the watch label.
+- **Same C name twice.** Two C modules with a local `_inc`: `inc` resolves to the first (file order, as
+  every name); the second shows its assembler name `_inc`, so a shown C name always resolves to the symbol
+  it labels. (`_inc` itself is the first one's, as before: equal assembler names cannot be told apart.)
+- **Ambiguity (D2).** An exact name always wins, in any load or merge order. A C symbol whose C name
+  belongs to something else (a label, an alias, a constant, an earlier C symbol) is shown by its
+  assembler name, so every shown C name resolves to the symbol it labels. Storing the C names as aliases was rejected: the map is sorted by name, `_counter` comes
+  before `counter`, and first-wins would let the alias beat the real symbol.
+- **Copy (D4).** The Disassembly copy writes the assembler name (`lookup_assembler()`, through
+  `symbol_namer(..., true)`): the user guide promises that a copy assembles, and z88dk's assembler knows
+  `_counter`, not `counter`. The painter and the context menu show the C name.
+- **Views (D3, D5).** Only the C name is shown (as `Memory.txt` does for Boriel); an auto-filled watch
+  label is the shown name.
+- **Not touched (D7).** SLD, sjasmplus `--sym`/`--exp`, simple maps and `Memory.txt`. A reader of the
+  map's `__CDBINFO__` records (#353) should reuse `SymbolLabel::c_symbol` and `c_name_to_key_`: its
+  records give the C names directly. (#350 is closed: z88dk writes no `.cdb`/`.adb`; see 9.6.)
+
 ## 11. Coverage and reverse-engineering interop
 
 ### 11.1 Coverage (E23-25 (#388)): opt-in and benchmarked
@@ -1323,9 +1441,51 @@ Coverage is off by default. When on, it records executed, read and written bytes
 identity (E23-08); the read and write sides from the same arbiter, given the access direction
 (4.2). It is shown in the disassembly and memory panels, with clear and reset, and it is
 E23-26's automatic code/data map. Off must cost nothing measurable; off and on are measured with
-`make bench` (non-PGO, A/B, quiet host) and the numbers are recorded in the sub-issue. E23-25
+the interleaved A/B `AB_SET=coverage` (PGO build is the gate, owner decision 2026-10-31; the numbers and the non-PGO
+finding are in 4.7). E23-25
 decides and pins the rewind rule (no double count), and whether INS-20's logical bitset stays
 beside it.
+
+**As built (E23-25 (#388)).**
+
+- *What is recorded.* One byte of flags per byte per space (`dbg::MemCoverage`, lazily allocated
+  8 KB chunks keyed by kind, index and half; at most 6 MB when every space is touched, and 246
+  spaces, about 2 MB plus the 64 KB chunk table, after 500 frames of a NextZXOS boot, which writes
+  across nearly every RAM page): X is the
+  first opcode byte of an executed instruction (set by `read_m1()` from the route it stores as
+  `last_m1_`; a prefix's inner M1, an accepted INT or NMI and a serviced esxdos shim mark
+  nothing), R every other memory read, operands and the DMA's included, and W a write that
+  landed. A `Floating` route is not memory and a dropped write marks nothing. Only guest accesses
+  count, exactly what a watchpoint can see (inside `GuestExecutionScope`, outside
+  `InspectionScope`): the CPU, the DMA and the esxdos shim's own stores; never video (it reads
+  the BRAM and SRAM through other ports, `zxnext.vhd:6558-6575`, `1666`), the Copper, `peek`,
+  `poke`, the trace and call-stack captures, or a loader.
+- *Cost off.* `DebugState::mem_gate_live()` is `wp_live || mem_cov_live`, one cached bool
+  replacing `watchpoints_live()` as the first test of the Mmu's read and write sites, so with no
+  client the hot path is the load and branch it was; behind it the coverage sink pointer is
+  tested before the watchpoint mask. `watchpoints_live()` is unchanged for the port sites. The
+  coverage hook re-derives its route out of line (`Mmu::cov_note_`), so the hot read and write sites
+  compute no space or offset they do not use. Measured result in 4.7: no measurable cost in the
+  shipped (PGO) build; the owner accepted that A/B as the gate (2026-10-31).
+- *The rewind rule.* Coverage is a set of what this session's machine did, backend state beside
+  INS-20's (the sink is re-published at the one re-application and retired by `~Debugger()`): a
+  rewind neither removes nor adds a mark, a replay sets the same bits again (no double count by
+  construction), and a reset, a state load and a cold boot keep it. Only Clear and switching off
+  empty it. It is not in the rewind ring or a `.jns`, so the format is unchanged.
+- *INS-20 stays.* The logical-PC set is returned by ZRCP `cpu-code-coverage` (the ZEsarUX
+  contract DeZog reads) and the logical address a page ran at cannot be rebuilt from a physical
+  byte; a shared switch would make ZRCP users pay for the read and write hooks. INS-21-15
+  cross-checks the two on a fixed mapping.
+- *What E23-26 (#389) gets.* `mem_coverage_spaces()` and a dense `mem_coverage(space, 0, size)`
+  per space (8 KB, or 16 KB for `Rom`, `AltRom`, `Config`; `space_offset()` maps a logical
+  address). X marks instruction starts, which is skoolkit's code map and DeZog's and ZEsarUX's
+  coverage; an R byte inside an executed instruction's extent (`opcode_len` at each X) is an
+  operand, so #389 classifies code and data itself.
+- *Surface.* Debug ▸ Coverage, `--coverage` (a debugger session toggle like `--trace`: no
+  Preferences field), the Disassembly bar (X only, by the fetch view), the Memory panel's
+  X | R | W underline with a legend, and the Source tab's tint of the lines
+  `executed_source_lines()` returns (X only: R and W have no per-line meaning). No DZRP, ZRCP,
+  GDB or DSL verb: the C++ backend API is what #389 consumes.
 
 ### 11.2 skoolkit and ghidra (E23-26 (#389)): how a page identity maps into each format
 
@@ -1376,6 +1536,8 @@ assembles again.
   shows as unmapped there; labels behave the same (10.1). Producing records for the copy is the
   build's job (an SLD for the copy's `DISP`). The SLD binary identity likewise covers only
   `org..org+size`.
+- The z88dk start-up code's text is shown only when the build kept `prog.lis` (`--list`); without it the Source tab
+  says the m4 output is not available.
 - Toolchain mis-attributions (G4 on 2.4, master sdcc's `util.h:9`, G7) are shown as the
   toolchain wrote them, with the primary line and the "also" list (OD-7), and documented in the
   user guide.
@@ -1423,6 +1585,13 @@ return now ends the RST frame; owner-approved 2026-10-30).
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).
 
+E23-25 (#388) added FSRC-17 to FSRC-19 and MCOV-01 to MCOV-07 (`mmu_test`, `mmu_integration_test`:
+the write route against the memory map for all 64 KB of 17 configurations with no stray write in
+any store, the offsets, and the hook per arm, direction, scope and gate), INS-21-01 to INS-21-16
+and HOST-COV-01 (`debugger_backend_test`), SRCDBG-COV-01/02 (`source_debug_test`), CLI-COV-01
+(`cli_options_test`) and QCOV-01 to QCOV-07 (`debugger_menu_test`, `debugger_panels_test`,
+`debugger_source_panel_test`).
+
 E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug_test`: the live gate,
 the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group
 verbs), SRCBP-05 (`dzrp_adapter_test`: the legacy qualifier through `CMD_ADD_BREAKPOINT`) and
@@ -1462,7 +1631,16 @@ E23-13 (#344) added Z88MAP-01 to Z88MAP-28 (`z88dk_map_test`: the section rules 
 `appmake` put the bytes in each fixture's `.nex`, extents, zero-width lines, strict refusal,
 identity from the section binaries, the symbol loaders' file-type refusal).
 
-**Planned.** `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
+E23-17 (#348) added `z88dk_lis_test` (Z88LIS-01 to Z88LIS-34: relocation, every occurrence of a C line,
+zero-width lines, the cross-check, dropped listings, the classic CRT, MACRO/REPT/PHASE and the guard),
+SRCTXT-01 (`source_map_test`), Z88MAP-30, SRCDBG-LIS-01 to 04 (`source_debug_test`) and QSRC-140/141
+(`debugger_source_panel_test`).
+
+Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22 when E23-17 made the two
+`classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
+2026-10-31.
+
+**Planned.** The functional rows `source-map-func` (a looked-up line, E23-15) and
 `z88dk-source-func` (E23-15).
 
 **Oracles.**
@@ -1489,6 +1667,17 @@ QSRC-66..78 (the fixture map in `build/` with its sources in `src/`, Locate File
 and a wrong name, the z88dk `.m4` message, the past-the-end message, the lazy window, the located
 directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..06 (file,
 command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
+
+**E23-31 (#424), C names.** `z88dk_map_test` Z88CN-01..16 (resolve under every binding, shown names, what is
+not C, every compiler and install, banked, ambiguity both file orders, merge, reload, `shown_name()`, the
+invariant over every committed z88dk map, `lookup_assembler()`, the rule per symbol in either file order, two C modules with one name); `source_debug_test` SRCDBG-CN-01;
+`script_events_test` SCRIPT-HOST-CN-01/02; `gdb_rsp_test` GDB-MON-14; `debugger_source_panel_test`
+QCN-01..05; `debugger_verbs_test` QMAP-08; `debugger_disasm_copy_test` DCN-01/02. Ten existing rows asserted
+the shown `_name` of a C symbol and now assert the C name (owner-approved): Z88SYM-01, Z88SYM-04,
+Z88SYM-08, SYM-14, SRCDBG-Z88-01, SRCDBG-SYM-18..22. Two more existing assertions changed, for the same
+reason, and are owner-approved (2026-10-31): Z88MAP-15 (shown `_main` is now `main`) and SYM-31 (its "no sjasmplus
+entry loaded" check compares the sjasmplus ADDRESS, because `main` and `counter` now resolve as C names of
+the z88dk map).
 
 **Row IDs are global**: the duplicate-ID gate refuses a reuse. IDs written into a sub-issue's
 text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRCDBG-SIDE-12`,

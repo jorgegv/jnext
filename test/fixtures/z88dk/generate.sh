@@ -22,10 +22,10 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c)$'
 
-trim_map() {  # $1 = raw map; stdout = kept lines, original order
-    awk -v MODS="$MODS" '
+trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT); stdout = kept lines, original order
+    awk -v MODS="$MODS" -v CRT="${2:-}" '
     function nm(l,  n) { n = l; sub(/ *=.*/, "", n); return n }
     NR == FNR { n = nm($0)
                 if (n ~ /^__.*_size$/ && $0 !~ /= \$0+ ;/) { s = n; sub(/^__/, "", s); sub(/_size$/, "", s); keep[s] = 1 }
@@ -33,6 +33,7 @@ trim_map() {  # $1 = raw map; stdout = kept lines, original order
     { n = nm($0); split($0, p, " ; "); split(p[2], f, ", ")
       if (n ~ /_2ftmp_2ftmpXX/) next                     # zcc temp-file markers: random names
       if (f[4] ~ MODS) { print; next }
+      if (CRT != "" && f[4] == CRT && f[1] == "addr") { print; next }   # KEEP_CRT: addr symbols of the CRT module
       if (n ~ /^__(C|ASM)_LINE_/) { print; next }        # library (crt0) line records too
       if (n ~ /^__.*_(head|tail|size)$/) { s = n; sub(/^__/, "", s); sub(/_(head|tail|size)$/, "", s); if (s in keep) print; next }
       if (n ~ /^CRT_ORG_(CODE|BANK_10|BANK_10_L|BANK_10_H|PAGE_20|PAGE_21)$/) { print; next }
@@ -43,7 +44,7 @@ trim_map() {  # $1 = raw map; stdout = kept lines, original order
 normalise() {  # $1 = install root; stdin -> stdout
     local e; e=$(enc "$1/")
     sed -e "s|$1/|z88dk/|g" -e "s|$e|z88dk_2f|g" \
-        -e 's|tmpXX[A-Za-z0-9]\{6\}|tmpXXXXXXXX|g' \
+        -e 's|tmp\(zcc\)\{0,1\}XX[A-Za-z0-9]\{6\}|tmp\1XXXXXXXX|g' \
         -e 's|\(Module compile time: \).*|\1(normalised)|'
 }
 
@@ -51,6 +52,7 @@ BAD=0
 # build <install> <instdir> <name> <kind> <zcc flags...>   (EXPECT_FAIL=1: recorded failure)
 #   kind = plain  : main.c util.c asmfn.asm
 #          subdir : main.c game/util.c asmfn.asm
+#          single:<file> : just that file (GH #348: the #include-after-a-function program)
 #          tape   : main.c util.c asmfn.asm for +zx (a .tap, GH #344 stage 3)
 #          banked:<SEG>[:kw] : banked.c -c --codeseg<SEG>, then bmain.c bankin.asm banked.o
 build() {
@@ -63,6 +65,7 @@ build() {
     case $kind in
         plain)  files=(main.c util.c asmfn.asm) ;;
         tape)   files=(main.c util.c asmfn.asm); zcc[${#zcc[@]}-1]=+zx; link=(-m --list -o prog -create-app) ;;
+        single:*) files=("${kind#single:}") ;;
         subdir) mkdir -p "$b/game"; mv "$b/util.c" "$b/game/util.c"; files=(main.c game/util.c asmfn.asm); set -- "$@" -I. ;;
         banked:*) local seg=${kind#banked:} kw=; [[ $seg == *:kw ]] && { kw=-DUSE_BANKED_KW; seg=${seg%:kw}; }
                   echo "+ zcc +zxn $* $kw --codeseg$seg --list -c banked.c -o banked.o"
@@ -82,7 +85,14 @@ build() {
         return 0
     fi
     (( ${EXPECT_FAIL:-0} )) && { echo "UNEXPECTED SUCCESS: $inst/$name (recorded as not producible)" >&2; BAD=1; }
-    trim_map "$b/prog.map" | normalise "$Z" > "$out/prog.map"
+    # KEEP_CRT=1: also keep the CRT listing (prog.lis) and the CRT module's own map lines (GH #348)
+    local crt=
+    if (( ${KEEP_CRT:-0} )); then
+        crt=$(awk '$2 == "MODULE" { m = $3 } END { print m }' "$b/prog.lis")
+        [[ -n $crt ]] || { echo "KEEP_CRT: no MODULE line in $inst/$name prog.lis" >&2; BAD=1; }
+        normalise "$Z" < "$b/prog.lis" > "$out/prog.lis"
+    fi
+    trim_map "$b/prog.map" "$crt" | normalise "$Z" > "$out/prog.map"
     (cd "$b" && for l in *.c.lis *.asm.lis game/*.c.lis; do [[ -f $l ]] || continue
         mkdir -p "$out/$(dirname "$l")"; normalise "$Z" < "$l" > "$out/$l"; done)
     for f in "$b"/prog.nex "$b"/prog.tap; do [[ -f $f ]] && cp "$f" "$out/"; done
@@ -110,7 +120,7 @@ rm -rf "${DEST:?}/v2.4" "${DEST:?}/master"
 provenance "$Z24" v2.4
 build "$Z24" v2.4 sccz80-debug  plain          -clib=new -debug
 build "$Z24" v2.4 sdcc-SO0      plain          -clib=sdcc_iy -SO0 --c-code-in-asm
-build "$Z24" v2.4 sdcc-SO2      plain          -clib=sdcc_iy -SO2 --c-code-in-asm
+KEEP_CRT=1 build "$Z24" v2.4 sdcc-SO2      plain          -clib=sdcc_iy -SO2 --c-code-in-asm
 EXPECT_FAIL=1 build "$Z24" v2.4 sdcc-debug    plain          -clib=sdcc_iy -debug
 build "$Z24" v2.4 sccz80-page20 banked:PAGE_20 -clib=new -debug
 build "$Z24" v2.4 sccz80-bank10 banked:BANK_10 -clib=new -debug
@@ -120,18 +130,21 @@ build "$Z24" v2.4 sdcc-banked   banked:PAGE_20:kw -clib=sdcc_iy --c-code-in-asm
 # CRT_ORG_PAGE_20 is 16-bit, so banked_call pages in page 0; the stack at $FF58
 # is in the banking segment). The -run builds carry the two pragmas that fix it.
 build "$Z24" v2.4 sccz80-banked-run banked:PAGE_20:kw -clib=new -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
-build "$Z24" v2.4 classic-bank10 banked:BANK_10 -clib=classic
+KEEP_CRT=1 build "$Z24" v2.4 classic-bank10 banked:BANK_10 -clib=classic
 EXPECT_FAIL=1 build "$Z24" v2.4 classic-debug plain          -clib=classic -debug
 build "$Z24" v2.4 sccz80-subdir subdir         -clib=new -debug
+build "$Z24" v2.4 sccz80-incmid single:incmid.c -clib=new -debug
 build "$Z24" v2.4 sccz80-tape   tape           -clib=new -debug
 
 provenance "$ZM" master
 build "$ZM" master sccz80-debug plain          -clib=new -debug
-build "$ZM" master sdcc-debug   plain          -clib=sdcc_iy -debug
+KEEP_CRT=1 build "$ZM" master sdcc-debug   plain          -clib=sdcc_iy -debug
 build "$ZM" master 80cc-debug   plain          -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-incmid single:incmid.c -clib=new -debug
+build "$ZM" master 80cc-incmid  single:incmid.c -clib=new -compiler=80cc -debug
 build "$ZM" master sdcc-banked  banked:PAGE_20:kw -clib=sdcc_iy -debug
 build "$ZM" master sdcc-banked-run banked:PAGE_20:kw -clib=sdcc_iy -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
-build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
+KEEP_CRT=1 build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
 EXPECT_FAIL=1 build "$ZM" master classic-debug  banked:BANK_10 -clib=classic -debug
 
 # every file the rows hash: sources, this script, the outputs (README.md and the manifest itself excluded)

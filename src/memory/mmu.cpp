@@ -6,6 +6,7 @@
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
 #include "debug/event_table.h"
+#include "debug/mem_coverage.h"
 #include <cstring>
 
 namespace {
@@ -1168,12 +1169,14 @@ bool Mmu::divmmc_is_active_(bool fetch) const {
     return fetch ? divmmc_->is_active() : divmmc_->is_active_after_fetch();
 }
 
-Mmu::RouteBits Mmu::divmmc_route_(uint16_t addr) const {
-    // The decode is DivMmc's (divmmc.vhd:88-101, once); this only names it.
+Mmu::RouteBits Mmu::divmmc_route_(uint16_t addr, bool write) const {
+    // The decode is DivMmc's (divmmc.vhd:88-101, once); this only names it. A
+    // write to a read-only overlay byte (divmmc.vhd:100) is dropped: no ptr.
     const DivMmc::Overlay o = divmmc_->overlay_at(addr);
     return RouteBits{pack_space_(o.ram ? jnext::dbg::MemSpace::divmmc_ram(o.bank)
                                        : jnext::dbg::MemSpace::divmmc_rom()),
-                     static_cast<uint16_t>(addr & 0x1FFF), o.ptr};
+                     static_cast<uint16_t>(addr & 0x1FFF),
+                     (write && o.rdonly) ? nullptr : o.ptr};
 }
 
 // The Layer 2 read mapping at a mapped address.
@@ -1223,12 +1226,6 @@ Mmu::RouteBits Mmu::config_route_(uint16_t addr) const {
     return RouteBits{pack_space_(jnext::dbg::MemSpace::config(nr_04_romram_bank_)),
                      static_cast<uint16_t>(addr & 0x3FFF),
                      p ? p + (addr & 0x1FFF) : nullptr};
-}
-
-bool Mmu::divmmc_write(uint16_t addr, uint8_t val, bool& landed) {
-    if (!divmmc_->is_active_after_fetch()) return false;
-    landed = divmmc_->write(addr, val);
-    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1290,6 +1287,27 @@ void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {
 // offset would be a page number that no filter, and no `peek(Page{})`, can
 // address. (`Mmu::route()` names what answered, as a `MemSpace`.)
 // ---------------------------------------------------------------------------
+
+// GH #388 (E23-25) - the memory-coverage hook, behind DebugState::mem_gate_live()
+// and mem_coverage_live(): out of line so the inline gate stays a bool and a
+// pointer test. The route's space is the decode path the arbiter named; a
+// Floating route (nothing answered) is not memory and is not recorded.
+static_assert(jnext::dbg::COVERAGE_EXEC == 1 && jnext::dbg::COVERAGE_READ == 2 &&
+              jnext::dbg::COVERAGE_WRITE == 4, "Mmu::kCov* mirror the COVERAGE_* flags");
+
+void Mmu::cov_note_(jnext::dbg::MemCoverage* c, uint16_t addr, uint8_t flag) {
+    // The same arbiter body the access just used, asked again (it is pure): an M1 read uses the
+    // fetch view of the DivMMC, a write the write direction, and a write marks only if it landed.
+    const RouteBits r = flag == kCovWrite ? route_bits_<true, true>(addr, false, false)
+                                          : route_bits_<true, false>(addr, false, false,
+                                                                     /*fetch=*/flag == kCovExec);
+    if (flag == kCovWrite && !r.ptr) return;
+    const uint32_t kind = r.space & 0xFFFF;
+    if (kind == static_cast<uint32_t>(jnext::dbg::MemSpace::Kind::Floating) ||
+        kind == static_cast<uint32_t>(jnext::dbg::MemSpace::Kind::Cpu))
+        return;
+    c->mark(r.space, r.offset, flag);
+}
 
 void Mmu::watch_read_(uint16_t addr, uint8_t val) {
     if (debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {

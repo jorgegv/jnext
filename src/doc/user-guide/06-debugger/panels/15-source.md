@@ -14,7 +14,13 @@ Under them, a line naming the position — `main.bas:120  $8A3C  page 2E`, or
 `ROM or overlay` when no RAM page supplies the address — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
-use the disassembly there.
+use the disassembly there. The start-up code of a z88dk program built with `--list`
+shows its m4 text from the listing, the label ending `(m4 output, from prog.lis)`;
+**Locate File...** does not apply to it.
+
+With [memory coverage](../functions/15-memory-coverage.md) on, every line of the
+shown file that ran has a pale green background (the current line keeps its
+highlight).
 
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
@@ -51,9 +57,10 @@ inside it, the selection stays (so a dragged range can be copied).
   mapped now is disabled.
 - **Watch** and **Break on Read / Write** entries, as in the disassembly menu, for the labels at
   the line's address, and for what is under the pointer: a symbol (a label or a name of the
-  map, written as the map has it), a number (`$5800`, `0x5800`, `5800h`, `#5800` or decimal),
+  map; a z88dk C variable or function is offered under its C name, `counter`, whether the source
+  writes `counter` or `_counter`), a number (`$5800`, `0x5800`, `5800h`, `#5800` or decimal),
   or a register in parentheses (`(hl)`, `(ix+2)`). They are by CPU address, whatever is mapped
-  there. A C variable is found under its map name today (`_counter`), not as `counter`.
+  there.
 
 On a line with no code Toggle Breakpoint, Run to Here and Show in Disassembly are disabled, and
 their tooltip says *no code at main.bas:3*.

@@ -636,6 +636,24 @@ void DebuggerWindow::create_menus() {
         export_trace();
     });
 
+    // Coverage submenu (GH #388): memory coverage by execute, read and write.
+    // "V": C, E, O and the rest of the Debug menu's mnemonics are taken (#124).
+    QMenu* coverage_menu = debug_menu->addMenu(tr("Co&verage"));
+
+    coverage_enable_action_ = coverage_menu->addAction(tr("&Enable Coverage"));
+    coverage_enable_action_->setCheckable(true);
+    connect(coverage_enable_action_, &QAction::triggered, this, [this](bool checked) {
+        dbg_.mem_coverage_enable(checked);   // INS-21: off clears
+        refresh_panels();
+    });
+
+    QAction* clear_coverage = coverage_menu->addAction(tr("&Clear Coverage"));
+    connect(clear_coverage, &QAction::triggered, this, [this]() {
+        dbg_.mem_coverage_clear();           // INS-21
+        refresh_panels();
+    });
+    sync_coverage_action();                  // a backend already recording (--coverage)
+
     // Rewind submenu
     debug_menu->addSeparator();
     QMenu* rewind_menu = debug_menu->addMenu(tr("&Rewind"));
@@ -1508,10 +1526,18 @@ void DebuggerWindow::show_add_exec_bp_dialog() {
     }
 }
 
+// GH #388 - the Enable Coverage check mirrors the backend, which may have been
+// switched on without this window (--coverage, or another client).
+void DebuggerWindow::sync_coverage_action() {
+    if (coverage_enable_action_)
+        coverage_enable_action_->setChecked(dbg_.mem_coverage_enabled());
+}
+
 void DebuggerWindow::refresh_panels() {
     // GH #342: settle a pending landing first, so the panels that hold the
     // symbol table by pointer read the processed state.
     (void)dbg_.source_map_status();
+    sync_coverage_action();
     if (cpu_panel_) cpu_panel_->refresh();
     if (disasm_panel_) disasm_panel_->refresh();
     if (memory_panel_) memory_panel_->refresh();

@@ -1,5 +1,6 @@
 #include "disasm_panel.h"
 #include "qt/palette_tint_qt.h"   // GH #363
+#include "debugger/coverage_colors.h"   // GH #388
 #include "debugger/breakpoint_model.h"
 #include "debugger/operand_menu.h"
 
@@ -447,11 +448,11 @@ void DisasmPanel::select_all_visible()
 }
 
 // The one naming rule: a label names an address in the memory that supplies it.
-disasm_text::SymbolNamer DisasmPanel::namer() const
+disasm_text::SymbolNamer DisasmPanel::namer(bool assembler_names) const
 {
     return disasm_text::symbol_namer(symbol_table_, [this](uint16_t a) {
         return dbg_ ? dbg_->source_page(a) : jnext::dbg::MemSpace::cpu();
-    });
+    }, assembler_names);
 }
 
 QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
@@ -464,7 +465,7 @@ QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
     // full: nothing about the copy depends on what is currently on screen.
     const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
 
-    const auto lines = disasm_text::collect_range(low, high, read_fn, namer());
+    const auto lines = disasm_text::collect_range(low, high, read_fn, namer(true));   // assembler names: the copy assembles (design 10.6)
     return QString::fromStdString(disasm_text::format_lines(lines, fmt));
 }
 
@@ -506,6 +507,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
                      GUTTER_WIDTH, paint_y_offset_ + visible_lines() * LINE_HEIGHT);
 
     QFontMetrics fm(mono_font_);
+    const bool cov_on = dbg_ && dbg_->mem_coverage_enabled();   // GH #388
 
     for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
         const auto& entry = entries_[i];
@@ -526,6 +528,19 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         if (line_selected(entry.line.addr)) {
             painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
                              palette_tint::surface(palette(), QColor(204, 221, 255, 128))); // semi-transparent light blue
+        }
+
+        // GH #388 - memory coverage: a bar in the margin between the gutter
+        // separator and the address text on a line whose first opcode byte ran
+        // (X), looked up the way an M1 at that address would fetch it NOW
+        // (mem_coverage_fetch), so the DivMMC at RST 8 shows the DivMMC ROM's
+        // mark. After the PC and selection fills so it stays visible on them;
+        // nothing is drawn while coverage is off. X only: the R and W of a
+        // line's bytes are its operands and self-modification, which the Memory
+        // panel shows per byte.
+        if (cov_on && (dbg_->mem_coverage_fetch(entry.line.addr) & jnext::dbg::COVERAGE_EXEC)) {
+            painter.fillRect(GUTTER_WIDTH + 1, y + 1, 3, LINE_HEIGHT - 2,
+                             coverage_colors::exec(palette()));
         }
 
         // Breakpoint indicator in the gutter.

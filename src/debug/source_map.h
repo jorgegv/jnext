@@ -67,6 +67,14 @@ struct SourceProgramIdentity {
     std::vector<SourceByteCheck> bytes;
 };
 
+/// The text of a source file the toolchain did not keep, taken from its own
+/// listing (GH #348: the m4 output of z88dk's start-up code). `lines[i]` is
+/// line i + 1; a line the listing does not show is empty.
+struct SourceText {
+    std::string origin;               // the listing it came from
+    std::vector<std::string> lines;
+};
+
 /// Compiler-neutral source ranges indexed by the memory space that supplied
 /// the fetch. Format adapters replace the contents transactionally.
 ///
@@ -77,11 +85,17 @@ public:
     /// `ranges` in emission order (the tie-break between equal-length ranges).
     /// `format` names the file format the map came from, for messages
     /// ("SLD", "z88dk").
+    /// `texts` are embedded source files by name (normalised like a range's file);
+    /// every replace() drops the previous ones.
     void replace(std::vector<SourceRange> ranges,
                  std::vector<SourceAlias> aliases,
                  std::optional<SourceProgramIdentity> identity,
                  std::string loaded_file,
-                 std::string format = "SLD");
+                 std::string format = "SLD",
+                 std::map<std::string, SourceText> texts = {});
+
+    /// The embedded text of `file` (the exact normalised name), or null.
+    const SourceText* embedded_text(std::string_view file) const;
 
     /// The primary location of the ranges containing `address` in `space`: the
     /// shortest, on a tie the later emitted. Null when none. No allocation.
@@ -139,6 +153,17 @@ public:
         return a.file == b.file && a.line == b.line && a.column == b.column;
     }
 
+    /// GH #388 - one non-zero-width range of a line: `[lo, hi_excl)` of `space`.
+    struct FileRange {
+        int line = 0;
+        jnext::dbg::FetchSource space;
+        uint16_t lo = 0;
+        uint32_t hi_excl = 0;
+    };
+    /// Every non-zero-width range of `file` (the path exactly as the map names
+    /// it, i.e. `SourceLocation::file`), by line. Empty for a file not in the map.
+    std::vector<FileRange> file_ranges(const std::string& file) const;
+
     void clear();
     bool empty() const { return ranges_.empty(); }
     size_t size() const { return ranges_.size(); }   // ranges, zero-width included
@@ -172,5 +197,6 @@ private:
     std::set<std::string> files_;
     std::string loaded_file_;
     std::string format_ = "SLD";
+    std::map<std::string, SourceText> texts_;
     std::optional<SourceProgramIdentity> identity_;
 };

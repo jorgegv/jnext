@@ -10915,9 +10915,13 @@ uint64_t Emulator::step_one_instruction()
         if (step_out_armed && cpu_.fetched_opcode_last_execute() &&
             debug_state_.step_out_sp_qualifies(step_out_sp_before,
                                                cpu_.registers().SP)) {
-            const uint8_t op0 = mmu_.read(pc_pre_exec);
+            // peek(), not read(): this is the DEBUGGER looking inside the guest's
+            // execution scope, so it must not mark memory coverage (GH #388), latch
+            // the +3 floating bus or raise a READ watchpoint on a byte the CPU read
+            // already (peek() is InspectionScope plus the saved latch).
+            const uint8_t op0 = mmu_.peek(pc_pre_exec);
             const uint8_t op1 = (op0 == 0xED)
-                ? mmu_.read(static_cast<uint16_t>(pc_pre_exec + 1)) : 0;
+                ? mmu_.peek(static_cast<uint16_t>(pc_pre_exec + 1)) : 0;
             if (debug_state_.check_step_out(step_out_sp_before,
                                             cpu_.registers().SP, op0, op1)) {
                 debug_state_.pause();

@@ -1215,8 +1215,20 @@ target_link_libraries(z88dk_map_test PRIVATE
 target_include_directories(z88dk_map_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(z88dk_map_test PRIVATE
     JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk"
-    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
+    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap"
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
 add_test(NAME z88dk_map_tests COMMAND z88dk_map_test)
+# GH #348 — the z88dk --list listing adapter (pure): the committed z88dk fixtures'
+# listings and maps, and the listing text the rows build in z80asm's format.
+add_executable(z88dk_lis_test debug/z88dk_lis_test.cpp)
+target_link_libraries(z88dk_lis_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(z88dk_lis_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(z88dk_lis_test PRIVATE
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+add_test(NAME z88dk_lis_tests COMMAND z88dk_lis_test)
 add_executable(source_debug_test debug/source_debug_test.cpp)
 target_link_libraries(source_debug_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
@@ -1395,9 +1407,11 @@ target_link_libraries(script_events_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(script_events_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-# The SCRIPT-HOST-MAP-* rows (GH #390) load the committed sjasmplus fixtures.
+# The SCRIPT-HOST-MAP-* rows (GH #390) load the committed sjasmplus fixtures; the
+# SCRIPT-HOST-CN-* rows (GH #424) a committed z88dk map.
 target_compile_definitions(script_events_test PRIVATE
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME script_events_tests COMMAND script_events_test)
 
 # GH #26 WP6 (#20) — the recorder: input edges, captures, header, warnings, a
@@ -1424,9 +1438,11 @@ target_link_libraries(gdb_rsp_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(gdb_rsp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-# GDB-MON-13 (GH #375) loads the committed sjasmplus SLD fixture.
+# GDB-MON-13 (GH #375) loads the committed sjasmplus SLD fixture; GDB-MON-14 (GH #424)
+# a committed z88dk map.
 target_compile_definitions(gdb_rsp_test PRIVATE
-    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME gdb_rsp_tests COMMAND gdb_rsp_test)
 
 # GH #280 (epic #276, package Z) — the ZRCP adapter (the ZEsarUX remote command

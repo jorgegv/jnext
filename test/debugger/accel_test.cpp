@@ -332,11 +332,12 @@ static void test_accelerators(Fixture& fx)
         // GH #337: + the Debug > Source popup (one popup, its "Sourc&e" title
         // and seven item mnemonics = 8 more) and Ctrl+F6/F7/F8 (Back and
         // Reverse Continue ship unbound).
-        // GH #423: + the Source tab's Ctrl+C and Ctrl+A (WidgetShortcut actions
-        // on its editor, scoped by widget in harvest_shortcuts(): 22 -> 24).
+        // GH #388: + the Debug > Coverage popup (one popup, its "Co&verage"
+        // title and the two items' mnemonics, &Enable Coverage and &Clear
+        // Coverage = 3 more mnemonics); no new shortcut (bound to no key). The Source tab's Ctrl+C and Ctrl+A (GH #423): 22 -> 24.
         const bool as_expected = top == 6
-                              && popup_scopes.size() == 10
-                              && menu_accels.size() == 47
+                              && popup_scopes.size() == 11
+                              && menu_accels.size() == 50
                               && shortcuts == 24;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
@@ -344,7 +345,7 @@ static void test_accelerators(Fixture& fx)
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 6), popups=%zu (want 10), mnemonics=%zu (want 47), "
+              fmt("menus=%zu (want 6), popups=%zu (want 11), mnemonics=%zu (want 50), "
                   "shortcuts=%zu (want 24)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }

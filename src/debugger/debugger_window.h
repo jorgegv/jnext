@@ -244,6 +244,9 @@ private:
     // Trace toolbar state
     QPushButton* trace_toggle_btn_ = nullptr;
     QAction* trace_enable_action_ = nullptr;
+    // GH #388 - Debug > Coverage > Enable Coverage; sync_coverage_action() mirrors the backend.
+    QAction* coverage_enable_action_ = nullptr;
+    void sync_coverage_action();
 
     // GH #1 — the user's key bindings. Defaults until set_keymap() says
     // otherwise, so a DebuggerWindow built without a config behaves exactly

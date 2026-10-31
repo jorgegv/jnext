@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <unistd.h>   // mkstemp (POSIX) — temp files for saver round-trip tests
@@ -3418,6 +3419,24 @@ static void test_l2log_tags() {
               fmt("@50 %02X (22), then write: @50 %02X (33) @40 %02X (22) @20 %02X (11)",
                   p1, p2, p3, p4));
     }
+
+    // L2LOG-TAG-11 (GH #388) - a CPU write through the CONFIG window (NR 0x03 config
+    // mode, SRAM page (NR 0x04 << 1) | cpu_a(13), zxnext.vhd:3044-3050) reaches the
+    // same SRAM Layer 2 fetches from, so it is logged at the CPU's own position like
+    // the write-over and the slot writes. The refactor merged this arm into a shared
+    // one and nothing pinned that it kept the log.
+    {
+        L2LogBed b;
+        b.mmu.set_config_mode(true);
+        b.mmu.set_nr_04_romram_bank(8);        // SRAM page 16: the byte at kL2Sram
+        b.cpu_write(0x0123, 0x22, 50, 200);
+        const uint8_t before = b.seen(50, 199), at = b.seen(50, 200);
+        check("L2LOG-TAG-11",
+              "zxnext.vhd:3044-3050 - a CPU write through the config window is logged for "
+              "Layer 2 at the CPU's own (line, hc)",
+              before == 0x11 && at == 0x22,
+              fmt("before=0x%02X (want 0x11) at=0x%02X (want 0x22)", before, at));
+    }
 }
 
 // ── GH #339 FSRC: the read arbiter names the store, and the fetch records it ──
@@ -3681,6 +3700,277 @@ static void test_fsrc09_store_identity() {
           ok, why.empty() ? fmt("%ld addresses", addresses) : why);
 }
 
+// ── GH #388 (E23-25) FSRC-17 / FSRC-19: the arbiter's WRITE direction ─────────
+//
+// `Mmu::write_route()` is route_bits_ given the access direction, and
+// `write_landed()` is that route plus the store. FSRC-17 checks where a write
+// lands against the same memory map FSRC-09 pinned (fsrc_store_byte), with the
+// direction-dependent rules of the VHDL's one SRAM process stated here from the
+// VHDL and never read back from the Mmu:
+//   * the boot ROM is in the READ data mux only (zxnext.vhd:1856-1857): a write
+//     is routed as if it were off;
+//   * the Multiface ROM half, the DivMMC ROM and a read-only DivMMC RAM page are
+//     `sram_rdonly` (:3035, :3089, :3097, divmmc.vhd:100), a ROM slot too (:3056)
+//     and an inactive page / floating slot is not `sram_active` (:3061, :3101):
+//     DROPPED (:3154);
+//   * Layer 2 tests its WRITE enable (:3077), the alt ROM takes a write only with
+//     en+rw (:3078, :3056);
+//   * everything else lands in the store the READ route of the same mapping names
+//     (FSRC-09). That is the "twin" of a configuration whose read and write
+//     enables differ: the same mapping with both enables on.
+// Every one of the 64 K writes of a configuration is made in turn, and at the end
+// every byte of every store is compared with its snapshot, so a write that lands
+// ANYWHERE else is seen too.
+
+namespace {
+
+struct Fsrc17Extra {
+    const char* name;
+    void (*setup)(Emulator&);   // the configuration under test
+    void (*twin)(Emulator&);    // the mapping with read and write enables alike (the oracle)
+};
+
+const Fsrc17Extra kFsrc17Extra[] = {
+    {"E1 Next Layer 2 WRITE-enable only, bank 9 segment 11",
+     [](Emulator& e) { e.mmu().set_config_mode(false); e.mmu().set_l2_port(0xC1, 9); },
+     [](Emulator& e) { e.mmu().set_config_mode(false); e.mmu().set_l2_port(0xC5, 9); }},
+    {"E2 Next alternate ROM en+rw (write-over)",
+     [](Emulator& e) { e.mmu().set_config_mode(false); e.mmu().set_nr_8c(0xC0); },
+     [](Emulator& e) { e.mmu().set_config_mode(false); e.mmu().set_nr_8c(0x80); }},
+    {"E4 Next Layer 2 read+write, bank 5 segment 11 over MMU2=0A, MMU4=0E",
+     [](Emulator& e) {
+         e.mmu().set_config_mode(false);
+         e.mmu().set_page(2, 0x0A);
+         e.mmu().set_page(4, 0x0E);
+         e.mmu().set_l2_port(0xC5, 5);
+     },
+     nullptr},
+    {"E5 Next Layer 2 read+write, segment 00, over Multiface + DivMMC conmem",
+     [](Emulator& e) {
+         e.mmu().set_config_mode(false);
+         e.multiface().set_enabled(true);
+         e.multiface().button_press();
+         e.multiface().on_m1(0x0066, true);
+         e.divmmc().write_control(0x85);
+         e.mmu().set_l2_port(0x05, 8);
+     },
+     nullptr},
+    {"E6 Next Layer 2 read+write, bank 0x6E segment 11 (inactive pages)",
+     [](Emulator& e) {
+         e.mmu().set_config_mode(false);
+         e.mmu().set_l2_port(0xC5, 0x6E);
+     },
+     nullptr},
+    {"E3 Next DivMMC MAPRAM bank 3",
+     [](Emulator& e) {
+         e.mmu().set_config_mode(false);
+         e.mmu().set_page(0, 0x20);
+         e.divmmc().write_control(0xC3);
+     },
+     nullptr},
+};
+
+struct StoreRegion { uint8_t* p; size_t n; };
+
+}  // namespace
+
+// The Layer 2 mapping of a configuration that maps it for READS only (C4, C5a, C5b): a
+// write is not Layer 2's (:3077, the write enable is clear), so the oracle for its
+// writes is the same configuration with the mapping off.
+static void fsrc17_l2_off(Emulator& e) { e.mmu().set_l2_port(0x00, 0); }
+// Likewise C6a / C6a': the alternate ROM is read-visible (en, rw clear), so a write
+// to a ROM slot is not the alt ROM's (:3078 needs sram_pre_rdonly = 0) and is dropped
+// as the plain ROM's is: the oracle is the configuration with the alt ROM off.
+static void fsrc17_alt_off(Emulator& e) { e.mmu().set_nr_8c(0x00); }
+
+static void fsrc17_run(Emulator& emu, bool next, const char* name, std::vector<uint8_t>& boot,
+                       void (*twin)(Emulator&), bool twin_replaces, void (*setup)(Emulator&), bool& ok,
+                       std::string& why, long& writes, long& landed_n) {
+    std::vector<StoreRegion> regions;
+    regions.push_back({emu.ram().page_ptr(0), emu.ram().size()});
+    regions.push_back({emu.mmu().bank5_vram(), 0x4000});
+    regions.push_back({emu.mmu().bank7_bram(), 0x2000});
+    if (!next) {
+        regions.push_back({emu.multiface().ram_data(), 0x2000});
+        regions.push_back({const_cast<uint8_t*>(emu.multiface().rom_data()), 0x2000});
+        regions.push_back({emu.divmmc().rom_data(), 0x2000});
+        for (uint8_t img = 0; img < 4; ++img)
+            if (const uint8_t* p = emu.mmu().rom_image_ptr(img))
+                regions.push_back({const_cast<uint8_t*>(p), 0x4000});
+    }
+    // The oracle, from the READ route of the twin mapping with the boot ROM off.
+    if (!twin || !twin_replaces) setup(emu);   // the mapping is its own oracle (or the twin's base)
+    const bool boot_on = emu.mmu().boot_rom_enabled();
+    emu.mmu().set_boot_rom_enabled(false);
+    if (twin) twin(emu);
+    std::vector<uint8_t*> want(0x10000, nullptr);
+    for (uint32_t a = 0; a < 0x10000; ++a) {
+        const Mmu::Route r = emu.mmu().route(static_cast<uint16_t>(a));
+        const uint8_t* store = fsrc_store_byte(emu, next, boot, r);
+        bool lands = false;
+        switch (r.space.kind) {
+            case MemSpace::Kind::Page:
+            case MemSpace::Kind::MultifaceRam:
+            case MemSpace::Kind::Layer2:
+            case MemSpace::Kind::AltRom:
+            case MemSpace::Kind::Config:
+                lands = true; break;
+            case MemSpace::Kind::DivMmcRam:   // divmmc.vhd:100
+                lands = !(a < 0x2000 || (emu.divmmc().mapram() && emu.divmmc().bank() == 3));
+                break;
+            default: break;                   // MultifaceRom, DivMmcRom, Rom, Floating: dropped
+        }
+        want[a] = lands ? const_cast<uint8_t*>(store) : nullptr;
+    }
+    emu.mmu().set_boot_rom_enabled(boot_on);
+    if (twin) setup(emu);                       // back to the configuration under test
+
+    std::vector<std::vector<uint8_t>> snap;
+    for (const StoreRegion& rg : regions) snap.emplace_back(rg.p, rg.p + rg.n);
+
+    std::unordered_map<const uint8_t*, uint8_t> shadow;
+    for (uint32_t a = 0; a < 0x10000 && ok; ++a) {
+        uint8_t* w = want[a];
+        const uint8_t v = w ? static_cast<uint8_t>(*w ^ 0xFF) : 0x5A;
+        const Mmu::Route wr = emu.mmu().write_route(static_cast<uint16_t>(a));
+        const bool landed = emu.mmu().write_landed(static_cast<uint16_t>(a), v);
+        ++writes;
+        if (landed) ++landed_n;
+        const bool route_says = wr.ptr != nullptr;
+        if (landed != (w != nullptr) || route_says != landed || (w && *w != v)) {
+            ok = false;
+            why += fmt("[%s] %04X: landed=%d route.ptr=%d want_lands=%d byte=%02X v=%02X; ", name, a,
+                       int(landed), int(route_says), int(w != nullptr), w ? *w : 0, v);
+        }
+        if (w) shadow[w] = v;
+    }
+    // Nothing else changed in any store.
+    for (size_t k = 0; k < regions.size() && ok; ++k) {
+        for (size_t i = 0; i < regions[k].n; ++i) {
+            const uint8_t* q = regions[k].p + i;
+            const auto it = shadow.find(q);
+            const uint8_t expect = it != shadow.end() ? it->second : snap[k][i];
+            if (*q != expect) {
+                ok = false;
+                why += fmt("[%s] store %zu byte %zu = %02X, want %02X (stray write); ", name, k, i,
+                           *q, expect);
+                break;
+            }
+        }
+    }
+}
+
+static void test_fsrc17_write_route() {
+    set_group("FSRC fetch identity (GH #339)");
+    bool ok = true;
+    std::string why;
+    long writes = 0, landed_n = 0;
+
+    auto make = [&](MachineType t, bool& next, Emulator& emu, std::vector<uint8_t>& boot) {
+        EmulatorConfig cfg;
+        cfg.type = t;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        next = t == MachineType::ZXN_ISSUE2;
+        Ram& ram = emu.ram();
+        for (uint32_t i = 0; i < static_cast<uint32_t>(ram.size()); ++i)
+            ram.page_ptr(0)[i] = fsrc_sig(1, i);
+        for (uint32_t i = 0; i < 0x4000; ++i) emu.mmu().bank5_vram()[i] = fsrc_sig(2, i);
+        for (uint32_t i = 0; i < 0x2000; ++i) emu.mmu().bank7_bram()[i] = fsrc_sig(3, i);
+        boot.assign(0x2000, 0);
+        for (uint32_t i = 0; i < boot.size(); ++i) boot[i] = fsrc_sig(4, i);
+        emu.mmu().set_boot_rom(boot.data(), boot.size());
+        emu.mmu().set_boot_rom_enabled(false);
+        if (!next) {
+            for (uint32_t i = 0; i < 0x2000; ++i) emu.divmmc().rom_data()[i] = fsrc_sig(5, i);
+            std::vector<uint8_t> mfrom(0x2000);
+            for (uint32_t i = 0; i < mfrom.size(); ++i) mfrom[i] = fsrc_sig(6, i);
+            emu.multiface().load_rom_bytes(mfrom.data(), mfrom.size());
+            for (uint32_t i = 0; i < 0x2000; ++i) emu.multiface().ram_data()[i] = fsrc_sig(7, i);
+            for (uint8_t img = 0; img < 4; ++img) {
+                uint8_t* p = const_cast<uint8_t*>(emu.mmu().rom_image_ptr(img));
+                if (p) for (uint32_t i = 0; i < 0x4000; ++i) p[i] = fsrc_sig(8u + img, i);
+            }
+        }
+        emu.divmmc().set_port_io_enable(true);
+        emu.divmmc().set_nr_0a_4_enable(true);
+    };
+
+    for (const FsrcCfg& c : kFsrcCfgs) {
+        Emulator emu;
+        std::vector<uint8_t> boot;
+        bool next = false;
+        make(c.type, next, emu, boot);
+        const bool l2_read_only = c.name[0] == 'C' && (c.name[1] == '4' || c.name[1] == '5');
+        const bool alt_read_only = c.name[0] == 'C' && c.name[1] == '6' && c.name[2] == 'a';
+        fsrc17_run(emu, next, c.name, boot,
+                   l2_read_only ? fsrc17_l2_off : alt_read_only ? fsrc17_alt_off : nullptr,
+                   /*twin_replaces=*/false, c.setup, ok, why, writes, landed_n);
+        if (!ok) break;
+    }
+    for (const Fsrc17Extra& x : kFsrc17Extra) {
+        if (!ok) break;
+        Emulator emu;
+        std::vector<uint8_t> boot;
+        bool next = false;
+        make(MachineType::ZXN_ISSUE2, next, emu, boot);
+        fsrc17_run(emu, next, x.name, boot, x.twin, /*twin_replaces=*/true, x.setup, ok, why, writes,
+                   landed_n);
+    }
+    check("FSRC-17",
+          "write() lands exactly where the write route names: for all 64 K addresses of the 14 FSRC-09 "
+          "configurations plus Layer 2 write-enable only, alt ROM en+rw and MAPRAM bank 3, one write "
+          "each changes the byte of the store the VHDL memory map resolves and no other byte of any "
+          "store, and write_landed() is false exactly where sram_rdonly or not sram_active (the "
+          "Multiface ROM half, DivMMC ROM and read-only RAM, a ROM slot, an inactive page, a floating "
+          "slot); the boot ROM does not take a write -- VHDL zxnext.vhd:1856-1857, 2920-2927, 3029-3066, "
+          "3077-3078, 3081-3132, 3154; divmmc.vhd:100",
+          ok, why.empty() ? fmt("%ld writes, %ld landed", writes, landed_n) : why);
+}
+
+// FSRC-19: every route's offset is the byte's offset within the store its space
+// names: space_offset(space, addr) (& 0x3FFF for the 16 KB Rom, AltRom and
+// Config, & 0x1FFF for everything else), in both directions. The coverage
+// panels and the Source tab turn a logical address into a coverage offset with
+// it. zxnext.vhd:3052, 3117, 3045 (the half is cpu_a(13)).
+static void test_fsrc19_route_offsets() {
+    set_group("FSRC fetch identity (GH #339)");
+    bool ok = true;
+    std::string why;
+    long checked = 0;
+    for (const FsrcCfg& c : kFsrcCfgs) {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = c.type;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        std::vector<uint8_t> boot(0x2000, 0x11);
+        emu.mmu().set_boot_rom(boot.data(), boot.size());
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.divmmc().set_port_io_enable(true);
+        emu.divmmc().set_nr_0a_4_enable(true);
+        c.setup(emu);
+        for (uint32_t a = 0; a < 0x10000 && ok; ++a) {
+            const Mmu::Route r = emu.mmu().route(static_cast<uint16_t>(a));
+            const Mmu::Route w = emu.mmu().write_route(static_cast<uint16_t>(a));
+            checked += 2;
+            if (r.offset != jnext::dbg::space_offset(r.space, static_cast<uint16_t>(a)) ||
+                w.offset != jnext::dbg::space_offset(w.space, static_cast<uint16_t>(a))) {
+                ok = false;
+                why += fmt("[%s] %04X: read kind%u idx%u off%04X, write kind%u idx%u off%04X; ", c.name,
+                           a, unsigned(r.space.kind), unsigned(r.space.index), unsigned(r.offset),
+                           unsigned(w.space.kind), unsigned(w.space.index), unsigned(w.offset));
+            }
+        }
+        if (!ok) break;
+    }
+    check("FSRC-19",
+          "for all 64 K addresses of the 14 FSRC-09 configurations, the offset of the read route and of "
+          "the write route is space_offset(space, addr) -- & 0x3FFF for Rom, AltRom and Config, & 0x1FFF "
+          "for every other space -- VHDL zxnext.vhd:3045, 3052, 3117 (the half is cpu_a(13))",
+          ok, why.empty() ? fmt("%ld routes", checked) : why);
+}
+
 #undef FSRC_K
 
 // FSRC-10: the fetch RECORDS what supplied it, and the record is the ground
@@ -3871,6 +4161,8 @@ int main() {
     std::printf("  Group: GH232-SOFT-RESET-AXES — done\n");
 
     test_fsrc09_store_identity();
+    test_fsrc17_write_route();
+    test_fsrc19_route_offsets();
     test_fsrc10_recorded_fetch();
     test_fsrc16_none_recorded();
     std::printf("  Group: FSRC fetch identity (GH #339) - done\n");

@@ -319,11 +319,14 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     } else {
         parsed = load_z88dk_source_map(candidate, path, [this](uint16_t a) {
             return impl_->emu.predict_fetch(a);
-        });
+        }, Z88dkListings::Beside);
+        for (const std::string& n : parsed.listing_notes)
+            out.listing_note += (out.listing_note.empty() ? "" : "; ") + n;
         if (parsed && parsed.count == 0) {
             parsed.count = -1;
             parsed.error = "no source lines in '" + path +
-                           "' (a z88dk map built without -debug?)";
+                           "' (a z88dk map built without -debug, and no usable --list listings beside it)" +
+                           (out.listing_note.empty() ? std::string() : "; " + out.listing_note);
         }
     }
     if (!parsed) {
@@ -354,6 +357,7 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     }
     out.pending = impl_->sources_pending();
     out.count  = parsed.count;
+    out.listings = parsed.listings;
     // A z88dk map fills the source half only (D10): it leaves the symbols alone, an
     // earlier hand SLD's labels included, and reports none.
     out.labels = sld ? impl_->attach_hand_labels(std::move(labels), parsed.labels) : 0;
@@ -433,6 +437,27 @@ const SourceLocation* Debugger::source_location(uint16_t addr) const {
     return m->lookup(source_page(addr), addr);
 }
 
+std::vector<uint32_t> Debugger::executed_source_lines(const std::string& file) const {
+    std::vector<uint32_t> lines;
+    if (!impl_->mem_cov) return lines;
+    impl_->recheck();
+    const SourceMap* m = impl_->live_sources();
+    if (!m || m->empty()) return lines;
+    // A line is executed when ANY byte of any of its ranges holds an X mark:
+    // the range [lo, hi_excl) of space S is the offsets space_offset(S, lo..hi-1).
+    for (const SourceMap::FileRange& r : m->file_ranges(file)) {
+        if (!lines.empty() && lines.back() == static_cast<uint32_t>(r.line)) continue;
+        for (uint32_t a = r.lo; a < r.hi_excl; ++a) {
+            if (impl_->mem_cov->get(r.space, space_offset(r.space, static_cast<uint16_t>(a))) &
+                COVERAGE_EXEC) {
+                lines.push_back(static_cast<uint32_t>(r.line));
+                break;
+            }
+        }
+    }
+    return lines;
+}
+
 const SourceLocation* Debugger::source_location() const {
     return source_location(impl_->emu.cpu().get_registers().PC);
 }
@@ -502,7 +527,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         zn = zsyms.load_z88dk_map(zpath->string());
         zsyms.bind(fetch_space);
         if (parsed.file.empty())
-            zparsed = load_z88dk_source_map(zsrc, zpath->string(), fetch_space);
+            zparsed = load_z88dk_source_map(zsrc, zpath->string(), fetch_space, Z88dkListings::Beside);
         else
             zparsed.count = 0;   // the SLD speaks for the source half
     }
@@ -610,8 +635,12 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             return out;
         }
         // No SLD sidecar: the z88dk map's source half, under the same rules.
-        if (!zpath || zparsed.count == 0) return out;
+        if (!zpath) return out;
         const std::string zfile = zpath->string();
+        // Why a listing was dropped matters most when none is left to supply the lines.
+        for (const std::string& n : zparsed.listing_notes)
+            log->warn("z88dk listings for '{}': {}", zfile, n);
+        if (zparsed.count == 0) return out;
         if (zparsed.count < 0) {
             log->error("Rejected z88dk source map '{}': {}", zfile, zparsed.error);
             const std::string why = "source map '" + zfile + "' rejected: " + zparsed.error;
@@ -633,8 +662,11 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         impl_->sources_owner = Owner::Sidecar;
         out.sources = zparsed.count;
         out.sources_pending = z_pending;
-        log->info("Loaded {} z88dk source lines from '{}'{}", zparsed.count,
+        log->info("Loaded {} z88dk source lines from '{}'{}{}", zparsed.count,
                   impl_->source_map.loaded_file(),
+                  zparsed.listings > 0 ? " and " + std::to_string(zparsed.listings) +
+                                                   (zparsed.listings == 1 ? " listing" : " listings")
+                                       : std::string(),
                   z_pending ? std::string(kPendingNote)
                             : identity_note(impl_->source_map, zparsed, zidentity));
         if (z_pending)

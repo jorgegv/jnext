@@ -2222,6 +2222,8 @@
       
         
       
+        
+      
     
     
     
@@ -2650,6 +2652,34 @@
     
   
     Source-level debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/15-memory-coverage.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory coverage
   
 
     
@@ -3962,6 +3992,9 @@ const</code> entries — compile-time constants such as the section bounds
 resolves as <code>@name</code> but never names an address in the disassembly. A name the
 MAP defines twice takes its first definition, and a name that is both a label
 and a constant is the label.</p>
+<p>A z88dk C variable or function answers to its C name: <code>@counter</code> for <code>_counter</code>
+(see <a href="../functions/05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>).
+A label or constant really named <code>counter</code> wins over it.</p>
 <p>A z88dk symbol of a <code>BANK_n</code> or <code>PAGE_n</code> section is its 16-bit address in the
 page window, even when the map writes it with the page in the top byte
 (<code>$14E000</code> is <code>$E000</code> as <code>@name</code>). <code>on execute @name</code> fires at that address

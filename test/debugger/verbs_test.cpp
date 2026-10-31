@@ -2253,7 +2253,7 @@ static void test_map_load() {
 
     Fixture fx;
     if (!fx.ok) {
-        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07"})
+        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07", "QMAP-08"})
             check(id, "fixture", false);
         return;
     }
@@ -2431,6 +2431,48 @@ static void test_map_load() {
               asm_text.contains("LD HL,_buffer") && target == "_sub" && sym_col == "_main",
               fmt("asm has LD HL,_buffer=%d target='%s' symbol='%s'",
                   asm_text.contains("LD HL,_buffer"), s(target).c_str(), s(sym_col).c_str()));
+    }
+
+    {
+        // QMAP-08 (GH #424): QMAP-03's setup with C-module symbols (module main_c). The panels show the C names;
+        // the copy keeps the assembler name, so it still assembles (D4). QMAP-03 is the module-less control.
+        fx.mgr->breakpoints().clear_all();
+        fx.regs(PROG);
+        const std::string path = write_file("prog3.map",
+            "_main   = $8000 ; addr, public, , main_c, code_compiler, main.c:1\n"
+            "_sub    = $9000 ; addr, public, , main_c, code_compiler, main.c:5\n"
+            "_buffer = $9100 ; addr, public, , main_c, bss_compiler, main.c:2\n");
+        Modals m;
+        m.file_path = QString::fromStdString(path);
+        if (QAction* a = item_named(load_menu, "Z88DK Format...")) a->trigger();
+        m.timer.stop();
+
+        DisasmPanel* dp = dbg->disasm_panel();
+        if (auto* sb = dp->findChild<QScrollBar*>()) sb->setValue(0x9000);
+        QApplication::processEvents();
+        dp->select_all_visible();
+        const QString asm_text = dp->selection_text(disasm_text::CopyFormat::AsmOnly);
+        const QString with_addr = dp->selection_text(disasm_text::CopyFormat::WithAddresses);
+        dp->clear_selection();
+
+        fx.mgr->on_step_into();
+        const QString target = table_cell(dbg->callstack_panel(), 0, 3);
+
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8000);
+        BreakpointPanel* bp = dbg->breakpoint_panel();
+        QString sym_col;
+        if (auto* t = bp->findChild<QTableWidget*>())
+            for (int r = 0; r < t->rowCount(); ++r)
+                if (t->item(r, 2) && t->item(r, 2)->text() == "$8000" && t->item(r, 3))
+                    sym_col = t->item(r, 3)->text();
+
+        check("QMAP-08",
+              "C-module symbols reach the Call Stack (target `sub`) and the Breakpoints Symbol column (`main`) by "
+              "their C names, and the Disassembly copy keeps the assembler name `_buffer`",
+              asm_text.contains("LD HL,_buffer") && with_addr.contains("LD HL,_buffer") &&
+                  !asm_text.contains("LD HL,buffer") && target == "sub" && sym_col == "main",
+              fmt("asm has _buffer=%d target='%s' symbol='%s'", asm_text.contains("LD HL,_buffer"),
+                  s(target).c_str(), s(sym_col).c_str()));
     }
 
     {
