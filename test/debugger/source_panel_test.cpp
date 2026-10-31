@@ -550,7 +550,7 @@ void test_breakpoints() {
                      "with its page",
           one);
     char want[32];
-    std::snprintf(want, sizeof(want), "$8005 @%02X", fx.p80);
+    std::snprintf(want, sizeof(want), "$8005 P%02X", fx.p80);
     check("QBPM-02", "its address reads with the page", one && rows[0].addr_text == want,
           one ? s(rows[0].addr_text) : "");
     bool ram_only = false;
