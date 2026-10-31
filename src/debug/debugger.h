@@ -746,8 +746,9 @@ public:
     /// of [addr, addr+n) in `space`, addressed like `peek()`: `Cpu` resolves each
     /// byte through the live DATA route (what `peek(Cpu)` shows); any other space
     /// takes offsets within its store (identity-only kinds are NOT refused here,
-    /// unlike peek). Refused (`InvalidPage`) for an index/offset outside the
-    /// space's store; a short read is `RefusedUnavailable` as in peek.
+    /// unlike peek). `InvalidPage` for an index outside the space (above 0xFF, a
+    /// `Page` >= 0xE0, a `Rom` image > 3); an offset past the store's end is a short
+    /// (or empty) read, `RefusedUnavailable` with the count done, as in peek.
     Expected<size_t> mem_coverage(MemSpace space, uint32_t addr, size_t n, uint8_t* out) const;
 
     /// The flags of the byte an M1 at `addr` would fetch NOW (`source_page(addr)`

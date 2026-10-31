@@ -63,13 +63,16 @@ a debugger predicts the source of the next opcode fetch
 Writes use the **same body**, given the access direction
 (`route_bits_<Live, Write>`, public as `write_route(addr)`): the VHDL's SRAM
 arbiter is one process for both (`zxnext.vhd:3081-3132`) and the direction enters
-in three places, which are the three `if constexpr (Write)` arms. The boot ROM is
-in the read data mux only (`:1856-1857`), so a write skips it; the Layer 2 mapping
-tests its write enable instead of its read enable (`:3077`) and the alt ROM takes a
-write only with en+rw (`:3078`); and a write lands only where `sram_rdonly` is
-clear (`:3154`), so the Multiface ROM half, the DivMMC ROM and a read-only DivMMC
-RAM page (`DivMmc::Overlay::rdonly`, `divmmc.vhd:100`, decided once and used by
-`DivMmc::write()` too) and a ROM or unmapped slot come back with a null byte
+in three places (`:3077`, `:3078`, `:3154`), and the code spells them differently: the
+Layer 2 mapping tests its write enable instead of its read enable (`:3077`) and the alt
+ROM takes a write only with en+rw (`:3078`), both as ternaries on `Write` in
+`route_bits_()`; a write lands only where `sram_rdonly` is clear (`:3154`), which is the
+null byte pointer of the Multiface ROM half (an `if constexpr (Write)` block), of the
+DivMMC ROM and a read-only DivMMC RAM page (`divmmc_route_(addr, write)` reading
+`DivMmc::Overlay::rdonly`, `divmmc.vhd:100`, which `DivMmc::is_read_only()` shares) and of
+a ROM or unmapped slot (the slot arm's own `if constexpr (Write)`). The boot ROM is in the
+read data mux only (`:1856-1857`), so its arm is skipped for a write by a third
+`if constexpr (!Write)`. Such writes come back with a null byte
 pointer: dropped, still *naming* their space. `write_landed()` is that route plus
 a store by the space's kind (the SRAM log and the attribute-mux record for the
 SRAM-backed ones, the peripheral's own RAM for Multiface and DivMMC) and the +3
