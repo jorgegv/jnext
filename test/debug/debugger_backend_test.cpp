@@ -6972,6 +6972,24 @@ static void e25_mem_coverage_rows() {
               mc_spaces_str(dbg));
     }
 
+    // INS-21-17: ~Debugger() retires the memory-coverage sink (the pair of LIFE-07). The sink points
+    // INTO Impl::mem_cov; left installed, the machine's next guest access marks freed memory.
+    {
+        Emulator emu; build(emu);
+        bool published = false;
+        {
+            Debugger dbg(emu);
+            dbg.mem_coverage_enable(true);
+            published = emu.debug_state().mem_coverage_sink() != nullptr;
+        }
+        const bool retired = emu.debug_state().mem_coverage_sink() == nullptr &&
+                             !emu.debug_state().mem_gate_live();
+        emu.run_frame();                                   // a guest access now would write through a dangling sink
+        check("INS-21-17", "~Debugger() retires the memory-coverage sink it published: the machine's sink is null "
+                         "and mem_gate_live() false, and it runs a frame on without it",
+              published && retired && pc_of(emu) == PARK);
+    }
+
     // HOST-COV-01: --coverage reaches the backend before the first frame.
     {
         HeadlessApp app;
