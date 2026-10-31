@@ -4384,6 +4384,24 @@ int main() {
                   as_run_to == Result::RefusedCorrupt && r == Result::RefusedCorrupt &&
                       m.dbg->state().paused && m.dbg->subscriptions(true).empty());
         }
+        {
+            // A later verb does not inherit the previous source run-to's targets (arm() clears them).
+            Machine m;
+            m.dbg->load_source_map(sld.string(), false);
+            m.dbg->run_to_source_line(m.a, "main.bas:12");
+            run_until_stop(m);
+            const bool first = stop_is(m, 0x8005);
+            m.set_pc(0x8000);
+            m.dbg->subscribe(m.a, execute_stop(0x8005));
+            m.dbg->run_to(m.a, 0x8006);
+            run_until_stop(m);
+            const auto st = m.dbg->state();
+            check("SRCRUN-08", "after a run to line 12 stopped at $8005, a later run_to($8006) that a "
+                               "breakpoint at $8005 interrupts reads as the breakpoint's stop, not as RunTo "
+                               "(the previous verb's targets are not inherited)",
+                  first && st.paused && m.pc() == 0x8005 && st.pause_reason.kind != PauseReason::Kind::RunTo,
+                  m.where() + " kind=" + std::to_string(int(st.pause_reason.kind)));
+        }
     }
     {
         // SRCBP-07(a): a ROM fetch at $0000 is Rom{0}, whose effective page number is also a RAM page
