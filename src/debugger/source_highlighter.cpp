@@ -370,8 +370,10 @@ int basic_number_end(const QString& t, int i, bool& is_float) {
         if (len >= 2 && last == QLatin1Char('o') && all(0, len - 1, [](QChar c) { return c >= QLatin1Char('0') && c <= QLatin1Char('7'); })) return w;
         if (len >= 2 && last == QLatin1Char('b') && all(0, len - 1, [](QChar c) { return c == QLatin1Char('0') || c == QLatin1Char('1'); })) return w;
     }
+    // zxblex.py t_NUMBER: `(([0-9]+(\.[0-9]+)?)|(\.[0-9]+))([eE][-+]?[0-9]+)?` (line 585 @29f0b2f):
+    // a '.' belongs to the number only with a digit after it, so "1." is "1" and an operator.
     int j = digits_end(t, i);
-    if (j < n && t[j] == QLatin1Char('.')) {
+    if (j + 1 < n && t[j] == QLatin1Char('.') && t[j + 1].isDigit()) {
         is_float = true;
         j = digits_end(t, j + 1);
     }

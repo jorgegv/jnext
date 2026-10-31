@@ -4860,13 +4860,16 @@ void test_source_highlight_classes() {
         // 6.4.4 defines no signed constant, so a leading '-' is an operator.
         Hl h;
         h.load(SourceLanguage::C,
-               QStringLiteral("a = 3.75; b = .5; c = 2.f; d = 1e-3; e = 0x1p-3;\n"
+               QStringLiteral("a = 3.75; b = .5; c = 2.f; d = 1e-3; e = 0x1p-3; g = 0x1.8p3;\n"
                               "f = 0x5800; g = 10u; h = 017; i = 0x1E;\n"
                               "j = 'x'; k = \"s\";\n"
                               "x-1;\n-5;"));
         const bool floats = tok(h, 0, QStringLiteral("3.75")) == 'F' && tok(h, 0, QStringLiteral(".5")) == 'F' &&
                             tok(h, 0, QStringLiteral("2.f")) == 'F' && tok(h, 0, QStringLiteral("1e-3")) == 'F' &&
-                            tok(h, 0, QStringLiteral("0x1p-3")) == 'F';
+                            tok(h, 0, QStringLiteral("0x1p-3")) == 'F' &&
+                            tok(h, 0, QStringLiteral("0x1.8p3")) == 'F' &&
+                            // C11 6.4.4.2: a hexadecimal floating constant is ONE span
+                            range_list(h, 0).find("F@" + std::to_string(h.doc.findBlockByNumber(0).text().indexOf(QStringLiteral("0x1.8p3"))) + "+7 ") != std::string::npos;
         const bool ints = tok(h, 1, QStringLiteral("0x5800")) == 'N' && tok(h, 1, QStringLiteral("10u")) == 'N' &&
                           tok(h, 1, QStringLiteral("017")) == 'N' && tok(h, 1, QStringLiteral("0x1E")) == 'N';
         const bool lit = tok(h, 2, QStringLiteral("'x'")) == 'Q' && tok(h, 2, QStringLiteral("\"s\"")) == 'S';
@@ -4955,19 +4958,24 @@ void test_source_highlight_classes() {
         // t_BIN, t_NUMBER, t_ID with its $ and % suffix).
         Hl h;
         h.load(SourceLanguage::Basic,
-               QStringLiteral("10 LET a = 3.75 + .5e-3 + 1e3 + 2 + $FF + %0101 + 0FFh + 0E3h + 17o : PRINT a$, n%; CHR$(65)\n"
+               QStringLiteral("10 LET a = 3.75 + .5e-3 + 1e3 + 2 + $FF + %0101 + 0FFh + 0E3h + 17o + 0xFF + 101b : PRINT a$, n%; CHR$(65)\n"
                               "IF a <> b THEN\n"
                               "PRINT \"a,b\"\n"
                               "REM a,(b)\n"
                               "' a(b)\n"
-                              "#include <x.bas>"));
+                              "#include <x.bas>\n"
+                              "LET b = 1. + 2"));
         const bool ln = tok(h, 0, QStringLiteral("10")) == 'L';
         const bool fl = tok(h, 0, QStringLiteral("3.75")) == 'F' && tok(h, 0, QStringLiteral(".5e-3")) == 'F' &&
                         tok(h, 0, QStringLiteral("1e3")) == 'F';
         const bool in = tok(h, 0, QStringLiteral("2")) == 'N' &&
                         tok(h, 0, QStringLiteral("$FF")) == 'N' && tok(h, 0, QStringLiteral("%0101")) == 'N' &&
                         tok(h, 0, QStringLiteral("0FFh")) == 'N' && tok(h, 0, QStringLiteral("0E3h")) == 'N' &&
-                        tok(h, 0, QStringLiteral("17o")) == 'N';
+                        tok(h, 0, QStringLiteral("17o")) == 'N' &&
+                        // t_HEXA 0x.. and t_BIN [01]+b: one Integer span each
+                        tok(h, 0, QStringLiteral("0xFF")) == 'N' && tok(h, 0, QStringLiteral("101b")) == 'N' &&
+                        range_list(h, 0).find("N@" + std::to_string(h.doc.findBlockByNumber(0).text().indexOf(QStringLiteral("0xFF"))) + "+4 ") != std::string::npos &&
+                        range_list(h, 0).find("N@" + std::to_string(h.doc.findBlockByNumber(0).text().indexOf(QStringLiteral("101b"))) + "+4 ") != std::string::npos;
         const bool pu = tok(h, 0, QStringLiteral("=")) == 'K' && tok(h, 0, QStringLiteral("+")) == 'K' &&
                         tok(h, 0, QStringLiteral(":")) == 'K' && tok(h, 0, QStringLiteral(",")) == 'K' &&
                         tok(h, 0, QStringLiteral(";")) == 'K' && tok(h, 0, QStringLiteral("(")) == 'K' &&
@@ -4975,7 +4983,9 @@ void test_source_highlight_classes() {
         const bool id = tok(h, 0, QStringLiteral("a$")) == '.' && tok(h, 0, QStringLiteral("n%")) == '.' &&
                         tok(h, 0, QStringLiteral("CHR$")) == 'K';
         const bool ne = range_list(h, 1).find("K@5+2 ") != std::string::npos;
-        const bool rest = tok(h, 2, QStringLiteral("\"a,b\"")) == 'S' && role_mask(h, 3) == "CCCCCCCCC" &&
+        // zxblex t_NUMBER needs a digit after the '.': "1." is the Integer 1 and a Keyword '.'
+        const bool dot = tok(h, 6, QStringLiteral("1")) == 'N' && tok(h, 6, QStringLiteral(".")) == 'K';
+        const bool rest = dot && tok(h, 2, QStringLiteral("\"a,b\"")) == 'S' && role_mask(h, 3) == "CCCCCCCCC" &&
                           role_mask(h, 4) == "CCCCCC" &&
                           role_mask(h, 5) == std::string(h.doc.findBlockByNumber(5).text().size(), 'P');
         check("QSRC-193", "Boriel: 3.75 .5e-3 1e3 are Float, 2 $FF %0101 0FFh 0E3h 17o Integer, punctuation "
@@ -5247,7 +5257,7 @@ void test_source_highlight_panel() {
     {   // QSRC-138
         // The listing's m4 text is highlighted as assembly, in one pass, like a disk file.
         // Oracle: z88dk's own listing text (the real fixture prog.lis, found by its text, not
-        // by a line number) and the QSRC-125 role rules (directives D, mnemonics K, registers R).
+        // by a line number) and the QSRC-125 role rules (directives K, mnemonics and registers I).
         Fixture fx;
         fx.enable();
         const std::string root = tmp + "/q138";
@@ -5445,6 +5455,12 @@ void test_source_highlight_schemes() {
         const bool applied = is(ep.color(QPalette::Base), "#0000A8") && is(ep.color(QPalette::Text), "#FFFF57") &&
                              is(ep.color(QPalette::Highlight), "#A8A8A8") &&
                              is(ep.color(QPalette::HighlightedText), "#0000A8");
+        // the four roles in EVERY colour group: a window that is not the active one paints Inactive
+        bool groups = true;
+        for (auto g : {QPalette::Active, QPalette::Inactive, QPalette::Disabled})
+            groups = groups && is(ep.color(g, QPalette::Base), "#0000A8") && is(ep.color(g, QPalette::Text), "#FFFF57") &&
+                     is(ep.color(g, QPalette::Highlight), "#A8A8A8") &&
+                     is(ep.color(g, QPalette::HighlightedText), "#0000A8");
         v.sp->refresh();
         QApplication::processEvents();
         const auto sels = v.ed->extraSelections();
@@ -5469,7 +5485,7 @@ void test_source_highlight_schemes() {
                           "refresh and in one highlight pass; the current-line bar and the empty viewport then "
                           "show it, a repeat changes nothing, the panel's own palette is not touched, and Auto "
                           "brings the Light colours back",
-              start && applied && pass == v.ed->document()->blockCount() && bar && background && again == 0 &&
+              start && applied && groups && pass == v.ed->document()->blockCount() && bar && background && again == 0 &&
                   same_palette && panel_untouched && restored,
               std::to_string(start) + std::to_string(applied) + std::to_string(bar) + std::to_string(background) +
                   std::to_string(same_palette) + std::to_string(panel_untouched) + std::to_string(restored) +
@@ -5491,7 +5507,7 @@ void test_source_highlight_schemes() {
         for (bool dark_app : {false, true}) {
             if (dark_app) QApplication::setPalette(dark_test_palette());
             QApplication::processEvents();
-            QImage first_gutter;
+            QImage first_gutter, first_header;
             for (SourceScheme sch : {SourceScheme::Light, SourceScheme::Dark, SourceScheme::Borland, SourceScheme::Auto}) {
                 v.sp->set_colour_scheme(sch);
                 v.sp->refresh();
@@ -5522,6 +5538,11 @@ void test_source_highlight_schemes() {
                 const QImage g = v.gutter_image();
                 if (first_gutter.isNull()) first_gutter = g;
                 else if (g != first_gutter) bad += tag + "gutter-differs ";
+                QImage hd(v.header->size(), QImage::Format_ARGB32);
+                hd.fill(Qt::magenta);
+                v.header->render(&hd);
+                if (first_header.isNull()) first_header = hd;
+                else if (hd != first_header) bad += tag + "header-differs ";
             }
             if (dark_app) {
                 QApplication::setPalette(app0);
@@ -5531,7 +5552,7 @@ void test_source_highlight_schemes() {
         m.clear_all();
         check("QSRC-198", "in Light, Dark, Borland and Auto, on a light and on a dark application palette, the "
                           "current line keeps a full-width bar in the scheme's colours with its text drawn and no "
-                          "class colour on it, the breakpoint disc shows, and the gutter is pixel-identical "
+                          "class colour on it, the breakpoint disc shows, and the gutter and its header are pixel-identical "
                           "across the four schemes",
               bad.empty(), bad);
     }
