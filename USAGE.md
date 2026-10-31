@@ -854,8 +854,8 @@ Record memory coverage from the start: for every byte of every memory
 instruction), read it or wrote it. Toggleable in the debugger (Debug \>
 Coverage), where the Disassembly, Memory and Source views show it. With
 the SDL frontend or **--headless** it records but there is no viewer; it
-logs one summary line at exit. Costs a little speed while on; nothing
-while off.
+logs one summary line at exit. Costs a little speed while on (3-8% in
+release builds); no measurable cost while off.
 
 ### Headless and automation
 

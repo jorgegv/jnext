@@ -670,6 +670,40 @@ throughput A/B (9 runs each) gave best-of-9 differences of -1.9% to +5.0% tstate
 the four unarmed workloads, which is the noise of that host; the medians swung up to 25% between two runs of
 the same code.
 
+**Memory coverage (E23-25 (#388)).** Off must cost nothing measurable; the gate is the interleaved A/B of
+`test/bench/ab-hotlatch.sh` with `AB_SET=coverage` (B = the epic tip 3a4dbb3da, U = this branch with
+nothing armed, V = `--coverage`; 5 pairs, five workloads, one pinned core, run on a quiet host with
+the SMT sibling idle; commit `ac12b723b`, result `test/bench/coverage-ac12b723b.txt`), plus `perf stat -e
+instructions:u,cycles:u` on the same core. The owner accepted the PGO A/B as the gate. Median tstates/s on the
+shipped PGO build (`make gui-release`, each tree trained on its own profile):
+
+| workload | B | U (off) | V (`--coverage`) | U vs B | V vs B |
+|---|---|---|---|---|---|
+| boot-48k | 89,852,692 | 89,736,366 | 83,005,444 | -0.1% | -7.6% |
+| boot-nextzxos | 227,943,656 | 227,673,265 | 210,791,154 | -0.1% | -7.5% |
+| copper-demo | 98,383,048 | 97,986,997 | 94,847,384 | -0.4% | -3.6% |
+| beast | 92,408,246 | 91,850,012 | 89,654,608 | -0.6% | -3.0% |
+| bifrost | 84,614,016 | 84,277,878 | 80,273,863 | -0.4% | -5.1% |
+
+(copper-demo's B spread is VOID, 39.6%: the first run of every copper-demo series is a cold-start outlier, seen
+on the base tree alone three times; the other four workloads have spreads of at most 4.2%.) Counted on the same
+PGO builds: `instructions:u` U vs B -0.03% (48k, 600 frames), +0.06% (next, 400), -0.07% (bifrost); `cycles:u`
++0.30%, -0.51%, -0.61%. With `--coverage` on, V costs a further 3-8% in throughput (+4.6% to +10.0% instructions).
+So in the shipped build **off costs nothing measurable**. The first design (hooks fed from the route) cost +0.58% and
++0.76% in `instructions:u`; re-deriving the route out of line in the cold hook brought that to +0.06% and +0.08%.
+
+The non-PGO development build (`gui-release-non-pgo`) is different and is stated plainly: at the same instruction counts
+(+0.06%, +0.12%, +0.02%) U takes **+5% to +7% more cycles on boot-48k and bifrost and about +1.5% on beast** than B
+(min-of-7 `cycles:u`, B 3.007G / 2.912G / 18.46G cycles; U +4.9% / +5.5% / +1.4%), and +0.1% on boot-nextzxos. Counters
+exclude store-to-load forwarding, 4K aliasing or misalignment, mispredicts and instruction-cache or D-TLB misses
+(all equal or better in U); what grows is frontend starvation (`no_ops_from_frontend` +17%) and L2-BTB corrections
+(`bp_l2_btb_correct` +78%), spread over functions this change did not edit (`render_row`, `AyChip::tick`,
+`tick_devices_after_instruction`) as well as `Mmu::read_m1` (+99 of 1,074 extra samples). Three code-padding variants
+(16, 48, 112 bytes inside the never-hot cold hook) all stay at +5% to +7%, so the gap is not a one-off alignment. We attribute it to code
+placement in the non-PGO LTO link (the function order is the linker's; PGO orders by hotness), **not proven**.
+That is why the gate is the PGO build, and why a non-PGO A/B on this tree reads 5% slower on the 48K workloads
+whatever the instruction count says.
+
 ## 5. The source map and the backend API
 
 ### 5.1 The store (D2)
@@ -1281,7 +1315,8 @@ Coverage is off by default. When on, it records executed, read and written bytes
 identity (E23-08); the read and write sides from the same arbiter, given the access direction
 (4.2). It is shown in the disassembly and memory panels, with clear and reset, and it is
 E23-26's automatic code/data map. Off must cost nothing measurable; off and on are measured with
-`make bench` (non-PGO, A/B, quiet host) and the numbers are recorded in the sub-issue. E23-25
+the interleaved A/B `AB_SET=coverage` (PGO build is the gate, owner decision 2026-10-31; the numbers and the non-PGO
+finding are in 4.7). E23-25
 decides and pins the rewind rule (no double count), and whether INS-20's logical bitset stays
 beside it.
 
@@ -1299,10 +1334,13 @@ beside it.
   `InspectionScope`): the CPU, the DMA and the esxdos shim's own stores; never video (it reads
   the BRAM and SRAM through other ports, `zxnext.vhd:6558-6575`, `1666`), the Copper, `peek`,
   `poke`, the trace and call-stack captures, or a loader.
-- *Zero cost off.* `DebugState::mem_gate_live()` is `wp_live || mem_cov_live`, one cached bool
+- *Cost off.* `DebugState::mem_gate_live()` is `wp_live || mem_cov_live`, one cached bool
   replacing `watchpoints_live()` as the first test of the Mmu's read and write sites, so with no
   client the hot path is the load and branch it was; behind it the coverage sink pointer is
-  tested before the watchpoint mask. `watchpoints_live()` is unchanged for the port sites.
+  tested before the watchpoint mask. `watchpoints_live()` is unchanged for the port sites. The
+  coverage hook re-derives its route out of line (`Mmu::cov_note_`), so the hot read and write sites
+  compute no space or offset they do not use. Measured result in 4.7: no measurable cost in the
+  shipped (PGO) build; the owner accepted that A/B as the gate (2026-10-31).
 - *The rewind rule.* Coverage is a set of what this session's machine did, backend state beside
   INS-20's (the sink is re-published at the one re-application and retired by `~Debugger()`): a
   rewind neither removes nor adds a mark, a replay sets the same bits again (no double count by

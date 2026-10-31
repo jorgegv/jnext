@@ -813,7 +813,8 @@ with status 1.
     (Debug \> Coverage), where the Disassembly, Memory and Source views
     show it. With the SDL frontend or **--headless** it records but
     there is no viewer; it logs one summary line at exit. Costs a little
-    speed while on; nothing while off.
+    speed while on (3-8% in release builds); no measurable cost while
+    off.
 
 ## Headless and automation
 
