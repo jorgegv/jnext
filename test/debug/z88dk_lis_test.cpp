@@ -731,6 +731,33 @@ int main() {
                   r.listing_notes.size() == 1);
     }
 
+    // ── Z88LIS-31: the `name: MACRO` form of a definition (z80asm 2.4 / latest output of h.asm) ──
+    {
+        std::string lis = "h.asm:\n";
+        lis += lis_row(1, nullptr, nullptr, " SECTION code_user");
+        lis += lis_row(2, nullptr, nullptr, " ORG $8000");
+        lis += lis_row(3, nullptr, nullptr, " PUBLIC _h");
+        lis += lis_row(4, nullptr, nullptr, "sw: MACRO");
+        lis += lis_row(5, nullptr, nullptr, " SECTION never_used");
+        lis += lis_row(6, nullptr, nullptr, " nop");
+        lis += lis_row(7, nullptr, nullptr, "ENDM");
+        lis += lis_row(8, nullptr, nullptr, "_h:");
+        lis += lis_row(9, "0000", "00", " nop");
+        lis += lis_row(10, "0001", "c9", " ret");
+        lis += lis_row(11, nullptr, nullptr, "");
+        write_text(dir / "z31" / "h.asm.lis", lis);
+        write_text(dir / "z31" / "h.map",
+            "__code_user_head                = $8000 ; const, public, def, , ,\n"
+            "__code_user_size                = $0002 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8002 ; const, public, def, , ,\n"
+            "_h                              = $8000 ; addr, public, , h, code_user, h.asm:8\n");
+        SourceMap m;
+        const auto r = load(m, dir / "z31" / "h.map");
+        check("Z88LIS-31", "a `sw: MACRO` definition (label form) holding SECTION never_used is skipped like the other two forms: the nop and ret that follow are h.asm:9 and :10, no note",
+              r && r.listings == 1 && r.listing_notes.empty() && is_at(m.lookup(P4, 0x8000), "h.asm", 9) &&
+                  is_at(m.lookup(P4, 0x8001), "h.asm", 10));
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

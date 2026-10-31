@@ -611,6 +611,13 @@ int main() {
             ok = ok && r && r.count > 0 && r.error.empty() && is_at(m.lookup(P4, c.at), "incmid.c", 3) &&
                  m.lookup(P4, c.zero) && !zero_line;
         }
+        {   // a line-0 record alone at its address: no range of line 0 is made from it
+            SourceMap m;
+            const auto r = load(m, synth("z30.map",
+                rec("__C_LINE_0_a_2eh", 0x9000, "a_c", "code_compiler", "a.h::f::0::1:0") +
+                rec("__C_LINE_3_a_2ec", 0x9004, "a_c", "code_compiler", "a.c::f::0::1:3")));
+            ok = ok && r && r.count == 1 && !m.lookup(P4, 0x9000) && is_at(m.lookup(P4, 0x9004), "a.c", 3);
+        }
         check("Z88MAP-30", "a record of line 0 in a code section (sccz80 and 80cc write one for an #include after a function) is no code: the map attaches, incmid.c:3 is where its record puts it, and no location at the line-0 record's address has line 0",
               ok);
     }
