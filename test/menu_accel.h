@@ -115,24 +115,31 @@ inline void harvest_menu_bar(QMenuBar* bar, std::vector<Accel>& out,
 /// Ctrl+C and the Source tab's, GH #423) do not compete: each gets a scope of its
 /// owning widget. One that shares a chord with a window-wide action still
 /// competes with it (Qt finds both when that widget has the focus), so it is also
-/// counted in the window scope then, where collisions() flags it.
+/// counted in the window scope then, where collisions() flags it. Two on widgets
+/// where one is an ancestor of the other compete too (a WidgetWithChildrenShortcut
+/// action sees the focus of its descendants): each such pair shares a scope of its own.
 inline std::vector<Accel> harvest_shortcuts(const QWidget* root) {
     std::vector<Accel> out, narrow;
+    std::vector<const QObject*> narrow_owner;   // parallel to `narrow`
     for (QAction* a : root->findChildren<QAction*>()) {
         const bool is_narrow = a->shortcutContext() == Qt::WidgetShortcut ||
                                a->shortcutContext() == Qt::WidgetWithChildrenShortcut;
         QString owner;
+        const QObject* owner_obj = nullptr;
         if (is_narrow)
             for (QObject* o : a->associatedObjects())
                 if (qobject_cast<QWidget*>(o)) {
+                    owner_obj = o;
                     owner = QString::fromLatin1(o->metaObject()->className()) + QStringLiteral("@") +
                             QString::number(reinterpret_cast<quintptr>(o), 16);
                     break;
                 }
         for (const QKeySequence& seq : a->shortcuts()) {
             if (seq.isEmpty()) continue;
-            if (is_narrow && !owner.isEmpty())
+            if (is_narrow && !owner.isEmpty()) {
                 narrow.push_back(Accel{QStringLiteral("<widget ") + owner + QStringLiteral(">"), a->text(), seq.toString()});
+                narrow_owner.push_back(owner_obj);
+            }
             else
                 out.push_back(Accel{window_scope(), a->text(), seq.toString()});
         }
@@ -143,6 +150,16 @@ inline std::vector<Accel> harvest_shortcuts(const QWidget* root) {
         for (const Accel& w : wide)
             if (w.key == n.key) { out.push_back(Accel{window_scope(), n.label, n.key}); break; }
     }
+    for (size_t i = 0; i < narrow.size(); ++i)
+        for (size_t j = i + 1; j < narrow.size(); ++j) {
+            const QWidget* a = qobject_cast<const QWidget*>(narrow_owner[i]);
+            const QWidget* b = qobject_cast<const QWidget*>(narrow_owner[j]);
+            if (narrow[i].key != narrow[j].key || a == b) continue;
+            if (!a->isAncestorOf(b) && !b->isAncestorOf(a)) continue;
+            const QString scope = QStringLiteral("<widget ancestry %1>").arg(i * narrow.size() + j);
+            out.push_back(Accel{scope, narrow[i].label, narrow[i].key});
+            out.push_back(Accel{scope, narrow[j].label, narrow[j].key});
+        }
     return out;
 }
 

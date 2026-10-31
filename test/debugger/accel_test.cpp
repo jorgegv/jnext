@@ -310,9 +310,9 @@ static void test_accelerators(Fixture& fx)
     // whose E is free in the Breakpoints popup — DACC-02 is what proves
     // that. Nine shortcuts until GH #21 gave the disassembly panel Ctrl+C
     // and Ctrl+A: those two are Qt::WidgetShortcut actions on the panel
-    // rather than menu-bar entries, and harvest_shortcuts() does not filter
-    // by context — deliberately, since a window-wide action that later took
-    // Ctrl+C would then collide with them and DACC-03 would say so.) Adding
+    // rather than menu-bar entries; harvest_shortcuts() scopes them by their
+    // widget (GH #423), and still reports a window-wide action, or one on an ancestor
+    // or descendant widget, that later took Ctrl+C, so DACC-03 would say so.) Adding
     // or removing a menu entry means updating these numbers, and that edit is
     // the point — it is the claim about how much of the menu tree is checked.
     // It counts the SAME vector DACC-03 checks, not a second walk that could
