@@ -68,6 +68,11 @@ would at its own breakpoint. If the condition matters, put it in `when` — `on
 execute @f when A == 0 do stop end` — rather than in an `if` inside the body,
 which only the script can evaluate.
 
+In the debugger window every event rule of a loaded script except `on stop` is listed in the Breakpoints panel,
+read-only, as its kind with `(client N)` after it (`Execute`, `Write`, `Frame`, ...). The script engine may add a
+`Frame` row of its own once it needs one (for example after an `exit` or a run-time error). The `execute` rules are not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not
+remove them; the `stop`-only one is the rule that stops the machine like a breakpoint (see [Whose breakpoints the gutters show and change](../panels/08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)).
+
 ## `assert`
 
 ```

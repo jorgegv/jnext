@@ -3809,7 +3809,10 @@ the machine by hand.</p>
   enable breakpoints first</code>. They are removed when the client leaves.
   Conditions are ZEsarUX's (<code>PC=8000H</code>, <code>SP&gt;=65280</code>,
   <code>PC=PEEKW(SP-2) AND SP&gt;=65280</code>, <code>A&lt;&gt;0 AND (HL&amp;FFH)=5</code>, ...); <code>help
-  set-breakpoint</code> lists the terms JNEXT honours.</li>
+  set-breakpoint</code> lists the terms JNEXT honours.
+  With JNEXT's debugger window open they appear in its Breakpoints panel as <code>Execute (client N)</code>, read-only, but
+  are not drawn as a dot in the Disassembly or Source breakpoint columns, and a click there does not remove them
+  (see <a href="../panels/08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change</a>).</li>
 <li><strong>The history, the coverage and the call tracking are the machine's.</strong> A
   client that turns one on turns it off again when it leaves; one that was
   already on — the trace you enabled in the debugger window — stays on. A
