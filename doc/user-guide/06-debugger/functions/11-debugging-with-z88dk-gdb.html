@@ -3776,7 +3776,10 @@ Hit breakpoint 1: @8412 (_update_player)
   on one of them. <code>quit</code> resumes the machine if the stop was the client's own
   and nothing else is attached; with JNEXT's debugger window open, or another
   remote debugger connected, it stays paused and the pause becomes theirs. A
-  pause you made in JNEXT's debugger window stays.</li>
+  pause you made in JNEXT's debugger window stays.
+  In that window they appear in the Breakpoints panel as <code>Execute (client N)</code>, read-only, but are not drawn as a dot
+  in the Disassembly or Source breakpoint columns, and a click there does not remove them (use <code>delete</code> in
+  <code>z88dk-gdb</code>; see <a href="../panels/08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change</a>).</li>
 <li><strong>Both can drive the machine.</strong> JNEXT's debugger window and <code>z88dk-gdb</code>
   control the same machine, and whichever acted last wins. If something else
   stops the machine while <code>z88dk-gdb</code> has it running, the client is told it
