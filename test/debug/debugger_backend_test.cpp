@@ -6633,6 +6633,33 @@ int main() {
               dbg.state().pause_reason.addr == AFTER_CALL);
     }
     {
+        // GH #423 - a second run_to while the machine RUNS re-targets: the first
+        // target (reached earlier) is dropped with the caller's other transients,
+        // another client's transient is not.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        Subscription other;
+        other.kind      = EventKind::Execute;
+        other.filter.lo = other.filter.hi = 0xF000;     // never reached
+        other.transient = true;
+        other.action    = Action::Stop;
+        dbg.subscribe(4, other);
+        dbg.run_to(3, AFTER_CALL);                      // reached first
+        const bool running = !emu.debug_state().paused();
+        dbg.run_to(3, PARK);                            // re-target while running
+        const size_t mine_and_other = dbg.subscriptions(true).size();
+        run_until_paused(emu);
+        check("CTL-06-04", "GH #423: run_to() on a RUNNING machine drops the caller's earlier "
+                           "transient target (the stop is at the new one, passing the old), and "
+                           "keeps another client's transient until the stop",
+              running && mine_and_other == 2 && dbg.state().paused && pc_of(emu) == PARK &&
+                  dbg.state().pause_reason.kind == PauseReason::Kind::RunTo &&
+                  dbg.state().pause_reason.addr == PARK,
+              "running=" + std::to_string(running) + " subs=" + std::to_string(mine_and_other) +
+                  " PC=" + hex(pc_of(emu)));
+    }
+    {
         Emulator emu; build(emu);
         Debugger dbg(emu);
         attach_and_pause(emu);

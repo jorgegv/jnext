@@ -2018,6 +2018,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#whose-breakpoints-the-gutters-show-and-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Whose breakpoints the gutters show and change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#turning-breakpoints-off-without-losing-them" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3673,6 +3684,29 @@ breakpoint, a source line (<code>main.bas:120</code>); see
 <a href="../functions/14-source-level-debugging.html">Source-level debugging</a>.
 <strong>Add</strong>, <strong>Edit</strong> and <strong>Remove</strong> manage them; double-clicking a row edits it.
 The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.</p>
+<h2 id="whose-breakpoints-the-gutters-show-and-change">Whose breakpoints the gutters show and change<a class="headerlink" href="#whose-breakpoints-the-gutters-show-and-change" title="Permanent link">&para;</a></h2>
+<p>Every breakpoint belongs to whoever set it. The debugger window is one owner; GDB
+(<code>z88dk-gdb</code>, a GDB-protocol client), ZRCP, DZRP (DeZog in VS Code) and a debugger script are
+others, each its own. They all stop the same machine, and the <strong>Breakpoints panel</strong> lists all
+of them together, but the <strong>breakpoint column of the Disassembly and of the Source tab</strong> draws
+and edits only the debugger window's own breakpoints:</p>
+<ul>
+<li><strong>Drawing.</strong> A red dot or ring in either column is a breakpoint this window set (a gutter
+  click, <strong>Toggle Breakpoint</strong>, the Add dialog, the Breakpoints menu). An Execute breakpoint
+  that GDB, ZRCP, DeZog or a script set at the same address draws nothing there. It is a row in
+  the Breakpoints panel, marked <code>(client N)</code> after its type, read-only: its <strong>On</strong> box cannot be
+  ticked, and <strong>Edit</strong> and <strong>Remove</strong> refuse it.</li>
+<li><strong>Clicking.</strong> A click on a line that carries only someone else's breakpoint <strong>adds the window's
+  own</strong> breakpoint beside it (two rows in the list, the line now shows a dot) and does not touch
+  the other. A click on a line with the window's own breakpoint removes <strong>that</strong> one only. The
+  window never removes another client's breakpoint, from a gutter, from the right-click menu,
+  from <strong>Remove</strong> or from <strong>Clear All Breakpoints</strong> (which clears only the window's own).</li>
+<li><strong>Seeing and removing the others.</strong> Read them in the Breakpoints panel. To remove one, use the
+  tool that set it (<code>delete</code> in GDB, the breakpoint list in DeZog, the ZRCP command, the
+  script). The <strong>Breakpoints enabled</strong> master switch below is shared: unticking it suspends every
+  owner's breakpoints.</li>
+<li><strong>Data breakpoints</strong> (Read, Write, ports) are not drawn in the gutters at all, whoever owns them.</li>
+</ul>
 <h2 id="turning-breakpoints-off-without-losing-them">Turning breakpoints off without losing them<a class="headerlink" href="#turning-breakpoints-off-without-losing-them" title="Permanent link">&para;</a></h2>
 <p>Deleting a breakpoint to get past it, and typing the address back in
 afterwards, is the thing this panel exists to stop.</p>

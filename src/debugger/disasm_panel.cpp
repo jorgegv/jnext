@@ -1,6 +1,7 @@
 #include "disasm_panel.h"
 #include "qt/palette_tint_qt.h"   // GH #363
 #include "debugger/breakpoint_model.h"
+#include "debugger/operand_menu.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -197,7 +198,22 @@ void DisasmPanel::navigate_to_address(const QString& text)
     const auto resolved = dbg_ ? dbg_->symbols().resolve(text.toStdString())
                                : SymbolTable().resolve(text.toStdString());
     if (!resolved) return;
-    const uint16_t addr = *resolved;
+    center_on(*resolved);   // the address box only moves the view; the selection stays
+}
+
+void DisasmPanel::show_address(uint16_t addr)
+{
+    center_on(addr);
+    // GH #423 - the line is the caret and the selection, so it is also the target of
+    // Run to Cursor and of a copy.
+    for (int i = 0; i < static_cast<int>(entries_.size()); ++i)
+        if (entries_[i].line.addr == addr) { selected_line_ = i; break; }
+    set_selection(addr, /*extend=*/false);
+}
+
+void DisasmPanel::center_on(uint16_t addr)
+{
+    if (!dbg_) return;
 
     // Center the target address in the view
     int half = visible_lines() / 2;
@@ -842,101 +858,29 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         addr_input_->selectAll();
     });
 
-    // --- Shared: extract immediate and register info for watch/breakpoint actions ---
+    // --- The operands of the line: watch and data breakpoint entries ---
+    // One builder for this view and the Source tab (GH #423), so the two cannot
+    // differ in words or order.
     const auto& entry = entries_[line];
     const char* mnem = entry.line.mnemonic;
-    uint16_t imm = extract_immediate16(mnem);
-    bool has_imm = (imm != 0 || std::strstr(mnem, "$0000"));
+    const uint16_t imm = extract_immediate16(mnem);
+    MenuOperands ops;
+    if (imm != 0 || std::strstr(mnem, "$0000")) {
+        ops.immediate = imm;
+        if (symbol_table_)
+            if (auto sym = namer()(imm)) ops.immediate_label = *sym;
+    }
+    if (symbol_table_)
+        if (auto sym = namer()(addr)) ops.labels.push_back({*sym, addr});
 
     auto regs = dbg_->registers();
     struct { const char* name; const char* pattern; uint16_t val; } reg_pairs[] = {
         {"HL", "(HL)", regs.HL}, {"DE", "(DE)", regs.DE}, {"BC", "(BC)", regs.BC},
         {"IX", "(IX", regs.IX}, {"IY", "(IY", regs.IY}, {"SP", "(SP)", regs.SP}
     };
-
-    // --- Watch actions ---
-    if (watch_panel_) {
-        menu.addSeparator();
-
-        if (symbol_table_) {
-            auto sym = namer()(addr);
-            if (sym) {
-                auto* watch_sym = menu.addAction(
-                    QString("Watch '%1' ($%2)").arg(QString::fromStdString(*sym))
-                        .arg(addr, 4, 16, QChar('0')));
-                connect(watch_sym, &QAction::triggered, this, [this, addr, sym]() {
-                    watch_panel_->add_watch(addr, *sym);
-                });
-            }
-        }
-
-        if (has_imm) {
-            QString label;
-            if (symbol_table_) {
-                auto sym = namer()(imm);
-                if (sym) label = QString::fromStdString(*sym);
-            }
-            auto* watch_imm = menu.addAction(
-                QString("Watch $%1").arg(imm, 4, 16, QChar('0')));
-            connect(watch_imm, &QAction::triggered, this, [this, imm, label]() {
-                watch_panel_->add_watch(imm, label.toStdString());
-            });
-        }
-
-        for (const auto& rp : reg_pairs) {
-            if (std::strstr(mnem, rp.pattern)) {
-                auto* watch_reg = menu.addAction(
-                    QString("Watch (%1) = $%2").arg(rp.name)
-                        .arg(rp.val, 4, 16, QChar('0')));
-                connect(watch_reg, &QAction::triggered, this, [this, rp]() {
-                    watch_panel_->add_watch(rp.val,
-                        std::string("(") + rp.name + ")");
-                });
-            }
-        }
-    }
-
-    // --- Data breakpoint actions ---
-    //
-    // GH #218/#220 — every one of these adds a DATA breakpoint, which the
-    // Breakpoints panel lists but this gutter does not draw (it paints Execute
-    // breakpoints only). #218 gave them an explicit signal to repaint that
-    // list; #220 deleted it, because the model's mutators notify the list
-    // themselves. Note what is NOT here as a result: no repaint of our own, and
-    // no wire to a panel we do not own.
-    {
-        menu.addSeparator();
-
-        if (has_imm) {
-            auto* bp_read = menu.addAction(
-                QString("Break on Read $%1").arg(imm, 4, 16, QChar('0')));
-            connect(bp_read, &QAction::triggered, this, [this, imm]() {
-                if (bp_model_) bp_model_->add(BreakpointModel::Read, imm);
-            });
-            auto* bp_write = menu.addAction(
-                QString("Break on Write $%1").arg(imm, 4, 16, QChar('0')));
-            connect(bp_write, &QAction::triggered, this, [this, imm]() {
-                if (bp_model_) bp_model_->add(BreakpointModel::Write, imm);
-            });
-        }
-
-        for (const auto& rp : reg_pairs) {
-            if (std::strstr(mnem, rp.pattern)) {
-                auto* bp_read = menu.addAction(
-                    QString("Break on Read (%1) = $%2").arg(rp.name)
-                        .arg(rp.val, 4, 16, QChar('0')));
-                connect(bp_read, &QAction::triggered, this, [this, rp]() {
-                    if (bp_model_) bp_model_->add(BreakpointModel::Read, rp.val);
-                });
-                auto* bp_write = menu.addAction(
-                    QString("Break on Write (%1) = $%2").arg(rp.name)
-                        .arg(rp.val, 4, 16, QChar('0')));
-                connect(bp_write, &QAction::triggered, this, [this, rp]() {
-                    if (bp_model_) bp_model_->add(BreakpointModel::Write, rp.val);
-                });
-            }
-        }
-    }
+    for (const auto& rp : reg_pairs)
+        if (std::strstr(mnem, rp.pattern)) ops.regs.push_back({rp.name, rp.val});
+    add_operand_actions(menu, this, ops, watch_panel_, bp_model_.data());
 
     menu.exec(event->globalPos());
 }

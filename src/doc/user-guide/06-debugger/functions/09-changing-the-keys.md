@@ -18,7 +18,7 @@ The seventeen commands, and what they are bound to out of the box:
 | Step Out | **F8** | toolbar, **Debug** menu |
 | Step Back | **Shift+F7** | toolbar, **Debug** menu |
 | Frame Back | **Shift+F6** | toolbar, **Debug** menu |
-| Run to Cursor | *unbound* | **Enter** in the disassembly, right-click ▸ Run to Here |
+| Run to Cursor | *unbound* | **Enter** in the disassembly or the Source tab, right-click ▸ Run to Here |
 | Run to End of Frame | *unbound* | toolbar, **Debug** menu |
 | Run to End of Scan Line | *unbound* | toolbar, **Debug** menu |
 | Enable / Disable Trace | **F2** | toolbar, **Debug ▸ Trace** |

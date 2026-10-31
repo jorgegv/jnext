@@ -2000,6 +2000,34 @@ static void test_breakpoint_owners()
                   rows.join(QStringLiteral(", ")).toUtf8().constData()));
         bps.clear_all_pc();
     }
+    // BPOW-06 — a second gutter click removes the GUI's own breakpoint and ONLY that:
+    // the other client's stays (the user guide says so: "Whose breakpoints the
+    // gutters show and change").
+    {
+        DisasmPanel* disasm = fx.dbg->disasm_panel();
+        bps.clear_all_pc();
+        for (const auto& si : fx.backend->subscriptions(false))
+            fx.backend->unsubscribe(si.owner, si.id);
+        jnext::dbg::Subscription s;
+        s.kind = jnext::dbg::EventKind::Execute;
+        s.action = jnext::dbg::Action::Stop;
+        s.filter.lo = s.filter.hi = 0x8003;
+        fx.backend->subscribe(remote, s);
+        tick();
+        const bool armed = point_disasm_at(fx.emu, disasm, 0x8000);
+        gutter_click(disasm, 1);
+        const bool own_added = bps.pc_exists(0x8003);
+        gutter_click(disasm, 1);
+        const bool own_gone = !bps.pc_exists(0x8003);
+        const QStringList rows = panel_rows(fx.dbg);
+        check("BPOW-06", "a second gutter click removes the GUI's own breakpoint and leaves the other "
+              "client's in the list",
+              armed && own_added && own_gone &&
+                  rows == QStringList{QStringLiteral("Execute (client %1) $8003").arg(remote)},
+              fmt("armed=%d added=%d gone=%d rows=[%s]", armed, own_added, own_gone,
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+        bps.clear_all_pc();
+    }
     // BPOW-05 — the panel's Edit refuses another client's row (WP4c review,
     // M22): no dialog opens, and the row is not copied. Without the refusal the
     // edit's remove() is a no-op on a row the GUI does not own, and its add()
