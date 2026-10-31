@@ -7,6 +7,15 @@
 
 class SourceMap;
 
+/// Whether to read the z80asm `--list` listings that sit beside the map
+/// (GH #348, design 9.5): `<map stem>.lis` (the start-up code) and `<file>.lis`
+/// for every source file the map's module symbols name, each used only when it
+/// is a listing of one of the map's modules, its labels all agree with the map
+/// and its opcodes with the section binaries. A listing's module then takes its
+/// lines from it instead of from the map; a listing that does not hold up is
+/// dropped alone, with a note, and its module keeps the map's records.
+enum class Z88dkListings { None, Beside };
+
 /// Load the source half of a z88dk `-debug` map (design 9.4, GH #344) into a
 /// compiler-neutral SourceMap: the `__C_LINE_` and `__ASM_LINE_` records become
 /// ranges, each in the 8K page its section names (`z88dk_section_space()`), or
@@ -31,7 +40,12 @@ class SourceMap;
 /// byte check for each non-data line range they cover. No binary, no identity.
 /// Data sections (data*, bss*, smc*) are never checked.
 ///
+/// With `Z88dkListings::Beside` the result also carries `listings`,
+/// `listing_checks`, `listing_disagreements` and `listing_notes`, and a map with
+/// no line record still gives ranges when a listing supplies them.
+///
 /// The symbols are the symbol table's (`SymbolTable::load_z88dk_map()`); this
 /// fills only the SourceMap.
 SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& path,
-                                          const SymbolSpaceOf& space_of);
+                                          const SymbolSpaceOf& space_of,
+                                          Z88dkListings listings = Z88dkListings::None);

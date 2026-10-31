@@ -3666,7 +3666,9 @@ log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</s
 <code>ROM or overlay</code> when no RAM page supplies the address — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
-use the disassembly there.</p>
+use the disassembly there. The start-up code of a z88dk program built with <code>--list</code>
+shows its m4 text from the listing, the label ending <code>(m4 output, from prog.lis)</code>;
+<strong>Locate File...</strong> does not apply to it.</p>
 <p>Left of the text is a gutter, like the disassembly's: a <strong>BP</strong> column and the file's
 own <strong>Line</strong> numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a

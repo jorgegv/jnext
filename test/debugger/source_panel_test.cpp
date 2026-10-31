@@ -118,6 +118,11 @@ std::string s(const QString& q) { return q.toStdString(); }
 
 QTemporaryDir* g_tmp = nullptr;
 
+std::string read_text(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
 void write_text(const std::string& path, const std::string& text) {
     std::ofstream out(path, std::ios::binary);
     out << text;
@@ -2629,6 +2634,144 @@ QString locate(SourcePanel* sp, const std::string& picked, QMessageBox::Standard
     return warning;
 }
 
+// ── QSRC-140/141 (GH #348): a z88dk map's --list listings in the Source tab and the Load box ──
+
+void test_z88dk_listings() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-140
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q140";
+        const std::string map = root + "/build/prog.map";
+        copy_z88dk("master/sdcc-debug", "prog.map", map);
+        copy_z88dk("master/sdcc-debug", "prog.lis", root + "/build/prog.lis");
+        put_file(root + "/build/z88dk/lib/crt/newlib/crt_start_di.inc", numbered_lines(10, "; di "));
+        fx.backend->load_source_map(map, true);
+        auto at = [&](uint16_t pc) {
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = pc;
+            fx.emu.cpu().set_registers(r);
+            fx.mgr->refresh_panels();
+        };
+        at(0x8001);
+        SourcePanel* sp = fx.dbg()->source_panel();
+        auto* editor = sp->findChild<QPlainTextEdit*>();
+        const bool text_ok = editor &&
+            editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push iy") &&
+            editor->document()->findBlockByNumber(9461).text() == QStringLiteral("__Start:") &&
+            sp->location_tooltip().endsWith(QStringLiteral("/q140/build/prog.lis"));
+        const bool m4_ok = text_ok && editor && editor->document()->blockCount() == 9689 && sp->highlighted_line() == 9470 &&
+                           sp->location_text().endsWith(QStringLiteral("(m4 output, from prog.lis)")) &&
+                           !button(sp, QStringLiteral("Locate File..."))->isEnabled();
+        const QString m4_text = sp->location_text();
+        at(0x8000);
+        const bool disk_ok = editor && editor->document()->blockCount() == 11 && sp->highlighted_line() == 3 &&
+                             !sp->location_text().contains(QStringLiteral("m4 output"));
+        check("QSRC-140", "with prog.lis loaded beside the map, $8001 shows the CRT's m4 text from the listing "
+                          "(9689 lines, line 9470 highlighted, labelled '(m4 output, from prog.lis)', no Locate "
+                          "File...), and $8000 goes back to the disk file crt_start_di.inc with line 3 highlighted",
+              m4_ok && disk_ok, s(m4_text) + " | " + s(sp->location_text()));
+    }
+    {   // QSRC-141
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q141/prog.map";
+        copy_z88dk("v2.4/sdcc-SO2", "prog.map", map);
+        for (const char* lis : {"main.c.lis", "util.c.lis", "asmfn.asm.lis", "prog.lis"})
+            copy_z88dk("v2.4/sdcc-SO2", lis, tmp + "/q141/" + lis);
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        check("QSRC-141", "Load Source Map... of a z88dk map with its listings reports 230 traces and 'with 4 z88dk listings'",
+              load && box.startsWith(QStringLiteral("Loaded 230 source traces from:")) &&
+                  box.contains(QStringLiteral("with 4 z88dk listings")),
+              s(box));
+    }
+    {   // QSRC-142: dropped listings in the Load box
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q142/prog.map";
+        copy_z88dk("v2.4/sdcc-SO2", "prog.map", map);
+        copy_z88dk("v2.4/sdcc-SO2", "prog_CODE.bin", tmp + "/q142/prog_CODE.bin");
+        for (const char* lis : {"main.c.lis", "util.c.lis", "asmfn.asm.lis", "prog.lis"})
+            copy_z88dk("v2.4/sdcc-SO2", lis, tmp + "/q142/" + lis);
+        {
+            std::string text = read_text(tmp + "/q142/main.c.lis");
+            const size_t at = text.find("0023  af");
+            if (at != std::string::npos) text.replace(at, 8, "0023  b7");
+            write_text(tmp + "/q142/main.c.lis", text);
+        }
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+                        // The test machine does not hold the program: accept the mismatch question.
+                        if (mb->text().contains(QStringLiteral("Load it anyway"))) { click_box(w, QMessageBox::Yes); return; }
+                        box = mb->text();
+                    }
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        check("QSRC-142", "Load Source Map... with one stale listing reports the 3 that were used and the note naming main.c.lis",
+              load && box.contains(QStringLiteral("with 3 z88dk listings")) &&
+                  box.contains(QStringLiteral("main.c.lis")) && box.contains(QStringLiteral("$8C6B")),
+              s(box));
+    }
+    {   // QSRC-144: one listing is singular in the Load box
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q144/prog.map";
+        copy_z88dk("v2.4/sccz80-incmid", "prog.map", map);
+        copy_z88dk("v2.4/sccz80-incmid", "incmid.c.lis", tmp + "/q144/incmid.c.lis");
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        check("QSRC-144", "Load Source Map... of a map with exactly one listing says 'with 1 z88dk listing', not 'listings'",
+              load && box.contains(QStringLiteral("with 1 z88dk listing")) &&
+                  !box.contains(QStringLiteral("z88dk listings")),
+              s(box));
+    }
+    {   // QSRC-143: a reloaded listing of the same name refreshes the shown text
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q143";
+        const std::string map = root + "/build/prog.map";
+        copy_z88dk("master/sdcc-debug", "prog.map", map);
+        copy_z88dk("master/sdcc-debug", "prog.lis", root + "/build/prog.lis");
+        fx.backend->load_source_map(map, true);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x8001;
+        fx.emu.cpu().set_registers(r);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        auto* editor = sp->findChild<QPlainTextEdit*>();
+        const bool before = editor && editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push iy");
+        std::string lis = read_text(root + "/build/prog.lis");
+        const size_t at = lis.find("      push iy");
+        if (at != std::string::npos) lis.replace(at, 13, "      push ix");
+        write_text(root + "/build/prog.lis", lis);
+        fx.backend->load_source_map(map, true);
+        fx.mgr->refresh_panels();
+        check("QSRC-143", "loading the map again after its prog.lis changed shows the new m4 text, not the old",
+              before && editor && at != std::string::npos &&
+                  editor->document()->findBlockByNumber(9469).text() == QStringLiteral("      push ix"));
+    }
+}
+
 void test_source_search() {
     const std::string tmp = g_tmp->path().toStdString();
     {   // QSRC-66
@@ -4325,6 +4468,7 @@ int main(int argc, char** argv) {
     test_call_stack_non_page_caller();
     test_source_menu();
     test_z88dk_source_map();
+    test_z88dk_listings();
     test_source_search();
     test_source_gutter();
     test_z88dk_c_names();

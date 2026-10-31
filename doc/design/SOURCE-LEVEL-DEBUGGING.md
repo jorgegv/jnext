@@ -240,6 +240,22 @@ The `-debug` map once broke jnext's symbol loader (the C-line markers named the 
 labels). #352 fixed it in v1.1.45: `load_z88dk_map` skips `__C_LINE_`, `__ASM_LINE_` and
 `__CDBINFO__`.
 
+**Listing facts (GH #348, evidence in `test/fixtures/z88dk`).**
+
+- F9. z80asm keeps the LAST `MODULE`: the classic CRT listing has zcc's `MODULE zxn_crt0_asm` and then
+  `MODULE zxn_crt0`, and the map names `zxn_crt0`.
+- F10. A false `IF` branch is listed exactly like a taken one, with its text and line number, only without
+  bytes; the listing does not say which branch was assembled.
+- F11. MACRO bodies are listed once, at their definition (`MACRO name`, `name MACRO`, `name: MACRO`, to `ENDM`).
+  A macro invocation row carries all the bytes the expansion emitted, even those that went to another section;
+  REPT bytes sit on the `ENDR` row.
+- F12. A section piece's listed addresses start at 0 and are continuous; ORG does not change them, ALIGN and DEFS
+  list their fill bytes.
+- F13. With MACRO bodies skipped and the last MODULE used, the classic CRT places exactly (47 rows, every
+  instruction's first byte equal to the binary); the start-up code is in the default section.
+- F14. Line 0 is z80asm's file-entry marker (`C_LINE 0,"<file>::<func>::0::1"` after an `#include` following a
+  function), never a source line.
+
 ### 2.4 sjasmplus EQU files
 
 `--sym=FILE` writes the whole symbol table and `--exp=FILE` only the `EXPORT` labels, one
@@ -292,7 +308,7 @@ scripts) sees the same source map and symbols.
 | `Memory.txt` | NextBuild symbols | `SymbolTable` | done |
 | `prog.map` (`-m`) | z88dk map symbols | `SymbolTable` | done (#352) |
 | `prog.map` (`-m -debug`) | z88dk debug map | `SourceMap`, `SymbolTable` | done (E23-13 (#344)) |
-| `*.lis` and `prog.map` | z88dk listings | `SourceMap` | E23-17 (#348) |
+| `*.lis` and `prog.map` | z88dk listings | `SourceMap` | done (E23-17 (#348)) |
 | `prog_<GROUP>.bin` | program identity | `SourceMap` | done (E23-13 (#344)) |
 | `--sym` / `--exp` files | EQU symbols | `SymbolTable` | #390 |
 | `.cdb` / `.adb` | none: z88dk writes no such file; the same records are the map's `__CDBINFO__` | `SourceMap` | E23-20 (#350), 9.6 |
@@ -359,7 +375,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
-| z88dk | DONE (E23-13 (#344), stages 1 to 3): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs attach at once and are judged per space where the CPU first runs them (6.2, stage 3) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
+| z88dk | DONE (E23-13 (#344), stages 1 to 3; the `--list` listings E23-17 (#348)): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs attach at once and are judged per space where the CPU first runs them (6.2, stage 3) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | DONE (E23-23 (#375) stages 1 to 3): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages (stage 3): `z88dk_section_space()` places each symbol, rule-4 symbols are bound by `SymbolTable::bind()` | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
@@ -678,6 +694,9 @@ the same code.
 - `by_line`: (file, line) to range indices (several, disjoint). `aliases`: (file, line) to a
   range, for the zero-width lines of G3.
 - An optional program identity (9.7).
+- `texts`: source files the toolchain did not keep, taken from a listing (`SourceMap::embedded_text()`, keyed by
+  the normalised name; GH #348): the m4 output of z88dk's start-up code, shown by the Source tab labelled
+  `(m4 output, from prog.lis)`.
 
 `lookup(space, addr)` returns every range that contains `addr` in `space`. The primary
 location is the shortest range; on a tie the record the adapter emitted last wins. The z88dk
@@ -1021,7 +1040,10 @@ An adapter turns one file format into the neutral stores and nothing else. It em
 - symbols (section 10).
 
 It **parses the whole input and fails with a reason before replacing a store.** For a source
-half that is strict: any malformed record refuses the half, and the reason names the line. The
+half that is strict: any malformed record refuses the half, and the reason names the line. The one
+exception is a z88dk `--list` listing (9.5): a listing found beside the map that is malformed, is
+not this build's or does not hold up against the map or the section binaries drops that listing
+alone, with a note naming the file, never the half; its module keeps the map's records. The
 symbol-only loaders keep the MAP rule: a file that cannot be opened, is not a regular file or
 is over the size cap is refused with a reason, and inside a readable file a line that does not
 parse as a symbol is skipped, not fatal (real z88dk maps carry lines of every kind: `; const`
@@ -1138,15 +1160,28 @@ flags per compiler and z88dk version, and the G4, G5 and G7 limits) from E23-13 
 
 ### 9.5 z88dk `.lis` and map (E23-17 (#348))
 
-Relocation is per (module, section piece): offset = map(label) - lis(label), re-anchored at
-each label (DeZog's `z88dkMapOffset`). Then every instruction is a range of its byte length.
-The line source is, for sccz80, `C_LINE`; for sdcc, the `;file:line:` comments, every
-occurrence, so line 18 gets both of its ranges; for an asm file, its own line numbers. The
-space comes from the `SECTION` line by 9.4's rules. There is one `.lis` per source (z88dk
-writes `main.c.lis`, `util.c.lis`), found beside the map or by a glob. With a `-debug` map
-present, its C lines are cross-checked against the listing and the listing wins, because it is
-exact and has every occurrence: the reverse of DeZog, which takes its C lines from the map.
-The listing is the only per-line asm source and the only sdcc line source on 2.4 (G6, G12).
+As built (`src/debug/z88dk_lis.*`, `z88dk_source_map.cpp`). The listings beside the map are `<map
+stem>.lis` (the start-up code) and `<file>.lis` for every file the map's module symbols name. Each is
+interpreted on its own, and a listing that does not hold up is dropped alone, with a note naming it: its
+module keeps the map's records (never the half). The listing wins over the map for a module it covers, the
+reverse of DeZog; the map's line records are cross-checked against it under z80asm's first-occurrence rules and
+a disagreement is a warning.
+
+- B1. The listing's module is its LAST `MODULE` line outside MACRO bodies.
+- B2. MACRO definition bodies (three forms, nesting counted, text before a `;` only) are skipped.
+- B3. An invoked macro whose body, transitively, switches section (SECTION, PHASE, DEPHASE) drops the listing.
+- B4. A REPT body that does the same drops the listing; otherwise the `ENDR` row is an ordinary byte row.
+- B5. False IF branches are not modelled (F10): their directives are obeyed.
+- B6. Continuity guard: a byte row outside PHASE whose listed address is not its section's pc (an unseen section
+  starts at 0) drops the whole listing, with the line, the section and both addresses.
+- B7. The default section is an ordinary section (anchored by the map's symbols in it, placed by 9.4's rule 4).
+- B8. A map line record of line 0 is "no code" (the map half and the cross-check); a C_LINE marker of line 0
+  attributes nothing.
+
+Relocation is one offset per (module, section piece), from the labels whose map symbol is defined at that very
+line; all must agree, and a label-less piece that is its section's whole content starts at `__<s>_head`. Every
+byte row is a range of its length, capped at its 8K page. The line source is `C_LINE` when the listing has it, the
+`;file:line:` comments for a C module otherwise (sdcc 2.4), z80asm's own file and line for assembly.
 
 ### 9.6 `.cdb` / `.adb` (E23-20 (#350), OD-2)
 
@@ -1188,8 +1223,13 @@ dir; on master only a temporary one in `$TMPDIR` that zcc deletes):
   `read_space`. Beside a tape the same bytes are judged later, one memory space at a time
   (`SourceMap::verify_spans()`, `verify_unit()`: the spans of a space are its byte checks
   merged), the first time the CPU is about to run inside it (6.2).
-- The `.lis` bytes are a secondary check only: references to other modules are unrelocated in
-  a listing (`cd0000`), so they verify only the bytes the listing marks as final.
+- The `.lis` bytes are a check on the listing, not an identity of the program. References to
+  other modules are unrelocated in a listing (`cd0000`), so only the FIRST byte of an
+  instruction whose first token is a Z80 or Z80N mnemonic is compared with the section binary
+  covering its address (operands are not). A mismatch drops that listing (9.1, 9.5), with a
+  note naming the line, the address and both bytes; the listing marks no byte as final. The
+  ranges a used listing supplies then get the same byte checks as the map's own (the binary's
+  bytes, above).
 
 ### 9.8 Symbol adapters and pages
 
@@ -1385,6 +1425,8 @@ assembles again.
   shows as unmapped there; labels behave the same (10.1). Producing records for the copy is the
   build's job (an SLD for the copy's `DISP`). The SLD binary identity likewise covers only
   `org..org+size`.
+- The z88dk start-up code's text is shown only when the build kept `prog.lis` (`--list`); without it the Source tab
+  says the m4 output is not available.
 - Toolchain mis-attributions (G4 on 2.4, master sdcc's `util.h:9`, G7) are shown as the
   toolchain wrote them, with the primary line and the "also" list (OD-7), and documented in the
   user guide.
@@ -1471,7 +1513,16 @@ E23-13 (#344) added Z88MAP-01 to Z88MAP-28 (`z88dk_map_test`: the section rules 
 `appmake` put the bytes in each fixture's `.nex`, extents, zero-width lines, strict refusal,
 identity from the section binaries, the symbol loaders' file-type refusal).
 
-**Planned.** `z88dk_lis_test` (E23-17), and the functional rows `source-map-func` (a looked-up line, E23-15) and
+E23-17 (#348) added `z88dk_lis_test` (Z88LIS-01 to Z88LIS-34: relocation, every occurrence of a C line,
+zero-width lines, the cross-check, dropped listings, the classic CRT, MACRO/REPT/PHASE and the guard),
+SRCTXT-01 (`source_map_test`), Z88MAP-30, SRCDBG-LIS-01 to 04 (`source_debug_test`) and QSRC-140/141
+(`debugger_source_panel_test`).
+
+Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22 when E23-17 made the two
+`classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
+2026-10-31.
+
+**Planned.** The functional rows `source-map-func` (a looked-up line, E23-15) and
 `z88dk-source-func` (E23-15).
 
 **Oracles.**

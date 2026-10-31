@@ -2986,6 +2986,16 @@ one row.
 An SLD may carry a SHA-256 of the program's bytes (<code>||program.*</code> comment
 records); <code>load_source_map(path, accept_mismatch)</code> checks it against memory and
 stores the path absolute.</p>
+<p>The z88dk adapter's listing half (GH #348) is <code>src/debug/z88dk_lis.*</code> (std-only):
+<code>parse_z88dk_listing()</code> tokenises a z80asm <code>.lis</code>, <code>place_z88dk_listing()</code> interprets it
+against a <code>Z88dkMapView</code> (the map's symbols, line records, section bounds, a <code>place</code>
+function and the section binaries). <code>load_z88dk_source_map(..., Z88dkListings::Beside)</code>
+finds <code>&lt;stem&gt;.lis</code> and <code>&lt;file&gt;.lis</code> for the files the map's module symbols name, drops a
+listing that does not hold up (a note in <code>SourceMapLoadResult::listing_notes</code>, never the
+half), merges the used ones (their module's map records are replaced), cross-checks the
+map's line records and hands the CRT's m4 text to <code>SourceMap::replace(..., texts)</code>
+(<code>SourceMap::embedded_text()</code>). <code>SourceMapLoad::listings</code> and <code>listing_note</code> carry the
+result to the frontends; the sidecar logs <code>and N listings</code> and one Warn per note.</p>
 <p>The second source adapter is <code>load_z88dk_source_map()</code> (<code>src/debug/z88dk_source_map.*</code>,
 GH #344), which reads the <code>__C_LINE_</code> and <code>__ASM_LINE_</code> records of a z88dk
 <code>-debug</code> map. The symbols of the same file take their pages from the same rules (see

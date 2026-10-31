@@ -2677,7 +2677,7 @@ change and again in <code>ensure_window()</code>, since the window is lazy. Loca
 that holds the list separator, as Preferences and <code>--source-dir</code> do: it would load back as two). The manager
 announces each change (<code>source_dirs_changed</code>; <code>src/debugger/</code> names no logger) and MainWindow logs
 <code>Source search path: ...</code>. Two records get a message of their own: a z88dk record in a <code>.m4</code> file, decided before any file is
-read (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
+read (unless the map carries the text from <code>prog.lis</code>: <code>SourceMap::embedded_text()</code>, shown instead of a file and labelled <code>(m4 output, from prog.lis)</code>) (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
 file found, decided after it is read (its line count ignores the final newline). The label's tooltip is the path found.
 Load MAP (<code>on_load_map_z88dk()</code>, <code>on_load_map_simple()</code>) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug &gt; Source actions
