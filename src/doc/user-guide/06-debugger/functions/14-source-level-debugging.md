@@ -38,8 +38,9 @@ ignored; a plain `-m` map gives its symbols, `-debug` adds the source lines). If
 attach and the log and the status bar say why the source lines did not. This happens in every
 frontend, with or without the debugger window open, but only the Qt debugger
 shows the source map: with `--headless`, and in the SDL-only build, it is
-attached and logged and nothing reads it yet (a remote debugger can still look
-up the symbols).
+attached and logged, and read by `monitor src` over the GDB server and by
+scripts (see [From scripts and z88dk-gdb](#from-scripts-and-z88dk-gdb)); a
+remote debugger can also look up the symbols.
 
 They belong to the program that was loaded with them. Loading the next program
 replaces them, or clears them if it has none. Rewinding brings back the ones
@@ -335,3 +336,12 @@ What z88dk and the library can do changes the result:
 - Code in a section that names no page (`CODE`, `code_compiler`, the program
   itself) is tied to the RAM page the MMU maps at that address when the program
   is in memory (page 4 at $8000 for a NEX).
+
+## From scripts and z88dk-gdb
+
+A script breaks on a source line with `on execute main.c:19` (see
+[Events](../scripting/03-events.md)): it fires at every place the line's code
+starts, each in the memory it was built for. With `--load` and `--script`
+together the script waits for the program and its map. Over the GDB server,
+`monitor src [ADDR]` answers the line of an address (see [Debugging with
+z88dk-gdb](11-debugging-with-z88dk-gdb.md)).

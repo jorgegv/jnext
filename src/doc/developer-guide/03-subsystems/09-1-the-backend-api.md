@@ -343,6 +343,10 @@ the functional row `script-map-pipe-func`).
 
 ### Source maps — CAP-SRC
 
+Remote and script consumers of the map (GH #346): the GDB server's `monitor src`
+reads `source_location()`; the DSL's `on execute file:line` reads
+`source_map().resolve()` and subscribes one `Execute` per start.
+
 The backend also owns one `SourceMap` (`src/debug/source_map.*`): records of
 ranges `{space, lo, hi_excl, location}` (file, line, column) keyed by the
 `FetchSource` that supplies the code, filled by a format adapter —

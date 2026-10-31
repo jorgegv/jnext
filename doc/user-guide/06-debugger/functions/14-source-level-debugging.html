@@ -2791,6 +2791,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#from-scripts-and-z88dk-gdb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From scripts and z88dk-gdb
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3766,8 +3777,9 @@ ignored; a plain <code>-m</code> map gives its symbols, <code>-debug</code> adds
 attach and the log and the status bar say why the source lines did not. This happens in every
 frontend, with or without the debugger window open, but only the Qt debugger
 shows the source map: with <code>--headless</code>, and in the SDL-only build, it is
-attached and logged and nothing reads it yet (a remote debugger can still look
-up the symbols).</p>
+attached and logged, and read by <code>monitor src</code> over the GDB server and by
+scripts (see <a href="#from-scripts-and-z88dk-gdb">From scripts and z88dk-gdb</a>); a
+remote debugger can also look up the symbols.</p>
 <p>They belong to the program that was loaded with them. Loading the next program
 replaces them, or clears them if it has none. Rewinding brings back the ones
 that belonged to the point you land on (the last four programs are remembered).
@@ -4051,6 +4063,13 @@ in the Add dialogs, Go to Address and a script's <code>@counter</code>, and the 
   itself) is tied to the RAM page the MMU maps at that address when the program
   is in memory (page 4 at $8000 for a NEX).</li>
 </ul>
+<h2 id="from-scripts-and-z88dk-gdb">From scripts and z88dk-gdb<a class="headerlink" href="#from-scripts-and-z88dk-gdb" title="Permanent link">&para;</a></h2>
+<p>A script breaks on a source line with <code>on execute main.c:19</code> (see
+<a href="../scripting/03-events.html">Events</a>): it fires at every place the line's code
+starts, each in the memory it was built for. With <code>--load</code> and <code>--script</code>
+together the script waits for the program and its map. Over the GDB server,
+<code>monitor src [ADDR]</code> answers the line of an address (see <a href="11-debugging-with-z88dk-gdb.html">Debugging with
+z88dk-gdb</a>).</p>
 
 
 

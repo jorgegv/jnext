@@ -2427,7 +2427,7 @@ code departs from it. This page describes the code.</p>
 <tbody>
 <tr>
 <td><code>lexer.{h,cpp}</code></td>
-<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens</td>
+<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; <code>file:line</code> as one <code>FileLine</code> token, recognised by lookahead (GH #346); the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens</td>
 </tr>
 <tr>
 <td><code>parser.{h,cpp}</code>, <code>ast.h</code></td>
@@ -2567,6 +2567,13 @@ own <code>Listener</code>. <code>load(text, file)</code> does four things, in th
 <li>only then registers each rule (<code>subscriptions_for()</code>).</li>
 </ol>
 <p>A script with any error registers nothing.</p>
+<p><code>on execute FILE:LINE</code> (GH #346) is resolved here, in <code>subscriptions_for()</code>, by
+<code>SourceMap::resolve()</code> (the resolver the GUI's source breakpoints use): one
+template per start, <code>filter.lo = hi = address</code> and <code>filter.space</code> the start's
+memory, <code>page = PAGE_ANY</code>; <code>once</code>, <code>enable</code> and <code>unload</code> treat them as the
+<code>execute page P..Q</code> subscriptions. <code>describe_event()</code> lists every start. An
+<code>on execute @name</code> with one paged label (no range, no <code>page</code>) takes the
+label's memory (<code>SymbolTable::find_name()</code>) the same way.</p>
 <p>The DSL's <code>page</code> is the legacy page-number qualifier (3.9.1): it compares the
 MMU page number only, as DZRP's <code>bank+1</code> does.</p>
 <p>A rule is one subscription, with one exception: <code>on execute … page P1..P2</code> is
@@ -2685,6 +2692,13 @@ tab's verdict line.</p>
 <p><code>start()</code> loads <code>--map</code> into the symbol table, then each <code>--script</code> in order,
 and schedules <code>--script-key</code>. Any failure is logged and fails the start, so the
 loop owner exits 1 before the machine runs.</p>
+<p>A script that names a source line cannot be resolved before the <code>--load</code> program
+and its maps are in, and the frontends load the program after <code>start()</code>. So
+with <code>ScriptHostOptions::program_pending</code> (a CLI <code>--load</code>, not an <code>.rzx</code>) such a
+script, and every script after it, is held back; each frontend calls
+<code>program_loaded()</code> right after its <code>--load</code> block (also when the load failed), which
+loads them through the normal path. A failure there unloads every script, logs it
+and, in headless and SDL, requests exit 1.</p>
 <p>It hears exit codes in two ways: from the engine (<code>EngineHost::exit</code>), and from
 the backend's <code>ExitRequested</code>, through a NON-ARMING listener client
 (<code>ClientInfo::observer</code>). The first code wins. The Qt GUI starts it with
