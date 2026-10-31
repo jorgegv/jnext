@@ -1012,6 +1012,8 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-SET-14", "`--help` names every debugger action id",
                  "jnext binary not built at " + bin);
+            skip("CLI-COV-01", "--coverage reaches the loop owner",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -1052,6 +1054,8 @@ int main() {
             skip("CLI-SET-12", "a flag and --set accept the same values",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-SET-14", "`--help` names every debugger action id",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-COV-01", "--coverage reaches the loop owner",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -1566,6 +1570,26 @@ int main() {
                                     "--tape-auto-play wins, in both orders",
                       a == "off" && b == "on" && c == "off" && d == "on",
                       "alone=" + a + " then-flag=" + b + " flag-then=" + c + " nofl-then-true=" + d);
+            }
+
+            // CLI-COV-01: --coverage takes no value and reaches the backend (GH #388): the
+            // loop owner logs when it enables recording, which it does only for config.coverage
+            // (false when the flag is absent).
+            {
+                auto cov_line = [&](const std::string& flags) {
+                    run_split("--headless --machine 48k" + sd_arg + " " + flags +
+                              " --delayed-automatic-exit-frames 1");
+                    const std::string all = slurp(out_path) + slurp(err_path);
+                    return all.find("Memory coverage recording: on") != std::string::npos;
+                };
+                const bool without = cov_line(""), with = cov_line("--coverage");
+                const bool arity0 = cli::find("--coverage") && cli::find("--coverage")->arity == 0 &&
+                                    cli::find("--coverage")->id == cli::OptId::Coverage;
+                check("CLI-COV-01", "--coverage takes no value and enables memory coverage in the loop "
+                                    "owner before the first frame; without it nothing is enabled",
+                      arity0 && with && !without,
+                      std::string("arity0=") + (arity0 ? "1" : "0") + " with=" + (with ? "1" : "0") +
+                          " without=" + (without ? "1" : "0"));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

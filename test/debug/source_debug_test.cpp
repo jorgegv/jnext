@@ -4664,6 +4664,79 @@ int main() {
                                    "source step ends at main.c:20's start ($8CBE)",
                   at_line && m.pc() == 0x8CBE && line_of(*m.dbg, m.pc()) == "main.c:20", m.where());
         }
+        {   // COV-01 (GH #388): executed_source_lines on real z88dk code
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d1 / "prog.nex");
+            m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+            m.dbg->mem_coverage_enable(true);
+            m.dbg->subscribe(m.a, execute_stop(0x8CB5));
+            m.dbg->run(m.a);
+            for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+            const bool at19 = m.dbg->state().paused && m.pc() == 0x8CB5;
+            const auto before = m.dbg->executed_source_lines("main.c");
+            m.dbg->source_step(m.a, Step::Into);                     // runs line 19 (and square()) to 0x8CBE
+            auto listed = [](const std::vector<uint32_t>& v, uint32_t l) {
+                return std::find(v.begin(), v.end(), l) != v.end();
+            };
+            {   // line 20's first byte READ by the guest: an R mark, not an X
+                DebugState::GuestExecutionScope g(m.emu.debug_state());
+                (void)m.emu.mmu().read(0x8CBE);
+            }
+            const auto lines = m.dbg->executed_source_lines("main.c");
+            const auto util  = m.dbg->executed_source_lines("util.c");
+            const bool util_in_map = !m.dbg->source_map().file_ranges("util.c").empty();
+            std::string got;
+            for (uint32_t l : lines) got += std::to_string(l) + " ";
+            check("SRCDBG-COV-01", "executed_source_lines: the lines a run executed are listed (main.c "
+                                   "15, 17, 18 before the stop at 19's start; 19 after the step); a line not "
+                                   "yet executed (20), a function never called (util.c is in the map) and a "
+                                   "line with only R-marked bytes (20 was read) are not",
+                  at19 && m.pc() == 0x8CBE && before == std::vector<uint32_t>({15, 17, 18}) &&
+                      lines == std::vector<uint32_t>({15, 17, 18, 19}) && !listed(lines, 20) &&
+                      util_in_map && util.empty() && m.dbg->executed_source_lines("nosuch.c").empty(),
+                  "lines=" + got + " pc=" + hex(m.pc()));
+        }
+        {   // COV-02 (GH #388): a banked line, ranges in two pages
+            const unsigned pa = 0x30, pb = 0x31;
+            const fs::path two = dir / "cov2.sld";
+            write_text(two, std::string("|SLD.data.version|1\n") + "x.asm|1||0" + kNextDevice +
+                                "x.asm|7||0|" + std::to_string(pa) + "|32768|T|\n" +
+                                "x.asm|7||0|" + std::to_string(pb) + "|32768|T|\n" +
+                                "x.asm|8||0|" + std::to_string(pa) + "|32769|T|\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.emu.mmu().set_boot_rom_enabled(false);
+            m.emu.mmu().set_config_mode(false);
+            for (uint8_t pg : { pb, pa }) {
+                m.emu.mmu().set_page(4, pg);
+                m.emu.mmu().write(0x8000, 0x00);      // NOP
+                m.emu.mmu().write(0x8001, 0x00);      // NOP
+                m.emu.mmu().write(0x8002, 0x18);      // JR $
+                m.emu.mmu().write(0x8003, 0xFE);
+            }
+            m.dbg->load_source_map(two.string(), false);
+            m.dbg->mem_coverage_enable(true);
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);                    // one NOP of Page{pa}'s copy
+            auto has_line = [&](uint32_t l) {
+                const auto v = m.dbg->executed_source_lines("x.asm");
+                return std::find(v.begin(), v.end(), l) != v.end();
+            };
+            const bool only_a = has_line(7) && !has_line(8);   // line 7 via Page{pa}; Page{pb} never ran
+            m.dbg->mem_coverage_clear();
+            const bool cleared = !has_line(7);
+            // run neither: switch the mapping to a THIRD page holding the same bytes
+            m.emu.mmu().set_page(4, 0x32);
+            for (uint16_t a = 0x8000; a < 0x8004; ++a) m.emu.mmu().write(a, a == 0x8002 ? 0x18 : (a == 0x8003 ? 0xFE : 0x00));
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const bool third_page = !has_line(7) && !has_line(8);
+            check("SRCDBG-COV-02", "a line with ranges in two pages is listed once a copy in either page "
+                                   "ran (only Page{p1} ran: listed); after Clear it is not, and the same "
+                                   "bytes executed in a third page do not list it",
+                  only_a && cleared && third_page,
+                  std::string("only_a=") + std::to_string(only_a) + " cleared=" + std::to_string(cleared) +
+                      " third=" + std::to_string(third_page));
+        }
         {   // Z88-18: some code ranges have no binary
             const fs::path d = z / "d18";
             z88_copy("v2.4/sccz80-page20", d);

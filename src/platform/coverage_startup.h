@@ -6,8 +6,11 @@
 // the very first instruction is recorded.
 
 #include "core/emulator_config.h"
+#include "core/log.h"
 #include "debug/debugger.h"
 
 inline void apply_startup_coverage(jnext::dbg::Debugger& debugger, const EmulatorConfig& config) {
-    if (config.coverage) debugger.mem_coverage_enable(true);
+    if (!config.coverage) return;
+    debugger.mem_coverage_enable(true);
+    Log::platform()->info("Memory coverage recording: on (--coverage)");
 }
