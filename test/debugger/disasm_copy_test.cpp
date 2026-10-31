@@ -900,6 +900,62 @@ void test_paged_symbols() {
           shown(a.copied) + " / " + shown(b.copied) + " / " + shown(c.copied));
 }
 
+// ── Group SYM, z88dk C names (GH #424, design 10.6) ──────────────────
+// A symbol of a C module (`main_c`) is painted by its C name; the clipboard keeps the assembler
+// name, so a pasted listing still assembles (D4). Oracle: zcc's MODULE naming and the compiler's `_`
+// prefix; the painter row reads pixels, as GH21-28.
+
+void test_c_names() {
+    set_group("SYM");
+    Fixture fx;
+    if (!fx.ok) {
+        check("DCN-01", "fixture came up", false, "emulator or memory setup failed");
+        check("DCN-02", "fixture came up", false, "emulator or memory setup failed");
+        return;
+    }
+    const QString path = QDir::temp().filePath(
+        QStringLiteral("jnext-gh424-c-%1.map").arg(QCoreApplication::applicationPid()));
+    {
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            check("DCN-01", "could not write the fixture MAP file", false);
+            check("DCN-02", "could not write the fixture MAP file", false);
+            return;
+        }
+        f.write("_screen_buf = $1234 ; addr, public, , main_c, bss_compiler, main.c:1\n");
+    }
+    const auto painted_with = [&](const std::function<void(SymbolTable&)>& fill) {
+        fx.symbols.clear();
+        fill(fx.symbols);
+        fx.panel->refresh();
+        QApplication::processEvents();
+        return mnemonic_cell(render_panel(fx.panel), 0);
+    };
+    const QImage c_map = painted_with([&](SymbolTable& t) { t.load_z88dk_map(path.toStdString()); });
+    const QImage simple_plain = painted_with([](SymbolTable& t) { t.add_label("screen_buf", 0x1234, std::nullopt); });
+    const QImage simple_us = painted_with([](SymbolTable& t) { t.add_label("_screen_buf", 0x1234, std::nullopt); });
+    check("DCN-01", "the painter shows a z88dk C symbol by its C name: the same pixels as a plain `screen_buf`, "
+                    "different from `_screen_buf` of a table with no C module",
+          c_map == simple_plain && c_map != simple_us);
+
+    fx.symbols.clear();
+    fx.symbols.load_z88dk_map(path.toStdString());
+    fx.panel->refresh();
+    QApplication::processEvents();
+    press_line(fx.panel, 0);
+    release_mouse(fx.panel, 0);
+    const QString plain = fx.panel->selection_text(disasm_text::CopyFormat::AsmOnly);
+    const QString addressed = fx.panel->selection_text(disasm_text::CopyFormat::WithAddresses);
+    fx.panel->clear_selection();
+    QFile::remove(path);
+    check("DCN-02", "the copy keeps the assembler name of a C symbol, in both formats: LD HL,_screen_buf, never "
+                    "LD HL,screen_buf",
+          plain.contains(QStringLiteral("LD HL,_screen_buf")) && !plain.contains(QStringLiteral("LD HL,screen_buf")) &&
+              addressed.contains(QStringLiteral("LD HL,_screen_buf")) &&
+              !addressed.contains(QStringLiteral("LD HL,screen_buf")),
+          shown(plain) + " | " + shown(addressed));
+}
+
 // ── Group EDGE — the branches nothing else reaches ───────────────────
 
 void test_edge_cases() {
@@ -1191,6 +1247,7 @@ int main(int argc, char** argv)
     std::printf("  Group: PAINT          — done\n");
     test_painter_symbols();
     test_paged_symbols();
+    test_c_names();
     std::printf("  Group: SYM            — done\n");
     test_edge_cases();
     std::printf("  Group: EDGE           — done\n");

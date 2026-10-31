@@ -8516,9 +8516,9 @@ int main() {
         const auto dbgmap = dbg.load_map(JNEXT_ZDEBUGMAP_DIR "/debug.map", jnext::dbg::MapFormat::Z88dk);
         auto nm = [&](uint16_t a) { const auto n = dbg.lookup(a); return n ? *n : std::string("-"); };
         check("SYM-14", "in a z88dk `-debug` map the function labels keep their addresses: "
-                        "lookup($8C92) = _main and lookup($8C78) = _square, not the __C_LINE_ markers at them",
-              dbgmap.status == Result::Ok && nm(0x8C92) == "_main" && nm(0x8C78) == "_square" &&
-                  nm(0x8D35) == "_util_twice",
+                        "lookup($8C92) = main and lookup($8C78) = square (the C names of _main and _square), not the __C_LINE_ markers at them",
+              dbgmap.status == Result::Ok && nm(0x8C92) == "main" && nm(0x8C78) == "square" &&
+                  nm(0x8D35) == "util_twice",
               nm(0x8C92) + " " + nm(0x8C78) + " " + nm(0x8D35));
         const auto& all = dbg.symbols();
         check("SYM-15", "the C-line markers at address $0000 (the stdint.h and other header lines) name nothing",
@@ -8868,6 +8868,14 @@ int main() {
                     if (d.lookup_name(w[i].name)) found += std::string(w[i].name) + " ";
                 return found;
             };
+            // A name that resolves to its sjasmplus ADDRESS: a z88dk map's own `_main` / `_counter` also
+            // answer to the C names `main` / `counter` (GH #424), at their own addresses.
+            auto sjasm_loaded = [](const Debugger& d, const WantName* w, size_t n) {
+                std::string found;
+                for (size_t i = 0; i < n; ++i)
+                    if (d.lookup_name(w[i].name) == std::optional<uint16_t>(w[i].addr)) found += std::string(w[i].name) + " ";
+                return found;
+            };
             Emulator emu; build(emu);
             Debugger dbg(emu);
             auto load_text = [&](const std::string& text) {
@@ -8891,7 +8899,7 @@ int main() {
                 const auto r = load_text(c.text);
                 const size_t want = c.has_map ? kMapN : 0;
                 if (r.status != Result::Ok || r.value != static_cast<int>(want) || dbg.symbols().size() != want ||
-                    !present(dbg, kSym, kSymN).empty() || (c.has_map && !wrong_names(dbg, kMap, kMapN).empty()))
+                    !sjasm_loaded(dbg, kSym, kSymN).empty() || (c.has_map && !wrong_names(dbg, kMap, kMapN).empty()))
                     bad_z88dk += std::string(c.what) + " ";
             }
             check("SYM-31", "a file whose FIRST line is not an sjasmplus EQU line is a z88dk map to its end, "
