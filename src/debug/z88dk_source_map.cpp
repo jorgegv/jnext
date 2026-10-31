@@ -2,6 +2,7 @@
 
 #include "debug/source_file.h"
 #include "debug/source_map.h"
+#include "debug/z88dk_lis.h"
 #include "debug/z88dk_space.h"
 
 #include <algorithm>
@@ -143,7 +144,7 @@ struct Bin {
 } // namespace
 
 SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& path,
-                                          const SymbolSpaceOf& space_of)
+                                          const SymbolSpaceOf& space_of, Z88dkListings listings)
 {
     if (std::string why = source_file_problem(path); !why.empty()) return failed(why);
     std::ifstream input(path);
@@ -226,9 +227,203 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         r.order = records.size();
         records.push_back(std::move(r));
     }
-    if (records.empty()) {
+    const bool beside = listings == Z88dkListings::Beside;
+    if (records.empty() && !beside) {
         SourceMapLoadResult none;
         none.count = 0;
+        return none;
+    }
+
+    // The section binaries beside the map: the identity of the line ranges, and the
+    // opcode check of a listing.
+    std::vector<Bin> bins;
+    const fs::path map_path(path);
+    const std::string stem = map_path.stem().string();
+    for (const auto& [name, head] : bounds) {
+        if (!starts_with(name, "__") || name.compare(name.size() - 5, 5, "_head") != 0) continue;
+        const std::string group = name.substr(2, name.size() - 7);
+        // z88dk's groups are upper case (CODE, PAGE_20, BANK_10_H): a lower-case head
+        // (__code_compiler_head) is a section, and on a case-insensitive file system
+        // would name the same file as its group.
+        if (group.empty() || std::any_of(group.begin(), group.end(),
+                                         [](unsigned char c) { return std::islower(c) != 0; }))
+            continue;
+        const fs::path bin_path = map_path.parent_path() / (stem + "_" + group + ".bin");
+        std::error_code ec;
+        if (!fs::exists(bin_path, ec)) continue;
+        if (std::string why = source_file_problem(bin_path.string()); !why.empty())
+            return failed("section binary '" + bin_path.string() + "': " + why);
+        std::ifstream in(bin_path, std::ios::binary);
+        if (!in.is_open()) return failed("could not open section binary '" + bin_path.string() + "'");
+        Bin bin;
+        bin.group = group;
+        bin.head = head;
+        // libstdc++ throws std::ios_base::failure from here when the read itself fails
+        // (an I/O error on a regular file). No exception leaves the adapter: the half is
+        // refused with a reason, like any other unreadable file.
+        try {
+            bin.bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        } catch (const std::exception&) {
+            return failed("could not read section binary '" + bin_path.string() + "'");
+        }
+        bins.push_back(std::move(bin));
+    }
+    // The binary that holds [value, value + length) of `space`: its group must put both
+    // ends of the range in that space.
+    const auto bin_for = [&](uint64_t value, uint32_t length, FetchSource space) -> const Bin* {
+        for (const Bin& bin : bins) {
+            if (value < bin.head || value + length > bin.head + bin.bytes.size()) continue;
+            const auto group_space = [&](uint64_t v) {
+                const Z88dkSpace g = z88dk_section_space(bin.group, static_cast<uint32_t>(v),
+                                                         page_head);
+                if (g.kind == Z88dkSpace::Kind::Paged) return g.space;
+                if (g.kind == Z88dkSpace::Kind::BindAtLoad) return space_of(g.addr16);
+                return MemSpace::floating();
+            };
+            if (space_key(group_space(value)) != space_key(space)
+                || space_key(group_space(value + length - 1)) != space_key(space))
+                continue;
+            return &bin;
+        }
+        return nullptr;
+    };
+
+    // The listings (GH #348): each one a module's lines, or a note why not.
+    std::vector<Z88dkListedRange> listed_ranges;
+    std::vector<SourceAlias> listed_aliases;
+    std::map<std::string, SourceText> listed_texts;
+    std::set<std::string> listed_modules;
+    std::vector<std::string> notes;
+    int listings_used = 0;
+    int checks = 0;
+    int disagreements = 0;
+    std::vector<std::string> examples;
+    if (beside) {
+        std::vector<Z88dkMapLine> line_records;
+        for (const RawLine& raw : raws)
+            if (!raw.malformed && !raw.parsed.section.empty()) line_records.push_back(raw.parsed);
+        Z88dkMapView view;
+        view.symbols = &symbols;
+        view.line_records = &line_records;
+        view.bounds = &bounds;
+        for (const Z88dkMapLine& s : symbols) if (!s.module.empty()) view.modules.insert(s.module);
+        for (const Z88dkMapLine& s : line_records) if (!s.module.empty()) view.modules.insert(s.module);
+        view.place = [&](const std::string& section, uint64_t value) {
+            Z88dkPlacement out;
+            const Z88dkSpace placed = z88dk_section_space(section, static_cast<uint32_t>(value),
+                                                          page_head);
+            out.lo = placed.addr16;
+            switch (placed.kind) {
+            case Z88dkSpace::Kind::Paged:
+                out.space = placed.space;
+                out.ok = true;
+                break;
+            case Z88dkSpace::Kind::BindAtLoad:
+                out.space = space_of(placed.addr16);
+                out.ok = out.space.kind == MemSpace::Kind::Page;
+                if (!out.ok)
+                    out.why = "address $" + hex(placed.addr16) + " of section '" + section
+                        + "' is not in a RAM page";
+                break;
+            case Z88dkSpace::Kind::Unpaged:
+            case Z88dkSpace::Kind::Refused:
+                out.why = placed.why;
+                break;
+            }
+            return out;
+        };
+        view.byte_at = [&](uint64_t value, FetchSource space) -> std::optional<uint8_t> {
+            const Bin* bin = bin_for(value, 1, space);
+            if (!bin) return std::nullopt;
+            return bin->bytes[static_cast<size_t>(value - bin->head)];
+        };
+
+        // Candidates: the start-up code's `<stem>.lis`, then `<file>.lis` for every
+        // source file the map's module symbols name (relative to the map).
+        struct Candidate {
+            fs::path path;
+            std::string name;
+            std::set<std::string> modules;   // the modules that named it
+            bool any = false;                // a listing of any module
+        };
+        std::vector<Candidate> candidates;
+        std::map<std::string, size_t> seen;
+        const auto add = [&](const std::string& rel, const std::string& module) {
+            const fs::path p = fs::path(rel).is_absolute() ? fs::path(rel) : map_path.parent_path() / rel;
+            const auto [it, added] = seen.emplace(p.lexically_normal().string(), candidates.size());
+            if (added) candidates.push_back({p, rel, {}, false});
+            if (module.empty()) candidates[it->second].any = true;
+            else candidates[it->second].modules.insert(module);
+        };
+        add(stem + ".lis", "");
+        std::map<std::string, std::set<std::string>> named;   // file -> modules
+        const auto name_files = [&](const std::vector<Z88dkMapLine>& lines) {
+            for (const Z88dkMapLine& m : lines) {
+                if (m.section.empty() || m.module.empty()) continue;
+                if (const auto loc = parse_location(m.location)) named[loc->file].insert(m.module);
+            }
+        };
+        name_files(symbols);
+        name_files(line_records);
+        for (const auto& [file, modules] : named)
+            for (const std::string& module : modules) add(file + ".lis", module);
+
+        for (const Candidate& c : candidates) {
+            std::error_code ec;
+            if (!fs::is_regular_file(c.path, ec)) continue;
+            if (std::string why = source_file_problem(c.path.string()); !why.empty()) {
+                notes.push_back(c.name + ": " + why);
+                continue;
+            }
+            std::string why;
+            const auto parsed = parse_z88dk_listing(c.path.string(), why);
+            if (!parsed) {
+                notes.push_back(c.name + ": " + why);
+                continue;
+            }
+            Z88dkListingResult r = place_z88dk_listing(
+                *parsed, c.name, c.any ? std::set<std::string>{} : c.modules, view);
+            if (r.used && listed_modules.count(r.module)) {
+                notes.push_back(c.name + ": module '" + r.module + "' already has a listing; ignored");
+                continue;
+            }
+            for (std::string& n : r.notes) notes.push_back(std::move(n));
+            if (!r.used) continue;
+            listed_modules.insert(r.module);
+            ++listings_used;
+            checks += r.checks;
+            disagreements += r.disagreements;
+            for (std::string& e : r.disagree_examples)
+                if (examples.size() < 3) examples.push_back(std::move(e));
+            const size_t base = listed_ranges.size();
+            for (Z88dkListedRange& lr : r.ranges) listed_ranges.push_back(std::move(lr));
+            for (SourceAlias& a : r.aliases) {
+                a.range += base;
+                listed_aliases.push_back(std::move(a));
+            }
+            for (auto& [file, lines] : r.texts)
+                listed_texts.emplace(file, SourceText{c.path.string(), std::move(lines)});
+        }
+        if (disagreements > 0) {
+            std::string text = map_path.filename().string() + ": the listings disagree with the map at "
+                + std::to_string(disagreements) + " of " + std::to_string(checks)
+                + " line records (first: ";
+            for (size_t i = 0; i < examples.size(); ++i) text += (i ? "; " : "") + examples[i];
+            notes.push_back(text + "); the listings were used");
+        }
+    }
+
+    // A module with a listing takes its lines from it.
+    if (!listed_modules.empty()) {
+        records.erase(std::remove_if(records.begin(), records.end(),
+                                     [&](const Record& r) { return listed_modules.count(r.module) != 0; }),
+                      records.end());
+        for (size_t i = 0; i < records.size(); ++i) records[i].order = i;
+    }
+    if (records.empty() && listed_ranges.empty()) {
+        SourceMapLoadResult none;
+        none.count = 0;
+        none.listing_notes = std::move(notes);
         return none;
     }
 
@@ -319,68 +514,37 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     for (const auto& [lower, owner] : alias_of)
         aliases.push_back({records[lower].loc.file, records[lower].loc.line, range_of[owner]});
 
-    // Identity: the section binaries beside the map.
-    std::vector<Bin> bins;
-    const fs::path map_path(path);
-    const std::string stem = map_path.stem().string();
-    for (const auto& [name, head] : bounds) {
-        if (!starts_with(name, "__") || name.compare(name.size() - 5, 5, "_head") != 0) continue;
-        const std::string group = name.substr(2, name.size() - 7);
-        // z88dk's groups are upper case (CODE, PAGE_20, BANK_10_H): a lower-case head
-        // (__code_compiler_head) is a section, and on a case-insensitive file system
-        // would name the same file as its group.
-        if (group.empty() || std::any_of(group.begin(), group.end(),
-                                         [](unsigned char c) { return std::islower(c) != 0; }))
-            continue;
-        const fs::path bin_path = map_path.parent_path() / (stem + "_" + group + ".bin");
-        std::error_code ec;
-        if (!fs::exists(bin_path, ec)) continue;
-        if (std::string why = source_file_problem(bin_path.string()); !why.empty())
-            return failed("section binary '" + bin_path.string() + "': " + why);
-        std::ifstream in(bin_path, std::ios::binary);
-        if (!in.is_open()) return failed("could not open section binary '" + bin_path.string() + "'");
-        Bin bin;
-        bin.group = group;
-        bin.head = head;
-        // libstdc++ throws std::ios_base::failure from here when the read itself fails
-        // (an I/O error on a regular file). No exception leaves the adapter: the half is
-        // refused with a reason, like any other unreadable file.
-        try {
-            bin.bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-        } catch (const std::exception&) {
-            return failed("could not read section binary '" + bin_path.string() + "'");
+    // The listings' ranges follow the map's, in discovery order.
+    std::vector<std::pair<uint64_t, const std::string*>> meta;   // (value, section) per range
+    for (const size_t i : owners) meta.emplace_back(records[i].value, &records[i].section);
+    {
+        const size_t base = ranges.size();
+        for (const Z88dkListedRange& lr : listed_ranges) {
+            ranges.push_back(lr.range);
+            meta.emplace_back(lr.value, &lr.section);
         }
-        bins.push_back(std::move(bin));
+        for (SourceAlias& a : listed_aliases) {
+            a.range += base;
+            aliases.push_back(std::move(a));
+        }
     }
+
+    // Identity: the section binaries beside the map.
     std::optional<SourceProgramIdentity> identity;
     int unchecked = 0;
     if (!bins.empty()) {
         SourceProgramIdentity id;
-        for (size_t k = 0; k < owners.size(); ++k) {
-            const Record& r = records[owners[k]];
-            if (is_data_section(r.section)) continue;
+        for (size_t k = 0; k < ranges.size(); ++k) {
+            if (is_data_section(*meta[k].second)) continue;
             const uint32_t length = ranges[k].hi_excl - ranges[k].lo;
-            bool covered = false;
-            for (const Bin& bin : bins) {
-                if (r.value < bin.head || r.value + length > bin.head + bin.bytes.size()) continue;
-                // The binary's group must put both ends of the range in the range's space.
-                const auto group_space = [&](uint64_t value) {
-                    const Z88dkSpace g = z88dk_section_space(bin.group,
-                                                             static_cast<uint32_t>(value), page_head);
-                    if (g.kind == Z88dkSpace::Kind::Paged) return g.space;
-                    if (g.kind == Z88dkSpace::Kind::BindAtLoad) return space_of(g.addr16);
-                    return MemSpace::floating();
-                };
-                if (space_key(group_space(r.value)) != space_key(r.space)
-                    || space_key(group_space(r.value + length - 1)) != space_key(r.space))
-                    continue;
-                const auto begin = bin.bytes.begin() + static_cast<std::ptrdiff_t>(r.value - bin.head);
-                id.bytes.push_back({r.space, r.lo,
+            if (const Bin* bin = bin_for(meta[k].first, length, ranges[k].space)) {
+                const auto begin = bin->bytes.begin()
+                    + static_cast<std::ptrdiff_t>(meta[k].first - bin->head);
+                id.bytes.push_back({ranges[k].space, ranges[k].lo,
                                     std::vector<uint8_t>(begin, begin + length)});
-                covered = true;
-                break;
+            } else {
+                ++unchecked;
             }
-            if (!covered) ++unchecked;
         }
         if (!id.bytes.empty()) identity = std::move(id);
     }
@@ -391,6 +555,11 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     SourceMapLoadResult result;
     result.count = static_cast<int>(ranges.size());
     result.unchecked = unchecked;
-    map.replace(std::move(ranges), std::move(aliases), std::move(identity), loaded, "z88dk");
+    result.listings = listings_used;
+    result.listing_checks = checks;
+    result.listing_disagreements = disagreements;
+    result.listing_notes = std::move(notes);
+    map.replace(std::move(ranges), std::move(aliases), std::move(identity), loaded, "z88dk",
+                std::move(listed_texts));
     return result;
 }
