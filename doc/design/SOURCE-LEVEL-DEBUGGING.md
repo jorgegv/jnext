@@ -1297,7 +1297,7 @@ the same), so the map lists `_counter` for `int counter;`. The user types and re
 - **Views (D3, D5).** Only the C name is shown (as `Memory.txt` does for Boriel); an auto-filled watch
   label is the shown name.
 - **Not touched (D7).** SLD, sjasmplus `--sym`/`--exp`, simple maps and `Memory.txt`. The CDB reader
-  (#350) should reuse `c_symbols_`: its records give the C names directly.
+  (#350) should reuse `SymbolLabel::c_symbol` and `c_name_to_key_`: its records give the C names directly.
 
 ## 11. Coverage and reverse-engineering interop
 
@@ -1475,13 +1475,16 @@ and a wrong name, the z88dk `.m4` message, the past-the-end message, the lazy wi
 directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..06 (file,
 command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
 
-**E23-31 (#424), C names.** `z88dk_map_test` Z88CN-01..14 (resolve under every binding, shown names, what is
+**E23-31 (#424), C names.** `z88dk_map_test` Z88CN-01..16 (resolve under every binding, shown names, what is
 not C, every compiler and install, banked, ambiguity both file orders, merge, reload, `shown_name()`, the
 invariant over every committed z88dk map, `lookup_assembler()`, the rule per symbol in either file order, two C modules with one name); `source_debug_test` SRCDBG-CN-01;
 `script_events_test` SCRIPT-HOST-CN-01/02; `gdb_rsp_test` GDB-MON-14; `debugger_source_panel_test`
 QCN-01..04; `debugger_verbs_test` QMAP-08; `debugger_disasm_copy_test` DCN-01/02. Ten existing rows asserted
-the shown `_name` of a C symbol and now assert the C name (owner approval pending): Z88SYM-01, Z88SYM-04,
-Z88SYM-08, SYM-14, SRCDBG-Z88-01, SRCDBG-SYM-18..22.
+the shown `_name` of a C symbol and now assert the C name (owner-approved): Z88SYM-01, Z88SYM-04,
+Z88SYM-08, SYM-14, SRCDBG-Z88-01, SRCDBG-SYM-18..22. Two more existing assertions changed, for the same
+reason, and are not yet owner-approved: Z88MAP-15 (shown `_main` is now `main`) and SYM-31 (its "no sjasmplus
+entry loaded" check compares the sjasmplus ADDRESS, because `main` and `counter` now resolve as C names of
+the z88dk map).
 
 **Row IDs are global**: the duplicate-ID gate refuses a reuse. IDs written into a sub-issue's
 text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRCDBG-SIDE-12`,

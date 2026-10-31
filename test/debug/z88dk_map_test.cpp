@@ -1063,6 +1063,31 @@ int main() {
                   cc.resolve("inc") == std::optional<uint16_t>(0x9500) &&
                       shown(cc.lookup(MemSpace::cpu(), 0x9500), "inc") && shown(cc.lookup(MemSpace::cpu(), 0x9600), "_inc"));
         }
+        {   // Z88CN-15: the identity of a C symbol includes its memory (review 1, F1)
+            // Two banked C files each with a static _helper at $C000, one in PAGE_20, one in PAGE_21.
+            SymbolTable bk;
+            bk.load_z88dk_map(synth("cn15.map",
+                rec("__PAGE_20_head", 0x14C000, "", "", "", "const") +
+                rec("__PAGE_21_head", 0x15C000, "", "", "", "const") +
+                rec("_helper", 0x14C000, "bank20_c", "PAGE_20", "bank20.c:3") +
+                rec("_helper", 0x15C000, "bank21_c", "PAGE_21", "bank21.c:3")).string());
+            const auto k = bk.find_name("helper");
+            check("Z88CN-15", "two banked C files with a static _helper at $C000, in PAGE_20 and PAGE_21: `helper` resolves "
+                              "to page 20; page 20 shows helper, page 21 shows _helper (a shown C name never names another page)",
+                  k && k->addr == 0xC000 && k->space == std::optional<FetchSource>(P20) &&
+                      shown(bk.lookup(P20, 0xC000), "helper") && shown(bk.lookup(P21, 0xC000), "_helper") &&
+                      bk.shown_name("helper") == "helper");
+        }
+        {   // Z88CN-16: a C symbol whose label is not stored still answers to its C name (review 1, F2)
+            SymbolTable two;
+            two.load_z88dk_map(synth("cn16.map",
+                rec("_first", 0x9000, "main_c", "code_compiler", "m.c:1") +
+                rec("_second", 0x9000, "main_c", "code_compiler", "m.c:1")).string());
+            check("Z88CN-16", "two C symbols at one address: first, second, _first and _second all resolve to it, and the view shows the first, first",
+                  two.resolve("first") == std::optional<uint16_t>(0x9000) && two.resolve("second") == std::optional<uint16_t>(0x9000) &&
+                      two.resolve("_first") == std::optional<uint16_t>(0x9000) && two.resolve("_second") == std::optional<uint16_t>(0x9000) &&
+                      shown(two.lookup(MemSpace::cpu(), 0x9000), "first"));
+        }
     }
 
     fs::remove_all(dir);

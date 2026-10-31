@@ -317,7 +317,7 @@ symbols. `find_name()` tries `c_name_to_key_` after every exact name and constan
 nothing else holds it and its own key is the one the C name resolves to (else its assembler name, which is the
 case of a second C module's local `_util_inc`); `shown_name(name)` gives the same for a typed name.
 `lookup_assembler()` keeps the assembler name for text that must assemble. `merge()` carries `c_name_to_key_`
-for the names the receiving table does not own, and `clear()` empties it (rows Z88CN-01..14).
+for the names the receiving table does not own, and `clear()` empties it (rows Z88CN-01..16).
 `MapFormat::NextBuild` reads a NextBuild / Boriel ZX Basic `Memory.txt` (`8000: ._Main`): the shown name drops the `.` and the
 compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
 turns an address field's text into an address: hex first (`4000`, `$4000`,
