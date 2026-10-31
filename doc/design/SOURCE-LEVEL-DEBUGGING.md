@@ -1319,8 +1319,9 @@ the same), so the map lists `_counter` for `int counter;`. The user types and re
   `_counter`, not `counter`. The painter and the context menu show the C name.
 - **Views (D3, D5).** Only the C name is shown (as `Memory.txt` does for Boriel); an auto-filled watch
   label is the shown name.
-- **Not touched (D7).** SLD, sjasmplus `--sym`/`--exp`, simple maps and `Memory.txt`. The CDB reader
-  (#350) should reuse `SymbolLabel::c_symbol` and `c_name_to_key_`: its records give the C names directly.
+- **Not touched (D7).** SLD, sjasmplus `--sym`/`--exp`, simple maps and `Memory.txt`. A reader of the
+  map's `__CDBINFO__` records (#353) should reuse `SymbolLabel::c_symbol` and `c_name_to_key_`: its
+  records give the C names directly. (#350 is closed: z88dk writes no `.cdb`/`.adb`; see 9.6.)
 
 ## 11. Coverage and reverse-engineering interop
 
@@ -1505,7 +1506,7 @@ invariant over every committed z88dk map, `lookup_assembler()`, the rule per sym
 QCN-01..05; `debugger_verbs_test` QMAP-08; `debugger_disasm_copy_test` DCN-01/02. Ten existing rows asserted
 the shown `_name` of a C symbol and now assert the C name (owner-approved): Z88SYM-01, Z88SYM-04,
 Z88SYM-08, SYM-14, SRCDBG-Z88-01, SRCDBG-SYM-18..22. Two more existing assertions changed, for the same
-reason, and are not yet owner-approved: Z88MAP-15 (shown `_main` is now `main`) and SYM-31 (its "no sjasmplus
+reason, and are owner-approved (2026-10-31): Z88MAP-15 (shown `_main` is now `main`) and SYM-31 (its "no sjasmplus
 entry loaded" check compares the sjasmplus ADDRESS, because `main` and `counter` now resolve as C names of
 the z88dk map).
 
