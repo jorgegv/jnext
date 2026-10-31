@@ -3474,7 +3474,7 @@ void test_source_gutter() {
         check("QSRC-90", "a breakpoint on a line whose page is not mapped now is set, shows no mark, and "
                          "the tooltip names that breakpoint and says its memory is not mapped now; a line with one mapped and one "
                          "unmapped place shows the full disc once the mapped place is armed",
-              set && v.mark(12) == "none" && v.sp->line_tooltip(12) == QStringLiteral("main.bas:12: breakpoint at $8005 @") +
+              set && v.mark(12) == "none" && v.sp->line_tooltip(12) == QStringLiteral("main.bas:12: breakpoint at $8005 P") +
                                                 QString::asprintf("%02X", fx.p80 + 2) +
                                                 QStringLiteral(", not mapped now") &&
                   mixed == "disc",
