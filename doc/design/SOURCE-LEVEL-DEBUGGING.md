@@ -349,7 +349,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
-| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); no Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
+| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | none | 7 | E23-14 (#345) |
@@ -954,7 +954,9 @@ location is; a `space` on a kind other than `Execute` is refused.
   (`src/debug/debug_keymap.cpp`). Decided by the owner on #337 (2026-10-22): source Into,
   Over and Out default to Ctrl+F6, Ctrl+F7 and Ctrl+F8; Back and Reverse Continue ship
   unbound; the emulator window does not forward them. Done.
-- **Source tab completion** (E23-16 (#347)): Run to Line (a transient group, then Continue); the current-line marker; the
+- **Run to Line** moved to E23-30 (#423), with the Source tab's context menu: `Debugger::run_to_source_line` (a
+  transient group at every start, then a run), reached by Run to Here and Enter. Done.
+- **Source tab completion** (E23-16 (#347)): the current-line marker; the
   "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab
   and the disassembly.
 - **Address fields**: a number first, `@` forces a symbol, `$` or `0x` force hex (OD-12; done).
@@ -1397,3 +1399,8 @@ text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRC
 `QBPM-11` and `QSRC-28` to `QSRC-33` are in the tree), so each sub-issue checks its IDs against
 the tree.
 
+
+E23-30 (#423) added QSRC-99 to QSRC-119 (`debugger_source_panel_test`: the Source tab's context menu, Run to Here, Show in
+Disassembly, the copy forms, the operand entries and the Disassembly's menu pinned across the shared builder),
+SRCRUN-01 to SRCRUN-07 (`source_debug_test`: `run_to_source_line`) and CTL-06-04 (`debugger_backend_test`: a run-to on
+a running machine drops the caller's earlier transient target, not another client's).

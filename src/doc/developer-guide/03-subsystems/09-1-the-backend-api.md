@@ -93,7 +93,7 @@ the design documents refer to it.
 | `run(by)` | resume. Still `Ok` on a running machine. Subject to the corruption gate |
 | `step_into(by)` | one instruction, **synchronously**, frame-loop aware: a step at a `HALT` runs the halt out |
 | `step_over(by)`, `step_out(by)` | **asynchronous**: the stop arrives later as a `Paused` push |
-| `run_to(by, addr)`, `run_to_cycle(by, c)`, `run_to_frame(by, f)`, `run_to_end_of_frame(by)`, `run_to_end_of_scanline(by)` | resume until a target |
+| `run_to(by, addr)`, `run_to_source_line(by, "file:line")`, `run_to_cycle(by, c)`, `run_to_frame(by, f)`, `run_to_end_of_frame(by)`, `run_to_end_of_scanline(by)` | resume until a target. `run_to_source_line` arms a transient `Execute` group at every start of the line (each tied to its memory, `subscribe_source_line`); the first one reached stops the machine and the stop reads `RunTo` with that address. It is refused, the machine untouched, for a line with no code. A run-to issued while the machine RUNS first drops the caller's own transient targets (a second Run to Here replaces the first), never another client's |
 | `step_back(by, n)`, `rewind_to_frame(by, f)` | rewind, synchronously. A benign refusal is `RefusedRzx` or `RefusedUnavailable` (no ring or an empty one, a frame outside it or not recorded, the trace off or empty, or a step back that would replay across a debugger change), and logs its reason |
 | `resume_blocked_by_corruption()`, `acknowledge_corruption(gen)` | the CTL-11 gate after a failed restore |
 | `reset(by, Soft \| Hard)` | `Soft` is `Emulator::soft_reset()`. `Hard` is the reconstruct contract of [3.9.3](09-3-sessions-the-pump-and-reconstruct.md) |

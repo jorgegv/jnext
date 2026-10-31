@@ -2748,6 +2748,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#running-to-a-source-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running to a source line
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watching-a-variable-from-the-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching a variable from the source
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#breakpoints-on-a-source-line" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3920,6 +3942,17 @@ the debugger window is open. <strong>Back</strong> and <strong>Reverse</strong> 
 rewind, like <strong>Step Back</strong>
 (<a href="07-backward-execution-rewind.html">Backward execution (rewind)</a>); they look for
 their target in the instructions the trace has kept.</p>
+<h2 id="running-to-a-source-line">Running to a source line<a class="headerlink" href="#running-to-a-source-line" title="Permanent link">&para;</a></h2>
+<p><strong>Run to Here</strong> in the Source tab's right-click menu (or <strong>Enter</strong> on the line) runs the machine
+until the line is reached. A line that compiled to several places stops at the first one
+reached; a line of banked code stops only when its page supplies the code there. No
+breakpoint is left behind, and it works while the machine runs: a second Run to Here replaces
+the first. Run to Cursor, once bound, acts on the Source tab's cursor line while that tab has
+the focus. A breakpoint on the way still stops the run first. See
+<a href="02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html">Run to cursor</a>.</p>
+<h2 id="watching-a-variable-from-the-source">Watching a variable from the source<a class="headerlink" href="#watching-a-variable-from-the-source" title="Permanent link">&para;</a></h2>
+<p>The same menu offers <strong>Watch</strong> and <strong>Break on Read / Write</strong> for the label, number or register
+under the pointer (<a href="../panels/15-source.html#right-click-menu">the Source tab's menu</a>).</p>
 <h2 id="breakpoints-on-a-source-line">Breakpoints on a source line<a class="headerlink" href="#breakpoints-on-a-source-line" title="Permanent link">&para;</a></h2>
 <p>In the Breakpoints panel's <strong>Add</strong> dialog, the address can be a number
 (<code>8000</code>, <code>$8000</code>, <code>0x8000</code>), a symbol (<code>PlayerTick</code>), or, for an Execute

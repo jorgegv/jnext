@@ -33,6 +33,30 @@ tooltip says *not mapped now*. The column shows the debugger window's own breakp
 disassembly does; those of GDB, ZRCP or a script are in the Breakpoints list only. It works
 while the machine runs.
 
+### Right-click menu
+
+Right-click in the text, or in the gutter, for the same actions the disassembly offers,
+on the line under the pointer. A right-click outside the selection first selects that line;
+inside it, the selection stays (so a dragged range can be copied).
+
+- **Copy** (Ctrl+C), **Copy with Addresses** and **Select All** (Ctrl+A). Copy with Addresses
+  puts each selected line on the clipboard as `main.bas:11  $8002 @05, $9000 @06  REM line 11`:
+  every address the line compiled to, with its page, or `-` for a line with no code.
+- **Toggle Breakpoint**: the gutter click.
+- **Run to Here**, also **Enter** in the text: run until the first place of the line is reached
+  (see [Running to a source line](../functions/14-source-level-debugging.md#running-to-a-source-line)).
+- **Show in Disassembly**: the disassembly moves to the line's address and selects it. A line
+  that compiled to several places has a submenu, one item per place; a place whose page is not
+  mapped now is disabled.
+- **Watch** and **Break on Read / Write** entries, as in the disassembly menu, for the labels at
+  the line's address, and for what is under the pointer: a symbol (a label or a name of the
+  map, written as the map has it), a number (`$5800`, `0x5800`, `5800h`, `#5800` or decimal),
+  or a register in parentheses (`(hl)`, `(ix+2)`). They are by CPU address, whatever is mapped
+  there. A C variable is found under its map name today (`_counter`), not as `counter`.
+
+On a line with no code Toggle Breakpoint, Run to Here and Show in Disassembly are disabled, and
+their tooltip says *no code at main.bas:3*.
+
 A tape program's map is attached before the program has loaded, and the tab adds
 *Source map not verified yet: it is checked when the program first runs its code*
 under the position line until it has; if the program then does not match, the map

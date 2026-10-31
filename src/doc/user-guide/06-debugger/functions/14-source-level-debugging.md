@@ -237,6 +237,21 @@ rewind, like **Step Back**
 ([Backward execution (rewind)](07-backward-execution-rewind.md)); they look for
 their target in the instructions the trace has kept.
 
+## Running to a source line
+
+**Run to Here** in the Source tab's right-click menu (or **Enter** on the line) runs the machine
+until the line is reached. A line that compiled to several places stops at the first one
+reached; a line of banked code stops only when its page supplies the code there. No
+breakpoint is left behind, and it works while the machine runs: a second Run to Here replaces
+the first. Run to Cursor, once bound, acts on the Source tab's cursor line while that tab has
+the focus. A breakpoint on the way still stops the run first. See
+[Run to cursor](02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.md).
+
+## Watching a variable from the source
+
+The same menu offers **Watch** and **Break on Read / Write** for the label, number or register
+under the pointer ([the Source tab's menu](../panels/15-source.md#right-click-menu)).
+
 ## Breakpoints on a source line
 
 In the Breakpoints panel's **Add** dialog, the address can be a number

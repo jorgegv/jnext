@@ -2650,7 +2650,16 @@ any instruction whose primary line (<code>lookup</code>) is the line. Every star
 is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. <code>breakpoint_glyph.h</code> paints the glyph for both panels. A click calls
 <code>SourcePanel::toggle_breakpoint_at_line()</code>, the one toggle: it removes what the line shows plus a
 hidden group tied to an unmapped page, else <code>add_source_line()</code> (not idempotent, hence the check);
-the context menu of GH #423 calls the same function. The file a record names is found by <code>source_search::resolve()</code> (<code>debug/source_search.h</code>, Qt-free so
+the context menu of GH #423 calls the same function.
+That menu (<code>SourcePanel::fill_context_menu()</code>, from the editor's and the gutter's <code>contextMenuEvent</code>) offers the
+Disassembly's actions on the source line: Copy / Copy with Addresses / Select All, Toggle Breakpoint, Run to Here
+(<code>run_to_line_requested</code>, which <code>DebuggerManager</code> runs as <code>Debugger::run_to_source_line</code> behind its corruption
+gate; Enter in the editor and the bindable Run to Cursor, while the tab has the focus, are the same request), Show in
+Disassembly (<code>show_address_requested</code>, <code>DisasmPanel::show_address()</code>), and the watch and data-breakpoint entries.
+Those entries are built by <code>operand_menu.{h,cpp}</code> (<code>add_operand_actions()</code>), shared with the Disassembly's own menu so
+the two cannot differ; the Source tab fills a <code>MenuOperands</code> from the labels at the line's places and the word under
+the pointer. A word is classified as a register in parentheses, a number or a name, and a name goes through
+<code>SourcePanel::symbol_for_word()</code>, the single seam for GH #424's C names (<code>resolve_key("@" + word)</code>; <code>@</code> forces a symbol). The file a record names is found by <code>source_search::resolve()</code> (<code>debug/source_search.h</code>, Qt-free so
 the SDL-only and Windows trees test it and a later surface can print the same path): an absolute
 name, then the map's directory and each parent, then the search directories, tried suffix-major
 (the longest trailing part of the normalised name first, then the directories in order; a leading
