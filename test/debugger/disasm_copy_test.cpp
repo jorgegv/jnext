@@ -692,9 +692,9 @@ QRgb gutter_bg(const QImage& img, int line) {
 }
 
 /// Left edge of the mnemonic column: GUTTER_WIDTH + 4 + ADDR_WIDTH(48) +
-/// BYTES_WIDTH(100). The panel's own layout constants, restated because they
-/// are private — a change to either side must move both.
-constexpr int MNEMONIC_X = GUTTER_W + 4 + 48 + 100;
+/// MEM_WIDTH(96, GH #360) + BYTES_WIDTH(100). The panel's own layout constants,
+/// restated because they are private — a change to either side must move both.
+constexpr int MNEMONIC_X = GUTTER_W + 4 + 48 + 96 + 100;
 constexpr int MNEMONIC_W = 260;
 
 /// The painted mnemonic column of line `line`, as an image.
