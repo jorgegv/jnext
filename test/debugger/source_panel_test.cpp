@@ -5082,10 +5082,10 @@ void test_source_highlight_panel() {
                             panel_mask(sp, 1) == std::string(panel_mask(sp, 1).size(), 'C') &&
                             !panel_mask(sp, 1).empty();
         check("QSRC-138", "the start-up code's m4 text from the listing is coloured as assembly in one pass: "
-                          "IFNDEF and defc are directives, __Start: a label, push iy a mnemonic and a register, "
+                          "IFNDEF and defc are directives (Keyword class), __Start: a label, push iy a mnemonic and a register, "
                           "and crt_start_di.inc after it is assembly with its comment line coloured",
-              m4_asm && m_ifndef == "DDDDDD" && m_defc == "DDDD" && label && single_pass &&
-                  m_push == "......KKKK.RR" && m4_label && inc_ok,
+              m4_asm && m_ifndef == "KKKKKK" && m_defc == "KKKK" && label && single_pass &&
+                  m_push == "......IIII.II" && m4_label && inc_ok,
               m_ifndef + " | " + m_defc + " | " + m_start + " | " + m_push + " | pass=" + std::to_string(pass));
     }
 }
