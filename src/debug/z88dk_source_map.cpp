@@ -343,7 +343,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         struct Candidate {
             fs::path path;
             std::string name;
-            std::set<std::string> modules;   // the modules that named it
+            std::map<std::string, std::string> modules;   // declared module -> map module
             bool any = false;                // a listing of any module
         };
         std::vector<Candidate> candidates;
@@ -352,8 +352,18 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             const fs::path p = fs::path(rel).is_absolute() ? fs::path(rel) : map_path.parent_path() / rel;
             const auto [it, added] = seen.emplace(p.lexically_normal().string(), candidates.size());
             if (added) candidates.push_back({p, rel, {}, false});
-            if (module.empty()) candidates[it->second].any = true;
-            else candidates[it->second].modules.insert(module);
+            if (module.empty()) {
+                candidates[it->second].any = true;
+                return;
+            }
+            // z80asm names a module after the path it was given (`game/util.c` is
+            // `game_util_c` in the map), a listing after the file alone (`util_c`).
+            std::string declared = fs::path(rel).stem().string();   // `util.c.lis` -> `util.c`
+            declared = fs::path(declared).filename().string();
+            for (char& c : declared)
+                if (!std::isalnum(static_cast<unsigned char>(c))) c = '_';
+            candidates[it->second].modules.emplace(module, module);
+            candidates[it->second].modules.emplace(declared, module);
         };
         add(stem + ".lis", "");
         std::map<std::string, std::set<std::string>> named;   // file -> modules
@@ -382,7 +392,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
                 continue;
             }
             Z88dkListingResult r = place_z88dk_listing(
-                *parsed, c.name, c.any ? std::set<std::string>{} : c.modules, view);
+                *parsed, c.name, c.any ? std::map<std::string, std::string>{} : c.modules, view);
             if (r.used && listed_modules.count(r.module)) {
                 notes.push_back(c.name + ": module '" + r.module + "' already has a listing; ignored");
                 continue;

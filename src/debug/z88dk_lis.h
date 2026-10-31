@@ -82,8 +82,10 @@ struct Z88dkListingResult {
 
 /// Interpret one parsed listing against the map. `name` is how notes call it
 /// (and, minus ".lis", the module name when the listing names none).
-/// `only_modules`, when not empty, are the modules the listing may be of (the
-/// modules that named it); empty means any module of the map.
+/// `accepted`, when not empty, maps the module names the listing may declare to
+/// the map module that named it (a source `game/util.c` is module `game_util_c`
+/// in the map, but its listing says `MODULE util_c`); empty means a listing of
+/// any module of the map, under its own name.
 Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::string& name,
-                                       const std::set<std::string>& only_modules,
+                                       const std::map<std::string, std::string>& accepted,
                                        const Z88dkMapView& view);

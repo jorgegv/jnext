@@ -321,7 +321,7 @@ std::optional<Z88dkListing> parse_z88dk_listing(const std::string& path, std::st
 }
 
 Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::string& name,
-                                       const std::set<std::string>& only_modules,
+                                       const std::map<std::string, std::string>& accepted,
                                        const Z88dkMapView& view)
 {
     Z88dkListingResult result;
@@ -355,15 +355,20 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
             module = fs::path(own).stem().string();
         }
     }
+    if (!accepted.empty()) {
+        const auto it = accepted.find(module);
+        if (it == accepted.end()) {
+            std::string named;
+            for (const auto& [declared, named_module] : accepted)
+                if (declared == named_module) named += (named.empty() ? "'" : ", '") + named_module + "'";
+            note("it is named for module " + named + " but is a listing of module '" + module + "'");
+            return result;
+        }
+        module = it->second;
+    }
     result.module = module;
     if (!view.modules.count(module)) {
         note("it is a listing of module '" + module + "', which the map does not have");
-        return result;
-    }
-    if (!only_modules.empty() && !only_modules.count(module)) {
-        std::string named;
-        for (const std::string& m : only_modules) named += (named.empty() ? "'" : ", '") + m + "'";
-        note("it is named for module " + named + " but is a listing of module '" + module + "'");
         return result;
     }
     enum class Mode { CLine, Comment, Asm };
