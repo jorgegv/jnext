@@ -1912,6 +1912,20 @@ int cov_colours_in(const QImage& img, const CovProbe& r, const QPalette& pal) {
     return mask;
 }
 
+// The legend label's X, R and W spans carry exactly the panel palette's X, R, W colours.
+bool legend_matches(MemoryPanel& m, const QPalette& pal) {
+    for (QLabel* l : m.findChildren<QLabel*>()) {
+        if (!l->text().contains("Coverage:") || !l->isVisibleTo(&m)) continue;
+        const QString t = l->text();
+        auto has = [&](const QColor& c, const char* letter) {
+            return t.contains(QString("color:%1\">%2<").arg(palette_tint::css(c), letter));
+        };
+        return has(coverage_colors::exec(pal), "X") && has(coverage_colors::read(pal), "R") &&
+               has(coverage_colors::write(pal), "W");
+    }
+    return false;
+}
+
 // Runs of rows at pixel column `x` whose colour is `want`: (first row, length).
 std::vector<std::pair<int, int>> bar_runs(const QImage& img, int x, QRgb want) {
     std::vector<std::pair<int, int>> runs;
@@ -2069,12 +2083,14 @@ static void test_coverage_panels() {
         go_to(&mem, "0000");
         const QImage pg = image_of(&mem);
         const bool page_clear = cell_marks(mem, "$0000", 0, pg) == 0 && cell_marks(mem, "$0000", 1, pg) == 0;
+        mem.refresh();
+        const bool legend_light = legend_matches(mem, pal);
         check("QCOV-03",
               "Memory panel, coverage on: the CPU view underlines the executed bytes in X (green), the "
               "operand and data reads in R (blue), the landed write in W (orange-red), a byte both executed "
               "and read in both, and leaves the others plain; the Slot view reads the slot's space (same "
-              "marks), another slot and another Page show none",
-              x_cols && r_cols && clear_cols && data && both && slot_ok && slot7_clear && page_clear,
+              "marks), another slot and another Page show none; the legend names X, R and W in the same colours",
+              x_cols && r_cols && clear_cols && data && both && slot_ok && slot7_clear && page_clear && legend_light,
               fmt("x=%d r=%d clear=%d data=%d both=%d slot=%d slot7=%d page=%d", x_cols, r_cols, clear_cols,
                   data, both, slot_ok, slot7_clear, page_clear));
     }
@@ -2140,6 +2156,7 @@ static void test_coverage_panels() {
         const DumpRow row9 = dump_row(painted(&mem), "$9000");
         const int found9 = row9.found ? cov_colours_in(image_of(&mem), {0, mimg.width(), int(row9.baseline_y),
                                                                         int(row9.baseline_y) + 14}, dpal) : -1;
+        const bool legend_dark = legend_matches(mem, dpal);
         const bool contrast = std::abs(ex.lightness() - base) >= 60 && std::abs(rd.lightness() - base) >= 60 &&
                               std::abs(wr.lightness() - base) >= 60;
         const bool differs = ex != coverage_colors::exec(pal) && rd != coverage_colors::read(pal);
@@ -2149,7 +2166,7 @@ static void test_coverage_panels() {
               "on a dark palette the Disassembly bar and the Memory underline are drawn in the palette-"
               "adapted X, R and W colours, each at least 60 lightness steps from the panel's Base, and "
               "they differ from the light-palette colours",
-              bar && (found & 1) && (found & 2) && (found9 & 4) && contrast && differs,
+              bar && (found & 1) && (found & 2) && (found9 & 4) && contrast && differs && legend_dark,
               fmt("bar=%d found=%d found9=%d contrast=%d differs=%d ex=%s rd=%s wr=%s base=%d", bar, found,
                   found9, contrast, differs, s(ex.name()).c_str(), s(rd.name()).c_str(), s(wr.name()).c_str(), base));
     }
