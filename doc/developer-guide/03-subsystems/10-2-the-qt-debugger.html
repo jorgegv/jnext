@@ -2646,8 +2646,8 @@ paint time for the visible lines only (<code>SourcePanel::line_mark()</code>, so
 cache): this GUI's own Execute breakpoints (<code>BreakpointModel::pc_breakpoints()</code>) that the
 Disassembly would draw (a logical one, or one tied to <code>source_page(addr)</code>) and that sit on a start
 the memory mapped now supplies (<code>source_map().resolve(file:line)</code>, so an alias line is marked) or on
-any instruction whose primary line (<code>lookup</code>) is the line. Every start armed is the full glyph,
-some is the left half. <code>breakpoint_glyph.h</code> paints the glyph for both panels. A click calls
+any instruction whose primary line (<code>lookup</code>) is the line. Every start of the line armed (by a breakpoint at its address, logical or tied to its memory, mapped now or not)
+is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. <code>breakpoint_glyph.h</code> paints the glyph for both panels. A click calls
 <code>SourcePanel::toggle_breakpoint_at_line()</code>, the one toggle: it removes what the line shows plus a
 hidden group tied to an unmapped page, else <code>add_source_line()</code> (not idempotent, hence the check);
 the context menu of GH #423 calls the same function. The file a record names is found by <code>source_search::resolve()</code> (<code>debug/source_search.h</code>, Qt-free so
