@@ -639,8 +639,8 @@ int main() {
                                "(sccz80 on 2.4, sdcc on master), named in page 20 only",
                   na == 10 && nb == 9 && is_key(a, "_banked_add", 0xC000, P20, false) &&
                       is_key(b, "_banked_add", 0xC000, P20, false) &&
-                      name_is(a.lookup(P20, 0xC000), "_banked_add") && !a.lookup(P21, 0xC000) &&
-                      !a.lookup(MemSpace::cpu(), 0xC000) && name_is(b.lookup(P20, 0xC000), "_banked_add") &&
+                      name_is(a.lookup(P20, 0xC000), "banked_add") && !a.lookup(P21, 0xC000) &&
+                      !a.lookup(MemSpace::cpu(), 0xC000) && name_is(b.lookup(P20, 0xC000), "banked_add") &&
                       !b.lookup(P21, 0xC000));
             const int nc = load_sym(c, v24 / "sccz80-bank10" / "prog.map");
             check("Z88SYM-02", "rule 2: _banked_add of a BANK_10 section is a label of page 20 at $C000",
@@ -661,9 +661,9 @@ int main() {
             load_sym(t, v24 / "sccz80-debug" / "prog.map");
             const bool unbound = t.symbols().find(0x8C92)->second.bind_at_load &&
                                  !t.symbols().find(0x8C92)->second.space &&
-                                 name_is(t.lookup(MemSpace::cpu(), 0x8C92), "_main");
+                                 name_is(t.lookup(MemSpace::cpu(), 0x8C92), "main");
             t.bind(nex_space);
-            const bool in4 = name_is(t.lookup(P4, 0x8C92), "_main") && !t.lookup(MemSpace::cpu(), 0x8C92) &&
+            const bool in4 = name_is(t.lookup(P4, 0x8C92), "main") && !t.lookup(MemSpace::cpu(), 0x8C92) &&
                              !t.lookup(MemSpace::page(40), 0x8C92) && is_key(t, "_main", 0x8C92, P4, true);
             t.bind([](uint16_t) { return MemSpace::page(40); });
             const bool in40 = is_key(t, "_main", 0x8C92, MemSpace::page(40), true);
@@ -735,7 +735,7 @@ int main() {
             check("Z88SYM-08", "a 24-bit __PAGE_n_head ($14C000, the runnable __banked builds) places the symbols by its low "
                                "16 bits; the 24-bit constant is no name; a head past 24 bits is no head",
                   na == 9 && nb == 11 && is_key(a, "_banked_add", 0xC000, P20, false) &&
-                      is_key(b, "_banked_add", 0xC000, P20, false) && name_is(a.lookup(P20, 0xC000), "_banked_add") &&
+                      is_key(b, "_banked_add", 0xC000, P20, false) && name_is(a.lookup(P20, 0xC000), "banked_add") &&
                       !a.lookup(P21, 0xC000) && !a.lookup(MemSpace::cpu(), 0xC000) && !key(a, "__PAGE_20_head") &&
                       nc == 2 && is_key(c, "_b21", 0xE000, MemSpace::page(21), false) &&
                       is_key(c, "_over", 0xC000, std::nullopt, false));

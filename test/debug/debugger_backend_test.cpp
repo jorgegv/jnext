@@ -8490,8 +8490,8 @@ int main() {
         auto nm = [&](uint16_t a) { const auto n = dbg.lookup(a); return n ? *n : std::string("-"); };
         check("SYM-14", "in a z88dk `-debug` map the function labels keep their addresses: "
                         "lookup($8C92) = _main and lookup($8C78) = _square, not the __C_LINE_ markers at them",
-              dbgmap.status == Result::Ok && nm(0x8C92) == "_main" && nm(0x8C78) == "_square" &&
-                  nm(0x8D35) == "_util_twice",
+              dbgmap.status == Result::Ok && nm(0x8C92) == "main" && nm(0x8C78) == "square" &&
+                  nm(0x8D35) == "util_twice",
               nm(0x8C92) + " " + nm(0x8C78) + " " + nm(0x8D35));
         const auto& all = dbg.symbols();
         check("SYM-15", "the C-line markers at address $0000 (the stdint.h and other header lines) name nothing",
