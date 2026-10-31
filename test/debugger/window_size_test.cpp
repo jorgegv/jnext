@@ -734,7 +734,7 @@ static void test_key_names(const QString& dir)
         QStringList w(written.begin(), written.end());
         w.sort();
         check("DWK-01", "the keys DebuggerWindow writes under [debugger] (detached, then attached) are exactly the table's DebuggerWindow-owned keys, and the Attach toggle itself writes debugger/attached before any save",
-              fx.ok && attach && written == want && want.size() == 3 &&
+              fx.ok && attach && written == want && want.size() == 4 &&
                   toggle_false == QLatin1String("false") && toggle_true == QLatin1String("true"), w.join(',').toStdString());
     }
     wipe_dir(dir);
