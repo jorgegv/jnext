@@ -1278,13 +1278,18 @@ the same), so the map lists `_counter` for `int counter;`. The user types and re
   location field (it varies by compiler and flags), the CDB records alone (absent without `-debug`).
   Known limit: C compiled from `.c.m4` or `.i` has another module name and keeps its assembler names
   (they still resolve). The owner may prefer that asm functions callable from C also answer to `x`.
-- **Where (D8).** `SymbolTable` holds the assembler names of the C symbols that own their name
-  (`c_symbols_`, filled by the one z88dk reader, so the sidecar, Load MAP and `--map` all get it).
-  `find_name()` falls back to `"_" + name` after every exact name and constant; `lookup()`/`nearest()`
-  return `shown_name()`. No panel has code of its own, except the Disassembly copy and the watch label.
+- **Where (D8).** `SymbolTable` marks each C label (`SymbolLabel::c_symbol`) and keeps the key of the
+  first C symbol of each C name (`c_name_to_key_`, filled by the one z88dk reader, so the sidecar, Load
+  MAP and `--map` all get it). The rule is per SYMBOL, not per assembler name: a C `_dup` and an asm
+  `_dup` are two symbols, and `dup` is the C one in either file order. `find_name()` falls back to
+  `c_name_to_key_` after every exact name and constant; `lookup()`/`nearest()` show a C label's C name.
+  No panel has code of its own, except the Disassembly copy and the watch label.
+- **Same C name twice.** Two C modules with a local `_inc`: `inc` resolves to the first (file order, as
+  every name); the second shows its assembler name `_inc`, so a shown C name always resolves to the symbol
+  it labels. (`_inc` itself is the first one's, as before: equal assembler names cannot be told apart.)
 - **Ambiguity (D2).** An exact name always wins, in any load or merge order. A C symbol whose C name
-  belongs to something else is shown by its assembler name, so every shown name resolves to the symbol
-  it labels. Storing the C names as aliases was rejected: the map is sorted by name, `_counter` comes
+  belongs to something else (a label, an alias, a constant, an earlier C symbol) is shown by its
+  assembler name, so every shown C name resolves to the symbol it labels. Storing the C names as aliases was rejected: the map is sorted by name, `_counter` comes
   before `counter`, and first-wins would let the alias beat the real symbol.
 - **Copy (D4).** The Disassembly copy writes the assembler name (`lookup_assembler()`, through
   `symbol_namer(..., true)`): the user guide promises that a copy assembles, and z88dk's assembler knows
@@ -1470,9 +1475,9 @@ and a wrong name, the z88dk `.m4` message, the past-the-end message, the lazy wi
 directories surviving a configured-list change); `debugger_menu_test` MWSRC-01..06 (file,
 command line and Preferences to the manager); `cli-set-func` Q6, S2 and U1.
 
-**E23-31 (#424), C names.** `z88dk_map_test` Z88CN-01..11 (resolve under every binding, shown names, what is
+**E23-31 (#424), C names.** `z88dk_map_test` Z88CN-01..14 (resolve under every binding, shown names, what is
 not C, every compiler and install, banked, ambiguity both file orders, merge, reload, `shown_name()`, the
-invariant over every committed z88dk map, `lookup_assembler()`); `source_debug_test` SRCDBG-CN-01;
+invariant over every committed z88dk map, `lookup_assembler()`, the rule per symbol in either file order, two C modules with one name); `source_debug_test` SRCDBG-CN-01;
 `script_events_test` SCRIPT-HOST-CN-01/02; `gdb_rsp_test` GDB-MON-14; `debugger_source_panel_test`
 QCN-01..04; `debugger_verbs_test` QMAP-08; `debugger_disasm_copy_test` DCN-01/02. Ten existing rows asserted
 the shown `_name` of a C symbol and now assert the C name (owner approval pending): Z88SYM-01, Z88SYM-04,

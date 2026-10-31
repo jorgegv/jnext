@@ -921,15 +921,9 @@ int main() {
                 b_ok = b_ok && t.resolve("size") == std::optional<uint16_t>(0x10) &&
                        shown(t.lookup(MemSpace::cpu(), 0x9200), "_size") && t.resolve("_size") == std::optional<uint16_t>(0x9200);
             }
-            SymbolTable d;
-            d.load_z88dk_map(synth("cn6c.map",
-                rec("_dup", 0x9300, "x_asm", "code_compiler", "x.asm:1") +
-                rec("_dup", 0x9400, "main_c", "code_compiler", "m.c:3")).string());
             check("Z88CN-06", "an exact name wins in either file order: a real `counter` label, or a `size` constant, "
-                              "beats the C name of _counter / _size, which is then shown as written; a name an asm "
-                              "module already owns is not C",
-                  a_ok && b_ok && !at(d, "dup") && shown(d.lookup(MemSpace::cpu(), 0x9300), "_dup") &&
-                      shown(d.lookup(MemSpace::cpu(), 0x9400), "_dup"));
+                              "beats the C name of _counter / _size, which is then shown as written",
+                  a_ok && b_ok);
         }
         {   // Z88CN-07
             SymbolTable b;
@@ -947,12 +941,14 @@ int main() {
             a3.add_label("_counter", 0x9500, std::nullopt);
             a3.merge(b);
             check("Z88CN-07", "merge(): a real `counter` wins whichever side holds it and the C one is shown as _counter; "
-                              "into an empty table the C names survive; an asm `_counter` already there is not C",
+                              "into an empty table the C names survive; an asm `_counter` already there stays `_counter` and the C one keeps `counter`",
                   a1.resolve("counter") == std::optional<uint16_t>(0x9100) && shown(a1.lookup(MemSpace::cpu(), 0x8F59), "_counter") &&
                       b2.resolve("counter") == std::optional<uint16_t>(0x9100) &&
                       shown(b2.lookup(MemSpace::cpu(), 0x8F59), "_counter") &&
                       e.resolve("counter") == std::optional<uint16_t>(0x8F59) && shown(e.lookup(MemSpace::cpu(), 0x8F59), "counter") &&
-                      !at(a3, "counter") && shown(a3.lookup(MemSpace::cpu(), 0x9500), "_counter"));
+                      a3.resolve("counter") == std::optional<uint16_t>(0x8F59) &&
+                      shown(a3.lookup(MemSpace::cpu(), 0x8F59), "counter") &&
+                      shown(a3.lookup(MemSpace::cpu(), 0x9500), "_counter"));
         }
         {   // Z88CN-08
             SymbolTable t;
@@ -999,7 +995,14 @@ int main() {
                     if (!name) { all = false; continue; }
                     // The label lookup() answers for: the shown name resolves to the same key as its own name.
                     const auto answered = t.lookup_assembler(sp, addr);
-                    if (!answered || !(t.find_name(*name) == t.find_name(*answered))) all = false;
+                    if (!answered) { all = false; continue; }
+                    // A shown C name resolves to the very symbol it labels (address and memory).
+                    if (*name != *answered) {
+                        const auto k = t.find_name(*name);
+                        if (!k || k->addr != addr || !(k->space == label.space)) all = false;
+                    } else if (!t.find_name(*name)) {
+                        all = false;
+                    }
                     if (*name != *answered) differs = true;
                 }
                 each_differs = each_differs && differs;
@@ -1007,13 +1010,20 @@ int main() {
             SymbolTable inc;
             load_c(inc, master / "sdcc-debug" / "prog.map");
             inc.bind(nex_space);
-            int shown_inc = 0;
-            for (const auto& [addr, label] : inc.symbols())
-                if (label.name == "_util_inc" && shown(inc.lookup(P4, addr), "util_inc")) ++shown_inc;
+            // Two C modules each have a local _util_inc: `util_inc` is the first one's, which shows it; the
+            // second shows its assembler name, so a shown C name always resolves to its own symbol.
+            const auto first_inc = inc.find_name("util_inc");
+            int shown_inc = 0, shown_asm = 0;
+            for (const auto& [addr, label] : inc.symbols()) {
+                if (label.name != "_util_inc") continue;
+                if (shown(inc.lookup(P4, addr), "util_inc") && first_inc && first_inc->addr == addr) ++shown_inc;
+                if (shown(inc.lookup(P4, addr), "_util_inc") && first_inc && first_inc->addr != addr) ++shown_asm;
+            }
             check("Z88CN-10", "over every committed z88dk map, after bind: the shown name of each label resolves to the "
-                              "symbol the label's own name does, and each map shows at least one C name; both _util_inc "
-                              "labels of sdcc-debug show util_inc and it resolves to the first",
-                  all && each_differs && shown_inc == 2 && inc.find_name("util_inc") == inc.find_name("_util_inc"));
+                              "symbol the label's own name does, and each map shows at least one C name; of the two _util_inc "
+                              "labels of sdcc-debug the first shows util_inc (which resolves to it), the second _util_inc",
+                  all && each_differs && shown_inc == 1 && shown_asm == 1 &&
+                      inc.find_name("util_inc") == inc.find_name("_util_inc"));
         }
         {   // Z88CN-11
             SymbolTable t;
@@ -1026,6 +1036,32 @@ int main() {
                   shown(t.lookup_assembler(P4, 0x8F59), "_counter") && shown(t.lookup(P4, 0x8F59), "counter") &&
                       shown(t.lookup_assembler(P4, 0x8D65), "_asm_bump") && aname(0x8F59) == std::optional<std::string>("_counter") &&
                       cname(0x8F59) == std::optional<std::string>("counter"));
+        }
+        {   // Z88CN-12 / 13 / 14: the C-name rule is per SYMBOL, not per assembler name (GH #424 round 1b)
+            const std::string c_line = rec("_dup", 0x9400, "main_c", "code_compiler", "m.c:3");
+            const std::string a_line = rec("_dup", 0x9300, "x_asm", "code_compiler", "x.asm:1");
+            SymbolTable ca;   // C module first, asm second
+            ca.load_z88dk_map(synth("cn12.map", c_line + a_line).string());
+            check("Z88CN-12", "a C module's _dup then an asm module's _dup: `dup` resolves to the C one ($9400), which "
+                              "shows dup; the asm one keeps showing _dup",
+                  ca.resolve("dup") == std::optional<uint16_t>(0x9400) &&
+                      shown(ca.lookup(MemSpace::cpu(), 0x9400), "dup") && shown(ca.lookup(MemSpace::cpu(), 0x9300), "_dup") &&
+                      shown(ca.lookup_assembler(MemSpace::cpu(), 0x9400), "_dup"));
+            SymbolTable ac;   // asm module first, C second
+            ac.load_z88dk_map(synth("cn13.map", a_line + c_line).string());
+            check("Z88CN-13", "an asm module's _dup then a C module's _dup: `dup` still resolves to the C one ($9400) "
+                              "and shows dup, the asm one keeps showing _dup; `_dup` resolves to the first (asm)",
+                  ac.resolve("dup") == std::optional<uint16_t>(0x9400) &&
+                      shown(ac.lookup(MemSpace::cpu(), 0x9400), "dup") && shown(ac.lookup(MemSpace::cpu(), 0x9300), "_dup") &&
+                      ac.resolve("_dup") == std::optional<uint16_t>(0x9300) && ac.shown_name("dup") == "dup");
+            SymbolTable cc;   // two C modules, each a local _inc at its own address
+            cc.load_z88dk_map(synth("cn14.map",
+                rec("_inc", 0x9500, "a_c", "code_compiler", "a.c:1") +
+                rec("_inc", 0x9600, "b_c", "code_compiler", "b.c:1")).string());
+            check("Z88CN-14", "two C modules with the same local name: `inc` resolves to the first ($9500) and that one "
+                              "shows inc; the second shows _inc, so no shown C name resolves to another symbol",
+                  cc.resolve("inc") == std::optional<uint16_t>(0x9500) &&
+                      shown(cc.lookup(MemSpace::cpu(), 0x9500), "inc") && shown(cc.lookup(MemSpace::cpu(), 0x9600), "_inc"));
         }
     }
 

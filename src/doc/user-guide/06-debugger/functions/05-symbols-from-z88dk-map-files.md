@@ -23,7 +23,8 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
   map's module column ends in `_c`, as `main_c` for `main.c`): assembler labels
   keep their names, `_asm_bump` of an `.asm` file included, and so do names
   that start with two underscores. A real `counter` in the table wins: the C
-  one is then shown as `_counter`. The disassembly *copy* writes the assembler
+  one is then shown as `_counter`. If two C files each have a static `inc`, `inc` is the first one's and the
+  second is shown as `_inc`. The disassembly *copy* writes the assembler
   name (`LD HL,_counter`), so the pasted text still assembles.
 - **Simple Format (48K ROM)…** — plain `NAME = $ADDR` lines, one per line,
   `;` for comments.
