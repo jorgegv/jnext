@@ -3094,6 +3094,17 @@ int main() {
             ins(0x0038, T - 4, 0xFB, 0x0039, T - 4);
             ins(0x0039, T - 4, 0xC9, 0x9003, T - 2);
             const bool callee = cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
+            // The same, the INT ending a HALT at $9003: the pushed address is $9004.
+            fresh();
+            ins(0x8000, T, 0xE5, 0x8001, T - 2);
+            ins(0x8001, T - 2, 0xCD, 0x9000, T - 4, 0x00, 0x90);
+            ins(0x9000, T - 4, 0xD1, 0x9001, T - 2);
+            ins(0x9001, T - 2, 0xC1, 0x9002, T);
+            ins(0x9002, T, 0xD5, 0x9003, T - 2);
+            cs.on_instruction_pre(0x9003, T - 2, 0x76, 0, 0);
+            cs.on_interrupt(0x9003, 0x0038, T - 4);
+            ins(0x0038, T - 4, 0xC9, 0x9004, T - 2);
+            const bool halted = cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
             // #278: an ISR that returns ELSEWHERE (a context switch) falls back to the SP rule:
             // the INT frame ends (its slot is below SP) and the CALL frame at SP stays.
             fresh();
@@ -3104,8 +3115,8 @@ int main() {
             const bool elsewhere = cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
             check("SRCDBG-CS-14", "an INT frame ends when the ISR returns to the interrupted PC, so a "
                                   "routine that moved its return slot keeps its frame; an ISR that "
-                                  "returns elsewhere ends it by SP (GH #278: strictly below)",
-                  callee && elsewhere);
+                                  "returns elsewhere ends it by SP (GH #278: strictly below); after a HALT the return point is the HALT + 1",
+                  callee && halted && elsewhere);
         }
     }
     {
