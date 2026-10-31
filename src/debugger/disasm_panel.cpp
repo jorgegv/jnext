@@ -534,15 +534,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         if (entry.has_breakpoint) {
             const int cx = GUTTER_WIDTH / 2;
             const int cy = y + LINE_HEIGHT / 2;
-            if (entry.breakpoint_live) {
-                painter.setBrush(QColor(255, 0, 0));
-                painter.setPen(Qt::NoPen);
-                painter.drawEllipse(QPoint(cx, cy), 5, 5);
-            } else {
-                painter.setBrush(Qt::NoBrush);
-                painter.setPen(QPen(QColor(255, 0, 0), 2));
-                painter.drawEllipse(QPoint(cx, cy), 4, 4);
-            }
+            paint_breakpoint_glyph(painter, QPoint(cx, cy), entry.breakpoint_live, false);
         }
 
         // Address column
