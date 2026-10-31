@@ -3667,6 +3667,10 @@ log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</s
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.</p>
+<p>A small amber arrow at the right edge of the gutter marks the line the CPU is on, apart
+from the highlight, which a line you select by right-clicking shares. When a toolchain
+attributes the same address to more than one source line, the position line names the
+primary one and lists the others, <code>main.bas:11  $8002  page 2E  also: util.bas:7</code>.</p>
 <p>Left of the text is a gutter, like the disassembly's: a <strong>BP</strong> column and the file's
 own <strong>Line</strong> numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a

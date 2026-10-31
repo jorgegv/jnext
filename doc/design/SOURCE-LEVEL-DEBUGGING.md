@@ -360,7 +360,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
-| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
+| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); the amber current-line wedge and the "also:" list done in E23-16 (#347) stage 1; no selection sync yet | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
@@ -979,7 +979,9 @@ location is; a `space` on a kind other than `Execute` is refused.
   transient group at every start, then a run), reached by Run to Here and Enter. Done.
 - **Source tab completion** (E23-16 (#347)): the current-line marker; the
   "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab
-  and the disassembly.
+  and the disassembly. Stage 1 built the marker (an amber wedge in the gutter's trailing 5-px
+  strip, `paint_pc_marker()`, D1) and the "also:" suffix of the position label (D3); selection
+  sync follows in stage 2.
 - **Address fields**: a number first, `@` forces a symbol, `$` or `0x` force hex (OD-12; done).
   `file:line` is accepted wherever an Execute address is (done). Call Stack "Called from" uses
   the caller's recorded identity (E23-08). E23-22 (#360) shows the identity in every view, and

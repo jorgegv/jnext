@@ -249,7 +249,7 @@ cache): this GUI's own Execute breakpoints (`BreakpointModel::pc_breakpoints()`)
 Disassembly would draw (a logical one, or one tied to `source_page(addr)`) and that sit on a start
 the memory mapped now supplies (`source_map().resolve(file:line)`, so an alias line is marked) or on
 any instruction whose primary line (`lookup`) is the line. Every start of the line armed (by a breakpoint at its address, logical or tied to its memory, mapped now or not)
-is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. `breakpoint_glyph.h` paints the glyph for both panels. A click calls
+is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. `breakpoint_glyph.h` paints the glyph for both panels. It also holds `paint_pc_marker()` (GH #347), the amber wedge `SourceEdit::paint_gutter()` draws on `highlighted_line()` only, in the 5-px strip after the number cell (`x` in `[width-6, width-2]`), which no pinned pixel reading uses; the colour goes through `palette_tint::ink()`, and the text highlight stays the palette's own. The position label ends with `SourcePanel::also_text()`: `lookup_all()` for the PC, minus the primary and any entry with its `file:line` (or a repeat), as `  also: f:l, ...`. A click calls
 `SourcePanel::toggle_breakpoint_at_line()`, the one toggle: it removes what the line shows plus a
 hidden group tied to an unmapped page, else `add_source_line()` (not idempotent, hence the check);
 the context menu of GH #423 calls the same function.
