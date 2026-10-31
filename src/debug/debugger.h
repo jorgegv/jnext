@@ -646,7 +646,9 @@ public:
     /// INS-11 — is the instruction at `addr` CALL-like? What CTL-04 asks.
     bool is_call_like(uint16_t addr) const;
 
-    /// INS-11 — a reader over `peek(Cpu)`, so `disasm_text::collect_range()` and
+    /// INS-11 — a reader over `peek(Cpu)`, except that the instruction at the PC
+    /// is read as the CPU will FETCH it (GH #360 F1: at a DivMMC instant entry
+    /// the M1 itself maps DivMMC), so `disasm_text::collect_range()` and
     /// `disasm_text::apply_symbols()` (already published, already Qt-free) can be
     /// driven with no `Emulator*`. Without this the INS-11 promise of
     /// "`disasm_text::*`" is unreachable from a frontend.

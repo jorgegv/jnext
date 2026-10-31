@@ -29,8 +29,9 @@ class DisasmPanel : public QWidget {
     Q_OBJECT
 public:
     /// @param dbg  the debugger backend every read goes through (GH #278 WP5):
-    ///             the bytes are its memory_reader() — a peek, so disassembling
-    ///             moves nothing — and the registers its registers().
+    ///             the bytes are its memory_reader() — a peek (the PC
+    ///             instruction as the CPU will fetch it, GH #360), so
+    ///             disassembling moves nothing — and the registers its registers().
     explicit DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Re-disassemble around current PC and repaint.
