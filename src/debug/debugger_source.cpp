@@ -614,8 +614,12 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             return out;
         }
         // No SLD sidecar: the z88dk map's source half, under the same rules.
-        if (!zpath || zparsed.count == 0) return out;
+        if (!zpath) return out;
         const std::string zfile = zpath->string();
+        // Why a listing was dropped matters most when none is left to supply the lines.
+        for (const std::string& n : zparsed.listing_notes)
+            log->warn("z88dk listings for '{}': {}", zfile, n);
+        if (zparsed.count == 0) return out;
         if (zparsed.count < 0) {
             log->error("Rejected z88dk source map '{}': {}", zfile, zparsed.error);
             const std::string why = "source map '" + zfile + "' rejected: " + zparsed.error;
@@ -637,11 +641,10 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
         impl_->sources_owner = Owner::Sidecar;
         out.sources = zparsed.count;
         out.sources_pending = z_pending;
-        for (const std::string& n : zparsed.listing_notes)
-            log->warn("z88dk listings for '{}': {}", zfile, n);
         log->info("Loaded {} z88dk source lines from '{}'{}{}", zparsed.count,
                   impl_->source_map.loaded_file(),
-                  zparsed.listings > 0 ? " and " + std::to_string(zparsed.listings) + " listings"
+                  zparsed.listings > 0 ? " and " + std::to_string(zparsed.listings) +
+                                                   (zparsed.listings == 1 ? " listing" : " listings")
                                        : std::string(),
                   z_pending ? std::string(kPendingNote)
                             : identity_note(impl_->source_map, zparsed, zidentity));

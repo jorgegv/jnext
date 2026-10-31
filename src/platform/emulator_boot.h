@@ -113,7 +113,8 @@ inline CliSourceMapResult emulator_attach_cli_source_map(Dbg& dbg, const std::st
     out.pending = out.ok && r.pending;
     out.line = "--source-map '" + file + "': " +
                (out.ok ? std::to_string(r.count) + " source lines" +
-                             (r.listings > 0 ? " (" + std::to_string(r.listings) + " z88dk listings)"
+                             (r.listings > 0 ? " (" + std::to_string(r.listings) +
+                                                   (r.listings == 1 ? " z88dk listing)" : " z88dk listings)")
                                              : std::string()) +
                              r.identity_note +
                              (r.listing_note.empty() ? std::string() : "; " + r.listing_note)

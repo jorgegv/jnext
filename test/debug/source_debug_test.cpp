@@ -5140,6 +5140,73 @@ int main() {
                       log);
             }
         }
+        {   // SRCDBG-LIS-05..07 (GH #348 stage 2 review): what the user is told when listings are dropped
+            auto edit = [](const fs::path& file, const std::string& from, const std::string& to) {
+                std::string text;
+                {
+                    std::ifstream in(file, std::ios::binary);
+                    text.assign(std::istreambuf_iterator<char>(in), {});
+                }
+                const size_t at = text.find(from);
+                if (at != std::string::npos) text.replace(at, from.size(), to);
+                write_text(file, text);
+            };
+            {   // LIS-05: the only listing is stale
+                const fs::path d = z / "lis-only-stale";
+                z88_copy("v2.4/sdcc-SO2", d);
+                fs::copy_file(kZ88Fixtures / "v2.4/sdcc-SO2/main.c.lis", d / "main.c.lis");
+                edit(d / "main.c.lis", "0023  af", "0023  b7");
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                });
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, d / "prog.nex");
+                const auto hand = n.dbg->load_source_map((d / "prog.map").string(), true);
+                check("SRCDBG-LIS-05", "with no usable listing left the sidecar still warns naming the dropped "
+                                       "one and why, and a refused hand load carries the same note",
+                      m.dbg->source_map().empty() && has(log, "z88dk listings for '" + (d / "prog.map").string()) &&
+                          has(log, "main.c.lis") && has(log, "$8C6B") &&
+                          hand.count == -1 && has(hand.error, "main.c.lis") && has(hand.error, "--list"),
+                      log + "\n" + hand.error);
+            }
+            {   // LIS-06: two dropped listings, the --source-map line and the joined note
+                const fs::path d = z / "lis-two-stale";
+                z88_copy_lis("v2.4/sdcc-SO2", d);
+                edit(d / "main.c.lis", "0023  af", "0023  b7");
+                edit(d / "asmfn.asm.lis", "0000  210000", "0000  310000");
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                const auto line = emulator_attach_cli_source_map(*m.dbg, (d / "prog.map").string());
+                const size_t a = line.line.find("asmfn.asm.lis");
+                const size_t b = line.line.find("main.c.lis");
+                check("SRCDBG-LIS-06", "--source-map's line carries the notes of two dropped listings, both named "
+                                       "and joined with '; ', beside the count of the two that were used",
+                      line.ok && has(line.line, "(2 z88dk listings)") && a != std::string::npos &&
+                          b != std::string::npos && a < b && line.line.find("; ", a) != std::string::npos,
+                      line.line);
+            }
+            {   // LIS-07: one listing is singular everywhere
+                const fs::path d = z / "lis-one";
+                z88_copy_lis("v2.4/sccz80-incmid", d);
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                });
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, d / "prog.nex");
+                const auto line = emulator_attach_cli_source_map(*n.dbg, (d / "prog.map").string());
+                check("SRCDBG-LIS-07", "a single listing reads 'and 1 listing' in the log and '(1 z88dk listing)' "
+                                       "in --source-map's line",
+                      r.sources > 0 && has(log, " and 1 listing") && !has(log, "1 listings") &&
+                          has(line.line, "(1 z88dk listing)") && !has(line.line, "1 z88dk listings"),
+                      log + "\n" + line.line);
+            }
+        }
         {   // Z88-21: sidecar identity mismatch
             const fs::path d = z / "d21";
             z88_copy("v2.4/sccz80-debug", d);

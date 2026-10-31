@@ -1036,7 +1036,10 @@ An adapter turns one file format into the neutral stores and nothing else. It em
 - symbols (section 10).
 
 It **parses the whole input and fails with a reason before replacing a store.** For a source
-half that is strict: any malformed record refuses the half, and the reason names the line. The
+half that is strict: any malformed record refuses the half, and the reason names the line. The one
+exception is a z88dk `--list` listing (9.5): a listing found beside the map that is malformed, is
+not this build's or does not hold up against the map or the section binaries drops that listing
+alone, with a note naming the file, never the half; its module keeps the map's records. The
 symbol-only loaders keep the MAP rule: a file that cannot be opened, is not a regular file or
 is over the size cap is refused with a reason, and inside a readable file a line that does not
 parse as a symbol is skipped, not fatal (real z88dk maps carry lines of every kind: `; const`
@@ -1199,8 +1202,13 @@ evidence (commands, z88dk commits, outputs).
   `read_space`. Beside a tape the same bytes are judged later, one memory space at a time
   (`SourceMap::verify_spans()`, `verify_unit()`: the spans of a space are its byte checks
   merged), the first time the CPU is about to run inside it (6.2).
-- The `.lis` bytes are a secondary check only: references to other modules are unrelocated in
-  a listing (`cd0000`), so they verify only the bytes the listing marks as final.
+- The `.lis` bytes are a check on the listing, not an identity of the program. References to
+  other modules are unrelocated in a listing (`cd0000`), so only the FIRST byte of an
+  instruction whose first token is a Z80 or Z80N mnemonic is compared with the section binary
+  covering its address (operands are not). A mismatch drops that listing (9.1, 9.5), with a
+  note naming the line, the address and both bytes; the listing marks no byte as final. The
+  ranges a used listing supplies then get the same byte checks as the map's own (the binary's
+  bytes, above).
 
 ### 9.8 Symbol adapters and pages
 
