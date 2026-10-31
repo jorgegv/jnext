@@ -503,8 +503,8 @@ interrupted PC: the interrupted instruction has not been fetched, and will be on
 return. The per-instruction prediction of the post-instruction PC is gone.
 
 Back and Reverse Continue look the source map up with the entry's recorded identity, and the
-trace export prints it as ` FETCH=kk:ii` (hex kind and index) after `ROM=`; E23-22 (#360)
-replaces that column's text with its formatter. ZRCP `cpu-history` and DZRP history are not
+trace export prints it as ` FETCH=<tag>` after `ROM=` (E23-22 (#360): `space_tag()` of the
+recorded identity, 4.6; it was `kk:ii`, hex kind and index). ZRCP `cpu-history` and DZRP history are not
 affected.
 
 ### 4.4 The current-PC prediction (E23-07 (#339))

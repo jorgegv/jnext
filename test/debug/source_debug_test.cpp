@@ -2767,7 +2767,18 @@ int main() {
         m.emu.divmmc().rom_data()[1] = 0x10;
         m.emu.divmmc().rom_data()[2] = 0x00;
         m.emu.divmmc().rom_data()[0x10] = 0xC9;
+        // RAM page 10 (the data view) holds other bytes at $0001/$0002: the CALL's operands
+        // are DivMMC's, and the length of the PC instruction is the predicted one (3), not
+        // that of the RAM's byte (1).
+        m.emu.mmu().write(0x0001, 0xAA);
+        m.emu.mmu().write(0x0002, 0xBB);
         m.set_pc(0x0000);
+        const auto rd = m.dbg->memory_reader();
+        const auto dl = m.dbg->disassemble(0x0000, 1, nullptr);
+        const std::string dm = dl.empty() ? std::string() : std::string(dl[0].mnemonic);
+        const bool operands = rd(1) == 0x10 && rd(2) == 0x00 && dl.size() == 1 &&
+                              dl[0].byte_count == 3 && dm.find("CALL") == 0 &&
+                              dm.find("0010") != std::string::npos;
         const bool call = m.dbg->is_call_like(0x0000);
         const Result rc = m.dbg->step_over(m.a);
         for (int i = 0; i < 3 && !m.dbg->state().paused; ++i) m.emu.run_frame();
@@ -2781,9 +2792,9 @@ int main() {
         check("LADDR-18", "Step Over at a DivMMC instant entry recognises the CALL the CPU "
                           "will run (stops at $0003); past a one-byte instruction the reader "
                           "returns the data view",
-              call && rc == Result::Ok && after == 0x0003 &&
+              call && operands && rc == Result::Ok && after == 0x0003 &&
                   n.dbg->memory_reader()(0x0000) == 0x3C && n.dbg->memory_reader()(0x0001) == 0xAA,
-              "call=" + std::to_string(call) + " pc=" + hex(after) + " b1=" +
+              "call=" + std::to_string(call) + " operands=" + std::to_string(operands) + " '" + dm + "' pc=" + hex(after) + " b1=" +
                   hex(n.dbg->memory_reader()(0x0001)));
     }
     {

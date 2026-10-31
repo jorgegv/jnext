@@ -1765,12 +1765,14 @@ void ZrcpServer::cmd_cpu_step_over(const Cmd&) {
         return;
     }
     const std::uint16_t pc = dbg_.registers().PC;
-    std::uint8_t        op[2];
-    dbg_.peek(MemSpace::cpu(), pc, 2, op);
+    // The opcode as the CPU will fetch it (GH #360 F1), not the data view: at a
+    // DivMMC instant entry the two differ.
+    const DisasmReadFn  rd = dbg_.memory_reader();
+    const std::uint8_t  op[2] = {rd(pc), rd(static_cast<std::uint16_t>(pc + 1))};
     // ZEsarUX semantics (§2.2): a RET or JP has no next instruction to run
     // to, so it is a plain step; anything else runs until PC reaches the
     // instruction after this one.
-    if (is_ret_like(pc, dbg_.memory_reader()) || is_jp_like(op[0], op[1])) {
+    if (is_ret_like(pc, rd) || is_jp_like(op[0], op[1])) {
         cmd_cpu_step(Cmd{});
         return;
     }

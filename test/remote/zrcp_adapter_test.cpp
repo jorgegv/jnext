@@ -1302,6 +1302,34 @@ static void control_rows() {
               esc(ret) + " / " + esc(jp));
     }
     {
+        // GH #360 F1: at a DivMMC instant entry the CPU fetches the DivMMC ROM's JP while
+        // the data view is RAM NOPs (divmmc.vhd:124-148, zxnext.vhd:3084). cpu-step-over
+        // reads the opcode as fetched: a JP is a plain step, answered in the same pump.
+        // Read from the data view it would run to $0003 and never answer.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        static const std::uint8_t boot[0x2000] = {};
+        rig.emu.mmu().set_boot_rom(boot, sizeof(boot));
+        rig.emu.mmu().set_boot_rom_enabled(false);
+        rig.dbg->nextreg_write(1, 0x50, 10);
+        rig.dbg->nextreg_write(1, 0x0A, 0x10);   // automap enable
+        rig.dbg->nextreg_write(1, 0xB8, 0x01);
+        rig.dbg->nextreg_write(1, 0xB9, 0x01);
+        rig.dbg->nextreg_write(1, 0xBA, 0x01);   // instant entry at $0000
+        rig.emu.divmmc().rom_data()[0]     = 0xC3;   // JP $0100
+        rig.emu.divmmc().rom_data()[1]     = 0x00;
+        rig.emu.divmmc().rom_data()[2]     = 0x01;
+        rig.emu.divmmc().rom_data()[0x100] = 0x18;   // JR $
+        rig.emu.divmmc().rom_data()[0x101] = 0xFE;
+        rig.load({}, 0x0000);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string out = c.send_once("cpu-step-over\n");
+        check("LADDR-21", "cpu-step-over at a DivMMC instant entry whose ROM holds a JP is a plain "
+                          "step, answered at once (the opcode is read as the CPU fetches it)",
+              rig.pc() == 0x0100 && is_stop_shape(out, 0x0100) && rig.dbg->state().paused,
+              esc(out));
+    }
+    {
         // JR $: the step-over target is never reached. ZEsarUX hangs there;
         // jnext stops on data (§10), discards the line, and leaves no target.
         Rig rig;

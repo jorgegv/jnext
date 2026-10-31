@@ -35,9 +35,8 @@ entries, so it always holds the last 10 000 instructions.
 | `CFG17` | config mode, NR 0x04 bank 0x17 |
 | `FLOAT` | floating bus (no memory answers) |
 
-The tags are the same everywhere the debugger names a memory, so a tag in a
-trace line can be pasted into a script or a project file. The spelling is
-stable: capital letters and digits only, never changed between versions.
+The spelling of a tag is stable: capital letters and digits only, never changed
+between versions.
 
 An interrupt or NMI fetches no instruction; its line names the memory the
 interrupted instruction will come from.
