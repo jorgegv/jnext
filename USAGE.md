@@ -525,7 +525,11 @@ running. A Pi asked for with this option that cannot start (no QEMU, a
 failed download) is an error; declining the download is not — jnext then
 starts without the Pi. On Linux and macOS the link is a pair of FIFOs;
 on Windows (QEMU for Windows, its folder on `PATH` or set in
-Preferences) it is a loopback TCP socket QEMU listens on.
+Preferences) it is a loopback TCP socket QEMU listens on. **--nextpi**
+starts the Pi with any machine (the header and UART 1 are there in every
+personality); the saved preference starts it only when jnext starts the
+ZX Next. Changing the machine while jnext runs neither starts nor stops
+it.
 
 **--no-nextpi**  
 Do not start NextPi this run, overriding a saved preference that enables
@@ -535,9 +539,9 @@ it.
 The NextPi directory for this run (default `~/.jnext/nextpi`), over the
 value saved under **Settings \> Preferences \> NextPi**. An empty value
 means the default. It is used when NextPi starts, so it goes with
-**--nextpi** (or a saved preference that enables it); given when NextPi
-is not enabled for the run, this and the four options below are ignored,
-with a warning naming each.
+**--nextpi** (or the saved preference, when it starts NextPi); given
+when NextPi is not enabled for the run, this and the four options below
+are ignored, with a warning naming each.
 
 **--nextpi-release** *NAME*  
 The NextPi release for this run: a release name on the mirror, or

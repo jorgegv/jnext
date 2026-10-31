@@ -539,6 +539,10 @@ starts without the Pi.
 On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
 Windows, its folder on \f[CR]PATH\f[R] or set in Preferences) it is a
 loopback TCP socket QEMU listens on.
+\f[B]\-\-nextpi\f[R] starts the Pi with any machine (the header and UART
+1 are there in every personality); the saved preference starts it only
+when jnext starts the ZX Next.
+Changing the machine while jnext runs neither starts nor stops it.
 .RE
 .TP
 \f[B]\-\-no\-nextpi\f[R]
@@ -551,9 +555,9 @@ The NextPi directory for this run (default
 > Preferences > NextPi\f[R].
 An empty value means the default.
 It is used when NextPi starts, so it goes with \f[B]\-\-nextpi\f[R] (or
-a saved preference that enables it); given when NextPi is not enabled
-for the run, this and the four options below are ignored, with a warning
-naming each.
+the saved preference, when it starts NextPi); given when NextPi is not
+enabled for the run, this and the four options below are ignored, with a
+warning naming each.
 .TP
 \f[B]\-\-nextpi\-release\f[R] \f[I]NAME\f[R]
 The NextPi release for this run: a release name on the mirror, or
