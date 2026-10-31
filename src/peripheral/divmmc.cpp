@@ -607,15 +607,8 @@ bool DivMmc::is_ram_mapped(uint16_t addr) const {
 }
 
 bool DivMmc::is_read_only(uint16_t addr) const {
-    if (addr < 0x2000) {
-        // Slot 0 is always read-only (ROM, or RAM page 3 with mapram)
-        return true;
-    }
-    // Slot 1: RAM bank 3 is read-only when mapram is set (from VHDL)
-    if (addr < 0x4000 && mapram_ && bank_ == 3) {
-        return true;
-    }
-    return false;
+    // divmmc.vhd:100, once: overlay_at().rdonly (page 0, or MAPRAM with bank 3).
+    return addr < 0x4000 && overlay_at(addr).rdonly;
 }
 
 int DivMmc::ram_page_for(uint16_t addr) const {
@@ -647,6 +640,10 @@ uint8_t DivMmc::read(uint16_t addr) const {
     return *overlay_at(addr).ptr;
 }
 
+// TEST-ONLY since GH #388: the Mmu no longer calls this. Its write path stores through the
+// pointer of the write route (Mmu::write_route), whose read-only decision is the same
+// overlay_at().rdonly used here. Kept for the divmmc_test rows (RB-02/RB-03) that drive the
+// peripheral on its own.
 bool DivMmc::write(uint16_t addr, uint8_t val) {
     if (addr >= 0x4000) return false;  // outside DivMMC range
     const Overlay o = overlay_at(addr);
