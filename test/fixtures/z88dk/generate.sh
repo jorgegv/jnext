@@ -24,8 +24,8 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
 # fixture modules: every map line of these is kept
 MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm)$'
 
-trim_map() {  # $1 = raw map; stdout = kept lines, original order
-    awk -v MODS="$MODS" '
+trim_map() {  # $1 = raw map, $2 = extra module kept whole (KEEP_CRT); stdout = kept lines, original order
+    awk -v MODS="$MODS${2:+|^$2\$}" '
     function nm(l,  n) { n = l; sub(/ *=.*/, "", n); return n }
     NR == FNR { n = nm($0)
                 if (n ~ /^__.*_size$/ && $0 !~ /= \$0+ ;/) { s = n; sub(/^__/, "", s); sub(/_size$/, "", s); keep[s] = 1 }
@@ -82,7 +82,14 @@ build() {
         return 0
     fi
     (( ${EXPECT_FAIL:-0} )) && { echo "UNEXPECTED SUCCESS: $inst/$name (recorded as not producible)" >&2; BAD=1; }
-    trim_map "$b/prog.map" | normalise "$Z" > "$out/prog.map"
+    # KEEP_CRT=1: also keep the CRT listing (prog.lis) and the CRT module's own map lines (GH #348)
+    local crt=
+    if (( ${KEEP_CRT:-0} )); then
+        crt=$(awk '$2 == "MODULE" { print $3; exit }' "$b/prog.lis")
+        [[ -n $crt ]] || { echo "KEEP_CRT: no MODULE line in $inst/$name prog.lis" >&2; BAD=1; }
+        normalise "$Z" < "$b/prog.lis" > "$out/prog.lis"
+    fi
+    trim_map "$b/prog.map" "$crt" | normalise "$Z" > "$out/prog.map"
     (cd "$b" && for l in *.c.lis *.asm.lis game/*.c.lis; do [[ -f $l ]] || continue
         mkdir -p "$out/$(dirname "$l")"; normalise "$Z" < "$l" > "$out/$l"; done)
     for f in "$b"/prog.nex "$b"/prog.tap; do [[ -f $f ]] && cp "$f" "$out/"; done
@@ -110,7 +117,7 @@ rm -rf "${DEST:?}/v2.4" "${DEST:?}/master"
 provenance "$Z24" v2.4
 build "$Z24" v2.4 sccz80-debug  plain          -clib=new -debug
 build "$Z24" v2.4 sdcc-SO0      plain          -clib=sdcc_iy -SO0 --c-code-in-asm
-build "$Z24" v2.4 sdcc-SO2      plain          -clib=sdcc_iy -SO2 --c-code-in-asm
+KEEP_CRT=1 build "$Z24" v2.4 sdcc-SO2      plain          -clib=sdcc_iy -SO2 --c-code-in-asm
 EXPECT_FAIL=1 build "$Z24" v2.4 sdcc-debug    plain          -clib=sdcc_iy -debug
 build "$Z24" v2.4 sccz80-page20 banked:PAGE_20 -clib=new -debug
 build "$Z24" v2.4 sccz80-bank10 banked:BANK_10 -clib=new -debug
@@ -123,7 +130,7 @@ build "$Z24" v2.4 sccz80-tape   tape           -clib=new -debug
 
 provenance "$ZM" master
 build "$ZM" master sccz80-debug plain          -clib=new -debug
-build "$ZM" master sdcc-debug   plain          -clib=sdcc_iy -debug
+KEEP_CRT=1 build "$ZM" master sdcc-debug   plain          -clib=sdcc_iy -debug
 build "$ZM" master 80cc-debug   plain          -clib=new -compiler=80cc -debug
 build "$ZM" master sdcc-banked  banked:PAGE_20:kw -clib=sdcc_iy -debug
 build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
