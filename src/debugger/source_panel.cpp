@@ -500,8 +500,10 @@ void SourcePanel::refresh_()
 
     // GH #344 stage 3 - a tape program's map is attached and works, but its identity is
     // judged where the program first runs its code: say so until it is.
+    // GH #351 - a dot command's is judged when the command starts.
     const QString note = status.pending
-        ? tr("\nSource map not verified yet: it is checked when the program first runs its code")
+        ? (status.dot ? tr("\nSource map not verified yet: it is checked when the dot command runs")
+                      : tr("\nSource map not verified yet: it is checked when the program first runs its code"))
         : QString();
 
     const uint16_t pc = dbg_->registers().PC;

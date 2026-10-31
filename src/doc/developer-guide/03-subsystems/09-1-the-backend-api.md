@@ -445,7 +445,14 @@ binaries, or verified for the code the binaries cover (`SourceMapLoadResult::unc
 counts the ranges they do not). `--source-map FILE` (`EmulatorConfig::source_map_file`)
 is this load, made once by each frontend right after the first successful `--load` and
 its sidecars (`emulator_attach_cli_source_map()` in `platform/emulator_boot.h`); a
-refusal logs an error and the run exits 1. `main.cpp` refuses it without `--load`. With a tape
+refusal logs an error and the run exits 1. Without `--load` (GH #351) each frontend makes it
+once at start-up, before `ScriptHost::start()`, with `dot_only`: only a z88dk dot command's map
+(`SourceMap::dot()`, told by `z88dk_dot_command()`) is accepted, and any other is refused with
+`SourceMapLoad::not_dot` (`main.cpp` still refuses it with `--rzx-play`). A dot map always
+attaches pending, whatever `verify_at_first_execution` says, and is judged at its entry (the CPU
+about to execute `$2000` fetched from `DivMmcRam{2}`, `kNextZxosDotBank`): see the design, 6.2
+and 6.5; `DeferredCheck::dot` carries it, `SourceMapStatus::dot` tells the Source tab. `peek`
+reads `DivMmcRam{b}` (read-only; `poke` refuses it). With a tape
 `--load` the helper passes `deferred` (`program_loads_later()`), the map attaches pending
 (*Tapes*), and the frontend watches it with `emulator_poll_cli_source_map()` once per tick
 (`source_map_watch_` in `HeadlessApp`, `SdlApp` and `QtApp`): a map dropped by the check
