@@ -3082,6 +3082,43 @@ static void test_physical_menu()
     if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
 }
 
+// QLADDR-16 -- GH #360: MainWindow hands the `--set debugger.attached` and
+// `--set debugger.physical_addresses` overrides to the DebuggerManager, which
+// gives them to the window it creates. Mutating the hand-off (MainWindow keeps
+// the value and does not pass it on) leaves the window on the FILE's values.
+static void test_set_override_handoff()
+{
+    set_group("QLADDR");
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    {   // the file says the opposite of both overrides
+        QSettings raw(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+        raw.setValue(QStringLiteral("debugger/attached"), true);
+        raw.setValue(QStringLiteral("debugger/physical_addresses"), false);
+        raw.sync();
+    }
+    bool ok = false, physical = false, detached = false;
+    {
+        MainWindowFixture fx;
+        if (fx.ok) {
+            fx.win.set_debugger_attach_override(false);
+            fx.win.set_debugger_physical_override(true);
+            fx.win.debugger_manager()->set_enabled(true);
+            DebuggerWindow* w = fx.win.debugger_manager()->debugger_window_ptr();
+            ok = w != nullptr;
+            physical = w && w->address_style() == jnext::dbg::AddressStyle::Physical;
+            detached = w && !w->attach_enabled();
+        }
+    }
+    check("QLADDR-16",
+          "MainWindow hands the --set debugger.physical_addresses and debugger.attached overrides to the "
+          "debugger manager: the window it creates opens in the physical style and detached, whatever the "
+          "file says",
+          ok && physical && detached, fmt("ok=%d physical=%d detached=%d", ok, physical, detached));
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -3132,6 +3169,7 @@ int main(int argc, char** argv)
     test_coverage_menu();
     std::printf("  Group: QCOV           - done\n");
     test_physical_menu();
+    test_set_override_handoff();
     std::printf("  Group: QLADDR         - done\n");
 
     std::printf("\n=====================================\n");

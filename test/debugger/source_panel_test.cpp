@@ -4567,6 +4567,24 @@ void test_long_address_views() {
                   caller_phys == "$048002" && target_phys == "$068000",
               s(predicted) + "|" + s(caller) + "|" + s(target) + "|" + s(caller_phys) + "|" + s(target_phys));
     }
+    {   // QLADDR-15: a toggle re-spells the Breakpoints rows that already exist
+        Fixture fx(0, MachineType::ZXN_ISSUE2);
+        fx.enable();
+        fx.emu.mmu().set_boot_rom_enabled(false);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        m.add(BreakpointModel::Execute, 0x8005, pg(fx.p80));
+        const QString before = m.rows().empty() ? QString() : m.rows()[0].addr_text;
+        m.set_address_style(jnext::dbg::AddressStyle::Physical);   // nothing else republishes
+        const QString phys = m.rows().empty() ? QString() : m.rows()[0].addr_text;
+        m.set_address_style(jnext::dbg::AddressStyle::Friendly);
+        const QString back = m.rows().empty() ? QString() : m.rows()[0].addr_text;
+        check("QLADDR-15",
+              "Breakpoints: switching the style re-spells an existing identity row on a Next ($8005 P04 to "
+              "$8005 $048005) and back, with no other change to the model",
+              fx.p80 == 4 && before == "$8005 P04" && phys == "$8005 $048005" && back == before,
+              s(before) + "|" + s(phys) + "|" + s(back));
+        m.clear_all();
+    }
     {   // QLADDR-10: the Source tab names the memory of the PC, in either style
         Fixture fx(0, MachineType::ZXN_ISSUE2);
         fx.enable();
@@ -4577,6 +4595,12 @@ void test_long_address_views() {
         const QString friendly = sp->location_text();
         fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Physical);
         const QString physical = sp->location_text();
+        // ... and at a PC that is not slot-aligned: line 11 starts at $8002.
+        Z80Registers r2 = fx.emu.cpu().get_registers();
+        r2.PC = 0x8002;
+        fx.emu.cpu().set_registers(r2);
+        fx.mgr->refresh_panels();
+        const QString physical2 = sp->location_text();
         fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Friendly);
         // The unmapped PC at a DivMMC instant entry: DIVROM, not "ROM or overlay".
         fx.emu.nextreg().write(0x0A, 0x10);
@@ -4630,6 +4654,7 @@ void test_long_address_views() {
               "tooltip, Copy with Addresses text and Breakpoints rows use the same style",
               fx.p80 == 4 && friendly == QStringLiteral("main.bas:10  $8000  P04") &&
                   physical == QStringLiteral("main.bas:10  $8000  $048000") &&
+                  physical2 == QStringLiteral("main.bas:11  $8002  $048002") &&
                   unmapped == QStringLiteral("$0000 (DIVROM): no source mapping; use the disassembly") &&
                   tip_unplaced == QStringLiteral("main.bas:12: code at $8005 $04C005, not mapped now; click to set") &&
                   tip_hidden == QStringLiteral("main.bas:12: breakpoint at $8005 $04C005, not mapped now") &&
