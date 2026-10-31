@@ -118,9 +118,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | src/debug Qt-free lint (GH #278) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source maps + symbols |      107 |      107 |      0 |       0 |    100% | 🟢 All tests pass. |
-| z88dk -debug map adapter |       63 |       63 |      0 |       0 |    100% | 🟢 All tests pass. |
+| z88dk -debug map adapter |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk --list listing adapter |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |      313 |      313 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      317 |      317 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1477 |     1477 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -180,6 +180,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |       89 |       89 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       81 |       81 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14676**| **14676**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **14682**| **14682**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
