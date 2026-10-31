@@ -122,7 +122,8 @@ supersede the planning examples where the two differ (master sccz80 equals the p
   its linker (`sdld -y`), z88dk has none and z80asm writes the map instead. 2.4: zsdcc runs in
   `--c1mode` over stdin and opens the `.adb` only with a source file name (`SDCCmain.c:1758`),
   so none is written. Master: zsdcc writes a temporary `.adb` (7e0bebd667), zcc folds it into
-  the asm as `__CDBINFO__` (2bafa2baee, 29da3be373) and deletes it. No SLD and no DWARF in any z88dk branch: a search of the
+  the asm as `__CDBINFO__` (2bafa2baee, 29da3be373; only at `-O1` and above, the `+zx`/`+zxn`
+  cfgs set `-O2`) and deletes it. No SLD and no DWARF in any z88dk branch: a search of the
   history since 2025-01-01 found no such commit, and the tree at 39421a01cd names neither.
 - Naming traps: `+zxn` defaults to `-clib=sdcc_iy -O2 -SO2` (`lib/config/zxn.cfg`), so a bare
   `zcc +zxn` is sdcc; sccz80 needs `-clib=new` (or classic). `-clib=classic -debug` fails on
@@ -1151,14 +1152,22 @@ The listing is the only per-line asm source and the only sdcc line source on 2.4
 
 z88dk writes no `.cdb` and no usable `.adb` (zcc 2.4 and master 39421a01cd, `+zxn`/`+zx`,
 `sdcc_iy`/`sdcc_ix`, `-debug`, `-c`, `-S`, `-no-cleanup`, `-Cs--debug`; no file in the build
-dir, `$TMPDIR` or `/tmp`):
+dir; on master only a temporary one in `$TMPDIR` that zcc deletes):
 
 - No `.cdb` exists: it is sdld's product and z88dk has no sdld.
-- The `.adb` is a temporary file on master only (7e0bebd667; zcc deletes it, `zcc.c:2044-2072`,
-  2bafa2baee); on 2.4 zsdcc writes none (`SDCCmain.c:1758`).
-- Its records (`M:`/`F:`/`S:`/`T:`, no addresses, no lines) are exactly the map's `__CDBINFO__`
-  symbols: decoded, 16 = 16 equal sets on four sdcc builds. Line addresses come from the map's
-  `__C_LINE_` (E23-13) and the `.lis` (E23-17).
+- The `.adb` is a temporary file on master only (7e0bebd667). zcc folds it into the asm
+  (`zsdcc_embed_adb()`, `zcc.c:2041-2072`, 2bafa2baee) and deletes it (`zcc.c:3988`); only
+  `-no-cleanup` leaves it. On 2.4 zsdcc writes none (`SDCCmain.c:1758`).
+- The folding runs only at `-O1` and above (`if (peepholeopt)`, `zcc.c:1551`; the default is 0,
+  the `+zx`/`+zxn` cfgs set `-O2`). At `-O0` the map has no `__CDBINFO__` and the `.adb` is
+  deleted unread, so there are no CDB records at all (a limit of #353's input).
+- Its records (`M:`/`F:`/`S:`/`T:`, no addresses, no lines) are the map's `__CDBINFO__` symbols
+  once zcc's rename of the temporary module name to the source name is applied (`M:`,
+  `F<module>$`, `L<module>.` carry it): equal one for one, 16 = 16 on four sdcc builds. The
+  map has the real name where the `.adb` has the temporary one. The rename covers only `/`
+  (`zcc.c:2052-2053`; sdcc mangles every non-alphanumeric, `SDCCmain.c:1719-1720`), so a
+  `TMPDIR` with other such characters leaves the temporary name in the map (#353 scope keys).
+  Line addresses come from the map's `__C_LINE_` (E23-13) and the `.lis` (E23-17).
 - So a `SourceMap` adapter has nothing to read. The CDB-record reader is #353's (`VariableStore`),
   fed from the map.
 
