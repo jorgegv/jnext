@@ -4269,12 +4269,27 @@ void test_source_current_line() {
         set_pc(fx, 0x8000);
         v.sp->refresh();
         const QString at8000 = v.sp->location_text();
+        // a map still pending verification: the note is its own line AFTER the position's
+        write_text(g_tmp->path().toStdString() + "/also-pending.sld",
+            std::string("|SLD.data.version|1\n||program.name:prog\n") +
+            "||program.sha256:04bb9c5fbc1b0517a33504a5fbb7b9de7dd72a1de84987241364d2674495a823\n" +
+            "||program.org:32768\n||program.size:4\n" + "main.bas|10||0" + kNextDevice +
+            "main.bas|10||0|" + a + "|32768|T|\n" + "util.bas|7||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + a + "|32770|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n");
+        fx.backend->load_source_map(g_tmp->path().toStdString() + "/also-pending.sld", false, true);
+        set_pc(fx, 0x8002);
+        v.sp->refresh();
+        const QStringList pend = v.sp->location_text().split(QLatin1Char('\n'));
+        const bool order = pend.size() == 2 &&
+                           pend[0] == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
+                           pend[1].startsWith(QStringLiteral("Source map not verified yet"));
         check("QSRC-174", "two places at $8002 (util.bas:7 emitted first, main.bas:11 later and primary): "
                           "the label names the primary and lists the other as 'also: util.bas:7'; "
-                          "a one-place address carries no 'also'",
+                          "a one-place address carries no 'also'; under a pending map 'also' ends the "
+                          "position line and the note follows on the next line",
               at8002 == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
-                  !at8000.contains(QStringLiteral("also")),
-              s(at8002) + " | " + s(at8000));
+                  !at8000.contains(QStringLiteral("also")) && order,
+              s(at8002) + " | " + s(at8000) + " | " + s(v.sp->location_text()));
     }
     {
         Fixture fx;
@@ -4283,7 +4298,9 @@ void test_source_current_line() {
         fx.backend->load_source_map(write_sld("also-many.sld",
             "main.bas|10||0|" + a + "|32768|T|\n" + "c.bas|3||0|" + a + "|32770|T|\n" +
             "b.bas|2||0|" + a + "|32770|T|\n" + "main.bas|11:5||0|" + a + "|32770|T|\n" +
-            "b.bas|2||0|" + a + "|32770|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "b.bas|2||0|" + a + "|32770|T|\n" + "main.bas|20||0|" + a + "|32770|T|\n" +
+            "util.bas|11||0|" + a + "|32770|T|\n" + "b.bas|5||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + a + "|32770|T|\n" +
             "main.bas|12||0|" + a + "|32773|T|\n"), false);
         write_main({});
         BreakpointModel& m = fx.mgr->breakpoints();
@@ -4304,12 +4321,19 @@ void test_source_current_line() {
         const QString text = v.sp->location_text();
         const int at = text.indexOf(QStringLiteral("also: "));
         const QString listed = at < 0 ? QString() : text.mid(at + 6);
-        check("QSRC-175", "five records at $8002 (b.bas:2 twice, c.bas:3, main.bas:11 with and without a "
-                          "column): 'also' lists each other file:line once, in lookup_all order, without "
-                          "the primary's line",
-              all.size() == 5 && want.size() == 2 && listed.toStdString() == joined &&
+        // the dedup key is the PAIR file:line: the same file on another line, another file on the
+        // primary's line number, and one other file on two lines are all listed
+        const bool pair_key = text.count(QStringLiteral("main.bas:20")) == 1 &&
+                              text.count(QStringLiteral("util.bas:11")) == 1 &&
+                              text.count(QStringLiteral("b.bas:5")) == 1;
+        check("QSRC-175", "eight records at $8002 (b.bas:2 twice, c.bas:3, main.bas:11 primary, with and "
+                          "without a column, main.bas:20, util.bas:11, b.bas:5): 'also' lists each other "
+                          "file:line once, in lookup_all order, without the primary's line, and the key is "
+                          "the pair (same file other line, other file same line, one file on two lines)",
+              all.size() == 8 && want.size() == 5 && listed.toStdString() == joined &&
                   text.count(QStringLiteral("b.bas:2")) == 1 && text.count(QStringLiteral("c.bas:3")) == 1 &&
-                  !text.contains(QStringLiteral("also: main.bas")) && !listed.contains(QStringLiteral("main.bas")),
+                  pair_key &&
+                  !listed.contains(QStringLiteral("main.bas:11")),
               "n=" + std::to_string(all.size()) + " want=" + joined + " text=" + s(text));
     }
 }

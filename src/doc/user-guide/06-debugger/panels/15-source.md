@@ -16,8 +16,9 @@ the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.
 
-A small amber arrow at the right edge of the gutter marks the line the CPU is on, apart
-from the highlight, which a line you select by right-clicking shares. When a toolchain
+A small amber arrow at the right edge of the gutter marks the line the CPU is on. The
+highlight alone can also mean a line you selected by right-clicking; the arrow is only ever
+on the CPU's line. When a toolchain
 attributes the same address to more than one source line, the position line names the
 primary one and lists the others, `main.bas:11  $8002  page 2E  also: util.bas:7`.
 

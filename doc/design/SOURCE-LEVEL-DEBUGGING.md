@@ -908,9 +908,10 @@ breakpoint) ends the step too. The step also ends, and logs why, at a HALT with 
 disabled (only an NMI or a reset can end it), after `SOURCE_STEP_LIMIT` (one million)
 instructions, or after `SOURCE_STEP_FRAME_LIMIT` (100) frames of machine time, so a statement
 that waits never holds the frontend. Steps stay synchronous and bounded (OD-11); E23-16
-(#347) measured the worst case on the Release build (non-PGO, LTO, 2026-10-31, pinned core,
-load under 1.0): 275 ms median (call stack, trace, rewind and a subscription on; 100 frames
-of a HALT loop), 147 ms with none of them, so the bound stays synchronous.
+(#347) measured the worst of its five scenarios on the Release build (non-PGO, LTO, 2026-10-31,
+pinned core, load under 1.0): 275 ms median (call stack, trace, rewind and a subscription on;
+100 frames of a HALT loop), 147 ms with none of them, so the bound stays synchronous. Not
+measured: a step that meets both bounds together, and a frame with Layer 2 and sprites on.
 
 **Call depth** is the call-stack tracker's (`set_call_stack_enabled`), which the Qt debugger
 runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) fixed it
