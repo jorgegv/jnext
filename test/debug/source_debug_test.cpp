@@ -4056,6 +4056,125 @@ int main() {
                   on[0].enabled && on[1].enabled,
               "both_off=" + std::to_string(both_off) + " passed=" + std::to_string(passed));
     }
+    // ── run_to_source_line (GH #423; CTL-06 for a source line) ──────────
+    {
+        // The jnext debugger's own verb: no VHDL counterpart. Expected values are the
+        // issue's semantics (the first place reached stops it, nothing is left behind).
+        const auto run_until_stop = [](Machine& m, int frames = 4) {
+            for (int i = 0; i < frames && !m.emu.debug_state().paused(); ++i) m.emu.run_frame();
+        };
+        const auto stop_is = [](Machine& m, unsigned addr) {
+            const auto st = m.dbg->state();
+            return st.paused && m.pc() == addr && st.pause_reason.kind == PauseReason::Kind::RunTo &&
+                   st.pause_reason.addr == addr && st.pause_reason.by == m.a;
+        };
+        const fs::path both = dir / "run-both.sld";
+        write_text(both, program_sld(p80, p90, "main.bas|12||0|" + std::to_string(p90) + "|36864|T|\n"));
+        const fs::path banked = dir / "run-banked.sld";
+        write_text(banked, program_sld_without(p80, p90, {12}) + "main.bas|12||0|" +
+                               std::to_string(p80 + 2) + "|32773|T|\n");
+        {
+            Machine m;
+            m.dbg->load_source_map(sld.string(), false);
+            const Result r = m.dbg->run_to_source_line(m.a, "main.bas:12");
+            run_until_stop(m);
+            check("SRCRUN-01", "run_to_source_line(main.bas:12) from $8000 is accepted and stops at "
+                               "$8005 with reason RunTo, addr $8005, by the caller; the transient "
+                               "group is gone",
+                  r == Result::Ok && stop_is(m, 0x8005) && m.dbg->subscriptions(true).empty(),
+                  m.where());
+        }
+        {
+            Machine m;
+            m.dbg->load_source_map(both.string(), false);
+            m.set_pc(0x8002);
+            const Result r = m.dbg->run_to_source_line(m.a, "main.bas:12");
+            const auto armed = m.dbg->subscriptions(true);
+            const bool two = armed.size() == 2 && armed[0].transient && armed[1].transient &&
+                             armed[0].group == armed[1].group && armed[0].group != jnext::dbg::GROUP_NONE &&
+                             armed[0].filter.lo == 0x8005 && armed[0].filter.space == MemSpace::page(p80) &&
+                             armed[1].filter.lo == 0x9000 && armed[1].filter.space == MemSpace::page(p90);
+            run_until_stop(m);
+            check("SRCRUN-02", "a line at two places arms one transient group of two members; from the "
+                               "CALL the stop is at $9000 (reached first, RunTo addr $9000), and both "
+                               "members are gone",
+                  r == Result::Ok && two && stop_is(m, 0x9000) && m.dbg->subscriptions(true).empty(),
+                  "two=" + std::to_string(two) + " " + m.where());
+        }
+        {
+            Machine m;
+            m.dbg->load_source_map(sld.string(), false);
+            const Result nocode = m.dbg->run_to_source_line(m.a, "main.bas:3");
+            const bool untouched = m.dbg->state().paused && m.pc() == 0x8000 &&
+                                   m.dbg->subscriptions(true).empty();
+            m.dbg->run(m.a);
+            const Result running = m.dbg->run_to_source_line(m.a, "main.bas:3");
+            const bool still_running = !m.dbg->state().paused && m.dbg->subscriptions(true).empty();
+            m.dbg->pause(m.a);
+            check("SRCRUN-03", "a line with no code is RefusedUnavailable with the machine untouched: "
+                               "paused stays paused at the same PC, and a RUNNING machine keeps running",
+                  nocode == Result::RefusedUnavailable && untouched &&
+                      running == Result::RefusedUnavailable && still_running,
+                  "nocode=" + std::to_string(int(nocode)) + " untouched=" + std::to_string(untouched) +
+                      " running=" + std::to_string(int(running)) + " still=" + std::to_string(still_running));
+        }
+        {
+            Machine m;
+            m.dbg->load_source_map(banked.string(), false);
+            const Result r = m.dbg->run_to_source_line(m.a, "main.bas:12");
+            const auto armed = m.dbg->subscriptions(true);
+            const bool one = armed.size() == 1 && armed[0].transient && armed[0].filter.lo == 0x8005 &&
+                             armed[0].filter.space == MemSpace::page(p80 + 2);
+            for (int i = 0; i < 20; ++i) m.emu.run_frame();
+            const bool running = !m.dbg->state().paused;
+            m.dbg->pause(m.a);
+            check("SRCRUN-04", "a place in a page that is not mapped is one transient member tied to "
+                               "that page: 20 frames passing $8005 in the mapped page do not stop it, "
+                               "and a Pause leaves nothing armed",
+                  r == Result::Ok && one && running && m.dbg->subscriptions(true).empty(),
+                  "one=" + std::to_string(one) + " running=" + std::to_string(running));
+        }
+        {
+            Machine m;
+            m.dbg->load_source_map(sld.string(), false);
+            const Result a = m.dbg->run_to_source_line(m.a, "main.bas:12");
+            const bool running = !m.emu.debug_state().paused();
+            const Result b = m.dbg->run_to_source_line(m.a, "main.bas:13");   // before a frame ran
+            run_until_stop(m);
+            check("SRCRUN-05", "GH #423: a second run_to_source_line on the RUNNING machine re-targets: "
+                               "the first line's group is dropped and the stop is at the second ($8006, "
+                               "RunTo addr $8006), passing $8005",
+                  a == Result::Ok && running && b == Result::Ok && stop_is(m, 0x8006), m.where());
+        }
+        {
+            Machine m;
+            m.dbg->load_source_map(sld.string(), false);
+            m.dbg->subscribe(m.a, execute_stop(0x8002));
+            const Result r = m.dbg->run_to_source_line(m.a, "main.bas:12");
+            run_until_stop(m);
+            const auto left = m.dbg->subscriptions(true);
+            check("SRCRUN-06", "a breakpoint crossed on the way to the line stops there with a reason "
+                               "that is not RunTo, and no transient is left (the breakpoint stays)",
+                  r == Result::Ok && m.dbg->state().paused && m.pc() == 0x8002 &&
+                      m.dbg->state().pause_reason.kind != PauseReason::Kind::RunTo &&
+                      left.size() == 1 && !left[0].transient,
+                  m.where() + " kind=" + std::to_string(int(m.dbg->state().pause_reason.kind)));
+        }
+        {
+            Machine m;
+            m.dbg->load_source_map(sld.string(), false);
+            const auto good = m.dbg->save_state_bytes(m.a, jnext::dbg::SaveStateMode::RefuseMidFrame);
+            std::vector<uint8_t> bad = good.value;
+            for (size_t i = bad.size() / 2; i < bad.size(); ++i) bad[i] ^= 0xFF;
+            (void)m.dbg->load_state_bytes(m.a, bad.data(), bad.size());   // a torn machine (CTL-11)
+            const Result as_run_to = m.dbg->run_to(m.a, 0x8005);
+            const Result r = m.dbg->run_to_source_line(m.a, "main.bas:12");
+            check("SRCRUN-07", "with the corruption gate closed run_to_source_line is refused as "
+                               "run_to is (RefusedCorrupt) and arms nothing",
+                  as_run_to == Result::RefusedCorrupt && r == Result::RefusedCorrupt &&
+                      m.dbg->state().paused && m.dbg->subscriptions(true).empty());
+        }
+    }
     {
         // SRCBP-07(a): a ROM fetch at $0000 is Rom{0}, whose effective page number is also a RAM page
         // number; only the space tells them apart (zxnext.vhd ROM branch, slot 0; mmu.cpp:374).
