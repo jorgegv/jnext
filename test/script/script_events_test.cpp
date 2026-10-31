@@ -2899,10 +2899,13 @@ static void src_rows() {
         Rig g(kPark, MachineType::ZXN_ISSUE2);
         attach_program(g.emu, *g.dbg, kZNex);
         const bool ok = g.load("on execute main.c:99 do stop end\n");
-        check("DSL-SRC-02", "a line the map does not have is a load error naming `main.c:99`, and registers "
-                            "nothing",
-              !ok && g.last.errors.size() == 1 && g.last.errors[0].message.find("main.c:99") != std::string::npos &&
-                  g.subs().empty(),
+        const bool one = g.last.errors.size() == 1 && g.last.errors[0].message.find("main.c:99") != std::string::npos &&
+                         g.subs().empty();
+        const bool ok2 = g.load("on execute nofile.c:3 do stop end\n");
+        check("DSL-SRC-02", "a line the map does not have, or a file it does not have, is a load error naming "
+                            "it (`main.c:99`, `nofile.c:3`), and registers nothing",
+              !ok && one && !ok2 && g.last.errors.size() == 1 &&
+                  g.last.errors[0].message.find("nofile.c:3") != std::string::npos && g.subs().empty(),
               dstr(g.last.errors));
     }
     {
