@@ -14,7 +14,7 @@
         <link rel="prev" href="13-debugger-scripts.html">
       
       
-        <link rel="next" href="../scripting/index.html">
+        <link rel="next" href="15-memory-coverage.html">
       
       
         
@@ -2224,6 +2224,8 @@
       
         
       
+        
+      
     
     
     
@@ -2806,6 +2808,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="15-memory-coverage.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3896,9 +3926,12 @@ the compiler left them. For a map built elsewhere, add the z88dk install
 directory (the one holding <code>libsrc/</code> and <code>include/</code>) to the search path, or
 locate one of its files: one pick covers every file under it.</p>
 <p>The start-up code (<code>zxn_crt.asm.m4</code>, which holds the program's first
-instruction) cannot be shown. z88dk numbers its lines in the output of the <code>m4</code>
-macro processor, which the build does not keep, so no file on disk has them. The
-tab says so and you use the disassembly there.</p>
+instruction) has no file on disk to show: z88dk numbers its lines in the output of
+the <code>m4</code> macro processor, which the build does not keep. When the program was
+built with <code>--list</code>, the listing <code>prog.lis</code> beside the map holds that text, and
+the tab shows it, labelled <code>(m4 output, from prog.lis)</code>; the <code>.inc</code> files the
+start-up code includes are ordinary files, found as any other. Without the
+listing the tab says so and you use the disassembly there.</p>
 <p>A program loaded or reloaded (<strong>Alt+L</strong>) while the machine is paused leaves it
 paused: a paused machine stays paused, at the new program counter. A NEX file
 stops at its entry point, which for z88dk is that start-up code (<code>__Start</code>) and
@@ -4023,7 +4056,7 @@ in the Add dialogs, Go to Address and a script's <code>@counter</code>, and the 
 </tr>
 <tr>
 <td>sdcc newlib</td>
-<td><code>-debug</code> fails to build: no source lines from the map</td>
+<td><code>-debug</code> fails to build: no source lines from the map; <code>--c-code-in-asm --list</code> gives them from the listings</td>
 <td><code>-clib=sdcc_iy -debug -m -create-app</code>: works, header code may show the wrong line</td>
 </tr>
 <tr>
@@ -4059,6 +4092,21 @@ in the Add dialogs, Go to Address and a script's <code>@counter</code>, and the 
   (mid-statement), as gdb's <code>finish</code> does.</li>
 <li><strong>DivMMC sections</strong> (<code>DIV_n</code>) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.</li>
+<li><strong><code>--list</code> listings beside the map</strong>: with <code>--list</code>, z88dk writes a z80asm
+  listing for each source (<code>main.c.lis</code>, <code>prog.lis</code>) and JNEXT reads the ones
+  beside the map by itself (the log says <code>and 4 listings</code>; Load Source Map...
+  says <code>with 4 z88dk listings</code>). They add every assembly line, every address of
+  a C line, exact instruction extents and the start-up code's text; on z88dk
+  2.4, where sdcc's <code>-debug</code> does not build, <code>zcc +zxn -clib=sdcc_iy
+  --c-code-in-asm --list -m -create-app</code> gives sdcc's C lines from the
+  listings alone. sccz80 without <code>-debug</code> marks only the start of each
+  function. Code in a <code>PHASE</code> block is not placed. A listing that cannot be
+  followed is dropped, with a note (rebuild with <code>--list</code>, or delete stale
+  <code>.lis</code> files), and its module keeps the map's lines: that covers a section switched inside an <code>IF</code> branch
+  the listing cannot judge, a macro or <code>REPT</code> body that switches section, and
+  a listing that does not match the map or the section binaries. Classic
+  builds have no section binaries, so their placement rests on the labels of
+  the map and on that check alone.</li>
 <li>Code in a section that names no page (<code>CODE</code>, <code>code_compiler</code>, the program
   itself) is tied to the RAM page the MMU maps at that address when the program
   is in memory (page 4 at $8000 for a NEX).</li>

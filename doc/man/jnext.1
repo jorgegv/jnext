@@ -108,6 +108,11 @@ attaches at once and each memory space it covers is checked the first
 time the program runs its code there; a space that does not match drops
 the map and the symbols that came with it, with the reason in the log.
 A map given with \f[B]\-\-map\f[R] or loaded by hand is kept over them.
+z88dk\(cqs \f[CR]\-\-list\f[R] listings beside the map
+(\f[I]NAME\f[R]\f[CR].lis\f[R], \f[I]FILE\f[R]\f[CR].lis\f[R]) are read
+too when they match the map, and add assembly lines and sdcc\(cqs lines
+on z88dk 2.4; a listing that does not match is skipped with a note in
+the log.
 A map built for another binary, or a file over 64 MiB, is refused, with
 the reason in the log.
 .RE
@@ -922,6 +927,19 @@ Opt\-in; default 0 = off.
 Enable the per\-instruction trace log (a 10K\-entry ring).
 Also enabled implicitly by \f[B]\-\-rewind\-buffer\-size\f[R]
 \f[I]N\f[R] with \f[I]N\f[R] > 0, and toggleable in the debugger.
+.TP
+\f[B]\-\-coverage\f[R]
+Record memory coverage from the start: for every byte of every memory
+(each RAM page, ROM image, DivMMC and Multiface window, Layer 2 mapping,
+\&...)
+whether the program executed it (first opcode byte of an instruction),
+read it or wrote it.
+Toggleable in the debugger (Debug > Coverage), where the Disassembly,
+Memory and Source views show it.
+With the SDL frontend or \f[B]\-\-headless\f[R] it records but there is
+no viewer; it logs one summary line at exit.
+Costs a little speed while on (3\-8% in release builds); no measurable
+cost while off.
 .SS Headless and automation
 .TP
 \f[B]\-\-headless\f[R]
@@ -1292,8 +1310,8 @@ Attach a source map, an sjasmplus SLD or a z88dk \f[CR]\-debug\f[R]
 \f[CR].map\f[R] (told apart by its contents), to the program
 \f[B]\-\-load\f[R] loads, as if loaded by hand with \f[B]Debug > Source
 > Load Source Map\&...\f[R].
-A z88dk map gives source lines only; its symbols stay with
-\f[B]\-\-map\f[R].
+A z88dk map gives source lines only (and reads the \f[CR]\-\-list\f[R]
+listings beside it); its symbols stay with \f[B]\-\-map\f[R].
 Requires \f[B]\-\-load\f[R].
 A map whose binary identity does not match the program, or that cannot
 be loaded, is a startup error (exit status 1).

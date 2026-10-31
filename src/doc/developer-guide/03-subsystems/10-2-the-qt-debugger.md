@@ -278,7 +278,7 @@ change and again in `ensure_window()`, since the window is lazy. Locate derives 
 that holds the list separator, as Preferences and `--source-dir` do: it would load back as two). The manager
 announces each change (`source_dirs_changed`; `src/debugger/` names no logger) and MainWindow logs
 `Source search path: ...`. Two records get a message of their own: a z88dk record in a `.m4` file, decided before any file is
-read (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
+read (unless the map carries the text from `prog.lis`: `SourceMap::embedded_text()`, shown instead of a file and labelled `(m4 output, from prog.lis)`) (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
 file found, decided after it is read (its line count ignores the final newline). The label's tooltip is the path found.
 Load MAP (`on_load_map_z88dk()`, `on_load_map_simple()`) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug > Source actions
@@ -299,6 +299,22 @@ draws a location only while its `FetchSource` supplies the address
 (`pc_marked(addr, space)`), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 `FetchSource` (`CallFrame::caller_space`).
+
+## Memory coverage
+
+**Debug ▸ Coverage** (`Enable Coverage`, `Clear Coverage`) drives INS-21
+(`mem_coverage_enable/clear`, [3.9.1](09-1-the-backend-api.md)); the check mirrors
+the backend on every `refresh_panels()` and at construction, so a window built over
+a backend that `--coverage` already switched on shows it ticked. All colours come
+from `coverage_colors.h` (X green, R blue, W orange-red, the Source tint a pale
+green), each through `palette_tint`. The Disassembly paints a 3 px bar right of the
+gutter separator on a line where `mem_coverage_fetch(addr)` has X, after the PC and
+selection fills; the Memory panel asks `mem_coverage()` for each row through the
+same `locate()` as the bytes and underlines each covered byte in thirds, X | R | W,
+with a legend label in its top bar; the Source tab adds a full-width
+`ExtraSelection` for each line in `executed_source_lines(file)` before the
+current-line selection, so that one wins on its own line. Nothing is drawn while
+coverage is off.
 
 ## Copying out of a custom-painted panel
 

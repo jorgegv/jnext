@@ -728,6 +728,47 @@ public:
     /// const reference: it is 8 KB.
     const CoverageBits& coverage() const;
 
+    // -----------------------------------------------------------------------
+    // INS-21 (GH #388, E23-25) -- memory coverage by execute, read and write,
+    // per physical memory (the FetchSource the read arbiter names)
+    //
+    // Recorded in `Mmu` from the one arbiter (`route_bits_`, given the access
+    // direction), so what is recorded is what answered: X = the first opcode byte
+    // of an executed instruction (the M1), R = every other memory read (operands,
+    // data, DMA), W = every write that LANDED (CPU or DMA). Only guest accesses
+    // count (what a watchpoint can see): a debugger peek/poke, a trace capture,
+    // video and a loader never do. A SET, not counts: it survives a rewind (a
+    // replay re-sets the same bits), a reset, a state load and a cold boot.
+    // Only `mem_coverage_clear()` and switching off empty it. Zero cost when off.
+    // INS-20's logical-PC set above is a separate switch, unchanged.
+    // -----------------------------------------------------------------------
+
+    /// Off clears; `on` over `on` does not.
+    Result mem_coverage_enable(bool enabled);
+    bool   mem_coverage_enabled() const;
+    /// Empty every space; recording goes on.
+    Result mem_coverage_clear();
+
+    /// The flags (`COVERAGE_EXEC | COVERAGE_READ | COVERAGE_WRITE`, mem_coverage.h)
+    /// of [addr, addr+n) in `space`, addressed like `peek()`: `Cpu` resolves each
+    /// byte through the live DATA route (what `peek(Cpu)` shows); any other space
+    /// takes offsets within its store (identity-only kinds are NOT refused here,
+    /// unlike peek). `InvalidPage` for an index outside the space (above 0xFF, a
+    /// `Page` >= 0xE0, a `Rom` image > 3); an offset past the store's end is a short
+    /// (or empty) read, `RefusedUnavailable` with the count done, as in peek.
+    Expected<size_t> mem_coverage(MemSpace space, uint32_t addr, size_t n, uint8_t* out) const;
+
+    /// The flags of the byte an M1 at `addr` would fetch NOW (`source_page(addr)`
+    /// + `space_offset`): the Disassembly's view. 0 while off.
+    uint8_t mem_coverage_fetch(uint16_t addr) const;
+
+    /// Every space with at least one mark, sorted by (kind, index).
+    std::vector<MemSpace> mem_coverage_spaces() const;
+
+    /// 1-based lines of `file` (as the live source map names it) any of whose
+    /// ranges holds an X byte. Empty while off or without a map.
+    std::vector<uint32_t> executed_source_lines(const std::string& file) const;
+
     // =======================================================================
     // §4.3 — CAP-EVT, events, breakpoints, conditions
     // =======================================================================
@@ -988,6 +1029,11 @@ public:
         /// (" (program identity not verified: no section binaries beside it)", or
         /// verified with some code ranges unchecked); empty for an SLD with none.
         std::string identity_note;
+        /// z88dk only (GH #348): the `--list` listings beside the map that supplied
+        /// the lines (0 none), and what to tell the user about the ones that did not
+        /// hold up, the notes joined with "; " (empty when there is nothing to say).
+        int listings = 0;
+        std::string listing_note;
         /// SLD labels put in the symbol table; 0 none in the file; -1 refused, or
         /// the symbols you loaded (Load MAP, Load Memory.txt, --map) kept.
         int labels = -1;

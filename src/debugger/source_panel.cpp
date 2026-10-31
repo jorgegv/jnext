@@ -1,6 +1,7 @@
 #include "debugger/source_panel.h"
 
 #include "debugger/breakpoint_glyph.h"
+#include "debugger/coverage_colors.h"   // GH #388
 #include "debugger/breakpoint_model.h"
 #include "qt/palette_tint_qt.h"
 #include "debug/debugger.h"
@@ -517,40 +518,61 @@ void SourcePanel::refresh_()
         return;
     }
 
-    // GH #420 - a z88dk record in a `.m4` file (the CRT): the assembler numbered the
-    // lines of the m4 OUTPUT, which the build did not keep, so no file on disk has them.
-    if (dbg_->source_map().format() == "z88dk" &&
-        QString::fromStdString(location->file).endsWith(QLatin1String(".m4"), Qt::CaseInsensitive)) {
-        show_message(tr("%1:%2 - the line counts the m4 output of this file, which the build "
-                        "did not keep; use the disassembly")
-                         .arg(QString::fromStdString(location->file)).arg(location->line) + note);
-        return;
-    }
-    const QString source_path = resolve_source_file(location->file);
-    if (source_path.isEmpty()) {
-        show_message(tr("%1:%2 - source file not found")
-                         .arg(QString::fromStdString(location->file))
-                         .arg(location->line) + note);
-        set_unresolved(location->file);
-        return;
-    }
-    // Reloaded when the file changes on disk, so an edit-and-rebuild cycle
-    // never highlights a line of the old text.
-    const qint64 mtime = QFileInfo(source_path).lastModified().toMSecsSinceEpoch();
-    if (source_path != loaded_source_ || mtime != loaded_mtime_) {
-        QFile file(source_path);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            show_message(tr("Could not open %1").arg(source_path));
+    // GH #348 - the start-up code's m4 output, which the build did not keep, is in the
+    // listing (`prog.lis`) the map was loaded with: shown from there, labelled so.
+    const SourceText* embedded = dbg_->source_map().embedded_text(location->file);
+    QString source_path;
+    if (embedded) {
+        // A key no real path can equal, so switching back to a disk file reloads it.
+        source_path = QStringLiteral("\x01m4:") + QString::fromStdString(location->file) +
+                      QLatin1Char('\x01') + QString::fromStdString(embedded->origin) + QLatin1Char('\x01') +
+                      QString::number(reinterpret_cast<quintptr>(embedded), 16) + QLatin1Char(':') +
+                      QString::number(embedded->lines.size());
+        if (source_path != loaded_source_) {
+            QStringList lines;
+            lines.reserve(static_cast<int>(embedded->lines.size()));
+            for (const std::string& l : embedded->lines) lines << QString::fromUtf8(l.c_str());
+            editor_->setPlainText(lines.join(QLatin1Char('\n')));
+            loaded_source_ = source_path;
+            loaded_mtime_ = -1;
+            placed_ = false;
+        }
+    } else {
+        // GH #420 - a z88dk record in a `.m4` file (the CRT): the assembler numbered the
+        // lines of the m4 OUTPUT, which the build did not keep, so no file on disk has them.
+        if (dbg_->source_map().format() == "z88dk" &&
+            QString::fromStdString(location->file).endsWith(QLatin1String(".m4"), Qt::CaseInsensitive)) {
+            show_message(tr("%1:%2 - the line counts the m4 output of this file, which the build "
+                            "did not keep; use the disassembly")
+                             .arg(QString::fromStdString(location->file)).arg(location->line) + note);
             return;
         }
-        editor_->setPlainText(QString::fromUtf8(file.readAll()));
-        loaded_source_ = source_path;
-        loaded_mtime_ = mtime;
-        placed_ = false;   // a new text, or another file, starts at its top
+        source_path = resolve_source_file(location->file);
+        if (source_path.isEmpty()) {
+            show_message(tr("%1:%2 - source file not found")
+                             .arg(QString::fromStdString(location->file))
+                             .arg(location->line) + note);
+            set_unresolved(location->file);
+            return;
+        }
+        // Reloaded when the file changes on disk, so an edit-and-rebuild cycle
+        // never highlights a line of the old text.
+        const qint64 mtime = QFileInfo(source_path).lastModified().toMSecsSinceEpoch();
+        if (source_path != loaded_source_ || mtime != loaded_mtime_) {
+            QFile file(source_path);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                show_message(tr("Could not open %1").arg(source_path));
+                return;
+            }
+            editor_->setPlainText(QString::fromUtf8(file.readAll()));
+            loaded_source_ = source_path;
+            loaded_mtime_ = mtime;
+            placed_ = false;   // a new text, or another file, starts at its top
+        }
     }
     shown_file_ = location->file;
 
-    location_label_->setToolTip(source_path);
+    location_label_->setToolTip(embedded ? QString::fromStdString(embedded->origin) : source_path);
     // GH #420 - a line past the end of the file found: it is not the text the build used.
     const QTextDocument* doc = editor_->document();
     const int file_lines = file_line_count(doc);
@@ -562,16 +584,43 @@ void SourcePanel::refresh_()
         highlighted_line_ = 0;
         return;
     }
-    location_label_->setText(tr("%1:%2  $%3  %4")
-                                 .arg(QString::fromStdString(location->file))
-                                 .arg(location->line)
-                                 .arg(pc_text)
-                                 .arg(where) + note);
+    location_label_->setText(
+        (embedded ? tr("%1:%2  $%3  %4 (m4 output, from %5)")
+                        .arg(QString::fromStdString(location->file))
+                        .arg(location->line)
+                        .arg(pc_text)
+                        .arg(where)
+                        .arg(QFileInfo(QString::fromStdString(embedded->origin)).fileName())
+                  : tr("%1:%2  $%3  %4")
+                        .arg(QString::fromStdString(location->file))
+                        .arg(location->line)
+                        .arg(pc_text)
+                        .arg(where)) + note);
     const QTextBlock block = editor_->document()->findBlockByNumber(location->line - 1);
     if (!block.isValid()) {
         editor_->setExtraSelections({});
         highlighted_line_ = 0;
         return;
+    }
+
+    // GH #388 - memory coverage: with it on, every line of this file the program
+    // executed (an X byte in one of the line's ranges) has a pale full-width
+    // background. X only: the R and W of a line's bytes have no per-source-line
+    // meaning (a line's bytes are its code). The current-line selection is
+    // appended LAST so it wins on its own line.
+    QList<QTextEdit::ExtraSelection> selections;
+    if (dbg_->mem_coverage_enabled()) {
+        const QColor tint = coverage_colors::exec_line(editor_->palette());
+        for (const uint32_t line : dbg_->executed_source_lines(location->file)) {
+            const QTextBlock b = doc->findBlockByNumber(static_cast<int>(line) - 1);
+            if (line == 0 || !b.isValid()) continue;
+            QTextEdit::ExtraSelection t;
+            t.cursor = QTextCursor(b);
+            t.cursor.clearSelection();
+            t.format.setBackground(tint);
+            t.format.setProperty(QTextFormat::FullWidthSelection, true);
+            selections.append(t);
+        }
     }
 
     QTextEdit::ExtraSelection selection;
@@ -580,7 +629,8 @@ void SourcePanel::refresh_()
     selection.format.setBackground(editor_->palette().highlight());
     selection.format.setForeground(editor_->palette().highlightedText());
     selection.format.setProperty(QTextFormat::FullWidthSelection, true);
-    editor_->setExtraSelections({selection});
+    selections.append(selection);
+    editor_->setExtraSelections(selections);
     // Placed only when something moved. This runs on every tick while paused,
     // and centring again each time would snap the view back to the line
     // whenever the user scrolled away from it.

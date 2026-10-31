@@ -1497,6 +1497,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#memory-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#copying-out-of-a-custom-painted-panel" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2677,7 +2688,7 @@ change and again in <code>ensure_window()</code>, since the window is lazy. Loca
 that holds the list separator, as Preferences and <code>--source-dir</code> do: it would load back as two). The manager
 announces each change (<code>source_dirs_changed</code>; <code>src/debugger/</code> names no logger) and MainWindow logs
 <code>Source search path: ...</code>. Two records get a message of their own: a z88dk record in a <code>.m4</code> file, decided before any file is
-read (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
+read (unless the map carries the text from <code>prog.lis</code>: <code>SourceMap::embedded_text()</code>, shown instead of a file and labelled <code>(m4 output, from prog.lis)</code>) (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
 file found, decided after it is read (its line count ignores the final newline). The label's tooltip is the path found.
 Load MAP (<code>on_load_map_z88dk()</code>, <code>on_load_map_simple()</code>) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug &gt; Source actions
@@ -2698,6 +2709,20 @@ draws a location only while its <code>FetchSource</code> supplies the address
 (<code>pc_marked(addr, space)</code>), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 <code>FetchSource</code> (<code>CallFrame::caller_space</code>).</p>
+<h2 id="memory-coverage">Memory coverage<a class="headerlink" href="#memory-coverage" title="Permanent link">&para;</a></h2>
+<p><strong>Debug ▸ Coverage</strong> (<code>Enable Coverage</code>, <code>Clear Coverage</code>) drives INS-21
+(<code>mem_coverage_enable/clear</code>, <a href="09-1-the-backend-api.html">3.9.1</a>); the check mirrors
+the backend on every <code>refresh_panels()</code> and at construction, so a window built over
+a backend that <code>--coverage</code> already switched on shows it ticked. All colours come
+from <code>coverage_colors.h</code> (X green, R blue, W orange-red, the Source tint a pale
+green), each through <code>palette_tint</code>. The Disassembly paints a 3 px bar right of the
+gutter separator on a line where <code>mem_coverage_fetch(addr)</code> has X, after the PC and
+selection fills; the Memory panel asks <code>mem_coverage()</code> for each row through the
+same <code>locate()</code> as the bytes and underlines each covered byte in thirds, X | R | W,
+with a legend label in its top bar; the Source tab adds a full-width
+<code>ExtraSelection</code> for each line in <code>executed_source_lines(file)</code> before the
+current-line selection, so that one wins on its own line. Nothing is drawn while
+coverage is off.</p>
 <h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
 <p>The Disassembly panel paints itself, so there is no Qt text widget to inherit a
 selection from. The selection is an <strong>address range</strong> — an anchor and a cursor —

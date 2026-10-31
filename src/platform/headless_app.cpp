@@ -1,6 +1,7 @@
 #include "headless_app.h"
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
+#include "platform/coverage_startup.h"   // GH #388
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
 #include "platform/recording_info.h"   // GH #26 WP6
@@ -52,6 +53,7 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     //     listener belongs. B4 report, milestone 2 part 1, O5.
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
     debugger_->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+    apply_startup_coverage(*debugger_, config_);   // GH #388 --coverage
     jnext::dbg::LoopDriver driver;
     driver.cold_boot = [this]() {
         boot_machine(std::string());
@@ -1051,6 +1053,7 @@ void HeadlessApp::run() {
 }
 
 void HeadlessApp::shutdown() {
+    if (debugger_) log_coverage_summary(*debugger_);   // GH #388
     // Same contract as the two GUI frontends: a screenshot that was asked for
     // and never taken is a failure. The countdown ticks whether or not the
     // machine is paused, so the only way to land in this first branch is a

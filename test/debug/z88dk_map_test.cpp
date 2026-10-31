@@ -653,9 +653,10 @@ int main() {
             SymbolTable a, b;
             const int na = load_sym(a, v24 / "classic-bank10" / "prog.map");
             const int nb = load_sym(b, master / "classic-bank10" / "prog.map");
-            check("Z88SYM-03", "a classic 24-bit value in a numbered section ($AC000, $14C000) is a label of its page: "
+            check("Z88SYM-03", "a classic 24-bit value in a numbered section ($AC000, $14C000) is a label of its page "
+                               "(6 fixture-module symbols + 16 of the classic CRT kept by KEEP_CRT, GH #348): "
                                "the bits above 15 are not read; the 24-bit constant stays no name",
-                  na == 6 && nb == 6 && is_key(a, "_banked_add", 0xC000, P20, false) &&
+                  na == 22 && nb == 22 && is_key(a, "_banked_add", 0xC000, P20, false) &&
                       is_key(b, "_banked_add", 0xC000, P20, false) && !key(a, "__BANK_10_head") &&
                       !key(b, "__BANK_10_head"));
         }
@@ -1089,6 +1090,39 @@ int main() {
                       shown(two.lookup(MemSpace::cpu(), 0x9000), "first"));
         }
     }
+
+    // ── Z88MAP-30 (GH #348): line 0 is z80asm's file-entry marker, no code ──
+    {
+        bool ok = true;
+        const struct { fs::path map; uint16_t at; uint16_t zero; } cases[] = {
+            {v24 / "sccz80-incmid" / "prog.map", 0x8C6E, 0x8C76},
+            {master / "sccz80-incmid" / "prog.map", 0x8C6E, 0x8C76},
+            {master / "80cc-incmid" / "prog.map", 0x8C65, 0x8C72},
+        };
+        for (const auto& c : cases) {
+            SourceMap m;
+            const auto r = load(m, c.map);
+            bool zero_line = false;
+            for (const SourceLocation* l : m.lookup_all(P4, c.zero)) zero_line = zero_line || l->line == 0;
+            ok = ok && r && r.count > 0 && r.error.empty() && is_at(m.lookup(P4, c.at), "incmid.c", 3) &&
+                 m.lookup(P4, c.zero) && !zero_line;
+        }
+        {   // a line-0 record alone at its address: no range of line 0 is made from it
+            SourceMap m;
+            const auto r = load(m, synth("z30.map",
+                rec("__C_LINE_0_a_2eh", 0x9000, "a_c", "code_compiler", "a.h::f::0::1:0") +
+                rec("__C_LINE_3_a_2ec", 0x9004, "a_c", "code_compiler", "a.c::f::0::1:3")));
+            ok = ok && r && r.count == 1 && !m.lookup(P4, 0x9000) && is_at(m.lookup(P4, 0x9004), "a.c", 3);
+        }
+        {   // an empty line number is not line 0: it is refused, naming the map line
+            SourceMap m;
+            const auto r = load(m, synth("z30b.map", rec("__C_LINE_3_a_2ec", 0x9000, "a_c", "code_compiler", "main.c:")));
+            ok = ok && !r && r.error.find("line 1") != std::string::npos;
+        }
+        check("Z88MAP-30", "a record of line 0 in a code section (sccz80 and 80cc write one for an #include after a function) is no code: the map attaches, incmid.c:3 is where its record puts it, and no location at the line-0 record's address has line 0",
+              ok);
+    }
+
 
     fs::remove_all(dir);
 
