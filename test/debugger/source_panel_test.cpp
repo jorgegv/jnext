@@ -1265,7 +1265,7 @@ void test_line_starts() {
                          "lowest location's address and space",
               g != jnext::dbg::GROUP_NONE && r.size() == 1 && r[0].locations == 2 &&
                   r[0].addr == 0x8000 && r[0].space == MemSpace::page(30) &&
-                  r[0].addr_text == QStringLiteral("$8000 @1E"),
+                  r[0].addr_text == QStringLiteral("$8000 P1E"),
               r.empty() ? std::string() : s(r[0].addr_text));
         m.clear_all();
     }
