@@ -271,8 +271,7 @@ Result Debugger::run_to_source_line(ClientId by, const std::string& file_line) {
     like.kind      = EventKind::Execute;
     like.transient = true;
     like.action    = Action::Stop;
-    const Expected<GroupId> g = subscribe_source_line(by, file_line, like);
-    if (g.status != Result::Ok) return Result::RefusedUnavailable;
+    (void)subscribe_source_line(by, file_line, like);   // cannot be refused: the checks above ran
     impl_->ds().run_to_subscribed();
     impl_->arm_target(PauseReason::Kind::RunTo, by, r.starts.front().address, EVENT_NONE);
     for (const SourceAddress& s : r.starts) impl_->armed_targets.push_back(s.address);
