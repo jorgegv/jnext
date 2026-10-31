@@ -3647,11 +3647,14 @@ static void test_long_address() {
         emu.nextreg().write(0x56, 0x14);
         wp.refresh();
         const QString after = wcell(&wp, 0, 4);
+        wp.set_address_style(AddressStyle::Physical);
+        wp.refresh();
+        const QString phys = wcell(&wp, 0, 4);
         check("QLADDR-05",
               "Watches: a Memory column live to the slot's page: a watch at $C000 shows P00, and P14 after "
-              "NR 0x56 = 0x14 and a refresh; the Address cell still reads $C000",
-              built && before == "P00" && after == "P14" && wcell(&wp, 0, 0) == "$C000",
-              s(before) + "|" + s(after) + "|" + s(wcell(&wp, 0, 0)));
+              "NR 0x56 = 0x14 and a refresh ($068000 in the physical style); the Address cell still reads $C000",
+              built && before == "P00" && after == "P14" && phys == "$068000" && wcell(&wp, 0, 0) == "$C000",
+              s(before) + "|" + s(after) + "|" + s(phys) + "|" + s(wcell(&wp, 0, 0)));
     }
 
     {   // QLADDR-06
