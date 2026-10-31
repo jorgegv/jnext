@@ -2625,6 +2625,63 @@ QString locate(SourcePanel* sp, const std::string& picked, QMessageBox::Standard
     return warning;
 }
 
+// ── QSRC-140/141 (GH #348): a z88dk map's --list listings in the Source tab and the Load box ──
+
+void test_z88dk_listings() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-140
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q140";
+        const std::string map = root + "/build/prog.map";
+        copy_z88dk("master/sdcc-debug", "prog.map", map);
+        copy_z88dk("master/sdcc-debug", "prog.lis", root + "/build/prog.lis");
+        put_file(root + "/build/z88dk/lib/crt/newlib/crt_start_di.inc", numbered_lines(10, "; di "));
+        fx.backend->load_source_map(map, true);
+        auto at = [&](uint16_t pc) {
+            Z80Registers r = fx.emu.cpu().get_registers();
+            r.PC = pc;
+            fx.emu.cpu().set_registers(r);
+            fx.mgr->refresh_panels();
+        };
+        at(0x8001);
+        SourcePanel* sp = fx.dbg()->source_panel();
+        auto* editor = sp->findChild<QPlainTextEdit*>();
+        const bool m4_ok = editor && editor->document()->blockCount() == 9689 && sp->highlighted_line() == 9470 &&
+                           sp->location_text().endsWith(QStringLiteral("(m4 output, from prog.lis)")) &&
+                           !button(sp, QStringLiteral("Locate File..."))->isEnabled();
+        const QString m4_text = sp->location_text();
+        at(0x8000);
+        const bool disk_ok = editor && editor->document()->blockCount() == 10 && sp->highlighted_line() == 3 &&
+                             !sp->location_text().contains(QStringLiteral("m4 output"));
+        check("QSRC-140", "with prog.lis loaded beside the map, $8001 shows the CRT's m4 text from the listing "
+                          "(9689 lines, line 9470 highlighted, labelled '(m4 output, from prog.lis)', no Locate "
+                          "File...), and $8000 goes back to the disk file crt_start_di.inc with line 3 highlighted",
+              m4_ok && disk_ok, s(m4_text) + " | " + s(sp->location_text()));
+    }
+    {   // QSRC-141
+        Fixture fx;
+        fx.enable();
+        QAction* load = menu_action(fx.dbg(), QStringLiteral("Load Source &Map..."));
+        const std::string map = tmp + "/q141/prog.map";
+        copy_z88dk("v2.4/sdcc-SO2", "prog.map", map);
+        for (const char* lis : {"main.c.lis", "util.c.lis", "asmfn.asm.lis", "prog.lis"})
+            copy_z88dk("v2.4/sdcc-SO2", lis, tmp + "/q141/" + lis);
+        QString box;
+        if (load)
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w)) box = mb->text();
+                    choose_file(w, QString::fromStdString(map));
+                },
+                [&]() { load->trigger(); });
+        check("QSRC-141", "Load Source Map... of a z88dk map with its listings reports 230 traces and 'with 4 z88dk listings'",
+              load && box.startsWith(QStringLiteral("Loaded 230 source traces from:")) &&
+                  box.contains(QStringLiteral("with 4 z88dk listings")),
+              s(box));
+    }
+}
+
 void test_source_search() {
     const std::string tmp = g_tmp->path().toStdString();
     {   // QSRC-66
@@ -3503,6 +3560,7 @@ int main(int argc, char** argv) {
     test_call_stack_non_page_caller();
     test_source_menu();
     test_z88dk_source_map();
+    test_z88dk_listings();
     test_source_search();
     test_source_gutter();
 
