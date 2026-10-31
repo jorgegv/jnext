@@ -211,7 +211,7 @@ private:
                     : w == "read"    ? EventType::Read
                                      : EventType::Write;
             take();
-            if (ev.type == EventType::Execute && (is(Tok::FileLine) || is(Tok::String))) {
+            if (ev.type == EventType::Execute && (is(Tok::FileLine) || string_is_source_line())) {
                 parse_source_line(ev);
                 return ev;
             }
@@ -300,6 +300,18 @@ private:
             fail(cur().pos, "unknown event `" + w + "`");
         }
         return ev;
+    }
+
+    /// A string that ends in `:` and digits is a quoted source line; any other
+    /// string after `execute` stays what it always was, a (refused) expression.
+    bool string_is_source_line() const {
+        if (!is(Tok::String) || cur().pieces.empty()) return false;
+        const StrPiece& last = cur().pieces.back();
+        if (last.is_expr) return false;
+        const std::string& t = last.text;
+        size_t n = t.size();
+        while (n > 0 && t[n - 1] >= '0' && t[n - 1] <= '9') --n;
+        return n < t.size() && n > 0 && t[n - 1] == ':';
     }
 
     [[noreturn]] static void fail_source_line_only_expr(const Token& tk) {
