@@ -993,6 +993,28 @@ static void register_rows() {
               r.len == 38 && r.payload == want, hex(r.payload));
     }
     {
+        // DZRP-REG-08 (GH #360 F3): a ROM slot is 0xFF, whatever NR 0x50/0x51 holds (>= 0xE0
+        // reads ROM, zxnext.vhd:2964, :3052), but the same value in slots 2-7 is "nothing
+        // answers" (:3061) and DZRP has no value for it, so it keeps the NR value. An overlay
+        // (DivMMC conmem) has no DZRP value either: the bytes do not change.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Dz  c(rig);
+        c.init();
+        rig.dbg->nextreg_write(1, 0x50, 0xE5);
+        rig.dbg->nextreg_write(1, 0x52, 0xE5);
+        const Resp a = c.cmd(CMD_GET_REGISTERS);
+        rig.emu.port().out(0x00E3, 0x82);   // DivMMC conmem
+        const Resp b = c.cmd(CMD_GET_REGISTERS);
+        auto slot = [](const Resp& r, int i) {
+            return static_cast<unsigned char>(r.payload[29 + static_cast<std::size_t>(i)]);
+        };
+        check("DZRP-REG-08", "CMD_GET_REGISTERS: MMU0 = 0xE5 (ROM) is sent as 0xFF, MMU2 = 0xE5 "
+                             "(floating) stays 0xE5, and DivMMC conmem changes no byte",
+              a.payload.size() == 37 && slot(a, 0) == 0xFF && slot(a, 1) == 0xFF &&
+                  slot(a, 2) == 0xE5 && b.payload == a.payload,
+              hex(a.payload) + " / " + hex(b.payload));
+    }
+    {
         // THE REGISTER NUMBERS, ALL OF THEM: spec 0..35 (12 unused) == DeZog's
         // Z80_REG enum. Each write must change exactly the register it names.
         Rig  rig;

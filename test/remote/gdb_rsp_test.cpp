@@ -1918,6 +1918,87 @@ static void monitor_rows() {
                   in21[0] == "$C004 P15 = gfx.draw.loop+16364\n",
               join(byname) + join(in20) + join(in30) + join(in21));
     }
+    {
+        // GDB-MON-40 (GH #360): the memory each slot reads NOW, with DivMMC paged in (conmem,
+        // bank 2): divmmc.vhd:94-96, zxnext.vhd:3084-3098 (ROM 0x010000, RAM 0x020000 + bank *
+        // 0x2000), the bank-5 block RAM for pages 10/11 (:6558-6578), SRAM page n + 0x20 (:2964).
+        Rig rig(MachineType::ZXN_ISSUE2);
+        rig.emu.port().out(0x00E3, 0x82);
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        const auto  l = c.monitor("mmu", f);
+        check("GDB-MON-40", "monitor mmu under DivMMC conmem bank 2 names the memory each slot "
+                            "reads now: DIVROM $010000, DIVRAM2 $024000, P0A BRAM5+$0000, P0B "
+                            "BRAM5+$2000, P04 $048000, P00 $040000",
+              l.size() == 9 && l[0] == "slot 0: page FF (effective 00) ROM  DIVROM $010000\n" &&
+                  l[1] == "slot 1: page FF (effective 01) ROM  DIVRAM2 $024000\n" &&
+                  l[2] == "slot 2: page 0A (effective 0A)  P0A BRAM5+$0000\n" &&
+                  l[3] == "slot 3: page 0B (effective 0B)  P0B BRAM5+$2000\n" &&
+                  l[4] == "slot 4: page 04 (effective 04)  P04 $048000\n" &&
+                  l[6] == "slot 6: page 00 (effective 00)  P00 $040000\n",
+              join(l));
+    }
+    {
+        // GDB-MON-41 (GH #360): the tag of `monitor sym ADDR` is the memory the lookup used
+        // (source_page), not the label's; the name form tags a label only when it is paged.
+        // (A user MAP and an SLD cannot share the table, so two rigs.)
+        Rig    sld(MachineType::ZXN_ISSUE2);
+        const auto loaded = sld.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        Client c(sld);
+        open_session(c);
+        std::string f;
+        sld.dbg->set_mmu_slot(sld.gdb->client(), 6, 20);
+        const auto in20   = c.monitor("sym $C004", f);
+        const auto byname = c.monitor("sym banked", f);
+        sld.dbg->set_mmu_slot(sld.gdb->client(), 6, 30);
+        const auto in30 = c.monitor("sym $C004", f);
+        const auto other = c.monitor("sym other_bank", f);
+
+        Rig    plain(MachineType::ZXN_ISSUE2);
+        char path[] = "/tmp/gdb_rsp_test_map41_XXXXXX";
+        const int fd = mkstemp(path);
+        const std::string map = "_plain = $8100\n";
+        const bool wrote = fd >= 0 && write(fd, map.data(), map.size()) ==
+                                          static_cast<ssize_t>(map.size());
+        if (fd >= 0) close(fd);
+        const auto mapped = plain.dbg->load_map(path, jnext::dbg::MapFormat::Simple);
+        std::remove(path);
+        Client c2(plain);
+        open_session(c2);
+        plain.dbg->set_mmu_slot(plain.gdb->client(), 4, 0x20);
+        const auto plain_addr = c2.monitor("sym $8104", f);
+        const auto plain_name = c2.monitor("sym _plain", f);
+        check("GDB-MON-41", "monitor sym ADDR tags the lookup's memory (P14 for page 20, P1E for "
+                            "page 30; an unpaged label read through page 0x20 is P20); the name form "
+                            "tags a paged label and leaves an unpaged one as NAME = $ADDR",
+              loaded.labels == 12 && wrote && mapped.value == 1 && in20.size() == 1 &&
+                  in20[0] == "$C004 P14 = banked+4\n" && byname.size() == 1 &&
+                  byname[0] == "banked = $C000 P14\n" && in30.size() == 1 &&
+                  in30[0] == "$C004 P1E = other_bank+4\n" && other.size() == 1 &&
+                  other[0] == "other_bank = $C000 P1E\n" && plain_addr.size() == 1 &&
+                  plain_addr[0] == "$8104 P20 = _plain+4\n" && plain_name.size() == 1 &&
+                  plain_name[0] == "_plain = $8100\n",
+              join(in20) + join(byname) + join(in30) + join(other) + join(plain_addr) + join(plain_name));
+    }
+    {
+        // GDB-MON-42 (GH #360, D3): a non-Next machine has no SRAM layout, so its slot lines end
+        // with the tag only: no physical address, no BRAM text.
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        const auto  l = c.monitor("mmu", f);
+        bool        tags = l.size() == 9;
+        for (std::size_t s = 0; tags && s < 8; ++s)
+            tags = l[s].find('$') == std::string::npos && l[s].find("BRAM") == std::string::npos;
+        check("GDB-MON-42", "monitor mmu on a 48K machine ends every slot line with the tag alone "
+                            "(ROM0 for the ROM slots, no physical text)",
+              tags && l[0] == "slot 0: page FF (effective 00) ROM  ROM0\n" &&
+                  l[1] == "slot 1: page FF (effective 01) ROM  ROM0\n" &&
+                  l[2].rfind("slot 2:", 0) == 0 && l[2].find("  P") != std::string::npos,
+              join(l));
+    }
 }
 
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────
