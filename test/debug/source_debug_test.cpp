@@ -4940,12 +4940,19 @@ int main() {
             m.set_pc(0x8000);
             m.dbg->step_into(m.a);
             const bool third_page = !has_line(7) && !has_line(8);
+            // And only Page{pb}'s copy (the SECOND range of line 7 in the map): still listed, and
+            // line 8, which has a range in Page{pa} alone, is not.
+            m.dbg->mem_coverage_clear();
+            m.emu.mmu().set_page(4, pb);
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const bool second_copy = has_line(7) && !has_line(8);
             check("SRCDBG-COV-02", "a line with ranges in two pages is listed once a copy in either page "
-                                   "ran (only Page{p1} ran: listed); after Clear it is not, and the same "
+                                   "ran (only Page{p1} ran: listed; only Page{p2} ran: listed); after Clear it is not, and the same "
                                    "bytes executed in a third page do not list it",
-                  only_a && cleared && third_page,
+                  only_a && cleared && third_page && second_copy,
                   std::string("only_a=") + std::to_string(only_a) + " cleared=" + std::to_string(cleared) +
-                      " third=" + std::to_string(third_page));
+                      " third=" + std::to_string(third_page) + " second=" + std::to_string(second_copy));
         }
         {   // Z88-18: some code ranges have no binary
             const fs::path d = z / "d18";
