@@ -4568,11 +4568,11 @@ void test_source_highlight_rules() {
         Hl h;
         h.load(SourceLanguage::Asm, QStringLiteral("  db 1\n  ld a,1\n  .DEFB 2"));
         check("QSRC-124", "directives: the z80asm and the sjasmplus names are directives in either case "
-                          "and with a leading dot; db is a directive (not a keyword) and ld is not",
+                          "and with a leading dot; db is a directive (Keyword class, not Instruction) and ld is not",
               z80asm && sjasm && !SourceHighlighter::is_asm_directive(QStringLiteral("ld")) &&
                   !SourceHighlighter::is_asm_directive(QStringLiteral("ldir")) &&
-                  tok(h, 0, QStringLiteral("db")) == 'D' && tok(h, 1, QStringLiteral("ld")) == 'K' &&
-                  tok(h, 2, QStringLiteral(".DEFB")) == 'D');
+                  tok(h, 0, QStringLiteral("db")) == 'K' && tok(h, 1, QStringLiteral("ld")) == 'I' &&
+                  tok(h, 2, QStringLiteral(".DEFB")) == 'K');
     }
     {   // QSRC-125
         Hl h;
