@@ -92,7 +92,7 @@ public:
     QString selection_text(disasm_text::CopyFormat fmt) const;
 
     /// Names an address in the memory that supplies it now (GH #375).
-    disasm_text::SymbolNamer namer() const;
+    disasm_text::SymbolNamer namer(bool assembler_names = false) const;
 
     /// Put the current selection on the clipboard. A copy with nothing
     /// selected is a no-op — it never clears what is already there.

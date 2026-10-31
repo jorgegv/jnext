@@ -7,6 +7,7 @@
 #include <string>
 #include <map>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <utility>
 
@@ -62,6 +63,10 @@ public:
     /// section, a head-less PAGE section or a number out of range is unpaged
     /// (when the value fits 16 bits); a 24-bit value in a section that names no
     /// page, or past 24 bits, is skipped.
+    /// A "; addr" symbol named `_` + a non-`_` character, of a module ending `_c`
+    /// (zcc's MODULE for a `.c` file), is a C symbol and also answers to and is
+    /// shown as its C name (design 10.6); constants, `__x`, module-less lines and
+    /// asm modules are not.
     /// Returns the number of "; addr" symbols loaded, or -1 on error. A file that
     /// is not a regular file or is over the size cap is refused before it is
     /// opened, the table untouched, and `why`, when given, says so; a file that
@@ -154,7 +159,20 @@ public:
     /// The name of `addr` in the memory `space`: the paged label with exactly
     /// that key, else the unpaged label at `addr`. `MemSpace::cpu()` is "no
     /// memory known": it reaches unpaged labels only.
+    /// A z88dk C symbol (design 10.6) is named by its C name (`counter` for
+    /// `_counter`, `shown_name()`); every other label by its own name.
     std::optional<std::string> lookup(jnext::dbg::FetchSource space, uint16_t addr) const;
+
+    /// `lookup()` with the label's own (assembler) name, a C symbol's `_counter`
+    /// included: for text that must assemble, such as the Disassembly copy.
+    std::optional<std::string> lookup_assembler(jnext::dbg::FetchSource space,
+                                                uint16_t addr) const;
+
+    /// The name views show for a label named `name`: the C name (`name` without
+    /// its first `_`) when `name` is a z88dk C symbol and nothing else holds the C
+    /// name (a label, an alias or a name-only value of any source); else `name`
+    /// unchanged. So every shown name resolves to the symbol it labels.
+    std::string shown_name(const std::string& name) const;
 
     /// The visible label with the greatest address <= `addr` (address and name):
     /// an unpaged one, or a paged one whose space is what `space_of` says
@@ -163,13 +181,15 @@ public:
     nearest(uint16_t addr, const SymbolSpaceOf& space_of) const;
 
     /// The address, and memory, of a name — a label first, else a name-only
-    /// value (no memory). Returns nullopt if not found.
+    /// value (no memory), else the C name of a z88dk C symbol (`counter` for
+    /// `_counter`; an exact name always wins). Returns nullopt if not found.
     std::optional<SymbolNameKey> find_name(const std::string& name) const;
 
     /// Look up an address by symbol name (`find_name()`'s address).
     std::optional<uint16_t> lookup_name(const std::string& name) const;
 
-    /// Every label, by address (equal addresses in the order they were added).
+    /// Every label as the file spells it (`_counter`, not its shown C name), by
+    /// address (equal addresses in the order they were added).
     const std::multimap<uint16_t, SymbolLabel>& symbols() const { return labels_; }
 
     /// Clear all loaded symbols.
@@ -197,9 +217,17 @@ private:
     void add_name(const std::string& name, uint16_t addr,
                   std::optional<jnext::dbg::FetchSource> space, bool bind_at_load = false);
 
+    /// The label `lookup()` names: the paged one with exactly that key, else the
+    /// unpaged one.
+    const SymbolLabel* find_label(jnext::dbg::FetchSource space, uint16_t addr) const;
+
     std::multimap<uint16_t, SymbolLabel> labels_;
     std::map<std::string, SymbolNameKey> name_to_key_;
     /// Name-only values, consulted by `find_name()` after the labels.
     std::map<std::string, uint16_t> const_by_name_;
+    /// Assembler names (`_counter`) of the z88dk C symbols that own their name in
+    /// `name_to_key_` (design 10.6): `find_name()` also answers to the C name
+    /// (`counter`) and `lookup()` shows it, unless something else holds it.
+    std::set<std::string> c_symbols_;
     std::string loaded_file_;
 };

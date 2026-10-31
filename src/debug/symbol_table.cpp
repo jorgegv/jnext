@@ -26,6 +26,21 @@ int SymbolTable::load_z88dk_map(const std::string& path, std::string* why)
     return count;
 }
 
+namespace {
+
+// A symbol of a C module (design 10.6, GH #424): zcc heads every file it
+// assembles with `MODULE <file name, non-alphanumerics to _>` (zcc.c), so a
+// `.c` file is module `<file>_c`; its compiler writes every C identifier with
+// a leading `_` (sccz80 Z80ASM_PREFIX, sdcc and 80cc alike). `__x` names are
+// compiler/runtime internals and stay as written.
+bool is_z88dk_c_symbol(const Z88dkMapLine& s)
+{
+    return s.is_addr && !s.is_const && s.name.size() > 1 && s.name[0] == '_' && s.name[1] != '_' &&
+           s.module.size() > 2 && s.module.compare(s.module.size() - 2, 2, "_c") == 0;
+}
+
+}  // namespace
+
 int SymbolTable::read_z88dk_map(std::istream& file)
 {
     // Pass 1: the whole file. A section's head may come after its symbols (the
@@ -64,6 +79,7 @@ int SymbolTable::read_z88dk_map(std::istream& file)
     int count = 0;
     for (const Z88dkMapLine& s : symbols) {
         if (s.value > 0xFFFFFF) continue;   // no rule places it; never truncated
+        const bool name_free = name_to_key_.find(s.name) == name_to_key_.end();
         const Z88dkSpace placed = z88dk_section_space(s.section, static_cast<uint32_t>(s.value),
                                                       page_head);
         switch (placed.kind) {
@@ -80,6 +96,8 @@ int SymbolTable::read_z88dk_map(std::istream& file)
         case Z88dkSpace::Kind::Refused:
             continue;
         }
+        if (name_free && is_z88dk_c_symbol(s))
+            c_symbols_.insert(s.name);
         ++count;
     }
     return count;
@@ -390,6 +408,11 @@ void SymbolTable::merge(const SymbolTable& other)
         if (!taken)
             labels_.emplace(addr, label);
     }
+    // A C symbol of `other` whose assembler name this table already owns is not C
+    // here (the name belongs to something else).
+    for (const std::string& c : other.c_symbols_)
+        if (name_to_key_.find(c) == name_to_key_.end())
+            c_symbols_.insert(c);
     name_to_key_.insert(other.name_to_key_.begin(), other.name_to_key_.end());
     const_by_name_.insert(other.const_by_name_.begin(), other.const_by_name_.end());
     if (loaded_file_.empty())
@@ -401,8 +424,7 @@ void SymbolTable::add_value(const std::string& name, uint16_t value)
     const_by_name_.emplace(name, value);
 }
 
-std::optional<std::string> SymbolTable::lookup(jnext::dbg::FetchSource space,
-                                               uint16_t addr) const
+const SymbolLabel* SymbolTable::find_label(jnext::dbg::FetchSource space, uint16_t addr) const
 {
     const auto range = labels_.equal_range(addr);
     const SymbolLabel* unpaged = nullptr;
@@ -410,11 +432,35 @@ std::optional<std::string> SymbolTable::lookup(jnext::dbg::FetchSource space,
         if (!it->second.space)
             unpaged = &it->second;
         else if (space.kind != jnext::dbg::MemSpace::Kind::Cpu && *it->second.space == space)
-            return it->second.name;
+            return &it->second;
     }
-    if (unpaged)
-        return unpaged->name;
-    return std::nullopt;
+    return unpaged;
+}
+
+std::optional<std::string> SymbolTable::lookup(jnext::dbg::FetchSource space,
+                                               uint16_t addr) const
+{
+    const SymbolLabel* label = find_label(space, addr);
+    if (!label) return std::nullopt;
+    return shown_name(label->name);
+}
+
+std::optional<std::string> SymbolTable::lookup_assembler(jnext::dbg::FetchSource space,
+                                                         uint16_t addr) const
+{
+    const SymbolLabel* label = find_label(space, addr);
+    if (!label) return std::nullopt;
+    return label->name;
+}
+
+std::string SymbolTable::shown_name(const std::string& name) const
+{
+    if (c_symbols_.count(name) == 0)
+        return name;
+    const std::string c_name = name.substr(1);
+    if (name_to_key_.count(c_name) != 0 || const_by_name_.count(c_name) != 0)
+        return name;
+    return c_name;
 }
 
 std::optional<std::pair<uint16_t, std::string>>
@@ -428,7 +474,7 @@ SymbolTable::nearest(uint16_t addr, const SymbolSpaceOf& space_of) const
             // The name `lookup()` gives that address, so the two cannot disagree.
             const auto name = lookup(space_of ? space_of(it->first) : jnext::dbg::MemSpace::cpu(),
                                      it->first);
-            return std::make_pair(it->first, name ? *name : label.name);
+            return std::make_pair(it->first, name ? *name : shown_name(label.name));
         }
     }
     return std::nullopt;
@@ -442,6 +488,10 @@ std::optional<SymbolNameKey> SymbolTable::find_name(const std::string& name) con
     auto c = const_by_name_.find(name);
     if (c != const_by_name_.end())
         return SymbolNameKey{c->second, std::nullopt};
+    // The C name of a z88dk C symbol (`counter` for `_counter`): only after every
+    // exact name, so a real `counter` always wins (D2).
+    if (!name.empty() && name[0] != '_' && c_symbols_.count("_" + name) != 0)
+        return name_to_key_.find("_" + name)->second;
     return std::nullopt;
 }
 
@@ -458,5 +508,6 @@ void SymbolTable::clear()
     labels_.clear();
     name_to_key_.clear();
     const_by_name_.clear();
+    c_symbols_.clear();
     loaded_file_.clear();
 }

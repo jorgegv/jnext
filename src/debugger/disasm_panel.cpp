@@ -431,11 +431,11 @@ void DisasmPanel::select_all_visible()
 }
 
 // The one naming rule: a label names an address in the memory that supplies it.
-disasm_text::SymbolNamer DisasmPanel::namer() const
+disasm_text::SymbolNamer DisasmPanel::namer(bool assembler_names) const
 {
     return disasm_text::symbol_namer(symbol_table_, [this](uint16_t a) {
         return dbg_ ? dbg_->source_page(a) : jnext::dbg::MemSpace::cpu();
-    });
+    }, assembler_names);
 }
 
 QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
@@ -448,7 +448,7 @@ QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
     // full: nothing about the copy depends on what is currently on screen.
     const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
 
-    const auto lines = disasm_text::collect_range(low, high, read_fn, namer());
+    const auto lines = disasm_text::collect_range(low, high, read_fn, namer(true));   // assembler names: the copy assembles (design 10.6)
     return QString::fromStdString(disasm_text::format_lines(lines, fmt));
 }
 
