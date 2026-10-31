@@ -40,7 +40,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | build | flags | result | covers |
 |-------|-------|--------|--------|
 | v2.4/sccz80-debug | `-clib=new -debug` | ok | G1-G5, G11 |
-| v2.4/sdcc-SO0, sdcc-SO2 | `-clib=sdcc_iy -SOn --c-code-in-asm` | ok | G6, G7 |
+| v2.4/sdcc-SO0, sdcc-SO2 | `-clib=sdcc_iy -SOn --c-code-in-asm` | ok | G6, G7; `sdcc-SO2` also keeps the CRT listing (G13-G15) |
 | v2.4/sdcc-debug | `-clib=sdcc_iy -debug` | **fails rc=1** | G12 |
 | v2.4/sccz80-page20, sccz80-bank10 | `-clib=new -debug`, `PAGE_20` / `BANK_10` | ok | G8 |
 | v2.4/sccz80-banked, sdcc-banked | `-DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
@@ -49,7 +49,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-subdir | `-clib=new -debug -I.`, `game/util.c` | ok | G10 |
 | v2.4/sccz80-tape | `zcc +zx -clib=new -debug -m --list -o prog -create-app` | ok, a `.tap` | GH #344 stage 3 (tape programs) |
 | master/sccz80-debug | `-clib=new -debug` | ok | G4 fixed |
-| master/sdcc-debug | `-clib=sdcc_iy -debug` | ok | sdcc map lines, Z2 |
+| master/sdcc-debug | `-clib=sdcc_iy -debug` | ok | sdcc map lines, Z2; also keeps the CRT listing (G13-G15) |
 | master/80cc-debug | `-clib=new -compiler=80cc -debug` | ok | 80cc map |
 | master/sdcc-banked | `-clib=sdcc_iy -debug -DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
 | master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix |
@@ -59,8 +59,9 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 CODE block at $8000 that equals `prog_CODE.bin`; link flags without `-subtype=nex`).
 
 Kept per successful build: `prog.map` (trimmed), every user `*.c.lis` / `*.asm.lis`,
-`prog.nex` (`prog.tap` for the tape build), every `prog_<GROUP>.bin` (classic: `prog`). Not kept: `prog.lis` (crt0
-listing), `.sym`, `.o`.
+`prog.nex` (`prog.tap` for the tape build), every `prog_<GROUP>.bin` (classic: `prog`). `prog.lis` (the crt0
+listing, 17-18K lines) is kept for exactly two builds, `v2.4/sdcc-SO2` and `master/sdcc-debug`
+(`KEEP_CRT=1` in `generate.sh`, GH #348); not kept for the others, nor `.sym`, `.o`.
 
 ### Not producible (recorded, `build.log` only)
 
@@ -86,6 +87,20 @@ listing), `.sym`, `.o`.
 - G10 `sccz80-subdir`: module `game_util_c`, `game/util.c.lis`.
 - G11 `__CDBINFO__` count: 9 (2.4 sccz80), 9 (master sccz80), 24 (master sdcc), 11 (master 80cc), 0 (2.4 sdcc).
 - G12 see above.
+- G13 `prog.lis` lists the false branches of `IF` too, with no bytes: `__stdio_closed_file_list:` is at
+  m4 line 9207 (with bytes) and again at 9266. The map names the defining line (9207), so a label
+  matches only at that line. The m4 file's lines are 1..9689 with none missing (2.4 and master).
+- G14 z80asm defines `__ASM_LINE_<n>_<file>` for a label only while the location is not C source:
+  master sdcc has `__ASM_LINE_224/226_main.c` for `_counter` / `_table`, which sit before the first
+  `C_LINE`; those numbers are lines of the generated assembly, not of `main.c`.
+- G15 `code_crt_init` (38 bytes) and `code_crt_return` (14) have no labels; in each the CRT's listed
+  piece is the whole section (`__<s>_tail - __<s>_head`), so it starts at `__<s>_head`.
+- G16 sccz80 without `-debug` emits `C_LINE` only at function starts (`v2.4/classic-bank10`: every
+  `banked.c` instruction is line 6).
+- G17 at `-SO0` the back jump `jp l_main_00105` is at $8CBF, 3 bytes; `util.h:7` has three starts in
+  `v2.4/sdcc-SO2`: $8C48 (main_c copy), $8CBB (util_c copy) and $8CD6 (`inc a` inlined into `util_twice`).
+- G18 a listing's `MODULE` line names the file alone (`util_c`), the map the path it was given
+  (`game_util_c`) in `sccz80-subdir`.
 - Classic `BANK_10`: `_banked_add` is `$AC000` on 2.4 and `$14C000` on master
   (`memory_map.asm`: `ORG 0x140000 + CRT_ORG_BANK_10`; commit 72ea9d221b).
 - Z1 (candidate upstream bug): `-debug` makes zcc forward ALIAS options to the compiler.
@@ -103,7 +118,9 @@ module is one of ours, or it is a `__C_LINE_` / `__ASM_LINE_` record of any modu
 newlib `-debug` map has 26 in the crt0 module `zxn_crt_asm_m4`, `zxn_crt.asm.m4`: 3 in
 `CODE` ($8000, $8009, $800C), 1 in `code_crt_main` ($8035), and 22 in data/bss sections), or it is `__<S>_head/_tail/_size` of a non-empty section, a
 `CRT_ORG_*` of the CODE / BANK_10 / PAGE_20 / PAGE_21 sections, or one of
-`l_debug_push_frame l_debug_pop_frame __debug_framepointer banked_call l_jphl`. The
+`l_debug_push_frame l_debug_pop_frame __debug_framepointer banked_call l_jphl`. With `KEEP_CRT=1`
+the `addr` symbols of the module named by `prog.lis`'s `MODULE` line (`zxn_crt_asm_m4`, 31 of them)
+are kept too, so a listing's labels can be matched to the map. The
 `/tmp/tmpXX....i:2` marker lines of each module are always dropped (random names sort
 randomly). Lines stay verbatim and in z88dk's order. Never hand-edit: widen the rule and regenerate.
 
