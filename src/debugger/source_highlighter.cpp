@@ -493,6 +493,7 @@ int SourceHighlighter::scan_asm(const QString& t, int i, AsmCtx ctx, bool& ended
         const QChar c = t[i];
         if (c.isSpace()) { ++i; continue; }
         if (c == QLatin1Char(';')) { paint(i, n, Role::Comment); return n; }
+        if (c == QLatin1Char(':')) { op_seen = false; ++i; continue; }   // sjasmplus statement separator
         if (c == QLatin1Char('/') && i + 1 < n) {
             if (t[i + 1] == QLatin1Char('/')) { paint(i, n, Role::Comment); return n; }
             if (t[i + 1] == QLatin1Char('*') && ctx == AsmCtx::File) {

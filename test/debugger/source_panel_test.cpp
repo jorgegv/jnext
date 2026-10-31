@@ -4417,28 +4417,32 @@ void test_source_highlight_rules() {
     {   // QSRC-148
         Hl h;
         h.load(SourceLanguage::Asm,
-               QStringLiteral(".local: jr .local\n.end: jr nz,.end\n  db word\n  .end\nx EQU 5"));
+               QStringLiteral(".local: jr .local\n.end: jr nz,.end\n  db word\n  .end\nx EQU 5\n  nop : db 1"));
         check("QSRC-148", "a column-0 word ending in ':' is a label even when it is named like a "
                           "directive, and a word behind the instruction word is never a directive; "
-                          "a directive that opens its statement still is one",
+                          "a directive that opens its statement, also behind a ':' statement separator, still is one",
               tok(h, 0, QStringLiteral(".local:")) == 'L' && tok(h, 0, QStringLiteral("jr")) == 'K' &&
                   tok(h, 0, QStringLiteral(".local"), 8) == '.' &&
                   tok(h, 1, QStringLiteral(".end:")) == 'L' && tok(h, 1, QStringLiteral("nz")) == 'R' &&
                   tok(h, 1, QStringLiteral(".end"), 6) == '.' &&
                   tok(h, 2, QStringLiteral("db")) == 'D' && tok(h, 2, QStringLiteral("word")) == '.' &&
-                  tok(h, 3, QStringLiteral(".end")) == 'D' && tok(h, 4, QStringLiteral("EQU")) == 'D',
+                  tok(h, 3, QStringLiteral(".end")) == 'D' && tok(h, 4, QStringLiteral("EQU")) == 'D' &&
+                  tok(h, 5, QStringLiteral("nop")) == 'K' && tok(h, 5, QStringLiteral("db")) == 'D',
               role_mask(h, 0) + " " + role_mask(h, 1) + " " + role_mask(h, 2));
     }
     {   // QSRC-149
         Hl h;
         h.load(SourceLanguage::C,
-               QStringLiteral("#define X 1 /* long\ncomment */ int z;\n#define Y \"/*\"\nint w;"));
+               QStringLiteral("#define X 1 /* long\ncomment */ int z;\n#define Y \"/*\"\nint w;\n"
+                              "#if X // note /*\nint a;\n#define D \"x\" /* y */ 1\nint c;"));
         check("QSRC-149", "a /* opened on a # line goes on to the next line (the # line stays a "
-                          "directive), and a /* inside a string on a # line opens nothing",
+                          "directive), a /* inside a string, after a //, or closed on the line opens nothing",
               role_mask(h, 0) == std::string(h.doc.findBlockByNumber(0).text().size(), 'D') &&
                   tok(h, 1, QStringLiteral("comment */")) == 'C' && tok(h, 1, QStringLiteral("int")) == 'K' &&
                   role_mask(h, 2) == std::string(h.doc.findBlockByNumber(2).text().size(), 'D') &&
-                  tok(h, 3, QStringLiteral("int")) == 'K' && !has_role(h, 3, 'C'),
+                  tok(h, 3, QStringLiteral("int")) == 'K' && !has_role(h, 3, 'C') &&
+                  tok(h, 5, QStringLiteral("int")) == 'K' && !has_role(h, 5, 'C') &&
+                  tok(h, 7, QStringLiteral("int")) == 'K' && !has_role(h, 7, 'C'),
               role_mask(h, 1) + " " + role_mask(h, 3));
     }
     {   // QSRC-130
