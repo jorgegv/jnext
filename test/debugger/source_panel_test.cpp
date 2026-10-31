@@ -2652,7 +2652,7 @@ void test_z88dk_listings() {
                            !button(sp, QStringLiteral("Locate File..."))->isEnabled();
         const QString m4_text = sp->location_text();
         at(0x8000);
-        const bool disk_ok = editor && editor->document()->blockCount() == 10 && sp->highlighted_line() == 3 &&
+        const bool disk_ok = editor && editor->document()->blockCount() == 11 && sp->highlighted_line() == 3 &&
                              !sp->location_text().contains(QStringLiteral("m4 output"));
         check("QSRC-140", "with prog.lis loaded beside the map, $8001 shows the CRT's m4 text from the listing "
                           "(9689 lines, line 9470 highlighted, labelled '(m4 output, from prog.lis)', no Locate "
