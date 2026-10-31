@@ -4030,7 +4030,13 @@ later line, and the earlier one is its alias if both are in the same function
   while its 8K page is mapped where it runs (the Source tab, Call Stack and
   Breakpoints panels all follow the page). The map's address for a <code>BANK_n</code>
   section carries the bank in its high bits; JNEXT reads the page from the
-  section and the address.</li>
+  section and the address. z88dk's <code>__banked</code> on newlib <code>+zxn</code> needs
+  <code>-pragma-define:CRT_ORG_PAGE_&lt;n&gt;=0x&lt;page&gt;&lt;org&gt;</code> (the page in the top byte,
+  for example <code>0x14C000</code> for <code>PAGE_20</code>) and a stack below the banking segment
+  (<code>-pragma-define:REGISTER_SP=0xC000</code>): without them the program itself calls
+  page 0 or loses its stack. <strong>Over</strong> and <strong>Out</strong> step across <code>banked_call</code> and
+  the <code>-debug</code> helpers; <strong>Out</strong> lands on the calling line at the return address
+  (mid-statement), as gdb's <code>finish</code> does.</li>
 <li><strong>DivMMC sections</strong> (<code>DIV_n</code>) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.</li>
 <li>Code in a section that names no page (<code>CODE</code>, <code>code_compiler</code>, the program
