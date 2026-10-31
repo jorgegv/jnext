@@ -3,6 +3,8 @@
 #include <QPointer>
 #include <QWidget>
 
+#include "platform/source_scheme.h"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -68,6 +70,9 @@ public:
     const std::string& shown_file() const { return shown_file_; }
     /// GH #422 - the language the text shown is coloured as (Plain while a message shows).
     SourceLanguage source_language() const;
+    /// GH #422 stage 2 - choose the colour scheme of the text, the background and the current-line
+    /// bar (Auto follows the application's light or dark palette). Applied at once.
+    void set_colour_scheme(SourceScheme scheme);
 
     /// GH #423 - the Watches panel, which the menu's "Watch ..." entries add to
     /// (the Disassembly's menu offers them with one set, and without it not at all).
@@ -142,6 +147,7 @@ private:
     void show_message(const QString& message);
     /// GH #422 - the one way a text enters the editor: language first, then the text.
     void set_source_text(const QString& text, const std::string& file);
+    void apply_scheme_();
     /// While the machine runs there is no current line: say so, and drop the
     /// highlight of the last stop.
     void show_running();

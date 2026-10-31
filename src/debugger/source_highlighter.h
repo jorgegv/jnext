@@ -17,6 +17,8 @@
 #include <QSyntaxHighlighter>
 #include <QTextCharFormat>
 
+#include "platform/source_scheme.h"
+
 #include <string_view>
 
 enum class SourceLanguage { Plain, C, Asm, Basic };
@@ -41,11 +43,32 @@ public:
     void set_language(SourceLanguage language) { language_ = language; }
     SourceLanguage language() const { return language_; }
 
-    /// Rebuild the colours for `palette`; rehighlight() only when one changed.
+    /// One concrete scheme: the editor's background, text and current-line bar, and a colour
+    /// per class (role[Text] == text).
+    struct SchemeColours {
+        QColor background, text, pc_background, pc_text;
+        QColor role[kRoles];
+    };
+    /// The colours of Light, Dark or Borland (Auto is resolved first).
+    static const SchemeColours& scheme_colours(SourceScheme concrete);
+    /// Auto becomes Dark on a dark application palette and Light otherwise; any other
+    /// scheme is returned as given.
+    static SourceScheme resolve_scheme(SourceScheme selected, const QPalette& application);
+
+    /// The scheme chosen; it does not rehighlight (apply_palette() installs it).
+    void set_scheme(SourceScheme scheme) { selected_ = scheme; }
+    SourceScheme scheme() const { return selected_; }
+    /// The scheme in force: the selection resolved against the palette last applied.
+    SourceScheme scheme_in_force() const { return in_force_; }
+    /// Install the selected scheme resolved against the application's `palette`;
+    /// rehighlight() only when a class colour changed. True when any colour in force
+    /// changed (background, text, current-line bar or a class).
     bool apply_palette(const QPalette& palette);
+    /// The colours in force.
+    const SchemeColours& colours_in_force() const { return scheme_colours(in_force_); }
     /// The colour in force for a role.
-    QColor colour(Role role) const { return colours_[static_cast<int>(role)]; }
-    /// The constant a light palette uses (a dark one passes it through palette_tint::ink()).
+    QColor colour(Role role) const { return colours_in_force().role[static_cast<int>(role)]; }
+    /// The Light scheme's colour for a role.
     static QColor light_colour(Role role);
     /// highlightBlock() calls so far.
     int blocks_highlighted() const { return blocks_; }
@@ -73,7 +96,8 @@ private:
     void paint(int from, int to, Role role);
 
     SourceLanguage language_ = SourceLanguage::Plain;
-    QColor colours_[kRoles];
+    SourceScheme selected_ = SourceScheme::Auto;
+    SourceScheme in_force_ = SourceScheme::Light;
     QTextCharFormat formats_[kRoles];
     int blocks_ = 0;
 };

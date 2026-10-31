@@ -64,6 +64,7 @@ private:
     QWidget* build_nextpi_tab();
     QWidget* build_paths_tab();
 #ifdef ENABLE_DEBUGGER
+    QWidget* build_debugger_tab();   // GH #422 stage 2
     QWidget* build_debug_keys_tab(const std::vector<jnext::dbgkeys::LoadIssue>& key_issues);
     /// Accept a captured chord for `index`, or refuse it because another
     /// action already holds it. Refusing here is the point: Qt dispatches two
@@ -124,6 +125,12 @@ private:
     // line. source_dirs_saved_ is what collect() hands back when there is no control.
     QPlainTextEdit* source_dirs_edit_ = nullptr;
     QStringList     source_dirs_saved_;
+
+    // GH #422 stage 2 - Debugger > Source tab colours (a debugger build only).
+    // source_scheme_ is ALWAYS present, seeded from `current`, because collect() must hand
+    // it back: a build with no Debugger tab must not reset a saved scheme.
+    QComboBox*   source_scheme_combo_ = nullptr;
+    SourceScheme source_scheme_ = SourceScheme::Auto;
 
     QLineEdit* quick_screenshot_dir_edit_  = nullptr;   // GH #19
     QComboBox* quick_screenshot_fmt_combo_ = nullptr;

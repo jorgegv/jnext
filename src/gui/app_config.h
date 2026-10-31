@@ -12,6 +12,7 @@
 #include "platform/audio_pacing.h"
 #include "platform/config_keys.h"
 #include "platform/pointer_capture.h"
+#include "platform/source_scheme.h"
 #include "core/screenshot.h"
 #include "gui/crt_shader_policy.h"
 
@@ -113,6 +114,10 @@ struct AppConfigData {
     // (the spelling `--set paths.source_dirs` takes). Carried through untouched by
     // a build without the debugger, which has no control for it.
     QStringList source_dirs;
+
+    // GH #422 stage 2 - the Source tab's colour scheme (`[source] colour_scheme`).
+    // Auto follows the application's light or dark palette.
+    SourceScheme source_scheme = SourceScheme::Auto;
     // GH #406 - File > Recent Files, most recent first, at most
     // recent_files::kMax. Kept by MainWindow, not editable in Preferences
     // (which carries it through untouched).

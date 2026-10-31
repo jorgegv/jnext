@@ -1,6 +1,7 @@
 #include "debugger/source_highlighter.h"
 
 #include "debug/disasm.h"
+#include "platform/config_keys.h"
 #include "qt/palette_tint_qt.h"
 
 #include <algorithm>
@@ -462,13 +463,20 @@ SourceLanguage source_language_for(std::string_view file_name, const QString& te
     return SourceLanguage::Plain;
 }
 
+static_assert(config_keys::word_at(config_keys::info(config_keys::KeyId::SourceColourScheme).values,
+                  static_cast<int>(SourceScheme::Auto)) == "auto" &&
+              config_keys::word_at(config_keys::info(config_keys::KeyId::SourceColourScheme).values,
+                  static_cast<int>(SourceScheme::Light)) == "light" &&
+              config_keys::word_at(config_keys::info(config_keys::KeyId::SourceColourScheme).values,
+                  static_cast<int>(SourceScheme::Dark)) == "dark" &&
+              config_keys::word_at(config_keys::info(config_keys::KeyId::SourceColourScheme).values,
+                  static_cast<int>(SourceScheme::Borland)) == "borland",
+              "config_keys source.colour_scheme words must follow the SourceScheme order");
+
 SourceHighlighter::SourceHighlighter(QObject* parent) : QSyntaxHighlighter(parent)
 {
-    const QPalette light;   // a default palette is light: the constants as they are
-    for (int r = 0; r < kRoles; ++r) {
-        colours_[r] = light_colour(static_cast<Role>(r));
-        formats_[r].setForeground(colours_[r]);
-    }
+    const SchemeColours& light = scheme_colours(SourceScheme::Light);
+    for (int r = 0; r < kRoles; ++r) formats_[r].setForeground(light.role[r]);
 }
 
 QColor SourceHighlighter::light_colour(Role role)
@@ -488,18 +496,104 @@ QColor SourceHighlighter::light_colour(Role role)
     return QColor();
 }
 
+namespace {
+
+SourceHighlighter::SchemeColours make_light()
+{
+    SourceHighlighter::SchemeColours c;
+    c.background = QColor(0xFF, 0xFF, 0xFF);
+    c.text = QColor(0x00, 0x00, 0x00);
+    c.pc_background = QColor(0x1E, 0x5A, 0xA8);
+    c.pc_text = QColor(0xFF, 0xFF, 0xFF);
+    for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+        c.role[r] = SourceHighlighter::light_colour(static_cast<SourceHighlighter::Role>(r));
+    return c;
+}
+
+// Dark is derived from Light, not kept by hand: palette_tint::ink() of each Light colour over
+// a fixed dark palette (the Base and Text of Fusion's dark theme), so a change to Light
+// reaches it, and the colours do not depend on the application's own dark palette.
+SourceHighlighter::SchemeColours make_dark(const SourceHighlighter::SchemeColours& light)
+{
+    QPalette p;
+    for (auto g : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
+        p.setColor(g, QPalette::Window, QColor(0x24, 0x24, 0x24));
+        p.setColor(g, QPalette::WindowText, QColor(0xF0, 0xF0, 0xF0));
+        p.setColor(g, QPalette::Base, QColor(0x24, 0x24, 0x24));
+        p.setColor(g, QPalette::Text, QColor(0xF0, 0xF0, 0xF0));
+    }
+    SourceHighlighter::SchemeColours c;
+    c.background = p.color(QPalette::Base);
+    c.text = p.color(QPalette::Text);
+    c.pc_background = QColor(0x3D, 0x72, 0xAA);
+    c.pc_text = QColor(0xFF, 0xFF, 0xFF);
+    for (int r = 0; r < SourceHighlighter::kRoles; ++r) c.role[r] = palette_tint::ink(p, light.role[r]);
+    return c;
+}
+
+// Borland C++ 3.1 (owner, GH #422 2026-10-30/31): yellow text on blue; keywords white; the
+// four literal classes light cyan; preprocessor light green; comments light grey.
+SourceHighlighter::SchemeColours make_borland()
+{
+    using R = SourceHighlighter::Role;
+    const QColor white(0xFF, 0xFF, 0xFF), yellow(0xFF, 0xFF, 0x57), cyan(0x57, 0xFF, 0xFF);
+    SourceHighlighter::SchemeColours c;
+    c.background = QColor(0x00, 0x00, 0xA8);
+    c.text = yellow;
+    c.pc_background = QColor(0xA8, 0xA8, 0xA8);
+    c.pc_text = QColor(0x00, 0x00, 0xA8);
+    auto set = [&](R r, const QColor& v) { c.role[static_cast<int>(r)] = v; };
+    set(R::Text, yellow);
+    set(R::Keyword, white);
+    set(R::Instruction, white);
+    set(R::Preprocessor, QColor(0x57, 0xFF, 0x57));
+    set(R::Label, yellow);
+    set(R::String, cyan);
+    set(R::Char, cyan);
+    set(R::Integer, cyan);
+    set(R::Float, cyan);
+    set(R::Comment, QColor(0xA8, 0xA8, 0xA8));
+    return c;
+}
+
+}  // namespace
+
+const SourceHighlighter::SchemeColours& SourceHighlighter::scheme_colours(SourceScheme concrete)
+{
+    static const SchemeColours light = make_light();
+    static const SchemeColours dark = make_dark(light);
+    static const SchemeColours borland = make_borland();
+    switch (concrete) {
+    case SourceScheme::Dark:    return dark;
+    case SourceScheme::Borland: return borland;
+    case SourceScheme::Light:
+    case SourceScheme::Auto:    break;
+    }
+    return light;
+}
+
+SourceScheme SourceHighlighter::resolve_scheme(SourceScheme selected, const QPalette& application)
+{
+    if (selected != SourceScheme::Auto) return selected;
+    return palette_tint::is_dark(application) ? SourceScheme::Dark : SourceScheme::Light;
+}
+
 bool SourceHighlighter::apply_palette(const QPalette& palette)
 {
-    bool changed = false;
-    for (int r = 0; r < kRoles; ++r) {
-        const QColor c = palette_tint::ink(palette, light_colour(static_cast<Role>(r)));
-        if (c != colours_[r]) {
-            colours_[r] = c;
-            formats_[r].setForeground(c);
-            changed = true;
+    const SourceScheme next = resolve_scheme(selected_, palette);
+    if (next == in_force_) return false;
+    const SchemeColours& was = scheme_colours(in_force_);
+    const SchemeColours& now = scheme_colours(next);
+    bool roles_changed = false;
+    for (int r = 0; r < kRoles; ++r)
+        if (now.role[r] != was.role[r]) {
+            formats_[r].setForeground(now.role[r]);
+            roles_changed = true;
         }
-    }
-    if (changed) rehighlight();
+    const bool changed = roles_changed || now.background != was.background || now.text != was.text ||
+                         now.pc_background != was.pc_background || now.pc_text != was.pc_text;
+    in_force_ = next;
+    if (roles_changed) rehighlight();
     return changed;
 }
 

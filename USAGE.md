@@ -1307,6 +1307,12 @@ not legal there, or that another action already holds (unless the same
 command line frees it), is refused with exit status 1 before the window
 opens. The Qt window with the debugger.
 
+`source.colour_scheme` *auto\|light\|dark\|borland*  
+The colour scheme of the debugger’s Source tab, like the **Preferences**
+Debugger tab: `auto` (the default) is light or dark after the
+application, `borland` is Borland C++ 3.1 (yellow on blue). The Qt
+window with the debugger.
+
 `esp.enabled` *true\|false*  
 The emulated ESP-01 WiFi module; **--esp** and **--no-esp**. All
 frontends.

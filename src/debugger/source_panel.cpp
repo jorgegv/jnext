@@ -143,7 +143,7 @@ public:
     void paint_gutter(QPaintEvent* ev)
     {
         QPainter p(gutter_);
-        const QPalette pal = palette();
+        const QPalette pal = panel_->palette();   // GH #422: the scheme sits on the editor's palette, not here
         p.fillRect(ev->rect(), palette_tint::surface(pal, QColor(255, 255, 255)));
         p.setPen(palette_tint::surface(pal, QColor(200, 200, 200)));
         p.drawLine(kBreakpointColumnWidth, ev->rect().top(), kBreakpointColumnWidth, ev->rect().bottom());
@@ -176,7 +176,7 @@ public:
     void paint_header()
     {
         QPainter p(header_);
-        const QPalette pal = palette();
+        const QPalette pal = panel_->palette();
         p.fillRect(header_->rect(), palette_tint::surface(pal, QColor(255, 255, 255)));
         p.setFont(header_font());
         p.setPen(palette_tint::ink(pal, QColor(80, 80, 80)));
@@ -480,9 +480,36 @@ void SourcePanel::set_source_text(const QString& text, const std::string& file)
     editor_->setPlainText(text);
 }
 
+// GH #422 stage 2 - the scheme in force: resolved against the PANEL's palette (the
+// application's; never the editor's, which carries the scheme), its class colours go to
+// the highlighter and its background, text and current-line bar to the editor's palette.
+// The gutter and its header read the panel's palette, so no scheme reaches them.
+void SourcePanel::apply_scheme_()
+{
+    highlighter_->apply_palette(palette());   // rehighlights only when a class colour changed
+    const SourceHighlighter::SchemeColours& c = highlighter_->colours_in_force();
+    QPalette p = editor_->palette();
+    if (p.color(QPalette::Base) == c.background && p.color(QPalette::Text) == c.text &&
+        p.color(QPalette::Highlight) == c.pc_background && p.color(QPalette::HighlightedText) == c.pc_text)
+        return;
+    for (auto g : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
+        p.setColor(g, QPalette::Base, c.background);
+        p.setColor(g, QPalette::Text, c.text);
+        p.setColor(g, QPalette::Highlight, c.pc_background);
+        p.setColor(g, QPalette::HighlightedText, c.pc_text);
+    }
+    editor_->setPalette(p);
+}
+
+void SourcePanel::set_colour_scheme(SourceScheme scheme)
+{
+    highlighter_->set_scheme(scheme);
+    apply_scheme_();   // at once: a Preferences Apply does not wait for a paused tick
+}
+
 void SourcePanel::refresh()
 {
-    highlighter_->apply_palette(editor_->palette());   // rehighlights only on a scheme switch
+    apply_scheme_();
     refresh_();
     update_gutter();   // the marks follow the memory mapped now
 }

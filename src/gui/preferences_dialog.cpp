@@ -39,6 +39,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
       recent_files_(current.recent_files),
       source_dirs_saved_(current.source_dirs),
+      source_scheme_(current.source_scheme),
       crt_filter_saved_(current.crt_filter),
       crt_shader_saved_(current.crt_shader),
       crt_shader_style_saved_(current.crt_shader_style),
@@ -62,6 +63,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     tabs->addTab(build_nextpi_tab(), tr("NextPi"));
     tabs->addTab(build_paths_tab(), tr("Paths"));
 #ifdef ENABLE_DEBUGGER
+    tabs->addTab(build_debugger_tab(), tr("Debugger"));
     tabs->addTab(build_debug_keys_tab(key_issues), tr("Debugger Keys"));
 #else
     // No tab, but debug_keys_ was still seeded from `current` above and is
@@ -119,6 +121,9 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     sd_card_path_edit_->setText(current.sd_card_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
     if (source_dirs_edit_) source_dirs_edit_->setPlainText(current.source_dirs.join(QLatin1Char('\n')));
+    if (source_scheme_combo_)
+        source_scheme_combo_->setCurrentIndex(
+            source_scheme_combo_->findData(static_cast<int>(current.source_scheme)));
     quick_screenshot_dir_edit_->setText(current.quick_screenshot_dir);
     quick_screenshot_fmt_combo_->setCurrentIndex(
         quick_screenshot_fmt_combo_->findData(
@@ -732,6 +737,9 @@ AppConfigData PreferencesDialog::collect() const {
             if (!dir.isEmpty() && !cfg.source_dirs.contains(dir)) cfg.source_dirs << dir;
         }
     }
+    cfg.source_scheme = source_scheme_combo_
+        ? static_cast<SourceScheme>(source_scheme_combo_->currentData().toInt())
+        : source_scheme_;   // GH #422 stage 2 - no control: the value given
     cfg.recent_files = recent_files_;   // GH #406 - kept by File > Recent Files, no control here
     cfg.debug_keys = debug_keys_;   // GH #1 — including the preserved unknowns
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
@@ -742,6 +750,27 @@ AppConfigData PreferencesDialog::collect() const {
 }
 
 #ifdef ENABLE_DEBUGGER
+// ---------------------------------------------------------------------------
+// GH #422 stage 2 - Debugger
+// ---------------------------------------------------------------------------
+
+QWidget* PreferencesDialog::build_debugger_tab() {
+    auto* tab  = new QWidget(this);
+    auto* form = new QFormLayout(tab);
+    source_scheme_combo_ = new QComboBox(tab);
+    source_scheme_combo_->setObjectName(QStringLiteral("sourceSchemeCombo"));
+    source_scheme_combo_->setToolTip(
+        tr("The Source tab's background, text and syntax colours. "
+           "--set source.colour_scheme=WORD sets it for one run."));
+    // Item data is the SourceScheme value, which is also the index of the config word.
+    source_scheme_combo_->addItem(tr("Auto (follow the application)"), static_cast<int>(SourceScheme::Auto));
+    source_scheme_combo_->addItem(tr("Light"), static_cast<int>(SourceScheme::Light));
+    source_scheme_combo_->addItem(tr("Dark"), static_cast<int>(SourceScheme::Dark));
+    source_scheme_combo_->addItem(tr("Borland C++ 3.1"), static_cast<int>(SourceScheme::Borland));
+    form->addRow(tr("Source tab colours:"), source_scheme_combo_);
+    return tab;
+}
+
 // ---------------------------------------------------------------------------
 // GH #1 — Debugger Keys
 // ---------------------------------------------------------------------------

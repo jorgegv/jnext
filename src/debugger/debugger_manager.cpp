@@ -287,6 +287,12 @@ void DebuggerManager::set_source_dirs(const QStringList& configured) {
     if (source_dirs() != before) push_source_dirs(true);
 }
 
+void DebuggerManager::set_source_scheme(SourceScheme scheme) {
+    source_scheme_ = scheme;
+    if (debugger_window_ && debugger_window_->source_panel())
+        debugger_window_->source_panel()->set_colour_scheme(scheme);
+}
+
 void DebuggerManager::on_source_dir_located(const QString& dir) {
     if (dir.isEmpty() || located_source_dirs_.contains(dir)) return;
     located_source_dirs_ << dir;
@@ -313,6 +319,8 @@ void DebuggerManager::ensure_window() {
                 &DebuggerManager::source_dir_save_requested);
     }
     push_source_dirs(false);
+    // GH #422 stage 2 - and its colour scheme.
+    if (auto* sp = debugger_window_->source_panel()) sp->set_colour_scheme(source_scheme_);
 
     // Closing the debugger window disables the debugger.
     connect(debugger_window_, &DebuggerWindow::window_closed, this, [this]() {
