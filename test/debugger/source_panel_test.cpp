@@ -4641,15 +4641,15 @@ void test_source_highlight_rules() {
         const bool kw = tok(h, 0, QStringLiteral("static")) == 'K' && tok(h, 0, QStringLiteral("unsigned")) == 'K' &&
                         tok(h, 0, QStringLiteral("char")) == 'K' && tok(h, 0, QStringLiteral("void")) == 'K' &&
                         tok(h, 0, QStringLiteral("__z88dk_fastcall")) == 'K' && m0[static_cast<size_t>(f)] == '.';
-        const bool pre = role_mask(h, 1) == std::string(h.doc.findBlockByNumber(1).text().size(), 'D');
+        const bool pre = role_mask(h, 1) == std::string(h.doc.findBlockByNumber(1).text().size(), 'P');
         const bool str = tok(h, 2, QStringLiteral("\"a/*b\"")) == 'S' && !has_role(h, 2, 'C') &&
-                         !has_role(h, 3, 'C') && tok(h, 4, QStringLiteral("'\\n'")) == 'S';
+                         !has_role(h, 3, 'C') && tok(h, 4, QStringLiteral("'\\n'")) == 'Q';
         const bool nums = tok(h, 3, QStringLiteral("0x5800")) == 'N' && tok(h, 3, QStringLiteral("10u")) == 'N' &&
                           tok(h, 3, QStringLiteral("017")) == 'N';
         const bool cmt = role_mask(h, 5) == "CCCC" && role_mask(h, 6) == "CCCCCCC";
         const bool ret = tok(h, 7, QStringLiteral("return")) == 'K' && tok(h, 7, QStringLiteral("RETURN")) == '.';
         check("QSRC-129", "C: keywords including the __ names (the function's own name is not), a # line "
-                          "is a directive, a /* inside a string is no comment, numbers with suffixes, a "
+                          "is a preprocessor line, a /* inside a string is no comment, numbers with suffixes, a "
                           "character literal, a /* */ over lines, and keywords are case-sensitive",
               kw && pre && str && nums && cmt && ret,
               std::to_string(kw) + std::to_string(pre) + std::to_string(str) + std::to_string(nums) +
