@@ -7270,7 +7270,177 @@ int main() {
             check("SRCDOT-13", "a hand load made while the CPU runs inside the command (bank 2, matching bytes) is verified at once, as a landing there would be; "
                                "with other bytes in the bank, or the CPU elsewhere, it attaches pending",
                   inside.first.count > 0 && !inside.second.pending && inside.second.state == Debugger::SourceMapStatus::State::Attached &&
-                      foreign.second.pending && outside.second.pending);
+                      foreign.second.pending && outside.second.pending && !inside.first.pending &&
+                      has(inside.first.identity_note, "program identity verified") && !has(inside.first.identity_note, "pending") &&
+                      has(foreign.first.identity_note, "the dot command loads when it runs") && foreign.first.pending &&
+                      has(outside.first.identity_note, "the dot command loads when it runs"));
+        }
+        // Shared by SRCDOT-14..18: a Machine with a rewind ring, the command in bank 2 and a loop at $3F00 in it.
+        struct Sample { uint64_t clock; bool pending; bool attached; };
+        const auto ring_machine = [&](Machine& m, const std::vector<uint8_t>& code, const std::string& map) {
+            dot_machine(code, map, m);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+            m.set_pc(0x6000);
+        };
+        // The status of the original run now, kept; `frames` the frame numbers a rewind can name.
+        const auto sample_of = [&](Machine& m, std::vector<Sample>& log) {
+            const auto st = m.dbg->source_map_status();
+            log.push_back({m.emu.clock().get(), st.pending, st.state == Debugger::SourceMapStatus::State::Attached});
+        };
+        const auto frame_of = [&](Machine& m, std::vector<Sample>& log, std::vector<uint32_t>& frames) {
+            sample_of(m, log);
+            run_frames(m, 1);
+            frames.push_back(m.dbg->time().frame);   // rewinding to it lands at the start of the frame just run
+        };
+        // Rewind to each of `frames`; compare the landed status with the last sample at or before the landed cycle.
+        const auto compare_rewinds = [&](Machine& m, const std::vector<Sample>& log, const std::vector<uint32_t>& frames,
+                                         int& compared, bool& saw_pending, bool& saw_verified, std::string& note) {
+            for (const uint32_t fr : frames) {
+                if (m.dbg->rewind_to_frame(m.a, fr) != Result::Ok) { note += " rewind-failed"; continue; }
+                const auto st = m.dbg->source_map_status();
+                const uint64_t t = m.emu.clock().get();
+                const Sample* orig = nullptr;
+                for (const Sample& q : log) if (q.clock <= t) orig = &q;
+                if (!orig) continue;
+                ++compared;
+                if (orig->pending != st.pending || orig->attached != (st.state == Debugger::SourceMapStatus::State::Attached))
+                    note += " frame " + std::to_string(fr) + " orig-pending=" + std::to_string(orig->pending) +
+                            " landed-pending=" + std::to_string(st.pending);
+                (orig->pending ? saw_pending : saw_verified) = true;
+            }
+        };
+        {   // SRCDOT-14 (review Q1): a rewind back across a reset into the running command
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            ring_machine(m, dot_code, dot_map);
+            std::vector<Sample> log;
+            std::vector<uint32_t> frames;
+            frame_of(m, log, frames); frame_of(m, log, frames);          // parked: pending
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);
+            m.set_pc(0x3F00);                                           // running inside bank 2
+            sample_of(m, log);
+            frame_of(m, log, frames); frame_of(m, log, frames);
+            const bool ran_verified = !m.dbg->source_map_status().pending;
+            const Result rst = m.dbg->reset(m.a, ResetKind::Soft);
+            const bool after_reset_pending = m.dbg->source_map_status().pending;
+            run_frames(m, 2);
+            sample_of(m, log);
+            int compared = 0;
+            bool sp = false, sv = false;
+            std::string note;
+            compare_rewinds(m, log, std::vector<uint32_t>(frames.begin(), frames.end()), compared, sp, sv, note);
+            check("SRCDOT-14", "a rewind back across a soft reset into the frames where the command was running reads what the original run showed (verified there, "
+                               "pending before the entry), although the reset itself leaves the map pending: the records of the earlier generation are kept",
+                  rst == Result::Ok && ran_verified && after_reset_pending && compared >= 3 && sp && sv && note.empty(),
+                  "compared=" + std::to_string(compared) + note);
+        }
+        {   // SRCDOT-15 (review Q2): a live re-run after a rewind replaces what the first run recorded
+            const auto diverge = [&](bool foreign, std::string& note, bool& ok) {
+                Machine m(true, MachineType::ZXN_ISSUE2);
+                ring_machine(m, dot_code, dot_map);
+                std::vector<Sample> log;
+                std::vector<uint32_t> frames;
+                frame_of(m, log, frames);
+                const uint32_t f_pre = frames.back();
+                frame_of(m, log, frames);                                // the first run enters one frame later
+                m.set_pc(kEntry);
+                m.dbg->step_into(m.a);
+                m.set_pc(0x3F00);
+                sample_of(m, log);
+                frame_of(m, log, frames); frame_of(m, log, frames);
+                const bool first_verified = !m.dbg->source_map_status().pending;
+                if (m.dbg->rewind_to_frame(m.a, f_pre) != Result::Ok) { ok = false; return; }
+                const bool back_pending = m.dbg->source_map_status().pending;
+                // the new run: its entry comes at an earlier cycle, with another command or the same one
+                if (foreign) m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+                std::vector<Sample> log2;
+                std::vector<uint32_t> frames2;
+                m.set_pc(kEntry);
+                m.dbg->step_into(m.a);
+                m.set_pc(0x3F00);
+                sample_of(m, log2);
+                frame_of(m, log2, frames2); frame_of(m, log2, frames2); frame_of(m, log2, frames2); frame_of(m, log2, frames2);
+                const bool new_pending = m.dbg->source_map_status().pending;
+                int compared = 0;
+                bool sp = false, sv = false;
+                compare_rewinds(m, log2, frames2, compared, sp, sv, note);
+                ok = first_verified && back_pending && new_pending == foreign && compared >= 3 && (foreign ? sp : sv) && note.empty();
+            };
+            std::string n1, n2;
+            bool ok1 = false, ok2 = false;
+            diverge(true, n1, ok1);
+            diverge(false, n2, ok2);
+            check("SRCDOT-15", "verified run, rewind to before the entry, a live re-run entering earlier with another command (and with the same command): a rewind into the "
+                               "new run reads the new run's status, the abandoned run's later verdict is gone",
+                  ok1 && ok2, n1 + "|" + n2);
+        }
+        {   // SRCDOT-16 (review Q3, N2): a landing between the matching entry and the main part's first run keeps the main part armed
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            ring_machine(m, x_code, dotx_map);
+            tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", 0x7EB, 0);   // a wrong main part
+            std::vector<Sample> log;
+            std::vector<uint32_t> frames;
+            frame_of(m, log, frames);
+            const uint32_t f_pre = frames.back();
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);                                       // armed
+            m.set_pc(0x3F00);
+            frame_of(m, log, frames); frame_of(m, log, frames); frame_of(m, log, frames);
+            const uint32_t f_mid = frames[2];                            // a frame boundary after the entry, before the main part runs
+            const Result r1 = m.dbg->rewind_to_frame(m.a, f_pre);
+            const auto s_pre = m.dbg->source_map_status();
+            const Result r2 = m.dbg->rewind_to_frame(m.a, f_mid);
+            const auto s_mid = m.dbg->source_map_status();
+            Debugger::SourceMapStatus s_end;
+            m.set_pc(0x87EB);
+            const std::string lg = debugger_log_of([&] { m.dbg->step_into(m.a); s_end = m.dbg->source_map_status(); });
+            check("SRCDOT-16", "dotx: after a rewind to before the entry and forward to a frame between the matching entry and the main part's first run, the main part is "
+                               "still armed: running it with a wrong byte drops the map, as in the original run",
+                  r1 == Result::Ok && r2 == Result::Ok && s_pre.pending && s_mid.pending &&
+                      s_end.state == Debugger::SourceMapStatus::State::None && has(lg, "Rejected z88dk source map"),
+                  lg);
+        }
+        {   // SRCDOT-17 (review Q3, N7): a history of several transitions is read back in every period
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            ring_machine(m, dot_code, dot_map);
+            std::vector<Sample> log;
+            std::vector<uint32_t> frames;
+            const auto enter = [&] { enter_dot_bank(m); m.set_pc(kEntry); m.dbg->step_into(m.a); m.set_pc(0x3F00); };
+            frame_of(m, log, frames);                                    // pending
+            enter(); sample_of(m, log);                                  // verified
+            frame_of(m, log, frames);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+            enter(); sample_of(m, log);                                  // another command: pending
+            frame_of(m, log, frames);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+            enter(); sample_of(m, log);                                  // ours again: verified
+            frame_of(m, log, frames);
+            frame_of(m, log, frames);
+            int compared = 0;
+            bool sp = false, sv = false;
+            std::string note;
+            compare_rewinds(m, log, frames, compared, sp, sv, note);
+            check("SRCDOT-17", "a history of verified, foreign entry, verified again, with frames in each period: a rewind into every frame reads the status the original run "
+                               "showed there",
+                  compared >= 4 && sp && sv && note.empty(), "compared=" + std::to_string(compared) + note);
+        }
+        {   // SRCDOT-18 (review Q3, N9): a hand load inside the command is part of the history
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            put_dot(m, dot_code);
+            enter_dot_bank(m);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+            start_at(m, 0x3F00);                                         // running the command's loop
+            const auto r = m.dbg->load_source_map(dot_map, false);
+            run_frames(m, 2);
+            const uint32_t f_later = m.dbg->time().frame;   // the start of the second frame, after the load
+            run_frames(m, 2);
+            const bool before = !m.dbg->source_map_status().pending;
+            const Result rr = m.dbg->rewind_to_frame(m.a, f_later);
+            const auto st = m.dbg->source_map_status();
+            check("SRCDOT-18", "a map hand-loaded while the CPU runs the command is verified, and a rewind to a later frame of that run still reads verified",
+                  r.count > 0 && before && rr == Result::Ok && !st.pending && st.state == Debugger::SourceMapStatus::State::Attached);
         }
     }
 

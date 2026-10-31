@@ -448,8 +448,9 @@ its sidecars (`emulator_attach_cli_source_map()` in `platform/emulator_boot.h`);
 refusal logs an error and the run exits 1. Without `--load` (GH #351) each frontend makes it
 once at start-up, before `ScriptHost::start()`, with `dot_only`: only a z88dk dot command's map
 (`SourceMap::dot()`, told by `z88dk_dot_command()`) is accepted, and any other is refused with
-`SourceMapLoad::not_dot` (`main.cpp` still refuses it with `--rzx-play`). A dot map always
-attaches pending, whatever `verify_at_first_execution` says, and is judged at its entry (the CPU
+`SourceMapLoad::not_dot`. A dot map is
+deferred whatever `verify_at_first_execution` says (it attaches pending, except that a hand load made while
+the CPU already runs the command from bank 2 judges like a landing and is verified, `dot_adopt()`), and is judged at its entry (the CPU
 about to execute `$2000` fetched from `DivMmcRam{2}`, `kNextZxosDotBank`): see the design, 6.2
 and 6.5; `DeferredCheck::dot` carries it, `SourceMapStatus::dot` tells the Source tab. The check keeps a capped history of its state by clock cycle and generation (`dot_record()`): a ring landing reads back the state the original run had at that cycle (`dot_landing()`), a fresh landing leaves it pending, and a hand load judges like a landing (`dot_adopt()`). `--source-map` with `--rzx-play` / `--load R.rzx` is the no-`--load` case (`EmulatorConfig::source_map_no_program` = 2; the refusal names RZX). `peek`
 reads `DivMmcRam{b}` (read-only; `poke` refuses it). With a tape

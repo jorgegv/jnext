@@ -223,7 +223,8 @@ void Debugger::Impl::dot_record(DeferredCheck& c) {
 }
 
 // A landing. A fresh one (reset, state load, program load, cold boot) puts the CPU
-// elsewhere and starts a new history: pending until the next entry. A ring landing
+// elsewhere: the state goes to pending until the next entry, and the records of the
+// earlier generations are kept (a rewind back across the reset reads them). A ring landing
 // restores what the original run showed at the landed cycle: the last verdict strictly
 // before it in this generation (a verdict at cycle C applies to the instruction about to
 // run at C, which a landing at C has not run), else pending.
@@ -232,7 +233,6 @@ void Debugger::Impl::dot_landing(bool fresh) {
     const uint64_t cycle = emu.clock().get();
     for (auto& c : checks) {
         if (!c.dot || !c.user) continue;
-        if (fresh) c.history.clear();
         std::vector<DeferredCheck::DotSnap> keep;
         keep.swap(c.history);
         dot_reset(c);
@@ -333,6 +333,9 @@ void Debugger::Impl::verify_hook(uint16_t pc) {
                 c.dot_event = DeferredCheck::DotEvent::NotTheOne;
                 any = true;
             }
+            // Every judgement in the bank is recorded, so a re-run replaces what the first run
+            // recorded from this cycle on.
+            dot_record(c);
         }
         std::vector<FetchSource> hit;
         for (const auto& sp : c.spans)
@@ -512,6 +515,9 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
         impl_->sync_verify_window();
     }
     out.pending = impl_->sources_pending();
+    // A dot map loaded while the CPU is already running the command was judged (dot_adopt()).
+    if (defer && impl_->source_map.dot() && !out.pending)
+        out.identity_note = identity_note(impl_->source_map, parsed, true);
     out.count  = parsed.count;
     out.listings = parsed.listings;
     // A z88dk map fills the source half only (D10): it leaves the symbols alone, an

@@ -1021,9 +1021,11 @@ public:
     /// map (`source_map_status()` is then `None`, with the reason, and the error is
     /// logged). A map with no identity attaches unverified, not pending.
     ///
-    /// GH #351 - a z88dk dot command's map (`SourceMap::dot()`) always attaches pending,
-    /// whatever `verify_at_first_execution` says: NextZXOS loads the command into DivMMC
-    /// RAM when it is typed. It is judged where the command starts ($2000 fetched from
+    /// GH #351 - a z88dk dot command's map (`SourceMap::dot()`) is deferred whatever
+    /// `verify_at_first_execution` says (NextZXOS loads the command into DivMMC RAM when it
+    /// is typed), so it attaches pending, unless the CPU is already running the command from
+    /// bank 2 with its bytes in place: a load made there judges like a landing there and is
+    /// verified (`pending` false, `identity_note` says so). It is judged where the command starts ($2000 fetched from
     /// DivMMC RAM bank 2); an entry that does not match is another dot command and
     /// keeps it pending, and a landing (reset, state load, rewind) never drops or
     /// stales it. `dot_only` refuses a map that is not a dot command's (`--source-map`

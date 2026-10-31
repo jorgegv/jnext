@@ -798,9 +798,11 @@ with the map. The user's map (`--map`, Load MAP) is bound again at the tape load
 **Dot commands (E23-21 (#351)).** A z88dk dot command's map (9.4 rule 5) is not a tape's, but it
 shares the pending machinery: the guest loads the command into DivMMC RAM bank 2 when the user
 types it, after any number of resets, and every dot command shares that bank. So a dot map with
-an identity ALWAYS attaches pending, whatever the caller passes for `verify_at_first_execution`
-(the hand load, `--source-map`, with or without `--load`), and its log line ends `(identity check
-pending: the dot command loads when it runs)`. The DivMMC unit is judged at the command's ENTRY,
+an identity is deferred whatever the caller passes for `verify_at_first_execution` (the hand load,
+`--source-map`, with or without `--load`, or with an RZX replay), so it attaches pending and its log line ends
+`(identity check pending: the dot command loads when it runs)`; the one exception is a hand load made while
+the CPU is already running the command from bank 2 with its bytes in place, which judges like a landing there
+(6.5(3)) and is verified. The DivMMC unit is judged at the command's ENTRY,
 when the CPU is about to execute $2000 fetched from `DivMmcRam{2}`, with the bytes about to run,
 not at the first run of a span. A match verifies it (`Verified ... the dot command in DivMMC RAM
 bank 2 matches its binary identity`) and arms the other units (a dotx's main part, `Page{4}`) for
@@ -847,8 +849,8 @@ Two tiers. (The clock-based model, `sidecar_attach_cycle`, is gone.)
 
 3. **Dot commands (E23-21 (#351)).** A landing never drops or stales a dot map (6.2): a reset puts
    the CPU elsewhere and NextZXOS's own boot resets the machine long before the user types the
-   command. A FRESH landing (reset, state load, program load, cold boot) starts a new history and
-   leaves the map pending until the next entry. A RING landing reads back what the original run
+   command. A FRESH landing (reset, state load, program load, cold boot) leaves the map pending until the next entry
+   (its earlier records are kept). A RING landing reads back what the original run
    showed at that instant: the check records its state (entry verdict, units still to judge) with
    the clock cycle and load generation at each change, and a landing to cycle T takes the last
    record of that generation strictly before T (a verdict at C applies to the instruction about to
@@ -856,11 +858,13 @@ Two tiers. (The clock-based model, `sidecar_attach_cycle`, is gone.)
    into a plain dot's code outside bank 2, shows the map verified, as it was, and one to before
    the entry shows it pending. A hand load of a dot map made while the CPU is already running
    inside the command (paused in bank 2 with the bytes matching) judges like a landing at that
-   point: verified. A re-run of the same cycles replaces what the first run recorded from there
-   on; the history is capped at 256 records (the oldest go, so a landing older than the oldest
-   reads pending). Known limit: a record for a future that was abandoned by running on after a
-   rewind, with no entry or unit verdict in the replay, stays until a later verdict at an earlier
-   cycle replaces it.
+   point: verified. Every entry judgement in bank 2, matching or foreign, is recorded, and a record erases those at or after
+   its cycle, so a re-run that enters the bank replaces what the first run recorded from there on. The records of
+   earlier generations are kept (a rewind back across a reset or state load reads them); the cap of 256 covers all
+   generations together, the oldest going first, and a landing older than the oldest record reads pending. The
+   limit that remains: a re-run that makes no entry judgement in bank 2 and judges no unit leaves the abandoned
+   run's later records in place, so a rewind to a cycle past the divergence reads the abandoned run's state until
+   a later judgement replaces it.
 
 How it is built:
 
