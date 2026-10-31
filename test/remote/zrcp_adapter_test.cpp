@@ -1330,6 +1330,33 @@ static void control_rows() {
               esc(out));
     }
     {
+        // GH #360 F1, the RET half: the DivMMC ROM holds RET at the instant entry while the data
+        // view is RAM NOPs (divmmc.vhd:124-148, zxnext.vhd:3084). A RET is a plain step (ZEsarUX:
+        // nothing to run to), answered in the same pump; read as a NOP it would run to $0001.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        static const std::uint8_t boot[0x2000] = {};
+        rig.emu.mmu().set_boot_rom(boot, sizeof(boot));
+        rig.emu.mmu().set_boot_rom_enabled(false);
+        rig.dbg->nextreg_write(1, 0x50, 10);
+        rig.dbg->nextreg_write(1, 0x0A, 0x10);   // automap enable
+        rig.dbg->nextreg_write(1, 0xB8, 0x01);
+        rig.dbg->nextreg_write(1, 0xB9, 0x01);
+        rig.dbg->nextreg_write(1, 0xBA, 0x01);   // instant entry at $0000
+        rig.emu.divmmc().rom_data()[0] = 0xC9;   // RET
+        rig.emu.mmu().write(0xFF00, 0x00);       // the return address $9000
+        rig.emu.mmu().write(0xFF01, 0x90);
+        rig.emu.mmu().write(0x9000, 0x18);       // JR $
+        rig.emu.mmu().write(0x9001, 0xFE);
+        rig.load({}, 0x0000);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string out = c.send_once("cpu-step-over\n");
+        check("LADDR-22", "cpu-step-over at a DivMMC instant entry whose ROM holds a RET is a plain "
+                          "step to the return address, answered at once",
+              rig.pc() == 0x9000 && is_stop_shape(out, 0x9000) && rig.dbg->state().paused,
+              esc(out));
+    }
+    {
         // JR $: the step-over target is never reached. ZEsarUX hangs there;
         // jnext stops on data (§10), discards the line, and leaves no target.
         Rig rig;
