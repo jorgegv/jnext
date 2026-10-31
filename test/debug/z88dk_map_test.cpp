@@ -740,6 +740,19 @@ int main() {
                       nc == 2 && is_key(c, "_b21", 0xE000, MemSpace::page(21), false) &&
                       is_key(c, "_over", 0xC000, std::nullopt, false));
         }
+        {   // Z88SYM-09
+            // z80asm writes a symbol of its default section with an EMPTY section field.
+            SymbolTable t;
+            const int n = t.load_z88dk_map(synth("z9.map",
+                "start                           = $8000 ; addr, local, , p, , p.asm:2\n").string());
+            const bool unbound = n == 1 && is_key(t, "start", 0x8000, std::nullopt, true) &&
+                                 name_is(t.lookup(MemSpace::cpu(), 0x8000), "start");
+            t.bind(nex_space);
+            check("Z88SYM-09", "for the symbol half a symbol with an empty section (z80asm's default section) is rule 4: "
+                               "flagged and unbound, then in the RAM page mapped at its address, and in no other page",
+                  unbound && is_key(t, "start", 0x8000, P4, true) && name_is(t.lookup(P4, 0x8000), "start") &&
+                      !t.lookup(MemSpace::page(40), 0x8000) && !t.lookup(MemSpace::cpu(), 0x8000));
+        }
     }
 
     fs::remove_all(dir);

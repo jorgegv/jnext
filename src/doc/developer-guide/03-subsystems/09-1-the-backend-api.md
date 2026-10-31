@@ -298,8 +298,8 @@ page `space_of(addr)` names (ROM, DivMMC and the other overlays leave it unpaged
 an empty function unbinds it). The backend binds with the ONE function the source
 half uses, `emu.predict_fetch`: at `load_map()` (every success), at the sidecar
 `<stem>.map` (a tape included, at the attach), and for the user's store at every
-program load. A 24-bit value in a section that names no page, or past 24 bits, is not
-a symbol; a constant wider than 16 bits is not a name (rows Z88SYM-*, SRCDBG-SYM-18..22).
+program load. A symbol with an empty section (z80asm's default section) is rule 4 here; only the source half drops such lines (G2). A 24-bit value in a section that names no page, or past 24 bits, is not
+a symbol; a constant wider than 16 bits is not a name (rows Z88SYM-01..09, SRCDBG-SYM-18..22).
 `SymbolTable::merge(other)` is the one way to combine two tables: it adds the other's
 labels whose key is still free, its names and its name-only values not yet taken, so
 the first table wins throughout (row SYMPG-12).

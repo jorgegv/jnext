@@ -153,7 +153,7 @@ and a constant is the label.
 
 A z88dk symbol of a `BANK_n` or `PAGE_n` section is its 16-bit address in the
 page window, even when the map writes it with the page in the top byte
-(`$14E000` is `@` = `$E000`). `on execute @name` fires at that address
+(`$14E000` is `$E000` as `@name`). `on execute @name` fires at that address
 whatever page is mapped, until scripts can name a page (add `page N` to narrow
 it). A 24-bit address in a section that names no page, and a constant that
 does not fit 16 bits, are not names.

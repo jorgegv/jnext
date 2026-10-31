@@ -1107,7 +1107,7 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    gives (the backend passes `source_page()`, the identity lookups compare against), and the
    space must be a `Page`: an address the MMU maps to ROM refuses the half. The symbol half is
    lenient: a rule-4 symbol is stored unbound (`bind_at_load`), `SymbolTable::bind()` gives it
-   the RAM page `source_page()` names at its address, and any other space leaves it unpaged.
+   the RAM page `source_page()` names at its address, and any other space leaves it unpaged. For the symbol half an empty section (z80asm's default section) is rule 4 too; only the source half drops such G2 lines.
 5. A DivMMC dot command (org $2000), and the `DIV_<n>` and `<KIND>_DIV_<n>` sections of the
    memory maps: `DivMmcRam{bank}` (E23-21 (#351), OD-14). E23-21 establishes how a dot
    command's sections map to a bank. Until then a record in such a section refuses the source
@@ -1240,7 +1240,7 @@ UI, and the rule for a name already used at another key are E23-24's.
   sidecar attach (a tape too) and, for the user's store, at every program load. Unpaged (DIV, a
   head-less PAGE, a number out of range): an unpaged label when the value fits 16 bits. Refused
   (24 bits in a section that names no page) and a value past 24 bits are skipped. `; const` stays
-  name-only, 16 bits (a wider constant is no name).
+  name-only, 16 bits (a wider constant is no name). A symbol with an empty section is rule 4 (BindAtLoad); only the source half drops those lines (G2).
 - **Simple map, `Memory.txt`, sjasmplus `--sym` and `--exp` files (#390)**: unpaged. A
   `--sym` or `--exp` value above 0xFFFF is settled by #390; the SLD rule above (name-only) is
   the precedent.
@@ -1358,9 +1358,9 @@ instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
 
-E23-23 (#375) stage 3 added SYMPG-13 (`source_map_test`: `bind()`), Z88SYM-01 to Z88SYM-08
+E23-23 (#375) stage 3 added SYMPG-13 (`source_map_test`: `bind()`), Z88SYM-01 to Z88SYM-09
 (`z88dk_map_test`: the symbol loader's pages, the rule-4 bind, the Unpaged and Refused table, two
-passes, a 24-bit page head), SRCDBG-SYM-18 to SRCDBG-SYM-22 (`source_debug_test`: a banked symbol
+passes, a 24-bit page head, an empty section as rule 4), SRCDBG-SYM-18 to SRCDBG-SYM-22 (`source_debug_test`: a banked symbol
 names its address only while its page is mapped, the bind points, a running program paging its own
 symbol) and SCRIPT-HOST-MAP-Z88BANK (`script_events_test`: `--map` with 24-bit banked symbols).
 
