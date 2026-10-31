@@ -29,8 +29,9 @@ listed in the Breakpoints panel as `main.bas:11 (2 locations)`, and a second cli
 *no code at main.bas:3*. Hover the gutter for the words: the addresses and pages of the
 breakpoint, how many of the places carry it, or why there is none. A line of banked code is
 marked only while its page is mapped; a click on it still removes the breakpoint, and the
-tooltip says *not mapped now*. The column shows the debugger window's own breakpoints, as the
-disassembly does; those of GDB, ZRCP or a script are in the Breakpoints list only. It works
+tooltip says *not mapped now*. The column shows and edits only the debugger window's own breakpoints, as the
+disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints list only, and a click
+never removes them ([whose breakpoints the gutters show and change](08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)). It works
 while the machine runs.
 
 ### Right-click menu

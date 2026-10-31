@@ -3680,8 +3680,9 @@ listed in the Breakpoints panel as <code>main.bas:11 (2 locations)</code>, and a
 <em>no code at main.bas:3</em>. Hover the gutter for the words: the addresses and pages of the
 breakpoint, how many of the places carry it, or why there is none. A line of banked code is
 marked only while its page is mapped; a click on it still removes the breakpoint, and the
-tooltip says <em>not mapped now</em>. The column shows the debugger window's own breakpoints, as the
-disassembly does; those of GDB, ZRCP or a script are in the Breakpoints list only. It works
+tooltip says <em>not mapped now</em>. The column shows and edits only the debugger window's own breakpoints, as the
+disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints list only, and a click
+never removes them (<a href="08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">whose breakpoints the gutters show and change</a>). It works
 while the machine runs.</p>
 <h3 id="right-click-menu">Right-click menu<a class="headerlink" href="#right-click-menu" title="Permanent link">&para;</a></h3>
 <p>Right-click in the text, or in the gutter, for the same actions the disassembly offers,
