@@ -3267,8 +3267,14 @@ void test_source_gutter() {
                   mixed == "disc",
               std::to_string(gui_subs(fx, m)) + " " + v.mark(12) + " | " + s(v.sp->line_tooltip(12)) + " mixed=" + mixed);
         v.click(12);
-        check("QSRC-91", "a click on that line removes the hidden group instead of stacking a second",
-              gui_subs(fx, m) == 0, std::to_string(gui_subs(fx, m)));
+        const int left = gui_subs(fx, m);
+        // a logical breakpoint at the address of a start whose page is not mapped marks nothing on that line
+        m.add(BreakpointModel::Execute, 0x8005);
+        const std::string logical = v.mark(12);
+        m.clear_all();
+        check("QSRC-91", "a click on that line removes the hidden group instead of stacking a second; a logical "
+                         "breakpoint at the unmapped place's address does not mark the line",
+              left == 0 && logical == "none", std::to_string(left) + " " + logical);
     }
     {   // the default map: repaint, palette, running
         Fixture fx;
