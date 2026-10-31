@@ -1561,9 +1561,9 @@ void test_source_messages() {
         fx.emu.cpu().set_registers(r);
         fx.mgr->refresh_panels();
         SourcePanel* sp = fx.dbg()->source_panel();
-        check("QSRC-24", "the PC in ROM reads \"ROM or overlay\" with no source mapping",
+        check("QSRC-24", "the PC in ROM reads \"ROM0\" (its space) with no source mapping",
               sp->location_text() ==
-                  QStringLiteral("$0000 (ROM or overlay): no source mapping; use the disassembly"),
+                  QStringLiteral("$0000 (ROM0): no source mapping; use the disassembly"),
               s(sp->location_text()));
     }
     {
