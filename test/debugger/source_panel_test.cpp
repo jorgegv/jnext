@@ -3990,6 +3990,133 @@ void test_source_context_menu() {
     }
 }
 
+
+// ── GH #423 review 1 ──────────────────────────────────────────────────────
+
+void test_source_menu_review() {
+    {   // QSRC-160 / 161: Run to Here on a corrupt machine goes through the corruption prompt
+        auto make = [](Fixture& fx) {
+            fx.enable();
+            fx.load_map();
+            fx.mgr->refresh_panels();
+            const uint8_t garbage[4] = {0, 0, 0, 0};
+            StateReader r(garbage, sizeof(garbage));
+            fx.emu.load_state(r);   // the Task-60b corrupt state, through the real path
+            fx.backend->load_source_map(fx.sld, false);   // the restore may have reset the view
+            fx.mgr->refresh_panels();
+        };
+        Fixture no;
+        make(no);
+        SourcePanel* sp = window_source_panel(no);
+        QMenu menu;
+        sp->fill_context_menu(menu, 12, 0);
+        QAction* rt = menu_action(menu, "Run to Here");
+        const int asked = drive_modals([](QWidget* w, int) { click_box(w, QMessageBox::No); },
+                                       [&]() { if (rt) rt->trigger(); });
+        run_until_stop(no, 2);
+        check("QSRC-160", "on a corrupt machine Run to Here asks first; answering No leaves it paused at the same PC "
+                          "with nothing armed",
+              rt && asked == 1 && no.backend->state().paused && no.pc() == 0x8000 &&
+                  no.backend->subscriptions(true).empty() && no.backend->resume_blocked_by_corruption().has_value(),
+              "asked=" + std::to_string(asked) + " pc=" + std::to_string(no.pc()));
+
+        Fixture yes;
+        make(yes);
+        SourcePanel* sy = window_source_panel(yes);
+        QMenu menu2;
+        sy->fill_context_menu(menu2, 12, 0);
+        QAction* rt2 = menu_action(menu2, "Run to Here");
+        const int asked2 = drive_modals([](QWidget* w, int) { click_box(w, QMessageBox::Yes); },
+                                        [&]() { if (rt2) rt2->trigger(); });
+        run_until_stop(yes);
+        check("QSRC-161", "answering Yes acknowledges the corruption and runs: stopped at $8005, no incident left",
+              rt2 && asked2 == 1 && yes.pc() == 0x8005 && !yes.backend->resume_blocked_by_corruption().has_value(),
+              "asked=" + std::to_string(asked2) + " pc=" + std::to_string(yes.pc()));
+    }
+    {   // QSRC-162: the submenu's unmapped place
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), far = std::to_string(fx.p80 + 2);
+        fx.backend->load_source_map(write_sld("ctx-sub.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + far + "|36864|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        write_main({});
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = window_source_panel(fx);
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        dp->show_address(0x8005);
+        uint16_t lo = 0, hi = 0;
+        dp->selection_range(lo, hi);
+        QMenu menu;
+        sp->fill_context_menu(menu, 11, 0);
+        QAction* sub = menu_action(menu, "Show in Disassembly");
+        QMenu* sm = sub ? sub->menu() : nullptr;
+        bool shape = sm && sm->actions().size() == 2;
+        QAction* mapped = shape ? sm->actions()[0] : nullptr;
+        QAction* unmapped = shape ? sm->actions()[1] : nullptr;
+        const bool states = shape && mapped->isEnabled() && !unmapped->isEnabled() &&
+                            unmapped->toolTip().contains("not mapped now");
+        if (unmapped) unmapped->trigger();
+        uint16_t lo2 = 0, hi2 = 0;
+        const bool kept = dp->selection_range(lo2, hi2) && lo2 == lo && hi2 == hi && dp->selected_address() == 0x8005;
+        check("QSRC-162", "line 11 at one mapped and one unmapped place: the submenu's unmapped item is disabled with "
+                          "the \"not mapped now\" tooltip, and triggering it leaves the Disassembly's selection alone",
+              states && kept, "states=" + std::to_string(states) + " kept=" + std::to_string(kept));
+    }
+    {   // QSRC-163: Go to Address only centres the view
+        Fixture fx;
+        fx.enable();
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        dp->select_all_visible();
+        uint16_t lo = 0, hi = 0, lo2 = 0, hi2 = 0;
+        const bool had = dp->selection_range(lo, hi);
+        QLineEdit* box = dp->findChild<QLineEdit*>();
+        if (box) {
+            box->setText(QStringLiteral("9000"));
+            QTest::keyClick(box, Qt::Key_Return);
+        }
+        const bool still = dp->selection_range(lo2, hi2);
+        check("QSRC-163", "Go to Address (the address box) centres the view and leaves a selected range alone",
+              box && had && still && lo2 == lo && hi2 == hi,
+              "had=" + std::to_string(had) + " still=" + std::to_string(still));
+    }
+    {   // QSRC-164: a click never removes another client's breakpoint
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "gdb-like";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const jnext::dbg::ClientId other = fx.backend->attach(ci).value;
+        jnext::dbg::Subscription sub;
+        sub.kind = jnext::dbg::EventKind::Execute;
+        sub.action = jnext::dbg::Action::Stop;
+        sub.filter.lo = sub.filter.hi = 0x8005;
+        fx.backend->subscribe(other, sub);
+        auto foreign = [&]() {
+            int n = 0;
+            for (const auto& si : fx.backend->subscriptions(false))
+                if (si.owner == other) ++n;
+            return n;
+        };
+        const std::string before = v.mark(12);
+        v.click(12);
+        const std::string added = v.mark(12);
+        const int own1 = gui_subs(fx, m), foreign1 = foreign();
+        v.click(12);
+        const int own2 = gui_subs(fx, m), foreign2 = foreign();
+        check("QSRC-164", "another client's Execute breakpoint on line 12's address: the BP column draws nothing, a click "
+                          "adds the window's own beside it, and the next click removes only the window's own",
+              before == "none" && added == "disc" && own1 == 1 && foreign1 == 1 && own2 == 0 && foreign2 == 1,
+              before + " " + added + " own=" + std::to_string(own1) + "/" + std::to_string(own2) +
+                  " foreign=" + std::to_string(foreign1) + "/" + std::to_string(foreign2));
+        fx.backend->detach(other);
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -4039,6 +4166,7 @@ int main(int argc, char** argv) {
     test_source_search();
     test_source_gutter();
     test_source_context_menu();
+    test_source_menu_review();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
