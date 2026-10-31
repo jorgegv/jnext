@@ -3525,12 +3525,22 @@ static void test_long_address() {
         view_disasm_at(&dis, 0x8000);
         const auto hi_items = painted(&dis);
         const QString hi_mem = after_label(hi_items, "$8000");
+        // The same $0000 line when it is NOT the PC: its bytes are the data view's (RAM page 10),
+        // though the prediction for a fetch there is still DivMMC's.
+        Z80Registers r8 = emu.cpu().get_registers();
+        r8.PC = 0x8000;
+        emu.cpu().set_registers(r8);
+        view_disasm_at(&dis, 0x0000);
+        dis.refresh();
+        const auto lo_items = painted(&dis);
+        const QString lo_mem = after_label(lo_items, "$0000"), lo_bytes = after_label(lo_items, "$0000", 2);
         check("QLADDR-01",
               "Disassembly: the PC line at a DivMMC instant entry paints $0000, DIVROM (the fetch "
-              "prediction), 3C and INC A; a line at $8000 paints P04, slot 4's page (the data view)",
+              "prediction), 3C and INC A; a line at $8000 paints P04, slot 4's page (the data view); the "
+              "same $0000 line with the PC elsewhere paints P0A and the data view's byte",
               built && dbg.source_page(0x0000) == jnext::dbg::MemSpace::divmmc_rom() && pc_mem == "DIVROM" &&
-                  pc_bytes == "3C" && pc_mn == "INC A" && hi_mem == "P04",
-              s(pc_mem) + "|" + s(pc_bytes) + "|" + s(pc_mn) + "|" + s(hi_mem));
+                  pc_bytes == "3C" && pc_mn == "INC A" && hi_mem == "P04" && lo_mem == "P0A" && lo_bytes == "00",
+              s(pc_mem) + "|" + s(pc_bytes) + "|" + s(pc_mn) + "|" + s(hi_mem) + "|" + s(lo_mem) + "|" + s(lo_bytes));
     }
 
     {   // QLADDR-02
@@ -3601,6 +3611,11 @@ static void test_long_address() {
         emu.port().out(0x00E3, 0x80);   // conmem
         mem.refresh();
         const QString div = after_label(painted(&mem), "$0010", 18);
+        // The Slot 0 view shows the slot's own space, the ROM, with DivMMC still over the CPU view.
+        select_view(&mem, 1);   // Slot 0
+        mem.refresh();
+        const QString slot0 = after_label(painted(&mem), "$0010", 18);
+        select_view(&mem, 0);   // CPU View
         emu.port().out(0x00E3, 0x00);
         go_to(&mem, "4000");
         const auto items = painted(&mem);
@@ -3609,15 +3624,11 @@ static void test_long_address() {
         mem.refresh();
         const QString bram = after_label(painted(&mem), "$4000", 18);
         auto* combo = mem.findChild<QComboBox*>();
-        mem.set_address_style(AddressStyle::Friendly);
-        select_view(&mem, 1);   // Slot 0
-        mem.refresh();
-        const QString slot0 = after_label(painted(&mem), "$0010", 18);
         const QString sel = combo ? combo->itemText(1) : QString();
         check("QLADDR-04",
               "Memory panel: every row ends with the memory tag after the ASCII item: CPU view $0010 "
               "ROM0 without DivMMC and DIVROM under conmem, $4000 P0A (BRAM5+$0000 physical); the Slot 0 "
-              "view ROM0 and its selector reads Slot 0 (ROM0)",
+              "view ROM0 even under conmem and its selector reads Slot 0 (ROM0)",
               built && rom0 == "ROM0" && div == "DIVROM" && p0a == "P0A" && bram == "BRAM5+$0000" &&
                   slot0 == "ROM0" && sel == "Slot 0 (ROM0)",
               s(rom0) + "|" + s(div) + "|" + s(p0a) + "|" + s(bram) + "|" + s(slot0) + "|" + s(sel));
