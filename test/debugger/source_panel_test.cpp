@@ -4595,9 +4595,9 @@ void test_source_highlight_rules() {
         Hl h;
         h.load(SourceLanguage::Asm, QStringLiteral("  ex af,af' ; swap\n  ld a,\";\"\n  cp 'x'"));
         check("QSRC-126", "the apostrophe of AF' belongs to the register, not to a string, and a ';' in a "
-                          "string or a quoted character starts no comment",
-              role_mask(h, 0) == "..KK.RR.RRR.CCCCCC" && role_mask(h, 1) == "..KK.R.SSS" &&
-                  role_mask(h, 2) == "..KK.SSS",
+                          "string or a Char literal starts no comment",
+              role_mask(h, 0) == "..II.IIKIII.CCCCCC" && role_mask(h, 1) == "..II.IKSSS" &&
+                  role_mask(h, 2) == "..II.QQQ",
               role_mask(h, 0) + " " + role_mask(h, 1) + " " + role_mask(h, 2));
     }
     {   // QSRC-127
