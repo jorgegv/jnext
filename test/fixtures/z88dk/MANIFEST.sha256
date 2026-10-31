@@ -1,4 +1,4 @@
-1145217d33413acf5fc26759e77a7084802c2393948fb194d38c1ff17c7f4d39  generate.sh
+8e9851d53b246933f20240cc1d9d6423bb41a22c07846d5a7773c2e85a4827ba  generate.sh
 20b3692b98b1deaf264d7cd1ba856a37cb07c58b84649364d6fbcc2a65789934  master/80cc-debug/asmfn.asm.lis
 e83dd22f80673ec7da0aad397ad2448929dd7192d5a57efbb4ea24bb08171fdb  master/80cc-debug/build.log
 a59f6f77f8340e161eb3cc148d4df5121ef7214c280a88ca6bf5088b2ab7290b  master/80cc-debug/main.c.lis
@@ -35,7 +35,7 @@ cb71541fc70ddadbaf572dc4c3ac135d9321a3600535f9342d15b6591fc29e67  master/sdcc-ba
 e0ccc881674c80150165fe0ce70defd06ed17124ada6a6dc22bece0baa5d96ee  master/sdcc-debug/build.log
 c06b2ff3a5e5d6c6f7dca3b65f8fa5e444bfaec5457009a1e6a5a84238e0f1bf  master/sdcc-debug/main.c.lis
 bdfec967a53396e74683f63e585f2fa08a891860eef5355f1e3fa03ebcca9369  master/sdcc-debug/prog.lis
-7fc1ae3cacf3c1be1ddf76e56fbbeaa5b0002ba0c33eb8f2a56c1643ea9914bb  master/sdcc-debug/prog.map
+11c4c39ffefc4ecd28582a01a63a8ff5c0eb15f5df854a01c83a3a951de7d2b4  master/sdcc-debug/prog.map
 d2939335330d9eb03bf93e9e990924e4989b93b8c0d1707abf18806f5ebbbbfa  master/sdcc-debug/prog.nex
 ed809d336951b1e321293471a80426f27791ed01c737105c214e4138d98277c3  master/sdcc-debug/prog_CODE.bin
 ba043cb09a2989ef6aa81ee7ca8fcb4174f4c2d3543b146633dc0bc6848c741c  master/sdcc-debug/util.c.lis
@@ -113,7 +113,7 @@ ab5ccc3af656c9a16752e85e3c828224cd28d73fec6ad995f6869d10e97d545b  v2.4/sdcc-SO0/
 95cd5847dad3552a2d6c1483425b910eba11e97e7b4f34524e43b8edfd4d0c3c  v2.4/sdcc-SO2/build.log
 f4feecedb3ab2fbe2689de018c5884341612cf575bb525800b5a0fa790fac70c  v2.4/sdcc-SO2/main.c.lis
 000f64fff84e972d1cdb0631ef83fe6051dead034497f516b31dd18b9c6f7b88  v2.4/sdcc-SO2/prog.lis
-f55dfa1a0a6ca2758a5e5cc2976b8584d3ebf91909f32a530835c4245e83d3f8  v2.4/sdcc-SO2/prog.map
+ef21288c5a759867ec2dedaa5dcb7e0e56fe939d5c4c6223b2b0b031ee9dd42f  v2.4/sdcc-SO2/prog.map
 f3c64445e7bca6f75bfb0d7566f6cd7e95a8d994fd6cea3727368250e4e4ae56  v2.4/sdcc-SO2/prog.nex
 ba526fe4fd5888419429ed9987033964933dce83e904b4a56342fc14d2f188b3  v2.4/sdcc-SO2/prog_CODE.bin
 c9cc0e7dafea5c3983306d46199ca4e8242d3e26245fc4992740385f2f350317  v2.4/sdcc-SO2/util.c.lis

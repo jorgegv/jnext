@@ -24,8 +24,8 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
 # fixture modules: every map line of these is kept
 MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm)$'
 
-trim_map() {  # $1 = raw map, $2 = extra module kept whole (KEEP_CRT); stdout = kept lines, original order
-    awk -v MODS="$MODS${2:+|^$2\$}" '
+trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT); stdout = kept lines, original order
+    awk -v MODS="$MODS" -v CRT="${2:-}" '
     function nm(l,  n) { n = l; sub(/ *=.*/, "", n); return n }
     NR == FNR { n = nm($0)
                 if (n ~ /^__.*_size$/ && $0 !~ /= \$0+ ;/) { s = n; sub(/^__/, "", s); sub(/_size$/, "", s); keep[s] = 1 }
@@ -33,6 +33,7 @@ trim_map() {  # $1 = raw map, $2 = extra module kept whole (KEEP_CRT); stdout = 
     { n = nm($0); split($0, p, " ; "); split(p[2], f, ", ")
       if (n ~ /_2ftmp_2ftmpXX/) next                     # zcc temp-file markers: random names
       if (f[4] ~ MODS) { print; next }
+      if (CRT != "" && f[4] == CRT && f[1] == "addr") { print; next }   # KEEP_CRT: addr symbols of the CRT module
       if (n ~ /^__(C|ASM)_LINE_/) { print; next }        # library (crt0) line records too
       if (n ~ /^__.*_(head|tail|size)$/) { s = n; sub(/^__/, "", s); sub(/_(head|tail|size)$/, "", s); if (s in keep) print; next }
       if (n ~ /^CRT_ORG_(CODE|BANK_10|BANK_10_L|BANK_10_H|PAGE_20|PAGE_21)$/) { print; next }
