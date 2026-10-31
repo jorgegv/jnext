@@ -88,6 +88,11 @@ VHDL arbiter switches on `cpu_a(15:13)` boundaries or coarser. It is the DATA
 view: the instruction at the PC may come from elsewhere, which is what
 `source_page(pc)` answers.
 
+A slot 2-7 holding NR >= 0xE0 reads nothing: `now` is `Floating`, but `space` is `Page{0xE5}`,
+which `space_tag()` would spell `PE5`, a tag `parse_space_tag()` refuses. So a view names a slot by
+`now`; none of the protocol outputs tags `space`, and a view that shows the slot's own source shows
+`FLOAT` for a page >= 0xE0.
+
 ### The long address
 
 `debug/long_address.h` (standard headers and `mem_space.h` only) is the one place

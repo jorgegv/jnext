@@ -102,12 +102,12 @@ reaches what the GDB protocol itself cannot express:
 | `monitor help` | lists these commands |
 | `monitor regs` | I, R, IFF1, IFF2, IM, HALT and MEMPTR, and the register pairs |
 | `monitor set i\|r\|iff1\|iff2\|im VALUE` | writes one of those |
-| `monitor mmu` | the eight MMU slots and the paging ports |
+| `monitor mmu` | the eight MMU slots and the paging ports. Each slot line ends with the memory the slot reads now (`P0A`, `ROM0`, `DIVROM`...), and on the Next its address in the machine's memory (`$048000`, `BRAM5+$0000`); the tags are the ones of [the trace log](06-the-trace-log.md) |
 | `monitor mmu SLOT PAGE` | maps a page at a slot, as `NEXTREG 0x50+SLOT` does |
 | `monitor nextreg [REG [VALUE]]` | all NextREGs, one, or writes one |
 | `monitor page N OFF [LEN]` | a hex dump of physical 8 KB page N |
 | `monitor in PORT` / `monitor out PORT VALUE` | a real port access — it can change the device's state, so both are refused while an RZX recording or playback is running |
-| `monitor sym NAME\|ADDR` | JNEXT's own symbol table (the debugger window's map); an address is named only by a label that is visible in the page mapped there now |
+| `monitor sym NAME\|ADDR` | JNEXT's own symbol table (the debugger window's map); an address is named only by a label that is visible in the page mapped there now, and the answer carries the tag of that memory (`$C004 P14 = banked+4`, `banked = $C000 P14`) |
 | `monitor time` | frame, cycle, T-states and the raster position |
 | `monitor reset [soft\|hard]` | resets the machine; it stays stopped |
 | `monitor bp` | every breakpoint and watchpoint, and who set it |

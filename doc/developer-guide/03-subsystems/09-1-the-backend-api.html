@@ -2589,6 +2589,10 @@ the slot's first byte. One value per slot is complete, because every arm of the
 VHDL arbiter switches on <code>cpu_a(15:13)</code> boundaries or coarser. It is the DATA
 view: the instruction at the PC may come from elsewhere, which is what
 <code>source_page(pc)</code> answers.</p>
+<p>A slot 2-7 holding NR &gt;= 0xE0 reads nothing: <code>now</code> is <code>Floating</code>, but <code>space</code> is <code>Page{0xE5}</code>,
+which <code>space_tag()</code> would spell <code>PE5</code>, a tag <code>parse_space_tag()</code> refuses. So a view names a slot by
+<code>now</code>; none of the protocol outputs tags <code>space</code>, and a view that shows the slot's own source shows
+<code>FLOAT</code> for a page &gt;= 0xE0.</p>
 <h3 id="the-long-address">The long address<a class="headerlink" href="#the-long-address" title="Permanent link">&para;</a></h3>
 <p><code>debug/long_address.h</code> (standard headers and <code>mem_space.h</code> only) is the one place
 a <code>MemSpace</code> is spelled for display: <code>space_tag()</code> gives the tag (<code>P0E</code>, <code>ROM1</code>,

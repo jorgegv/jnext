@@ -366,7 +366,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
-| The identity in every view; remote vocabularies | PARTIAL (E23-22 (#360) stage 1): `debug/long_address.h` (`space_tag()`, `parse_space_tag()`, `physical_text()`, `long_address()`), `SlotInfo::now`, `memory_reader()` reads the PC instruction as the CPU fetches it, the trace export prints `FETCH=<tag>`; the remote protocols and the Qt views are stages 2 and 3 | 4.6 | E23-22 (#360) |
+| The identity in every view; remote vocabularies | PARTIAL (E23-22 (#360) stage 1): `debug/long_address.h` (`space_tag()`, `parse_space_tag()`, `physical_text()`, `long_address()`), `SlotInfo::now`, `memory_reader()` reads the PC instruction as the CPU fetches it, the trace export prints `FETCH=<tag>`; stage 2 (remote) DONE: GDB `monitor mmu` / `monitor sym`, DZRP slot bytes, ZRCP `get-memory-pages` (4.6); the Qt views are stage 3 | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
@@ -613,6 +613,23 @@ form is `$` plus six hex digits of the SRAM address (`Page{n}` is SRAM page `n +
 half of bank 7) is SRAM, and Layer 2 always shows the SRAM copy. A non-Next machine shows the
 friendly form in either style. The trace export prints the tag whatever the GUI style (an export
 must not depend on a view setting).
+
+A slot 2 to 7 holding NR 0x50+ >= 0xE0 reads nothing (zxnext.vhd:3061): its `SlotInfo::now` is
+`Floating` (`FLOAT`), but its own `SlotInfo::space` is `Page{0xE5}`, which `space_tag()` would spell
+`PE5`, a tag the parser refuses. Decision (E23-22 stage 2): a view names a slot by `now`; no
+protocol output tags `space`; a view that must show the slot's own source (the Memory panel's Slot
+view, stage 3) shows `FLOAT` for a `Page` index >= 0xE0, never `PE5`. `parse_space_tag()` keeps
+refusing pages >= 0xE0.
+
+As built, remote (stage 2): GDB `monitor mmu` ends each slot line with `space_tag(now)` and, on the
+Next, the physical text of the slot's first byte (`slot 0: page FF (effective 00) ROM  DIVROM
+$010000`; the tag alone on other machines); `monitor sym ADDR` is `$C004 P14 = banked+4` (the tag of
+the memory the lookup used) and `monitor sym NAME` is `banked = $C000 P14` for a paged label.
+DZRP sends 0xFF for every ROM slot in `CMD_GET_REGISTERS` (a floating slot and an overlay keep the
+NR value). ZRCP `get-memory-pages` is named from `now`: `RO`, `O<2*image+half>`, `A<page>`,
+`SR<NR 0x04>`, `DIV` (also over a RAM-mapped slot; segment 0 on the legacy machines); overlays with no
+ZEsarUX spelling print the slot's own mapping; `MMU=` is unchanged. ZRCP `cpu-step-over` reads the
+opcode at the PC as the CPU fetches it.
 
 **Remote protocols** (owner decision on #360, 2026-10-18). Each carries as much of the identity
 as its existing vocabulary allows, and none is extended: no new commands, codes or fields on a

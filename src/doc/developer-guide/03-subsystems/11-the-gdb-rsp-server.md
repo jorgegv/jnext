@@ -37,6 +37,15 @@ client (gdb-rsp-frontend.md §12.5):
   running machine first and drop any owed reply, which would otherwise arrive
   where the client expects this packet's.
 
+## Naming the memory in `monitor`
+
+`monitor mmu` ends each slot line with `space_tag(SlotInfo::now)` (what the slot reads
+now, overlays included) and, on a Next-layout machine (`ZXN_ISSUE2`), the
+`physical_text()` of the slot's first byte, unless that equals the tag (`FLOAT`). Other machines
+print the tag alone. `monitor sym ADDR` prints the tag of `source_page(addr)`, the memory the
+lookup used; `monitor sym NAME` appends the label's own tag only when the label is paged.
+The text is `debug/long_address.h`'s, never composed here.
+
 ## Memory, registers, breakpoints
 
 `m`/`M`/`X` are the 64 KB CPU view. A write reports `E01` unless every byte

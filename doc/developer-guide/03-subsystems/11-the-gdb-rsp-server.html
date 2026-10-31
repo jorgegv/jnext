@@ -1509,6 +1509,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#naming-the-memory-in-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Naming the memory in monitor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#memory-registers-breakpoints" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2369,6 +2380,13 @@ client (gdb-rsp-frontend.md §12.5):</p>
   running machine first and drop any owed reply, which would otherwise arrive
   where the client expects this packet's.</li>
 </ul>
+<h2 id="naming-the-memory-in-monitor">Naming the memory in <code>monitor</code><a class="headerlink" href="#naming-the-memory-in-monitor" title="Permanent link">&para;</a></h2>
+<p><code>monitor mmu</code> ends each slot line with <code>space_tag(SlotInfo::now)</code> (what the slot reads
+now, overlays included) and, on a Next-layout machine (<code>ZXN_ISSUE2</code>), the
+<code>physical_text()</code> of the slot's first byte, unless that equals the tag (<code>FLOAT</code>). Other machines
+print the tag alone. <code>monitor sym ADDR</code> prints the tag of <code>source_page(addr)</code>, the memory the
+lookup used; <code>monitor sym NAME</code> appends the label's own tag only when the label is paged.
+The text is <code>debug/long_address.h</code>'s, never composed here.</p>
 <h2 id="memory-registers-breakpoints">Memory, registers, breakpoints<a class="headerlink" href="#memory-registers-breakpoints" title="Permanent link">&para;</a></h2>
 <p><code>m</code>/<code>M</code>/<code>X</code> are the 64 KB CPU view. A write reports <code>E01</code> unless every byte
 landed: <code>poke(Cpu)</code> returns the count <code>Mmu::write_landed()</code> says reached memory,

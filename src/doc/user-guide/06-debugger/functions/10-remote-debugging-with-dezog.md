@@ -70,6 +70,10 @@ where it stopped.
   stops the machine while DeZog has it running — you press Pause in the
   debugger window, or a magic breakpoint fires — DeZog is told it stopped, and
   why.
+- **A ROM slot is bank 0xFF.** The slot banks DeZog reads in `CMD_GET_REGISTERS` say
+  0xFF for every slot that reads ROM, including a slot 0 or 1 whose NextREG 0x50 or 0x51
+  holds 0xE0 to 0xFE (the Next reads ROM there). DZRP has no value for an overlay (DivMMC,
+  Layer 2, the Multiface) or for a slot where nothing answers, so those show the slot's NextREG value.
 - **One client at a time.** A second connection is closed straight away.
 - **Hands off during an RZX.** While an RZX recording or playback is running,
   DeZog cannot read or write a port, or change memory, a register, a memory

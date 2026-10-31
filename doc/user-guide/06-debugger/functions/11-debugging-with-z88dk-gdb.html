@@ -3815,7 +3815,7 @@ reaches what the GDB protocol itself cannot express:</p>
 </tr>
 <tr>
 <td><code>monitor mmu</code></td>
-<td>the eight MMU slots and the paging ports</td>
+<td>the eight MMU slots and the paging ports. Each slot line ends with the memory the slot reads now (<code>P0A</code>, <code>ROM0</code>, <code>DIVROM</code>...), and on the Next its address in the machine's memory (<code>$048000</code>, <code>BRAM5+$0000</code>); the tags are the ones of <a href="06-the-trace-log.html">the trace log</a></td>
 </tr>
 <tr>
 <td><code>monitor mmu SLOT PAGE</code></td>
@@ -3835,7 +3835,7 @@ reaches what the GDB protocol itself cannot express:</p>
 </tr>
 <tr>
 <td><code>monitor sym NAME\|ADDR</code></td>
-<td>JNEXT's own symbol table (the debugger window's map); an address is named only by a label that is visible in the page mapped there now</td>
+<td>JNEXT's own symbol table (the debugger window's map); an address is named only by a label that is visible in the page mapped there now, and the answer carries the tag of that memory (<code>$C004 P14 = banked+4</code>, <code>banked = $C000 P14</code>)</td>
 </tr>
 <tr>
 <td><code>monitor time</code></td>

@@ -338,7 +338,7 @@ and the zone numbering is ZEsarUX-internal.
 |---|---|---|---|
 | `get-registers` / `gr` | S | §1.4 format byte-for-byte; `MEMPTR` from `Z80Registers::MEMPTR`; `VPS: 0` constant (ZEsarUX's "video pause state", meaningless here — stated in `help`); `MMU=` as §2.3.1 | `CAP-INS-01`, `CAP-INS-03` |
 | `set-register NAME=VALUE` | S | names: all 8/16-bit registers incl. `'` forms, `I`, `R`, `PC`, `SP`, `IX`, `IY`, `IFF1`, `IFF2`; **and `IM`** (Divergence: ZEsarUX 12.0 cannot set IM [T4]; jnext can and does — `CAP-INS-01 set_register`); unknown → `Error changing register`; reply = full register line | `CAP-INS-01` |
-| `get-memory-pages [verbose]` | S | `RO RO A10 A11 A4 A5 A0 A1 ` — `RO` for a ROM slot, `A<page>` for RAM (`SlotInfo.is_rom/effective`) | `CAP-INS-03` |
+| `get-memory-pages [verbose]` | S | `RO RO A10 A11 A4 A5 A0 A1 ` for a Next at reset; as built (E23-22): per slot from `SlotInfo::now`: `RO` boot ROM, `O<n>` ROM, `A<page>`, `SR<n>`, `DIV` | `CAP-INS-03` |
 | `read-memory [addr] [len]` | S | `peek(Cpu)`; bare form = 64 KB; `len` beyond 64 KB wraps around the address space (ZEsarUX serves it too, [T1]; DeZog never asks for more than 64 KB per chunk) | `CAP-INS-02` |
 | `write-memory addr b…` / `write-memory-raw addr HEX` | S | `poke(Cpu)`; ROM silently unchanged (as ZEsarUX); a write that lands in ROM is *reported* in `help` as ignored, not on the wire (DeZog reads back after `write-memory` and shows the mismatch itself) | `CAP-INS-02` |
 | `hexdump addr len`, `get-crc32 addr len` | S | formats of §1.4; CRC-32 (IEEE) over `peek(Cpu)` | `CAP-INS-02` |
