@@ -14,25 +14,30 @@ entries, so it always holds the last 10 000 instructions.
 - **F3**, the `F3: Export Trace` button, or **Debug ▸ Trace ▸ Export Trace…**
   writes it to a text file, one instruction per line. `ROM=` is a hex mask of
   the slots that held ROM: bit 0 is slot 0, so `ROM=03` means slots 0 and 1.
-  `FETCH=kk:ii` (hex) names the memory the instruction itself was fetched from,
-  which a slot's page number cannot say when an overlay answers: `kk` is the
-  kind and `ii` its index (table below).
+  `FETCH=` names the memory the instruction itself was fetched from, which a
+  slot's page number cannot say when an overlay answers; it is one of the tags
+  in the table below.
 - `--trace` on the command line starts with it enabled.
 
 **F2** and **F3** are the defaults and can be rebound — see
 [Changing the keys](09-changing-the-keys.md).
 
-| `FETCH=` kind | Memory | Index |
-|---|---|---|
-| `01` | RAM page | the page number |
-| `02` | ROM | the ROM, 0 to 3 |
-| `03` | boot ROM | 0 |
-| `04` / `05` | Multiface ROM / RAM | 0 |
-| `06` / `07` | DivMMC ROM / RAM | 0 / the bank |
-| `08` | alternate ROM | 0 = 128K, 1 = 48K |
-| `09` | Layer 2 read mapping | the Layer 2 page |
-| `0A` | config mode | the NR 0x04 bank |
-| `0B` | floating bus | 0 |
+| `FETCH=` tag | Memory |
+|---|---|
+| `P0E` | RAM page 0x0E (two hex digits, 00 to DF) |
+| `ROM0` to `ROM3` | ROM image 0 to 3 |
+| `BOOT` | boot ROM |
+| `MFROM` / `MFRAM` | Multiface ROM / RAM |
+| `DIVROM` | DivMMC ROM |
+| `DIVRAM3` | DivMMC RAM bank 0 to 15 (decimal) |
+| `ALTROM0` / `ALTROM1` | alternate ROM: 0 = 128K, 1 = 48K |
+| `L2P12` | Layer 2 read mapping, Layer 2 page 0x12 |
+| `CFG17` | config mode, NR 0x04 bank 0x17 |
+| `FLOAT` | floating bus (no memory answers) |
+
+The tags are the same everywhere the debugger names a memory, so a tag in a
+trace line can be pasted into a script or a project file. The spelling is
+stable: capital letters and digits only, never changed between versions.
 
 An interrupt or NMI fetches no instruction; its line names the memory the
 interrupted instruction will come from.

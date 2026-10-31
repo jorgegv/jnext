@@ -354,7 +354,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
 | Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The breakpoint gate, the Breakpoints panel and the disassembly gutter use the `FetchSource` itself (E23-09 (#341)); only the Source tab's display string still reduces it to a RAM page through `ram_page_of()` (`debug/ram_page.h`), which is E23-22's | 4.1, 4.2, 4.4 | E23-07 (#339) |
-| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
+| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=<tag>` (E23-22, 4.6) | 4.3 | E23-08 (#340) |
 | Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
@@ -366,7 +366,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
-| The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
+| The identity in every view; remote vocabularies | PARTIAL (E23-22 (#360) stage 1): `debug/long_address.h` (`space_tag()`, `parse_space_tag()`, `physical_text()`, `long_address()`), `SlotInfo::now`, `memory_reader()` reads the PC instruction as the CPU fetches it, the trace export prints `FETCH=<tag>`; the remote protocols and the Qt views are stages 2 and 3 | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
@@ -602,6 +602,17 @@ split at the last `:`; skoolkit file names). E23-22 fixes them. The list on #360
 `ROM0` to `ROM3`, `ALTROM0`, `ALTROM1`, `DIVROM`, `DIVRAM3`, `MFROM`, `MFRAM`, `BOOT`, `L2P12`,
 `CFG` plus the page) is provisional until E23-08 has landed; E23-07 fixed the kinds and indices
 (4.1).
+
+As built (E23-22 stage 1, `debug/long_address.{h,cpp}`): `Page{n}` `P%02X`, `Rom{i}` `ROM%u`,
+`BootRom` `BOOT`, `MultifaceRom` `MFROM`, `MultifaceRam` `MFRAM`, `DivMmcRom` `DIVROM`,
+`DivMmcRam{b}` `DIVRAM%u` (decimal, 0 to 15), `AltRom{i}` `ALTROM%u`, `Layer2{p}` `L2P%02X`,
+`Config{b}` `CFG%02X`, `Floating` `FLOAT`, `Cpu` `CPU`. The parser is case-insensitive, strict
+about digits (no leading zero on a decimal index, a page is 0 to 0xDF, a ROM 0 to 3). The physical
+form is `$` plus six hex digits of the SRAM address (`Page{n}` is SRAM page `n + 0x20`), or
+`BRAM5+$XXXX` (pages 0x0A/0x0B), `BRAM7+$XXXX` (page 0x0E), `BOOT+$XXXX`; page 0x0F (the upper
+half of bank 7) is SRAM, and Layer 2 always shows the SRAM copy. A non-Next machine shows the
+friendly form in either style. The trace export prints the tag whatever the GUI style (an export
+must not depend on a view setting).
 
 **Remote protocols** (owner decision on #360, 2026-10-18). Each carries as much of the identity
 as its existing vocabulary allows, and none is extended: no new commands, codes or fields on a
