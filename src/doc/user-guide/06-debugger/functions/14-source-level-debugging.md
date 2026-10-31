@@ -246,7 +246,9 @@ path (`game/main.bas:120`) when two files share a name. A line the program
 compiled to several places (a routine in two banks, say) is ONE breakpoint,
 armed at each place and listed as one row, "main.bas:120 (2 locations)": Enabled,
 Edit and Remove act on all its places, and a click on the dot of one place in the
-disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A number wins over a symbol: `FE` or `B` is that
+disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A click in the Source tab's
+gutter sets or clears the same breakpoint on the line shown, and removing one place in the
+disassembly leaves a half mark on the Source tab's line. A number wins over a symbol: `FE` or `B` is that
 address even when the program has a variable called `FE` or `B`. Write `@FE`
 to mean the symbol. A breakpoint on a line of banked code is tied to
 the memory that supplies it (shown as `$C000 @2E` for a RAM page): it fires only
