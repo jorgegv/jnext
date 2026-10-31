@@ -1296,6 +1296,10 @@ loads, and stays pending until the guest runs the command, when it is
 checked (the command is loaded into DivMMC RAM by NextZXOS, which jnext
 does not know until it runs; see the User Guide).
 Any other map without \f[B]\-\-load\f[R] is refused (exit status 1).
+An RZX replay (\f[B]\-\-rzx\-play\f[R] \f[I]R\f[R], or
+\f[B]\-\-load\f[R] \f[I]R\f[R]\f[CR].rzx\f[R]) is the same case: a dot
+command\(cqs map attaches pending, any other map is refused at start\-up
+naming RZX (exit status 1).
 A map whose binary identity does not match the program, or that cannot
 be loaded, is a startup error (exit status 1).
 With a tape program (\f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R])

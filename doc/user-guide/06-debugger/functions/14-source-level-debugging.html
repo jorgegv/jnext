@@ -4093,7 +4093,7 @@ its map, built with <code>-debug</code>:</p>
 <li>Start JNEXT with the map and <strong>no</strong> <code>--load</code>: <code>jnext --source-map prog.map</code> (or <strong>Load
    Source Map...</strong> in the debugger). The map attaches at once and says <em>Source map not
    verified yet: it is checked when the dot command runs</em>.</li>
-<li>Set <code>dot.c:8</code> in the Breakpoints panel (or in a script), and type <code>.prog</code> at the NextZXOS
+<li>Set <code>dot.c:8</code> in the Breakpoints panel, and type <code>.prog</code> at the NextZXOS
    prompt. The machine stops inside the command, and the Source tab, <strong>Into / Over / Out</strong>
    and the Call Stack work in <code>dot.c</code> as for any program.</li>
 </ol>
@@ -4110,7 +4110,9 @@ pending again.</p>
 from <code>extra/PROG.X</code> by the command) is checked when it first runs (the crt needs <code>CLEAR
 32767</code> first). <code>-subtype=dotn</code> is not supported: its main bank is a set of pages NextZXOS
 allocates when the command runs, so the map cannot place them; build it as a dotx to debug it.
-Any other map without <code>--load</code> is refused (exit status 1).</p>
+Any other map without <code>--load</code> is refused (exit status 1). The same holds for an RZX replay
+(<code>--rzx-play R</code> or <code>--load R.rzx</code>): a dot command's map attaches pending as above, any other map is
+refused at start-up, saying so (exit status 1).</p>
 
 
 

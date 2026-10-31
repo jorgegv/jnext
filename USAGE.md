@@ -1151,11 +1151,14 @@ map of a z88dk dot command (`-subtype=dot`, `dotx`; built with
 stays pending until the guest runs the command, when it is checked (the
 command is loaded into DivMMC RAM by NextZXOS, which jnext does not know
 until it runs; see the User Guide). Any other map without **--load** is
-refused (exit status 1). A map whose binary identity does not match the
-program, or that cannot be loaded, is a startup error (exit status 1).
-With a tape program (`.tap`, `.tzx`, `.wav`) the map attaches at once
-and is checked the first time the program runs its code; a mismatch then
-drops it, and the run exits with status 1.
+refused (exit status 1). An RZX replay (**--rzx-play** *R*, or
+**--load** *R*`.rzx`) is the same case: a dot command’s map attaches
+pending, any other map is refused at start-up naming RZX (exit status
+1). A map whose binary identity does not match the program, or that
+cannot be loaded, is a startup error (exit status 1). With a tape
+program (`.tap`, `.tzx`, `.wav`) the map attaches at once and is checked
+the first time the program runs its code; a mismatch then drops it, and
+the run exits with status 1.
 
 **--source-dir** *DIR*  
 Also search *DIR* for the source files a source map names, in the Source

@@ -7255,6 +7255,23 @@ int main() {
                   c1 >= 5 && c2 >= 7 && t1 && f1 && t2 && f2 && n1.empty() && n2.empty(),
                   "dotx compared=" + std::to_string(c1) + n1 + " dot compared=" + std::to_string(c2) + n2);
         }
+        {   // SRCDOT-13 (review R5): a hand load paused inside the running command judges like a landing there
+            const auto loaded_at = [&](uint16_t pc, long flip) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                put_dot(m, dot_code, flip);
+                enter_dot_bank(m);
+                start_at(m, pc);
+                const auto r = m.dbg->load_source_map(dot_map, false);
+                return std::make_pair(r, m.dbg->source_map_status());
+            };
+            const auto inside  = loaded_at(kMain, -1);     // in bank 2, the bytes are the command's
+            const auto foreign = loaded_at(kMain, 0xD62);  // in bank 2, another command
+            const auto outside = loaded_at(0x6000, -1);    // not running it
+            check("SRCDOT-13", "a hand load made while the CPU runs inside the command (bank 2, matching bytes) is verified at once, as a landing there would be; "
+                               "with other bytes in the bank, or the CPU elsewhere, it attaches pending",
+                  inside.first.count > 0 && !inside.second.pending && inside.second.state == Debugger::SourceMapStatus::State::Attached &&
+                      foreign.second.pending && outside.second.pending);
+        }
     }
 
     fs::remove_all(dir);
