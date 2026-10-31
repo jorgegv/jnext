@@ -52,6 +52,7 @@
 #include "platform/config_keys.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/window_attach.h"
@@ -64,6 +65,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QFile>
+#include <QLabel>
 #include <QEventLoop>
 #include <QMainWindow>
 #include <QScreen>
@@ -811,9 +813,19 @@ static void test_physical_override(const QString& dir)
     const QString key = QString::fromStdString(config_keys::path(config_keys::KeyId::DebuggerPhysicalAddresses));
     const auto file_value = [&]() { QSettings s(conf, QSettings::IniFormat); return s.value(key).toString(); };
 
+    // What a window opened in the physical style SHOWS, without any toggle: the MMU panel's Memory
+    // cell of slot 2 (page 0x0A, the bank-5 BRAM) and a Breakpoints row's address text.
+    const auto shown = [](Fixture& f) {
+        bool mmu = false;
+        for (QLabel* l : f.dbg->findChildren<QLabel*>())
+            if (l->text() == QLatin1String("BRAM5+$0000")) mmu = true;
+        f.mgr->breakpoints().add(BreakpointModel::Execute, 0x8005, jnext::dbg::MemSpace::page(4));
+        const auto rows = f.mgr->breakpoints().rows();
+        return mmu && !rows.empty() && rows[0].addr_text == QLatin1String("$8005 $048005");
+    };
     wipe_dir(dir);
     { QSettings s(conf, QSettings::IniFormat); s.setValue(key, false); s.sync(); }
-    bool ok = true, physical = false, checked = false, friendly_after = false, reopened_physical = false;
+    bool ok = true, panels_physical = false, reopened_shown = false, physical = false, checked = false, friendly_after = false, reopened_physical = false;
     QString opened, saved, toggled_on, toggled_off;
     {
         Fixture fx(std::nullopt, true);
@@ -824,6 +836,7 @@ static void test_physical_override(const QString& dir)
                 if (a->text().remove(QLatin1Char('&')) == QLatin1String("Physical Addresses")) act = a;
             ok = ok && act;
             physical = fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical;
+            panels_physical = shown(fx);
             checked = act && act->isChecked();
             opened = file_value();
             fx.dbg->save_position();   // what a hide writes: the override is not the file's
@@ -842,11 +855,13 @@ static void test_physical_override(const QString& dir)
         Fixture fx;
         ok = ok && fx.ok;
         reopened_physical = fx.ok && fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical;
+        reopened_shown = fx.ok && shown(fx);
     }
     check("DWK-04", "a physical-addresses override opens the window in the physical style and a save leaves the file's "
-                    "value; toggling Physical Addresses then writes the toggled value at once, and a new window "
-                    "starts as the file says",
-          ok && physical && checked && opened == QLatin1String("false") && saved == QLatin1String("false") &&
+                    "value, and the panels and the Breakpoints rows show it at once, without a toggle; toggling Physical "
+                    "Addresses then writes the toggled value at once, and a new window starts as the file says "
+                    "(its panels too)",
+          ok && physical && panels_physical && reopened_shown && checked && opened == QLatin1String("false") && saved == QLatin1String("false") &&
               toggled_off == QLatin1String("false") && friendly_after && toggled_on == QLatin1String("true") &&
               reopened_physical,
           (opened + "|" + saved + "|" + toggled_off + "|" + toggled_on).toStdString());
