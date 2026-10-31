@@ -2056,70 +2056,6 @@ void test_call_stack_pages() {
           "pages " + std::to_string(fx.p80) + "/" + std::to_string(pc0) + " " + s(cell(cs, 0, 4)));
 }
 
-// ── GH #360: the Call Stack's memory columns, the Source tab's label ────
-
-void test_long_address_views() {
-    {   // QLADDR-08: the recorded identities, not the live page
-        Fixture fx(0, MachineType::ZXN_ISSUE2);
-        fx.enable();
-        fx.emu.mmu().set_boot_rom_enabled(false);
-        fx.emu.mmu().write(0x8003, 0x00);
-        fx.emu.mmu().write(0x8004, 0xC0);
-        fx.emu.mmu().write(0xC000, 0x00);
-        fx.emu.mmu().write(0xC001, 0xC9);
-        fx.emu.mmu().set_page(6, 20);
-        fx.backend->set_call_stack_enabled(true);
-        fx.backend->step_into(jnext::dbg::CLIENT_NONE);
-        fx.backend->step_into(jnext::dbg::CLIENT_NONE);
-        fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $C000, page 20 in slot 6
-        CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
-        if (cs) { cs->set_paused(true); cs->refresh(); }
-        const QString predicted = cell(cs, 0, 6);          // not fetched yet: the prediction
-        fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // the first fetch at the target records its memory
-        fx.emu.mmu().set_page(6, 21);                      // then the slot is paged on
-        if (cs) cs->refresh();
-        const QString caller = cell(cs, 0, 5), target = cell(cs, 0, 6);
-        if (cs) { cs->set_address_style(jnext::dbg::AddressStyle::Physical); cs->refresh(); }
-        const QString caller_phys = cell(cs, 0, 5), target_phys = cell(cs, 0, 6);
-        check("QLADDR-08",
-              "Call Stack: Caller memory and Target memory are the identities recorded (P04 and P14, the "
-              "target at its first fetch), not the live page 21 now in slot 6; before that fetch the "
-              "target shows the prediction; physical $048002 and $068000",
-              fx.p80 == 4 && fx.pc() == 0xC001 && predicted == "P14" && caller == "P04" && target == "P14" &&
-                  caller_phys == "$048002" && target_phys == "$068000",
-              s(predicted) + "|" + s(caller) + "|" + s(target) + "|" + s(caller_phys) + "|" + s(target_phys));
-    }
-    {   // QLADDR-10: the Source tab names the memory of the PC, in either style
-        Fixture fx(0, MachineType::ZXN_ISSUE2);
-        fx.enable();
-        fx.emu.mmu().set_boot_rom_enabled(false);
-        fx.load_map();
-        SourcePanel* sp = fx.dbg()->source_panel();
-        fx.mgr->refresh_panels();
-        const QString friendly = sp->location_text();
-        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Physical);
-        const QString physical = sp->location_text();
-        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Friendly);
-        // The unmapped PC at a DivMMC instant entry: DIVROM, not "ROM or overlay".
-        fx.emu.nextreg().write(0x0A, 0x10);
-        fx.emu.nextreg().write(0xB8, 0x01);
-        fx.emu.nextreg().write(0xB9, 0x01);
-        fx.emu.nextreg().write(0xBA, 0x01);
-        Z80Registers r = fx.emu.cpu().get_registers();
-        r.PC = 0x0000;
-        fx.emu.cpu().set_registers(r);
-        fx.mgr->refresh_panels();
-        const QString unmapped = sp->location_text();
-        check("QLADDR-10",
-              "Source tab: the label names the memory of the PC through the formatter: main.bas:10  $8000  "
-              "P04 (physical $048000), and $0000 (DIVROM): no source mapping at a DivMMC instant entry",
-              fx.p80 == 4 && friendly == QStringLiteral("main.bas:10  $8000  P04") &&
-                  physical == QStringLiteral("main.bas:10  $8000  $048000") &&
-                  unmapped == QStringLiteral("$0000 (DIVROM): no source mapping; use the disassembly"),
-              s(friendly) + "|" + s(physical) + "|" + s(unmapped));
-    }
-}
-
 // ── Paged symbol labels in the panels (GH #375) ────────────────────────
 // Two labels at $C000, assembled for pages 20 and 30. The tables below are the
 // test's own (set_symbol_table), so no loader is involved: what is under test
@@ -4595,6 +4531,108 @@ void test_z88dk_c_names_source() {
           s(menu_texts(*c_word).join("|")) + " / " + s(menu_texts(*asm_word).join("|")) + " / " +
               s(menu_texts(*main_word).join("|")));
     m.clear_all();
+}
+
+// ── GH #360: the Call Stack's memory columns, the Source tab's label ────
+
+void test_long_address_views() {
+    {   // QLADDR-08: the recorded identities, not the live page
+        Fixture fx(0, MachineType::ZXN_ISSUE2);
+        fx.enable();
+        fx.emu.mmu().set_boot_rom_enabled(false);
+        fx.emu.mmu().write(0x8003, 0x00);
+        fx.emu.mmu().write(0x8004, 0xC0);
+        fx.emu.mmu().write(0xC000, 0x00);
+        fx.emu.mmu().write(0xC001, 0xC9);
+        fx.emu.mmu().set_page(6, 20);
+        fx.backend->set_call_stack_enabled(true);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $C000, page 20 in slot 6
+        CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+        if (cs) { cs->set_paused(true); cs->refresh(); }
+        const QString predicted = cell(cs, 0, 6);          // not fetched yet: the prediction
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // the first fetch at the target records its memory
+        fx.emu.mmu().set_page(6, 21);                      // then the slots are paged on
+        fx.emu.mmu().set_page(4, 7);                       // (the caller's too)
+        if (cs) cs->refresh();
+        const QString caller = cell(cs, 0, 5), target = cell(cs, 0, 6);
+        if (cs) { cs->set_address_style(jnext::dbg::AddressStyle::Physical); cs->refresh(); }
+        const QString caller_phys = cell(cs, 0, 5), target_phys = cell(cs, 0, 6);
+        check("QLADDR-08",
+              "Call Stack: Caller memory and Target memory are the identities recorded (P04 and P14, the "
+              "target at its first fetch), not the live pages 7 and 21 now in slots 4 and 6; before that fetch the "
+              "target shows the prediction; physical $048002 and $068000",
+              fx.p80 == 4 && fx.pc() == 0xC001 && predicted == "P14" && caller == "P04" && target == "P14" &&
+                  caller_phys == "$048002" && target_phys == "$068000",
+              s(predicted) + "|" + s(caller) + "|" + s(target) + "|" + s(caller_phys) + "|" + s(target_phys));
+    }
+    {   // QLADDR-10: the Source tab names the memory of the PC, in either style
+        Fixture fx(0, MachineType::ZXN_ISSUE2);
+        fx.enable();
+        fx.emu.mmu().set_boot_rom_enabled(false);
+        fx.load_map();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        fx.mgr->refresh_panels();
+        const QString friendly = sp->location_text();
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Physical);
+        const QString physical = sp->location_text();
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Friendly);
+        // The unmapped PC at a DivMMC instant entry: DIVROM, not "ROM or overlay".
+        fx.emu.nextreg().write(0x0A, 0x10);
+        fx.emu.nextreg().write(0xB8, 0x01);
+        fx.emu.nextreg().write(0xB9, 0x01);
+        fx.emu.nextreg().write(0xBA, 0x01);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x0000;
+        fx.emu.cpu().set_registers(r);
+        fx.mgr->refresh_panels();
+        const QString unmapped = sp->location_text();
+
+        // Every place the tab prints goes through the style: the tooltip's places, the Copy with
+        // Addresses text and the Breakpoints rows (set through the window). Line 12 compiled into a
+        // page that is not mapped now: page 6 at $8005 is SRAM 0x04C005.
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Physical);
+        const std::string dir = g_tmp->path().toStdString();
+        const std::string pa = std::to_string(fx.p80), pb = std::to_string(fx.p80 + 2);
+        write_text(dir + "/far10.sld", std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
+                                           "main.bas|10||0|" + pa + "|32768|T|\n" + "main.bas|12||0|" + pb +
+                                           "|32773|T|\n");
+        fx.backend->load_source_map(dir + "/far10.sld", false);
+        BreakpointModel& bm = fx.mgr->breakpoints();
+        Z80Registers pcr = fx.emu.cpu().get_registers();
+        pcr.PC = 0x8000;
+        fx.emu.cpu().set_registers(pcr);
+        SrcView v(fx, bm);
+        v.sp->set_address_style(jnext::dbg::AddressStyle::Physical);
+        v.sp->refresh();
+        const QString tip_unplaced = v.sp->line_tooltip(12);
+        bm.add(BreakpointModel::Execute, 0x8005, pg(fx.p80 + 2));
+        const QString tip_hidden = v.sp->line_tooltip(12);
+        QTextCursor sel(v.ed->document()->findBlockByNumber(9));
+        sel.setPosition(v.ed->document()->findBlockByNumber(11).position() +
+                            v.ed->document()->findBlockByNumber(11).length() - 1,
+                        QTextCursor::KeepAnchor);
+        v.ed->setTextCursor(sel);
+        const QString copied = v.sp->selection_text_with_addresses();
+        const auto rows = bm.rows();
+        const QString row_text = rows.empty() ? QString() : rows[0].addr_text;
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Friendly);
+        check("QLADDR-10",
+              "Source tab: the label names the memory of the PC through the formatter: main.bas:10  $8000  "
+              "P04 (physical $048000), and $0000 (DIVROM): no source mapping at a DivMMC instant entry; the "
+              "tooltip, Copy with Addresses text and Breakpoints rows use the same style",
+              fx.p80 == 4 && friendly == QStringLiteral("main.bas:10  $8000  P04") &&
+                  physical == QStringLiteral("main.bas:10  $8000  $048000") &&
+                  unmapped == QStringLiteral("$0000 (DIVROM): no source mapping; use the disassembly") &&
+                  tip_unplaced == QStringLiteral("main.bas:12: code at $8005 $04C005, not mapped now; click to set") &&
+                  tip_hidden == QStringLiteral("main.bas:12: breakpoint at $8005 $04C005, not mapped now") &&
+                  copied == QStringLiteral("main.bas:10  $8000 $048000  REM line 10\nmain.bas:11  -  REM line 11\n"
+                                           "main.bas:12  $8005 $04C005  REM line 12\n") &&
+                  row_text == QStringLiteral("$8005 $04C005"),
+              s(friendly) + "|" + s(physical) + "|" + s(unmapped) + "|" + s(tip_unplaced) + "|" + s(tip_hidden) +
+                  "|" + s(copied) + "|" + s(row_text));
+    }
 }
 
 int main(int argc, char** argv) {
