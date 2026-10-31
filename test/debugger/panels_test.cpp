@@ -101,6 +101,7 @@
 #include <string>
 #include <vector>
 #include "../row_id.h"
+#include "dark_test_palette.h"
 
 namespace {
 
@@ -1834,17 +1835,6 @@ static void test_window_wiring() {
 // Oracle: the GH #363 owner report (unreadable tables in dark mode) and the
 // rule that a background under light text is dark (lightness < 100).
 // ===========================================================================
-static QPalette dark_test_palette() {
-    QPalette p;   // Fusion's dark roles that the panels read
-    for (auto g : {QPalette::Active, QPalette::Inactive}) {
-        p.setColor(g, QPalette::Window, QColor(0x32, 0x32, 0x32));
-        p.setColor(g, QPalette::WindowText, QColor(0xF0, 0xF0, 0xF0));
-        p.setColor(g, QPalette::Base, QColor(0x24, 0x24, 0x24));
-        p.setColor(g, QPalette::Text, QColor(0xF0, 0xF0, 0xF0));
-    }
-    return p;
-}
-
 static void test_dark_palette() {
     set_group("QDARK");
 

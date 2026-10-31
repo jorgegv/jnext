@@ -351,6 +351,8 @@ void DebuggerManager::ensure_window() {
     }
     if (auto* dp = debugger_window_->disasm_panel())
         dp->set_breakpoint_model(bp_model_);
+    if (auto* sp = debugger_window_->source_panel())   // GH #421: the BP column
+        sp->set_breakpoint_model(bp_model_);
     // GH #278 WP4c — a watch is a peek through the backend (§3.5).
     if (auto* wp = debugger_window_->watch_panel())
         wp->set_backend(&dbg_);

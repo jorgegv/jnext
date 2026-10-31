@@ -1,5 +1,8 @@
 #include "debugger/source_panel.h"
 
+#include "debugger/breakpoint_glyph.h"
+#include "debugger/breakpoint_model.h"
+#include "qt/palette_tint_qt.h"
 #include "debug/debugger.h"
 #include "debug/ram_page.h"
 #include "debug/source_search.h"
@@ -12,15 +15,220 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QCoreApplication>
+#include <QCursor>
+#include <QEvent>
+#include <QFontMetrics>
+#include <QMouseEvent>
+#include <QPaintEvent>
+#include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
+#include <QToolTip>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <utility>
+
+// GH #421 - the Source tab's editor: the stock read-only text view with a gutter
+// (`BP | Line`) in a viewport margin and a header strip above it, the canonical Qt
+// code-editor arrangement. A subclass because the geometry of the visible blocks
+// is protected. The marks themselves are SourcePanel's (line_mark()).
+namespace {
+
+class SourceEdit;
+
+class SourceGutter : public QWidget {
+public:
+    SourceGutter(SourceEdit* edit, QWidget* parent, SourcePanel* panel);
+protected:
+    void paintEvent(QPaintEvent* ev) override;
+    void mousePressEvent(QMouseEvent* ev) override;
+    void mouseMoveEvent(QMouseEvent* ev) override;
+private:
+    int line_at(const QMouseEvent* ev) const;
+    SourceEdit*  edit_;
+    SourcePanel* panel_;
+};
+
+class SourceGutterHeader : public QWidget {
+public:
+    SourceGutterHeader(SourceEdit* edit, QWidget* parent) : QWidget(parent), edit_(edit) {}
+protected:
+    void paintEvent(QPaintEvent*) override;
+private:
+    SourceEdit* edit_;
+};
+
+class SourceEdit : public QPlainTextEdit {
+public:
+    explicit SourceEdit(SourcePanel* panel, QWidget* parent) : QPlainTextEdit(parent), panel_(panel)
+    {
+        gutter_ = new SourceGutter(this, this, panel);
+        gutter_->setObjectName(QStringLiteral("source_gutter"));
+        gutter_->setAccessibleName(QCoreApplication::translate("SourcePanel", "Breakpoints and line numbers"));
+        header_ = new SourceGutterHeader(this, this);
+        header_->setObjectName(QStringLiteral("source_gutter_header"));
+        connect(this, &QPlainTextEdit::blockCountChanged, this, [this]() { update_margins(); });
+        connect(this, &QPlainTextEdit::updateRequest, this, [this](const QRect& r, int dy) {
+            if (dy) gutter_->scroll(0, dy);
+            else    gutter_->update(0, r.y(), gutter_->width(), r.height());
+        });
+        update_margins();
+    }
+
+    QFont header_font() const
+    {
+        QFont f = font();
+        f.setBold(true);
+        f.setPointSize(8);
+        return f;
+    }
+    int header_height() const { return QFontMetrics(header_font()).height() + 4; }
+    int gutter_width() const
+    {
+        const int digits = std::max(3, QString::number(blockCount()).size());
+        const int numbers = fontMetrics().horizontalAdvance(QString(digits, QLatin1Char('9')));
+        const int title = QFontMetrics(header_font()).horizontalAdvance(QStringLiteral("Line"));
+        return kBreakpointColumnWidth + 4 + std::max(numbers, title) + 6;
+    }
+    void update_margins()
+    {
+        setViewportMargins(gutter_width(), header_height(), 0, 0);
+        place_children();
+        gutter_->update();
+        header_->update();
+    }
+    void update_gutter() { gutter_->update(); }
+
+    /// The one-based line under viewport-local `y`, or 0.
+    int line_at(int y) const
+    {
+        QTextBlock b = firstVisibleBlock();
+        qreal top = blockBoundingGeometry(b).translated(contentOffset()).top();
+        for (; b.isValid(); b = b.next()) {
+            if (y < top) return 0;
+            const qreal h = blockBoundingRect(b).height();
+            if (y < top + h) return b.blockNumber() + 1;
+            top += h;
+        }
+        return 0;
+    }
+
+    void paint_gutter(QPaintEvent* ev)
+    {
+        QPainter p(gutter_);
+        const QPalette pal = palette();
+        p.fillRect(ev->rect(), palette_tint::surface(pal, QColor(255, 255, 255)));
+        p.setPen(palette_tint::surface(pal, QColor(200, 200, 200)));
+        p.drawLine(kBreakpointColumnWidth, ev->rect().top(), kBreakpointColumnWidth, ev->rect().bottom());
+        p.drawLine(gutter_->width() - 1, ev->rect().top(), gutter_->width() - 1, ev->rect().bottom());
+        if (panel_->shown_file().empty()) return;
+        p.setFont(font());
+        QTextBlock block = firstVisibleBlock();
+        qreal top = blockBoundingGeometry(block).translated(contentOffset()).top();
+        while (block.isValid() && top <= ev->rect().bottom()) {
+            const qreal h = blockBoundingRect(block).height();
+            if (block.isVisible() && top + h >= ev->rect().top()) {
+                const int line = block.blockNumber() + 1;
+                using LM = SourcePanel::LineMark;
+                const LM mark = panel_->line_mark(line);
+                if (mark != LM::None)
+                    paint_breakpoint_glyph(p, QPoint(kBreakpointColumnWidth / 2, int(top + h / 2)),
+                                           mark == LM::Armed || mark == LM::PartArmed,
+                                           mark == LM::PartArmed || mark == LM::PartSuspended);
+                p.setPen(palette_tint::ink(pal, QColor(100, 100, 100)));
+                p.drawText(QRect(kBreakpointColumnWidth + 4, int(top),
+                                 gutter_->width() - kBreakpointColumnWidth - 4 - 6, int(h)),
+                           Qt::AlignRight | Qt::AlignVCenter, QString::number(line));
+            }
+            top += h;
+            block = block.next();
+        }
+    }
+
+    void paint_header()
+    {
+        QPainter p(header_);
+        const QPalette pal = palette();
+        p.fillRect(header_->rect(), palette_tint::surface(pal, QColor(255, 255, 255)));
+        p.setFont(header_font());
+        p.setPen(palette_tint::ink(pal, QColor(80, 80, 80)));
+        const int h = header_->height();
+        p.drawText(QRect(2, 0, kBreakpointColumnWidth - 2, h), Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("BP"));
+        p.drawText(QRect(kBreakpointColumnWidth + 4, 0, header_->width() - kBreakpointColumnWidth - 4, h),
+                   Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Line"));
+        p.setPen(palette_tint::surface(pal, QColor(200, 200, 200)));
+        p.drawLine(kBreakpointColumnWidth, 0, kBreakpointColumnWidth, h);
+        p.drawLine(header_->width() - 1, 0, header_->width() - 1, h);
+    }
+
+protected:
+    void resizeEvent(QResizeEvent* ev) override
+    {
+        QPlainTextEdit::resizeEvent(ev);
+        place_children();
+    }
+    void changeEvent(QEvent* ev) override
+    {
+        QPlainTextEdit::changeEvent(ev);
+        if (ev->type() == QEvent::FontChange && gutter_) update_margins();
+    }
+
+private:
+    void place_children()
+    {
+        const QRect cr = contentsRect();
+        const int w = gutter_width();
+        gutter_->setGeometry(QRect(cr.left(), viewport()->geometry().top(), w, viewport()->height()));
+        header_->setGeometry(QRect(cr.left(), cr.top(), w, header_height()));
+    }
+
+    SourcePanel* panel_;
+    QWidget* gutter_ = nullptr;
+    QWidget* header_ = nullptr;
+};
+
+SourceGutter::SourceGutter(SourceEdit* edit, QWidget* parent, SourcePanel* panel)
+    : QWidget(parent), edit_(edit), panel_(panel)
+{
+    setMouseTracking(true);
+}
+
+void SourceGutter::paintEvent(QPaintEvent* ev) { edit_->paint_gutter(ev); }
+
+int SourceGutter::line_at(const QMouseEvent* ev) const
+{
+    // Qt5/Qt6 (GH #108): position() is Qt6 API; Qt 5.15 spells it localPos().
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPointF pos = ev->position();
+#else
+    const QPointF pos = ev->localPos();
+#endif
+    return panel_->shown_file().empty() ? 0 : edit_->line_at(static_cast<int>(pos.y()));
+}
+
+void SourceGutter::mousePressEvent(QMouseEvent* ev)
+{
+    if (ev->button() != Qt::LeftButton) return;   // the context menu is GH #423's
+    const int line = line_at(ev);
+    if (line > 0) panel_->toggle_breakpoint_at_line(line);
+}
+
+void SourceGutter::mouseMoveEvent(QMouseEvent* ev)
+{
+    const int line = line_at(ev);
+    setToolTip(line > 0 ? panel_->line_tooltip(line) : QString());
+}
+
+void SourceGutterHeader::paintEvent(QPaintEvent*) { edit_->paint_header(); }
+
+}  // namespace
 
 SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent), dbg_(dbg)
@@ -84,7 +292,7 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     location_label_->setWordWrap(true);
     layout->addWidget(location_label_);
 
-    editor_ = new QPlainTextEdit(this);
+    editor_ = new SourceEdit(this, this);
     editor_->setReadOnly(true);
     editor_->setLineWrapMode(QPlainTextEdit::NoWrap);
     QFont mono("Monospace", 10);
@@ -149,6 +357,7 @@ void SourcePanel::show_message(const QString& message)
 {
     location_label_->setText(message);
     location_label_->setToolTip(QString());
+    shown_file_.clear();
     if (!loaded_source_.isEmpty()) {
         editor_->clear();
         loaded_source_.clear();
@@ -183,6 +392,12 @@ void SourcePanel::update_buttons(bool paused)
 }
 
 void SourcePanel::refresh()
+{
+    refresh_();
+    update_gutter();   // the marks follow the memory mapped now
+}
+
+void SourcePanel::refresh_()
 {
     if (!dbg_) return;
     set_unresolved({});
@@ -259,6 +474,7 @@ void SourcePanel::refresh()
         loaded_mtime_ = mtime;
         placed_ = false;   // a new text, or another file, starts at its top
     }
+    shown_file_ = location->file;
 
     location_label_->setToolTip(source_path);
     // GH #420 - a line past the end of the file found: it is not the text the build used.
@@ -302,4 +518,137 @@ void SourcePanel::refresh()
         placed_pc_ = pc;
     }
     highlighted_line_ = location->line;
+}
+
+// ── GH #421: the gutter ──────────────────────────────────────────────────
+
+void SourcePanel::update_gutter() { static_cast<SourceEdit*>(editor_)->update_gutter(); }
+
+void SourcePanel::set_breakpoint_model(BreakpointModel* model)
+{
+    if (bp_model_) disconnect(bp_model_, nullptr, this, nullptr);
+    bp_model_ = model;
+    // Repaint on any change of the GUI's execute breakpoints, however made (the
+    // model notifies its own mutations synchronously, another client's on its sync).
+    if (bp_model_)
+        connect(bp_model_, &BreakpointModel::changed, this, [this](uint32_t kinds) {
+            if (kinds & jnext::dbg::kind_bit(jnext::dbg::EventKind::Execute)) update_gutter();
+        });
+    update_gutter();
+}
+
+// What the BP column derives for one line L of the file shown, F.
+//  - starts: where the map says L begins (an alias line shares its target's);
+//  - placed: those starts the memory mapped NOW supplies;
+//  - drawn: this GUI's execute breakpoints the Disassembly would draw at an address
+//    of L (a logical one, or one tied to the memory supplying it now) that either
+//    sit on a placed start or on any instruction whose primary line is L;
+//  - hidden: breakpoints tied to exactly a start whose page is not mapped now.
+struct SourcePanel::LineState {
+    std::string file;
+    std::string error;
+    std::vector<SourceAddress> starts, placed;
+    std::vector<BreakpointModel::PcBreakpoint> drawn, hidden;
+    int armed = 0;   // placed starts carrying a drawn breakpoint
+};
+
+SourcePanel::LineState SourcePanel::line_state(int line) const
+{
+    LineState st;
+    BreakpointModel* bps = bp_model_.data();
+    if (!dbg_ || !bps || shown_file_.empty() || line < 1) return st;
+    st.file = shown_file_;
+    const SourceMap& map = dbg_->source_map();
+    const SourceResolution res = map.resolve(shown_file_ + ":" + std::to_string(line));
+    st.starts = res.starts;
+    st.error = res.error;
+    for (const SourceAddress& s : st.starts)
+        if (dbg_->source_page(s.address) == s.space) st.placed.push_back(s);
+    for (const BreakpointModel::PcBreakpoint& m : bps->pc_breakpoints()) {
+        const jnext::dbg::MemSpace sp = dbg_->source_page(m.addr);
+        if (m.space == jnext::dbg::MemSpace::cpu() || m.space == sp) {
+            bool on_line = std::any_of(st.placed.begin(), st.placed.end(), [&](const SourceAddress& s) {
+                return s.address == m.addr;
+            });
+            if (!on_line) {
+                const SourceLocation* loc = map.lookup(sp, m.addr);
+                on_line = loc && loc->line == line && loc->file == shown_file_;
+            }
+            if (on_line) {
+                st.drawn.push_back(m);
+                continue;
+            }
+        }
+        for (const SourceAddress& s : st.starts)
+            if (s.address == m.addr && s.space == m.space && dbg_->source_page(s.address) != s.space)
+                st.hidden.push_back(m);
+    }
+    for (const SourceAddress& p : st.placed)
+        if (std::any_of(st.drawn.begin(), st.drawn.end(),
+                        [&](const BreakpointModel::PcBreakpoint& m) { return m.addr == p.address; }))
+            ++st.armed;
+    return st;
+}
+
+SourcePanel::LineMark SourcePanel::line_mark(int line) const
+{
+    const LineState st = line_state(line);
+    if (st.drawn.empty()) return LineMark::None;
+    const bool live = std::any_of(st.drawn.begin(), st.drawn.end(),
+                                  [](const BreakpointModel::PcBreakpoint& m) { return m.live; });
+    const bool full = !st.placed.empty() && st.armed == static_cast<int>(st.placed.size());
+    if (full) return live ? LineMark::Armed : LineMark::Suspended;
+    return live ? LineMark::PartArmed : LineMark::PartSuspended;
+}
+
+QString SourcePanel::line_tooltip(int line) const
+{
+    const LineState st = line_state(line);
+    if (st.file.empty()) return QString();
+    const QString where = QString::fromStdString(st.file) + QLatin1Char(':') + QString::number(line);
+    auto list = [](const std::vector<BreakpointModel::PcBreakpoint>& v) {
+        QStringList parts;
+        for (const auto& m : v) parts << BreakpointModel::address_text(m.addr, m.space);
+        return parts.join(QStringLiteral(", "));
+    };
+    const LineMark mark = line_mark(line);
+    if (mark != LineMark::None) {
+        const bool suspended = mark == LineMark::Suspended || mark == LineMark::PartSuspended;
+        const bool partial = mark == LineMark::PartArmed || mark == LineMark::PartSuspended;
+        QString text = where + QStringLiteral(": ") +
+                       (suspended ? tr("suspended breakpoint at %1") : tr("breakpoint at %1")).arg(list(st.drawn));
+        if (partial)
+            text += tr(" (%1 of %2 places)").arg(st.armed).arg(st.placed.size());
+        return text;
+    }
+    if (st.starts.empty())
+        return st.error.empty() ? tr("no code at %1").arg(where) : QString::fromStdString(st.error);
+    if (!st.hidden.empty())
+        return where + QStringLiteral(": ") + tr("breakpoint at %1, not mapped now").arg(list(st.hidden));
+    if (st.placed.empty())
+        return where + QStringLiteral(": ") +
+               tr("code at %1, not mapped now; click to set")
+                   .arg(BreakpointModel::address_text(st.starts[0].address, st.starts[0].space));
+    return where + QStringLiteral(": ") + tr("no breakpoint; click to set");
+}
+
+void SourcePanel::toggle_breakpoint_at_line(int line)
+{
+    BreakpointModel* bps = bp_model_.data();
+    if (!bps || shown_file_.empty() || line < 1 || line > editor_->document()->blockCount()) return;
+    const LineState st = line_state(line);
+    std::vector<BreakpointModel::PcBreakpoint> remove = st.drawn;
+    remove.insert(remove.end(), st.hidden.begin(), st.hidden.end());
+    if (!remove.empty()) {
+        for (const auto& m : remove) bps->remove(BreakpointModel::Execute, m.addr, m.space);
+        return;
+    }
+    const QString where = QString::fromStdString(shown_file_) + QLatin1Char(':') + QString::number(line);
+    if (st.starts.empty() || bps->add_source_line(where) == jnext::dbg::GROUP_NONE) {
+        const QString why = st.error.empty() ? tr("no code at %1").arg(where) : QString::fromStdString(st.error);
+        if (QWidget* g = editor_->findChild<QWidget*>(QStringLiteral("source_gutter"))) {
+            g->setToolTip(why);
+            QToolTip::showText(QCursor::pos(), why, g);
+        }
+    }
 }
