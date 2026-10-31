@@ -1166,7 +1166,8 @@ dir; on master only a temporary one in `$TMPDIR` that zcc deletes):
   `F<module>$`, `L<module>.` carry it): equal one for one, 16 = 16 on four sdcc builds. The
   map has the real name where the `.adb` has the temporary one. The rename covers only `/`
   (`zcc.c:2052-2053`; sdcc mangles every non-alphanumeric, `SDCCmain.c:1719-1720`), so a
-  `TMPDIR` with other such characters leaves the temporary name in the map (#353 scope keys).
+  `TMPDIR` with non-alphanumerics other than `/` and `_` (sdcc leaves `_` as is) leaves the
+  temporary name in the map (#353 scope keys).
   Line addresses come from the map's `__C_LINE_` (E23-13) and the `.lis` (E23-17).
 - So a `SourceMap` adapter has nothing to read. The CDB-record reader is #353's (`VariableStore`),
   fed from the map.
