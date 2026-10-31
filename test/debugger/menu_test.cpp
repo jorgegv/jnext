@@ -110,6 +110,7 @@
 #include "gui/main_window.h"
 #include "gui/preferences_dialog.h"
 #include "debug/source_search.h"
+#include "debugger/source_highlighter.h"
 #include "debugger/source_panel.h"
 #include "input/emu_fnkeys.h"
 #include "memory/mmu.h"
@@ -2927,6 +2928,148 @@ static void test_source_dirs_wiring()
                           "box: neither Apply nor OK pushes the list or writes jnext.conf, and OK leaves the dialog open",
               found && nothing_applied && saved_text() == QLatin1String("/saved/one") && warning.contains(bad),
               detail);
+    }
+
+    // GH #422 stage 2: the Source tab's colour scheme, from the file to the panel.
+    auto scheme_of = [](DebuggerManager* mgr) -> SourceScheme {
+        DebuggerWindow* dw = mgr ? mgr->debugger_window_ptr() : nullptr;
+        SourcePanel* sp = dw ? dw->source_panel() : nullptr;
+        auto* hl = sp ? sp->findChild<SourceHighlighter*>() : nullptr;
+        return hl ? hl->scheme() : static_cast<SourceScheme>(255);
+    };
+    auto write_scheme = [&](const QString& word) {
+        QSettings raw(conf, QSettings::IniFormat);
+        raw.clear();
+        raw.setValue("source/colour_scheme", word);
+        raw.sync();
+    };
+    auto saved_scheme = [&]() {
+        QSettings f(conf, QSettings::IniFormat);
+        return f.value("source/colour_scheme").toString();
+    };
+
+    // MWSRC-07 - the manager and the Source tab get the scheme, with the window before or after.
+    {
+        write_scheme(QString());
+        bool manager = false, window_after = false, live = false, later = false;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData cfg = fx.win.app_config().data();
+                cfg.source_scheme = SourceScheme::Borland;
+                fx.win.apply_startup_config(cfg);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                manager = mgr->source_scheme() == SourceScheme::Borland;
+                mgr->set_enabled(true);   // the window is created after the call
+                window_after = scheme_of(mgr) == SourceScheme::Borland;
+                cfg.source_scheme = SourceScheme::Dark;
+                fx.win.apply_startup_config(cfg);   // the window exists now
+                live = scheme_of(mgr) == SourceScheme::Dark;
+            }
+        }
+        {
+            Emulator emu;
+            if (build_next_emulator(emu)) {
+                jnext::dbg::Debugger backend(emu);
+                MainWindow win;
+                AppConfigData cfg = win.app_config().data();
+                cfg.source_scheme = SourceScheme::Light;
+                win.apply_startup_config(cfg);   // before the manager exists
+                win.set_debugger(&backend);
+                win.set_emulator(&emu);
+                later = win.debugger_manager() && win.debugger_manager()->source_scheme() == SourceScheme::Light;
+                if (win.debugger_manager()) win.debugger_manager()->set_enabled(false, false);
+            }
+        }
+        check("MWSRC-07", "apply_startup_config() hands the Source tab's colour scheme to the manager and to a "
+                          "debugger window created after the call or already open, and to a manager created later",
+              manager && window_after && live && later,
+              "manager=" + std::to_string(manager) + " after=" + std::to_string(window_after) +
+                  " live=" + std::to_string(live) + " later=" + std::to_string(later));
+    }
+
+    // MWSRC-08 - Preferences > Debugger: the combo lists the four schemes, shows the saved one, and OK applies and saves.
+    {
+        write_scheme(QStringLiteral("borland"));
+        bool found = false, items_ok = false, shown_ok = false, applied = false;
+        QString saved;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                mgr->set_enabled(true);
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* combo = dlg ? dlg->findChild<QComboBox*>(QStringLiteral("sourceSchemeCombo")) : nullptr;
+                    if (!combo) { if (dlg) dlg->reject(); return; }
+                    found = true;
+                    items_ok = combo->count() == 4;
+                    for (int i = 0; i < 4 && items_ok; ++i) items_ok = combo->itemData(i).toInt() == i;
+                    shown_ok = combo->currentData().toInt() == static_cast<int>(SourceScheme::Borland);
+                    combo->setCurrentIndex(combo->findData(static_cast<int>(SourceScheme::Dark)));
+                    dlg->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                saved = saved_scheme();
+                DebuggerWindow* dw = mgr->debugger_window_ptr();
+                SourcePanel* sp = dw ? dw->source_panel() : nullptr;
+                auto* hl = sp ? sp->findChild<SourceHighlighter*>() : nullptr;
+                applied = hl && hl->scheme_in_force() == SourceScheme::Dark;
+                detail = "saved=" + saved.toStdString();
+            }
+        }
+        check("MWSRC-08", "Preferences > Debugger has a Source tab colours combo with Auto, Light, Dark and "
+                          "Borland in that order showing the saved one; Dark + OK writes source/colour_scheme=dark "
+                          "and the Source tab is Dark at once",
+              found && items_ok && shown_ok && saved == QLatin1String("dark") && applied, detail);
+    }
+
+    // MWSRC-09 - a command-line scheme is for the run only.
+    {
+        write_scheme(QStringLiteral("light"));
+        bool tab_borland = false, file_kept = false, combo_light = false, found = false;
+        std::string detail;
+        {
+            MainWindowFixture fx;
+            if (fx.ok) {
+                AppConfigData session = fx.win.app_config().data();
+                session.source_scheme = SourceScheme::Borland;   // as main.cpp builds it from --set source.colour_scheme=borland
+                fx.win.apply_startup_config(session);
+                DebuggerManager* mgr = fx.win.debugger_manager();
+                mgr->set_enabled(true);
+                tab_borland = scheme_of(mgr) == SourceScheme::Borland;
+                fx.win.set_startup_load("/x/c.nex", "/x/c.nex");
+                fx.win.startup_rzx_started("/x/c.nex");         // an unrelated save of jnext.conf
+                file_kept = saved_scheme() == QLatin1String("light");
+                QAction* prefs = nullptr;
+                for (QAction* a : fx.win.findChildren<QAction*>())
+                    if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences"))) prefs = a;
+                QTimer::singleShot(0, &fx.win, [&]() {
+                    auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+                    auto* combo = dlg ? dlg->findChild<QComboBox*>(QStringLiteral("sourceSchemeCombo")) : nullptr;
+                    if (combo) {
+                        found = true;
+                        combo_light = combo->currentData().toInt() == static_cast<int>(SourceScheme::Light);
+                    }
+                    if (dlg) dlg->reject();
+                });
+                QTimer::singleShot(4000, &fx.win, []() {
+                    if (QWidget* w = QApplication::activeModalWidget()) w->close();
+                });
+                if (prefs) prefs->trigger();
+                detail = "file=" + saved_scheme().toStdString();
+            }
+        }
+        check("MWSRC-09", "a command-line colour scheme governs the run: the Source tab is Borland, an unrelated "
+                          "save leaves source/colour_scheme=light in jnext.conf, and Preferences shows Light",
+              tab_borland && file_kept && found && combo_light, detail);
     }
     if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
 }

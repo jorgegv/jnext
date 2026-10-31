@@ -86,6 +86,8 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <cmath>
+#include <vector>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -5006,6 +5008,43 @@ void test_source_highlight_classes() {
     }
 }
 
+// ── QSRC-195..199: colour schemes (GH #422 stage 2) ──
+
+// WCAG 2.1 relative luminance and contrast ratio (SC 1.4.3 / 1.4.11).
+double wcag_lum(const QColor& c) {
+    auto lin = [](int v) {
+        const double s = v / 255.0;
+        return s <= 0.03928 ? s / 12.92 : std::pow((s + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * lin(c.red()) + 0.7152 * lin(c.green()) + 0.0722 * lin(c.blue());
+}
+double contrast(const QColor& a, const QColor& b) {
+    const double la = wcag_lum(a), lb = wcag_lum(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+// CIE 1976 L*a*b* (D65) and the CIE76 colour difference.
+double delta_e76(const QColor& a, const QColor& b) {
+    auto lab = [](const QColor& c, double out[3]) {
+        auto lin = [](int v) {
+            const double s = v / 255.0;
+            return s <= 0.04045 ? s / 12.92 : std::pow((s + 0.055) / 1.055, 2.4);
+        };
+        const double r = lin(c.red()), g = lin(c.green()), bl = lin(c.blue());
+        const double x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * bl) / 0.95047;
+        const double y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * bl;
+        const double z = (0.0193339 * r + 0.1191920 * g + 0.9503041 * bl) / 1.08883;
+        auto f = [](double t) { return t > 216.0 / 24389.0 ? std::cbrt(t) : (24389.0 / 27.0 * t + 16.0) / 116.0; };
+        out[0] = 116.0 * f(y) - 16.0;
+        out[1] = 500.0 * (f(x) - f(y));
+        out[2] = 200.0 * (f(y) - f(z));
+    };
+    double la[3], lb[3];
+    lab(a, la);
+    lab(b, lb);
+    return std::sqrt((la[0] - lb[0]) * (la[0] - lb[0]) + (la[1] - lb[1]) * (la[1] - lb[1]) +
+                     (la[2] - lb[2]) * (la[2] - lb[2]));
+}
+
 void test_source_highlight_panel() {
     const std::string tmp = g_tmp->path().toStdString();
     {   // QSRC-134
@@ -5262,6 +5301,280 @@ void test_source_highlight_panel() {
     }
 }
 
+// ── QSRC-195..199 ──
+
+void test_source_highlight_schemes() {
+    using R = SourceHighlighter::Role;
+    using SC = SourceHighlighter::SchemeColours;
+    auto rc = [](const SC& c, R r) { return c.role[static_cast<int>(r)]; };
+    {   // QSRC-195
+        // Oracle: the owner's colours (issue #422 comment 6548350574) for Borland C++ 3.1; WCAG 2.1
+        // SC 1.4.3 / 1.4.11 for the legibility rule; CIE 1976 L*a*b* for the distinctness rule.
+        const SC& light = SourceHighlighter::scheme_colours(SourceScheme::Light);
+        const SC& dark = SourceHighlighter::scheme_colours(SourceScheme::Dark);
+        const SC& bor = SourceHighlighter::scheme_colours(SourceScheme::Borland);
+        std::string bad;
+        // Literal values.
+        auto is = [&](const QColor& c, const char* hex) { return c == QColor(QLatin1String(hex)); };
+        if (!(is(bor.background, "#0000A8") && is(bor.text, "#FFFF57") && is(rc(bor, R::Keyword), "#FFFFFF") &&
+              is(rc(bor, R::Instruction), "#FFFFFF") && is(rc(bor, R::Preprocessor), "#57FF57") &&
+              is(rc(bor, R::Label), "#FFFF57") && is(rc(bor, R::String), "#57FFFF") &&
+              is(rc(bor, R::Char), "#57FFFF") && is(rc(bor, R::Integer), "#57FFFF") &&
+              is(rc(bor, R::Float), "#57FFFF") && is(rc(bor, R::Comment), "#A8A8A8") &&
+              is(bor.pc_background, "#A8A8A8") && is(bor.pc_text, "#0000A8")))
+            bad += "borland ";
+        if (!(is(light.background, "#FFFFFF") && is(light.text, "#000000") && is(rc(light, R::Keyword), "#0000C0") &&
+              is(rc(light, R::Instruction), "#006E6E") && is(rc(light, R::Preprocessor), "#800080") &&
+              is(rc(light, R::Label), "#795E26") && is(rc(light, R::String), "#A31515") &&
+              is(rc(light, R::Char), "#C2185B") && is(rc(light, R::Integer), "#A05000") &&
+              is(rc(light, R::Float), "#3949AB") && is(rc(light, R::Comment), "#008000") &&
+              is(light.pc_background, "#1E5AA8") && is(light.pc_text, "#FFFFFF")))
+            bad += "light ";
+        // Dark: ink() of the Light colours over a dark palette with Window = Base = #242424 and
+        // WindowText = Text = #F0F0F0, written out here independently of the implementation.
+        QPalette p;
+        p.setColor(QPalette::Window, QColor(0x24, 0x24, 0x24));
+        p.setColor(QPalette::WindowText, QColor(0xF0, 0xF0, 0xF0));
+        p.setColor(QPalette::Base, QColor(0x24, 0x24, 0x24));
+        p.setColor(QPalette::Text, QColor(0xF0, 0xF0, 0xF0));
+        for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+            if (dark.role[r] != palette_tint::ink(p, light.role[r])) bad += "dark_role" + std::to_string(r) + " ";
+        if (!(is(dark.background, "#242424") && is(dark.text, "#F0F0F0") && is(dark.pc_background, "#3D72AA") &&
+              is(dark.pc_text, "#FFFFFF")))
+            bad += "dark_fixed ";
+        // The rules, for every scheme, with the shared groups declared per scheme.
+        struct Entry { const SC* c; const char* name; std::vector<std::vector<R>> shared; };
+        const Entry entries[] = {
+            {&light, "light", {}},
+            {&dark, "dark", {}},
+            {&bor, "borland", {{R::Text, R::Label}, {R::Keyword, R::Instruction},
+                               {R::String, R::Char, R::Integer, R::Float}}}};
+        for (const Entry& e : entries) {
+            const SC& c = *e.c;
+            if (c.role[0] != c.text) bad += std::string(e.name) + ":text ";
+            for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+                if (contrast(c.role[r], c.background) < 4.5) bad += std::string(e.name) + ":R1(" + std::to_string(r) + ") ";
+            if (contrast(c.pc_text, c.pc_background) < 4.5) bad += std::string(e.name) + ":R2 ";
+            if (contrast(c.pc_background, c.background) < 3.0) bad += std::string(e.name) + ":R3 ";
+            for (int i = 0; i < SourceHighlighter::kRoles; ++i)
+                for (int j = i + 1; j < SourceHighlighter::kRoles; ++j) {
+                    bool same = false;
+                    for (const auto& g : e.shared) {
+                        const bool hi = std::find(g.begin(), g.end(), static_cast<R>(i)) != g.end();
+                        const bool hj = std::find(g.begin(), g.end(), static_cast<R>(j)) != g.end();
+                        same = same || (hi && hj);
+                    }
+                    if (same) {
+                        if (c.role[i] != c.role[j]) bad += std::string(e.name) + ":shared(" + std::to_string(i) + "," + std::to_string(j) + ") ";
+                    } else if (delta_e76(c.role[i], c.role[j]) < 12.0) {
+                        bad += std::string(e.name) + ":R4(" + std::to_string(i) + "," + std::to_string(j) + ") ";
+                    }
+                }
+        }
+        check("QSRC-195", "Light, Dark (ink() of Light over #242424/#F0F0F0) and Borland C++ 3.1 have the owner's "
+                          "colours; every scheme's text and classes reach 4.5:1 on its background, its bar text "
+                          "4.5:1 and its bar 3:1, and any two colours differ by CIE76 12 unless declared shared (equal)",
+              bad.empty(), bad);
+    }
+    {   // QSRC-196
+        // Oracle: the owner's spec "Auto (the default: Light or Dark, following the application theme)".
+        SourceHighlighter fresh(nullptr);
+        const bool dflt = fresh.scheme() == SourceScheme::Auto;
+        Hl h;
+        h.hl.apply_palette(QPalette());
+        const bool light = h.hl.scheme_in_force() == SourceScheme::Light;
+        h.hl.apply_palette(dark_test_palette());
+        const bool dark = h.hl.scheme_in_force() == SourceScheme::Dark;
+        QPalette other;
+        for (auto g : {QPalette::Active, QPalette::Inactive}) {
+            other.setColor(g, QPalette::Window, QColor(0x2B, 0x2B, 0x2B));
+            other.setColor(g, QPalette::WindowText, QColor(0xDD, 0xDD, 0xDD));
+            other.setColor(g, QPalette::Base, QColor(0x1A, 0x1A, 0x1A));
+            other.setColor(g, QPalette::Text, QColor(0xDD, 0xDD, 0xDD));
+        }
+        SourceHighlighter o(nullptr);
+        o.apply_palette(other);
+        const SC& dk = SourceHighlighter::scheme_colours(SourceScheme::Dark);
+        const bool exact = o.scheme_in_force() == SourceScheme::Dark &&
+                           o.colour(R::Keyword) == rc(dk, R::Keyword) &&
+                           o.colour(R::Keyword) != palette_tint::ink(other, SourceHighlighter::light_colour(R::Keyword));
+        SourceHighlighter fx(nullptr);
+        fx.set_scheme(SourceScheme::Light);
+        fx.apply_palette(dark_test_palette());
+        const bool light_on_dark = fx.scheme_in_force() == SourceScheme::Light;
+        SourceHighlighter bx(nullptr);
+        bx.set_scheme(SourceScheme::Borland);
+        bx.apply_palette(QPalette());
+        const bool b1 = bx.scheme_in_force() == SourceScheme::Borland;
+        bx.apply_palette(dark_test_palette());
+        const bool b2 = bx.scheme_in_force() == SourceScheme::Borland;
+        Hl c;
+        c.load(SourceLanguage::Asm, QStringLiteral("  ld a,1\n  nop"));
+        const int n0 = c.hl.blocks_highlighted();
+        c.hl.set_scheme(SourceScheme::Borland);
+        const bool lazy = c.hl.blocks_highlighted() == n0;
+        const bool changed = c.hl.apply_palette(QPalette());
+        const bool passed = c.hl.blocks_highlighted() > n0;
+        const bool repeat = c.hl.apply_palette(QPalette());
+        check("QSRC-196", "Auto is Light on a light palette and Dark on a dark one, and Dark is the scheme's own "
+                          "colours whatever the dark palette; Light and Borland stay what they are on either; "
+                          "set_scheme() alone highlights nothing and apply_palette() reports a change once",
+              dflt && light && dark && exact && light_on_dark && b1 && b2 && lazy && changed && passed && !repeat,
+              std::to_string(dflt) + std::to_string(light) + std::to_string(dark) + std::to_string(exact) +
+                  std::to_string(light_on_dark) + std::to_string(b1) + std::to_string(b2) + std::to_string(lazy) +
+                  std::to_string(changed) + std::to_string(passed) + std::to_string(repeat));
+    }
+    {   // QSRC-197
+        // Oracle: G3 of the plan; the editor's palette carries the scheme (QPlainTextEdit paints Base,
+        // Text, Highlight and HighlightedText from its own palette).
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        auto* hl = v.sp->findChild<SourceHighlighter*>();
+        auto is = [&](const QColor& c, const char* hex) { return c == QColor(QLatin1String(hex)); };
+        const QPalette ep0 = v.ed->palette();
+        const bool start = is(ep0.color(QPalette::Base), "#FFFFFF") && is(ep0.color(QPalette::Text), "#000000") &&
+                           is(ep0.color(QPalette::Highlight), "#1E5AA8") &&
+                           is(ep0.color(QPalette::HighlightedText), "#FFFFFF");
+        const int b0 = hl->blocks_highlighted();
+        v.sp->set_colour_scheme(SourceScheme::Borland);   // no refresh()
+        const int pass = hl->blocks_highlighted() - b0;
+        const QPalette ep = v.ed->palette();
+        const bool applied = is(ep.color(QPalette::Base), "#0000A8") && is(ep.color(QPalette::Text), "#FFFF57") &&
+                             is(ep.color(QPalette::Highlight), "#A8A8A8") &&
+                             is(ep.color(QPalette::HighlightedText), "#0000A8");
+        v.sp->refresh();
+        QApplication::processEvents();
+        const auto sels = v.ed->extraSelections();
+        const bool bar = sels.size() == 1 && is(sels[0].format.background().color(), "#A8A8A8") &&
+                         is(sels[0].format.foreground().color(), "#0000A8") &&
+                         sels[0].format.boolProperty(QTextFormat::FullWidthSelection);
+        QImage img(v.ed->viewport()->size(), QImage::Format_ARGB32);
+        img.fill(Qt::magenta);
+        v.ed->viewport()->render(&img);
+        const QRgb px = img.pixel(img.width() - 3, v.row_y(11));
+        const bool background = QColor::fromRgb(px) == QColor(0x00, 0x00, 0xA8);
+        const int b1 = hl->blocks_highlighted();
+        v.sp->set_colour_scheme(SourceScheme::Borland);
+        v.sp->refresh();
+        const int again = hl->blocks_highlighted() - b1;
+        const bool same_palette = v.ed->palette() == ep;
+        const bool panel_untouched = v.sp->palette().color(QPalette::Base) != QColor(0x00, 0x00, 0xA8);
+        v.sp->set_colour_scheme(SourceScheme::Auto);
+        const bool restored = hl->colour(R::Keyword) == SourceHighlighter::light_colour(R::Keyword) &&
+                              is(v.ed->palette().color(QPalette::Base), "#FFFFFF");
+        check("QSRC-197", "set_colour_scheme(Borland) puts the scheme on the editor's palette at once, without a "
+                          "refresh and in one highlight pass; the current-line bar and the empty viewport then "
+                          "show it, a repeat changes nothing, the panel's own palette is not touched, and Auto "
+                          "brings the Light colours back",
+              start && applied && pass == v.ed->document()->blockCount() && bar && background && again == 0 &&
+                  same_palette && panel_untouched && restored,
+              std::to_string(start) + std::to_string(applied) + std::to_string(bar) + std::to_string(background) +
+                  std::to_string(same_palette) + std::to_string(panel_untouched) + std::to_string(restored) +
+                  " pass=" + std::to_string(pass) + "/" + std::to_string(v.ed->document()->blockCount()) +
+                  " again=" + std::to_string(again));
+    }
+    {   // QSRC-198
+        // Oracle: issue #422 ("never hides the current-line marker or breakpoint marks"); stage-1 QSRC-135.
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        m.add(BreakpointModel::Execute, 0x8005);
+        QApplication::processEvents();
+        auto* hl = v.sp->findChild<SourceHighlighter*>();
+        std::string bad;
+        const QPalette app0 = QApplication::palette();
+        for (bool dark_app : {false, true}) {
+            if (dark_app) QApplication::setPalette(dark_test_palette());
+            QApplication::processEvents();
+            QImage first_gutter;
+            for (SourceScheme sch : {SourceScheme::Light, SourceScheme::Dark, SourceScheme::Borland, SourceScheme::Auto}) {
+                v.sp->set_colour_scheme(sch);
+                v.sp->refresh();
+                QApplication::processEvents();
+                const std::string tag = std::string(dark_app ? "dark" : "light") + "/" + std::to_string(static_cast<int>(sch)) + " ";
+                const SC& c = hl->colours_in_force();
+                QImage img(v.ed->viewport()->size(), QImage::Format_ARGB32);
+                img.fill(Qt::magenta);
+                v.ed->viewport()->render(&img);
+                const QRect cell = v.cell(10);
+                bool edge = false, text = false, role_leak = false;
+                for (int y = std::max(cell.top(), 0); y <= std::min(cell.bottom(), img.height() - 1); ++y) {
+                    // the bar runs to within a few pixels of the viewport's right edge
+                    if (QColor::fromRgb(img.pixel(img.width() - 4, y)) == c.pc_background) edge = true;
+                    for (int x = 0; x < img.width(); ++x) {
+                        const QColor px = QColor::fromRgb(img.pixel(x, y));
+                        if (std::abs(px.red() - c.pc_text.red()) <= 8 && std::abs(px.green() - c.pc_text.green()) <= 8 &&
+                            std::abs(px.blue() - c.pc_text.blue()) <= 8)
+                            text = true;
+                        for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+                            if (c.role[r] != c.pc_background && c.role[r] != c.pc_text && px == c.role[r]) role_leak = true;
+                    }
+                }
+                if (!edge) bad += tag + "no-full-width ";
+                if (!text) bad += tag + "no-text ";
+                if (role_leak) bad += tag + "role-colour-on-bar ";
+                if (v.mark(12) != "disc") bad += tag + "mark=" + v.mark(12) + " ";
+                const QImage g = v.gutter_image();
+                if (first_gutter.isNull()) first_gutter = g;
+                else if (g != first_gutter) bad += tag + "gutter-differs ";
+            }
+            if (dark_app) {
+                QApplication::setPalette(app0);
+                QApplication::processEvents();
+            }
+        }
+        m.clear_all();
+        check("QSRC-198", "in Light, Dark, Borland and Auto, on a light and on a dark application palette, the "
+                          "current line keeps a full-width bar in the scheme's colours with its text drawn and no "
+                          "class colour on it, the breakpoint disc shows, and the gutter is pixel-identical "
+                          "across the four schemes",
+              bad.empty(), bad);
+    }
+    {   // QSRC-199
+        // Oracle: stage-1 QSRC-132 (colour-only, geometry-neutral formats), now under Borland.
+        const QString samples[] = {
+            QStringLiteral("loop: ld a,(hl) ; c\n  db $FF,\"s\",'c'\n  SECTION x\n/* a\nb */"),
+            QStringLiteral("static int f(void) {\n#define X 1\n  return 0x10 + 'c'; // c\n}\n/* a\nb */"),
+            QStringLiteral("10 PRINT \"s\" ' c\nDIM x AS UBYTE\n/' a '/\nasm\nld a,1\nend asm")};
+        const SourceLanguage langs[] = {SourceLanguage::Asm, SourceLanguage::C, SourceLanguage::Basic};
+        bool colour_only = true, geometry = true;
+        for (int i = 0; i < 3; ++i) {
+            Hl p;
+            p.load(SourceLanguage::Plain, samples[i]);
+            Hl h;
+            h.hl.set_scheme(SourceScheme::Borland);
+            h.hl.apply_palette(QPalette());
+            h.load(langs[i], samples[i]);
+            int ranges = 0;
+            for (QTextBlock b = h.doc.begin(); b.isValid(); b = b.next())
+                for (const QTextLayout::FormatRange& fr : b.layout()->formats()) {
+                    ++ranges;
+                    const auto props = fr.format.properties();
+                    colour_only = colour_only && props.size() == 1 && props.contains(QTextFormat::ForegroundBrush);
+                }
+            colour_only = colour_only && ranges > 5;
+            geometry = geometry && h.doc.size() == p.doc.size();
+            QTextBlock b = h.doc.begin(), q = p.doc.begin();
+            for (; b.isValid() && q.isValid(); b = b.next(), q = q.next()) {
+                geometry = geometry && b.layout()->lineCount() == q.layout()->lineCount();
+                for (int k = 0; k < b.layout()->lineCount() && k < q.layout()->lineCount(); ++k)
+                    geometry = geometry &&
+                        b.layout()->lineAt(k).naturalTextWidth() == q.layout()->lineAt(k).naturalTextWidth() &&
+                        b.layout()->lineAt(k).height() == q.layout()->lineAt(k).height();
+            }
+            geometry = geometry && !b.isValid() && !q.isValid();
+        }
+        check("QSRC-199", "under Borland every format of every language is one foreground colour and nothing "
+                          "else (the background is the editor's palette), and the text has the geometry of Plain",
+              colour_only && geometry);
+    }
+}
+
 // ── QCN-05: the Source tab's word menu offers a z88dk C symbol under its C name (GH #424 stage 2) ──
 // Oracle: the owner's parity rule (the Source tab offers what the Disassembly offers, which shows
 // `counter` for `_counter`) and zcc's MODULE naming (main_c); a map in the real line format.
@@ -5364,6 +5677,7 @@ int main(int argc, char** argv) {
     test_source_highlight_rules();
     test_source_highlight_panel();
     test_source_highlight_classes();   // GH #422 stage 2
+    test_source_highlight_schemes();
     test_z88dk_c_names_source();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
