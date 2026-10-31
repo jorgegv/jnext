@@ -250,10 +250,14 @@ tab's verdict line.
 and schedules `--script-key`. Any failure is logged and fails the start, so the
 loop owner exits 1 before the machine runs.
 
-A script that names a source line or any `@symbol` cannot be resolved before the
-`--load` program and its maps are in (the sidecar symbols, the source map and the
-page a `--map` rule-4 symbol binds to all come with the load), and the frontends
-load the program after `start()`. So with `ScriptHostOptions::program_pending` (a
+A script that names a source line, an `@symbol` unknown at `start()` (the sidecar
+map brings it) or a `bind_at_load` symbol (a z88dk `--map` rule-4 symbol, bound to
+the page the load maps) cannot be resolved before the `--load` program and its maps
+are in, and the frontends load the program after `start()`. `needs_program()` decides
+from the parse, the tokens and `SymbolTable::find_name()`; a script whose symbols are
+all known with a final binding loads at once. A held script's rules start at the load,
+so an `on frame N` or `--script-key` due earlier (a `.tzx`/`.wav` load runs ~100 frames
+in) never fires. So with `ScriptHostOptions::program_pending` (a
 CLI `--load`, not an `.rzx`; `load_pending_for_scripts()`) `start()` reads and
 parses every script at once (read and parse errors fail the start), and such a
 script, and every script after it, has its check, resolution and registration

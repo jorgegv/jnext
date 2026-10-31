@@ -122,21 +122,31 @@ bool ScriptHost::ensure_engine() {
     return true;
 }
 
-// What a script needs of the program (GH #346): a rule on a source line, or any
-// `@symbol` (a sidecar's symbols and a `--map` rule-4 binding exist only once the
-// program is loaded). Found from the tokens and the parse, not the text.
-// 0 = no, 1 = a source line, 2 = a symbol.
-static int needs_program(const std::string& text, const ParseResult& pr) {
+// What a script needs of the loaded program (GH #346): 1 = a rule on a source
+// line; 2 = an `@symbol` that is unknown now (the sidecar map brings it) or whose
+// memory is bound at the program load (a z88dk `--map` rule-4 symbol); 0 = nothing,
+// the script loads at once. Found from the parse and the tokens, strings'
+// `${...}` pieces included.
+static int needs_program(const dbg::Debugger& dbg, const std::string& text, const ParseResult& pr) {
     for (const Rule& r : pr.script.rules)
         if (!r.event.file_line.empty()) return 1;
+    int need = 0;
+    auto symbol = [&](const std::string& name) {
+        const auto key = dbg.symbols().find_name(name);
+        if (!key || key->bind_at_load) need = 2;
+    };
     const LexResult lr = lex(text);
     for (const Token& t : lr.tokens) {
         if (t.kind == Tok::FileLine) return 1;
-        if (t.kind == Tok::Symbol) return 2;
-        for (const StrPiece& p : t.pieces)
-            if (p.is_expr && p.text.find('@') != std::string::npos) return 2;
+        if (t.kind == Tok::Symbol) symbol(t.text);
+        for (const StrPiece& p : t.pieces) {
+            if (!p.is_expr) continue;
+            const LexResult in = lex(p.text, p.pos, /*embedded=*/true);
+            for (const Token& u : in.tokens)
+                if (u.kind == Tok::Symbol) symbol(u.text);
+        }
     }
-    return 0;
+    return need;
 }
 
 LoadResult ScriptHost::load_one(const std::string& file, const char* origin) {
@@ -222,7 +232,7 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
                 ok = false;
                 continue;
             }
-            if (const int need = hold ? 0 : needs_program(text.str(), pr)) {
+            if (const int need = hold ? 0 : needs_program(dbg, text.str(), pr)) {
                 dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
                         "SCRIPT " + file + (need == 1 ? ": names a source line" : ": names a symbol") +
                             "; it loads when the --load program has loaded");

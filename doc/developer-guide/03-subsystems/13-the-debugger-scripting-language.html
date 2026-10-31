@@ -2692,10 +2692,14 @@ tab's verdict line.</p>
 <p><code>start()</code> loads <code>--map</code> into the symbol table, then each <code>--script</code> in order,
 and schedules <code>--script-key</code>. Any failure is logged and fails the start, so the
 loop owner exits 1 before the machine runs.</p>
-<p>A script that names a source line or any <code>@symbol</code> cannot be resolved before the
-<code>--load</code> program and its maps are in (the sidecar symbols, the source map and the
-page a <code>--map</code> rule-4 symbol binds to all come with the load), and the frontends
-load the program after <code>start()</code>. So with <code>ScriptHostOptions::program_pending</code> (a
+<p>A script that names a source line, an <code>@symbol</code> unknown at <code>start()</code> (the sidecar
+map brings it) or a <code>bind_at_load</code> symbol (a z88dk <code>--map</code> rule-4 symbol, bound to
+the page the load maps) cannot be resolved before the <code>--load</code> program and its maps
+are in, and the frontends load the program after <code>start()</code>. <code>needs_program()</code> decides
+from the parse, the tokens and <code>SymbolTable::find_name()</code>; a script whose symbols are
+all known with a final binding loads at once. A held script's rules start at the load,
+so an <code>on frame N</code> or <code>--script-key</code> due earlier (a <code>.tzx</code>/<code>.wav</code> load runs ~100 frames
+in) never fires. So with <code>ScriptHostOptions::program_pending</code> (a
 CLI <code>--load</code>, not an <code>.rzx</code>; <code>load_pending_for_scripts()</code>) <code>start()</code> reads and
 parses every script at once (read and parse errors fail the start), and such a
 script, and every script after it, has its check, resolution and registration

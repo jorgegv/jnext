@@ -1240,10 +1240,14 @@ A script that cannot be read, or that has any error, is reported as
 \f[I]file\f[R]:\f[I]line\f[R]:\f[I]column\f[R]: \f[I]message\f[R] and
 jnext exits 1 before the machine runs \- nothing of it runs partially.
 With \f[B]\-\-load\f[R], a script that names a source line
-(\f[CR]on execute main.c:19\f[R]) or any \f[CR]\(atsymbol\f[R] waits,
-with the scripts after it, until the program, its source map and its
-sidecar symbols are in (it is still read and parsed at once); an error
-then also exits 1.
+(\f[CR]on execute main.c:19\f[R]), an \f[CR]\(atsymbol\f[R] that
+\f[B]\-\-map\f[R] does not know, or a z88dk \f[B]\-\-map\f[R] symbol
+waits, with the scripts after it, until the program is in (it is still
+read and parsed at once); an error then also exits 1.
+Its rules start at the load: an \f[CR]on frame\f[R] \f[I]N\f[R] or a
+\f[B]\-\-script\-key\f[R] due before it never fires (a \f[CR].tzx\f[R]
+or \f[CR].wav\f[R] loads about 100 frames in), so give such rules in an
+earlier script that names neither.
 In \f[B]\-\-headless\f[R] and the SDL\-only build a script decides the
 exit status: \f[CR]exit\f[R] \f[I]N\f[R] exits \f[I]N\f[R], a
 \f[CR]stop\f[R] or a failed \f[CR]assert\f[R] exits 3, a run\-time error

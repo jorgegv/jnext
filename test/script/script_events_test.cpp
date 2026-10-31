@@ -3099,9 +3099,17 @@ static void src_rows() {
         const bool waits = g.engine_subs() == 0 && g.sink.count("names a source line; it loads when the --load program has loaded") == 1;
         attach_program(g.emu, *g.dbg, kZNex);
         const bool loaded = g.host->program_loaded();
-        check("SCRIPT-HOST-SRC-01", "with a --load pending, a script naming a source line waits (logged, nothing "
-                                    "registered), and program_loaded() loads it against the program's map",
-              ok && waits && loaded && g.engine_subs() == 1, g.sink.tail(4));
+        // The quoted form is held and resolved the same way.
+        HostRig q(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("src1q.jds", "on execute \"main.c:19\" do stop end\n")};
+        const bool qok = q.start(o);
+        const bool qwaits = q.engine_subs() == 0 && q.sink.count("names a source line; it loads when the --load program has loaded") == 1;
+        attach_program(q.emu, *q.dbg, kZNex);
+        const bool qloaded = q.host->program_loaded();
+        check("SCRIPT-HOST-SRC-01", "with a --load pending, a script naming a source line (bare or quoted) waits (logged, "
+                                    "nothing registered), and program_loaded() loads it against the program's map",
+              ok && waits && loaded && g.engine_subs() == 1 && qok && qwaits && qloaded && q.engine_subs() == 1,
+              g.sink.tail(4) + q.sink.tail(3));
     }
     {
         HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
@@ -3242,6 +3250,21 @@ static void src_rows() {
         check("SCRIPT-HOST-SRC-09", "a --map rule-4 symbol in a script takes the memory mapped after the program's load "
                                     "(Page{20}), not the init-time one: the rule fires at $C000",
               ok && loaded && g.dbg->state().paused && g.emu.cpu().get_registers().PC == 0xC000, g.sink.tail(3));
+    }
+    {
+        // A symbol known now, with no binding made at the load (an sjasmplus --sym), is NOT held: the
+        // script loads in start(), before the program, as it did before GH #346.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.map_file = JNEXT_SJASMEQU_DIR "/equlabels.sym";
+        o.scripts = {tmp_file("known-sym.jds", "on execute @main do stop end\n")};
+        const bool ok = g.start(o);
+        const size_t before = g.engine_subs();
+        const bool silent = g.sink.count("names a symbol") == 0 && g.host->files().size() == 1;
+        check("SCRIPT-HOST-SRC-10", "with a --load pending, a script whose symbols are all known at start() with no "
+                                    "binding at the load (a --map sjasmplus symbol) loads at once, not held",
+              ok && before == 1 && silent, g.sink.tail(3));
     }
 }
 

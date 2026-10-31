@@ -365,7 +365,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
-| Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line or a symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
+| Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line, a symbol unknown at start or a load-bound symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | none | 9.4 | E23-21 (#351) |
