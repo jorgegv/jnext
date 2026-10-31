@@ -1254,7 +1254,9 @@ beside it.
 **As built (E23-25 (#388)).**
 
 - *What is recorded.* One byte of flags per byte per space (`dbg::MemCoverage`, lazily allocated
-  8 KB chunks keyed by kind, index and half; at most 6 MB when every space is touched): X is the
+  8 KB chunks keyed by kind, index and half; at most 6 MB when every space is touched, and 246
+  spaces, about 2 MB plus the 64 KB chunk table, after 500 frames of a NextZXOS boot, which writes
+  across nearly every RAM page): X is the
   first opcode byte of an executed instruction (set by `read_m1()` from the route it stores as
   `last_m1_`; a prefix's inner M1, an accepted INT or NMI and a serviced esxdos shim mark
   nothing), R every other memory read, operands and the DMA's included, and W a write that
