@@ -1295,12 +1295,18 @@ void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {
 static_assert(jnext::dbg::COVERAGE_EXEC == 1 && jnext::dbg::COVERAGE_READ == 2 &&
               jnext::dbg::COVERAGE_WRITE == 4, "Mmu::kCov* mirror the COVERAGE_* flags");
 
-void Mmu::cov_note_(jnext::dbg::MemCoverage* c, uint32_t space, uint16_t offset, uint8_t flag) {
-    const uint32_t kind = space & 0xFFFF;
+void Mmu::cov_note_(jnext::dbg::MemCoverage* c, uint16_t addr, uint8_t flag) {
+    // The same arbiter body the access just used, asked again (it is pure): an M1 read uses the
+    // fetch view of the DivMMC, a write the write direction, and a write marks only if it landed.
+    const RouteBits r = flag == kCovWrite ? route_bits_<true, true>(addr, false, false)
+                                          : route_bits_<true, false>(addr, false, false,
+                                                                     /*fetch=*/flag == kCovExec);
+    if (flag == kCovWrite && !r.ptr) return;
+    const uint32_t kind = r.space & 0xFFFF;
     if (kind == static_cast<uint32_t>(jnext::dbg::MemSpace::Kind::Floating) ||
         kind == static_cast<uint32_t>(jnext::dbg::MemSpace::Kind::Cpu))
         return;
-    c->mark(space, offset, flag);
+    c->mark(r.space, r.offset, flag);
 }
 
 void Mmu::watch_read_(uint16_t addr, uint8_t val) {

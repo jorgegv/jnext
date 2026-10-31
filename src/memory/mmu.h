@@ -399,7 +399,7 @@ public:
         if (debug_state_ && debug_state_->mem_gate_live()) [[unlikely]] {
             // Memory coverage: a write that LANDED, at the space the route names.
             if (jnext::dbg::MemCoverage* c = debug_state_->mem_coverage_live()) [[unlikely]] {
-                if (r.ptr) cov_note_(c, r.space, r.offset, kCovWrite);
+                cov_note_(c, addr, kCovWrite);
             }
             // Check data breakpoints (only when breakpoints are armed and watchpoints exist).
             // BEFORE the store: the watch peeks the previous byte.
@@ -1427,7 +1427,10 @@ private:
     static constexpr uint8_t kCovWrite = 4;
     /// Out of line: runs only while a client switched coverage on. Skips the
     /// Floating space (nothing answered) and Cpu (never an arbiter result).
-    void cov_note_(jnext::dbg::MemCoverage* c, uint32_t space, uint16_t offset, uint8_t flag);
+    /// It RE-DERIVES the route of `addr` (pure: nothing changed since the caller's), so the
+    /// hot paths pass the address and the access kind only and never compute a space or an
+    /// offset they do not use (GH #388: the off path costs what it did before).
+    void cov_note_(jnext::dbg::MemCoverage* c, uint16_t addr, uint8_t flag);
 
     // ───────── GH #339 - the hot-path form of a Route ─────────────────────────
     //
@@ -1736,7 +1739,7 @@ private:
             // read, nothing for a prefix's inner M1 (`Cov` = kCovNone).
             if constexpr (Cov != kCovNone) {
                 if (jnext::dbg::MemCoverage* c = debug_state_->mem_coverage_live()) [[unlikely]]
-                    cov_note_(c, r.space, r.offset, Cov);
+                    cov_note_(c, addr, Cov);
             }
             // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
             if (debug_state_->watchpoints_live() && debug_state_->rd_watch_armed(addr)) {
