@@ -2979,6 +2979,156 @@ int main() {
               jumped && m.pc() == 0x8003 && m.dbg->call_stack().empty(),
               m.where() + " frames " + std::to_string(m.dbg->call_stack().size()));
     }
+    {
+        // GH #345 round 1: the tracker driven with the exact pre/post sequence the emulator
+        // delivers, for shapes where a routine moves its own return slot.
+        const uint16_t T = 0xFF00;
+        CallStack cs;
+        const auto ins = [&](uint16_t pc, uint16_t sp, uint8_t op, uint16_t npc, uint16_t nsp,
+                             uint8_t o2 = 0, uint8_t o3 = 0) {
+            cs.on_instruction_pre(pc, sp, op, o2, o3);
+            cs.on_instruction_post(nsp, npc);
+        };
+        const auto fresh = [&] { cs.set_enabled(false); cs.set_enabled(true); };
+        // The __z88dk_callee shape (SRCDBG-CS-10's): PUSH HL; CALL f; f: POP DE; POP BC; PUSH DE
+        // (f's return slot is now 2 bytes ABOVE its CALL frame's sp_at_call); f: CALL g.
+        const auto callee_to_g = [&] {
+            fresh();
+            ins(0x8000, T, 0xE5, 0x8001, T - 2);
+            ins(0x8001, T - 2, 0xCD, 0x9000, T - 4, 0x00, 0x90);
+            ins(0x9000, T - 4, 0xD1, 0x9001, T - 2);
+            ins(0x9001, T - 2, 0xC1, 0x9002, T);
+            ins(0x9002, T, 0xD5, 0x9003, T - 2);
+            ins(0x9003, T - 2, 0xCD, 0xA000, T - 4, 0x00, 0xA0);
+        };
+        {   // CS-11
+            callee_to_g();
+            const bool two = cs.frames().size() == 2;
+            ins(0xA000, T - 4, 0xED, 0x9006, T - 2, 0x4D);   // g: RETI
+            const bool reti = cs.frames().size() == 1 && cs.frames()[0].caller_pc == 0x8001;
+            callee_to_g();
+            ins(0xA000, T - 4, 0xED, 0x9006, T - 2, 0x45);   // g: RETN
+            const bool retn = cs.frames().size() == 1 && cs.frames()[0].caller_pc == 0x8001;
+            check("SRCDBG-CS-11", "a RETI or RETN that lands on the newest CALL's return address ends "
+                                  "that frame only: a __z88dk_callee routine's frame survives the "
+                                  "RETI/RETN of a routine it called (the SP rule would end both)",
+                  two && reti && retn);
+        }
+        {   // CS-12
+            // A stale frame (CALL s; s: POP HL; JP (HL)), then the ROM idiom RST $10 whose
+            // routine returns past an inline DEFW: the return point is not caller_pc + 3 for a
+            // reason the frame cannot know, so an RST frame ends by SP, and the SP rule ends
+            // the stale frame below it too.
+            fresh();
+            ins(0x8000, T, 0xCD, 0x9000, T - 2, 0x00, 0x90);
+            ins(0x9000, T - 2, 0xE1, 0x9001, T);
+            ins(0x9001, T, 0xE9, 0x8003, T);
+            const bool stale = cs.frames().size() == 1;
+            ins(0x8003, T, 0xD7, 0x0010, T - 2);             // RST $10
+            ins(0x0010, T - 2, 0xE1, 0x0011, T);             // POP HL
+            ins(0x0011, T, 0xE5, 0x0012, T - 2);             // PUSH HL (HL = $8006, past a DEFW)
+            ins(0x0012, T - 2, 0xC9, 0x8006, T);             // RET to caller_pc + 3
+            check("SRCDBG-CS-12", "an RST frame ends by SP alone even when its RET lands on "
+                                  "caller_pc + 3 (an inline DEFW): the stale frame below it ends too",
+                  stale && cs.frames().empty(), std::to_string(cs.frames().size()) + " frames");
+        }
+        {   // CS-13
+            // newlib sccz80 esx_f_read_callee: three args, CALL, pop af/bc/hl/de, push af (slot up
+            // 6), jp asm_esx_f_read; RST $08 (the shim); RET. The shim ends the RST frame only.
+            fresh();
+            ins(0x8000, T, 0xE5, 0x8001, T - 2);
+            ins(0x8001, T - 2, 0xE5, 0x8002, T - 4);
+            ins(0x8002, T - 4, 0xE5, 0x8003, T - 6);
+            ins(0x8003, T - 6, 0xCD, 0x9000, T - 8, 0x00, 0x90);
+            ins(0x9000, T - 8, 0xF1, 0x9001, T - 6);
+            ins(0x9001, T - 6, 0xC1, 0x9002, T - 4);
+            ins(0x9002, T - 4, 0xE1, 0x9003, T - 2);
+            ins(0x9003, T - 2, 0xD1, 0x9004, T);
+            ins(0x9004, T, 0xF5, 0x9005, T - 2);
+            ins(0x9005, T - 2, 0xC3, 0xA000, T - 2, 0x00, 0xA0);   // jp asm_esx_f_read
+            ins(0xA000, T - 2, 0xCF, 0x0008, T - 4);               // RST $08
+            const bool rst = cs.frames().size() == 2;
+            cs.on_instruction_pre(0x0008, T - 4, 0xF5, 0, 0);
+            cs.on_slot_without_fetch(T - 2);                        // the shim returns to $A002
+            const bool live = cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
+            ins(0xA002, T - 2, 0xC9, 0x8006, T);                    // asm_esx_f_read: RET
+            const bool sccz80 = rst && live && cs.frames().empty();
+            // sdcc_ix _esx_f_read_callee: slot up 5, push ix, call asm; RST $08; asm RET; pop ix; RET.
+            fresh();
+            ins(0x8000, T, 0xE5, 0x8001, T - 2);
+            ins(0x8001, T - 2, 0xE5, 0x8002, T - 4);
+            ins(0x8002, T - 4, 0x3B, 0x8003, T - 5);
+            ins(0x8003, T - 5, 0xCD, 0x9000, T - 7, 0x00, 0x90);
+            ins(0x9000, T - 7, 0xD1, 0x9001, T - 5);
+            ins(0x9001, T - 5, 0x3B, 0x9002, T - 6);
+            ins(0x9002, T - 6, 0xF1, 0x9003, T - 4);
+            ins(0x9003, T - 4, 0xE1, 0x9004, T - 2);
+            ins(0x9004, T - 2, 0xC1, 0x9005, T);
+            ins(0x9005, T, 0xD5, 0x9006, T - 2);
+            ins(0x9006, T - 2, 0xDD, 0x9008, T - 4);                // push ix
+            ins(0x9008, T - 4, 0xCD, 0xA000, T - 6, 0x00, 0xA0);    // call asm_esx_f_read
+            ins(0xA000, T - 6, 0xCF, 0x0008, T - 8);                // RST $08
+            cs.on_instruction_pre(0x0008, T - 8, 0xF5, 0, 0);
+            cs.on_slot_without_fetch(T - 6);
+            const bool d1 = cs.frames().size() == 2;
+            ins(0xA002, T - 6, 0xC9, 0x900B, T - 4);
+            const bool d2 = cs.frames().size() == 1;
+            ins(0x900B, T - 4, 0xDD, 0x900D, T - 2);                // pop ix
+            ins(0x900D, T - 2, 0xC9, 0x8006, T);
+            check("SRCDBG-CS-13", "the esxDOS shim's return ends the RST frame and only it: newlib's "
+                                  "sccz80 esx callee (slot moved up, jp to the RST) keeps its CALL "
+                                  "frame, and so does the sdcc_ix bridge's nest",
+                  sccz80 && d1 && d2 && cs.frames().empty());
+        }
+        {   // CS-14
+            // An interrupt taken inside a routine that moved its return slot up (f after PUSH DE):
+            // the ISR (EI; RET) returns to the interrupted PC, which ends the INT frame only.
+            fresh();
+            ins(0x8000, T, 0xE5, 0x8001, T - 2);
+            ins(0x8001, T - 2, 0xCD, 0x9000, T - 4, 0x00, 0x90);
+            ins(0x9000, T - 4, 0xD1, 0x9001, T - 2);
+            ins(0x9001, T - 2, 0xC1, 0x9002, T);
+            ins(0x9002, T, 0xD5, 0x9003, T - 2);
+            cs.on_instruction_pre(0x9003, T - 2, 0x00, 0, 0);
+            cs.on_interrupt(0x9003, 0x0038, T - 4);
+            ins(0x0038, T - 4, 0xFB, 0x0039, T - 4);
+            ins(0x0039, T - 4, 0xC9, 0x9003, T - 2);
+            const bool callee = cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
+            // #278: an ISR that returns ELSEWHERE (a context switch) falls back to the SP rule:
+            // the INT frame ends (its slot is below SP) and the CALL frame at SP stays.
+            fresh();
+            ins(0x8000, T, 0xCD, 0x9000, T - 2, 0x00, 0x90);
+            cs.on_instruction_pre(0x9000, T - 2, 0x00, 0, 0);
+            cs.on_interrupt(0x9000, 0x0038, T - 4);
+            ins(0x0038, T - 4, 0xC9, 0x9050, T - 2);
+            const bool elsewhere = cs.frames().size() == 1 && cs.frames()[0].type == CallType::CALL;
+            check("SRCDBG-CS-14", "an INT frame ends when the ISR returns to the interrupted PC, so a "
+                                  "routine that moved its return slot keeps its frame; an ISR that "
+                                  "returns elsewhere ends it by SP (GH #278: strictly below)",
+                  callee && elsewhere);
+        }
+    }
+    {
+        // An INT that ends a HALT: the CPU has stepped past the HALT, so the pushed return
+        // address is the HALT's + 1 while the frame's caller is the HALT. The ISR's RET lands
+        // there and ends the INT frame, whatever the SP rule would say.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        interrupt_machine(m);
+        poke_page(m, 0x56, 0x12, 0xC000, {0x76, 0x00});   // HALT; NOP
+        m.dbg->step_into(m.a);                   // CALL $C000
+        m.dbg->step_into(m.a);                   // HALT
+        m.emu.cpu().request_interrupt(0xFF);
+        m.dbg->step_into(m.a);                   // the INT
+        const auto& f = m.dbg->call_stack();
+        const bool taken = f.size() == 2 && f[1].type == CallType::INT && m.pc() == 0x0038;
+        const uint16_t caller = taken ? f[1].caller_pc : 0;
+        m.dbg->step_into(m.a);                   // EI
+        m.dbg->step_into(m.a);                   // RET
+        check("SRCDBG-CS-15", "an INT that ended a HALT is ended by the ISR's RET to the HALT's "
+                              "successor, leaving the interrupted CALL's frame",
+              taken && f.size() == 1 && f[0].type == CallType::CALL,
+              "caller " + hex(caller) + " pc " + hex(m.pc()) + " frames " + std::to_string(f.size()));
+    }
 
     // ── GH #342: the source map's lifetime (design §6.5-6.7) ────────────
     // A LOAD GENERATION starts at every landing that is not a rewind-ring

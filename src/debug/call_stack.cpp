@@ -25,22 +25,41 @@ void CallStack::pop_frames_to_sp(uint16_t sp) {
 // routine that moves its own return address: l_debug_push_frame (every sccz80
 // -debug function) re-pushes it 2 bytes LOWER, so the frame survives the RET
 // by the SP rule; a __z88dk_callee routine moves it UP, so the RET of a call
-// it makes pops its frame too. So a RET that lands on the newest CALL frame's
-// return address ends exactly that frame; any other RET (a computed jump, an
-// INT/NMI/RST frame, whose return address the frame does not record reliably)
-// keeps the SP rule.
+// it makes (or of an ISR that interrupted it) pops its frame too. So a RET
+// that lands on the NEWEST frame's own return point ends exactly that frame:
+//  * CALL: caller_pc + 3 (CALL nn is 3 bytes);
+//  * INT / NMI: caller_pc is the interrupted PC and the pushed address is that
+//    PC, or PC + 1 when the interrupt ended a HALT (the CPU had stepped past it).
+// RST frames (whose inline DEFW operands make the return point vary) and any
+// other RET keep the SP rule. The price: a routine that drops its return
+// address and leaves by JP (banked_call looks the same) keeps its frame until
+// a RET ends it by SP.
 void CallStack::return_to(uint16_t sp, uint16_t pc) {
-    if (!frames_.empty() && frames_.back().type == CallType::CALL &&
-        static_cast<uint16_t>(frames_.back().caller_pc + 3) == pc) {
-        frames_.pop_back();
-        return;
+    if (!frames_.empty()) {
+        const CallFrame& f = frames_.back();
+        const bool lands =
+            (f.type == CallType::CALL && static_cast<uint16_t>(f.caller_pc + 3) == pc) ||
+            ((f.type == CallType::INT || f.type == CallType::NMI) &&
+             (pc == f.caller_pc || pc == static_cast<uint16_t>(f.caller_pc + 1)));
+        if (lands) {
+            frames_.pop_back();
+            return;
+        }
     }
     pop_frames_to_sp(sp);
 }
 
+// The esxDOS shim returns from the RST $08 it serviced: that frame ends, and
+// only that one. newlib's sccz80 esxDOS callees move their return slot up and
+// `jp` to the RST, so the SP rule would end the callee's live CALL frame too.
 void CallStack::on_slot_without_fetch(uint16_t new_sp) {
     if (!enabled_ || !have_pre_) return;
     have_pre_ = false;   // the captured opcode did not run in this slot
+    if (!frames_.empty() && frames_.back().type == CallType::RST &&
+        frames_.back().target_pc == 0x0008) {
+        frames_.pop_back();
+        return;
+    }
     pop_frames_to_sp(new_sp);
 }
 

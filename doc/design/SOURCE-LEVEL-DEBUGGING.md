@@ -914,10 +914,14 @@ runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (
 on real z88dk code across `banked_call` (G9), the sccz80 `l_debug_push_frame` and
 `l_debug_pop_frame` helpers (G5), RST $08 esxDOS calls, `__z88dk_callee` routines and a tail
 `JP`, in `CallStack` for every program, never as a special case for `banked_call`. The rule: a
-CALL frame ends when a RET lands on its return address (`caller_pc + 3`), the newest CALL frame
-only; any other taken RET ends every frame whose return slot is below SP (a `PUSH; RET`
-computed jump leaves the frame). RST, INT and NMI frames end by SP alone, and so does the
-esxDOS shim's return (a slot that fetched no opcode). Out from a function lands at the return
+frame ends when a RET lands on its own return point, the NEWEST frame only: a CALL frame's is
+`caller_pc + 3`, an INT or NMI frame's is the interrupted PC (`+ 1` when the interrupt ended a
+HALT). Any other taken RET ends every frame whose return slot is below SP (a `PUSH; RET`
+computed jump leaves the frame). RST frames end by SP alone (an inline `DEFW` makes their return
+point vary); the esxDOS shim's return (a slot that fetched no opcode) ends the RST $08 frame it
+serviced and only it. Trade-off: a routine that drops its return address and leaves by JP
+(`POP HL; JP (HL)`) looks like `banked_call`, so its frame stays on the stack until a RET ends
+it by SP. Out from a function lands at the return
 address, mid-line on the call's own line, as gdb's `finish` does.
 
 **Backward** steps search the trace from newest to oldest, considering only entries before the
@@ -1335,7 +1339,7 @@ instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
 
-E23-14 (#345) added SRCSTEP-01 to SRCSTEP-13 and SRCDBG-CS-09/10 (`source_debug_test`: Into, Over
+E23-14 (#345) added SRCSTEP-01 to SRCSTEP-13 and SRCDBG-CS-09 to CS-15 (`source_debug_test`: Into, Over
 and Out on the runnable `__banked` and `-debug` fixtures, the return-address rule, the shim's
 return), Z88MAP-29 (`z88dk_map_test`: a 24-bit page head) and rewrote SRCDBG-CS-08 (the shim's
 return now ends the RST frame; owner-approved 2026-10-30).
