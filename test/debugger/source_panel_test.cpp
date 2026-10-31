@@ -4596,8 +4596,8 @@ void test_long_address_views() {
         const std::string dir = g_tmp->path().toStdString();
         const std::string pa = std::to_string(fx.p80), pb = std::to_string(fx.p80 + 2);
         write_text(dir + "/far10.sld", std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
-                                           "main.bas|10||0|" + pa + "|32768|T|\n" + "main.bas|12||0|" + pb +
-                                           "|32773|T|\n");
+                                           "main.bas|10||0|" + pa + "|32768|T|\n" + "main.bas|10||0|" + pb +
+                                           "|32768|T|\n" + "main.bas|12||0|" + pb + "|32773|T|\n");
         fx.backend->load_source_map(dir + "/far10.sld", false);
         BreakpointModel& bm = fx.mgr->breakpoints();
         Z80Registers pcr = fx.emu.cpu().get_registers();
@@ -4615,6 +4615,12 @@ void test_long_address_views() {
                         QTextCursor::KeepAnchor);
         v.ed->setTextCursor(sel);
         const QString copied = v.sp->selection_text_with_addresses();
+        QMenu cm;
+        v.sp->fill_context_menu(cm, 10, 0);   // line 10 has two places: Show in Disassembly lists both
+        QStringList places;
+        for (QAction* a : cm.actions())
+            if (a->menu() && a->text() == QLatin1String("Show in Disassembly"))
+                for (QAction* pa2 : a->menu()->actions()) places << pa2->text();
         const auto rows = bm.rows();
         const QString row_text = rows.empty() ? QString() : rows[0].addr_text;
         fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Friendly);
@@ -4627,11 +4633,12 @@ void test_long_address_views() {
                   unmapped == QStringLiteral("$0000 (DIVROM): no source mapping; use the disassembly") &&
                   tip_unplaced == QStringLiteral("main.bas:12: code at $8005 $04C005, not mapped now; click to set") &&
                   tip_hidden == QStringLiteral("main.bas:12: breakpoint at $8005 $04C005, not mapped now") &&
-                  copied == QStringLiteral("main.bas:10  $8000 $048000  REM line 10\nmain.bas:11  -  REM line 11\n"
+                  copied == QStringLiteral("main.bas:10  $8000 $048000, $8000 $04C000  REM line 10\nmain.bas:11  -  REM line 11\n"
                                            "main.bas:12  $8005 $04C005  REM line 12\n") &&
+                  places == QStringList{QStringLiteral("$8000 $048000"), QStringLiteral("$8000 $04C000")} &&
                   row_text == QStringLiteral("$8005 $04C005"),
               s(friendly) + "|" + s(physical) + "|" + s(unmapped) + "|" + s(tip_unplaced) + "|" + s(tip_hidden) +
-                  "|" + s(copied) + "|" + s(row_text));
+                  "|" + s(copied) + "|" + s(places.join(',')) + "|" + s(row_text));
     }
 }
 
