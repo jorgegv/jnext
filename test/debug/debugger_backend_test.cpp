@@ -6778,6 +6778,24 @@ static void e25_mem_coverage_rows() {
         };
         const bool captures_add_nothing = run_100(true) == run_100(false);
 
+        // Step Out reads the opcode of the RET it just ran to judge the step: that is the
+        // DEBUGGER looking, inside the guest's execution scope, so it must not add an R
+        // to the RET's byte (it used to be mmu_.read(), which marked it and latched the +3
+        // floating bus). X only.
+        bool step_out_x_only = false;
+        {
+            Emulator e3; build(e3);
+            Debugger d3(e3);
+            d3.mem_coverage_enable(true);
+            for (int i = 0; i < 3; ++i) e3.execute_single_instruction();   // NOP NOP CALL: inside SUB
+            d3.mem_coverage_clear();
+            attach_and_pause(e3);
+            const bool armed = d3.step_out(1) == Result::Ok;
+            run_until_paused(e3);
+            step_out_x_only = armed && pc_of(e3) == AFTER_CALL &&
+                              d3.mem_coverage_fetch(SUB + 2) == COVERAGE_EXEC;     // the RET: X, not X|R
+        }
+
         Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
@@ -6798,10 +6816,13 @@ static void e25_mem_coverage_rows() {
         std::remove(bin.c_str()); std::remove(nex.c_str());
         check("INS-21-11", "the debugger and loaders mark nothing: peek of the CPU map and pages, "
                            "disassemble, poke(Cpu) and poke(Page), inject_binary and load_nex leave the "
-                           "maps empty, and a run with the trace and call stack on records exactly what "
-                           "the run without them does",
-              captures_add_nothing && inj && nx && mc_count(dbg) == 0 && dbg.mem_coverage_spaces().empty(),
-              mc_spaces_str(dbg) + " inj=" + std::to_string(inj) + " nex=" + std::to_string(nx));
+                           "maps empty, a run with the trace and call stack on records exactly what "
+                           "the run without them does, and Step Out's check of the RET it ran leaves "
+                           "the RET's byte X only",
+              captures_add_nothing && step_out_x_only && inj && nx && mc_count(dbg) == 0 &&
+                  dbg.mem_coverage_spaces().empty(),
+              mc_spaces_str(dbg) + " inj=" + std::to_string(inj) + " nex=" + std::to_string(nx) +
+                  " step_out_x_only=" + std::to_string(step_out_x_only));
     }
 
     // INS-21-12: the DMA is a bus master: R at the source, W at the destination, no X.
