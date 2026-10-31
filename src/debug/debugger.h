@@ -999,6 +999,8 @@ public:
         /// Attached, its identity not yet judged: it was loaded with
         /// `verify_at_first_execution` and carries one (see `load_source_map`).
         bool pending = false;
+        /// `dot_only` was given and the map is not a z88dk dot command's (`error` says so).
+        bool not_dot = false;
     };
 
     /// CAP-SRC - load a source map, an sjasmplus SLD file or a z88dk `-debug` map
@@ -1018,8 +1020,16 @@ public:
     /// stays armed for the spaces not run yet. A space that does not match drops the
     /// map (`source_map_status()` is then `None`, with the reason, and the error is
     /// logged). A map with no identity attaches unverified, not pending.
+    ///
+    /// GH #351 - a z88dk dot command's map (`SourceMap::dot()`) always attaches pending,
+    /// whatever `verify_at_first_execution` says: NextZXOS loads the command into DivMMC
+    /// RAM when it is typed. It is judged where the command starts ($2000 fetched from
+    /// DivMMC RAM bank 2); an entry that does not match is another dot command and
+    /// keeps it pending, and a landing (reset, state load, rewind) never drops or
+    /// stales it. `dot_only` refuses a map that is not a dot command's (`--source-map`
+    /// without `--load`: there is no program to judge any other map against).
     SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch,
-                                  bool verify_at_first_execution = false);
+                                  bool verify_at_first_execution = false, bool dot_only = false);
 
     /// CAP-SRC — forget the source map.
     Result clear_source_map();
@@ -1043,6 +1053,9 @@ public:
         /// Attached, its identity is judged the first time the CPU runs the code it
         /// describes, space by space (a tape program's map). `state` stays `Attached`.
         bool pending = false;
+        /// The attached map is a z88dk dot command's: `pending` then waits for the
+        /// command to run, not for a program to load.
+        bool dot = false;
     };
     SourceMapStatus source_map_status() const;
 

@@ -49,7 +49,8 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
                         std::optional<SourceProgramIdentity> identity,
                         std::string loaded_file,
                         std::string format,
-                        std::map<std::string, SourceText> texts)
+                        std::map<std::string, SourceText> texts,
+                        bool dot)
 {
     SourceMap next;
     std::map<std::tuple<std::string, int, int>, size_t> location_ids;
@@ -119,6 +120,7 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
     next.identity_ = std::move(identity);
     next.loaded_file_ = std::move(loaded_file);
     next.format_ = std::move(format);
+    next.dot_ = dot;
     for (auto& [file, text] : texts) next.texts_.emplace(normalized_file(file), std::move(text));
     *this = std::move(next);
 }
@@ -323,6 +325,7 @@ void SourceMap::clear()
     files_.clear();
     loaded_file_.clear();
     format_ = "SLD";
+    dot_ = false;
     texts_.clear();
     identity_.reset();
 }

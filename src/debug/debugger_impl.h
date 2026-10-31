@@ -125,7 +125,28 @@ struct Debugger::Impl {
         bool guards_sources = false;
         bool guards_symbols = false;
         bool mismatch       = false;   ///< a unit did not match: drop on the next recheck()
+        /// GH #351 - a z88dk dot command's map (`SourceMap::dot()`). NextZXOS loads the
+        /// command into DivMMC RAM when it is typed and every dot shares that bank, so
+        /// the DivMMC unit (`dot_entry_unit()`) is judged at the command's ENTRY only
+        /// (the CPU about to execute $2000 from it), a mismatch there means another
+        /// dot command (the map stays pending, never dropped), and a match arms the
+        /// other units (`held`: dotx's main part) for the tape rule. The check is never
+        /// finished: a later entry that does not match puts the map back to pending.
+        bool dot            = false;
+        bool entry_ok       = false;   ///< the entry matched; `units` holds the others only
+        bool noted          = false;   ///< the 'not the one' line was told, still pending
+        enum class DotEvent : uint8_t { None, Verified, NotTheOne } dot_event = DotEvent::None;
+        std::vector<SourceMap::VerifySpan> held;   ///< spans of the units not armed yet
     };
+    /// The DivMMC unit of a dot command's map, judged at its entry.
+    static FetchSource dot_entry_unit();
+    /// Back to "waiting for the entry": every unit to judge, the others not armed.
+    static void dot_reset(DeferredCheck& c);
+    /// The entry matched: the DivMMC unit is done, the other units are armed.
+    static void dot_match(DeferredCheck& c);
+    /// A landing: the dot's state is where the CPU is now (verified only when it is
+    /// fetching from the dot's bank and the bank holds this command).
+    void dot_landing();
     std::vector<DeferredCheck> checks;
     bool verify_due = false;           ///< the hook judged a unit since recheck() last ran
     void add_check(const SourceMap& map, bool user, bool sources, bool symbols);

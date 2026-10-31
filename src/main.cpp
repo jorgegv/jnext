@@ -1560,7 +1560,9 @@ int main(int argc, char* argv[]) {
               "--delayed-pok-frames N FILE" },
             { pok_frames_count > 0,         "--delayed-pok-frames",        pok_trainers_count > 0,
               "--pok-trainers LIST" },
-            { !source_map_file.empty(),     "--source-map",                !load_file.empty(),
+            // GH #351: without --load only a z88dk dot command's map is accepted (the
+            // frontend checks it); an RZX replay has no dot command to wait for.
+            { !source_map_file.empty(),     "--source-map",                !load_file.empty() || rzx_play_file.empty(),
               "--load FILE" },
         };
         for (const Needs& n : needs) {

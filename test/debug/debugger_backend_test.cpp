@@ -7226,8 +7226,11 @@ int main() {
         bool peeks_refused = true, pokes_refused = true;
         for (const MemSpace& sp : identity_only) {
             uint8_t b = 0x77;
-            const auto pk = dbg.peek(sp, 0, 1, &b);
-            peeks_refused = peeks_refused && pk.status == Result::Unsupported && b == 0x77;
+            // GH #351 (E23-21): DivMMC RAM is read by peek (INS-02-31/32); poke still refuses it.
+            if (!(sp == MemSpace::divmmc_ram(3))) {
+                const auto pk = dbg.peek(sp, 0, 1, &b);
+                peeks_refused = peeks_refused && pk.status == Result::Unsupported && b == 0x77;
+            }
             const auto pw = dbg.poke(1, sp, 0, 1, &canary);
             pokes_refused = pokes_refused && pw.status == Result::Unsupported;
         }
@@ -7238,13 +7241,65 @@ int main() {
         const bool control_ok = dbg.peek(MemSpace::page(0x0A), 0, 1, &control).status == Result::Ok;
         auto& sinks = Log::debugger()->sinks();
         sinks.erase(std::remove(sinks.begin(), sinks.end(), ring), sinks.end());
-        check("INS-02-30", "peek and poke of each identity-only MemSpace kind (boot ROM, Multiface, "
-                           "DivMMC ROM/RAM, alt ROM, Layer 2, config, floating) are Unsupported: "
+        check("INS-02-30", "peek of each identity-only MemSpace kind but DivMMC RAM (boot ROM, Multiface, "
+                           "DivMMC ROM, alt ROM, Layer 2, config, floating) and poke of every one "
+                           "(DivMMC RAM too) are Unsupported: "
                            "nothing read, nothing written, no MUTATE line; an ordinary Page still reads",
               peeks_refused && pokes_refused && machine_bytes() == before && mutates == 0 && control_ok,
               "peeks_refused=" + std::to_string(peeks_refused) + " pokes_refused=" +
                   std::to_string(pokes_refused) + " mutates=" + std::to_string(mutates) +
                   " control_ok=" + std::to_string(control_ok));
+    }
+    {
+        // GH #351 (E23-21) -- peek(DivMmcRam{b}) reads DivMMC RAM bank b: SRAM page
+        // 0x10 + b on the Next (zxnext.vhd:3092-3098), whatever port 0xE3 selects.
+        // Read-only: the machine is unchanged (poke is refused, INS-02-30).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        uint8_t* ram = emu.divmmc().ram_data();
+        constexpr int kBank[3] = {0, 2, 15};
+        for (int i = 0; i < 3; ++i) {
+            ram[kBank[i] * 0x2000 + 0x0000] = static_cast<uint8_t>(0x10 + kBank[i]);
+            ram[kBank[i] * 0x2000 + 0x1FFF] = static_cast<uint8_t>(0xE0 + kBank[i]);
+        }
+        auto machine_bytes = [&] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position());
+            StateWriter w(bytes.data(), bytes.size());
+            emu.save_state(w);
+            return bytes;
+        };
+        const std::vector<uint8_t> before = machine_bytes();
+        bool own = true;
+        for (int i = 0; i < 3; ++i) {
+            uint8_t first = 0, last = 0;
+            const auto a = dbg.peek(MemSpace::divmmc_ram(kBank[i]), 0x0000, 1, &first);
+            const auto b = dbg.peek(MemSpace::divmmc_ram(kBank[i]), 0x1FFF, 1, &last);
+            own = own && a.status == Result::Ok && b.status == Result::Ok &&
+                  first == 0x10 + kBank[i] && last == 0xE0 + kBank[i];
+        }
+        check("INS-02-31", "peek(DivMmcRam{b}) reads bank b from its own storage: distinct marker bytes in banks 0, 2 and 15 "
+                           "read back from their own bank only, at offsets 0 and $1FFF; the machine state is unchanged",
+              own && machine_bytes() == before,
+              "own=" + std::to_string(own));
+    }
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.divmmc().ram_data()[0x1FFE] = 0xAB;
+        emu.divmmc().ram_data()[0x1FFF] = 0xCD;
+        uint8_t buf[4] = {0x77, 0x77, 0x77, 0x77};
+        uint8_t one = 0x77;
+        const auto bad_bank = dbg.peek(MemSpace::divmmc_ram(16), 0, 1, &one);
+        const auto past_end = dbg.peek(MemSpace::divmmc_ram(0), 0x2000, 1, &one);
+        const auto cut = dbg.peek(MemSpace::divmmc_ram(0), 0x1FFE, 4, buf);
+        check("INS-02-32", "peek(DivMmcRam{16}) is InvalidPage and reads nothing; a read of 4 bytes from $1FFE returns the 2 "
+                           "that exist with RefusedUnavailable; a read at $2000 returns none",
+              bad_bank.status == Result::InvalidPage && one == 0x77 && cut.status == Result::RefusedUnavailable &&
+                  cut.value == 2 && buf[0] == 0xAB && buf[1] == 0xCD && buf[2] == 0x77 &&
+                  past_end.status == Result::RefusedUnavailable && past_end.value == 0,
+              "cut.value=" + std::to_string(cut.value));
     }
     {
         // The drift guard for Mmu::nr_page_ptr(): a byte written through a slot

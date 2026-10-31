@@ -1123,6 +1123,174 @@ int main() {
               ok);
     }
 
+    // ── Z88DOT-*: z88dk dot commands (GH #351, design 9.4 rule 5) ───────────────
+    // Oracle: the committed dot / dotx / dotn fixtures (what zcc +zxn -subtype=dot|dotx|dotn
+    // produced) and NextZXOS's measured behaviour (the README, "dot / dotx / dotn"): the
+    // command runs from DivMMC RAM bank 2 at $2000, so its CODE group is DivMmcRam{2} whatever
+    // `space_of` says is mapped at $2000 when the map is attached (the ROM, here).
+    {
+        const MemSpace D2 = MemSpace::divmmc_ram(2);
+        // The ROM at $0000-$3FFF, as NextZXOS's prompt leaves it; the main-memory pages as the NEX loader.
+        const SymbolSpaceOf prompt = nex_space;
+        // All the dot.c lines of `m` (1..22) that resolve, each with its start spaces.
+        const auto only_in = [](const SourceMap& m, const MemSpace& want) {
+            bool any = false;
+            for (int line = 1; line <= 22; ++line)
+                for (const SourceAddress& a : m.resolve("dot.c:" + std::to_string(line)).starts) {
+                    any = true;
+                    if (!(a.space == want)) return false;
+                }
+            return any;
+        };
+        const auto text_of = [](const fs::path& p) {
+            std::ifstream in(p, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        // `text` without the lines that start with `name`, plus `extra`.
+        const auto edited = [](const std::string& text, const std::string& name, const std::string& extra) {
+            std::string out;
+            size_t at = 0;
+            while (at < text.size()) {
+                size_t nl = text.find('\n', at);
+                if (nl == std::string::npos) nl = text.size();
+                const std::string line = text.substr(at, nl - at);
+                if (line.compare(0, name.size(), name) != 0 ||
+                    (line.size() > name.size() && line[name.size()] != ' ' && line[name.size()] != '='))
+                    out += line + "\n";
+                at = nl + 1;
+            }
+            return out + extra;
+        };
+
+        {   // Z88DOT-01
+            SourceMap m;
+            const auto r = load(m, v24 / "sccz80-dot" / "prog.map", prompt);
+            check("Z88DOT-01", "a 2.4 sccz80 dot command's map attaches with the ROM mapped at $2000: every dot.c line is in DivMMC RAM bank 2, "
+                               "dot.c:14 starts at $2D62 there, and the same address in ROM 0 or a RAM page names nothing (it is not the map's memory)",
+                  r && r.count > 0 && m.dot() && only_in(m, D2) && starts_are(m.resolve("dot.c:14"), {{D2, 0x2D62}}) &&
+                      is_at(m.lookup(D2, 0x2D62), "dot.c", 14) && !m.lookup(MemSpace::rom(0), 0x2D62) &&
+                      !m.lookup(MemSpace::page(4), 0x2D62) && !m.lookup(MemSpace::page(10), 0x2D62) &&
+                      !m.lookup(MemSpace::cpu(), 0x2D62));
+        }
+        {   // Z88DOT-02
+            SourceMap sc, sd, cc;
+            const auto rs = load(sc, master / "sccz80-dot" / "prog.map", prompt);
+            const auto rd = load(sd, master / "sdcc-dot" / "prog.map", prompt);
+            const auto rc = load(cc, master / "80cc-dot" / "prog.map", prompt);
+            check("Z88DOT-02", "the master sccz80, sdcc (TAB form) and 80cc dot maps: every dot.c line in DivMMC RAM bank 2; "
+                               "sccz80 dot.c:17 at $2D92, sdcc dot.c:14 (owner of $2D43 with line 11) and 80cc dot.c:14 at $2D64",
+                  rs && rd && rc && sc.dot() && sd.dot() && cc.dot() && only_in(sc, D2) && only_in(sd, D2) && only_in(cc, D2) &&
+                      starts_are(sc.resolve("dot.c:17"), {{D2, 0x2D92}}) &&
+                      is_at(sd.lookup(D2, 0x2D43), "dot.c", 14) && starts_are(sd.resolve("dot.c:14"), {{D2, 0x2D43}}) &&
+                      starts_are(cc.resolve("dot.c:14"), {{D2, 0x2D64}}) && !sc.lookup(MemSpace::rom(0), 0x2D92));
+        }
+        {   // Z88DOT-03
+            SourceMap m;
+            const auto r = load(m, v24 / "sccz80-dotx" / "prog.map", prompt);
+            // crt0's lines are in the CODE group at $2000-$267C; dot.c's are `code_compiler` of MAIN at $87xx.
+            const auto main_lines = m.resolve("dot.c:14").starts;
+            bool crt_in_div = false, crt_elsewhere = false;
+            for (int page = 0; page < 224; ++page)
+                crt_elsewhere = crt_elsewhere || m.lookup(MemSpace::page(static_cast<uint16_t>(page)), 0x2010) != nullptr;
+            crt_in_div = m.lookup(D2, 0x2010) != nullptr || m.lookup(D2, 0x2000) != nullptr;
+            check("Z88DOT-03", "a 2.4 sccz80 dotx: its crt lines ($2000-$267C, the CODE group) are DivMMC RAM bank 2; dot.c:14 (code_compiler in MAIN, $87EB) takes the space "
+                               "the MMU maps ($8000-$9FFF is page 4 here), not the DivMMC bank",
+                  r && m.dot() && crt_in_div && !crt_elsewhere && main_lines.size() == 1 && main_lines[0].space == P4 &&
+                      main_lines[0].address >= 0x8000 && main_lines[0].address < 0xA000 &&
+                      is_at(m.lookup(P4, main_lines[0].address), "dot.c", 14) && !m.lookup(D2, main_lines[0].address));
+        }
+        {   // Z88DOT-04
+            const fs::path dotn = kFixtures / "v2.4-dotn" / "sccz80" / "prog.map";
+            SourceMap m;
+            const auto r = load(m, dotn, prompt);
+            SymbolTable st;
+            const int n = st.load_z88dk_map(dotn.string());
+            st.bind(prompt);
+            bool all_in_div = n > 0 && !st.symbols().empty();
+            for (const auto& [addr, label] : st.symbols())
+                all_in_div = all_in_div && label.space && *label.space == D2 && addr >= 0x2000 && addr < 0x4000;
+            check("Z88DOT-04", "a 2.4 sccz80 dotn: the source half is refused (count -1, the store untouched) saying NextZXOS allocates its pages when it runs; "
+                               "the symbol half keeps only the DOT part ($2000-$3FFF, DivMMC RAM bank 2) and skips the main-bank symbols (_main, _add3)",
+                  !r && r.count == -1 && m.empty() && !m.dot() && r.error.find("NextZXOS allocates") != std::string::npos &&
+                      r.error.find("dotx") != std::string::npos && all_in_div && !st.find_name("_main") && !st.find_name("_add3"));
+        }
+        {   // Z88DOT-05
+            const std::string base = text_of(v24 / "sccz80-dot" / "prog.map");
+            fs::copy_file(v24 / "sccz80-dot" / "prog_CODE.bin", dir / "z05_CODE.bin", fs::copy_options::overwrite_existing);
+            SourceMap no_offset, other_offset, moved_head, same;
+            const auto a = load(no_offset, synth("z05a.map", edited(base, "startupoffset", "")), prompt);
+            const auto b = load(other_offset, synth("z05b.map", edited(base, "startupoffset", "startupoffset = $0400 ; const, local, , zxn_crt_asm_m4, , x:9\n")), prompt);
+            const auto c = load(moved_head, synth("z05c.map", edited(base, "__CODE_head", "__CODE_head = $2100 ; const, public, def, , ,\n")), prompt);
+            const auto d = load(same, synth("z05d.map", base), prompt);
+            check("Z88DOT-05", "a dot command is told by the map, not the address: the same map without `startupoffset`, or with $0400, is refused as today "
+                               "(its $2D4C is not in a RAM page); with $0100 and `__CODE_head` $2100 it is refused saying CODE must start at $2000; unchanged it loads",
+                  !a && a.error.find("not in a RAM page") != std::string::npos && !b && b.error.find("not in a RAM page") != std::string::npos &&
+                      !c && c.error.find("$2000") != std::string::npos && !no_offset.dot() && d && same.dot());
+        }
+        {   // Z88DOT-06
+            SymbolTable st;
+            const int n = st.load_z88dk_map((v24 / "sccz80-dot" / "prog.map").string());
+            check("Z88DOT-06", "the symbol half of a dot command's map: _main ($2D5F) and _add3 ($2D4C) are labels of DivMMC RAM bank 2, shown as main and add3 there; "
+                               "ROM 0 and a RAM page show nothing at $2D5F, and the name does not wait for bind()",
+                  n > 0 && st.find_name("_main") == std::optional<SymbolNameKey>(SymbolNameKey{0x2D5F, std::optional<FetchSource>(D2), false}) &&
+                      st.find_name("_add3") == std::optional<SymbolNameKey>(SymbolNameKey{0x2D4C, std::optional<FetchSource>(D2), false}) &&
+                      st.lookup(D2, 0x2D5F) == std::optional<std::string>("main") &&
+                      !st.lookup(MemSpace::rom(0), 0x2D5F) && !st.lookup(MemSpace::page(4), 0x2D5F) && !st.lookup(MemSpace::cpu(), 0x2D5F));
+        }
+        {   // Z88DOT-07
+            SourceMap m, x;
+            load(m, v24 / "sccz80-dot" / "prog.map", prompt);
+            load(x, v24 / "sccz80-dotx" / "prog.map", prompt);
+            const auto code = [](const fs::path& f) {
+                std::ifstream in(f, std::ios::binary);
+                return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            };
+            const auto dot_bin = code(v24 / "sccz80-dot" / "prog_CODE.bin");
+            const auto x_code = code(v24 / "sccz80-dotx" / "prog_CODE.bin");
+            const auto x_main = code(v24 / "sccz80-dotx" / "prog_MAIN.bin");
+            // Memory as NextZXOS leaves it: CODE at $2000 of bank 2, MAIN at $8000 of page 4.
+            const auto reader = [&](const std::vector<uint8_t>& c, const std::vector<uint8_t>& mn) {
+                return [&c, &mn](FetchSource sp, uint16_t a) -> std::optional<uint8_t> {
+                    if (sp.kind == MemSpace::Kind::DivMmcRam && sp.index == 2 && a >= 0x2000 && a - 0x2000u < c.size() && a < 0x4000)
+                        return c[a - 0x2000u];
+                    if (sp == P4 && a >= 0x8000 && a - 0x8000u < mn.size()) return mn[a - 0x8000u];
+                    return std::nullopt;
+                };
+            };
+            const auto spans = m.verify_spans();
+            const auto xspans = x.verify_spans();
+            bool dot_units_ok = !spans.empty(), x_units_ok = false, x_div = false, x_p4 = false;
+            for (const auto& sp : spans) dot_units_ok = dot_units_ok && sp.unit == D2 && sp.space == D2;
+            for (const auto& sp : xspans) {
+                x_div = x_div || (sp.unit == D2 && sp.space == D2);
+                x_p4 = x_p4 || (sp.unit == P4 && sp.space == P4);
+                x_units_ok = true;
+            }
+            const auto dummy = [](uint16_t) { return uint8_t(0); };
+            std::vector<uint8_t> bad = dot_bin;
+            for (const auto& sp : spans) { bad[sp.lo - 0x2000u] ^= 0xFF; break; }
+            const auto good_dot = m.verify_unit(D2, dummy, reader(dot_bin, x_main));
+            const auto bad_dot = m.verify_unit(D2, dummy, reader(bad, x_main));
+            const auto good_x2 = x.verify_unit(D2, dummy, reader(x_code, x_main));
+            const auto good_x4 = x.verify_unit(P4, dummy, reader(x_code, x_main));
+            std::vector<uint8_t> bad_main = x_main;
+            for (const auto& sp : xspans) if (sp.unit == P4) { bad_main[sp.lo - 0x8000u] ^= 0xFF; break; }
+            const auto bad_x4 = x.verify_unit(P4, dummy, reader(x_code, bad_main));
+            check("Z88DOT-07", "the identity of a dot command: one unit, DivMMC RAM bank 2, whose bytes are prog_CODE.bin at addr - $2000; a dotx has two units "
+                               "(bank 2 from prog_CODE.bin, page 4 from prog_MAIN.bin at addr - $8000), each judged against its own memory",
+                  m.has_identity() && dot_units_ok && x_units_ok && x_div && x_p4 && good_dot == std::optional<bool>(true) &&
+                      bad_dot == std::optional<bool>(false) && good_x2 == std::optional<bool>(true) &&
+                      good_x4 == std::optional<bool>(true) && bad_x4 == std::optional<bool>(false));
+        }
+        {   // Z88DOT-08 (GH #348): the listing route, the third consumer of the section rules
+            SourceMap m;
+            const auto r = load_z88dk_source_map(m, (v24 / "sdcc-dot" / "prog.map").string(), prompt, Z88dkListings::Beside);
+            check("Z88DOT-08", "a 2.4 sdcc dot command has no C line in its map (-SO2 --c-code-in-asm): the dot.c lines come from dot.c.lis and are in DivMMC RAM bank 2",
+                  r && r.listings > 0 && m.dot() && only_in(m, D2) && !m.resolve("dot.c:14").starts.empty());
+        }
+    }
+
+
 
     fs::remove_all(dir);
 
