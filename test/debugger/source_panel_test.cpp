@@ -4709,9 +4709,9 @@ void test_source_highlight_rules() {
         h.load(SourceLanguage::C,
                QStringLiteral("#asm\n  ld a,1 ; x\n#endasm\nint y;\n__asm\n  ld a,1 ; x\n__endasm;\n"
                               "int z; ld a,1\n"));
-        const bool a1 = tok(h, 1, QStringLiteral("ld")) == 'K' && tok(h, 1, QStringLiteral("; x")) == 'C';
-        const bool a2 = tok(h, 5, QStringLiteral("ld")) == 'K' && tok(h, 5, QStringLiteral("; x")) == 'C';
-        const bool dirs = role_mask(h, 0) == "DDDD" && role_mask(h, 2) == "DDDDDDD";
+        const bool a1 = tok(h, 1, QStringLiteral("ld")) == 'I' && tok(h, 1, QStringLiteral("; x")) == 'C';
+        const bool a2 = tok(h, 5, QStringLiteral("ld")) == 'I' && tok(h, 5, QStringLiteral("; x")) == 'C';
+        const bool dirs = role_mask(h, 0) == "PPPP" && role_mask(h, 2) == "PPPPPPP";
         const bool after = tok(h, 3, QStringLiteral("int")) == 'K' && tok(h, 7, QStringLiteral("int")) == 'K' &&
                            tok(h, 7, QStringLiteral("ld")) == '.';
         check("QSRC-130", "embedded assembly in C is coloured as assembly between #asm and #endasm and "
