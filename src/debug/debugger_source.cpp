@@ -131,8 +131,7 @@ std::optional<bool> Debugger::Impl::verify_identity(const SourceMap& map) const 
     return map.verify_program(
         [this](uint16_t addr) { return emu.mmu().peek(addr); },
         [this](FetchSource space, uint16_t addr) -> std::optional<uint8_t> {
-            if (space.kind != MemSpace::Kind::Page && space.kind != MemSpace::Kind::DivMmcRam)
-                return std::nullopt;
+            if (space.kind != MemSpace::Kind::Page) return std::nullopt;
             uint8_t b = 0;
             if (!self->peek(space, addr & 0x1FFF, 1, &b)) return std::nullopt;
             return b;

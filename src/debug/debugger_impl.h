@@ -203,7 +203,9 @@ struct Debugger::Impl {
     /// (a `Page` is read whatever the MMU maps over it; any other space is
     /// unreadable, so a byte check in one fails).
     std::optional<bool> verify_identity(const SourceMap& map) const;
-    /// One unit of `map`'s identity (see `DeferredCheck`), through the same two readers.
+    /// One unit of `map`'s identity (see `DeferredCheck`), through the same two readers,
+    /// except that a unit may also be `DivMmcRam{b}` (a dot command's, GH #351; its map
+    /// is never judged whole, so `verify_identity()` does not read that space).
     std::optional<bool> verify_identity_unit(const SourceMap& map, FetchSource unit) const;
     /// The machine this backend describes was reset or replaced: both the
     /// hook `DebugState` calls and the re-application after a cold boot
