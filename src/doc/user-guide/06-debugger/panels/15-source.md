@@ -43,8 +43,9 @@ and the colours of the current-line bar, and applies at once. The current line k
 scheme, and the gutter (line numbers and breakpoint marks) is not affected.
 
 With [memory coverage](../functions/15-memory-coverage.md) on, every line of the
-shown file that ran has a pale green background (the current line keeps its
-highlight).
+shown file that ran has a tinted background that follows the colour scheme (pale
+green in Light, a dark green in Dark, a dark teal in Borland; the current line keeps
+its highlight).
 
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the

@@ -5450,9 +5450,16 @@ void test_source_highlight_schemes() {
               is(rc(light, R::Instruction), "#006E6E") && is(rc(light, R::Preprocessor), "#800080") &&
               is(rc(light, R::Label), "#795E26") && is(rc(light, R::String), "#A31515") &&
               is(rc(light, R::Char), "#C2185B") && is(rc(light, R::Integer), "#A05000") &&
-              is(rc(light, R::Float), "#3949AB") && is(rc(light, R::Comment), "#008000") &&
+              is(rc(light, R::Float), "#3949AB") && is(rc(light, R::Comment), "#007F00") &&
               is(light.pc_background, "#1E5AA8") && is(light.pc_text, "#FFFFFF")))
             bad += "light ";
+        // The tints: Light is #388's pale green (what coverage_colors::exec_line() gives a light
+        // palette), Dark a dark green, Borland the owner-to-confirm dark teal; both differ from their
+        // background by CIE76 12 so the line is visible.
+        if (!is(light.coverage_line, "#E0F5E3") || !is(bor.coverage_line, "#004040") ||
+            delta_e76(bor.coverage_line, bor.background) < 12.0 ||
+            delta_e76(dark.coverage_line, dark.background) < 12.0)
+            bad += "tints ";
         // Dark: ink() of the Light colours over a dark palette with Window = Base = #242424 and
         // WindowText = Text = #F0F0F0, written out here independently of the implementation.
         QPalette p;
@@ -5462,6 +5469,7 @@ void test_source_highlight_schemes() {
         p.setColor(QPalette::Text, QColor(0xF0, 0xF0, 0xF0));
         for (int r = 0; r < SourceHighlighter::kRoles; ++r)
             if (dark.role[r] != palette_tint::ink(p, light.role[r])) bad += "dark_role" + std::to_string(r) + " ";
+        if (!is(dark.coverage_line, "#0A3014")) bad += "dark_tint ";
         if (!(is(dark.background, "#242424") && is(dark.text, "#F0F0F0") && is(dark.pc_background, "#3D72AA") &&
               is(dark.pc_text, "#FFFFFF")))
             bad += "dark_fixed ";
@@ -5479,6 +5487,10 @@ void test_source_highlight_schemes() {
                 if (contrast(c.role[r], c.background) < 4.5) bad += std::string(e.name) + ":R1(" + std::to_string(r) + ") ";
             if (contrast(c.pc_text, c.pc_background) < 4.5) bad += std::string(e.name) + ":R2 ";
             if (contrast(c.pc_background, c.background) < 3.0) bad += std::string(e.name) + ":R3 ";
+            // R5: every class colour and Text reach 4.5:1 on the scheme's coverage tint (GH #388 x #422)
+            for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+                if (contrast(c.role[r], c.coverage_line) < 4.5) bad += std::string(e.name) + ":R5(" + std::to_string(r) + ") ";
+            if (c.coverage_line == c.background) bad += std::string(e.name) + ":tint=bg ";
             for (int i = 0; i < SourceHighlighter::kRoles; ++i)
                 for (int j = i + 1; j < SourceHighlighter::kRoles; ++j) {
                     bool same = false;
@@ -5495,8 +5507,8 @@ void test_source_highlight_schemes() {
                 }
         }
         check("QSRC-195", "Light, Dark (ink() of Light over #242424/#F0F0F0) and Borland C++ 3.1 have the owner's "
-                          "colours; every scheme's text and classes reach 4.5:1 on its background, its bar text "
-                          "4.5:1 and its bar 3:1, and any two colours differ by CIE76 12 unless declared shared (equal)",
+                          "colours; every scheme's text and classes reach 4.5:1 on its background and on its "
+                          "coverage tint, its bar text 4.5:1 and its bar 3:1, and any two colours differ by CIE76 12 unless declared shared (equal)",
               bad.empty(), bad);
     }
     {   // QSRC-196
@@ -5706,6 +5718,67 @@ void test_source_highlight_schemes() {
         check("QSRC-199", "under Borland every format of every language is one foreground colour and nothing "
                           "else (the background is the editor's palette), and the text has the geometry of Plain",
               colour_only && geometry);
+    }
+    {   // QSRC-200
+        // Oracle: GH #388 (an executed line has a whole-line tint, the current line wins) x GH #422
+        // (the scheme owns the colours): on a LIGHT application palette Dark and Borland must tint
+        // with their own colour, never the pale green that is unreadable under their text.
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
+        auto* ed = sp ? sp->findChild<QPlainTextEdit*>() : nullptr;
+        auto* hl = sp ? sp->findChild<SourceHighlighter*>() : nullptr;
+        QPushButton* into = sp ? button(sp, QStringLiteral("Into")) : nullptr;
+        QPushButton* over = sp ? button(sp, QStringLiteral("Over")) : nullptr;
+        std::string bad;
+        if (!sp || !ed || !hl || !into || !over) bad = "no panel ";
+        else {
+            fx.mgr->refresh_panels();
+            fx.backend->mem_coverage_enable(true);
+            fx.mgr->refresh_panels();
+            into->click();
+            over->click();
+            QApplication::processEvents();
+            fx.mgr->refresh_panels();
+            const QColor pale(0xE0, 0xF5, 0xE3);
+            BreakpointModel& bm = fx.mgr->breakpoints();
+            SrcView sv(fx, bm);
+            SourcePanel* vp = sv.sp;
+            QPlainTextEdit* ved = sv.ed;
+            for (SourceScheme sch : {SourceScheme::Light, SourceScheme::Dark, SourceScheme::Borland, SourceScheme::Auto}) {
+                sp->set_colour_scheme(sch);
+                fx.mgr->refresh_panels();
+                QApplication::processEvents();
+                const std::string tag = std::to_string(static_cast<int>(sch)) + " ";
+                const SC& c = hl->colours_in_force();
+                const auto sels = ed->extraSelections();
+                bool tinted = sels.size() >= 2;
+                const bool current_last = !sels.isEmpty() && sels.back().format.background().color() == c.pc_background;
+                for (int i = 0; i + 1 < sels.size(); ++i)
+                    tinted = tinted && sels[i].format.background().color() == c.coverage_line;
+                if (!tinted) bad += tag + "selection-not-scheme-tint ";
+                if (!current_last) bad += tag + "current-line-not-last ";
+                if ((sch == SourceScheme::Dark || sch == SourceScheme::Borland) && c.coverage_line == pale)
+                    bad += tag + "pale-green ";
+                // The same backend (coverage and PC state) painted in a shown panel: an executed
+                // line (10) carries the tint near the right edge, the current line (12) the bar.
+                vp->set_colour_scheme(sch);
+                vp->refresh();
+                QApplication::processEvents();
+                QImage img(ved->viewport()->size(), QImage::Format_ARGB32);
+                img.fill(Qt::magenta);
+                ved->viewport()->render(&img);
+                const int y10 = ved->cursorRect(QTextCursor(ved->document()->findBlockByNumber(9))).center().y();
+                const int y12 = ved->cursorRect(QTextCursor(ved->document()->findBlockByNumber(11))).center().y();
+                if (QColor::fromRgb(img.pixel(img.width() - 4, y10)) != c.coverage_line) bad += tag + "pixel-line10 ";
+                if (QColor::fromRgb(img.pixel(img.width() - 4, y12)) != c.pc_background) bad += tag + "pixel-bar ";
+            }
+        }
+        check("QSRC-200", "with coverage on, an executed line is tinted with the SCHEME's colour (Light the pale "
+                          "green, Dark and Borland their own, never the pale green, on a light application "
+                          "palette), and the current line's bar stays last and on top",
+              bad.empty(), bad);
     }
 }
 

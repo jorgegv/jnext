@@ -343,12 +343,14 @@ Stack's last column looks up each frame's caller with its recorded
 the backend on every `refresh_panels()` and at construction, so a window built over
 a backend that `--coverage` already switched on shows it ticked. All colours come
 from `coverage_colors.h` (X green, R blue, W orange-red, the Source tint a pale
-green), each through `palette_tint`. The Disassembly paints a 3 px bar right of the
+green), each through `palette_tint`; the Source tab alone takes its tint from the scheme
+(`SchemeColours::coverage_line`: Light is `coverage_colors::exec_line()` of a light palette, Dark and
+Borland their own dark greens, so every class colour reads on it, QSRC-195 clause 5, QSRC-200). The Disassembly paints a 3 px bar right of the
 gutter separator on a line where `mem_coverage_fetch(addr)` has X, after the PC and
 selection fills; the Memory panel asks `mem_coverage()` for each row through the
 same `locate()` as the bytes and underlines each covered byte in thirds, X | R | W,
 with a legend label in its top bar; the Source tab adds a full-width
-`ExtraSelection` for each line in `executed_source_lines(file)` before the
+`ExtraSelection`, in the scheme's tint, for each line in `executed_source_lines(file)` before the
 current-line selection, so that one wins on its own line. Nothing is drawn while
 coverage is off.
 

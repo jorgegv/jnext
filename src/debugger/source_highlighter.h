@@ -47,6 +47,9 @@ public:
     /// per class (role[Text] == text).
     struct SchemeColours {
         QColor background, text, pc_background, pc_text;
+        /// The whole-line background of an executed line (memory coverage, GH #388), chosen so
+        /// every class colour and Text read on it.
+        QColor coverage_line;
         QColor role[kRoles];
     };
     /// The colours of Light, Dark or Borland (Auto is resolved first).

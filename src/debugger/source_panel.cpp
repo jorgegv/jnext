@@ -1,7 +1,6 @@
 #include "debugger/source_panel.h"
 
 #include "debugger/breakpoint_glyph.h"
-#include "debugger/coverage_colors.h"   // GH #388
 #include "debugger/breakpoint_model.h"
 #include "qt/palette_tint_qt.h"
 #include "debug/debugger.h"
@@ -655,7 +654,7 @@ void SourcePanel::refresh_()
     // appended LAST so it wins on its own line.
     QList<QTextEdit::ExtraSelection> selections;
     if (dbg_->mem_coverage_enabled()) {
-        const QColor tint = coverage_colors::exec_line(editor_->palette());
+        const QColor tint = highlighter_->colours_in_force().coverage_line;   // the scheme's (GH #422)
         for (const uint32_t line : dbg_->executed_source_lines(location->file)) {
             const QTextBlock b = doc->findBlockByNumber(static_cast<int>(line) - 1);
             if (line == 0 || !b.isValid()) continue;

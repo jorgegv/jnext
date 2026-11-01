@@ -1,6 +1,7 @@
 #include "debugger/source_highlighter.h"
 
 #include "debug/disasm.h"
+#include "debugger/coverage_colors.h"
 #include "platform/config_keys.h"
 #include "qt/palette_tint_qt.h"
 
@@ -493,7 +494,7 @@ QColor SourceHighlighter::light_colour(Role role)
     case Role::Char:         return QColor(0xC2, 0x18, 0x5B);
     case Role::Integer:      return QColor(0xA0, 0x50, 0x00);
     case Role::Float:        return QColor(0x39, 0x49, 0xAB);
-    case Role::Comment:      return QColor(0x00, 0x80, 0x00);
+    case Role::Comment:      return QColor(0x00, 0x7F, 0x00);
     }
     return QColor();
 }
@@ -507,6 +508,16 @@ SourceHighlighter::SchemeColours make_light()
     c.text = QColor(0x00, 0x00, 0x00);
     c.pc_background = QColor(0x1E, 0x5A, 0xA8);
     c.pc_text = QColor(0xFF, 0xFF, 0xFF);
+    // The tint is #388's own function applied to a palette of the scheme's sense (light), not
+    // the application's, so QCOV-06's oracle computes the same colour in Auto on a light palette.
+    QPalette lp;
+    for (auto g : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
+        lp.setColor(g, QPalette::Window, QColor(0xFF, 0xFF, 0xFF));
+        lp.setColor(g, QPalette::WindowText, QColor(0x00, 0x00, 0x00));
+        lp.setColor(g, QPalette::Base, QColor(0xFF, 0xFF, 0xFF));
+        lp.setColor(g, QPalette::Text, QColor(0x00, 0x00, 0x00));
+    }
+    c.coverage_line = coverage_colors::exec_line(lp);
     for (int r = 0; r < SourceHighlighter::kRoles; ++r)
         c.role[r] = SourceHighlighter::light_colour(static_cast<SourceHighlighter::Role>(r));
     return c;
@@ -529,6 +540,10 @@ SourceHighlighter::SchemeColours make_dark(const SourceHighlighter::SchemeColour
     c.text = p.color(QPalette::Text);
     c.pc_background = QColor(0x3D, 0x72, 0xAA);
     c.pc_text = QColor(0xFF, 0xFF, 0xFF);
+    // #388's own function on this palette gives #2A462E, which the Dark class colours cannot all
+    // read on (Keyword 3.45:1, Char 4.07, Float 3.69). A darker green (L 0.022) reaches 4.5:1 for all
+    // ten and stays a visibly green line on the #242424 background.
+    c.coverage_line = QColor(0x0A, 0x30, 0x14);
     for (int r = 0; r < SourceHighlighter::kRoles; ++r) c.role[r] = palette_tint::ink(p, light.role[r]);
     return c;
 }
@@ -544,6 +559,9 @@ SourceHighlighter::SchemeColours make_borland()
     c.text = yellow;
     c.pc_background = QColor(0xA8, 0xA8, 0xA8);
     c.pc_text = QColor(0x00, 0x00, 0xA8);
+    // Dark teal: 4.9:1 or better against every class colour (the grey comment is the limit), and
+    // a different hue from the blue background. Owner to confirm (GH #422 landing prep).
+    c.coverage_line = QColor(0x00, 0x40, 0x40);
     auto set = [&](R r, const QColor& v) { c.role[static_cast<int>(r)] = v; };
     set(R::Text, yellow);
     set(R::Keyword, white);

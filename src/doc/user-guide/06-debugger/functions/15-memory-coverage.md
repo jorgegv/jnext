@@ -47,8 +47,9 @@ are different bytes with different marks.
   right, so a byte that was executed and read shows two parts. A "Coverage: X R
   W" key appears in the panel's top bar. The `CPU View` follows what the CPU
   reads, a `Slot` view the page mapped there, and `Page...` that page.
-- **Source** — every line of the shown file that ran has a pale green
-  background; the current line keeps its own highlight.
+- **Source** — every line of the shown file that ran has a tinted
+  background, pale green in the light scheme and a dark green or teal in the dark and
+  Borland schemes; the current line keeps its own highlight.
 
 Colours adapt to a dark desktop theme. Marks are visible only while the machine
 is paused, like everything else in the debugger.
