@@ -74,7 +74,7 @@ DisasmPanel::DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     // Calculate paint offset (top bar height + column headers + spacing)
     paint_y_offset_ = 52;
 
-    setMinimumSize(GUTTER_WIDTH + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH + 200,
+    setMinimumSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
                    10 * LINE_HEIGHT + paint_y_offset_);
     setFocusPolicy(Qt::StrongFocus);
 
@@ -941,6 +941,6 @@ void DisasmPanel::resizeEvent(QResizeEvent* event) {
 
 QSize DisasmPanel::sizeHint() const
 {
-    return QSize(GUTTER_WIDTH + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH + 200,
+    return QSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
                  20 * LINE_HEIGHT + paint_y_offset_);
 }

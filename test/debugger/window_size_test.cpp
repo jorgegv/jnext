@@ -71,6 +71,7 @@
 #include <QScreen>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QTabWidget>
 #include <QSet>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -462,6 +463,37 @@ static void test_window(const QString& cfg_dir)
                           fx.dbg->width(), fx.dbg->height(), avail.width(), avail.height())
                     : std::string("fixture failed"));
         clear_saved_geometry(cfg_dir);
+    }
+
+    // DW-11 (GH #360) — the left column of tabs keeps the width its panels ask for at the default
+    // window size (the 1400 px the guide pictures use). The Disassembly's Mem column once raised the
+    // right-hand side's minimum and took 51 px from this column, clipping the Video panel's raster
+    // labels. Oracle: the column (the tab widget) is at least as wide as every page's own sizeHint(), less
+    // the tab frame.
+    {
+        clear_saved_geometry(cfg_dir);
+        Fixture fx;
+        std::string bad;
+        int pages = 0;
+        if (fx.ok) {
+            fx.dbg->resize(1400, 900);   // the width the user guide pictures are taken at (tools/docshot)
+            settle();
+            for (QTabWidget* tw : fx.dbg->findChildren<QTabWidget*>()) {
+                bool left = false;
+                for (int i = 0; i < tw->count(); ++i)
+                    if (tw->tabText(i) == QLatin1String("Video")) left = true;
+                if (!left) continue;
+                for (int i = 0; i < tw->count(); ++i) {
+                    QWidget* w = tw->widget(i);
+                    ++pages;
+                    if (tw->width() + 8 < w->sizeHint().width())   // 8 px: the tab frame
+                        bad += fmt("%s %d<%d ", tw->tabText(i).toStdString().c_str(), tw->width(),
+                                   w->sizeHint().width());
+                }
+            }
+        }
+        check("DW-11", "at the default window size the left column of tabs is at least as wide as every panel's sizeHint",
+              fx.ok && pages == 7 && bad.empty(), fx.ok ? bad + fmt("pages=%d win=%dx%d", pages, fx.dbg->width(), fx.dbg->height()) : std::string("fixture failed"));
     }
 }
 
