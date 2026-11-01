@@ -158,11 +158,14 @@ def hold(port):
     g = Rsp(port)
     time.sleep(2.5)                      # running: the log gets windows with uploads
     g.s.sendall(b"\x03")
-    stop = g.packet()
-    check(stop.startswith("T05"), "the interrupt was answered %r" % stop)
+    time.sleep(0.5)
     check(g.cmd("?") == "T05thread:1;", "? after the interrupt")
     time.sleep(4.5)                      # held: whole idle one-second windows
-    check(g.cmd("M5800,1:ff") == "OK", "the poke was refused")
+    g.send("M5800,1:ff")
+    reply = g.packet()
+    while reply.startswith("T05"):       # an asynchronous stop reply may precede it
+        reply = g.packet()
+    check(reply == "OK", "the poke was answered %r" % reply)
     time.sleep(3.5)                      # the window with the poke, then idle again
     g.send("c")                          # resume: no reply until the next stop
     time.sleep(3.0)                      # running again: uploads resume
