@@ -181,6 +181,7 @@ void write_saved_size(const QString& dir, int w, int h) {
 
 void clear_saved_geometry(const QString& dir) {
     QFile::remove(dir + QStringLiteral("/Debugger.conf"));
+    QFile::remove(dir + QStringLiteral("/jnext.conf"));   // where the window saves its size now (a restored size is not "default")
 }
 
 } // namespace
@@ -304,6 +305,35 @@ int main(int argc, char** argv)
               fx.ok && pages == 7 && bad.empty(),
               fx.ok ? bad + fmt("pages=%d window %dx%d", pages, fx.dbg->width(), fx.dbg->height())
                     : std::string("fixture failed"));
+    }
+
+    // GR-06 (GH #360 review) -- a window manager can answer a request of the opening fit LATE (openbox
+    // applies the first one after the later ones). That stale size is the manager's, not the user's, and
+    // must not be the final size: the fit asks its current request again. The size the fit started its
+    // first pass from (1170 x 900, the default) is one of the fit's own; the window is put back to it
+    // after the fit has ended (the echo landing after the last request) and must return to the size
+    // the fit settled on.
+    {
+        clear_saved_geometry(dir.path());
+        const QSize echo(1170, kDefaultHeight);
+        QSize settled;
+        bool returned = false;
+        Fixture fx;
+        if (fx.ok) {
+            settled = fx.dbg->size();
+            if (settled != echo) {
+                fx.dbg->resize(echo);
+                settle(400);
+                returned = fx.dbg->size() == settled;
+            }
+        }
+        check("GR-06",
+              "a stale answer of the window manager to an earlier request of the opening fit (the window put "
+              "back to the size the fit started from, after the fit ended) is asked again: the window returns "
+              "to the size the fit settled on",
+              fx.ok && returned,
+              fmt("settled %dx%d, echo %dx%d, now %dx%d", settled.width(), settled.height(), echo.width(),
+                  echo.height(), fx.ok ? fx.dbg->width() : 0, fx.ok ? fx.dbg->height() : 0));
     }
 
     // GR-04 — the gate on the other side: a size the user saved is NOT grown,
