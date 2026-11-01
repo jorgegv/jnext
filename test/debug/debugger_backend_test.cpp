@@ -6373,6 +6373,246 @@ static void rwm_rows() {
     }
 }
 
+// ── REV — Debugger::state_revision() (GH #428) ─────────────────────────────
+//
+// Oracle: the GH #428 plan, section 2.5. A paused frontend redraws its panels
+// only when the master clock, this revision or its own input epoch moved, so
+// the revision has to advance on EVERY change a panel could show that does not
+// move the clock -- each write verb (the §4.2a MUTATE contract, `src/debug/
+// debugger.cpp`), a cold boot, and each metadata verb -- and on nothing else:
+// not on a read-only query, not on pump(), not on a refused verb.
+//
+// Verb table (every non-const public method of debugger.h):
+//   bump      set_register poke set_mmu_slot nextreg_write port_in port_out
+//             set_sprite_attr_raw write_pattern_ram set_audio_mute_mask
+//             set_palette set_border set_key set_extended_key set_joystick
+//             press_key press_nmi reset(Soft) load_state_bytes bookmark_restore
+//             load_map clear_symbols load_source_map clear_source_map
+//             load_program_sidecars subscribe unsubscribe set_enabled
+//             set_master_enabled set_client_enabled set_call_stack_enabled
+//             set_trace_enabled trace_clear trace_resize coverage_enable
+//             coverage_clear set_rewind_enabled resize_rewind_buffer
+//             set_magic_breakpoint set_persistent_breakpoints attach detach
+//             on_cold_boot_done
+//   no bump   pause run step_* run_to* step_back rewind_to_frame (the CLOCK
+//             term of the stamp covers them), acknowledge_corruption,
+//             note_program_replaced, screenshot / flush_captures / bookmark_save
+//             / save_snapshot / save_state_bytes (they change no panel),
+//             set_stop_policy, set_listener, add_service, remove_service,
+//             set_live_raster, log, set_loop_driver, on_cold_boot_begin,
+//             raise_host_event, pump (nothing a panel shows).
+static void gh428_rev_rows() {
+    using jnext::dbg::SaveStateMode;
+    // One verb, one row: a successful call advances the revision.
+    auto rev_row = [](const char* id, const char* what, auto&& verb) {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.pause(a);
+        const uint64_t before = dbg.state_revision();
+        const bool ok = verb(dbg, emu, a);
+        const uint64_t after = dbg.state_revision();
+        check(id, what, ok && after > before,
+              std::string(ok ? "ok" : "verb failed/refused") + " rev " +
+                  std::to_string(before) + " -> " + std::to_string(after));
+    };
+    const uint8_t one[1] = {0x42};
+    rev_row("REV-01", "set_register advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_register(a, RegId::A, 0x12) == Result::Ok; });
+    rev_row("REV-02", "poke to RAM advances the revision",
+            [&](Debugger& d, Emulator&, ClientId a) { return d.poke(a, MemSpace::cpu(), 0x9100, 1, one).status == Result::Ok; });
+    rev_row("REV-03", "set_mmu_slot advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_mmu_slot(a, 0, 4) == Result::Ok; });
+    rev_row("REV-04", "nextreg_write advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.nextreg_write(a, 0x7F, 0x55) == Result::Ok; });
+    rev_row("REV-05", "port_out advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.port_out(a, 0x00FE, 0x02) == Result::Ok; });
+    rev_row("REV-06", "set_sprite_attr_raw advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) {
+                const uint8_t at[5] = {1, 2, 3, 4, 5};
+                return d.set_sprite_attr_raw(a, 0, at, 5) == Result::Ok; });
+    rev_row("REV-07", "write_pattern_ram advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) {
+                const uint8_t pat[2] = {0x11, 0x22};
+                return d.write_pattern_ram(a, 0x100, pat, 2) == Result::Ok; });
+    rev_row("REV-08", "set_audio_mute_mask advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_audio_mute_mask(a, 0x01) == Result::Ok; });
+    rev_row("REV-09", "set_palette advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) {
+                return d.set_palette(a, jnext::dbg::PaletteId::UlaFirst, 3, 0x1FF) == Result::Ok; });
+    rev_row("REV-10", "set_border advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_border(a, 5) == Result::Ok; });
+    rev_row("REV-11", "set_key advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_key(a, 1, 1, true) == Result::Ok; });
+    rev_row("REV-12", "set_extended_key advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_extended_key(a, 0, true) == Result::Ok; });
+    rev_row("REV-13", "set_joystick advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) {
+                return d.set_joystick(a, jnext::dbg::JoystickSide::Left, 0x10) == Result::Ok; });
+    rev_row("REV-14", "press_key advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.press_key(a, std::string("a"), 2).status == Result::Ok; });
+    rev_row("REV-15", "reset(Soft) advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.reset(a, ResetKind::Soft) == Result::Ok; });
+    rev_row("REV-16", "load_state_bytes advances the revision",
+            [](Debugger& d, Emulator& e, ClientId a) {
+                (void)e; d.run(a);   // a saved state is taken at a frame boundary: not paused
+                auto st = d.save_state_bytes(a, SaveStateMode::RefuseMidFrame);
+                if (st.status != Result::Ok) return false;
+                return d.load_state_bytes(a, st.value.data(), st.value.size()) == Result::Ok; });
+    rev_row("REV-17", "bookmark_restore advances the revision",
+            [](Debugger& d, Emulator& e, ClientId a) {
+                (void)e; d.run(a);   // a saved state is taken at a frame boundary: not paused
+                if (d.bookmark_save(a, "one", SaveStateMode::RefuseMidFrame) != Result::Ok) return false;
+                return d.bookmark_restore(a, "one") == Result::Ok; });
+    rev_row("REV-18", "load_map advances the revision",
+            [](Debugger& d, Emulator&, ClientId) {
+                const std::string m = tmp_file("gh428_map", ".map");
+                { std::ofstream f(m); f << "main_loop = $8134 ; addr, public, , x, code_user, x.asm:1\n"; }
+                const bool ok = d.load_map(m, jnext::dbg::MapFormat::Z88dk).status == Result::Ok;
+                std::remove(m.c_str());
+                return ok; });
+    rev_row("REV-19", "clear_symbols advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.clear_symbols() == Result::Ok; });
+    rev_row("REV-20", "load_source_map advances the revision",
+            [](Debugger& d, Emulator&, ClientId) {
+                const std::string m = tmp_file("gh428_sld", ".sld");
+                { std::ofstream f(m);
+                  f << "|SLD.data.version|1\n"
+                       "main.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+                       "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+                       "main.bas|10||0|0|32768|T|\n"; }
+                const bool ok = d.load_source_map(m, true).count >= 0;
+                std::remove(m.c_str());
+                return ok; });
+    rev_row("REV-21", "clear_source_map advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.clear_source_map() == Result::Ok; });
+    rev_row("REV-22", "load_program_sidecars advances the revision",
+            [](Debugger& d, Emulator&, ClientId) {
+                d.load_program_sidecars("/nonexistent/gh428/prog.nex"); return true; });
+    rev_row("REV-23", "subscribe advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) {
+                Subscription s; s.kind = EventKind::Execute; s.filter.lo = 0x8000; s.filter.hi = 0x8000;
+                return d.subscribe(a, s).status == Result::Ok; });
+    rev_row("REV-24", "unsubscribe advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) {
+                Subscription s; s.kind = EventKind::Execute; s.filter.lo = 0x8000; s.filter.hi = 0x8000;
+                const auto id = d.subscribe(a, s);
+                return id.status == Result::Ok && d.unsubscribe(a, id.value) == Result::Ok; });
+    rev_row("REV-25", "set_enabled (one subscription) advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) {
+                Subscription s; s.kind = EventKind::Execute; s.filter.lo = 0x8000; s.filter.hi = 0x8000;
+                const auto id = d.subscribe(a, s);
+                return id.status == Result::Ok && d.set_enabled(a, id.value, false) == Result::Ok; });
+    rev_row("REV-26", "set_master_enabled advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.set_master_enabled(false) == Result::Ok; });
+    rev_row("REV-27", "set_client_enabled advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_client_enabled(a, false) == Result::Ok; });
+    rev_row("REV-28", "set_call_stack_enabled advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.set_call_stack_enabled(true) == Result::Ok; });
+    rev_row("REV-29", "set_trace_enabled advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.set_trace_enabled(true) == Result::Ok; });
+    rev_row("REV-30", "trace_clear advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.trace_clear() == Result::Ok; });
+    rev_row("REV-31", "trace_resize advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.trace_resize(64) == Result::Ok; });
+    rev_row("REV-32", "coverage_enable advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.coverage_enable(true) == Result::Ok; });
+    rev_row("REV-33", "coverage_clear advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.coverage_clear() == Result::Ok; });
+    rev_row("REV-34", "set_rewind_enabled advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.set_rewind_enabled(true) == Result::Ok; });
+    rev_row("REV-35", "resize_rewind_buffer advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.resize_rewind_buffer(8) == Result::Ok; });
+    rev_row("REV-36", "set_magic_breakpoint advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.set_magic_breakpoint(true) == Result::Ok; });
+    rev_row("REV-37", "set_persistent_breakpoints advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.set_persistent_breakpoints(true) == Result::Ok; });
+    rev_row("REV-38", "attach advances the revision",
+            [](Debugger& d, Emulator&, ClientId) { return d.attach(client("B")).status == Result::Ok; });
+    rev_row("REV-39", "detach advances the revision",
+            [](Debugger& d, Emulator&, ClientId) {
+                const ClientId b = d.attach(client("B")).value;
+                return d.detach(b) == Result::Ok; });
+    rev_row("REV-40", "port_in advances the revision",
+            [](Debugger& d, Emulator&, ClientId a) { return d.port_in(a, 0x00FE).status == Result::Ok; });
+    rev_row("REV-41", "press_nmi advances the revision",
+            [](Debugger& d, Emulator& e, ClientId a) {
+                e.nextreg().write(0x06, 0x08);   // NR 0x06 bit 3: the Multiface button is wired
+                return d.press_nmi(a, jnext::dbg::NmiButton::Mf) == Result::Ok; });
+    {
+        // REV-C1: a guest-initiated cold boot reaches the backend through
+        // on_cold_boot_begin / on_cold_boot_done.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.attach(client("A"));
+        const uint64_t before = dbg.state_revision();
+        dbg.on_cold_boot_begin();
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        dbg.on_cold_boot_done();
+        check("REV-C1", "a cold boot (on_cold_boot_begin .. on_cold_boot_done) advances the revision",
+              dbg.state_revision() > before,
+              std::to_string(before) + " -> " + std::to_string(dbg.state_revision()));
+    }
+    {
+        // REV-R*: a refused verb changes nothing, so it must not move the revision.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.pause(a);
+        const uint8_t src[4] = {1, 2, 3, 4};
+        uint64_t r0 = dbg.state_revision();
+        const auto pr = dbg.poke(a, MemSpace::rom(0), 0, 4, src);
+        check("REV-R1", "poke to ROM (refused) leaves the revision alone",
+              pr.status == Result::RefusedReadOnly && dbg.state_revision() == r0);
+        r0 = dbg.state_revision();
+        const Result lr = dbg.load(a, "/nonexistent/gh428/missing.nex");
+        check("REV-R2", "load of a missing file (refused) leaves the revision alone",
+              lr != Result::Ok && dbg.state_revision() == r0,
+              std::string(jnext::dbg::result_name(lr)));
+        r0 = dbg.state_revision();
+        const Result ur = dbg.unsubscribe(a, 999999);
+        check("REV-R3", "unsubscribe of an unknown id (refused) leaves the revision alone",
+              ur != Result::Ok && dbg.state_revision() == r0);
+        r0 = dbg.state_revision();
+        const auto lm = dbg.load_map("/nonexistent/gh428/none.map", jnext::dbg::MapFormat::Z88dk);
+        check("REV-R4", "load_map of a missing file (refused) leaves the revision alone",
+              lm.status != Result::Ok && dbg.state_revision() == r0);
+        r0 = dbg.state_revision();
+        const Result tr = dbg.trace_resize(0);
+        check("REV-R5", "trace_resize(0) (refused) leaves the revision alone",
+              tr != Result::Ok && dbg.state_revision() == r0);
+    }
+    {
+        // REV-Q1: 100 read-only queries and 100 pump() calls with no client
+        // traffic leave it alone.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.pause(a);
+        const uint64_t r0 = dbg.state_revision();
+        const uint64_t fb0 = emu.framebuffer_generation();
+        uint8_t buf[16];
+        for (int i = 0; i < 100; ++i) {
+            dbg.peek(MemSpace::cpu(), 0x8000, 16, buf);
+            dbg.registers();
+            dbg.time();
+            dbg.raster();
+            dbg.sprites();
+            dbg.nextreg_peek(0x07);
+            dbg.subscriptions(true);
+            dbg.state();
+            dbg.pump(jnext::dbg::PumpBudget{});
+        }
+        check("REV-Q1", "100 rounds of read-only queries and pump() leave the revision alone",
+              dbg.state_revision() == r0,
+              std::to_string(r0) + " -> " + std::to_string(dbg.state_revision()));
+        // FBG-04 (GH #428): the same paused ticks write no framebuffer, so the
+        // display's generation stands still.
+        check("FBG-04", "a paused machine's ticks (queries, pump, no run_frame) leave the framebuffer generation alone",
+              emu.framebuffer_generation() == fb0);
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -17922,6 +18162,7 @@ int main() {
     dzrp_d_rows();
     q_wp7_raster_rows();          // GH #278 WP7
     rwm_rows();                   // §4.2a rewind wall
+    gh428_rev_rows();             // GH #428 state_revision()
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

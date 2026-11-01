@@ -2515,6 +2515,56 @@ int main()
               boots, "made=" + std::to_string(made) + " written=" + std::to_string(written));
     }
 
+    // --- FBG-01..04, FBG-07: Emulator::framebuffer_generation() (GH #428) ---
+    // Oracle: the GH #428 plan, section 2.1 -- the generation is bumped by every
+    // write of the framebuffer and by nothing else, and is never reset. The
+    // display skips its upload when it is unchanged, so an unbumped write
+    // would leave a paused window showing a stale picture.
+    {
+        Emulator emu;
+        emu.init(base_config());
+        const uint64_t g0 = emu.framebuffer_generation();
+        emu.run_frame();
+        check("FBG-01", "a rendered frame advances the framebuffer generation by exactly 1",
+              emu.framebuffer_generation() == g0 + 1,
+              std::to_string(g0) + " -> " + std::to_string(emu.framebuffer_generation()));
+
+        const uint64_t g1 = emu.framebuffer_generation();
+        emu.set_render_enabled(false);
+        emu.run_frame();
+        emu.set_render_enabled(true);
+        check("FBG-02", "a frame run with rendering disabled leaves the generation unchanged",
+              emu.framebuffer_generation() == g1);
+
+        // FBG-03: neither a re-init nor a cold boot (placement-new at the same
+        // address, which restarts every member) may reproduce a generation a
+        // frontend has already uploaded.
+        const uint64_t g2 = emu.framebuffer_generation();
+        emu.init(base_config());
+        const uint64_t g3 = emu.framebuffer_generation();
+        emulator_cold_boot(emu, base_config());
+        const uint64_t g4 = emu.framebuffer_generation();
+        check("FBG-03", "init() and a cold boot only ever advance the generation",
+              g3 > g2 && g4 > g3,
+              std::to_string(g2) + " " + std::to_string(g3) + " " + std::to_string(g4));
+
+        // FBG-07: the debugger's Step renders at a frame end with no run_frame().
+        // Steps before the frame end change nothing; the one that crosses it +1.
+        const uint64_t gs = emu.framebuffer_generation();
+        int steps = 0;
+        bool early_change = false, crossed = false;
+        for (; steps < 200000 && !crossed; ++steps) {
+            const uint64_t before = emu.framebuffer_generation();
+            emu.debugger_step();
+            const uint64_t after = emu.framebuffer_generation();
+            if (after == before + 1) crossed = true;
+            else if (after != before) early_change = true;
+        }
+        check("FBG-07", "debugger_step() advances the generation by exactly 1, at the frame end only",
+              crossed && !early_change && emu.framebuffer_generation() == gs + 1,
+              "steps=" + std::to_string(steps));
+    }
+
     qs::run_rows();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

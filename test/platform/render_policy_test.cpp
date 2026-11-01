@@ -40,6 +40,8 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 }
 
 using render_policy::composite_frame_in_tick;
+using render_policy::upload_needed;
+using render_policy::NOTHING_UPLOADED;
 
 }  // namespace
 
@@ -105,6 +107,19 @@ int main()
         check("RP-06", "the final frame composites for every tick size (n=0..201)",
               final_always);
     }
+
+    // --- RP-UP: upload_needed (GH #428) ------------------------------------
+    // Oracle: the contract in the GH #428 plan, section 2: a frame already on
+    // screen, drawn into an unchanged target, is not uploaded again; a new
+    // generation, a changed target, or no upload yet, is.
+    check("RP-UP-01", "same generation, same target: no upload",
+          !upload_needed(7, 7, false));
+    check("RP-UP-02", "a new generation uploads",
+          upload_needed(8, 7, false));
+    check("RP-UP-03", "same generation, target changed: upload",
+          upload_needed(7, 7, true));
+    check("RP-UP-04", "nothing uploaded yet: upload, even for generation 0",
+          upload_needed(0, NOTHING_UPLOADED, false));
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

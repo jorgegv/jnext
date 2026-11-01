@@ -33,6 +33,9 @@
 #include "gui/emulator_widget.h"
 
 #include <QApplication>
+#include <QEvent>
+#include <QImage>
+#include <QObject>
 
 #include <cstdint>
 #include <cstdio>
@@ -77,6 +80,20 @@ std::vector<uint32_t> make_fb(uint32_t argb)
 void settle(int rounds = 3)
 {
     for (int i = 0; i < rounds; i++) QApplication::processEvents();
+}
+
+/// Counts the Paint events its target receives (GH #428).
+struct PaintCounter : QObject {
+    int paints = 0;
+    bool eventFilter(QObject*, QEvent* e) override {
+        if (e->type() == QEvent::Paint) ++paints;
+        return false;
+    }
+};
+
+QRgb pixel_of(EmulatorWidget& w, int x, int y)
+{
+    return w.grab().toImage().pixel(x, y);
 }
 
 }  // namespace
@@ -350,6 +367,73 @@ int main(int argc, char* argv[])
         check("PC-FP04", "hidden: flush is a harmless no-op, and the frame presents once when shown",
               while_hidden == before && w.present_count() == before + 1,
               "while_hidden=" + std::to_string(while_hidden) + " " + got(w.present_count()));
+    }
+
+    // --- PC-IDLE: an unchanged frame is not uploaded again (GH #428) ----------
+    // Oracle: the GH #428 plan, sections 2.2/2.3. A frame already on screen,
+    // drawn into an unchanged target, costs no copy, no prescale and no
+    // repaint; a new generation or a changed target does. The Qt tick used to
+    // re-push the same framebuffer fifty times a second while paused.
+    {
+        EmulatorWidget iw;
+        PaintCounter pc;
+        iw.installEventFilter(&pc);
+        iw.show();
+        settle();
+        iw.take_upload_count();
+        const auto fb = make_fb(0xFF204060);
+        const uint64_t g = 7;
+        iw.update_frame(fb.data(), FB_W, FB_H, true, g);
+        settle();
+        iw.take_upload_count();                     // (the first call is not under test)
+        const int paints_after_first = pc.paints;
+        iw.take_upload_count();
+        for (int i = 0; i < 100; ++i) iw.update_frame(fb.data(), FB_W, FB_H, false, g);
+        settle();
+        const uint64_t idle_uploads = iw.take_upload_count();
+        check("PC-IDLE-01", "100 update_frame() calls with an unchanged generation and geometry "
+                            "upload nothing and post no repaint",
+              idle_uploads == 0 && pc.paints == paints_after_first,
+              "uploads=" + std::to_string(idle_uploads) + " paints=" +
+                  std::to_string(pc.paints - paints_after_first));
+
+        const uint64_t pres0 = iw.present_count();
+        const int paints0 = pc.paints;
+        iw.update_frame(fb.data(), FB_W, FB_H, true, g + 1);
+        settle();
+        check("PC-IDLE-02", "a new generation uploads exactly once, paints once, and counts one present",
+              iw.take_upload_count() == 1 && pc.paints == paints0 + 1 &&
+                  iw.present_count() == pres0 + 1,
+              "paints=" + std::to_string(pc.paints - paints0) + " present+" +
+                  std::to_string(iw.present_count() - pres0));
+
+        // PC-IDLE-03: same generation, new scale -> the next call redraws into
+        // the new physical size, and the picture (not the black fill) is there.
+        iw.set_scale(3);
+        iw.update_frame(fb.data(), FB_W, FB_H, false, g + 1);
+        settle();
+        const QSize sz = iw.size();
+        check("PC-IDLE-03", "the same generation after set_scale() uploads again, into the new "
+                            "size, and the bottom-right pixel is the framebuffer's",
+              iw.take_upload_count() == 1 && sz.width() == FB_W * 3 && sz.height() == FB_H * 2 * 3 &&
+                  pixel_of(iw, sz.width() - 1, sz.height() - 1) == 0xFF204060u,
+              "size=" + std::to_string(sz.width()) + "x" + std::to_string(sz.height()));
+
+        // PC-IDLE-04: same generation, fullscreen on a 1920x1080 screen -> the
+        // integer-scaled picture (x2: 1280x1024) is centred with black bars.
+        iw.setMinimumSize(0, 0);
+        iw.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        iw.set_fullscreen_mode(true);
+        iw.resize(1920, 1080);
+        settle();
+        iw.update_frame(fb.data(), FB_W, FB_H, false, g + 1);
+        settle();
+        check("PC-IDLE-04", "the same generation after entering fullscreen and resizing uploads "
+                            "again, the picture centred (offset 320,28) with black bars",
+              iw.take_upload_count() == 1 &&
+                  pixel_of(iw, 320 + 4, 28 + 4) == 0xFF204060u &&
+                  pixel_of(iw, 4, 4) == 0xFF000000u &&
+                  pixel_of(iw, 1920 - 5, 1080 - 5) == 0xFF000000u);
     }
 
     std::printf("\n============================================================\n");
