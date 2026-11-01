@@ -335,9 +335,11 @@ static void test_accelerators(Fixture& fx)
         // GH #388: + the Debug > Coverage popup (one popup, its "Co&verage"
         // title and the two items' mnemonics, &Enable Coverage and &Clear
         // Coverage = 3 more mnemonics); no new shortcut (bound to no key). The Source tab's Ctrl+C and Ctrl+A (GH #423): 22 -> 24.
+        // GH #360: + the Debug menu's "Physical &Addresses" toggle: one more mnemonic (A, free in
+        // the Debug popup), no new popup, no shortcut: 50 -> 51.
         const bool as_expected = top == 6
                               && popup_scopes.size() == 11
-                              && menu_accels.size() == 50
+                              && menu_accels.size() == 51
                               && shortcuts == 24;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
@@ -345,7 +347,7 @@ static void test_accelerators(Fixture& fx)
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 6), popups=%zu (want 11), mnemonics=%zu (want 50), "
+              fmt("menus=%zu (want 6), popups=%zu (want 11), mnemonics=%zu (want 51), "
                   "shortcuts=%zu (want 24)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }

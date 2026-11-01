@@ -735,9 +735,8 @@ void DebuggerWindow::create_menus() {
     });
     sync_coverage_action();                  // a backend already recording (--coverage)
 
-    // GH #360: Physical Addresses. Left WITHOUT a mnemonic ("&Addresses" would be free): DACC-05 pins
-    // the menu tree at 50 mnemonics and is not in the stage-3 list of rows allowed to change.
-    physical_action_ = debug_menu->addAction(tr("Physical Addresses"));
+    // GH #360: Physical Addresses (A is free in the Debug popup; DACC-05 pins the count).
+    physical_action_ = debug_menu->addAction(tr("Physical &Addresses"));
     physical_action_->setCheckable(true);
     physical_action_->setChecked(address_style_ == jnext::dbg::AddressStyle::Physical);
     connect(physical_action_, &QAction::triggered, this, [this](bool checked) {
