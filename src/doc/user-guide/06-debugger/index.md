@@ -8,6 +8,10 @@ registers, all as the hardware sees them at that instant.
 This chapter is a reference. Each panel and each function has its own section,
 so you can look one up while you are debugging.
 
+To debug a program by its source lines (C, assembly, BASIC), see [chapter
+10](../10-source-level-debugging/index.md): a worked example with z88dk and
+the build options that make it work.
+
 **[Debugger scripting](scripting/index.md)** has a section of its own: scripts
 that watch the running machine and stop, log or check the moment something
 happens — a write into your code, an MMU slot out of step, an interrupt handler
