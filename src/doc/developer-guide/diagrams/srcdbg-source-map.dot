@@ -1,0 +1,64 @@
+// The source map's two indexes, on real examples: chapter 7.2.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/srcdbg-source-map.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Left: an adapter's ranges (emission order) go through SourceMap::replace()
+// into the address index (segments over cover_) and the line index (by_line_,
+// aliases_). Right: the queries and what they answer. The example is main.c
+// lines 14 to 18 of the z88dk 2.4 sccz80 fixture (test/fixtures/z88dk/
+// v2.4/sccz80-debug, README findings G3: lines 14 and 15 share $8C92, lines
+// 16 and 17 share $8C95; rows Z88MAP-05 and Z88MAP-06):
+// the adapter emits one range for the highest line at an address, an alias for
+// a lower line of the same function (16) and nothing for a lower line of
+// another function (14). The second example is util.h:7 of v2.4/sdcc-SO2
+// (finding G17; row Z88LIS-04).
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph srcdbg_source_map {
+    bgcolor="transparent";
+    rankdir=LR;
+    fontname="Helvetica";
+    ranksep=0.6;
+    nodesep=0.25;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    subgraph cluster_in {
+        label="what an adapter emits (emission order)";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        r0 [label="#0  Page{4}  [$8C92, $8C95)  main.c:15\l(main.c:14 is also at $8C92, in square():\l it is not emitted)\l"];
+        r1 [label="#1  Page{4}  [$8C95, $8C9D)  main.c:17\l(extent ends at the next line start, main.c:18)\l"];
+        al [label="SourceAlias  main.c:16 -> range #1\l(same module and function as 17)\l"];
+    }
+
+    subgraph cluster_idx {
+        label="SourceMap::replace()";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        seg [label="segments_ + cover_  (address index)\lelementary intervals between all range edges\l[$8C92, $8C95) -> {#0}\l[$8C95, $8C9D) -> {#1}\lper interval: shortest first, then later emitted\l"];
+        bl  [label="by_line_  (line index)\l(main.c, 15) -> {#0}\l(main.c, 17) -> {#1}\lnon-zero-width ranges only\l"];
+        als [label="aliases_\l(main.c, 16) -> #1\l"];
+    }
+
+    q1 [label="lookup(Page{4}, $8C95)\l-> main.c:17\llookup_all(): the same one, no other\l", fillcolor="#e9d3d6"];
+    q2 [label="resolve(\"main.c:17\")\l-> start Page{4}:$8C95\l", fillcolor="#e9d3d6"];
+    q3 [label="resolve(\"main.c:16\")\lby_line_ has no entry, so aliases_\l-> start Page{4}:$8C95\l", fillcolor="#e9d3d6"];
+    q4 [label="resolve(\"main.c:14\")\lno entry, no alias\l-> \"no code at main.c:14\"\l", fillcolor="#e9d3d6"];
+
+    ut [label="util.h:7 (z88dk 2.4, sdcc -SO2, from the listings)\lby_line_ holds three ranges:\lPage{4}:$8C48 (main.c's copy)\lPage{4}:$8CBB (util.c's copy)\lPage{4}:$8CD6 (inlined into util_twice)\lresolve() -> three starts, sorted by (space, address)\l", fillcolor="#f5dfe2"];
+
+    r0 -> seg; r1 -> seg;
+    r0 -> bl;  r1 -> bl;
+    al -> als;
+
+    seg -> q1;
+    bl  -> q2;
+    bl  -> q3 [style=dashed];
+    als -> q3;
+    bl  -> q4 [style=dashed];
+    bl  -> ut [style=dotted];
+}

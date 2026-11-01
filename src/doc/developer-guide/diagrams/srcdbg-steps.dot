@@ -1,0 +1,64 @@
+// Breakpoints, steps and history on source lines: chapter 7.5.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/srcdbg-steps.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Left cluster: a file:line breakpoint is a GROUP of Execute subscriptions,
+// each qualified by the memory its location was compiled for. Middle: a forward
+// source step is a loop of the debugger's own Step with run_frame()'s delivery
+// given by hand between instructions. Right: Back and Reverse Continue search
+// the retained trace and hand a count to step_back().
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph srcdbg_steps {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    ranksep=0.45;
+    nodesep=0.3;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    subgraph cluster_bp {
+        label="a file:line breakpoint";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        b0 [label="subscribe_source_line(file:line, like)\lrun_to_source_line(file:line)  (transient Stop)\l"];
+        b1 [label="source_map().resolve(file:line)\l-> starts: (space, address) each\l"];
+        b2 [label="one Execute subscription per start\llo = hi = address, page = PAGE_ANY,\lspace = the start's memory; all in one group\l"];
+        b3 [label="EventFilter::matches(ev)\lthe one predicate\l", fillcolor="#e9d3d6"];
+        b4 [label="live gate (execute_gate)\lprobe_execute()\lhistory_stop_at()\l"];
+        b0 -> b1 -> b2 -> b3;
+        b4 -> b3 [dir=back];
+    }
+
+    subgraph cluster_fwd {
+        label="source_step(Into / Over / Out)";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        s0 [label="start = source_location()\lstart_depth = call_stack().frames().size()\lno start, or Out at depth 0: one Step\l"];
+        s1 [label="Emulator::debugger_step()\lthen pause\l"];
+        s2 [label="stop?  event stop latched / magic / watch\lreached()?  Into: position moved\l  Over: moved and depth <= start\l  Out: mapped and depth < start\l"];
+        s3 [label="limits\lHALT with IFF1 clear\lSOURCE_STEP_FRAME_LIMIT frames of time\lSOURCE_STEP_LIMIT instructions\l"];
+        s4 [label="delivery for the next PC, by hand\lshould_break(pc), then run_execute_gate(pc)\lunder GuestExecutionScope\l"];
+        s0 -> s1 -> s2;
+        s2 -> s3 [label=" no"];
+        s3 -> s4 [label=" none hit"];
+        s4 -> s1 [label=" nothing stopped"];
+    }
+
+    subgraph cluster_back {
+        label="source_step(Back / ReverseContinue)";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        k0 [label="TraceLog, newest to oldest\lskip cycle >= now and entries of another generation\lat_entry(): source_map.lookup(te.fetch_space(), te.pc)\l"];
+        k1 [label="Back: first earlier position that differs,\lthen the oldest entry of that position\lReverse Continue: first mapped entry\lwhere history_stop_at() or a legacy PC breakpoint holds\l"];
+        k2 [label="step_back(by, size - target)\l(inherits its refusals)\l"];
+        k0 -> k1 -> k2;
+    }
+
+    b2 -> s4 [style=dashed, label=" same gate\l"];
+    b3 -> k1 [style=dashed, label=" Reverse Continue\l"];
+}
