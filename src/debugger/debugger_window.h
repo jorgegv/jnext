@@ -208,15 +208,19 @@ private:
     bool   fit_over_ = false;   // the user resized the window: the fit never resumes
     // A window manager can answer the map of a window with the size it had BEFORE the fit's first
     // (pre-map) request. The fit then starts again from that size, a bounded number of times.
-    int    fit_reverts_ = 0;
-    bool   fit_reverted_ = false;   // a revert was seen and its pass is queued
-    // A window manager can also answer an EARLIER request late (openbox applies the first one after
-    // the later ones). Every size the fit asked for, or started a pass from, is its own: a resize to
-    // one of them is the manager's answer, not the user's, and the current request is asked again
-    // (bounded). Any other size is the user's.
+    // A window manager can answer the fit's requests late and out of order (the map answers the first,
+    // pre-map request with the size from before it; openbox applies the first request after later ones).
+    // For the fit's own lifetime, every size it asked for, or started a pass from, is its own: a resize
+    // to one of them is the manager's answer, not the user's, and the current request is asked again
+    // (bounded). Any other size is the user's and ends the fit. The fit has an explicit end: kFitGraceMs
+    // after the last pass started (late answers land 150-350 ms after their request under load), the
+    // fit is over, these sizes are forgotten and every size is the user's.
     std::vector<QSize> fit_sizes_;
     int    fit_echoes_ = 0;
     static constexpr int kMaxFitEchoes = 6;
+    static constexpr int kFitGraceMs = 1000;
+    unsigned fit_generation_ = 0;
+    void end_fit_();
     bool   fit_known_size_(const QSize& s) const;
     static constexpr int kMaxFitReverts = 3;
     int    initial_fit_width_passes_ = 0;

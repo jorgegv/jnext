@@ -53,6 +53,7 @@
 #include <QDataStream>
 #include <QDir>
 #include <QEventLoop>
+#include <QResizeEvent>
 #include <QFile>
 #include <QMainWindow>
 #include <QScreen>
@@ -129,6 +130,26 @@ bool build_next_emulator(Emulator& emu) {
     return emu.init(cfg);
 }
 
+// GR-08: on the resize event of the fit's SECOND request, put the window back to its FIRST request's
+// size, before the pass that request queued runs: the window manager's late answer to an earlier request.
+struct EchoFilter : QObject {
+    std::vector<QSize> seen;   // the sizes of the window's resize events, in order
+    bool fired = false;
+    bool eventFilter(QObject* o, QEvent* e) override {
+        if (e->type() != QEvent::Resize || !o->inherits("DebuggerWindow")) return false;
+        const QSize z = static_cast<QResizeEvent*>(e)->size();
+        if (!seen.empty() && seen.back() == z) return false;
+        seen.push_back(z);
+        if (seen.size() == 3 && !fired) {   // [0] the show, [1] the first request, [2] the second
+            fired = true;
+            QWidget* w = static_cast<QWidget*>(o);
+            const QSize first = seen[1];
+            QTimer::singleShot(0, w, [w, first]() { w->resize(first); });
+        }
+        return false;
+    }
+};
+
 struct Fixture {
     Emulator         emu;
     // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
@@ -139,13 +160,15 @@ struct Fixture {
     DebuggerWindow*  dbg = nullptr;
     bool             ok  = false;
 
-    Fixture() {
+    // `wait` = false returns right after the window is shown, for the rows that act while the fit runs.
+    explicit Fixture(bool wait = true) {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
+        if (!wait) return;
         settle();
         // The fit is a chain of queued passes; on a loaded host 300 ms can end between two of them
         // (GR-05 read Video 599<600 in `make unit-test` with the host at load 16). Keep waiting until
@@ -307,33 +330,92 @@ int main(int argc, char** argv)
                     : std::string("fixture failed"));
     }
 
-    // GR-06 (GH #360 review) -- a window manager can answer a request of the opening fit LATE (openbox
-    // applies the first one after the later ones). That stale size is the manager's, not the user's, and
-    // must not be the final size: the fit asks its current request again. The size the fit started its
-    // first pass from (1170 x 900, the default) is one of the fit's own; the window is put back to it
-    // after the fit has ended (the echo landing after the last request) and must return to the size
-    // the fit settled on.
+    // GR-06 (GH #360 review) -- a window manager can answer a request of the opening fit LATE (the map
+    // answers the pre-map request with the size from before it; openbox applies the first request after
+    // later ones). For the fit's own lifetime that stale size is the manager's, not the user's, and must
+    // not be the final size: the fit asks its current request again. The window is put back to the size
+    // the fit started from (1170 x 900, a size the fit knows) while the fit is still in its grace window,
+    // and must return to the size the fit settles on (a plain run's, B).
+    QSize B;
+    {
+        clear_saved_geometry(dir.path());
+        Fixture base;
+        if (base.ok) B = base.dbg->size();
+    }
     {
         clear_saved_geometry(dir.path());
         const QSize echo(1170, kDefaultHeight);
-        QSize settled;
+        Fixture fx(false);
         bool returned = false;
-        Fixture fx;
         if (fx.ok) {
-            settled = fx.dbg->size();
-            if (settled != echo) {
+            QSize last = fx.dbg->size();
+            int stable = 0;
+            for (int i = 0; i < 100 && stable < 3; ++i) {   // the fit's passes are done: 60 ms unchanged
+                settle(20);
+                stable = (fx.dbg->size() == last) ? stable + 1 : 0;
+                last = fx.dbg->size();
+            }
+            if (fx.dbg->size() != echo) {
                 fx.dbg->resize(echo);
                 settle(400);
-                returned = fx.dbg->size() == settled;
+                returned = fx.dbg->size() == B;
             }
         }
         check("GR-06",
               "a stale answer of the window manager to an earlier request of the opening fit (the window put "
-              "back to the size the fit started from, after the fit ended) is asked again: the window returns "
-              "to the size the fit settled on",
-              fx.ok && returned,
-              fmt("settled %dx%d, echo %dx%d, now %dx%d", settled.width(), settled.height(), echo.width(),
-                  echo.height(), fx.ok ? fx.dbg->width() : 0, fx.ok ? fx.dbg->height() : 0));
+              "back to the size the fit started from, inside the grace window) is asked again: the window "
+              "returns to the size the fit settles on",
+              fx.ok && B.isValid() && returned,
+              fmt("settled B %dx%d, echo %dx%d, now %dx%d", B.width(), B.height(), echo.width(), echo.height(),
+                  fx.ok ? fx.dbg->width() : 0, fx.ok ? fx.dbg->height() : 0));
+    }
+
+    // GR-07 (GH #360 review) -- the manager-answer handling has an END. Once the fit is over, every size is
+    // the user's: a resize to 1170 x 900 (the size the fit started from) and to the two widths just below
+    // the settled one (sizes of the fit's last passes) stands, instead of being undone as a late answer.
+    {
+        clear_saved_geometry(dir.path());
+        Fixture fx;
+        bool stands = fx.ok && B.isValid();
+        std::string seen;
+        if (fx.ok) {
+            settle(1500);   // the grace window (1 s) is over
+            const QSize settled = fx.dbg->size();
+            for (const QSize& want : {QSize(1170, kDefaultHeight), QSize(settled.width() - 3, settled.height()),
+                                      QSize(settled.width() - 53, settled.height())}) {
+                fx.dbg->resize(want);
+                settle(300);
+                const bool ok1 = fx.dbg->size() == want;
+                stands = stands && ok1;
+                seen += fmt("%dx%d->%dx%d ", want.width(), want.height(), fx.dbg->width(), fx.dbg->height());
+            }
+        }
+        check("GR-07",
+              "after the fit's grace window every size is the user's: a resize to 1170x900 and to the widths 3 and "
+              "53 px below the settled one stands",
+              stands, seen);
+    }
+
+    // GR-08 (GH #360 review) -- the manager's late answer lands while a pass is QUEUED: on the resize event
+    // of the second request the window is put back to the first request's size before the pass that request
+    // queued runs. That pass must treat it as the manager's (ask again, measure again), not as the user's
+    // (end the fit and leave the stale size): the window ends at B.
+    {
+        clear_saved_geometry(dir.path());
+        EchoFilter filter;
+        qApp->installEventFilter(&filter);
+        QSize now;
+        {
+            Fixture fx;
+            if (fx.ok) now = fx.dbg->size();
+        }
+        qApp->removeEventFilter(&filter);
+        check("GR-08",
+              "an earlier request's size landing while a pass is queued is asked again by that pass: the window "
+              "ends at the size a plain run settles on",
+              filter.fired && B.isValid() && now == B,
+              fmt("fired %d, B %dx%d, now %dx%d, events %zu", int(filter.fired), B.width(), B.height(),
+                  now.width(), now.height(), filter.seen.size()));
     }
 
     // GR-04 — the gate on the other side: a size the user saved is NOT grown,
