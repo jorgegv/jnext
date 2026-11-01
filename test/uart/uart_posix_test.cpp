@@ -1641,6 +1641,33 @@ static void test_nextpi_audio() {
               b.pi_audio == nullptr && b.sd_card_image == "card.img", "");
     }
 
+    // ── PI-65 — tape mode follows NR 0xA2: the emulator, popping the Pi's
+    // audio once per mixer sample, puts PiAudio in tape mode exactly while
+    // NR 0xA2 sends it to EAR (I2S enabled and b0), and out again when not.
+    // No stream is needed: the mode is set on every pop, data or not.
+    {
+        PiAudio audio;
+        EmulatorConfig cfg;
+        cfg.type                 = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        cfg.pi_audio             = &audio;
+        Emulator emu;
+        emu.init(cfg);
+        const bool start_off = !audio.tape_mode();
+        auto mode_after = [&](uint8_t a2) { mixer_levels(emu, a2, 1); return audio.tape_mode(); };
+        const bool on_c1  = mode_after(0xC1);
+        const bool off_01 = !mode_after(0x01);     // bit 0 without I2S enabled
+        const bool on_41  = mode_after(0x41);
+        const bool off_c0 = !mode_after(0xC0);     // enabled, bit 0 clear
+        check("PI-65",
+              "the emulator puts the Pi's audio in tape mode exactly while NR 0xA2 sends it to "
+              "EAR (I2S enabled and bit 0 set: 0xC1, 0x41 on; 0x01, 0xC0 off), re-evaluated as "
+              "it pops each mixer sample (zxnext.vhd:2361-2373; the buffering is jnext-only)",
+              start_off && on_c1 && off_01 && on_41 && off_c0,
+              fmt("start_off=%d on(0xC1)=%d off(0x01)=%d on(0x41)=%d off(0xC0)=%d", start_off ? 1 : 0,
+                  on_c1 ? 1 : 0, off_01 ? 1 : 0, on_41 ? 1 : 0, off_c0 ? 1 : 0));
+    }
+
     // ── PI-51 — the audio FIFO cannot be made: start() fails with PiAudio's
     // error rather than starting a QEMU whose sound goes nowhere. $TMPDIR is
     // nested so deep that the UART FIFO `uart.out` still fits in PATH_MAX but

@@ -572,6 +572,7 @@ network or a NextPi image.
 | PI-62 | Snapshot saved while `fe_ear()` is 1, then loaded; issue-2 keyboard and MIC set after the load | `fe_ear()` is 0 after the load (it is not in the stream) and bit 6 reads the relaxed MIC level 1 at once. jnext-only: snapshots have no VHDL counterpart |
 | PI-63 | `cfg.silent`, a Pi ring of 8000 frames; two frames in rewind replay, then one live | `available()` unchanged after the replay, lower after the live frame. jnext-only: `--silent` and the replay have no VHDL counterpart |
 | PI-64 | `start_tape_save` to a `.tzx`, a Pi square wave flipping every 20 frames, NR 0xA2 = 0xC3, five frames | the recorder holds 150..300 edges (about 220: one per comparator change): the MIC jack carries `pi_fe_ear` (`zxnext.vhd:6503`, `zxnext_top_issue2.vhd:673`) |
+| PI-65 | an Emulator with a `PiAudio` (no stream), one frame each at NR 0xA2 = 0xC1, 0x01, 0x41, 0xC0 | `tape_mode()` is off at start, on after 0xC1 and 0x41, off after 0x01 (bit 0, I2S disabled) and 0xC0 (enabled, bit 0 clear): `feed_pi_audio` sets it from `I2s::ear_routed` on every pop (`zxnext.vhd:2361-2373`; the buffering is jnext-only) |
 
 ### Companion suite — `test/uart/nextpi_test.cpp`
 

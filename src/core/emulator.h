@@ -1655,6 +1655,9 @@ private:
     /// One-shot latches: endpoint fault, and traffic lost to a closed NR 0xA0.
     bool pi_uart_fault_reported_ = false;
     bool pi_uart_gate_reported_  = false;
+    /// feed_pi_audio: the PiAudio::underruns() count already seen, so each
+    /// tape-mode underrun is logged once.
+    uint64_t pi_audio_underruns_seen_ = 0;
 
     DivMmc          divmmc_;
     Multiface       multiface_;   // Wave 1 B1 (TASK-8-MULTIFACE-PLAN.md).
