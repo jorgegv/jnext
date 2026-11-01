@@ -7442,6 +7442,29 @@ int main() {
             check("SRCDOT-18", "a map hand-loaded while the CPU runs the command is verified, and a rewind to a later frame of that run still reads verified",
                   r.count > 0 && before && rr == Result::Ok && !st.pending && st.state == Debugger::SourceMapStatus::State::Attached);
         }
+        {   // SRCDOT-19 (review S1): a state load restores an earlier clock; the old run's verdict is not the new run's
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            ring_machine(m, dot_code, dot_map);
+            run_frames(m, 1);                                            // parked
+            const auto saved = m.dbg->save_state_bytes(m.a, jnext::dbg::SaveStateMode::RefuseMidFrame);
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);                                       // verified, in the old generation
+            m.set_pc(0x3F00);
+            run_frames(m, 3);
+            const bool old_verified = !m.dbg->source_map_status().pending;
+            Result ld = Result::Unsupported;
+            if (saved) ld = m.dbg->load_state_bytes(m.a, saved.value.data(), saved.value.size());
+            m.set_pc(0x6000);
+            run_frames(m, 1);
+            run_frames(m, 1);                                            // never entered: pending
+            const bool new_pending = m.dbg->source_map_status().pending;
+            const uint32_t f2 = m.dbg->time().frame;
+            const Result rr = m.dbg->rewind_to_frame(m.a, f2);
+            const auto st = m.dbg->source_map_status();
+            check("SRCDOT-19", "after a state load back to an earlier clock, a rewind into the new run (never entered) reads pending, not the old generation's verdict at an overlapping cycle",
+                  saved && ld == Result::Ok && old_verified && new_pending && rr == Result::Ok && st.pending &&
+                      st.state == Debugger::SourceMapStatus::State::Attached);
+        }
     }
 
     fs::remove_all(dir);

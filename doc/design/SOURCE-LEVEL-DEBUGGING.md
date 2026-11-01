@@ -860,7 +860,7 @@ Two tiers. (The clock-based model, `sidecar_attach_cycle`, is gone.)
    inside the command (paused in bank 2 with the bytes matching) judges like a landing at that
    point: verified. Every entry judgement in bank 2, matching or foreign, is recorded, and a record erases those at or after
    its cycle, so a re-run that enters the bank replaces what the first run recorded from there on. The records of
-   earlier generations are kept (a rewind back across a reset or state load reads them); the cap of 256 covers all
+   earlier generations are kept (a rewind back across a reset reads them; the ring cannot rewind across a state load, and SRCLIFE-08 refuses Back across one; the generation key is for the state load, which restores an earlier clock, so a new run's cycles can fall below the old run's records); the cap of 256 covers all
    generations together, the oldest going first, and a landing older than the oldest record reads pending. The
    limit that remains: a re-run that makes no entry judgement in bank 2 and judges no unit leaves the abandoned
    run's later records in place, so a rewind to a cycle past the divergence reads the abandoned run's state until
