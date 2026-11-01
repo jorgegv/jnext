@@ -874,8 +874,12 @@ int main() {
     // ── Z88LIS-38..43: placement by bytes, case by case (design 9.5 as widened; listings in z80asm's format) ──
     // code_user/data_user is [$8000, 8000+tail); the module's `_g` sits in code_home after it; the section
     // binary q_CODE.bin is `bin`.
+    // `base` is where code_user starts, `home` where the module's code_home (with `_g`) sits (default: right
+    // after code_user); `ovl`, when given, is a second section binary q_AOVL.bin over the same addresses.
     auto by_bytes = [&](const char* name, const char* sec, int user_size, const std::vector<uint8_t>& bin,
-                        const std::vector<LisRow>& piece, SourceMap& m) {
+                        const std::vector<LisRow>& piece, SourceMap& m, int base = 0x8000, int home = -1,
+                        const std::vector<uint8_t>* ovl = nullptr) {
+        if (home < 0) home = base + user_size;
         const fs::path d = dir / name;
         fs::create_directories(d);
         std::string lis = "q.asm:\n" + lis_row(1, nullptr, nullptr, std::string(" SECTION ") + sec);
@@ -886,21 +890,31 @@ int main() {
         const int g_line = line++;
         lis += lis_row(line, "0000", "c9", " ret");
         write_text(d / "q.asm.lis", lis);
-        char b[1400];
-        std::snprintf(b, sizeof b,
-            "__CODE_head                     = $8000 ; const, public, def, , ,\n"
+        char b[1800];
+        int n = std::snprintf(b, sizeof b,
+            "__CODE_head                     = $%04X ; const, public, def, , ,\n"
             "__CODE_size                     = $%04X ; const, public, def, , ,\n"
             "__CODE_tail                     = $%04X ; const, public, def, , ,\n"
-            "__%s_head = $8000 ; const, public, def, , ,\n"
+            "__%s_head = $%04X ; const, public, def, , ,\n"
             "__%s_size = $%04X ; const, public, def, , ,\n"
             "__%s_tail = $%04X ; const, public, def, , ,\n"
             "__code_home_head                = $%04X ; const, public, def, , ,\n"
             "__code_home_size                = $0001 ; const, public, def, , ,\n"
             "__code_home_tail                = $%04X ; const, public, def, , ,\n"
             "_g                              = $%04X ; addr, public, , q, code_home, q.asm:%d\n",
-            user_size + 1, 0x8000 + user_size + 1, sec, sec, user_size, sec, 0x8000 + user_size,
-            0x8000 + user_size, 0x8001 + user_size, 0x8000 + user_size, g_line);
-        write_text(d / "q.map", b);
+            base, user_size + 1, base + user_size + 1, sec, base, sec, user_size, sec, base + user_size,
+            home, home + 1, home, g_line);
+        std::string map(b, static_cast<size_t>(n));
+        if (ovl) {
+            std::snprintf(b, sizeof b,
+                "__AOVL_head                     = $%04X ; const, public, def, , ,\n"
+                "__AOVL_size                     = $%04X ; const, public, def, , ,\n"
+                "__AOVL_tail                     = $%04X ; const, public, def, , ,\n",
+                base, user_size, base + user_size);
+            map += b;
+            write_text(d / "q_AOVL.bin", std::string(ovl->begin(), ovl->end()));
+        }
+        write_text(d / "q.map", map);
         write_text(d / "q_CODE.bin", std::string(bin.begin(), bin.end()));
         return load(m, d / "q.map");
     };
@@ -921,8 +935,9 @@ int main() {
         SourceMap m;
         const auto r = by_bytes("z39", "code_user", 4, {0xc9, 0xc9, 0xc9, 0xc9, 0xc9},
                                 {{2, "0000", "c9", "ret"}, {3, "0001", "c9", "ret"}}, m);
-        check("Z88LIS-39", "code_user [$8000,$8004) holds five rets and the piece is ret / ret: three starts match, nothing is placed ($8000 and $8002 have no line), the note counts 2",
-              r && !m.lookup(P4, 0x8000) && !m.lookup(P4, 0x8002) && any_note_has(r, "2 listed lines could not be placed"));
+        check("Z88LIS-39", "code_user [$8000,$8004) holds five rets and the piece is ret / ret: three starts match, nothing is placed ($8000 and $8002 have no line), the note counts 2 and says the bytes do not fit exactly one place in the section binary",
+              r && !m.lookup(P4, 0x8000) && !m.lookup(P4, 0x8002) && any_note_has(r, "2 listed lines could not be placed") &&
+                  any_note_has(r, "do not fit exactly one place in the section binary"));
     }
     // Z88LIS-40: a start whose bytes are beyond the binary is not excluded.
     {
@@ -952,6 +967,25 @@ int main() {
         const auto r = by_bytes("z43", "data_user", 4, {0, 0x3e, 1, 0xc9, 0xc9}, ld_ret, m);
         check("Z88LIS-43", "the same piece in data_user [$8000,$8004): a data section has no checked rows, so both starts survive and nothing is placed ($8001 has no line), the note counts 2",
               r && !m.lookup(P4, 0x8001) && !m.lookup(P4, 0x8000) && any_note_has(r, "2 listed lines could not be placed"));
+    }
+
+    // Z88LIS-45: two section binaries over the same addresses (overlays at one ORG): a byte both claim is unknown (GH #426 F4 review).
+    {
+        SourceMap m;
+        const std::vector<uint8_t> aovl = {0x00, 0x3e, 0x01, 0xc9, 0x00, 0x00};
+        const auto r = by_bytes("z45", "code_user", 6, {0, 0, 0, 0x3e, 1, 0xc9, 0xc9}, ld_ret, m, 0x8000, -1, &aovl);
+        check("Z88LIS-45", "q_AOVL.bin (00 3e 01 c9 ..) and q_CODE.bin (00 00 00 3e 01 c9 ..) both cover $8000-$8005: no byte there is known, so the piece (true place $8003) is not placed at the coincidence $8001 of the other binary: $8001 and $8003 have no line, the note counts 2",
+              r && !m.lookup(P4, 0x8001) && !m.lookup(P4, 0x8003) &&
+                  any_note_has(r, "2 listed lines could not be placed"));
+    }
+
+    // Z88LIS-46: a label-less partial piece whose section is not in RAM cannot be placed: its bytes are unknown, the rest of the listing stays.
+    {
+        SourceMap m;
+        const auto r = by_bytes("z46", "code_user", 6, {0, 0, 0, 0x3e, 1, 0xc9, 0xc9}, ld_ret, m, 0x0000, 0x8000);
+        check("Z88LIS-46", "code_user [$0000,$0006) is ROM, q_CODE.bin holds 00 00 00 3e 01 c9 c9: place() fails there, so no byte is known, nothing is placed, the note counts 2, and the listing is kept ($8000, _g's ret, is q.asm:6)",
+              r && r.listings == 1 && any_note_has(r, "2 listed lines could not be placed") &&
+                  is_at(m.lookup(P4, 0x8000), "q.asm", 6));
     }
 
     fs::remove_all(dir);

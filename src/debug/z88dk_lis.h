@@ -57,7 +57,8 @@ struct Z88dkMapView {
     const std::map<std::string, uint64_t>* bounds = nullptr;  // const `__<group>_head` / `_tail`
     std::set<std::string> modules;            // every module the map names
     std::function<Z88dkPlacement(const std::string& section, uint64_t value)> place;
-    /// The byte a section binary holds for `value` in `space`; nullopt when none covers it.
+    /// The byte a section binary holds for `value` in `space`; nullopt when none covers it, or when two
+    /// or more do (overlay sections at one ORG).
     std::function<std::optional<uint8_t>(uint64_t value, jnext::dbg::FetchSource space)> byte_at;
 };
 

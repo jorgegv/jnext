@@ -1228,7 +1228,8 @@ Relocation is one offset per (module, section piece), from the labels whose map 
 line; all must agree. A label-less piece that is its section's whole content starts at `__<s>_head`. A smaller one is
 placed by its bytes, as follows. A start from `__<s>_head` to `__<s>_tail` minus its size is excluded when a section
 binary holds a byte other than the listing's at a row 9.7 checks (the first byte of a mnemonic row outside PHASE, not
-in a data section). One start left, with every such byte held by a binary: the piece starts there. None left: the
+in a data section). One start left, with every such byte held by exactly one section binary (a byte two binaries over the same addresses both claim, overlay
+sections at one ORG, is unknown, here and in the 9.7 check): the piece starts there. None left: the
 listing is dropped. Otherwise its lines are not placed. z80asm never patches an opcode byte, so a listing of this
 build is never excluded at its true start (GH #426 F4). Every
 byte row is a range of its length, capped at its 8K page. The line source is `C_LINE` when the listing has it, the
@@ -1618,7 +1619,7 @@ zero-width lines, the cross-check, dropped listings, the classic CRT, MACRO/REPT
 SRCTXT-01 (`source_map_test`), Z88MAP-30, SRCDBG-LIS-01 to 04 (`source_debug_test`) and QSRC-140/141
 (`debugger_source_panel_test`).
 
-GH #426 (F4) added Z88LIS-36 to 43 and re-specified Z88LIS-19 (owner-approved 2026-11-01).
+GH #426 (F4) added Z88LIS-36 to 43 and 45, 46 (review round 1: overlapping section binaries, a ROM-area piece) and re-specified Z88LIS-19 (owner-approved 2026-11-01).
 
 Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22 when E23-17 made the two
 `classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
