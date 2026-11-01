@@ -371,7 +371,7 @@ zcc +zxn -subtype=dot -clib=new -debug -m --list -create-app -o prog dot.c dutil
 2. Start JNEXT with the map and **no** `--load`: `jnext --source-map prog.map` (or **Load
    Source Map...** in the debugger). The map attaches at once and says *Source map not
    verified yet: it is checked when the dot command runs*.
-3. Set `dot.c:8` in the Breakpoints panel, and type `.prog` at the NextZXOS
+3. Set `dot.c:8` in the Breakpoints panel (or in a script), and type `.prog` at the NextZXOS
    prompt. The machine stops inside the command, and the Source tab, **Into / Over / Out**
    and the Call Stack work in `dot.c` as for any program.
 
