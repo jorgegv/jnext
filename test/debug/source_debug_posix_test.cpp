@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <csignal>
 #include <optional>
 #include <chrono>
@@ -228,8 +229,18 @@ int main() {
     ::signal(SIGPIPE, SIG_IGN);   // the reader closes the pipe once it has refused
     const auto feed = [&](const fs::path& fifo, const std::string& head, std::uintmax_t total) {
         return std::thread([fifo, head, total] {
-            const int fd = ::open(fifo.c_str(), O_WRONLY);
+            // Never block for ever: a row whose reader does not come (a load that refused
+            // before opening) must FAIL by name, not hang the suite (the rule of with_fifo()).
+            // O_NONBLOCK open of a FIFO fails with ENXIO until a reader has it open.
+            int fd = -1;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (std::chrono::steady_clock::now() < deadline) {
+                fd = ::open(fifo.c_str(), O_WRONLY | O_NONBLOCK);
+                if (fd >= 0 || errno != ENXIO) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
             if (fd < 0) return;
+            ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL) & ~O_NONBLOCK);   // blocking writes
             const std::string zeros(65536, '\0');
             std::uintmax_t sent = 0;
             while (sent < total) {

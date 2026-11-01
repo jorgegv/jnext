@@ -118,7 +118,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | src/debug Qt-free lint (GH #278) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source maps + symbols |      107 |      107 |      0 |       0 |    100% | 🟢 All tests pass. |
-| z88dk -debug map adapter |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| z88dk -debug map adapter |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk --list listing adapter |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (backend) |      306 |      306 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -133,7 +133,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | GDB RSP remote debugger adapter (GH #281) |      105 |      105 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL front end (GH #26) |      265 |      265 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL evaluator (GH #26) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger DSL engine (GH #26) |      151 |      151 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger DSL engine (GH #26) |      152 |      152 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger session recorder (GH #20) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZRCP remote debugger adapter (GH #280) |      216 |      216 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect rules (pure) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -180,6 +180,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      187 |      187 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14736**| **14736**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **14738**| **14738**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

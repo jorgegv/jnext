@@ -593,6 +593,17 @@ int main() {
                                           "-byte limit" &&
                   ok == 16 && why_ok.empty() && st.lookup_name("main") == 0x8000);
         fs::remove(huge);
+        // The boundary, the other side: exactly the cap is NOT over it.
+        const fs::path exact = dir / "exact.sym";
+        write_text(exact, "edge: EQU 0x00004321\n");
+        fs::resize_file(exact, SOURCE_FILE_MAX_BYTES);
+        SymbolTable edge;
+        std::string why_edge;
+        const int re2 = edge.load_z88dk_or_sjasmplus(exact.string(), &why_edge);
+        check("MAPCAP-03", "load_z88dk_or_sjasmplus() accepts a file of exactly the size cap (the bound is "
+                           "\"more than\"): it loads, says nothing, and the name resolves",
+              re2 >= 0 && why_edge.empty() && edge.lookup_name("edge") == 0x4321);
+        fs::remove(exact);
     }
     {
         const auto with = [](uint16_t h) {
