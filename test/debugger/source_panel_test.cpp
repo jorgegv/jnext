@@ -6335,12 +6335,15 @@ void test_source_sync() {
         fx.backend->run(jnext::dbg::CLIENT_NONE);
         w.sp->refresh();   // the manager's tick while running
         const bool running = w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000});
+        w.dis_click(0x8002);   // a selection made while the machine runs is not followed
+        const bool ignored = !w.sp->browsing() && w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000});
         fx.emu.debug_state().pause();
         check("QSRC-181", "a line whose only place is in an unmapped page links nothing and does not scroll; a line "
-                          "without code links nothing; clearing the map and running drop the tint",
-              unmapped && nocode && lit && cleared && relit && running,
+                          "without code links nothing; clearing the map and running drop the tint, and a Disassembly click while it runs is not followed",
+              unmapped && nocode && lit && cleared && relit && running && ignored,
               "unmapped=" + std::to_string(unmapped) + " nocode=" + std::to_string(nocode) + " lit=" + std::to_string(lit) +
-                  " cleared=" + std::to_string(cleared) + " relit=" + std::to_string(relit) + " running=" + std::to_string(running));
+                  " cleared=" + std::to_string(cleared) + " relit=" + std::to_string(relit) + " running=" + std::to_string(running) +
+                  " ignored=" + std::to_string(ignored));
     }
     {   // QSRC-182: a Disassembly click puts the Source cursor on the line and tints it
         Fixture fx;
@@ -6487,16 +6490,17 @@ void test_source_sync() {
         fx.load_map();
         write_main({});
         SyncWin w(fx);
-        w.dp->show_address(0x8005);
-        w.dp->show_address(0x8000);
         QSignalSpy sel(w.dp, &DisasmPanel::selection_changed);
+        w.dp->show_address(0x8005);   // the Source tab's own request: no selection_changed
+        w.dp->show_address(0x8000);
+        const bool quiet_show = sel.count() == 0;
         QSignalSpy lines(w.sp, &SourcePanel::source_lines_selected);
         QSignalSpy cur(w.ed, &QPlainTextEdit::cursorPositionChanged);
         QSignalSpy scr(w.scroll, &QScrollBar::valueChanged);
         w.press(w.centre() + 3);   // a click on the $8005 row
         const std::string d187 = "sel=" + std::to_string(sel.count()) + " scr=" + std::to_string(scr.count()) +
                                  " cur=" + std::to_string(cur.count()) + " lines=" + std::to_string(lines.count());
-        const bool dis_click = sel.count() == 1 && scr.count() == 0 && cur.count() == 1 && lines.count() == 1 &&
+        const bool dis_click = quiet_show && sel.count() == 1 && scr.count() == 0 && cur.count() == 1 && lines.count() == 1 &&
                                lines.at(0).at(3).toBool() == false && lines.at(0).at(1).toInt() == 12;
         sel.clear(); lines.clear(); cur.clear(); scr.clear();
         w.src_move(11);   // a move in the Source tab
@@ -6505,7 +6509,7 @@ void test_source_sync() {
         sel.clear(); lines.clear(); cur.clear(); scr.clear();
         for (int i = 0; i < 10; ++i) w.tick();
         const bool ticks = sel.count() == 0 && lines.count() == 0 && scr.count() == 0;
-        check("QSRC-187", "one Disassembly click: one selection_changed, no scroll of the Disassembly, one Source cursor "
+        check("QSRC-187", "show_address() never emits selection_changed; one Disassembly click: one selection_changed, no scroll of the Disassembly, one Source cursor "
                           "move, one source_lines_selected without reveal; one Source move: one source_lines_selected "
                           "with reveal and no selection_changed; ten ticks: neither signal",
               dis_click && src_click && ticks,

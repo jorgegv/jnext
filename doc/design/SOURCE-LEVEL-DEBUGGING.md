@@ -380,7 +380,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
-| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); syntax highlighting done in E23-29 (#422); the amber current-line wedge and the "also:" list done in E23-16 (#347) stage 1; no selection sync yet | 8.2 | E23-16 (#347) |
+| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); syntax highlighting done in E23-29 (#422); the amber current-line wedge and the "also:" list done in E23-16 (#347) stage 1; selection sync both ways, browsing, Show in Source and Go to PC Line done in E23-16 (#347) stage 2 | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line, a symbol unknown at start or a load-bound symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
@@ -1098,8 +1098,13 @@ location is; a `space` on a kind other than `Execute` is refused.
 - **Source tab completion** (E23-16 (#347)): the current-line marker; the
   "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab
   and the disassembly. Stage 1 built the marker (an amber wedge in the gutter's trailing 5-px
-  strip, `paint_pc_marker()`, D1) and the "also:" suffix of the position label (D3); selection
-  sync follows in stage 2.
+  strip, `paint_pc_marker()`, D1) and the "also:" suffix of the position label (D3). Stage 2 built
+  the selection sync as tints in both views (D5, one pale violet from `source_sync_colors.h`, a
+  line's instructions being those with ANY location on it, D6), the Disassembly's reveal only for a
+  move the user made in the Source tab (D7), browsing (D8: any Disassembly selection whose primary
+  line is not the PC's shows that line, in its file, with `(browsing; the PC is at f:l, $addr)`,
+  until a stop, a run, another map or **Go to PC Line**), and **Show in Source** in the
+  Disassembly's menu while a map is loaded (D10).
 - **Address fields**: a number first, `@` forces a symbol, `$` or `0x` force hex (OD-12; done).
   `file:line` is accepted wherever an Execute address is (done). Call Stack "Called from" uses
   the caller's recorded identity (E23-08). E23-22 (#360) shows the identity in every view, and
@@ -1763,3 +1768,6 @@ E23-30 (#423) added QSRC-99 to QSRC-119 (`debugger_source_panel_test`: the Sourc
 Disassembly, the copy forms, the operand entries and the Disassembly's menu pinned across the shared builder),
 SRCRUN-01 to SRCRUN-07 (`source_debug_test`: `run_to_source_line`) and CTL-06-04 (`debugger_backend_test`: a run-to on
 a running machine drops the caller's earlier transient target, not another client's).
+E23-16 (#347) added QSRC-170 to QSRC-189 (`debugger_source_panel_test`: the current-line wedge, the `also:` list, selection sync
+both ways, the reveal and browse rules, Go to PC Line, Show in Source, the real z88dk map's two-start line, and the tint in
+every colour scheme).

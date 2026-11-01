@@ -3720,6 +3720,12 @@ so breakpoint dots stay visible.</p>
   symbol and press Enter to centre the view there. A number wins over a symbol
   spelled like one; write <code>@name</code> to mean the symbol.</li>
 <li><strong>Go to PC</strong> re-centres on the current instruction.</li>
+<li>With a source map loaded, a selection here moves the <a href="15-source.html">Source</a> tab (the cursor goes
+  to the line of the instruction you clicked, and the lines of the whole range are tinted), and the
+  instructions of the Source tab's selected lines are tinted pale violet here. The right-click menu
+  adds <strong>Show in Source</strong>, which raises the Source tab on the line of that instruction; it is
+  disabled, with the tooltip <em>no source line at $A000</em>, where no line covers the address, and not
+  offered without a source map.</li>
 <li>The scrollbar spans the whole <code>$0000</code>–<code>$FFFF</code> address space. <strong>↑ ↓</strong>,
   <strong>Page Up/Down</strong>, <strong>Home</strong> and <strong>End</strong> navigate; <strong>Enter</strong> runs to the
   selected line.</li>
