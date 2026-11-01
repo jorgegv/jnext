@@ -119,7 +119,8 @@ int main()
     check("RP-UP-03", "same generation, target changed: upload",
           upload_needed(7, 7, true));
     check("RP-UP-04", "nothing uploaded yet: upload, even for generation 0",
-          upload_needed(0, NOTHING_UPLOADED, false));
+          upload_needed(0, NOTHING_UPLOADED, false) &&
+          upload_needed(NOTHING_UPLOADED, NOTHING_UPLOADED, false));   // the widget's "unknown" generation
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
