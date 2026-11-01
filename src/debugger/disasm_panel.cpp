@@ -942,7 +942,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         auto* show_src = menu.addAction("Show in Source");
         if (!dbg_->source_map().lookup(entries_[line].space, addr)) {
             show_src->setEnabled(false);
-            show_src->setToolTip(tr("no source line at $%1").arg(addr, 4, 16, QLatin1Char('0')).toUpper());
+            show_src->setToolTip(tr("no source line at $%1").arg(QString::asprintf("%04X", addr)));
         }
         connect(show_src, &QAction::triggered, this, [this, addr]() { emit show_source_requested(addr); });
     }

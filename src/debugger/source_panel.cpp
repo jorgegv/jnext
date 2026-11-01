@@ -486,7 +486,7 @@ void SourcePanel::show_running()
     highlighted_line_ = 0;
     browse_addr_.reset();     // GH #347: the stop that follows shows the PC
     disasm_range_.reset();
-    emit_lines_(false, false);
+    emit_lines_(false, false, /*none=*/true);   // the text stays, but nothing of it is selected now
 }
 
 void SourcePanel::update_buttons(bool paused)
@@ -806,8 +806,9 @@ void SourcePanel::set_disasm_selection(uint16_t lo, uint16_t hi, uint16_t caret)
             browse_addr_ = caret;
             browse_map_ = dbg_->source_map().loaded_file();
         }
+        const int sent = emitted_;
         refresh();
-        emit_lines_(false, true);   // the Disassembly tints the lines the cursor is on now
+        if (emitted_ == sent) emit_lines_(false, true);   // the Disassembly tints the lines the cursor is on now
     } else {
         refresh();   // only the tint follows the range
     }
@@ -837,12 +838,12 @@ void SourcePanel::selected_blocks_(QTextBlock& first, QTextBlock& last) const
     if (last.position() == cur.selectionEnd() && last != first) last = last.previous();
 }
 
-void SourcePanel::emit_lines_(bool reveal, bool force)
+void SourcePanel::emit_lines_(bool reveal, bool force, bool none)
 {
     QString file;
     int first_line = 0, last_line = 0;
     const int lines = file_line_count(editor_->document());
-    if (!shown_file_.empty() && lines > 0) {
+    if (!none && !shown_file_.empty() && lines > 0) {
         QTextBlock first, last;
         selected_blocks_(first, last);
         first_line = std::min(first.blockNumber() + 1, lines);
@@ -850,6 +851,7 @@ void SourcePanel::emit_lines_(bool reveal, bool force)
         file = QString::fromStdString(shown_file_);
     }
     if (!force && file == lines_file_ && first_line == lines_first_ && last_line == lines_last_) return;
+    ++emitted_;
     lines_file_ = file;
     lines_first_ = first_line;
     lines_last_ = last_line;
