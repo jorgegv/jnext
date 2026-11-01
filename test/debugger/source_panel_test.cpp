@@ -6187,13 +6187,13 @@ void test_source_current_line() {
         v.sp->refresh();
         const QStringList pend = v.sp->location_text().split(QLatin1Char('\n'));
         const bool order = pend.size() == 2 &&
-                           pend[0] == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
+                           pend[0] == QStringLiteral("main.bas:11  $8002  P%1  also: util.bas:7").arg(page) &&
                            pend[1].startsWith(QStringLiteral("Source map not verified yet"));
         check("QSRC-174", "two places at $8002 (util.bas:7 emitted first, main.bas:11 later and primary): "
                           "the label names the primary and lists the other as 'also: util.bas:7'; "
                           "a one-place address carries no 'also'; under a pending map 'also' ends the "
                           "position line and the note follows on the next line",
-              at8002 == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
+              at8002 == QStringLiteral("main.bas:11  $8002  P%1  also: util.bas:7").arg(page) &&
                   !at8000.contains(QStringLiteral("also")) && order,
               s(at8002) + " | " + s(at8000) + " | " + s(v.sp->location_text()));
     }
@@ -6364,7 +6364,7 @@ void test_source_sync() {
         const QString page = QString::asprintf("%02X", ram_page_of(fx.backend->source_page(0x8002)));
         w.dis_click(0x8002);
         const QString browsing = w.sp->location_text();
-        const QString want = QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7  "
+        const QString want = QStringLiteral("main.bas:11  $8002  P%1  also: util.bas:7  "
                                             "(browsing; the PC is at main.bas:10, $8000)").arg(page);
         const bool label = browsing == want && w.sp->browsing() && w.sp->highlighted_line() == 10;
         // a map still pending verification: the note stays its own line AFTER the position's
@@ -6590,7 +6590,7 @@ void test_source_sync() {
         w.dis_click(0x9000);
         const bool shown = w.sp->shown_file() == "sub.bas" && w.ed->textCursor().blockNumber() == 0 &&
                            w.tinted() == std::set<int>{0} && w.sp->highlighted_line() == 0 && w.sp->browsing() &&
-                           w.sp->location_text() == QStringLiteral("sub.bas:1  $9000  page %1  "
+                           w.sp->location_text() == QStringLiteral("sub.bas:1  $9000  P%1  "
                                                   "(browsing; the PC is at main.bas:10, $8000)").arg(page);
         const int top = w.ed->verticalScrollBar()->value();
         for (int i = 0; i < 20; ++i) w.tick();
