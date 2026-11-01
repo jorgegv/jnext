@@ -4184,14 +4184,12 @@ default and documents the stack; its description says the pragma gives identical
 output, so it is harmless there. Only 2.4 and the 2026-10-16 master were run for
 this page; on anything newer, build the example and look.</p>
 <p>The build writes <code>prog_CODE.bin</code> and <code>prog_PAGE_20.bin</code>, and JNEXT checks both:</p>
-<pre><code>z88dk listings for 'prog.map': prog.lis: 17 listed lines could not be placed (no label of their section piece is in the map, or inside PHASE)
-Loaded 176 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
+<pre><code>Loaded 193 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>
-<p>The warning is expected for a newlib <code>__banked</code> program, on both installs. The
-banking driver adds code to the start-up section, so JNEXT can no longer tell
-where the start-up listing's label-less lines go. The cost is small: those
-start-up lines show no m4 text in the Source tab (the disassembly still works),
-and everything else is attached. How banked code, pages and addresses show is in
+<p>The banking driver adds its own code to the start-up section, after the start-up
+code's. That part of <code>prog.lis</code> has no label in the map, so JNEXT places it by its
+bytes. It goes where <code>prog_CODE.bin</code> holds its instructions, and only when exactly
+one place in the section does. How banked code, pages and addresses show is in
 <a href="../functions/14-source-level-debugging.html#banked-code">banked code</a>.</p>
 <h2 id="things-that-change-the-result">Things that change the result<a class="headerlink" href="#things-that-change-the-result" title="Permanent link">&para;</a></h2>
 <ul>

@@ -139,15 +139,13 @@ this page; on anything newer, build the example and look.
 The build writes `prog_CODE.bin` and `prog_PAGE_20.bin`, and JNEXT checks both:
 
 ```
-z88dk listings for 'prog.map': prog.lis: 17 listed lines could not be placed (no label of their section piece is in the map, or inside PHASE)
-Loaded 176 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
+Loaded 193 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 ```
 
-The warning is expected for a newlib `__banked` program, on both installs. The
-banking driver adds code to the start-up section, so JNEXT can no longer tell
-where the start-up listing's label-less lines go. The cost is small: those
-start-up lines show no m4 text in the Source tab (the disassembly still works),
-and everything else is attached. How banked code, pages and addresses show is in
+The banking driver adds its own code to the start-up section, after the start-up
+code's. That part of `prog.lis` has no label in the map, so JNEXT places it by its
+bytes. It goes where `prog_CODE.bin` holds its instructions, and only when exactly
+one place in the section does. How banked code, pages and addresses show is in
 [banked code](../functions/14-source-level-debugging.md#banked-code).
 
 ## Things that change the result

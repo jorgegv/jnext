@@ -3949,9 +3949,14 @@ output.</p>
 <td>rebuild with <code>--list</code>, or delete the stale <code>.lis</code>; the map's own lines stay</td>
 </tr>
 <tr>
-<td><code>z88dk listings for 'prog.map': prog.lis: 17 listed lines could not be placed (no label of their section piece is in the map, or inside PHASE)</code></td>
-<td>a newlib program with <code>__banked</code> functions (seen with both z88dk installs): the start-up section is no longer one piece, or code is in a <code>PHASE</code> block</td>
-<td>harmless for the banked case: the start-up code shows no m4 text there. See <a href="02-building-with-z88dk.html#banked-code">Building programs with z88dk</a></td>
+<td><code>z88dk listings for 'prog.map': prog.lis: 17 listed lines could not be placed (no label of their section piece is in the map and its bytes do not fit exactly one place in the section binary, or inside PHASE)</code></td>
+<td>part of a listing has no label in the map and JNEXT cannot prove where it goes: its instructions fit more than one place in its section, or no <code>prog_&lt;GROUP&gt;.bin</code> beside the map holds them; or the lines are in a <code>PHASE</code> block</td>
+<td>nothing: those lines are left out rather than guessed, and the rest is attached. Keep <code>prog_CODE.bin</code> beside the map</td>
+</tr>
+<tr>
+<td><code>z88dk listings for 'prog.map': prog.lis: section 'code_crt_init': its label-less lines match no place in the section binary; this is not the listing of this build</code></td>
+<td>a stale <code>prog.lis</code>, from another build</td>
+<td>rebuild with <code>--list</code>, or delete it; the map's own lines stay</td>
 </tr>
 <tr>
 <td><code>(identity check pending: the program loads from tape)</code>, then <code>Verified z88dk source map ...</code></td>
