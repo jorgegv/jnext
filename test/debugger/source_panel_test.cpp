@@ -6660,11 +6660,24 @@ void test_source_sync_review() {
         fx.load_map();
         w.tick();
         const bool cleared = before && !w.sp->browsing() && w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 10;
+        // a map gone stale (a soft reset) ends it too, so loading the same map again does not bring it back
+        fx.load_map();
+        set_cpu(fx, 0x8000);
+        w.tick();
+        w.dis_click(0x9000);
+        const bool again = w.sp->browsing();
+        fx.backend->reset(jnext::dbg::CLIENT_NONE, jnext::dbg::ResetKind::Soft);
+        w.tick();
+        const bool stale = !w.sp->browsing() && w.sp->location_text().contains(QStringLiteral("does not match"));
+        fx.load_map();
+        set_cpu(fx, 0x8000);
+        w.tick();
+        const bool gone = again && stale && !w.sp->browsing();
         check("QSRC-201", "browsing a line whose file is not found keeps the message through five ticks, Locate File... and "
                           "Go to PC Line enabled, and Go to PC Line returns to main.bas:10; a map cleared and loaded again "
-                          "ends a browse",
-              stays && back && cleared,
-              "stays=" + std::to_string(stays) + " back=" + std::to_string(back) + " cleared=" + std::to_string(cleared) +
+                          "ends a browse, and so does a map gone stale",
+              stays && back && cleared && gone,
+              "stays=" + std::to_string(stays) + " back=" + std::to_string(back) + " cleared=" + std::to_string(cleared) + " gone=" + std::to_string(gone) +
                   " " + s(w.sp->location_text()));
     }
     {   // QSRC-202: every accepted Disassembly selection places the cursor on the caret's line
@@ -6694,7 +6707,7 @@ void test_source_sync_review() {
         const std::string a = std::to_string(fx.p80);
         fx.backend->load_source_map(write_sld("sync-long.sld",
             "main.bas|100||0|" + a + "|32768|T|\n" + "main.bas|102||0|" + a + "|32770|T|\n" +
-            "main.bas|250||0|" + a + "|32773|T|\n"), false);
+            "main.bas|200||0|" + a + "|32773|T|\n"), false);
         std::string text;
         for (int i = 1; i <= 300; ++i) text += "REM line " + std::to_string(i) + "\n";
         write_text(tmp + "/main.bas", text);
@@ -6704,14 +6717,15 @@ void test_source_sync_review() {
         v.sp->set_disasm_selection(0x8002, 0x8002, 0x8002);   // line 102, two below the PC's, in view
         QApplication::processEvents();
         const bool kept = v.ed->verticalScrollBar()->value() == top && v.ed->textCursor().blockNumber() == 101;
-        v.sp->set_disasm_selection(0x8005, 0x8005, 0x8005);   // line 250: far out of view
+        v.sp->set_disasm_selection(0x8005, 0x8005, 0x8005);   // line 200: far out of view
         QApplication::processEvents();
         const QRect r = v.ed->cursorRect();
         const bool shown = v.ed->verticalScrollBar()->value() != top && v.ed->viewport()->rect().contains(r) &&
-                           v.ed->textCursor().blockNumber() == 249;
+                           std::abs(r.center().y() - v.ed->viewport()->rect().center().y()) <= 2 * r.height() &&
+                           v.ed->textCursor().blockNumber() == 199;
         write_main({});
         check("QSRC-203", "in a 300-line file with the PC on line 100, browsing line 102 keeps the scroll position and puts the "
-                          "cursor there; browsing line 250 scrolls it into view",
+                          "cursor there; browsing line 200 centres it",
               kept && shown, "kept=" + std::to_string(kept) + " shown=" + std::to_string(shown));
     }
     {   // QSRC-204: a browsed address that has no line any more ends the browse

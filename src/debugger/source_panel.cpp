@@ -784,9 +784,9 @@ void SourcePanel::refresh_()
             SyncScope sync(syncing_);
             // A browse (GH #347) centres only a line out of view: the user is looking at the text.
             const bool fresh = !placed_;
+            const bool in_view = editor_->viewport()->rect().contains(editor_->cursorRect(at));   // before the cursor scrolls it in
             editor_->setTextCursor(at);
-            if (fresh || !browsing || !editor_->viewport()->rect().contains(editor_->cursorRect(at)))
-                editor_->centerCursor();
+            if (fresh || !browsing || !in_view) editor_->centerCursor();
         }
         placed_ = true;
         placed_line_ = location->line;
