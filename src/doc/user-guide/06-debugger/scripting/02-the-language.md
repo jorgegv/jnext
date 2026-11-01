@@ -55,6 +55,10 @@ dump_regs dump_mmu dump_mem snap unsnap dump_diff enable disable screenshot
 save_snapshot compare_scr press for release joystick set out if then else and
 or not true false mem mem16 phys mmu stack changed depth`.
 
+A source line is written `main.c:19` (a file, a colon and a line number, with no
+space), only after `on execute`; a file name with spaces or a drive letter is
+written in quotes, `"dir with space/main.c:19"`.
+
 A MAP symbol is written `@name` and can be any name at all, keywords included
 (`@start` is fine). An sjasmplus label keeps its dots: `@main.loop`,
 `@gfx.draw.loop`. A `.` joins the parts of a name only when a letter or `_`

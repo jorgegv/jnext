@@ -1,6 +1,7 @@
 #include "debugger/source_panel.h"
 
 #include "debugger/breakpoint_glyph.h"
+#include "debugger/coverage_colors.h"   // GH #388
 #include "debugger/breakpoint_model.h"
 #include "qt/palette_tint_qt.h"
 #include "debug/debugger.h"
@@ -604,13 +605,34 @@ void SourcePanel::refresh_()
         return;
     }
 
+    // GH #388 - memory coverage: with it on, every line of this file the program
+    // executed (an X byte in one of the line's ranges) has a pale full-width
+    // background. X only: the R and W of a line's bytes have no per-source-line
+    // meaning (a line's bytes are its code). The current-line selection is
+    // appended LAST so it wins on its own line.
+    QList<QTextEdit::ExtraSelection> selections;
+    if (dbg_->mem_coverage_enabled()) {
+        const QColor tint = coverage_colors::exec_line(editor_->palette());
+        for (const uint32_t line : dbg_->executed_source_lines(location->file)) {
+            const QTextBlock b = doc->findBlockByNumber(static_cast<int>(line) - 1);
+            if (line == 0 || !b.isValid()) continue;
+            QTextEdit::ExtraSelection t;
+            t.cursor = QTextCursor(b);
+            t.cursor.clearSelection();
+            t.format.setBackground(tint);
+            t.format.setProperty(QTextFormat::FullWidthSelection, true);
+            selections.append(t);
+        }
+    }
+
     QTextEdit::ExtraSelection selection;
     selection.cursor = QTextCursor(block);
     selection.cursor.clearSelection();
     selection.format.setBackground(editor_->palette().highlight());
     selection.format.setForeground(editor_->palette().highlightedText());
     selection.format.setProperty(QTextFormat::FullWidthSelection, true);
-    editor_->setExtraSelections({selection});
+    selections.append(selection);
+    editor_->setExtraSelections(selections);
     // Placed only when something moved. This runs on every tick while paused,
     // and centring again each time would snap the view back to the line
     // whenever the user scrolled away from it.

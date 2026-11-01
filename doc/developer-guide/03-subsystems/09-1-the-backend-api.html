@@ -2705,8 +2705,8 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 </tr>
 <tr>
 <td>coverage</td>
-<td><code>coverage()</code>, <code>coverage_enabled()</code></td>
-<td><code>coverage_enable</code>, <code>coverage_clear</code></td>
+<td><code>coverage()</code>, <code>coverage_enabled()</code>; INS-21: <code>mem_coverage_enabled()</code>, <code>mem_coverage(space, addr, n, out)</code>, <code>mem_coverage_fetch(addr)</code>, <code>mem_coverage_spaces()</code>, <code>executed_source_lines(file)</code></td>
+<td><code>coverage_enable</code>, <code>coverage_clear</code>; INS-21: <code>mem_coverage_enable</code>, <code>mem_coverage_clear</code></td>
 </tr>
 <tr>
 <td>input</td>
@@ -2937,6 +2937,9 @@ own, in the map format; and in one read, because <code>--map &lt;(cmd)</code> is
 a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
 the functional row <code>script-map-pipe-func</code>).</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
+<p>Remote and script consumers of the map (GH #346): the GDB server's <code>monitor src</code>
+reads <code>source_location()</code>; the DSL's <code>on execute file:line</code> reads
+<code>source_map().resolve()</code> and subscribes one <code>Execute</code> per start.</p>
 <p>The backend also owns one <code>SourceMap</code> (<code>src/debug/source_map.*</code>): records of
 ranges <code>{space, lo, hi_excl, location}</code> (file, line, column) keyed by the
 <code>FetchSource</code> that supplies the code, filled by a format adapter —
@@ -3174,6 +3177,34 @@ oldest: the first instruction of the previous statement, the inverse of <code>In
 <code>run_frame()</code>, the debugger's Step and <code>execute_single_instruction()</code> share,
 and only for a slot that fetched the opcode at PC. An NMI or INT acknowledge
 does not run it. Switched off it costs one pointer test per instruction.</p>
+<p><strong>INS-21, memory coverage by execute, read and write</strong> (GH #388, CAP-INS-21) is
+the physical-memory counterpart, with a separate switch: INS-20 holds 16-bit
+logical PCs (ZRCP <code>cpu-code-coverage</code> returns them, and the logical address a page
+ran at cannot be rebuilt from a physical byte), INS-21 holds one byte of flags
+(<code>dbg::COVERAGE_EXEC | COVERAGE_READ | COVERAGE_WRITE</code>) per byte of every
+<code>MemSpace</code>, in lazily allocated 8 KB chunks (<code>dbg::MemCoverage</code>,
+<code>debug/mem_coverage.h</code>; a 16 KB store, <code>Rom</code>, <code>AltRom</code> or <code>Config</code>, is two chunks).
+<code>Mmu</code> writes it from the one arbiter (see <a href="02-memory.html">3.2</a>): X is the first
+opcode byte of an executed instruction (<code>read_m1()</code>; a prefix's inner M1 is no
+mark), R every other read including the DMA's, W a write that landed, each at the
+space and offset the route names and only for guest accesses (inside
+<code>GuestExecutionScope</code>, not <code>InspectionScope</code>: exactly what a watchpoint can see, so
+<code>peek</code>/<code>poke</code>, the trace's captures and loaders mark nothing). The set and its
+switch are backend state, published to <code>DebugState::mem_coverage_sink()</code> by
+<code>Impl::publish_mem_coverage()</code> and retired by <code>~Debugger()</code> like INS-20's, and
+re-published at the one re-application, so a rewind, reset, state load or cold boot
+keeps the bits; a rewind's replay sets the same bits again, so nothing is counted
+twice. Off clears; <code>mem_coverage_clear()</code> empties and recording goes on.
+<code>mem_coverage(space, addr, n, out)</code> addresses like <code>peek()</code> (<code>Cpu</code> through the live
+data route, any other space by offset in its store);
+<code>mem_coverage_fetch(addr)</code> is the byte an M1 at <code>addr</code> would fetch now
+(<code>source_page(addr)</code> plus <code>space_offset()</code>), which is what the Disassembly paints;
+<code>mem_coverage_spaces()</code> lists the marked spaces sorted by (kind, index), for an
+exporter to walk. <code>executed_source_lines(file)</code> is the Source tab's: the lines of a
+file any of whose ranges (<code>SourceMap::file_ranges()</code>) holds an X byte. The
+front-ends add <code>--coverage</code> (<code>EmulatorConfig::coverage</code>, applied by the three loop
+owners through <code>apply_startup_coverage()</code>) and the Qt window's <strong>Debug ▸ Coverage</strong>.
+There is no DZRP, ZRCP, GDB or DSL verb.</p>
 <p>Each trace entry carries the registers (including I, R, IM, IFF1 and IFF2), the
 word at SP read with <code>peek()</code>, the eight MMU pages and <code>rom_slots</code>, a bit per
 slot that held ROM, and the identity of the memory its instruction was fetched

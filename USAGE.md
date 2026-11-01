@@ -850,6 +850,16 @@ Enable the per-instruction trace log (a 10K-entry ring). Also enabled
 implicitly by **--rewind-buffer-size** *N* with *N* \> 0, and toggleable
 in the debugger.
 
+**--coverage**  
+Record memory coverage from the start: for every byte of every memory
+(each RAM page, ROM image, DivMMC and Multiface window, Layer 2 mapping,
+…) whether the program executed it (first opcode byte of an
+instruction), read it or wrote it. Toggleable in the debugger (Debug \>
+Coverage), where the Disassembly, Memory and Source views show it. With
+the SDL frontend or **--headless** it records but there is no viewer; it
+logs one summary line at exit. Costs a little speed while on (3-8% in
+release builds); no measurable cost while off.
+
 ### Headless and automation
 
 **--headless**  
@@ -1109,11 +1119,18 @@ Load a debugger script (`.jds`); see **SCRIPTING**. Repeatable: the
 scripts load, and their rules run, in the order given. A script that
 cannot be read, or that has any error, is reported as
 *file*:*line*:*column*: *message* and jnext exits 1 before the machine
-runs - nothing of it runs partially. In **--headless** and the SDL-only
-build a script decides the exit status: `exit` *N* exits *N*, a `stop`
-or a failed `assert` exits 3, a run-time error exits 1. In the Qt GUI a
-script never ends the program: `stop` and `exit` pause the machine
-instead.
+runs - nothing of it runs partially. With **--load**, a script that
+names a source line (`on execute main.c:19`), an `@symbol` that
+**--map** does not know, or a z88dk **--map** symbol of a section that
+names no page waits, with the scripts after it, until the program is in
+(it is still read and parsed at once); an error then also exits 1. Its
+rules start at the load: an `on frame` *N* or a **--script-key** due
+before it never fires (a `.tzx` or `.wav` loads about 100 frames in), so
+give such rules in an earlier script that names neither. In
+**--headless** and the SDL-only build a script decides the exit status:
+`exit` *N* exits *N*, a `stop` or a failed `assert` exits 3, a run-time
+error exits 1. In the Qt GUI a script never ends the program: `stop` and
+`exit` pause the machine instead.
 
 **--script-key** *FRAME* *N*  
 Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
@@ -2579,8 +2596,8 @@ line) and connect to jnext’s port:
 - **`monitor` commands** (z88dk-gdb versions that have `monitor`) reach
   the Next-specific state: `mmu`, `nextreg`, `page` (a physical 8 KB
   page), `in`/`out` (a real port access, which can change the device’s
-  state), `sym`, `time`, `reset soft`/`reset hard` and `bp`.
-  `monitor help` lists them.
+  state), `sym`, `src` (the source line and memory of an address),
+  `time`, `reset soft`/`reset hard` and `bp`. `monitor help` lists them.
 - **Either side may pause or resume**, as with DeZog: the client is told
   the machine stopped when something else stops it while the client has
   it running.
@@ -2617,6 +2634,12 @@ match. A script observes the machine without disturbing it; it changes
 the machine only through `set` and `out`, and each such write is logged
 as a `MUTATE` line. Script output goes to the log as `[jds F:`*frame*
 `C:`*cycle*`]` lines.
+
+**Source lines.** With a source map loaded, `on execute main.c:19` (or
+`on execute "dir with space/main.c:19"`) breaks on every place the
+line’s code starts, each in the memory it was built for; it takes no
+range and no `page`. `on execute @name` with a banked label (an SLD
+label of a page) fires only in that label’s own page.
 
 **Host keys.** In the emulator window (Qt or SDL) and in the debugger
 window, Alt + 1 to Alt + 8 are the script host keys: Alt + *N* runs the

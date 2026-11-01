@@ -4,6 +4,7 @@
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
+#include "platform/coverage_startup.h"   // GH #388
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/quit_signal.h"   // GH #364
@@ -223,6 +224,7 @@ bool SdlApp::init(int argc, char* argv[]) {
     // client, which would arm every instruction; B4 report, M2 part 1, O5.)
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
     debugger_->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+    apply_startup_coverage(*debugger_, config_);   // GH #388 --coverage
     jnext::dbg::LoopDriver driver;
     driver.cold_boot = [this]() {
         boot_machine(std::string());
@@ -265,6 +267,7 @@ bool SdlApp::init(int argc, char* argv[]) {
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.program_pending = jnext::script::load_pending_for_scripts(config_.load_file);   // GH #346
         so.exits    = true;
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
@@ -519,6 +522,8 @@ void SdlApp::run() {
                 }
             }
             config_.source_map_file.clear();
+            // GH #346 - the scripts held back for the program's maps.
+            if (!script_host_.program_loaded()) exit_code_ = 1;
             load_countdown_ = -1;  // done
         } else if (load_countdown_ > 0) {
             --load_countdown_;
@@ -790,6 +795,7 @@ void SdlApp::run() {
 }
 
 void SdlApp::shutdown() {
+    if (debugger_) log_coverage_summary(*debugger_);   // GH #388
     // A requested screenshot that was never written is a failure, not a
     // footnote — same contract as QtApp::shutdown(). Reachable here if the
     // capture was still deferred (no frame rendered on its tick) when

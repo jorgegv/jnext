@@ -1,0 +1,32 @@
+# GH #388 (E23-25) - the cost of memory coverage, interleaved A/B
+# sha=ac12b723b core=9 pairs=5 load1_start=0.27
+# baseline=/home/jorgegv/tmp/worktrees/jnext/gh388-benchbase/build/gui-release/jnext
+# new=/home/jorgegv/tmp/worktrees/jnext/gh388/build/gui-release/jnext
+
+## boot-48k (machine=48k frames=600)
+  B   median=    89852692 T/s  spread=  1.7%  hits=-          (baseline)
+  U   median=    89736366 T/s  spread=  3.4%  hits=-          -0.1% vs B
+  V   median=    83005444 T/s  spread=  2.8%  hits=-          -7.6% vs B
+
+## boot-nextzxos (machine=next frames=400)
+  B   median=   227943656 T/s  spread=  2.0%  hits=-          (baseline)
+  U   median=   227673265 T/s  spread=  4.2%  hits=-          -0.1% vs B
+  V   median=   210791154 T/s  spread=  2.3%  hits=-          -7.5% vs B
+
+## copper-demo (machine=next frames=400 load=copper_demo.nex)
+  B   median=    98383048 T/s  spread= 39.6%  hits=-          (baseline)
+  U   median=    97986997 T/s  spread=  1.7%  hits=-          -0.4% vs B
+  V   median=    94847384 T/s  spread=  2.5%  hits=-          -3.6% vs B
+
+## beast (machine=next frames=400 load=beast.nex)
+  B   median=    92408246 T/s  spread=  2.2%  hits=-          (baseline)
+  U   median=    91850012 T/s  spread=  1.1%  hits=-          -0.6% vs B
+  V   median=    89654608 T/s  spread=  1.0%  hits=-          -3.0% vs B
+
+## bifrost (machine=48k frames=600 load=bifrost.tap)
+  B   median=    84614016 T/s  spread=  2.0%  hits=-          (baseline)
+  U   median=    84277878 T/s  spread=  2.6%  hits=-          -0.4% vs B
+  V   median=    80273863 T/s  spread=  2.0%  hits=-          -5.1% vs B
+
+# load1_end=0.89
+# result file: /home/jorgegv/tmp/worktrees/jnext/gh388/test/bench/coverage-ac12b723b.txt

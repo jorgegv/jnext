@@ -24,8 +24,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      `Verified`, the 'not the one ... stays pending' line once, nothing dropped (the
 #      command that ran is, to the map, another dot command);
 #   3. a NEX map and no --load: exit 1 and `--source-map requires --load FILE`.
-# (When the `file:line` script rules of #346 are in, the script of case 1 names dot.c:8
-# and dot.c:14 instead of the addresses.)
+# The script names dot.c:8 and dot.c:14 (#346's `on execute FILE:LINE`): the rules resolve at start-up
+# because the map is attached before the scripts load; the ROM's $2D62 is still counted by address.
 # Matched on the file name: under wine jnext reports the path in Windows form.
 if want z88dk-dot-source-func; then
     begin_func z88dk-dot-source-func
@@ -49,8 +49,8 @@ var h8 = 0
 var h14 = 0
 var rom14 = 0
 on io_write 0xE3 do set e3 = VALUE end
-on execute 0x2D4F when (e3 & 0x8F) == 0x82 do set h8 = h8 + 1 end
-on execute 0x2D62 when (e3 & 0x8F) == 0x82 do set h14 = h14 + 1 end
+on execute dot.c:8 do set h8 = h8 + 1 end
+on execute dot.c:14 do set h14 = h14 + 1 end
 on execute 0x2D62 when (e3 & 0x8F) != 0x82 do set rom14 = rom14 + 1 end
 on frame 800 do log "DOTSRC 2D4F=${h8:d} 2D62=${h14:d} 2D62-elsewhere=${rom14:d}" end
 JDS

@@ -381,7 +381,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
-| Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
+| Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line, a symbol unknown at start or a load-bound symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | DONE (E23-21 (#351)): rule 5, `peek(DivMmcRam)`, a map judged at the command's entry, `--source-map` without `--load` | 9.4 | E23-21 (#351) |
@@ -479,10 +479,17 @@ Layer 2 3100, alternate ROM 3116.
 The VHDL arbiter takes the access direction as an input (`zxnext.vhd:3077`: the Layer 2
 mapping uses its read enable on a read and its write enable on a write; `3078`: the
 alternate-ROM decode). So any later write-side identity (E23-25) comes from the same function,
-given the direction, never from a second copy of the order. `write_landed()` keeps its own
-cascade for now, because write arbitration has other rules (read-only slots, the Layer 2 write
-enable, the alt-ROM write-over). If inlining misses the bench threshold (4.7), the fallback
-goes to the owner, never to a second arbiter.
+given the direction, never from a second copy of the order. As built (E23-25 (#388)):
+`route_bits_<Live, Write>()` takes the direction at compile time, `Mmu::write_route(addr)` is the
+public form, and `write_landed()` is that route followed by a store by the space's kind, so
+`git grep` finds the priority order in `route_bits_()` only. The write direction differs
+exactly where the VHDL does: no boot-ROM arm (`1856`, the `cpu_di` mux), the Layer 2 write
+enable (`3077`), the alt ROM only with en+rw (`3078`, `3056`), and a write lands only where
+`sram_rdonly` is clear (`3154`): the Multiface ROM half (`3035`), the DivMMC ROM and read-only
+RAM (`3089`, `3097`, `divmmc.vhd:100`, which `DivMmc::Overlay::rdonly` now carries for both
+`DivMmc::write()` and the route) and a ROM or unmapped slot are dropped (`ptr == nullptr`, the
+space still named). If inlining misses the bench threshold (4.7), the fallback goes to the
+owner, never to a second arbiter.
 
 `read()` is the route followed by ONE side-effect tail, `finish_read_()`, for every source: the
 +3 floating-bus latch on every contended access (`zxnext.vhd:4498-4509` latches whatever
@@ -684,6 +691,40 @@ by its first mismatch about 130 frames in), 48K, 600 frames: 14,198,198,778 inst
 throughput A/B (9 runs each) gave best-of-9 differences of -1.9% to +5.0% tstates/s in both directions on
 the four unarmed workloads, which is the noise of that host; the medians swung up to 25% between two runs of
 the same code.
+
+**Memory coverage (E23-25 (#388)).** Off must cost nothing measurable; the gate is the interleaved A/B of
+`test/bench/ab-hotlatch.sh` with `AB_SET=coverage` (B = the epic tip 3a4dbb3da, U = this branch with
+nothing armed, V = `--coverage`; 5 pairs, five workloads, one pinned core, run on a quiet host with
+the SMT sibling idle; commit `ac12b723b`, result `test/bench/coverage-ac12b723b.txt`), plus `perf stat -e
+instructions:u,cycles:u` on the same core. The owner accepted the PGO A/B as the gate. Median tstates/s on the
+shipped PGO build (`make gui-release`, each tree trained on its own profile):
+
+| workload | B | U (off) | V (`--coverage`) | U vs B | V vs B |
+|---|---|---|---|---|---|
+| boot-48k | 89,852,692 | 89,736,366 | 83,005,444 | -0.1% | -7.6% |
+| boot-nextzxos | 227,943,656 | 227,673,265 | 210,791,154 | -0.1% | -7.5% |
+| copper-demo | 98,383,048 | 97,986,997 | 94,847,384 | -0.4% | -3.6% |
+| beast | 92,408,246 | 91,850,012 | 89,654,608 | -0.6% | -3.0% |
+| bifrost | 84,614,016 | 84,277,878 | 80,273,863 | -0.4% | -5.1% |
+
+(copper-demo's B spread is VOID, 39.6%: the first run of every copper-demo series is a cold-start outlier, seen
+on the base tree alone three times; the other four workloads have spreads of at most 4.2%.) Counted on the same
+PGO builds: `instructions:u` U vs B -0.03% (48k, 600 frames), +0.06% (next, 400), -0.07% (bifrost); `cycles:u`
++0.30%, -0.51%, -0.61%. With `--coverage` on, V costs a further 3-8% in throughput (+4.6% to +10.0% instructions).
+So in the shipped build **off costs nothing measurable**. The first design (hooks fed from the route) cost +0.58% and
++0.76% in `instructions:u`; re-deriving the route out of line in the cold hook brought that to +0.06% and +0.08%.
+
+The non-PGO development build (`gui-release-non-pgo`) is different and is stated plainly: at the same instruction counts
+(+0.06%, +0.12%, +0.02%) U takes **+5% to +7% more cycles on boot-48k and bifrost and about +1.5% on beast** than B
+(min-of-7 `cycles:u`, B 3.007G / 2.912G / 18.46G cycles; U +4.9% / +5.5% / +1.4%), and +0.1% on boot-nextzxos. Counters
+exclude store-to-load forwarding, 4K aliasing or misalignment, mispredicts and instruction-cache or D-TLB misses
+(all equal or better in U); what grows is frontend starvation (`no_ops_from_frontend` +17%) and L2-BTB corrections
+(`bp_l2_btb_correct` +78%), spread over functions this change did not edit (`render_row`, `AyChip::tick`,
+`tick_devices_after_instruction`) as well as `Mmu::read_m1` (+99 of 1,074 extra samples). Three code-padding variants
+(16, 48, 112 bytes inside the never-hot cold hook) all stay at +5% to +7%, so the gap is not a one-off alignment. We attribute it to code
+placement in the non-PGO LTO link (the function order is the linker's; PGO orders by hotness), **not proven**.
+That is why the gate is the PGO build, and why a non-PGO A/B on this tree reads 5% slower on the 48K workloads
+whatever the instruction count says.
 
 ## 5. The source map and the backend API
 
@@ -1058,14 +1099,19 @@ location is; a `space` on a kind other than `Execute` is refused.
 The rule of 4.6 governs every protocol: each carries as much of the identity as its vocabulary
 allows, and none is extended.
 
-- **GDB.** `z88dk-gdb` maps sources itself, so nothing is required. E23-15 (#346) adds
+- **GDB.** `z88dk-gdb` maps sources itself, so nothing is required. E23-15 (#346) added (as built:
+  `$8CB8 main.c:19 P04` / `$8CB8 unmapped P28`, primary location only, a symbol accepted, the PC when
+  no argument; the memory spelling is an interim helper that #360 replaces)
   `monitor src [ADDR]`: the location and the space of an address, else "unmapped", which makes
   the source map observable in headless and SDL. `monitor sym` exists. E23-22 puts the identity
   in its text form into `monitor src` and `monitor mmu`.
 - **DZRP and ZRCP.** DeZog maps sources from `.lis`, `.map` and `.sld` itself, so there are no
   new commands. Banked breakpoints keep the legacy qualifier (4.5); the slot views are as in 4.6.
 - **DSL.** `addr_spec` accepts `file:line` (E23-15), resolved at load through the backend like
-  `@name`. An unresolvable one is a load error, and a multi-location line arms every start.
+  `@name` (as built, GH #346: bare, or quoted for a name with spaces; `execute` only, no range, no
+  `page`; with a CLI `--load` the script, and the ones after it, load once the program and its map
+  are in; `on execute @name` takes a paged label's own memory, an explicit `page N` keeping its
+  legacy meaning). An unresolvable one is a load error, and a multi-location line arms every start.
   Saving GUI source-line breakpoints as `.jds` (#376) needs it.
 
 ### 8.4 Headless and SDL
@@ -1442,9 +1488,51 @@ Coverage is off by default. When on, it records executed, read and written bytes
 identity (E23-08); the read and write sides from the same arbiter, given the access direction
 (4.2). It is shown in the disassembly and memory panels, with clear and reset, and it is
 E23-26's automatic code/data map. Off must cost nothing measurable; off and on are measured with
-`make bench` (non-PGO, A/B, quiet host) and the numbers are recorded in the sub-issue. E23-25
+the interleaved A/B `AB_SET=coverage` (PGO build is the gate, owner decision 2026-10-31; the numbers and the non-PGO
+finding are in 4.7). E23-25
 decides and pins the rewind rule (no double count), and whether INS-20's logical bitset stays
 beside it.
+
+**As built (E23-25 (#388)).**
+
+- *What is recorded.* One byte of flags per byte per space (`dbg::MemCoverage`, lazily allocated
+  8 KB chunks keyed by kind, index and half; at most 6 MB when every space is touched, and 246
+  spaces, about 2 MB plus the 64 KB chunk table, after 500 frames of a NextZXOS boot, which writes
+  across nearly every RAM page): X is the
+  first opcode byte of an executed instruction (set by `read_m1()` from the route it stores as
+  `last_m1_`; a prefix's inner M1, an accepted INT or NMI and a serviced esxdos shim mark
+  nothing), R every other memory read, operands and the DMA's included, and W a write that
+  landed. A `Floating` route is not memory and a dropped write marks nothing. Only guest accesses
+  count, exactly what a watchpoint can see (inside `GuestExecutionScope`, outside
+  `InspectionScope`): the CPU, the DMA and the esxdos shim's own stores; never video (it reads
+  the BRAM and SRAM through other ports, `zxnext.vhd:6558-6575`, `1666`), the Copper, `peek`,
+  `poke`, the trace and call-stack captures, or a loader.
+- *Cost off.* `DebugState::mem_gate_live()` is `wp_live || mem_cov_live`, one cached bool
+  replacing `watchpoints_live()` as the first test of the Mmu's read and write sites, so with no
+  client the hot path is the load and branch it was; behind it the coverage sink pointer is
+  tested before the watchpoint mask. `watchpoints_live()` is unchanged for the port sites. The
+  coverage hook re-derives its route out of line (`Mmu::cov_note_`), so the hot read and write sites
+  compute no space or offset they do not use. Measured result in 4.7: no measurable cost in the
+  shipped (PGO) build; the owner accepted that A/B as the gate (2026-10-31).
+- *The rewind rule.* Coverage is a set of what this session's machine did, backend state beside
+  INS-20's (the sink is re-published at the one re-application and retired by `~Debugger()`): a
+  rewind neither removes nor adds a mark, a replay sets the same bits again (no double count by
+  construction), and a reset, a state load and a cold boot keep it. Only Clear and switching off
+  empty it. It is not in the rewind ring or a `.jns`, so the format is unchanged.
+- *INS-20 stays.* The logical-PC set is returned by ZRCP `cpu-code-coverage` (the ZEsarUX
+  contract DeZog reads) and the logical address a page ran at cannot be rebuilt from a physical
+  byte; a shared switch would make ZRCP users pay for the read and write hooks. INS-21-15
+  cross-checks the two on a fixed mapping.
+- *What E23-26 (#389) gets.* `mem_coverage_spaces()` and a dense `mem_coverage(space, 0, size)`
+  per space (8 KB, or 16 KB for `Rom`, `AltRom`, `Config`; `space_offset()` maps a logical
+  address). X marks instruction starts, which is skoolkit's code map and DeZog's and ZEsarUX's
+  coverage; an R byte inside an executed instruction's extent (`opcode_len` at each X) is an
+  operand, so #389 classifies code and data itself.
+- *Surface.* Debug ▸ Coverage, `--coverage` (a debugger session toggle like `--trace`: no
+  Preferences field), the Disassembly bar (X only, by the fetch view), the Memory panel's
+  X | R | W underline with a legend, and the Source tab's tint of the lines
+  `executed_source_lines()` returns (X only: R and W have no per-line meaning). No DZRP, ZRCP,
+  GDB or DSL verb: the C++ backend API is what #389 consumes.
 
 ### 11.2 skoolkit and ghidra (E23-26 (#389)): how a page identity maps into each format
 
@@ -1553,6 +1641,13 @@ return now ends the RST frame; owner-approved 2026-10-30).
 E23-12 (#343) added Z88FIX-01/02 (`source_map_test`: the `test/fixtures/z88dk` files match
 their manifest, and the manifest lists exactly those files).
 
+E23-25 (#388) added FSRC-17 to FSRC-19 and MCOV-01 to MCOV-07 (`mmu_test`, `mmu_integration_test`:
+the write route against the memory map for all 64 KB of 17 configurations with no stray write in
+any store, the offsets, and the hook per arm, direction, scope and gate), INS-21-01 to INS-21-16
+and HOST-COV-01 (`debugger_backend_test`), SRCDBG-COV-01/02 (`source_debug_test`), CLI-COV-01
+(`cli_options_test`) and QCOV-01 to QCOV-07 (`debugger_menu_test`, `debugger_panels_test`,
+`debugger_source_panel_test`).
+
 E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug_test`: the live gate,
 the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group
 verbs), SRCBP-05 (`dzrp_adapter_test`: the legacy qualifier through `CMD_ADD_BREAKPOINT`) and
@@ -1601,8 +1696,9 @@ Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22
 `classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
 2026-10-31.
 
-**Planned.** The functional rows `source-map-func` (a looked-up line, E23-15) and
-`z88dk-source-func` (E23-15).
+E23-15 (#346) added GDB-MON-30..34 (`monitor src`), LEX-27/28 and PARSE-SRC-01..03, DSL-SRC-01..08,
+DSL-SYMSP-01..05, SCRIPT-HOST-SRC-01..11, and the functional rows `source-map-func` (a looked-up line
+over `monitor src`) and `z88dk-source-func` (scripts on a line or a symbol in three frontends, `monitor src`).
 
 **Oracles.**
 

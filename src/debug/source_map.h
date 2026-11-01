@@ -156,6 +156,17 @@ public:
         return a.file == b.file && a.line == b.line && a.column == b.column;
     }
 
+    /// GH #388 - one non-zero-width range of a line: `[lo, hi_excl)` of `space`.
+    struct FileRange {
+        int line = 0;
+        jnext::dbg::FetchSource space;
+        uint16_t lo = 0;
+        uint32_t hi_excl = 0;
+    };
+    /// Every non-zero-width range of `file` (the path exactly as the map names
+    /// it, i.e. `SourceLocation::file`), by line. Empty for a file not in the map.
+    std::vector<FileRange> file_ranges(const std::string& file) const;
+
     void clear();
     bool empty() const { return ranges_.empty(); }
     size_t size() const { return ranges_.size(); }   // ranges, zero-width included

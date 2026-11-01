@@ -5,14 +5,18 @@
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
+# shellcheck source=test/00regression/gdb-functions.inc
+source "$(dirname "${BASH_SOURCE[0]}")/../gdb-functions.inc"
 
 # source-map-func (CAP-SRC): a <stem>.sld (sjasmplus SLD v1) beside a loaded
 # program attaches as its source map, in every frontend; one whose binary
 # identity does not match the loaded program is rejected, and says so.
 # Each frontend also warns with the reason, from its own load path (C1). Every
 # run exits 0: a sidecar never turns a load into a failure. What the
-# map is FOR — the Source tab, statement steps — has no command-line or
-# protocol surface; debugger_source_panel_test and source_debug_test drive it.
+# map is FOR — the Source tab, statement steps — is driven by
+# debugger_source_panel_test and source_debug_test; the one protocol surface a run
+# can read it through is the GDB server's `monitor src` (GH #346): headless and SDL
+# are asked `monitor src $8000` (main.bas:1 in P04) and `monitor src $A000` (no line).
 # Discriminative: a binary without the feature attaches nothing and rejects
 # nothing.
 if want source-map-func; then
@@ -67,6 +71,64 @@ if want source-map-func; then
         o_bad_sdl=$(run_sdl "$bad_nex") || rc_sdl=$?
     fi
 
+    # GH #346: what the attached map answers over the GDB server, headless and SDL.
+    src_client="$TMP_DIR/source-map-gdb.py"
+    cat >"$src_client" <<'PY'
+import socket, sys
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=10)
+def send(body):
+    s.sendall(b"$" + body + b"#" + ("%02x" % (sum(body) & 0xFF)).encode())
+buf = b""
+def packet():
+    global buf
+    while True:
+        i = buf.find(b"$")
+        j = buf.find(b"#", i + 1) if i >= 0 else -1
+        if i >= 0 and j >= 0 and len(buf) >= j + 3:
+            body, buf = buf[i + 1:j], buf[j + 3:]
+            s.sendall(b"+")
+            return body
+        buf += s.recv(4096)
+for cmd in sys.argv[2:]:
+    send(b"qRcmd," + cmd.encode().hex().encode())
+    text = ""
+    while True:
+        p = packet()
+        if p.startswith(b"O") and p != b"OK":
+            text += bytes.fromhex(p[1:].decode()).decode()
+        else:
+            break
+    print(text.strip())
+PY
+    src_fails=
+    ask_src() {   # <label> <command...>
+        local label=$1 log="$TMP_DIR/source-map-gdb-$1.log" answer
+        shift
+        if gdb_launch_cmd "$log" "$@"; then
+            for _ in $(seq 1 100); do
+                grep -Eq "$want_line" "$log" && break
+                sleep 0.1
+            done
+            answer=$(LANG=C timeout --foreground --kill-after=5s 20s python3 "$src_client" "$GDB_PORT" \
+                'src $8000' 'src $A000' 2>&1) || true
+            [[ $(sed -n 1p <<<"$answer") == '$8000 main.bas:1 P04' ]] ||
+                src_fails+=" $label:\$8000=[$(sed -n 1p <<<"$answer")]"
+            grep -Eq '^\$A000 unmapped P[0-9A-F]{2}$' <<<"$(sed -n 2p <<<"$answer")" ||
+                src_fails+=" $label:\$A000=[$(sed -n 2p <<<"$answer")]"
+        else
+            src_fails+=" $label:no-gdb-server"
+        fi
+        gdb_stop
+    }
+    ask_src headless "$JNEXT" --headless --machine next "${SD_CARD_ARGS[@]}" --silent \
+        --load "$nex" --gdb-port 0
+    if [[ -x "$sdl_bin" ]]; then
+        ask_src sdl env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "$sdl_bin" \
+            --machine next "${SD_CARD_ARGS[@]}" --silent --load "$nex" --gdb-port 0
+    else
+        src_fails+=" sdl:binary-not-built"
+    fi
+
     hl=0; qt=0; sdl=0; rej=0; clean=0; warned=
     grep -Eq "$want_line" <<<"$o_hl" && hl=1
     grep -Eq "$want_line" <<<"$o_qt" && qt=1
@@ -85,10 +147,10 @@ if want source-map-func; then
        [[ $rc_qt -eq 0 && $rc_sdl -eq 0 ]]; then
         clean=1
     fi
-    if [[ $hl -eq 1 && $qt -eq 1 && $sdl -eq 1 && $rej -eq 1 && $warned == hqs && $clean -eq 1 ]]; then
-        pass_row " (SLD attached on load in headless, Qt and SDL; a wrong identity is rejected, and each frontend warns why; every run exits 0)"
+    if [[ $hl -eq 1 && $qt -eq 1 && $sdl -eq 1 && $rej -eq 1 && $warned == hqs && $clean -eq 1 && -z $src_fails ]]; then
+        pass_row " (SLD attached on load in headless, Qt and SDL; a wrong identity is rejected, and each frontend warns why; every run exits 0; monitor src reads the map in headless and SDL)"
     else
-        fail_row " (headless=$hl qt=$qt sdl=$sdl rejected=$rej warned=${warned:-none} clean=$clean qt-rc=$rc_qt sdl-rc=$rc_sdl; sdl: $(tail -1 <<<"$o_sdl"))"
+        fail_row " (headless=$hl qt=$qt sdl=$sdl rejected=$rej warned=${warned:-none} clean=$clean monitor-src=[${src_fails:-ok}] qt-rc=$rc_qt sdl-rc=$rc_sdl; sdl: $(tail -1 <<<"$o_sdl"))"
     fi
 fi
 

@@ -11,6 +11,7 @@
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
+#include "platform/coverage_startup.h"   // GH #388
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
@@ -318,6 +319,7 @@ bool QtApp::init(int argc, char* argv[]) {
     // the choice is visible.
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
     debugger_->set_stop_policy(jnext::dbg::StopPolicy::Pause);
+    apply_startup_coverage(*debugger_, cfg);   // GH #388 --coverage
     {
         jnext::dbg::LoopDriver driver;
         driver.cold_boot = [this]() {
@@ -366,6 +368,7 @@ bool QtApp::init(int argc, char* argv[]) {
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.program_pending = jnext::script::load_pending_for_scripts(config_.load_file);   // GH #346
         so.exits    = false;  // the GUI pauses; it never exits from a script (§6.3)
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
@@ -504,6 +507,7 @@ int QtApp::run() {
 }
 
 void QtApp::shutdown() {
+    if (debugger_) log_coverage_summary(*debugger_);   // GH #388
     // A screenshot that was asked for and never taken is a FAILURE, not a
     // footnote. The capture is deferred while no frame is rendering (debugger
     // paused), but --delayed-automatic-exit is a hard bound and must stay one,
@@ -717,6 +721,9 @@ bool QtApp::TickEffects::pre_frames() {
             }
         }
         a.config_.source_map_file.clear();
+        // GH #346 - the scripts held back for the program's maps (the GUI keeps
+        // running on a failure, as for a failed --source-map).
+        if (!a.script_host_.program_loaded()) a.exit_code_ = 1;
         // A File > Open load that failed gets its dialog (deferred to the
         // event loop by the window; this is inside the frame tick).
         if (a.main_window_) a.main_window_->load_finished(a.load_file_, loaded);

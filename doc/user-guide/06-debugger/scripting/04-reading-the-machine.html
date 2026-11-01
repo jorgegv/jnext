@@ -2222,6 +2222,8 @@
       
         
       
+        
+      
     
     
     
@@ -2650,6 +2652,34 @@
     
   
     Source-level debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/15-memory-coverage.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory coverage
   
 
     
@@ -3968,8 +3998,9 @@ A label or constant really named <code>counter</code> wins over it.</p>
 <p>A z88dk symbol of a <code>BANK_n</code> or <code>PAGE_n</code> section is its 16-bit address in the
 page window, even when the map writes it with the page in the top byte
 (<code>$14E000</code> is <code>$E000</code> as <code>@name</code>). <code>on execute @name</code> fires at that address
-whatever page is mapped, until scripts can name a page (add <code>page N</code> to narrow
-it). A 24-bit address in a section that names no page, and a constant that
+only while the memory the label belongs to is mapped there (an SLD label of
+page 20 does not fire when page 30 holds the same address); add <code>page N</code> to
+choose a page yourself, which then takes its own meaning. A 24-bit address in a section that names no page, and a constant that
 does not fit 16 bits, are not names.</p>
 <p>The name after <code>@</code> can be any identifier, keywords included (<code>@start</code>), or
 identifiers joined by dots, the way sjasmplus names a local or a module label:

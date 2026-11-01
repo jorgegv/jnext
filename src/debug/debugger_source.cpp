@@ -600,6 +600,27 @@ const SourceLocation* Debugger::source_location(uint16_t addr) const {
     return m->lookup(source_page(addr), addr);
 }
 
+std::vector<uint32_t> Debugger::executed_source_lines(const std::string& file) const {
+    std::vector<uint32_t> lines;
+    if (!impl_->mem_cov) return lines;
+    impl_->recheck();
+    const SourceMap* m = impl_->live_sources();
+    if (!m || m->empty()) return lines;
+    // A line is executed when ANY byte of any of its ranges holds an X mark:
+    // the range [lo, hi_excl) of space S is the offsets space_offset(S, lo..hi-1).
+    for (const SourceMap::FileRange& r : m->file_ranges(file)) {
+        if (!lines.empty() && lines.back() == static_cast<uint32_t>(r.line)) continue;
+        for (uint32_t a = r.lo; a < r.hi_excl; ++a) {
+            if (impl_->mem_cov->get(r.space, space_offset(r.space, static_cast<uint16_t>(a))) &
+                COVERAGE_EXEC) {
+                lines.push_back(static_cast<uint32_t>(r.line));
+                break;
+            }
+        }
+    }
+    return lines;
+}
+
 const SourceLocation* Debugger::source_location() const {
     return source_location(impl_->emu.cpu().get_registers().PC);
 }
