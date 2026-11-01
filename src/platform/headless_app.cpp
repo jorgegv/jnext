@@ -1,6 +1,7 @@
 #include "headless_app.h"
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
+#include "platform/coverage_startup.h"   // GH #388
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
 #include "platform/recording_info.h"   // GH #26 WP6
@@ -52,6 +53,7 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     //     listener belongs. B4 report, milestone 2 part 1, O5.
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
     debugger_->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+    apply_startup_coverage(*debugger_, config_);   // GH #388 --coverage
     jnext::dbg::LoopDriver driver;
     driver.cold_boot = [this]() {
         boot_machine(std::string());
@@ -68,6 +70,21 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
     // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
     if (!debug_servers_.start(*debugger_, config_)) return false;
+    // GH #351 - --source-map without --load (or with an RZX replay): the map of a z88dk dot command, attached
+    // now (before the scripts, so a `file:line` rule resolves) and pending until the
+    // guest runs the command. Any other map needs a program: refused.
+    if (!config_.source_map_file.empty() && config_.source_map_no_program != 0) {
+        const auto sm = emulator_attach_cli_source_map(
+            *debugger_, config_.source_map_file, /*deferred=*/false, /*dot_only=*/true,
+            /*rzx=*/config_.source_map_no_program == 2);
+        if (!sm.ok) {
+            Log::platform()->error("{}", sm.line);
+            return false;
+        }
+        Log::platform()->info("{}", sm.line);
+        source_map_watch_ = sm.pending;
+        config_.source_map_file.clear();
+    }
     // GH #26 WP4 — the scripts, after the servers and before the machine runs:
     // a script that does not load is a startup failure (exit 1, §6.5).
     {
@@ -76,6 +93,7 @@ bool HeadlessApp::init(int argc, char* argv[]) {
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.program_pending = jnext::script::load_pending_for_scripts(config_.load_file);   // GH #346
         so.exits    = true;
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
@@ -657,6 +675,8 @@ void HeadlessApp::run() {
                 }
             }
             config_.source_map_file.clear();
+            // GH #346 - the scripts held back for the program's maps.
+            if (!script_host_.program_loaded()) exit_code_ = 1;
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {
             --load_countdown_;
@@ -1048,6 +1068,7 @@ void HeadlessApp::run() {
 }
 
 void HeadlessApp::shutdown() {
+    if (debugger_) log_coverage_summary(*debugger_);   // GH #388
     // Same contract as the two GUI frontends: a screenshot that was asked for
     // and never taken is a failure. The countdown ticks whether or not the
     // machine is paused, so the only way to land in this first branch is a

@@ -1,0 +1,4 @@
+# z88dk 39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7 (master)
++ zcc +zxn -clib=new -debug -m --list -subtype=dotx -o prog -create-app dot.c dutil.c
+Creating DOTX command
+rc=0

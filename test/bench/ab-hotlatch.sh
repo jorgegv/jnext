@@ -50,6 +50,14 @@
 # workloads, writing test/bench/attach-<sha>.txt instead. The default set is
 # unchanged.
 #
+# AB_SET=coverage (GH #388, E23-25) answers the question the memory-coverage hook
+# raises - what does `--coverage` cost, and what does the hook cost with it OFF
+# (the read and write sites now test DebugState::mem_gate_live() where they tested
+# watchpoints_live())? - and runs B U V on all five workloads of design 4.7,
+# writing test/bench/coverage-<sha>.txt. B is the baseline binary, U this tree with
+# nothing armed (the OFF cost: U vs B is the acceptance, design 4.7), V this tree
+# started with `--coverage` (V vs U is reported, no gate).
+#
 # P exists because §6.3's armed rows conflated the latch cost with the
 # pre-existing `--persistent-breakpoints` per-instruction `should_break()`
 # lookup. A − P is what isolates the latch; A − B is what a user would feel.
@@ -103,8 +111,8 @@ CORE=$(for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do
 SHA=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)
 AB_SET="${AB_SET:-hotlatch}"
 case "$AB_SET" in
-    hotlatch|attach) ;;
-    *) die "AB_SET must be 'hotlatch' or 'attach', got '$AB_SET'" ;;
+    hotlatch|attach|coverage) ;;
+    *) die "AB_SET must be 'hotlatch', 'attach' or 'coverage', got '$AB_SET'" ;;
 esac
 OUT="$SCRIPT_DIR/$AB_SET-$SHA.txt"
 : > "$OUT"
@@ -112,6 +120,8 @@ emit() { printf '%s\n' "$*" | tee -a "$OUT"; }
 
 if [[ "$AB_SET" == attach ]]; then
     emit "# GH #278 Q WP2 — the cost of an attached client, interleaved A/B"
+elif [[ "$AB_SET" == coverage ]]; then
+    emit "# GH #388 (E23-25) - the cost of memory coverage, interleaved A/B"
 else
     emit "# GH #276 §11 item 3 — hot-latch interleaved A/B"
 fi
@@ -120,19 +130,24 @@ emit "# baseline=$BASE_BIN"
 emit "# new=$NEW_BIN"
 emit ""
 
-declare -A VBIN VENV
+declare -A VBIN VENV VARGS
 VBIN[B]="$BASE_BIN";  VENV[B]=""
 VBIN[U]="$NEW_BIN";   VENV[U]=""
 VBIN[P]="$NEW_BIN";   VENV[P]="JNEXT_BENCH_WATCH=p"
 VBIN[C]="$NEW_BIN";   VENV[C]="JNEXT_BENCH_WATCH=c"
 VBIN[A1]="$NEW_BIN";  VENV[A1]="JNEXT_BENCH_WATCH=0000-3fff"
 VBIN[A2]="$NEW_BIN";  VENV[A2]="JNEXT_BENCH_WATCH=0000-ffff"
+# V: this tree with memory coverage recording from the first instruction (GH #388).
+# The extra ARGUMENT is carried in VARGS (VENV is environment only).
+VBIN[V]="$NEW_BIN";   VENV[V]="";   VARGS[V]="--coverage"
+for v in B U P C A1 A2; do VARGS[$v]=""; done
 
 run_one() {   # $1 variant  $2 machine  $3 frames  $4 load-or-empty
     local v=$1 machine=$2 frames=$3 load=$4
     local args=(--headless --machine "$machine" --sdcard "$CLONE"
                 --benchmark "$frames" --benchmark-label "$v")
     [[ -n "$load" ]] && args+=(--load "$load")
+    [[ -n "${VARGS[$v]:-}" ]] && args+=(${VARGS[$v]})
     local out
     # --kill-after is mandatory (test/lint-timeouts.sh): plain SIGTERM is a
     # bound a program may ignore, and the 124 status would then lie.
@@ -189,7 +204,13 @@ workload() {   # $1 name  $2 machine  $3 frames  $4 load  $5.. variants
 }
 
 NEX="$PROJECT_DIR/test/00regression/nex"
-if [[ "$AB_SET" == attach ]]; then
+if [[ "$AB_SET" == coverage ]]; then
+    workload boot-48k      48k  600 ""                     B U V
+    workload boot-nextzxos next 400 ""                     B U V
+    workload copper-demo   next 400 "$NEX/copper_demo.nex" B U V
+    workload beast         next 400 "$NEX/beast.nex"       B U V
+    workload bifrost       48k  600 "$PROJECT_DIR/test/00regression/tap/bifrost.tap" B U V
+elif [[ "$AB_SET" == attach ]]; then
     workload boot-nextzxos next 400 ""                     B U P C
     workload copper-demo   next 400 "$NEX/copper_demo.nex" B U P C
     workload beast         next 400 "$NEX/beast.nex"       B U P C

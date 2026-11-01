@@ -416,6 +416,7 @@ int main(int argc, char* argv[]) {
     bool        mouse_release_set = false;     // was --mouse-release given?
     int         rewind_buffer_frames = 0;
     bool        trace_enabled = false;
+    bool        coverage_enabled = false;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
     bool        compositor_trace_frame_set = false;
@@ -1315,6 +1316,9 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Trace:
                 trace_enabled = true;
                 break;
+            case cli::OptId::Coverage:
+                coverage_enabled = true;
+                break;
             case cli::OptId::CompositorTrace:
                 compositor_trace_path = v[0];
                 break;
@@ -1561,8 +1565,6 @@ int main(int argc, char* argv[]) {
               "--delayed-pok-frames N FILE" },
             { pok_frames_count > 0,         "--delayed-pok-frames",        pok_trainers_count > 0,
               "--pok-trainers LIST" },
-            { !source_map_file.empty(),     "--source-map",                !load_file.empty(),
-              "--load FILE" },
         };
         for (const Needs& n : needs) {
             if (n.given && !n.base) {
@@ -2163,6 +2165,18 @@ int main(int argc, char* argv[]) {
         cfg.script_keys  = script_keys;
         cfg.map_file     = map_file;
         cfg.source_map_file = source_map_file;
+        // GH #351: with no program to load (no --load, or an RZX replay: --rzx-play R or
+        // --load R.rzx) only a z88dk dot command's map is accepted; the frontend attaches it
+        // at start-up, pending, and refuses any other map.
+        {
+            std::string ext;
+            if (const auto dot = load_file.rfind('.'); dot != std::string::npos) {
+                ext = load_file.substr(dot);
+                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            const bool rzx = !rzx_play_file.empty() || ext == ".rzx";
+            cfg.source_map_no_program = source_map_file.empty() ? 0 : rzx ? 2 : load_file.empty() ? 1 : 0;
+        }
         cfg.record_script_file = record_script_file;   // GH #26 WP6
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;
@@ -2178,6 +2192,7 @@ int main(int argc, char* argv[]) {
         cfg.magic_port_mode = magic_port_mode;
         cfg.rewind_buffer_frames = rewind_buffer_frames;
         cfg.trace = trace_enabled;
+        cfg.coverage = coverage_enabled;
         cfg.compositor_trace_path  = compositor_trace_path;
         cfg.compositor_trace_frame = compositor_trace_frame;
         cfg.profile                = profile_enabled;

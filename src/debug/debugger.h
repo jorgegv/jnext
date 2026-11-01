@@ -728,6 +728,47 @@ public:
     /// const reference: it is 8 KB.
     const CoverageBits& coverage() const;
 
+    // -----------------------------------------------------------------------
+    // INS-21 (GH #388, E23-25) -- memory coverage by execute, read and write,
+    // per physical memory (the FetchSource the read arbiter names)
+    //
+    // Recorded in `Mmu` from the one arbiter (`route_bits_`, given the access
+    // direction), so what is recorded is what answered: X = the first opcode byte
+    // of an executed instruction (the M1), R = every other memory read (operands,
+    // data, DMA), W = every write that LANDED (CPU or DMA). Only guest accesses
+    // count (what a watchpoint can see): a debugger peek/poke, a trace capture,
+    // video and a loader never do. A SET, not counts: it survives a rewind (a
+    // replay re-sets the same bits), a reset, a state load and a cold boot.
+    // Only `mem_coverage_clear()` and switching off empty it. Zero cost when off.
+    // INS-20's logical-PC set above is a separate switch, unchanged.
+    // -----------------------------------------------------------------------
+
+    /// Off clears; `on` over `on` does not.
+    Result mem_coverage_enable(bool enabled);
+    bool   mem_coverage_enabled() const;
+    /// Empty every space; recording goes on.
+    Result mem_coverage_clear();
+
+    /// The flags (`COVERAGE_EXEC | COVERAGE_READ | COVERAGE_WRITE`, mem_coverage.h)
+    /// of [addr, addr+n) in `space`, addressed like `peek()`: `Cpu` resolves each
+    /// byte through the live DATA route (what `peek(Cpu)` shows); any other space
+    /// takes offsets within its store (identity-only kinds are NOT refused here,
+    /// unlike peek). `InvalidPage` for an index outside the space (above 0xFF, a
+    /// `Page` >= 0xE0, a `Rom` image > 3); an offset past the store's end is a short
+    /// (or empty) read, `RefusedUnavailable` with the count done, as in peek.
+    Expected<size_t> mem_coverage(MemSpace space, uint32_t addr, size_t n, uint8_t* out) const;
+
+    /// The flags of the byte an M1 at `addr` would fetch NOW (`source_page(addr)`
+    /// + `space_offset`): the Disassembly's view. 0 while off.
+    uint8_t mem_coverage_fetch(uint16_t addr) const;
+
+    /// Every space with at least one mark, sorted by (kind, index).
+    std::vector<MemSpace> mem_coverage_spaces() const;
+
+    /// 1-based lines of `file` (as the live source map names it) any of whose
+    /// ranges holds an X byte. Empty while off or without a map.
+    std::vector<uint32_t> executed_source_lines(const std::string& file) const;
+
     // =======================================================================
     // §4.3 — CAP-EVT, events, breakpoints, conditions
     // =======================================================================
@@ -999,6 +1040,8 @@ public:
         /// Attached, its identity not yet judged: it was loaded with
         /// `verify_at_first_execution` and carries one (see `load_source_map`).
         bool pending = false;
+        /// `dot_only` was given and the map is not a z88dk dot command's (`error` says so).
+        bool not_dot = false;
     };
 
     /// CAP-SRC - load a source map, an sjasmplus SLD file or a z88dk `-debug` map
@@ -1018,8 +1061,18 @@ public:
     /// stays armed for the spaces not run yet. A space that does not match drops the
     /// map (`source_map_status()` is then `None`, with the reason, and the error is
     /// logged). A map with no identity attaches unverified, not pending.
+    ///
+    /// GH #351 - a z88dk dot command's map (`SourceMap::dot()`) is deferred whatever
+    /// `verify_at_first_execution` says (NextZXOS loads the command into DivMMC RAM when it
+    /// is typed), so it attaches pending, unless the CPU is already running the command from
+    /// bank 2 with its bytes in place: a load made there judges like a landing there and is
+    /// verified (`pending` false, `identity_note` says so). It is judged where the command starts ($2000 fetched from
+    /// DivMMC RAM bank 2); an entry that does not match is another dot command and
+    /// keeps it pending, and a landing (reset, state load, rewind) never drops or
+    /// stales it. `dot_only` refuses a map that is not a dot command's (`--source-map`
+    /// without `--load`: there is no program to judge any other map against).
     SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch,
-                                  bool verify_at_first_execution = false);
+                                  bool verify_at_first_execution = false, bool dot_only = false);
 
     /// CAP-SRC — forget the source map.
     Result clear_source_map();
@@ -1043,6 +1096,9 @@ public:
         /// Attached, its identity is judged the first time the CPU runs the code it
         /// describes, space by space (a tape program's map). `state` stays `Attached`.
         bool pending = false;
+        /// The attached map is a z88dk dot command's: `pending` then waits for the
+        /// command to run, not for a program to load.
+        bool dot = false;
     };
     SourceMapStatus source_map_status() const;
 

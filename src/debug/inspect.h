@@ -58,6 +58,7 @@
 #include "debug/call_stack.h"    // CallFrame, CallType  (INS-12)
 #include "debug/disasm.h"        // DisasmLine, DisasmReadFn  (INS-11)
 #include "debug/events.h"        // ClientId, EventId, Access  (CTL-13's PauseReason)
+#include "debug/mem_coverage.h"  // COVERAGE_EXEC/READ/WRITE  (INS-21; GH #388)
 #include "debug/mem_space.h"     // MemSpace  (INS-02; GH #339)
 #include "debug/raster_state.h"  // RasterState  (INS-06)
 #include "debug/result.h"

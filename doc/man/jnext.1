@@ -927,6 +927,19 @@ Opt\-in; default 0 = off.
 Enable the per\-instruction trace log (a 10K\-entry ring).
 Also enabled implicitly by \f[B]\-\-rewind\-buffer\-size\f[R]
 \f[I]N\f[R] with \f[I]N\f[R] > 0, and toggleable in the debugger.
+.TP
+\f[B]\-\-coverage\f[R]
+Record memory coverage from the start: for every byte of every memory
+(each RAM page, ROM image, DivMMC and Multiface window, Layer 2 mapping,
+\&...)
+whether the program executed it (first opcode byte of an instruction),
+read it or wrote it.
+Toggleable in the debugger (Debug > Coverage), where the Disassembly,
+Memory and Source views show it.
+With the SDL frontend or \f[B]\-\-headless\f[R] it records but there is
+no viewer; it logs one summary line at exit.
+Costs a little speed while on (3\-8% in release builds); no measurable
+cost while off.
 .SS Headless and automation
 .TP
 \f[B]\-\-headless\f[R]
@@ -1244,6 +1257,16 @@ Repeatable: the scripts load, and their rules run, in the order given.
 A script that cannot be read, or that has any error, is reported as
 \f[I]file\f[R]:\f[I]line\f[R]:\f[I]column\f[R]: \f[I]message\f[R] and
 jnext exits 1 before the machine runs \- nothing of it runs partially.
+With \f[B]\-\-load\f[R], a script that names a source line
+(\f[CR]on execute main.c:19\f[R]), an \f[CR]\(atsymbol\f[R] that
+\f[B]\-\-map\f[R] does not know, or a z88dk \f[B]\-\-map\f[R] symbol of
+a section that names no page waits, with the scripts after it, until the
+program is in (it is still read and parsed at once); an error then also
+exits 1.
+Its rules start at the load: an \f[CR]on frame\f[R] \f[I]N\f[R] or a
+\f[B]\-\-script\-key\f[R] due before it never fires (a \f[CR].tzx\f[R]
+or \f[CR].wav\f[R] loads about 100 frames in), so give such rules in an
+earlier script that names neither.
 In \f[B]\-\-headless\f[R] and the SDL\-only build a script decides the
 exit status: \f[CR]exit\f[R] \f[I]N\f[R] exits \f[I]N\f[R], a
 \f[CR]stop\f[R] or a failed \f[CR]assert\f[R] exits 3, a run\-time error
@@ -1289,7 +1312,17 @@ Attach a source map, an sjasmplus SLD or a z88dk \f[CR]\-debug\f[R]
 > Load Source Map\&...\f[R].
 A z88dk map gives source lines only (and reads the \f[CR]\-\-list\f[R]
 listings beside it); its symbols stay with \f[B]\-\-map\f[R].
-Requires \f[B]\-\-load\f[R].
+Requires \f[B]\-\-load\f[R], unless \f[I]FILE\f[R] is the map of a z88dk
+dot command (\f[CR]\-subtype=dot\f[R], \f[CR]dotx\f[R]; built with
+\f[CR]\-debug\f[R]): that map is attached at once, before any script
+loads, and stays pending until the guest runs the command, when it is
+checked (the command is loaded into DivMMC RAM by NextZXOS, which jnext
+does not know until it runs; see the User Guide).
+Any other map without \f[B]\-\-load\f[R] is refused (exit status 1).
+An RZX replay (\f[B]\-\-rzx\-play\f[R] \f[I]R\f[R], or
+\f[B]\-\-load\f[R] \f[I]R\f[R]\f[CR].rzx\f[R]) is the same case: a dot
+command\(cqs map attaches pending, any other map is refused at start\-up
+naming RZX (exit status 1).
 A map whose binary identity does not match the program, or that cannot
 be loaded, is a startup error (exit status 1).
 With a tape program (\f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R])
@@ -3172,7 +3205,8 @@ Read and write them with \f[CR]monitor regs\f[R] and
 \f[CR]monitor\f[R]) reach the Next\-specific state: \f[CR]mmu\f[R],
 \f[CR]nextreg\f[R], \f[CR]page\f[R] (a physical 8 KB page),
 \f[CR]in\f[R]/\f[CR]out\f[R] (a real port access, which can change the
-device\(cqs state), \f[CR]sym\f[R], \f[CR]time\f[R],
+device\(cqs state), \f[CR]sym\f[R], \f[CR]src\f[R] (the source line and
+memory of an address), \f[CR]time\f[R],
 \f[CR]reset soft\f[R]/\f[CR]reset hard\f[R] and \f[CR]bp\f[R].
 \f[CR]monitor help\f[R] lists them.
 .IP \(bu 2
@@ -3216,6 +3250,14 @@ machine only through \f[CR]set\f[R] and \f[CR]out\f[R], and each such
 write is logged as a \f[CR]MUTATE\f[R] line.
 Script output goes to the log as \f[CR][jds F:\f[R]\f[I]frame\f[R]
 \f[CR]C:\f[R]\f[I]cycle\f[R]\f[CR]]\f[R] lines.
+.PP
+\f[B]Source lines.\f[R] With a source map loaded,
+\f[CR]on execute main.c:19\f[R] (or
+\f[CR]on execute \(dqdir with space/main.c:19\(dq\f[R]) breaks on every
+place the line\(cqs code starts, each in the memory it was built for; it
+takes no range and no \f[CR]page\f[R].
+\f[CR]on execute \(atname\f[R] with a banked label (an SLD label of a
+page) fires only in that label\(cqs own page.
 .PP
 \f[B]Host keys.\f[R] In the emulator window (Qt or SDL) and in the
 debugger window, Alt + 1 to Alt + 8 are the script host keys: Alt +

@@ -1,5 +1,6 @@
 #include "debugger/memory_panel.h"
 #include "qt/palette_tint_qt.h"   // GH #363
+#include "debugger/coverage_colors.h"   // GH #388
 #include "debug/debugger.h"
 #include "debug/symbol_table.h"
 
@@ -85,6 +86,12 @@ void MemoryPanel::create_ui() {
         update();
     });
 
+    // GH #388 - the memory-coverage legend, shown only while coverage is on.
+    coverage_legend_ = new QLabel(this);
+    coverage_legend_->setTextFormat(Qt::RichText);
+    coverage_legend_->setVisible(false);
+    top_bar->addWidget(coverage_legend_);
+
     top_bar->addStretch();
     outer->addLayout(top_bar);
 
@@ -121,7 +128,24 @@ void MemoryPanel::create_ui() {
 
 void MemoryPanel::refresh() {
     update_page_selector();
+    update_coverage_legend();
     update();
+}
+
+// GH #388 - "Coverage: X R W" in the three colours while coverage is on. Rebuilt
+// on every refresh, so a light/dark switch recolours it.
+void MemoryPanel::update_coverage_legend() {
+    if (!coverage_legend_) return;
+    const bool on = dbg_ && dbg_->mem_coverage_enabled();
+    coverage_legend_->setVisible(on);
+    if (!on) return;
+    const QPalette pal = palette();
+    auto span = [&](const QColor& c, const char* t) {
+        return QString("<b style=\"color:%1\">%2</b>").arg(palette_tint::css(c), t);
+    };
+    coverage_legend_->setText(tr("Coverage:") + " " + span(coverage_colors::exec(pal), "X") + " " +
+                              span(coverage_colors::read(pal), "R") + " " +
+                              span(coverage_colors::write(pal), "W"));
 }
 
 QSize MemoryPanel::sizeHint() const {
@@ -332,6 +356,7 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
 
     bool cpu_view = (page_selector_ ? page_selector_->currentIndex() : 0) == 0;
     uint16_t sp = dbg_->registers().SP;
+    const bool cov_on = dbg_->mem_coverage_enabled();   // GH #388
 
     for (int vrow = 0; vrow < vis; ++vrow) {
         int abs_row = scroll_offset_ + vrow;
@@ -376,6 +401,14 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
         char ascii_buf[BYTES_PER_ROW + 1];
         uint8_t row_bytes[BYTES_PER_ROW] = {};
         read_bytes(static_cast<uint16_t>(base_addr), row_bytes, BYTES_PER_ROW);
+        // GH #388 - the row's coverage flags, through the SAME locate() as the
+        // bytes (the CPU view is the live data route, a Slot view the slot's
+        // space, a Page view Page{n}).
+        uint8_t row_cov[BYTES_PER_ROW] = {};
+        if (cov_on) {
+            const Where cw = locate(static_cast<uint16_t>(base_addr));
+            dbg_->mem_coverage(cw.space, cw.addr, BYTES_PER_ROW, row_cov);
+        }
 
         for (int col = 0; col < BYTES_PER_ROW; ++col) {
             uint16_t addr = static_cast<uint16_t>(base_addr + col);
@@ -403,6 +436,24 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
 
             QString hex_str = QString("%1").arg(byte, 2, 16, QChar('0')).toUpper();
             p.drawText(x_pos, y + fm.ascent(), hex_str);
+
+            // GH #388 - a three-segment underline under the byte, X | R | W in
+            // thirds of the cell: every combination is shown with no precedence.
+            if (row_cov[col]) {
+                const int cell = char_w_ * 2;
+                const int seg = cell / 3;
+                // On the selected cell (a fixed blue fill) the blue R, and in the dark
+                // palette every mark, would sit on a like colour: lift the marks one pixel
+                // and give them a white backing, one pixel wider all round.
+                const int uy = y + rh - (selected ? 3 : 2);
+                if (selected) p.fillRect(x_pos - 1, uy - 1, cell + 2, 4, Qt::white);
+                if (row_cov[col] & jnext::dbg::COVERAGE_EXEC)
+                    p.fillRect(x_pos, uy, seg, 2, coverage_colors::exec(palette()));
+                if (row_cov[col] & jnext::dbg::COVERAGE_READ)
+                    p.fillRect(x_pos + seg, uy, seg, 2, coverage_colors::read(palette()));
+                if (row_cov[col] & jnext::dbg::COVERAGE_WRITE)
+                    p.fillRect(x_pos + 2 * seg, uy, cell - 2 * seg, 2, coverage_colors::write(palette()));
+            }
 
             // ASCII representation
             ascii_buf[col] = (byte >= 0x20 && byte <= 0x7E)

@@ -13,6 +13,7 @@
 #include "debug/sld_loader.h"
 #include "debug/source_file.h"
 #include "debug/z88dk_source_map.h"
+#include "debug/z88dk_space.h"
 
 #include "core/log.h"
 #include "debug/ram_page.h"
@@ -99,15 +100,23 @@ void add_problem(Debugger::SidecarLoad& out, const std::string& problem) {
 // What an attach line says of a map whose identity waits for the program (a tape).
 constexpr const char* kPendingNote = " (identity check pending: the program loads from tape)";
 
+// ... and one that waits for a dot command (GH #351).
+constexpr const char* kDotPendingNote =
+    " (identity check pending: the dot command loads when it runs)";
+
 // The reason a tape program's map is dropped when a space does not match.
 constexpr const char* kTapeMismatch =
     "the program loaded from tape does not match its binary identity";
+
+// The address a dot command starts at (`__CODE_head`, design 9.4 rule 5).
+constexpr uint16_t kDotEntry = 0x2000;
 
 // A memory space, for a progress line.
 std::string space_name(FetchSource s) {
     switch (s.kind) {
         case MemSpace::Kind::Page: return "page " + std::to_string(s.index);
         case MemSpace::Kind::Rom:  return "ROM " + std::to_string(s.index);
+        case MemSpace::Kind::DivMmcRam: return "DivMMC RAM bank " + std::to_string(s.index);
         default:                   return "main memory";
     }
 }
@@ -135,7 +144,8 @@ std::optional<bool> Debugger::Impl::verify_identity_unit(const SourceMap& map,
         unit,
         [this](uint16_t addr) { return emu.mmu().peek(addr); },
         [this](FetchSource space, uint16_t addr) -> std::optional<uint8_t> {
-            if (space.kind != MemSpace::Kind::Page) return std::nullopt;
+            if (space.kind != MemSpace::Kind::Page && space.kind != MemSpace::Kind::DivMmcRam)
+                return std::nullopt;
             uint8_t b = 0;
             if (!self->peek(space, addr & 0x1FFF, 1, &b)) return std::nullopt;
             return b;
@@ -153,11 +163,104 @@ void Debugger::Impl::add_check(const SourceMap& map, bool user, bool sources, bo
         if (std::find(c.units.begin(), c.units.end(), sp.unit) == c.units.end())
             c.units.push_back(sp.unit);
     if (c.units.empty()) return;   // no identity, or nothing it covers: unverified, not pending
+    // A dot command is judged at its entry; a map with no byte check of the DivMMC part
+    // has no entry to judge and takes the tape rule.
+    c.dot = map.dot() && std::find(c.units.begin(), c.units.end(), dot_entry_unit()) != c.units.end();
     c.map            = std::make_shared<const SourceMap>(map);
     c.user           = user;
     c.guards_sources = sources;
     c.guards_symbols = symbols;
+    if (c.dot) dot_reset(c);
     checks.push_back(std::move(c));
+}
+
+FetchSource Debugger::Impl::dot_entry_unit() {
+    return MemSpace::divmmc_ram(kNextZxosDotBank);
+}
+
+void Debugger::Impl::dot_reset(DeferredCheck& c) {
+    const FetchSource entry = dot_entry_unit();
+    const std::vector<SourceMap::VerifySpan> all = c.map->verify_spans();
+    c.units.clear();
+    for (const auto& sp : all)
+        if (std::find(c.units.begin(), c.units.end(), sp.unit) == c.units.end())
+            c.units.push_back(sp.unit);
+    c.spans.clear();
+    c.held.clear();
+    for (const auto& sp : all)
+        if (!(sp.unit == entry)) c.held.push_back(sp);
+    c.judged.clear();
+    c.entry_ok = false;
+    c.noted    = false;
+    c.dot_event = DeferredCheck::DotEvent::None;
+}
+
+void Debugger::Impl::dot_match(DeferredCheck& c) {
+    const FetchSource entry = dot_entry_unit();
+    c.units.erase(std::remove(c.units.begin(), c.units.end(), entry), c.units.end());
+    c.spans = c.held;
+    c.held.clear();
+    c.entry_ok = true;
+    c.noted    = false;
+}
+
+// The check's state at the clock now, kept so a ring landing can read back what the
+// original run showed (design 6.5(3)). Per generation; a re-run of the same cycles
+// replaces what the first run recorded from there on; at most kDotHistoryMax kept
+// (the oldest go: a landing older than the oldest reads pending).
+void Debugger::Impl::dot_record(DeferredCheck& c) {
+    const uint64_t cycle = emu.clock().get();
+    const uint64_t gen   = ds().load_generation();
+    c.history.erase(std::remove_if(c.history.begin(), c.history.end(),
+                                   [&](const DeferredCheck::DotSnap& h) {
+                                       return h.gen == gen && h.cycle >= cycle;
+                                   }),
+                    c.history.end());
+    c.history.push_back({gen, cycle, c.entry_ok, c.units, c.spans, c.held});
+    if (c.history.size() > kDotHistoryMax)
+        c.history.erase(c.history.begin(),
+                        c.history.begin() + static_cast<std::ptrdiff_t>(c.history.size() - kDotHistoryMax));
+}
+
+// A landing. A fresh one (reset, state load, program load, cold boot) puts the CPU
+// elsewhere: the state goes to pending until the next entry, and the records of the
+// earlier generations are kept (a rewind back across the reset reads them). A ring landing
+// restores what the original run showed at the landed cycle: the last verdict strictly
+// before it in this generation (a verdict at cycle C applies to the instruction about to
+// run at C, which a landing at C has not run), else pending.
+void Debugger::Impl::dot_landing(bool fresh) {
+    const uint64_t gen   = ds().load_generation();
+    const uint64_t cycle = emu.clock().get();
+    for (auto& c : checks) {
+        if (!c.dot || !c.user) continue;
+        std::vector<DeferredCheck::DotSnap> keep;
+        keep.swap(c.history);
+        dot_reset(c);
+        c.history.swap(keep);
+        if (fresh) continue;
+        const DeferredCheck::DotSnap* last = nullptr;
+        for (const auto& h : c.history)
+            if (h.gen == gen && h.cycle < cycle && (!last || h.cycle >= last->cycle)) last = &h;
+        if (!last) continue;
+        c.entry_ok = last->entry_ok;
+        c.units    = last->units;
+        c.spans    = last->spans;
+        c.held     = last->held;
+    }
+}
+
+// A hand load of a dot map judges like a landing at this point: verified when the CPU is
+// fetching from the dot's bank and the bank holds this command.
+void Debugger::Impl::dot_adopt() {
+    for (auto& c : checks) {
+        if (!c.dot || !c.user) continue;
+        const uint16_t pc = emu.cpu().get_registers().PC;
+        if (emu.predict_fetch(pc) == dot_entry_unit()) {
+            const std::optional<bool> id = verify_identity_unit(*c.map, dot_entry_unit());
+            if (id && *id) dot_match(c);
+        }
+        dot_record(c);
+    }
 }
 
 void Debugger::Impl::drop_source_guards() {
@@ -191,6 +294,10 @@ void Debugger::Impl::sync_verify_window() {
     uint32_t lo = 0x10000, hi = 0;
     for (const auto& c : checks) {
         if (!c.guards_sources && !c.guards_symbols) continue;
+        if (c.dot) {   // the entry is always watched (kDotEntry)
+            lo = std::min<uint32_t>(lo, kDotEntry);
+            hi = std::max<uint32_t>(hi, kDotEntry + 1u);
+        }
         for (const auto& sp : c.spans) {
             lo = std::min<uint32_t>(lo, sp.lo);
             hi = std::max<uint32_t>(hi, sp.hi_excl);
@@ -208,6 +315,28 @@ void Debugger::Impl::verify_hook(uint16_t pc) {
     const MemSpace here = emu.predict_fetch(pc);
     bool any = false;
     for (auto& c : checks) {
+        const bool   was_ok    = c.entry_ok;
+        const size_t was_units = c.units.size();
+        // GH #351 - a dot command is judged where it starts (design 6.2).
+        if (c.dot && pc == kDotEntry && here == dot_entry_unit()) {
+            const std::optional<bool> id = verify_identity_unit(*c.map, dot_entry_unit());
+            if (id && *id) {
+                if (!c.entry_ok) {
+                    dot_match(c);
+                    c.judged.push_back(dot_entry_unit());
+                    c.dot_event = DeferredCheck::DotEvent::Verified;
+                    any = true;
+                }
+            } else {
+                // Another dot command: this one is not running, and nothing is dropped.
+                if (c.entry_ok) dot_reset(c);
+                c.dot_event = DeferredCheck::DotEvent::NotTheOne;
+                any = true;
+            }
+            // Every judgement in the bank is recorded, so a re-run replaces what the first run
+            // recorded from this cycle on.
+            dot_record(c);
+        }
         std::vector<FetchSource> hit;
         for (const auto& sp : c.spans)
             if (sp.space == here && pc >= sp.lo && pc < sp.hi_excl &&
@@ -230,6 +359,7 @@ void Debugger::Impl::verify_hook(uint16_t pc) {
             c.judged.push_back(unit);
         }
         any = any || !hit.empty();
+        if (c.dot && !c.mismatch && (c.entry_ok != was_ok || c.units.size() != was_units)) dot_record(c);
     }
     if (any) {
         verify_due = true;
@@ -279,7 +409,25 @@ void Debugger::Impl::apply_deferred() {
             }
             continue;
         }
-        if (c.units.empty()) {
+        if (c.dot) {
+            // GH #351: never finished; the verdicts are told once.
+            if (c.dot_event == DeferredCheck::DotEvent::NotTheOne && !c.noted) {
+                c.noted = true;
+                pending_log.push_back("The dot command started in " +
+                                      space_name(dot_entry_unit()) + " is not the one source map '" +
+                                      file + "' describes; it stays pending");
+            }
+            c.dot_event = DeferredCheck::DotEvent::None;
+            if (c.units.empty()) {
+                if (!c.judged.empty())
+                    pending_log.push_back("Verified " + format + " source map '" + file +
+                                          "': the dot command in " + space_name(dot_entry_unit()) +
+                                          " matches its binary identity");
+                c.judged.clear();
+                checks.push_back(std::move(c));
+                continue;
+            }
+        } else if (c.units.empty()) {
             pending_log.push_back("Verified " + format + " source map '" + file +
                                   "': the program loaded from tape matches its binary identity");
             continue;
@@ -300,7 +448,8 @@ void Debugger::Impl::apply_deferred() {
 
 Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
                                                   bool accept_identity_mismatch,
-                                                  bool verify_at_first_execution) {
+                                                  bool verify_at_first_execution,
+                                                  bool dot_only) {
     impl_->recheck();   // a writer first: a pending landing must not undo it later
     SourceMapLoad out;
     SourceMap candidate;
@@ -333,9 +482,17 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
         out.error = parsed.error;
         return out;
     }
+    if (dot_only && !candidate.dot()) {
+        out.not_dot = true;
+        out.error = "it is not the map of a z88dk dot command";
+        return out;
+    }
     // A tape's program is not in memory yet: a map with an identity attaches pending and
-    // is judged where the CPU first runs its code (design 6.2).
-    const bool defer = verify_at_first_execution && !candidate.verify_spans().empty();
+    // is judged where the CPU first runs its code (design 6.2). A dot command's is
+    // always so (GH #351): the guest loads it into DivMMC RAM when the command is typed,
+    // and it is judged at its entry.
+    const bool defer = (verify_at_first_execution || candidate.dot()) &&
+                       !candidate.verify_spans().empty();
     if (!defer) {
         out.identity = impl_->verify_identity(candidate);
         if (out.identity && !*out.identity && !accept_identity_mismatch) {
@@ -343,7 +500,8 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
             return out;
         }
     }
-    out.identity_note = defer ? kPendingNote : identity_note(candidate, parsed, out.identity);
+    out.identity_note = defer ? (candidate.dot() ? kDotPendingNote : kPendingNote)
+                              : identity_note(candidate, parsed, out.identity);
     impl_->drop_source_guards();
     impl_->source_map         = std::move(candidate);
     impl_->sources_owner      = Impl::StoreOwner::User;
@@ -353,9 +511,13 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     impl_->source_reason.clear();
     if (defer) {
         impl_->add_check(impl_->source_map, /*user=*/true, /*sources=*/true, /*symbols=*/false);
+        if (impl_->source_map.dot()) impl_->dot_adopt();
         impl_->sync_verify_window();
     }
     out.pending = impl_->sources_pending();
+    // A dot map loaded while the CPU is already running the command was judged (dot_adopt()).
+    if (defer && impl_->source_map.dot() && !out.pending)
+        out.identity_note = identity_note(impl_->source_map, parsed, true);
     out.count  = parsed.count;
     out.listings = parsed.listings;
     // A z88dk map fills the source half only (D10): it leaves the symbols alone, an
@@ -419,6 +581,7 @@ Debugger::SourceMapStatus Debugger::source_map_status() const {
         st.reason = impl_->source_reason;
     }
     st.pending = impl_->sources_pending();
+    st.dot     = st.state == SourceMapStatus::State::Attached && impl_->source_map.dot();
     return st;
 }
 
@@ -435,6 +598,27 @@ const SourceLocation* Debugger::source_location(uint16_t addr) const {
     const SourceMap* m = impl_->live_sources();
     if (!m || m->empty()) return nullptr;
     return m->lookup(source_page(addr), addr);
+}
+
+std::vector<uint32_t> Debugger::executed_source_lines(const std::string& file) const {
+    std::vector<uint32_t> lines;
+    if (!impl_->mem_cov) return lines;
+    impl_->recheck();
+    const SourceMap* m = impl_->live_sources();
+    if (!m || m->empty()) return lines;
+    // A line is executed when ANY byte of any of its ranges holds an X mark:
+    // the range [lo, hi_excl) of space S is the offsets space_offset(S, lo..hi-1).
+    for (const SourceMap::FileRange& r : m->file_ranges(file)) {
+        if (!lines.empty() && lines.back() == static_cast<uint32_t>(r.line)) continue;
+        for (uint32_t a = r.lo; a < r.hi_excl; ++a) {
+            if (impl_->mem_cov->get(r.space, space_offset(r.space, static_cast<uint16_t>(a))) &
+                COVERAGE_EXEC) {
+                lines.push_back(static_cast<uint32_t>(r.line));
+                break;
+            }
+        }
+    }
+    return lines;
 }
 
 const SourceLocation* Debugger::source_location() const {
@@ -765,6 +949,15 @@ void Debugger::Impl::recheck() {
     const uint64_t g = ds().load_generation();
     auto identity = [this]() { return verify_identity(source_map); };
     auto verify_user = [&](bool carried_by_landing) {
+        if (source_map.dot()) {
+            // GH #351: a dot command's map is never judged whole from memory, nor made
+            // stale by a landing - the guest loads the command when it is typed. Its
+            // checks are re-derived by dot_landing() below.
+            user_sources_gen   = g;
+            user_sources_stale = false;
+            source_reason.clear();
+            return;
+        }
         const std::optional<bool> id = identity();
         // Judged whole now: whatever was still to be checked is settled by this.
         checks.erase(std::remove_if(checks.begin(), checks.end(),
@@ -792,6 +985,7 @@ void Debugger::Impl::recheck() {
     if (landing_pending || ring_pending) {
         const bool fresh = landing_pending && g == generation_counter;
         landing_pending = ring_pending = false;
+        if (sources_owner == StoreOwner::User && source_map.dot()) dot_landing(fresh);
         if (fresh) {
             // Tier 2: a program, snapshot, RZX or reset put this machine here.
             if (symbols_owner == StoreOwner::Sidecar || sources_owner == StoreOwner::Sidecar) {

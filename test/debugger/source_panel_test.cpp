@@ -91,6 +91,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -100,6 +101,7 @@
 #include "../row_id.h"
 #include "qt/palette_tint_qt.h"
 #include "dark_test_palette.h"
+#include "debugger/coverage_colors.h"   // GH #388
 
 namespace {
 
@@ -152,9 +154,9 @@ struct Fixture {
     unsigned p80 = 0, p90 = 0;
     std::string sld;
 
-    explicit Fixture(int rewind_frames = 0) {
+    explicit Fixture(int rewind_frames = 0, MachineType type = MachineType::ZX48K) {
         EmulatorConfig cfg;
-        cfg.type = MachineType::ZX48K;
+        cfg.type = type;
         cfg.rewind_buffer_frames = rewind_frames;
         emu.init(cfg);
         const uint8_t prog[] = {0x00, 0x00, 0xCD, 0x00, 0x90, 0x00, 0xC3, 0x00, 0x80};
@@ -426,6 +428,70 @@ void test_source_tab_rewind() {
     QApplication::processEvents();
     check("QSRC-11", "Step Back returns to the previous statement, shown",
           fx.pc() == 0x8002 && sp->highlighted_line() == 11, s(sp->location_text()));
+}
+
+// QCOV-06 -- GH #388 (E23-25): memory coverage in the Source tab. With coverage on,
+// every line the program executed (an X byte in one of its ranges) has a pale
+// full-width tint and the current-line selection comes last so it wins on its own
+// line; off, nothing but the current line. X only (R and W have no per-line meaning).
+void test_source_coverage() {
+    Fixture fx;
+    fx.enable();
+    fx.load_map();
+    SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
+    auto* ed = sp ? sp->findChild<QPlainTextEdit*>() : nullptr;
+    QPushButton* into = sp ? button(sp, QStringLiteral("Into")) : nullptr;
+    if (!sp || !ed || !into) { check("QCOV-06", "Source panel", false); return; }
+    auto tinted_lines = [&](bool& current_last, bool& current_not_tint) {
+        std::vector<int> lines;
+        const auto sel = ed->extraSelections();
+        const QColor tint = coverage_colors::exec_line(ed->palette());
+        current_last = !sel.isEmpty() && sel.back().format.background().color() == ed->palette().highlight().color();
+        current_not_tint = true;
+        for (int i = 0; i + 1 < sel.size(); ++i) {
+            lines.push_back(sel[i].cursor.blockNumber() + 1);
+            if (sel[i].format.background().color() != tint) current_not_tint = false;
+        }
+        std::sort(lines.begin(), lines.end());
+        return lines;
+    };
+    // (a) off: only the current line (QSRC-16's one selection).
+    fx.mgr->refresh_panels();
+    bool last0 = false, tint0 = true;
+    const auto off_lines = tinted_lines(last0, tint0);
+    // (b) on, nothing executed yet: still only the current line.
+    fx.backend->mem_coverage_enable(true);
+    fx.mgr->refresh_panels();
+    bool last1 = false, tint1 = true;
+    const auto none_yet = tinted_lines(last1, tint1);
+    // (c) two source steps: main.bas lines 10 and 11 ran, the PC is on line 12.
+    QPushButton* over = button(sp, QStringLiteral("Over"));
+    into->click();
+    if (over) over->click();            // the CALL runs through (sub.bas:1 runs, in another file)
+    QApplication::processEvents();
+    fx.mgr->refresh_panels();
+    bool last2 = false, tint2 = true;
+    const auto on_lines = tinted_lines(last2, tint2);
+    const auto want = fx.backend->executed_source_lines("main.bas");
+    std::vector<int> want_i(want.begin(), want.end());
+    // (d) the current line is not tinted again: it keeps the highlight alone.
+    const bool current_is_12 = sp->highlighted_line() == 12;
+    // (e) switched off again: back to the single selection.
+    fx.backend->mem_coverage_enable(false);
+    fx.mgr->refresh_panels();
+    bool last3 = false, tint3 = true;
+    const auto off_again = tinted_lines(last3, tint3);
+    check("QCOV-06",
+          "Source tab: with coverage off only the current line is selected; on, the lines executed_source_lines "
+          "returns for the shown file (main.bas 10 and 11 after two source steps) get the coverage tint, "
+          "the current line (12) is appended last with the highlight, an unexecuted line has none, and "
+          "switching it off drops the tint",
+          off_lines.empty() && last0 && none_yet.empty() && last1 && on_lines == want_i &&
+              on_lines == std::vector<int>({10, 11}) && last2 && tint2 && current_is_12 &&
+              off_again.empty() && last3,
+          "off=" + std::to_string(off_lines.size()) + " none=" + std::to_string(none_yet.size()) +
+              " on=" + std::to_string(on_lines.size()) + " want=" + std::to_string(want_i.size()) +
+              " cur12=" + std::to_string(current_is_12));
 }
 
 // A map loaded by a RELATIVE name: the panel still finds the source after
@@ -2597,6 +2663,52 @@ void test_z88dk_source_map() {
                   fx.backend->source_map().size() > 0,
               sp ? s(sp->location_text()) : "");
     }
+}
+
+// ── QDOT-01/02: a z88dk dot command's map in the Source tab (GH #351) ────────────
+// Oracle: the committed v2.4 sccz80 dot fixture (dot.c:14 $2D62, dot.c:15 $2D6A, the CODE group
+// placed in DivMMC RAM bank 2 as NextZXOS does) and the user-visible wording of the note.
+void test_dot_command() {
+    const std::string tmp = g_tmp->path().toStdString();
+    const std::string map = tmp + "/qdot/prog.map";
+    copy_z88dk("v2.4/sccz80-dot", "prog.map", map);
+    copy_z88dk("v2.4/sccz80-dot", "prog_CODE.bin", tmp + "/qdot/prog_CODE.bin");
+    std::filesystem::copy_file(std::filesystem::path(JNEXT_Z88DK_FIXTURE_DIR) / "src" / "dot.c",
+                               tmp + "/qdot/dot.c", std::filesystem::copy_options::overwrite_existing);
+    const std::string code = read_text(tmp + "/qdot/prog_CODE.bin");
+    Fixture fx(0, MachineType::ZXN_ISSUE2);
+    fx.enable();
+    uint8_t* bank2 = fx.emu.divmmc().ram_data() + 2 * 0x2000;
+    for (size_t i = 0; i < code.size(); ++i) bank2[i] = static_cast<uint8_t>(code[i]);
+    fx.emu.port().write(0xE3, 0x82);   // conmem + bank 2, as NextZXOS runs a dot command
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = 0x6000;
+    r.SP = 0xFF00;
+    fx.emu.cpu().set_registers(r);
+    const auto out = fx.backend->load_source_map(map, false);   // loaded outside the command: pending
+    r.PC = 0x2D62;   // dot.c:14
+    fx.emu.cpu().set_registers(r);
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
+    const QString note = QStringLiteral("Source map not verified yet: it is checked when the dot command runs");
+    const bool pending_note = sp && sp->location_text().contains(note) &&
+                              sp->highlighted_line() == 14 && sp->location_text().contains(QStringLiteral("dot.c"));
+    trigger(fx.dbg(), QStringLiteral("Step Into"));
+    check("QDOT-01", "a dot command's map, PC at dot.c:14 in DivMMC bank 2: Debug > Source > Step Into shows dot.c with line 15 "
+                     "current, the PC at $2D6A",
+          out.count > 0 && sp && fx.pc() == 0x2D6A && sp->highlighted_line() == 15 &&
+              sp->location_text().contains(QStringLiteral("dot.c")) && sp->location_text().contains(QStringLiteral("2D6A")),
+          sp ? s(sp->location_text()) : "");
+    // QDOT-02: the note names the dot command, until the command starts at $2000.
+    const bool still = sp && sp->location_text().contains(note);
+    fx.emu.cpu().set_registers([&] { Z80Registers q = fx.emu.cpu().get_registers(); q.PC = 0x2000; return q; }());
+    fx.emu.debugger_step();
+    fx.mgr->refresh_panels();
+    check("QDOT-02", "a dot command's pending map says 'checked when the dot command runs' (not 'the program'), and the note is gone once $2000 "
+                     "has run from DivMMC bank 2 with matching bytes",
+          pending_note && still && out.pending && sp && !sp->location_text().contains(note) &&
+              !sp->location_text().contains(QStringLiteral("not verified yet")),
+          sp ? s(sp->location_text()) : "");
 }
 
 // ── QSRC-66..74: the source search path and Locate File... (GH #420) ─────────
@@ -4988,7 +5100,8 @@ void test_source_highlight_classes() {
         const bool rest = dot && tok(h, 2, QStringLiteral("\"a,b\"")) == 'S' && role_mask(h, 3) == "CCCCCCCCC" &&
                           role_mask(h, 4) == "CCCCCC" &&
                           role_mask(h, 5) == std::string(h.doc.findBlockByNumber(5).text().size(), 'P');
-        check("QSRC-193", "Boriel: 3.75 .5e-3 1e3 are Float, 2 $FF %0101 0FFh 0E3h 17o Integer, punctuation "
+        check("QSRC-193", "Boriel: 3.75 .5e-3 1e3 are Float, 2 $FF %0101 0FFh 0E3h 17o 0xFF 101b Integer (the "
+                          "last two one span each), 1. is the Integer 1 and a Keyword dot, punctuation "
                           "and <> are Keyword, a$ and n% are plain identifiers, CHR$ a keyword, the line "
                           "number a Label, and strings, comments and # lines keep their class",
               ln && fl && in && pu && id && ne && rest,
@@ -5658,6 +5771,7 @@ int main(int argc, char** argv) {
 
     test_source_tab();
     test_source_tab_rewind();
+    test_source_coverage();
     test_relative_map();
     test_load_refused();
     test_breakpoints();
@@ -5688,6 +5802,7 @@ int main(int argc, char** argv) {
     test_call_stack_non_page_caller();
     test_source_menu();
     test_z88dk_source_map();
+    test_dot_command();
     test_z88dk_listings();
     test_source_search();
     test_source_gutter();

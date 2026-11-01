@@ -42,6 +42,10 @@ text on a blue background. A scheme sets the Source tab's background, text colou
 and the colours of the current-line bar, and applies at once. The current line keeps its bar in every
 scheme, and the gutter (line numbers and breakpoint marks) is not affected.
 
+With [memory coverage](../functions/15-memory-coverage.md) on, every line of the
+shown file that ran has a pale green background (the current line keeps its
+highlight).
+
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a

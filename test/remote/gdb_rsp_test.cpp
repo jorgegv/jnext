@@ -53,6 +53,7 @@
 #include "core/log.h"
 #include "core/rzx.h"
 #include "debug/debugger.h"
+#include "platform/emulator_boot.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
@@ -1936,6 +1937,92 @@ static void monitor_rows() {
                   inside[0] == "$8F5B = table+1\n" && by_asm.size() == 1 && by_asm[0] == "_counter = $8F59\n" &&
                   not_c.size() == 1 && not_c[0] == "no symbol asm_bump\n",
               join(by_c) + join(by_addr) + join(inside) + join(by_asm) + join(not_c));
+    }
+    // GDB-MON-30..34 (GH #346): `monitor src`. Oracle: the fixture's prog.map (`__C_LINE_19` = $8CB5,
+    // `__C_LINE_20` = $8CBE, so $8CB5..$8CBD is main.c:19; `_main` = $8C92, where line 15 is the highest
+    // of the lines starting there), the NEX default slot 4 = page 4, and the boot ROM decoded first in
+    // slot 0 (zxnext.vhd:1856). Memory spellings: GH #360 (P%02X, BOOT, ...).
+    {
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.nex";
+        const bool        ok  = emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        std::string f1, f2;
+        const auto  at = c.monitor("src 0x8CB8", f1);
+        const auto  lo = c.monitor("src $8CB5", f2);
+        check("GDB-MON-30", "monitor src ADDR answers the primary file:line and the memory it is in: "
+                            "$8CB8 and $8CB5 are main.c:19 in P04",
+              ok && at.size() == 1 && at[0] == "$8CB8 main.c:19 P04\n" && f1 == "OK" && lo.size() == 1 &&
+                  lo[0] == "$8CB5 main.c:19 P04\n" && f2 == "OK",
+              join(at) + " " + join(lo));
+    }
+    {
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.nex";
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 4, 0x28);
+        const auto other = c.monitor("src $8CB8", f);
+        Rig        fresh(MachineType::ZXN_ISSUE2);
+        const std::vector<std::uint8_t> boot(0x2000, 0x00);
+        fresh.emu.mmu().set_boot_rom(boot.data(), boot.size());   // the IPL overlay, as at power-on
+        Client     c2(fresh);
+        open_session(c2);
+        const auto rom = c2.monitor("src 0", f);
+        check("GDB-MON-31", "monitor src names the memory MAPPED NOW: slot 4 remapped to page 0x28 is "
+                            "'unmapped P28'; on a fresh Next the boot ROM answers $0000: 'unmapped BOOT'",
+              other.size() == 1 && other[0] == "$8CB8 unmapped P28\n" && rom.size() == 1 &&
+                  rom[0] == "$0000 unmapped BOOT\n",
+              join(other) + " " + join(rom));
+    }
+    {
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.nex";
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        set_pc(rig, 0x8CB5);
+        std::string f;
+        const auto  r = c.monitor("src", f);
+        check("GDB-MON-32", "monitor src with no argument looks up the PC",
+              r.size() == 1 && r[0] == "$8CB5 main.c:19 P04\n" && f == "OK", join(r));
+    }
+    {
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.nex";
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        std::string f1, f2, f3, f4, f5, f6;
+        const auto  a = c.monitor("src _main", f1);
+        const auto  b = c.monitor("src @_main", f2);
+        const auto  cn = c.monitor("src main", f3);
+        const auto  no = c.monitor("src nosuch", f4);
+        c.monitor("src 0x10000", f5);
+        c.monitor("src 1 2", f6);
+        check("GDB-MON-33", "monitor src takes a symbol like monitor sym (_main, @_main, the C name main: "
+                            "$8C92 main.c:15), an unknown name is 'no symbol', a number past 16 bits or two "
+                            "arguments are E01",
+              a.size() == 1 && a[0] == "$8C92 main.c:15 P04\n" && b == a && cn == a && f1 == "OK" &&
+                  no.size() == 1 && no[0] == "no symbol nosuch\n" && f4 == "OK" && f5 == "E01" && f6 == "E01",
+              join(a) + " " + join(b) + " " + join(cn) + " " + join(no));
+    }
+    {
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        const auto  h = c.monitor("help", f);
+        bool        listed = false;
+        for (const auto& l : h) listed = listed || l.rfind("  src [ADDR]", 0) == 0;
+        check("GDB-MON-34", "monitor help lists src [ADDR]", listed, join(h));
     }
 }
 

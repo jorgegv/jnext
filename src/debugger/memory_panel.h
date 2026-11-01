@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QLabel>
 #include <QScrollBar>
 
 #include "debug/events.h"   // jnext::dbg::ClientId
@@ -63,6 +64,9 @@ private:
     };
     Where locate(uint16_t addr) const;
 
+    /// GH #388 - show / recolour the "Coverage: X R W" legend.
+    void update_coverage_legend();
+
     /// Read `n` bytes of the current view from `addr` in ONE backend peek (the
     /// paint reads a row at a time). A peek moves nothing: no watch, no +3
     /// floating-bus latch.
@@ -93,6 +97,7 @@ private:
     // Top bar widgets
     QLineEdit* addr_input_ = nullptr;
     QComboBox* page_selector_ = nullptr;
+    QLabel* coverage_legend_ = nullptr;   // GH #388
 
     // Scroll bar
     QScrollBar* scroll_bar_ = nullptr;
