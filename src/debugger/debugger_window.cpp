@@ -492,6 +492,9 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (!size_is_default_ || !scroll)
         return;
 
+    if (fit_set_size_.isValid() && size() != fit_set_size_)
+        return;   // resized since the last pass (by the user): the fit is over, their size stands
+
     const int scroll_w = scroll->horizontalScrollBar()->maximum();
     const int hidden_h = scroll->verticalScrollBar()->maximum();
 
@@ -519,6 +522,9 @@ void DebuggerWindow::grow_default_size_to_natural() {
         }
     }
 
+    if (add_w <= 0 && hidden_h <= 0)
+        return;   // nothing is out of view and the left column has its width: leave the window alone
+
     // The FRAME must fit the screen: the side borders come off the width as the title bar comes off the height.
     const int deco_w = std::max(0, frameGeometry().width() - width());
     const jnext::WindowSize fit = jnext::clamp_window_size_to_screen(
@@ -528,6 +534,7 @@ void DebuggerWindow::grow_default_size_to_natural() {
         return;   // nothing to grow, or the screen has no more room to give
     const int old_w = width();
     resize(fit.w, fit.h);
+    fit_set_size_ = size();
 
     const bool width_pass = lacking > 0 && add_w > scroll_w;
     if (width_pass) {

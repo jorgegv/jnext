@@ -200,6 +200,9 @@ private:
     static constexpr int kMaxInitialFitPasses = 4;
     // GH #360 - the width fit (left column of tabs) has its own bound and its own measured response,
     // so it converges whatever share of a widening the splitter gives that column.
+    // The size the last fit pass gave the window: a later pass that finds another size knows the user
+    // (or anything else) resized it meanwhile, and leaves it alone.
+    QSize  fit_set_size_;
     int    initial_fit_width_passes_ = 0;
     int    fit_last_add_ = 0;       // window width added by the previous width pass
     int    fit_last_lacking_ = 0;   // what the left column still lacked before it
