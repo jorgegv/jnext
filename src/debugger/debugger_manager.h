@@ -9,6 +9,7 @@
 
 #include "debug/debug_keymap.h"
 #include "debug/debugger.h"
+#include "platform/source_scheme.h"
 
 class BreakpointModel;
 namespace jnext { namespace script { class ScriptHost; } }
@@ -106,6 +107,11 @@ public:
     void set_source_dirs(const QStringList& configured);
     /// The effective list: configured, then located, exact duplicates dropped.
     QStringList source_dirs() const;
+
+    /// GH #422 stage 2 - the Source tab's colour scheme. Held here for the same reason: the
+    /// window is created lazily and a scheme set before it exists must still reach it.
+    void set_source_scheme(SourceScheme scheme);
+    SourceScheme source_scheme() const { return source_scheme_; }
 
     /// GH #417 - `--set debugger.attached=` for this run, handed to the window when it
     /// is built (it is created lazily). The file keeps its own value.
@@ -276,6 +282,7 @@ private:
     std::optional<bool> attach_override_;   // GH #417
     std::optional<bool> physical_override_; // GH #360
     QStringList configured_source_dirs_;    // GH #420
+    SourceScheme source_scheme_ = SourceScheme::Auto;   // GH #422 stage 2
     QStringList located_source_dirs_;
     /// Hand the effective list to the Source tab (if the window exists) and log it.
     void push_source_dirs(bool log);

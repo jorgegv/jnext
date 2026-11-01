@@ -84,6 +84,7 @@ enum class KeyId : uint8_t {
     InputJoy2DeviceName,
     InputMouseRelease,
     DebuggerKey,            // the family `debugger_keys.<action id>`
+    SourceColourScheme,
     EspEnabled,
     EspAllowedHosts,
     NextpiEnabled,
@@ -221,6 +222,10 @@ inline constexpr Key KEYS[] = {
       "step_back, frame_back, run_to_cursor, run_to_eof, run_to_eosl, trace_toggle, "
       "trace_export, source_step_into, source_step_over, source_step_out, source_step_back, "
       "source_reverse_continue); none = unbound" },
+    { KeyId::SourceColourScheme, "source", "colour_scheme", Type::Word, 0, 0,
+      "auto|light|dark|borland", nullptr, QT, true, Owner::AppConfig, nullptr,
+      "Colour scheme of the debugger's Source tab: auto (light or dark, after the application), "
+      "light, dark or borland (Borland C++ 3.1)" },
     { KeyId::EspEnabled, "esp", "enabled", Type::Bool, 0, 0,
       "true|false", "--esp", QT | SDL | HEADLESS, false, Owner::AppConfig, nullptr,
       "Emulated ESP-01 WiFi module" },

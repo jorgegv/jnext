@@ -447,6 +447,7 @@ void MainWindow::set_emulator(Emulator* emu) {
                                   list.empty() ? std::string("none") : source_search::join_list(list));
         });
         push_source_dirs();
+        push_source_scheme();
         connect(debugger_mgr_, &DebuggerManager::source_dir_save_requested, this,
                 [this](const QString& dir) {
             // Only the saved list: the located directory is in force through the manager's
@@ -2911,6 +2912,8 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
                  cfg.quick_screenshot_format };
     source_dirs_ = cfg.source_dirs;   // GH #420
     push_source_dirs();
+    source_scheme_ = cfg.source_scheme;   // GH #422 stage 2
+    push_source_scheme();
     // Machine type and silent are deliberately NOT applied here: main.cpp
     // already merged them into the EmulatorConfig used for Emulator::init()
     // (CLI wins when given), so re-applying the raw AppConfigData value here
@@ -3122,6 +3125,12 @@ void MainWindow::set_debugger_physical_override(bool physical) {
 void MainWindow::push_source_dirs() {
 #ifdef ENABLE_DEBUGGER
     if (debugger_mgr_) debugger_mgr_->set_source_dirs(source_dirs_);
+#endif
+}
+
+void MainWindow::push_source_scheme() {
+#ifdef ENABLE_DEBUGGER
+    if (debugger_mgr_) debugger_mgr_->set_source_scheme(source_scheme_);
 #endif
 }
 

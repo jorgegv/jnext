@@ -3,6 +3,8 @@
 #include <QPointer>
 #include <QWidget>
 
+#include "platform/source_scheme.h"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -16,6 +18,8 @@ class QLabel;
 class QMenu;
 class QPlainTextEdit;
 class QPushButton;
+class SourceHighlighter;
+enum class SourceLanguage;
 class WatchPanel;
 struct SymbolNameKey;
 namespace jnext { namespace dbg { class Debugger; } }
@@ -66,6 +70,11 @@ public:
     void toggle_breakpoint_at_line(int line);
     /// The map's name of the file shown, empty when the tab shows a message.
     const std::string& shown_file() const { return shown_file_; }
+    /// GH #422 - the language the text shown is coloured as (Plain while a message shows).
+    SourceLanguage source_language() const;
+    /// GH #422 stage 2 - choose the colour scheme of the text, the background and the current-line
+    /// bar (Auto follows the application's light or dark palette). Applied at once.
+    void set_colour_scheme(SourceScheme scheme);
 
     /// GH #423 - the Watches panel, which the menu's "Watch ..." entries add to
     /// (the Disassembly's menu offers them with one set, and without it not at all).
@@ -142,6 +151,9 @@ private:
     /// The name the tab could not find, or empty; enables Locate File... exactly then.
     void set_unresolved(const std::string& name);
     void show_message(const QString& message);
+    /// GH #422 - the one way a text enters the editor: language first, then the text.
+    void set_source_text(const QString& text, const std::string& file);
+    void apply_scheme_();
     /// While the machine runs there is no current line: say so, and drop the
     /// highlight of the last stop.
     void show_running();
@@ -150,6 +162,7 @@ private:
     jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QLabel* location_label_ = nullptr;
     QPlainTextEdit* editor_ = nullptr;
+    SourceHighlighter* highlighter_ = nullptr;
     QPushButton* into_btn_ = nullptr;
     QPushButton* over_btn_ = nullptr;
     QPushButton* out_btn_ = nullptr;
