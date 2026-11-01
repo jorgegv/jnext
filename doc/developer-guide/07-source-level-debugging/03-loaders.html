@@ -2869,14 +2869,21 @@ those are the first two parts of every <a href="04-formats.html">7.4</a> page.</
 <p><code>Debugger::load_source_map(path, accept_identity_mismatch, verify_at_first_execution)</code>
 (<code>debugger_source.cpp</code>) is the hand load. After <code>source_file_problem()</code> it tells
 the format <em>by content</em>, never by extension: <code>looks_like_sld()</code> is true when the
-first line starts <code>|SLD.data.version|</code> (after skipping a UTF-8 byte-order mark),
-or when the file cannot be opened at all, so that the SLD loader's own error
-names it. Anything else is read as a z88dk map. <code>load_sld()</code> itself then
-requires the first line to be exactly <code>|SLD.data.version|1</code>, with only a
-trailing CR dropped, so a file that starts with a BOM is routed to the SLD loader
-and refused by it with "missing SLD.data.version 1 header". That routing is
-deliberate (GH #344 review finding F5): the user gets the SLD loader's error, not
-the z88dk adapter's "no source lines" (row <code>SRCDBG-Z88-30</code>).</p>
+first line starts <code>|SLD.data.version|</code>, or when the file cannot be opened at all,
+so that the SLD loader's own error names it. Anything else is read as a z88dk
+map. A UTF-8 byte-order mark (EF BB BF) at the very start of the file is skipped
+first, by <code>skip_utf8_bom()</code> (<code>source_file.cpp</code>), in the router and again by
+<code>load_sld()</code> before it requires the first line to be exactly
+<code>|SLD.data.version|1</code> (only a trailing CR dropped): a BOM'd SLD loads exactly as
+the same file without the BOM (owner decision, 2026-11-01; rows <code>SRCDBG-Z88-30</code>
+and <code>-33</code>). Only the very first three bytes count: a second BOM, or a BOM after
+a leading blank line, is ordinary text, so such a file is not an SLD and goes to
+the z88dk adapter, which refuses it (<code>SRCDBG-Z88-34</code>). The z88dk adapter, the
+<code>--map</code> / Load MAP symbol loaders (z88dk map, sjasmplus EQU, and the
+choose-by-content one) skip the mark the same way, so the first line's symbol
+keeps its name (<code>SRCDBG-Z88-35</code>, <code>MAPBOM-01..03</code>); a <code>--list</code> listing needs no
+skip, since its first line is a file header that only its <code>.m4</code> suffix is read
+from (<code>Z88LIS-35</code>).</p>
 <ul>
 <li><strong>An SLD</strong> goes to <code>load_sld(candidate, path, &amp;labels)</code>.</li>
 <li><strong>A z88dk map</strong> goes to <code>load_z88dk_source_map(..., Z88dkListings::Beside)</code>; its

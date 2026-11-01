@@ -20,6 +20,7 @@ int SymbolTable::load_z88dk_map(const std::string& path, std::string* why)
     if (!file.is_open())
         return -1;
 
+    skip_utf8_bom(file);
     clear();
     const int count = read_z88dk_map(file);
     loaded_file_ = path;
@@ -246,6 +247,7 @@ int SymbolTable::load_sjasmplus_equ(const std::string& path, std::string* why)
     if (!file.is_open())
         return -1;
 
+    skip_utf8_bom(file);
     clear();
     const int count = read_sjasmplus_equ(file);
     loaded_file_ = path;
@@ -294,6 +296,7 @@ int SymbolTable::load_z88dk_or_sjasmplus(const std::string& path, std::string* w
         }
         content.append(chunk, static_cast<size_t>(got));
     }
+    if (content.compare(0, 3, "\xEF\xBB\xBF") == 0) content.erase(0, 3);
     const bool sjasmplus =
         parse_equ_line(std::string_view(content).substr(0, content.find('\n'))).has_value();
     std::istringstream text(content);

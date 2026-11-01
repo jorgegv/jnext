@@ -1163,6 +1163,55 @@ int main() {
     }
 
 
+    {
+        // The BOM (owner decision 2026-11-01, GH #427): the symbol loaders skip one at the very
+        // start of the file, as the SLD loader does, so the first symbol is not renamed by it.
+        const std::string bom = "\xEF\xBB\xBF";
+        const auto slurp = [](const fs::path& f) {
+            std::ifstream in(f, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        const fs::path equ = fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sym";
+        const std::string equ_body = slurp(equ);
+        const std::string head = "first: EQU 0x00009000\n";
+        const fs::path equ_bom = synth("bom.sym", bom + head + equ_body);
+        const fs::path equ_head = synth("head.sym", head + equ_body);
+        SymbolTable plain_equ, a, b;
+        const int pe = plain_equ.load_sjasmplus_equ(equ_head.string());
+        const int ea = a.load_sjasmplus_equ(equ_bom.string());
+        const int eb = b.load_z88dk_or_sjasmplus(equ_bom.string());
+        check("MAPBOM-01", "a BOM before a sjasmplus EQU file is skipped by load_sjasmplus_equ() and "
+                           "load_z88dk_or_sjasmplus(): same count, and the first line's symbol keeps its name",
+              pe > 0 && ea == pe && eb == pe && plain_equ.lookup_name("first") == 0x9000 &&
+                  a.lookup_name("first") == 0x9000 && b.lookup_name("first") == 0x9000 &&
+                  a.lookup_name("main") == 0x8000 && b.lookup_name("main") == 0x8000);
+        const fs::path prog = v24 / "sccz80-debug" / "prog.map";
+        const std::string first = "_first = $9000 ; addr, public, , m, code_compiler, x.c:1\n";
+        const fs::path map_bom = synth("bom.map", bom + first + slurp(prog));
+        SymbolTable c, d;
+        const int ca = c.load_z88dk_map(map_bom.string());
+        const int cb = d.load_z88dk_or_sjasmplus(map_bom.string());
+        // The source adapter: the BOM sits on a line record, which it would otherwise not recognise.
+        const std::string recs = rec("__C_LINE_3_a_2ec", 0x9000, "a_c", "code_compiler", "a.c::f::0::1:3") +
+                                 rec("__C_LINE_4_a_2ec", 0x9004, "a_c", "code_compiler", "a.c::f::0::1:4");
+        SourceMap sm, smp;
+        const auto rb = load(sm, synth("bomrec.map", bom + recs));
+        const auto rp = load(smp, synth("plainrec.map", recs));
+        check("MAPBOM-02", "a BOM before a z88dk map is skipped by load_z88dk_map(), "
+                           "load_z88dk_or_sjasmplus() and the source adapter: the first line's symbol keeps "
+                           "its name, and the source half loads what the plain map does",
+              ca == 20 && cb == 20 && c.lookup_name("_first") == 0x9000 && d.lookup_name("_first") == 0x9000 &&
+                  c.lookup_name("_main") == 0x8C92 && rb && rp && rp.count == 2 && rb.count == rp.count && sm.size() == smp.size() &&
+                  is_at(sm.lookup(P4, 0x9000), "a.c", 3));
+        SymbolTable two;
+        const fs::path map_two = synth("bom2.map", bom + bom + first + slurp(prog));
+        const int n2 = two.load_z88dk_map(map_two.string());
+        check("MAPBOM-03", "only the very first BOM is skipped: with two, the second stays in the first "
+                           "line's symbol name, so \"_first\" is not found",
+              n2 >= 19 && !two.lookup_name("_first") && two.lookup_name("_main") == 0x8C92);
+    }
+
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

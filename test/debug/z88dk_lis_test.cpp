@@ -842,6 +842,25 @@ int main() {
                   any_note_has(r4, "p2.asm.lis"));
     }
 
+
+    // ── Z88LIS-35: a BOM at the start of a listing changes nothing (owner decision 2026-11-01, GH #427).
+    // No code skips it: the first line is a file header, which only its ".m4" suffix is ever asked about. ──
+    {
+        const fs::path d = dir / "z35";
+        fs::create_directories(d);
+        for (const auto& e : fs::directory_iterator(v24 / "sccz80-debug")) {
+            const std::string text = read_text(e.path());
+            write_text(d / e.path().filename(),
+                       e.path().extension() == ".lis" ? std::string("\xEF\xBB\xBF") + text : text);
+        }
+        SourceMap m;
+        const auto r = load(m, d / "prog.map");
+        check("Z88LIS-35", "sccz80: listings that start with a UTF-8 BOM load as without it: the same "
+                           "listing count and line count, asmfn.asm:7 at $8D68, and no note",
+              r && r.listings == sc_r.listings && r.count == sc_r.count && r.listing_notes.empty() &&
+                  is_at(m.lookup(P4, 0x8D68), "asmfn.asm", 7));
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

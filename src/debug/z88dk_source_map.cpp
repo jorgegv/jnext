@@ -158,6 +158,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     if (std::string why = source_file_problem(path); !why.empty()) return failed(why);
     std::ifstream input(path);
     if (!input.is_open()) return failed("could not open z88dk map file");
+    skip_utf8_bom(input);
 
     // Pass 1: the whole file. A section's head may come after its records (the
     // map is sorted by name), so nothing is placed before it has all been read.

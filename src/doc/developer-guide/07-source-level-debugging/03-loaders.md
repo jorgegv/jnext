@@ -67,14 +67,21 @@ those are the first two parts of every [7.4](04-formats.md) page.
 `Debugger::load_source_map(path, accept_identity_mismatch, verify_at_first_execution)`
 (`debugger_source.cpp`) is the hand load. After `source_file_problem()` it tells
 the format *by content*, never by extension: `looks_like_sld()` is true when the
-first line starts `|SLD.data.version|` (after skipping a UTF-8 byte-order mark),
-or when the file cannot be opened at all, so that the SLD loader's own error
-names it. Anything else is read as a z88dk map. `load_sld()` itself then
-requires the first line to be exactly `|SLD.data.version|1`, with only a
-trailing CR dropped, so a file that starts with a BOM is routed to the SLD loader
-and refused by it with "missing SLD.data.version 1 header". That routing is
-deliberate (GH #344 review finding F5): the user gets the SLD loader's error, not
-the z88dk adapter's "no source lines" (row `SRCDBG-Z88-30`).
+first line starts `|SLD.data.version|`, or when the file cannot be opened at all,
+so that the SLD loader's own error names it. Anything else is read as a z88dk
+map. A UTF-8 byte-order mark (EF BB BF) at the very start of the file is skipped
+first, by `skip_utf8_bom()` (`source_file.cpp`), in the router and again by
+`load_sld()` before it requires the first line to be exactly
+`|SLD.data.version|1` (only a trailing CR dropped): a BOM'd SLD loads exactly as
+the same file without the BOM (owner decision, 2026-11-01; rows `SRCDBG-Z88-30`
+and `-33`). Only the very first three bytes count: a second BOM, or a BOM after
+a leading blank line, is ordinary text, so such a file is not an SLD and goes to
+the z88dk adapter, which refuses it (`SRCDBG-Z88-34`). The z88dk adapter, the
+`--map` / Load MAP symbol loaders (z88dk map, sjasmplus EQU, and the
+choose-by-content one) skip the mark the same way, so the first line's symbol
+keeps its name (`SRCDBG-Z88-35`, `MAPBOM-01..03`); a `--list` listing needs no
+skip, since its first line is a file header that only its `.m4` suffix is read
+from (`Z88LIS-35`).
 
 - **An SLD** goes to `load_sld(candidate, path, &labels)`.
 - **A z88dk map** goes to `load_z88dk_source_map(..., Z88dkListings::Beside)`; its
