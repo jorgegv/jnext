@@ -5546,8 +5546,8 @@ int main() {
                       " fwd=" + std::to_string(int(fwd)) + " before=" + std::to_string(at_before) +
                       " after=" + std::to_string(m.dbg->source_map().size()));
         }
-        {   // Z88-33 (GH #428 x epic): the drop a rewind causes is a change the panels must see
-            const fs::path d = z / "d33";
+        {   // Z88-36 (GH #428 x epic): the drop a rewind causes is a change the panels must see
+            const fs::path d = z / "d36";
             z88_copy("v2.4/sccz80-debug", d);
             std::vector<uint8_t> code;
             {
