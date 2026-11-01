@@ -171,8 +171,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Quit Gate    |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Window Sizing |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Window Sizing |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Window Growing |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Key Bindings |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
