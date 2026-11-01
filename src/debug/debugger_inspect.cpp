@@ -89,9 +89,10 @@ std::string space_name(MemSpace space, uint32_t addr) {
     return buf;
 }
 
-/// Kinds the read arbiter NAMES (`Mmu::route()`, GH #339) that no verb accesses
-/// yet: `peek` and `poke` refuse them with `Result::Unsupported` until a
-/// consumer adds the access with its own rows (E23-21 adds DivMmcRam). One total
+/// Kinds the read arbiter NAMES (`Mmu::route()`, GH #339) that `poke` does not
+/// write: it refuses them with `Result::Unsupported` until a consumer adds the
+/// access with its own rows. `peek` reads `DivMmcRam` (GH #351) and refuses the
+/// rest the same way; `poke(DivMmcRam)` stays refused. One total
 /// switch, no `default`, so `-Werror=switch` makes a new kind a compile error
 /// here instead of a silent fall-through into a store it does not address.
 bool identity_only(MemSpace::Kind kind) {
@@ -303,6 +304,17 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
                 buf[done] = p[addr + done];
             return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
         }
+        // GH #351 (E23-21): a DivMMC RAM bank, read-only here (`poke` refuses it). Bank
+        // b is SRAM page 0x10 + b on the Next (zxnext.vhd:3092-3098), the page
+        // `DivMmc::ram_page()` returns whatever E3 selects now. Side-effect free.
+        case MemSpace::Kind::DivMmcRam: {
+            if (space.index >= static_cast<unsigned>(DivMmc::kRamPages)) return make_refused<size_t>(Result::InvalidPage);
+            const uint8_t* p = emu.divmmc().ram_page(space.index);
+            size_t done = 0;
+            for (; done < n && addr + done < static_cast<size_t>(DivMmc::kRamPageSize); ++done)
+                buf[done] = p[addr + done];
+            return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
+        }
         // The identity-only kinds (GH #339): named by the read arbiter, accessed
         // by no verb yet. Listed one by one (no `default`) so `-Werror=switch`
         // flags the next kind added to `MemSpace::Kind`.
@@ -310,7 +322,6 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
         case MemSpace::Kind::MultifaceRom:
         case MemSpace::Kind::MultifaceRam:
         case MemSpace::Kind::DivMmcRom:
-        case MemSpace::Kind::DivMmcRam:
         case MemSpace::Kind::AltRom:
         case MemSpace::Kind::Layer2:
         case MemSpace::Kind::Config:

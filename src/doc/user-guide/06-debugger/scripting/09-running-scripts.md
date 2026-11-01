@@ -13,7 +13,18 @@ Scripts load **before the machine runs**, in every frontend: `--headless`, the
 SDL build and the Qt GUI. A script that cannot be read, or that has any error,
 is reported as *file*:*line*:*column*: *message* and JNEXT exits 1 without
 running anything — nothing of any script runs partially, the good ones loaded
-before it included. A `--map` that cannot be loaded or holds no symbols is the
+before it included. With `--load`, a script is held until the program is in if it names a source line
+(`on execute main.c:19`), or an `@symbol` that `--map` does not know (the program's own
+`.map`/`.sld` brings it), or a z88dk `--map` symbol of a section that names no page (it takes the memory the program's
+load maps). It is held together with every script after it, to keep their order. A
+script whose symbols are all known and fixed (an sjasmplus `--map`, say) starts at once.
+Every script is still read and parsed first, so a typo is reported before the machine
+runs; a name or line that does not resolve exits 1 once the program has loaded.
+
+A held script's rules start at the load: an `on frame N`, or a `--script-key`, due before
+it never fires (a `.tzx` or `.wav` loads about 100 frames in; `.nex`, `.tap` and snapshots
+load at the first tick). Rules that are needed before the load belong in a script of their
+own, given first, that names no source line and no such symbol. A `--map` that cannot be loaded or holds no symbols is the
 same kind of error.
 
 `--script-key` needs `--headless`, and a `--script` (or a `--record-script`)

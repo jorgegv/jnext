@@ -477,6 +477,11 @@ void DebuggerWindow::resizeEvent(QResizeEvent* event) {
     if (fit_awaiting_ && size() == fit_set_size_) {
         fit_awaiting_ = false;
         QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+    } else if (fit_awaiting_ && size() != fit_prev_size_) {
+        // Neither the size asked for nor the one before it: someone else resized the window. The fit
+        // is over, so a later restore of exactly the requested size must not resume it.
+        fit_awaiting_ = false;
+        fit_over_ = true;
     }
 }
 
@@ -502,10 +507,12 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (!size_is_default_ || !scroll)
         return;
 
+    if (fit_over_)
+        return;
     if (fit_set_size_.isValid() && size() != fit_set_size_) {
         // Not applied yet (a window manager answers later; size() is still the one before our request):
         // wait for its resize event. Any other size is the user's: the fit is over, their size stands.
-        if (size() == fit_prev_size_) fit_awaiting_ = true;
+        if (size() == fit_prev_size_) fit_awaiting_ = true; else fit_over_ = true;
         return;
     }
 

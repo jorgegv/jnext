@@ -19,7 +19,7 @@ code departs from it. This page describes the code.
 
 | File | What it holds |
 |---|---|
-| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`) as single tokens |
+| `lexer.{h,cpp}` | tokens; comments `;` `//` `#`; integers (decimal, `0x`, `$`, `0b`, 32-bit wrapping); strings with `${expr[:x2\|x4\|d]}` interpolation; `file:line` as one `FileLine` token, recognised by lookahead (GH #346); the bracketed accessors (`mem[`, `mem16[`, `phys[`, `nextreg[`, `mmu[`, `page[`, `stack[`, `changed(`, `depth(`) as single tokens |
 | `parser.{h,cpp}`, `ast.h` | recursive descent over the grammar; the syntax tree (`Script`, `Rule`, `EventSpec`, `Action`, `Expr`) |
 | `names.{h,cpp}` | the one table of reserved words, built-in state names (`LIVE`) and payload names (`PAYLOAD`); which names `set` may assign |
 | `check.{h,cpp}` | the load-time checks and BINDING: each upper-case name resolved to what it reads in its scope; `payload_legal()` — the per-event payload table |
@@ -134,6 +134,14 @@ own `Listener`. `load(text, file)` does four things, in this order:
 
 A script with any error registers nothing.
 
+`on execute FILE:LINE` (GH #346) is resolved here, in `subscriptions_for()`, by
+`SourceMap::resolve()` (the resolver the GUI's source breakpoints use): one
+template per start, `filter.lo = hi = address` and `filter.space` the start's
+memory, `page = PAGE_ANY`; `once`, `enable` and `unload` treat them as the
+`execute page P..Q` subscriptions. `describe_event()` lists every start. An
+`on execute @name` with one paged label (no range, no `page`) takes the
+label's memory (`SymbolTable::find_name()`) the same way.
+
 The DSL's `page` is the legacy page-number qualifier (3.9.1): it compares the
 MMU page number only, as DZRP's `bank+1` does.
 
@@ -241,6 +249,22 @@ tab's verdict line.
 `start()` loads `--map` into the symbol table, then each `--script` in order,
 and schedules `--script-key`. Any failure is logged and fails the start, so the
 loop owner exits 1 before the machine runs.
+
+A script that names a source line, an `@symbol` unknown at `start()` (the sidecar
+map brings it) or a `bind_at_load` symbol (a z88dk `--map` rule-4 symbol, bound to
+the page the load maps) cannot be resolved before the `--load` program and its maps
+are in, and the frontends load the program after `start()`. `needs_program()` decides
+from the parse, the tokens and `SymbolTable::find_name()`; a script whose symbols are
+all known with a final binding loads at once. A held script's rules start at the load,
+so an `on frame N` or `--script-key` due earlier (a `.tzx`/`.wav` load runs ~100 frames
+in) never fires. So with `ScriptHostOptions::program_pending` (a
+CLI `--load`, not an `.rzx`; `load_pending_for_scripts()`) `start()` reads and
+parses every script at once (read and parse errors fail the start), and such a
+script, and every script after it, has its check, resolution and registration
+held back; each frontend calls
+`program_loaded()` right after its `--load` block (also when the load failed), which
+loads them through the normal path. A failure there unloads every script, logs it
+and, in headless and SDL, requests exit 1.
 
 It hears exit codes in two ways: from the engine (`EngineHost::exit`), and from
 the backend's `ExitRequested`, through a NON-ARMING listener client

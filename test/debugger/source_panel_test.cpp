@@ -2698,6 +2698,52 @@ void test_z88dk_source_map() {
     }
 }
 
+// ── QDOT-01/02: a z88dk dot command's map in the Source tab (GH #351) ────────────
+// Oracle: the committed v2.4 sccz80 dot fixture (dot.c:14 $2D62, dot.c:15 $2D6A, the CODE group
+// placed in DivMMC RAM bank 2 as NextZXOS does) and the user-visible wording of the note.
+void test_dot_command() {
+    const std::string tmp = g_tmp->path().toStdString();
+    const std::string map = tmp + "/qdot/prog.map";
+    copy_z88dk("v2.4/sccz80-dot", "prog.map", map);
+    copy_z88dk("v2.4/sccz80-dot", "prog_CODE.bin", tmp + "/qdot/prog_CODE.bin");
+    std::filesystem::copy_file(std::filesystem::path(JNEXT_Z88DK_FIXTURE_DIR) / "src" / "dot.c",
+                               tmp + "/qdot/dot.c", std::filesystem::copy_options::overwrite_existing);
+    const std::string code = read_text(tmp + "/qdot/prog_CODE.bin");
+    Fixture fx(0, MachineType::ZXN_ISSUE2);
+    fx.enable();
+    uint8_t* bank2 = fx.emu.divmmc().ram_data() + 2 * 0x2000;
+    for (size_t i = 0; i < code.size(); ++i) bank2[i] = static_cast<uint8_t>(code[i]);
+    fx.emu.port().write(0xE3, 0x82);   // conmem + bank 2, as NextZXOS runs a dot command
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = 0x6000;
+    r.SP = 0xFF00;
+    fx.emu.cpu().set_registers(r);
+    const auto out = fx.backend->load_source_map(map, false);   // loaded outside the command: pending
+    r.PC = 0x2D62;   // dot.c:14
+    fx.emu.cpu().set_registers(r);
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
+    const QString note = QStringLiteral("Source map not verified yet: it is checked when the dot command runs");
+    const bool pending_note = sp && sp->location_text().contains(note) &&
+                              sp->highlighted_line() == 14 && sp->location_text().contains(QStringLiteral("dot.c"));
+    trigger(fx.dbg(), QStringLiteral("Step Into"));
+    check("QDOT-01", "a dot command's map, PC at dot.c:14 in DivMMC bank 2: Debug > Source > Step Into shows dot.c with line 15 "
+                     "current, the PC at $2D6A",
+          out.count > 0 && sp && fx.pc() == 0x2D6A && sp->highlighted_line() == 15 &&
+              sp->location_text().contains(QStringLiteral("dot.c")) && sp->location_text().contains(QStringLiteral("2D6A")),
+          sp ? s(sp->location_text()) : "");
+    // QDOT-02: the note names the dot command, until the command starts at $2000.
+    const bool still = sp && sp->location_text().contains(note);
+    fx.emu.cpu().set_registers([&] { Z80Registers q = fx.emu.cpu().get_registers(); q.PC = 0x2000; return q; }());
+    fx.emu.debugger_step();
+    fx.mgr->refresh_panels();
+    check("QDOT-02", "a dot command's pending map says 'checked when the dot command runs' (not 'the program'), and the note is gone once $2000 "
+                     "has run from DivMMC bank 2 with matching bytes",
+          pending_note && still && out.pending && sp && !sp->location_text().contains(note) &&
+              !sp->location_text().contains(QStringLiteral("not verified yet")),
+          sp ? s(sp->location_text()) : "");
+}
+
 // ── QSRC-66..74: the source search path and Locate File... (GH #420) ─────────
 // Oracle: the issue (the committed z88dk fixture map in a build/ directory with the
 // sources in a sibling src/ is found through a search path, and Locate File... adds the
@@ -4715,6 +4761,7 @@ int main(int argc, char** argv) {
     test_call_stack_non_page_caller();
     test_source_menu();
     test_z88dk_source_map();
+    test_dot_command();
     test_z88dk_listings();
     test_source_search();
     test_source_gutter();

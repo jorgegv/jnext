@@ -208,6 +208,7 @@ private:
     // A window manager applies a resize later: until then size() still reads the previous size. The
     // fit waits for the resize event of the size it asked for instead of taking that for a user resize.
     bool   fit_awaiting_ = false;
+    bool   fit_over_ = false;   // the user resized the window: the fit never resumes
     int    initial_fit_width_passes_ = 0;
     int    fit_last_add_ = 0;       // window width added by the previous width pass
     int    fit_last_lacking_ = 0;   // what the left column still lacked before it

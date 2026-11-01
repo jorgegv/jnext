@@ -381,10 +381,10 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
-| Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
+| Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line, a symbol unknown at start or a load-bound symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | DONE (E23-22 (#360)): `debug/long_address.h` (`space_tag()`, `parse_space_tag()`, `physical_text()`, `long_address()`), `SlotInfo::now`, `memory_reader()` reads the PC instruction as the CPU fetches it, the trace export prints `FETCH=<tag>`; GDB `monitor mmu` / `monitor sym`, DZRP slot bytes and ZRCP `get-memory-pages` (4.6); the Qt views name the memory in the Disassembly, Memory, MMU, Stack, Watches, Call Stack, Breakpoints and Source tab, with a physical style (4.6) | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
-| Dot commands | none | 9.4 | E23-21 (#351) |
+| Dot commands | DONE (E23-21 (#351)): rule 5, `peek(DivMmcRam)`, a map judged at the command's entry, `--source-map` without `--load` | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
 | Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
 | skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
@@ -429,8 +429,10 @@ the index each carries:
 | `Floating` (11) | 0 | nothing: the read returns the floating bus (jnext: 0xFF) |
 
 The kinds 3 to 11 are identity-only: `peek` and `poke` refuse them with `Result::Unsupported`
-(one total switch, so `-Werror=switch` makes a future kind a compile error there); E23-21
-(#351) adds `peek(DivMmcRam)` with its own rows. Every route result has `kind <= 15` and
+(one total switch, so `-Werror=switch` makes a future kind a compile error there), except that
+E23-21 (#351) made `peek(DivMmcRam{b})` read bank b (`InvalidPage` above 15, a short read at the
+end of the 8K bank is `RefusedUnavailable` with the count, INS-02-31/32); `poke(DivMmcRam)` is
+still refused. Every route result has `kind <= 15` and
 `index <= 0xFF` (mmu_integration_test FSRC-09 and static_asserts), which leaves room for the 12-bit packing
 that E23-08 needs.
 
@@ -873,6 +875,25 @@ bind at the attach with the same function as its source records (E23-23 (#375) s
 D17): they are live while the check is pending, and a deferred mismatch in any space drops them
 with the map. The user's map (`--map`, Load MAP) is bound again at the tape load call.
 
+**Dot commands (E23-21 (#351)).** A z88dk dot command's map (9.4 rule 5) is not a tape's, but it
+shares the pending machinery: the guest loads the command into DivMMC RAM bank 2 when the user
+types it, after any number of resets, and every dot command shares that bank. So a dot map with
+an identity is deferred whatever the caller passes for `verify_at_first_execution` (the hand load,
+`--source-map`, with or without `--load`, or with an RZX replay), so it attaches pending and its log line ends
+`(identity check pending: the dot command loads when it runs)`; the one exception is a hand load made while
+the CPU is already running the command from bank 2 with its bytes in place, which judges like a landing there
+(6.5(3)) and is verified. The DivMMC unit is judged at the command's ENTRY,
+when the CPU is about to execute $2000 fetched from `DivMmcRam{2}`, with the bytes about to run,
+not at the first run of a span. A match verifies it (`Verified ... the dot command in DivMMC RAM
+bank 2 matches its binary identity`) and arms the other units (a dotx's main part, `Page{4}`) for
+the tape rule: judged at their first execution, a mismatch drops the map, since the same run's
+dot matched. A mismatch at the entry means another dot command is in the shared bank: nothing is
+dropped, the map stays (or goes back to) pending, and one Info line says so (`The dot command
+started in DivMMC RAM bank 2 is not the one source map '...' describes; it stays pending`), not
+repeated while it stays pending. A later mismatching entry puts a verified map back to pending.
+The check is never finished while the map is attached. The Source tab says `Source map not
+verified yet: it is checked when the dot command runs`.
+
 ### 6.3 Ownership
 
 Each store is the user's (a map loaded by hand, `--map`, and `--source-map` by the same rule),
@@ -905,6 +926,25 @@ Two tiers. (The clock-based model, `sidecar_attach_cycle`, is gone.)
    is kept, marked **stale** and matching nothing, and the Source tab says why, so the user can
    reload it or accept it. A map with no identity is detached on a generation change (sidecar)
    or marked stale (user).
+
+3. **Dot commands (E23-21 (#351)).** A landing never drops or stales a dot map (6.2): a reset puts
+   the CPU elsewhere and NextZXOS's own boot resets the machine long before the user types the
+   command. A FRESH landing (reset, state load, program load, cold boot) leaves the map pending until the next entry
+   (its earlier records are kept). A RING landing reads back what the original run
+   showed at that instant: the check records its state (entry verdict, units still to judge) with
+   the clock cycle and load generation at each change, and a landing to cycle T takes the last
+   record of that generation strictly before T (a verdict at C applies to the instruction about to
+   run at C, which a landing at C has not run), else pending. So a rewind into a dotx's main part, or
+   into a plain dot's code outside bank 2, shows the map verified, as it was, and one to before
+   the entry shows it pending. A hand load of a dot map made while the CPU is already running
+   inside the command (paused in bank 2 with the bytes matching) judges like a landing at that
+   point: verified. Every entry judgement in bank 2, matching or foreign, is recorded, and a record erases those at or after
+   its cycle, so a re-run that enters the bank replaces what the first run recorded from there on. The records of
+   earlier generations are kept (a rewind back across a reset reads them; the ring cannot rewind across a state load, and SRCLIFE-08 refuses Back across one; the generation key is for the state load, which restores an earlier clock, so a new run's cycles can fall below the old run's records); the cap of 256 covers all
+   generations together, the oldest going first, and a landing older than the oldest record reads pending. The
+   limit that remains: a re-run that makes no entry judgement in bank 2 and judges no unit leaves the abandoned
+   run's later records in place, so a rewind to a cycle past the divergence reads the abandoned run's state until
+   a later judgement replaces it.
 
 How it is built:
 
@@ -968,6 +1008,11 @@ decided: no event marks the load, and verifying at every pause would detach a ma
 writes inside its own image; SRCLIFE-20 pins it). A sibling NEX run under
 `--esxdos-stub` (`.RUN`) is a load like any other: the loop owner cold-boots with it, which
 drops the old sidecars, and attaches the new program's.
+
+The one thing the backend cannot see about a DOT command is which command is in the shared DivMMC
+bank 2. A source breakpoint on a dot map's lines is a subscription on `DivMmcRam{2}` (8.1), so it
+also stops another dot command that runs code at that address; the map then reports itself pending
+again (6.2), which is the visible sign. Not gated (E23-21 (#351), 351-D9).
 
 ### 6.7 Remote load and Reload
 
@@ -1093,14 +1138,19 @@ location is; a `space` on a kind other than `Execute` is refused.
 The rule of 4.6 governs every protocol: each carries as much of the identity as its vocabulary
 allows, and none is extended.
 
-- **GDB.** `z88dk-gdb` maps sources itself, so nothing is required. E23-15 (#346) adds
+- **GDB.** `z88dk-gdb` maps sources itself, so nothing is required. E23-15 (#346) added (as built:
+  `$8CB8 main.c:19 P04` / `$8CB8 unmapped P28`, primary location only, a symbol accepted, the PC when
+  no argument; the memory spelling is an interim helper that #360 replaces)
   `monitor src [ADDR]`: the location and the space of an address, else "unmapped", which makes
   the source map observable in headless and SDL. `monitor sym` exists. E23-22 puts the identity
   in its text form into `monitor src` and `monitor mmu`.
 - **DZRP and ZRCP.** DeZog maps sources from `.lis`, `.map` and `.sld` itself, so there are no
   new commands. Banked breakpoints keep the legacy qualifier (4.5); the slot views are as in 4.6.
 - **DSL.** `addr_spec` accepts `file:line` (E23-15), resolved at load through the backend like
-  `@name`. An unresolvable one is a load error, and a multi-location line arms every start.
+  `@name` (as built, GH #346: bare, or quoted for a name with spaces; `execute` only, no range, no
+  `page`; with a CLI `--load` the script, and the ones after it, load once the program and its map
+  are in; `on execute @name` takes a paged label's own memory, an explicit `page N` keeping its
+  legacy meaning). An unresolvable one is a load error, and a multi-location line arms every start.
   Saving GUI source-line breakpoints as `.jds` (#376) needs it.
 
 ### 8.4 Headless and SDL
@@ -1216,11 +1266,36 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    space must be a `Page`: an address the MMU maps to ROM refuses the half. The symbol half is
    lenient: a rule-4 symbol is stored unbound (`bind_at_load`), `SymbolTable::bind()` gives it
    the RAM page `source_page()` names at its address, and any other space leaves it unpaged. For the symbol half an empty section (z80asm's default section) is rule 4 too; only the source half drops such G2 lines.
-5. A DivMMC dot command (org $2000), and the `DIV_<n>` and `<KIND>_DIV_<n>` sections of the
-   memory maps: `DivMmcRam{bank}` (E23-21 (#351), OD-14). E23-21 establishes how a dot
-   command's sections map to a bank. Until then a record in such a section refuses the source
-   half (there is no unqualified record, D3), as does a `PAGE_<n>` section with no
-   `__PAGE_<n>_head` and a section number out of range.
+5. A z88dk DOT COMMAND (E23-21 (#351), OD-14), checked before rule 4. A map is a dot command's
+   when its const `startupoffset` is $0100 (`-subtype=dot`), $0200 (`dotx`) or $0300 (`dotn`):
+   zcc defines it only for those subtypes (`lib/config/zxn.cfg`, `-startupoffset=0x100|0x200|
+   0x300`, the same on 2.4 and at 39421a01cd), newlib and classic alike, and a `-subtype=nex`
+   map has none. Its `__CODE_head` must then be $2000 (the file is assembled to run at $2000);
+   otherwise the half is refused saying so. Not the address range ($2000-$3FFF is ROM, or
+   whatever a NEX maps there, at the attach) and not `__crt_org_code` (newlib only).
+   NextZXOS copies the file into a DivMMC RAM bank and runs it from $2000 there, with
+   port 0xE3 = $82 (VHDL `divmmc.vhd:89-96`: `conmem` makes the bank `port_e3_reg(3:0)` the
+   $2000-$3FFF page; SRAM page 0x10 + bank, `zxnext.vhd:3092-3098`). The bank is not in the map.
+   **Measured** (jnext booting NextZXOS, 2026-10-31, scratch runs in the issue): for a plain dot,
+   a dotx and a dotn, the file lands in bank 2 (E3 alternates $02 and $00 during the copy,
+   then `E3 <- $82` and the CPU executes $2000 with the file's bytes); dotx and dotn need the
+   crt's `CLEAR 32767` first. This agrees with the NextZXOS API document (a dot command is
+   assembled at $2000 and loaded into DivMMC RAM; NextZXOS reserves the first six DivMMC banks).
+   NextZXOS's 48K personality and esxDOS proper were not measured. In a dot or dotx, a section
+   that names no page with an address in $2000-$3FFF is `DivMmcRam{2}` (`kNextZxosDotBank`,
+   `z88dk_space.h`); a dotx's other such sections (its main part, at `CRT_ORG_MAIN` $8000) are
+   rule 4: the MMU's page, `Page{4}`/`Page{5}` under NextZXOS (measured). A dotn is REFUSED
+   (owner decision 351-D3, 2026-10-31): its main bank and its `PAGE_<n>` / `DIV_<n>` sections are
+   pages NextZXOS allocates when the command runs (`__z_page_table`, `__z_div_table`;
+   measured $DC $DB $DE $DD), so a map cannot place them; the source half is refused with that
+   reason (build it as a dotx to debug it), and the symbol half skips what it cannot place.
+   `DIV_<n>` and `<KIND>_DIV_<n>` outside a dotn stay `Unpaged`: z88dk's `appmake` only writes
+   them as raw `prog_DIV_<n>.bin` files for the program to load wherever it chooses, so the
+   number is a logical bank, never `DivMmcRam{n}`. A `PAGE_<n>` section with no `__PAGE_<n>_head`
+   and a section number out of range refuse the source half (there is no unqualified record,
+   D3). The detection is ONE function (`z88dk_dot_command()`), and every consumer of
+   `z88dk_section_space()` passes its result: the source half's records, extents and section
+   binaries, the symbol half, and the `.lis` placement (10.4).
 
 **Zero-width lines** (G3). A line whose address equals the next line's start is an alias of
 that line if both are in the same function: sccz80 and 80cc give the function; for sdcc, which
@@ -1384,7 +1459,7 @@ toolchain layer's by-name read also answers to the C name of a z88dk C symbol (1
   sidecar attach (a tape too) and, for the user's store, at every program load. Unpaged (DIV, a
   head-less PAGE, a number out of range): an unpaged label when the value fits 16 bits. Refused
   (24 bits in a section that names no page) and a value past 24 bits are skipped. `; const` stays
-  name-only, 16 bits (a wider constant is no name). A symbol with an empty section is rule 4 (BindAtLoad); only the source half drops those lines (G2).
+  name-only, 16 bits (a wider constant is no name). A symbol with an empty section is rule 4 (BindAtLoad); only the source half drops those lines (G2). A dot command's map (9.4 rule 5, E23-21 (#351)) gives its $2000-$3FFF symbols `DivMmcRam{2}` and a dotn's main-bank symbols are skipped (Refused), by the same `z88dk_dot_command()` as its source half.
 - **Simple map, `Memory.txt`, sjasmplus `--sym` and `--exp` files (#390)**: unpaged. A
   `--sym` or `--exp` value above 0xFFFF is settled by #390; the SLD rule above (name-only) is
   the precedent.
@@ -1568,7 +1643,7 @@ and in history, sidecar ownership and failure paths, the lifetime rows, every st
 `debugger_source_panel_test` (the Source tab, page-qualified model rows and gutter, the Call
 Stack column, symbol address fields), `rewind_call_stack_test` (the tracker across rewind),
 `debugger_backend_test` (SYM-14 to SYM-18, the `-debug` map symbols; INS-13-15, the 56-byte
-`TraceEntry`; INS-02-30, `peek`/`poke` refuse the identity-only kinds), and the functional rows
+`TraceEntry`; INS-02-30, `poke` of every identity-only kind and `peek` of all but `DivMmcRam` are refused; INS-02-31/32, `peek(DivMmcRam)`), and the functional rows
 `nextbuild-symbols-func` and `source-map-func`. E23-07 (#339) added FSRC-01 to FSRC-16 (the
 arbiter's order, one row per arm, and `read()` equal to its route; `mmu_test` and
 `mmu_integration_test`), MF-M1G-07 (`multiface_test`), DM-PRED-01 (`divmmc_test`) and
@@ -1581,6 +1656,15 @@ SRCDBG-BACK-12 (`source_debug_test`: steps by range, Back to the statement's fir
 instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
+
+E23-21 (#351) added Z88DOT-01 to Z88DOT-08 (`z88dk_map_test`: the dot / dotx / dotn / master fixtures'
+spaces, detection by the map and not the address, the symbol half, the identity units, the `.lis`
+route), INS-02-31/32 (`debugger_backend_test`: `peek(DivMmcRam)`; INS-02-30 now keeps `divmmc_ram(3)`
+in its `poke` half only, owner-approved 2026-10-31), SRCDOT-01 to SRCDOT-09 (`source_debug_test`: a
+source breakpoint and the steps inside the command, the same bytes in RAM and under the ROM, the
+judgement at the entry, a hand load, landings, dotx, a rewind), QDOT-01/02
+(`debugger_source_panel_test`) and the functional row `z88dk-dot-source-func` (real NextZXOS, the dot on the
+card with `--sdcard-file-add`, typed, in headless, SDL and Qt).
 
 E23-23 (#375) stage 3 added SYMPG-13 (`source_map_test`: `bind()`), Z88SYM-01 to Z88SYM-09
 (`z88dk_map_test`: the symbol loader's pages, the rule-4 bind, the Unpaged and Refused table, two
@@ -1659,8 +1743,9 @@ Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22
 `classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
 2026-10-31.
 
-**Planned.** The functional rows `source-map-func` (a looked-up line, E23-15) and
-`z88dk-source-func` (E23-15).
+E23-15 (#346) added GDB-MON-30..34 (`monitor src`), LEX-27/28 and PARSE-SRC-01..03, DSL-SRC-01..08,
+DSL-SYMSP-01..05, SCRIPT-HOST-SRC-01..11, and the functional rows `source-map-func` (a looked-up line
+over `monitor src`) and `z88dk-source-func` (scripts on a line or a symbol in three frontends, `monitor src`).
 
 **Oracles.**
 

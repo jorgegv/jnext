@@ -1091,11 +1091,19 @@ with status 1.
     scripts load, and their rules run, in the order given. A script that
     cannot be read, or that has any error, is reported as
     *file*:*line*:*column*: *message* and jnext exits 1 before the
-    machine runs - nothing of it runs partially. In **--headless** and
-    the SDL-only build a script decides the exit status: `exit` *N*
-    exits *N*, a `stop` or a failed `assert` exits 3, a run-time error
-    exits 1. In the Qt GUI a script never ends the program: `stop` and
-    `exit` pause the machine instead.
+    machine runs - nothing of it runs partially. With **--load**, a
+    script that names a source line (`on execute main.c:19`), an
+    `@symbol` that **--map** does not know, or a z88dk **--map** symbol
+    of a section that names no page waits, with the scripts after it,
+    until the program is in (it is still read and parsed at once); an
+    error then also exits 1. Its rules start at the load: an `on frame`
+    *N* or a **--script-key** due before it never fires (a `.tzx` or
+    `.wav` loads about 100 frames in), so give such rules in an earlier
+    script that names neither. In **--headless** and the SDL-only build
+    a script decides the exit status: `exit` *N* exits *N*, a `stop` or
+    a failed `assert` exits 3, a run-time error exits 1. In the Qt GUI a
+    script never ends the program: `stop` and `exit` pause the machine
+    instead.
 
 **--script-key** *FRAME* *N*
 :   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
@@ -1129,12 +1137,21 @@ with status 1.
     (told apart by its contents), to the program **--load** loads, as if
     loaded by hand with **Debug \> Source \> Load Source Map…**. A z88dk
     map gives source lines only (and reads the `--list` listings beside
-    it); its symbols stay with **--map**. Requires **--load**. A map
-    whose binary identity does not match the program, or that cannot be
-    loaded, is a startup error (exit status 1). With a tape program
-    (`.tap`, `.tzx`, `.wav`) the map attaches at once and is checked the
-    first time the program runs its code; a mismatch then drops it, and
-    the run exits with status 1.
+    it); its symbols stay with **--map**. Requires **--load**, unless
+    *FILE* is the map of a z88dk dot command (`-subtype=dot`, `dotx`;
+    built with `-debug`): that map is attached at once, before any
+    script loads, and stays pending until the guest runs the command,
+    when it is checked (the command is loaded into DivMMC RAM by
+    NextZXOS, which jnext does not know until it runs; see the User
+    Guide). Any other map without **--load** is refused (exit status 1).
+    An RZX replay (**--rzx-play** *R*, or **--load** *R*`.rzx`) is the
+    same case: a dot command’s map attaches pending, any other map is
+    refused at start-up naming RZX (exit status 1). A map whose binary
+    identity does not match the program, or that cannot be loaded, is a
+    startup error (exit status 1). With a tape program (`.tap`, `.tzx`,
+    `.wav`) the map attaches at once and is checked the first time the
+    program runs its code; a mismatch then drops it, and the run exits
+    with status 1.
 
 **--source-dir** *DIR*
 :   Also search *DIR* for the source files a source map names, in the

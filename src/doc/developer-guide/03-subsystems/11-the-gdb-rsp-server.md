@@ -58,6 +58,12 @@ unchanged PC would clear a HALT. `Z0`/`Z1` are one `Execute` subscription each,
 client and removed by its detach (`D`, `k` or a dropped socket), so a crashed
 client can never leave a stopping breakpoint behind.
 
+`monitor src [ADDR]` (GH #346) answers `$ADDR file:line MEM` from
+`source_location()` and `source_page()`: the primary location only, in the memory
+mapped at ADDR now, `unmapped` when no record covers it. ADDR is a number, a
+symbol (through `lookup_name()`) or the PC. The memory spelling is the one of
+`monitor mmu`/GH #360 (`P04`, `ROM0`, `BOOT`).
+
 ## Tests
 
 - `gdb_rsp_test` (Qt-free, both configurations) runs the production `Server`

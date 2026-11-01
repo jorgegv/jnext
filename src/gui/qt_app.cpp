@@ -345,6 +345,21 @@ bool QtApp::init(int argc, char* argv[]) {
     // (post_frames() below). platform/debug_servers.h.
     if (!debug_servers_.start(*debugger_, config_)) return false;
     // ── end GH #12 ──────────────────────────────────────────────────────────
+    // GH #351 - --source-map without --load (or with an RZX replay): the map of a z88dk dot command, attached
+    // now (before the scripts, so a `file:line` rule resolves) and pending until the
+    // guest runs the command. Any other map needs a program: refused.
+    if (!config_.source_map_file.empty() && config_.source_map_no_program != 0) {
+        const auto sm = emulator_attach_cli_source_map(
+            *debugger_, config_.source_map_file, /*deferred=*/false, /*dot_only=*/true,
+            /*rzx=*/config_.source_map_no_program == 2);
+        if (!sm.ok) {
+            Log::platform()->error("{}", sm.line);
+            return false;
+        }
+        Log::platform()->info("{}", sm.line);
+        source_map_watch_ = sm.pending;
+        config_.source_map_file.clear();
+    }
     // GH #26 WP4 — the scripts, after the servers and before the machine runs:
     // a script that does not load is a startup failure (exit 1, §6.5).
     {
@@ -353,6 +368,7 @@ bool QtApp::init(int argc, char* argv[]) {
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.program_pending = jnext::script::load_pending_for_scripts(config_.load_file);   // GH #346
         so.exits    = false;  // the GUI pauses; it never exits from a script (§6.3)
         script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
@@ -705,6 +721,9 @@ bool QtApp::TickEffects::pre_frames() {
             }
         }
         a.config_.source_map_file.clear();
+        // GH #346 - the scripts held back for the program's maps (the GUI keeps
+        // running on a failure, as for a failed --source-map).
+        if (!a.script_host_.program_loaded()) a.exit_code_ = 1;
         // A File > Open load that failed gets its dialog (deferred to the
         // event loop by the window; this is inside the frame tick).
         if (a.main_window_) a.main_window_->load_finished(a.load_file_, loaded);

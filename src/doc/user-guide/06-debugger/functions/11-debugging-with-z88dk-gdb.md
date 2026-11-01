@@ -108,11 +108,20 @@ reaches what the GDB protocol itself cannot express:
 | `monitor page N OFF [LEN]` | a hex dump of physical 8 KB page N |
 | `monitor in PORT` / `monitor out PORT VALUE` | a real port access — it can change the device's state, so both are refused while an RZX recording or playback is running |
 | `monitor sym NAME\|ADDR` | JNEXT's own symbol table (the debugger window's map); an address is named only by a label that is visible in the page mapped there now, and the answer carries the tag of that memory (`$C004 P14 = banked+4`, `banked = $C000 P14`) |
+| `monitor src [ADDR]` | the source line JNEXT's own map gives an address (default the PC) and the memory it is in, such as `$8CB8 main.c:19 P04`, or `$8CB8 unmapped P04`; a cross-check like `monitor sym`; ADDR may be a symbol |
 | `monitor time` | frame, cycle, T-states and the raster position |
 | `monitor reset [soft\|hard]` | resets the machine; it stays stopped |
 | `monitor bp` | every breakpoint and watchpoint, and who set it |
 
 Numbers may be written `0x..`, `$..` or in decimal.
+
+## Source lines
+
+`z88dk-gdb` does its own source mapping, from the map you give it with `-x`:
+build the program with `-m -debug` and `break main.c:19`, `list` and `next`
+work in the client. `monitor src` shows what JNEXT's own map (the one it
+attaches when it loads the program) says about an address, so the two can be
+compared.
 
 ## Headless runs
 

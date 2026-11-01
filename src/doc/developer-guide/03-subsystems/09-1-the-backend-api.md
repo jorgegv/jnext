@@ -370,6 +370,10 @@ the functional row `script-map-pipe-func`).
 
 ### Source maps — CAP-SRC
 
+Remote and script consumers of the map (GH #346): the GDB server's `monitor src`
+reads `source_location()`; the DSL's `on execute file:line` reads
+`source_map().resolve()` and subscribes one `Execute` per start.
+
 The backend also owns one `SourceMap` (`src/debug/source_map.*`): records of
 ranges `{space, lo, hi_excl, location}` (file, line, column) keyed by the
 `FetchSource` that supplies the code, filled by a format adapter —
@@ -472,7 +476,15 @@ binaries, or verified for the code the binaries cover (`SourceMapLoadResult::unc
 counts the ranges they do not). `--source-map FILE` (`EmulatorConfig::source_map_file`)
 is this load, made once by each frontend right after the first successful `--load` and
 its sidecars (`emulator_attach_cli_source_map()` in `platform/emulator_boot.h`); a
-refusal logs an error and the run exits 1. `main.cpp` refuses it without `--load`. With a tape
+refusal logs an error and the run exits 1. Without `--load` (GH #351) each frontend makes it
+once at start-up, before `ScriptHost::start()`, with `dot_only`: only a z88dk dot command's map
+(`SourceMap::dot()`, told by `z88dk_dot_command()`) is accepted, and any other is refused with
+`SourceMapLoad::not_dot`. A dot map is
+deferred whatever `verify_at_first_execution` says (it attaches pending, except that a hand load made while
+the CPU already runs the command from bank 2 judges like a landing and is verified, `dot_adopt()`), and is judged at its entry (the CPU
+about to execute `$2000` fetched from `DivMmcRam{2}`, `kNextZxosDotBank`): see the design, 6.2
+and 6.5; `DeferredCheck::dot` carries it, `SourceMapStatus::dot` tells the Source tab. The check keeps a capped history of its state by clock cycle and generation (`dot_record()`): a ring landing reads back the state the original run had at that cycle (`dot_landing()`), a fresh landing leaves it pending, and a hand load judges like a landing (`dot_adopt()`). `--source-map` with `--rzx-play` / `--load R.rzx` is the no-`--load` case (`EmulatorConfig::source_map_no_program` = 2; the refusal names RZX). `peek`
+reads `DivMmcRam{b}` (read-only; `poke` refuses it). With a tape
 `--load` the helper passes `deferred` (`program_loads_later()`), the map attaches pending
 (*Tapes*), and the frontend watches it with `emulator_poll_cli_source_map()` once per tick
 (`source_map_watch_` in `HeadlessApp`, `SdlApp` and `QtApp`): a map dropped by the check

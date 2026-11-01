@@ -15,7 +15,7 @@ end
 
 | Event | Filter | Payload (besides `PC`) |
 |---|---|---|
-| `execute` | `A[..B] [page P]`, `page P[..Q]` (≤ 16 pages) | `ADDR PAGE` |
+| `execute` | `A[..B] [page P]`, `page P[..Q]` (≤ 16 pages), `file:line` | `ADDR PAGE` |
 | `read` | `A[..B] [page P]`, `page P[..Q]` | `ADDR VALUE PAGE SOURCE` |
 | `write` | `A[..B] [page P]`, `page P[..Q]` | `ADDR VALUE PREV PAGE SOURCE` |
 | `io_read`, `io_write` | `P[..Q]` (≤ 0xFF: low byte), `mask M value V` | `PORT VALUE SOURCE` |
