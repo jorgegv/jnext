@@ -40,6 +40,10 @@ public:
     QString location_text() const;
     /// One-based line highlighted in the editor, 0 when none.
     int highlighted_line() const { return highlighted_line_; }
+    /// GH #428 — the file shown has changed on disk since it was loaded, which
+    /// refresh() would answer with a reload. The paused refresh gate asks, so
+    /// an edit-and-rebuild still shows while nothing else changes.
+    bool file_changed_on_disk() const;
 
 signals:
     void step_into_requested();

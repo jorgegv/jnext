@@ -22,6 +22,7 @@
 #include <QStyle>
 #include <QTimer>
 #include <QEvent>
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QStatusBar>
@@ -130,7 +131,7 @@ void DebuggerManager::apply_pause_state(bool paused) {
         emit this->paused();
         if (debugger_window_) {
             debugger_window_->activate_follow_pc();
-            debugger_window_->refresh_panels();
+            refresh_window();
         }
     } else {
         emit resumed();
@@ -139,6 +140,23 @@ void DebuggerManager::apply_pause_state(bool paused) {
 }
 
 bool DebuggerManager::eventFilter(QObject* obj, QEvent* event) {
+    // GH #428 — host input anywhere in the app (installed on qApp while the
+    // debugger is enabled). MouseMove is deliberately not counted: hover and
+    // Kempston mouse capture must not redraw a paused window.
+    switch (event->type()) {
+    case QEvent::KeyPress:
+    case QEvent::KeyRelease:
+    case QEvent::ShortcutOverride:   // a shortcut consumes the KeyPress itself
+    case QEvent::Shortcut:
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::Wheel:
+        ++input_epoch_;
+        break;
+    default:
+        break;
+    }
     if (obj == main_window_) {
         if (event->type() == QEvent::Move || event->type() == QEvent::Resize) {
             reposition_debugger_window();
@@ -188,7 +206,8 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
         set_panels_paused(dbg_.state().paused);
 
         // Refresh panels immediately.
-        debugger_window_->refresh_panels();
+        refresh_window();
+        qApp->installEventFilter(this);   // GH #428: the input epoch
     } else {
         // Resume if paused, then deactivate.
         if (dbg_.state().paused) {
@@ -228,6 +247,7 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
             emit resumed();
         }
         shown_paused_ = false;
+        qApp->removeEventFilter(this);
 
         // GH #278 WP4c — nothing else to clear. The legacy `active()` bit this
         // used to clear (set by the magic-breakpoint hook and, before WP3, by
@@ -562,7 +582,7 @@ void DebuggerManager::on_load_map_z88dk() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
-        refresh_panels();   // GH #390: the Breakpoints / Call Stack names are computed there
+        force_refresh();   // GH #390: the Breakpoints / Call Stack names are computed there
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
@@ -581,7 +601,7 @@ void DebuggerManager::on_load_map_simple() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
-        refresh_panels();
+        force_refresh();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
@@ -600,7 +620,7 @@ void DebuggerManager::on_load_map_sjasmplus() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
-        refresh_panels();
+        force_refresh();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
@@ -620,7 +640,7 @@ void DebuggerManager::on_load_nextbuild_memory() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
-        refresh_panels();
+        force_refresh();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load NextBuild symbols from:\n%1\n\n%2")
@@ -654,8 +674,7 @@ void DebuggerManager::on_load_sld() {
     if (r.count >= 0) {
         QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
             QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path));
-        refresh_panels();
-        update_actions();
+        force_refresh();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load SLD source map:\n%1\n\n%2")
@@ -720,6 +739,32 @@ void DebuggerManager::on_source_reverse_continue() {
 // Panel refresh
 // ---------------------------------------------------------------------------
 
+void DebuggerManager::refresh_window() {
+    ++panel_refresh_count_;
+    debugger_window_->refresh_panels();
+    // Taken AFTER the redraw: a panel may itself touch the backend, and that
+    // must not read as a change at the next tick.
+    last_stamp_ = paused_stamp();
+    last_stamp_valid_ = true;
+}
+
+DebuggerManager::PausedStamp DebuggerManager::paused_stamp() const {
+    PausedStamp s;
+    s.cycle = dbg_.time().master_cycle;
+    s.revision = dbg_.state_revision();
+    s.input_epoch = input_epoch_;
+    if (debugger_window_ && debugger_window_->source_panel())
+        s.source_file_changed = debugger_window_->source_panel()->file_changed_on_disk();
+    return s;
+}
+
+void DebuggerManager::force_refresh() {
+    if (!enabled_ || !debugger_window_)
+        return;
+    refresh_window();
+    update_actions();
+}
+
 void DebuggerManager::refresh_panels() {
     if (!enabled_ || !debugger_window_)
         return;
@@ -730,18 +775,24 @@ void DebuggerManager::refresh_panels() {
     // Buffer Size... = 0. Recomputed only by the verbs, Step Back and Jump Here
     // stayed enabled over them until the next verb, and the click was then
     // refused. (While running every such action is off whatever those inputs
-    // are, and the verb that resumed has already said so.)
+    // are, and the verb that resumed has already said so.) So update_actions()
+    // runs on every paused tick; it is cheap.
     if (dbg_.state().paused) {
+        // GH #428 — the PANELS are redrawn only when something they show may
+        // have changed (paused_stamp()). A paused machine with nothing
+        // happening used to redraw everything, the Video tab's composited
+        // frame included, fifty times a second.
         // The raster the panels show is the backend's (INS-06), which takes a
         // paused machine's snapshot at the query itself (GH #278 WP7).
-        debugger_window_->refresh_panels();
+        if (!last_stamp_valid_ || !(paused_stamp() == last_stamp_))
+            refresh_window();
         update_actions();
     } else {
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;
         if (refresh_counter_ >= REFRESH_INTERVAL) {
             refresh_counter_ = 0;
-            debugger_window_->refresh_panels();
+            refresh_window();
         }
     }
 }

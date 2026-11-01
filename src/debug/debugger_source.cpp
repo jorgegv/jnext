@@ -90,6 +90,7 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     }
     impl_->source_map    = std::move(candidate);
     impl_->sources_owner = Impl::StoreOwner::User;
+    impl_->bump_revision();   // GH #428
     out.count = parsed.count;
     return out;
 }
@@ -97,6 +98,7 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
 Result Debugger::clear_source_map() {
     impl_->source_map.clear();
     impl_->sources_owner = Impl::StoreOwner::None;
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -134,6 +136,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     // The sidecars about to be attached belong to the program loaded now.
     impl_->sidecar_attach_cycle = impl_->emu.clock().get();
     impl_->sidecar_recheck      = false;
+    impl_->bump_revision();   // GH #428: symbols / source map may change below
 
     // Symbols. The user's store is never touched; a previous program's
     // sidecar symbols never survive into a program they do not describe —

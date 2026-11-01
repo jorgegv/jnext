@@ -111,6 +111,7 @@ bool SdlApp::init(int argc, char* argv[]) {
     };
 
     input_.on_quit = [this]() { running_ = false; };
+    input_.on_window_invalidated = [this]() { display_.request_redraw(); };   // GH #428
 
     // Issue #122 — bind the key router to this machine's Keyboard BEFORE the
     // callback below can fire (SDL_PollEvent only runs inside run(), so the
@@ -656,8 +657,25 @@ void SdlApp::run() {
         const int fb_w = emulator_.get_framebuffer_width();
         const int fb_h = emulator_.get_framebuffer_height();
         if (present_this_tick) {
-            display_.upload_frame(fb, fb_w, fb_h);
-            display_.present();
+            // GH #428 — a frame the display already shows is not drawn again:
+            // a paused machine used to re-upload and present it every tick.
+            // take_redraw_request() is read unconditionally so it is consumed.
+            const bool redraw = display_.take_redraw_request();
+            ++present_ticks_;
+            if (render_policy::upload_needed(emulator_.framebuffer_generation(),
+                                             last_uploaded_gen_, redraw)) {
+                display_.upload_frame(fb, fb_w, fb_h);
+                display_.present();
+                last_uploaded_gen_ = emulator_.framebuffer_generation();
+                ++present_uploads_;
+            }
+            const uint64_t now_ms = SDL_GetTicks();
+            if (now_ms - present_window_start_ms_ >= 1000) {
+                Log::platform()->debug("sdl present: ticks={} uploads={}",
+                                       present_ticks_, present_uploads_);
+                present_ticks_ = present_uploads_ = 0;
+                present_window_start_ms_ = now_ms;
+            }
         }
 
         // Delayed screenshot: the OUTCOME. This tick's pump (above) has written

@@ -177,6 +177,7 @@ Result Debugger::log(ClientId by, LogLevel level, const std::string& text) {
 // them, so there is no path by which a mutation is unlogged.
 void Debugger::Impl::log_mutate(ClientId by, const std::string& what,
                                 long long old_value, long long new_value) {
+    bump_revision();   // GH #428
     char buf[96];
     std::snprintf(buf, sizeof(buf), "MUTATE %s 0x%llX -> 0x%llX by %u",
                   what.c_str(), static_cast<unsigned long long>(old_value),
@@ -191,11 +192,14 @@ void Debugger::Impl::log_mutate(ClientId by, const std::string& what,
     self->log(CLIENT_NONE, LogLevel::Info, buf);
 }
 
+uint64_t Debugger::state_revision() const { return impl_->state_revision; }
+
 // A BLOCK write has no single "old -> new" to report, and inventing one (the
 // first byte's) would read as a claim about the whole range. §4.2a's format is
 // for a single value; a range says what it actually did instead.
 void Debugger::Impl::log_mutate_range(ClientId by, const std::string& what,
                                       const std::string& detail) {
+    bump_revision();   // GH #428
     self->log(CLIENT_NONE, LogLevel::Info,
               "MUTATE " + what + " " + detail + " by " + std::to_string(by));
 }
@@ -246,7 +250,10 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
     // A MAP the user chose replaces whatever a program's sidecar brought —
     // once it HAS: a file that cannot be read leaves the table, and so its
     // owner, as they were.
-    if (n >= 0) impl_->symbols_owner = Impl::StoreOwner::User;
+    if (n >= 0) {
+        impl_->symbols_owner = Impl::StoreOwner::User;
+        impl_->bump_revision();   // GH #428
+    }
     // Both loaders return -1 on a file that cannot be read or parsed. That is
     // not a refusal of the verb by the machine's state, and it is not "there is
     // no such thing" either — the caller asked for a file that is not there.
@@ -257,6 +264,7 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
 Result Debugger::clear_symbols() {
     impl_->symbols.clear();
     impl_->symbols_owner = Impl::StoreOwner::None;
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -524,6 +532,7 @@ bool Debugger::rewind_enabled() const { return impl_->emu.rewind_enabled(); }
 
 Result Debugger::set_rewind_enabled(bool enabled) {
     impl_->emu.set_rewind_enabled(enabled);
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -566,6 +575,7 @@ std::optional<Result> Debugger::rewind_blocked() const {
 // creates a fresh one (ST-03-09).
 Result Debugger::resize_rewind_buffer(size_t frames) {
     impl_->emu.resize_rewind_buffer(static_cast<int>(frames));
+    impl_->bump_revision();   // GH #428
     // GH #400: a ring implies the trace (Emulator::resize_rewind_buffer turns it
     // on); record that wish so the re-application after a machine rebuild does
     // not put back a stale "off" the client set before enabling rewind.

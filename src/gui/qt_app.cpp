@@ -745,7 +745,7 @@ void QtApp::TickEffects::present(bool carries_new_content) {
     app.main_window_->emulator_widget()->update_frame(
         app.emulator_.get_framebuffer(),
         app.emulator_.get_framebuffer_width(), app.emulator_.get_framebuffer_height(),
-        carries_new_content);
+        carries_new_content, app.emulator_.framebuffer_generation());
 }
 
 void QtApp::TickEffects::post_frames(int frames_rendered) {
@@ -987,6 +987,13 @@ void QtApp::on_status_tick() {
     // first so one report carries all four mechanisms; then reset. All
     // semantics live in src/platform/tick_stats.h — this is formatting only.
     EmulatorWidget::FlushStats flush{};
+    // GH #428 — idle-redraw counters: display uploads and debugger-panel
+    // refreshes made in this window (0 and 0 for a paused, unchanged machine).
+    uint64_t uploads = 0, panel_refreshes = 0;
+    if (main_window_->emulator_widget()) uploads = main_window_->emulator_widget()->take_upload_count();
+#ifdef ENABLE_DEBUGGER
+    if (auto* mgr = main_window_->debugger_manager()) panel_refreshes = mgr->take_panel_refresh_count();
+#endif
     if (main_window_->emulator_widget()) {
         seq_.stats().paint_us = main_window_->emulator_widget()->take_paint_stats();
         flush = main_window_->emulator_widget()->take_flush_stats();
@@ -1018,10 +1025,12 @@ void QtApp::on_status_tick() {
             "ticks: n={} interval avg/min/max={} late(>{:.1f}ms)={} "
             "handler avg/min/max={} emu avg/min/max={} "
             "queue avg/min/max={} paint avg/min/max={} | "
-            "timer re-armed={} rescued={} | pending-paint checked={} painted={}",
+            "timer re-armed={} rescued={} | pending-paint checked={} painted={} | "
+            "uploads={} panel-refreshes={}",
             ts.ticks, ms3(ts.interval_us), ts.late_threshold_us / 1000.0,
             ts.late, ms3(ts.handler_us), ms3(ts.emu_us), qms(ts.queue_ms),
-            ms3(ts.paint_us), rearms, rescues, flush.checked, flush.painted);
+            ms3(ts.paint_us), rearms, rescues, flush.checked, flush.painted,
+            uploads, panel_refreshes);
     }
 
     // Read current CPU speed from NextREG 0x07 (bits 1:0).
