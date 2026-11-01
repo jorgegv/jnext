@@ -571,6 +571,12 @@ struct Debugger::Impl {
     /// it to know the program under it was replaced.
     uint64_t program_loads = 0;
 
+    /// GH #428 — advanced by every MUTATE line (log_mutate*) and by every
+    /// metadata verb that changes what a panel shows. A paused frontend reads
+    /// it (Debugger::state_revision()) to redraw only when something changed.
+    uint64_t state_revision = 0;
+    void bump_revision() { ++state_revision; }
+
     /// CTL-12 — re-bind to the machine at `emu`'s address and re-apply
     /// everything the backend owns. Idempotent, and deliberately called whether
     /// or not the machine was actually replaced (see `Debugger::load`).

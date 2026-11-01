@@ -1141,6 +1141,15 @@ public:
     /// one it re-applies the REBUILT machine's own pause state, unowned.
     Result on_cold_boot_done();
 
+    /// GH #428 — a counter that advances on every change a panel could show
+    /// that does not move the master clock: each MUTATE (every write verb),
+    /// a cold boot, and each metadata verb (symbols, source map, subscriptions,
+    /// trace / coverage / rewind settings, attach / detach). Read-only queries
+    /// and pump() leave it alone, and so does a refused verb. A paused
+    /// frontend compares it (with the clock) between ticks to redraw only
+    /// when something changed.
+    uint64_t state_revision() const;
+
 private:
     // ── The ONE thing B1 added to this frozen header ────────────────────────
     //

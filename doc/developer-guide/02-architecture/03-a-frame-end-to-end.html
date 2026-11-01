@@ -2394,7 +2394,21 @@ window's tick count), <code>rescued=</code> (re-anchors of a tick that ended wit
 timer unarmed — must be 0) and <code>pending-paint checked=</code>/<code>painted=</code> (how often
 the tick-entry paint was asked, and how often it found a frame to paint — ~0
 on Linux, the Windows residual elsewhere). The <code>frame-loop-wiring-func</code>
-regression row runs the real GUI binary and pins the first three.
+regression row runs the real GUI binary and pins the first three.</p>
+<p><strong>An unchanged frame is not presented again (GH #428).</strong> <code>Emulator::
+framebuffer_generation()</code> advances at every write of the framebuffer (the
+end-of-frame render, both rewind re-renders, a cold boot); it is never reset.
+<code>render_policy::upload_needed()</code> decides, for <code>EmulatorWidget::update_frame()</code>
+(also in front of the CRT overlay's <code>submit()</code>) and for <code>SdlApp::run()</code>: upload
+when the generation differs from the last one uploaded, when the target changed
+(physical size, pixel ratio, fullscreen, source size; in SDL an exposed, resized
+or fullscreen-toggled window, via <code>SdlDisplay::request_redraw()</code>), or when
+nothing has been uploaded yet. A paused machine therefore does no copy, no
+prescale and no repaint, though the 50 Hz tick keeps running. The <code>ticks:</code> line
+ends with <code>uploads=</code> and <code>panel-refreshes=</code> (the latter is 0 without the
+debugger); the SDL loop logs <code>sdl present: ticks=N uploads=K</code> once a second. The
+<code>paused-idle-qt-func</code> and <code>paused-idle-sdl-func</code> rows hold a machine paused over
+GDB and assert both stay at 0.
 <code>frame_sequencer_test</code>'s FS-EDGE rows run the whole loop on a fake host whose
 frame costs 15.6 ms and 23 ms — the two figures from a real Windows report —
 and pin real-time pacing at the first and back-to-back emulation with no skips

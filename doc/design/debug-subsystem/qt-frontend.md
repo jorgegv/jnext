@@ -65,7 +65,7 @@ find a home in the refactor (§3.5, §3.6).
 
 Legend for the **When** column: `P` = only while paused (the panel gates on
 its own `paused_` flag), `T` = on every manager tick that reaches
-`DebuggerWindow::refresh_panels()` (paused: every tick; running: every 12th
+`DebuggerWindow::refresh_panels()` (paused: when the GH #428 stamp changed, owner-approved 2026-11-01; running: every 12th
 tick, `debugger_manager.h:136-138`, `.cpp:672-679`), `E` = on a user edit/click,
 `O` = on `BreakpointSet` observer notification, `C` = at construction,
 `X` = on Qt paint (not tied to refresh at all).
@@ -1089,7 +1089,7 @@ timer (so §6.2's "the QFileDialog is not testable" did not hold).
 | QSO-01..06 | verbs | As designed. Each row also asserts the action set (running shape while a call-like step runs, paused shape at the stop). QSO-04's restart routine is the row's own code under +3 all-RAM paging: a ROM `RST $38` ran the 48K interrupt routine on an unset-up machine and never came back. |
 | QSI-01..03 | verbs | As designed, plus **QSI-04** (added): the step's own UI — CPU panel and Disassembly on the new PC with no tick in between. |
 | QPE-01..05 | verbs | 01 Run freezes CPU / Stack / Call Stack / Disassembly (its listing too) and flips the actions; 02 a breakpoint's pause edge refreshes them; 03 the Disassembly re-centres; 04 raster read-out: dashes while running, the stop line after the edge's tick (the panel-only half already existed as DVP-RAS-11..14); 05 Break. Plus **QPE-06** (added after a surviving mutation): Step Over on a call, Step Out, Run to Here, Run to EOF and Run to EOSL freeze the panels exactly as Run does. |
-| QTH-01 | verbs | As designed, plus **QTH-02** (added): while paused every tick refreshes. |
+| QTH-01 | verbs | As designed, plus **QTH-02** (added): while paused every tick refreshes. **Rewritten (owner-approved 2026-11-01, GH #428):** that claim was the reported defect; QTH-02 now pins that a NextREG change made through the backend shows at the next paused tick (the idle half is QIDLE-01), and a paused window redraws only when the stamp (registers, clock, backend revision, input epoch, source mtime) changes. |
 | QRW-01..12 | verbs | Renumbered: 01 toolbar shown only past one snapshot; 02 slider = [oldest, newest] tag and the label "Frame <newest> / <newest>" at the live end; 03 thumb at the live end while running; 04 thumb user-owned while paused; 05 "Rewind: N frames / M MB"; 06 after a jump to t, "Rewound: frame t of <newest> (F5 / Continue …)" and "Frame t / <newest>"; 07 / **07b** Frame Back button / menu, three presses from the live end = frames K, K-1, K-2; 08 Step Back button + menu; 09 slider release + Jump Here; 10 trace-off greys Step Back only; 11 RZX greys both on the next tick, running greys both; 12 Enable Rewind creates; **16** Buffer Size dialog (0 greys Step Back / Jump Here on the next tick); **17** Enable Rewind off = keep-but-pause; **18** Enable Rewind on resumes the same buffer; **19** a frame run again after a rewind keeps its number and the abandoned snapshots go. The restored machine is asserted by the HL a counter loop held at each tagged frame start. |
 | QRW-13..15 | verbs | As designed: refused (RZX), benign, corrupt. |
 | QWP-01..06 | panels | Split: QWP-06 is the immediate route, **QWP-07** (added) the `(rr)` route. |

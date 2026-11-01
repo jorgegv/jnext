@@ -155,6 +155,12 @@ void SourcePanel::update_buttons(bool paused)
     reverse_btn_->setEnabled(backward);
 }
 
+bool SourcePanel::file_changed_on_disk() const
+{
+    if (loaded_source_.isEmpty()) return false;
+    return QFileInfo(loaded_source_).lastModified().toMSecsSinceEpoch() != loaded_mtime_;
+}
+
 void SourcePanel::refresh()
 {
     if (!dbg_) return;

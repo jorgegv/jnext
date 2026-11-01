@@ -631,6 +631,7 @@ bool Debugger::magic_breakpoint() const {
 
 Result Debugger::set_magic_breakpoint(bool enabled) {
     impl_->emu.set_magic_breakpoint(enabled);
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -655,6 +656,7 @@ Result Debugger::set_persistent_breakpoints(bool enabled) {
     // value and a client's `set_persistent_breakpoints(true)` silently ends at
     // the next hard reset.
     impl_->want_persistent = enabled;
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 

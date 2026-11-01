@@ -779,9 +779,7 @@ void HeadlessApp::run() {
             // emulator.cpp render_this_frame gate) so get_framebuffer() is
             // stale except right before a requested screenshot. Force a
             // render here so every probed frame's hash is real.
-            emulator_.renderer().render_frame(emulator_.get_framebuffer(),
-                emulator_.mmu(), emulator_.ram(), emulator_.palette(),
-                emulator_.layer2(), &emulator_.sprites(), &emulator_.tilemap());
+            emulator_.render_framebuffer_now();
             uint64_t fb_hash = 1469598103934665603ull;  // FNV-1a 64-bit offset basis
             const uint32_t* fb = emulator_.get_framebuffer();
             const size_t fb_pixels = static_cast<size_t>(emulator_.get_framebuffer_width()) *
