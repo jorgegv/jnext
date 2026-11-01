@@ -191,6 +191,18 @@ struct Fixture {
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
         settle();
+        // The opening fit is a chain of queued passes (and, under a window manager, of round trips).
+        // Keep waiting until the size has not changed for two consecutive 100 ms polls (bounded at
+        // 5 s), as window_grow_test's Fixture does; DW-11/DW-12 read the frame after the last pass.
+        if (ok) {
+            QSize last = dbg->size();
+            int stable = 0;
+            for (int i = 0; i < 50 && stable < 2; ++i) {
+                settle(100);
+                stable = (dbg->size() == last) ? stable + 1 : 0;
+                last = dbg->size();
+            }
+        }
     }
     ~Fixture() {
         if (mgr) mgr->set_enabled(false, /*prompt_on_corrupt=*/false);

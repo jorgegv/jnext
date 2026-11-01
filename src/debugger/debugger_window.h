@@ -209,6 +209,10 @@ private:
     // fit waits for the resize event of the size it asked for instead of taking that for a user resize.
     bool   fit_awaiting_ = false;
     bool   fit_over_ = false;   // the user resized the window: the fit never resumes
+    // A window manager can answer the map of a window with the size it had BEFORE the fit's first
+    // (pre-map) request. The fit then starts again from that size, a bounded number of times.
+    int    fit_reverts_ = 0;
+    static constexpr int kMaxFitReverts = 3;
     int    initial_fit_width_passes_ = 0;
     int    fit_last_add_ = 0;       // window width added by the previous width pass
     int    fit_last_lacking_ = 0;   // what the left column still lacked before it

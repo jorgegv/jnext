@@ -477,6 +477,14 @@ void DebuggerWindow::resizeEvent(QResizeEvent* event) {
     if (fit_awaiting_ && size() == fit_set_size_) {
         fit_awaiting_ = false;
         QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+    } else if (!fit_awaiting_ && !fit_over_ && size_is_default_ && fit_set_size_.isValid() && size() == fit_prev_size_ &&
+               fit_reverts_ < kMaxFitReverts) {
+        // The window manager answered the map with the size from before our (pre-map) request, and
+        // took our size back. Nothing else resized the window: ask again from here, as the first
+        // pass did, now that the window is managed and its frame is known.
+        ++fit_reverts_;
+        fit_set_size_ = QSize();
+        QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
     } else if (fit_awaiting_ && size() != fit_prev_size_) {
         // Neither the size asked for nor the one before it: someone else resized the window. The fit
         // is over, so a later restore of exactly the requested size must not resume it.
