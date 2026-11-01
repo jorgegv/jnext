@@ -5573,7 +5573,7 @@ int main() {
             const uint64_t rev0 = m.dbg->state_revision();
             const size_t at_before = m.dbg->source_map().size();
             const uint64_t rev1 = m.dbg->state_revision();
-            check("SRCDBG-Z88-33", "the state revision advances when the first reader after a rewind drops "
+            check("SRCDBG-Z88-36", "the state revision advances when the first reader after a rewind drops "
                                    "the program's z88dk map (a paused panel redraws on the revision, not the clock)",
                   back == Result::Ok && at_before == 0 && rev1 > rev0,
                   "back=" + std::to_string(int(back)) + " size=" + std::to_string(at_before) +
