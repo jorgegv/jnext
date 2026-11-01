@@ -24,7 +24,7 @@
 //
 //   QSRC-120..139  language detection and syntax highlighting (GH #422)
 //   QSRC-190..199  owner classes, punctuation and operators, colour schemes (GH #422 stage 2)
-//   QSRC-170..189  the current-line wedge, the also: list, selection sync, browse mode (GH #347)
+//   QSRC-170..189, 201..206  the current-line wedge, the also: list, selection sync, browse mode (GH #347)
 //
 // Qt is required; a display is not (offscreen QPA, as the other suites).
 // Run: ./build/test/debugger_source_panel_test
@@ -6336,10 +6336,18 @@ void test_source_sync() {
         w.sp->refresh();   // the manager's tick while running
         const bool running = w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000});
         w.dis_click(0x8002);   // a selection made while the machine runs is not followed
-        const bool ignored = !w.sp->browsing() && w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000});
+        bool ignored = !w.sp->browsing() && w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000});
+        // ... and a move the user makes in the Source tab while it runs announces nothing: no signal, no tint,
+        // and the Disassembly (which does not refresh then) is not scrolled
+        w.dp->show_address(0xA000);
+        const int run_scroll = w.scroll->value();
+        QSignalSpy run_lines(w.sp, &SourcePanel::source_lines_selected);
+        w.src_move(11);
+        ignored = ignored && run_lines.count() == 0 && w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000}) &&
+                  w.scroll->value() == run_scroll;
         fx.emu.debug_state().pause();
         check("QSRC-181", "a line whose only place is in an unmapped page links nothing and does not scroll; a line "
-                          "without code links nothing; clearing the map and running drop the tint, and a Disassembly click while it runs is not followed",
+                          "without code links nothing; clearing the map and running drop the tint, and a Disassembly click or a Source move while it runs is not followed",
               unmapped && nocode && lit && cleared && relit && running && ignored,
               "unmapped=" + std::to_string(unmapped) + " nocode=" + std::to_string(nocode) + " lit=" + std::to_string(lit) +
                   " cleared=" + std::to_string(cleared) + " relit=" + std::to_string(relit) + " running=" + std::to_string(running) +
@@ -6619,6 +6627,167 @@ void test_source_sync() {
     }
 }
 
+
+// ── GH #347 stage 2, review round 1: messages about the browsed line, placement, user paths, two files ──
+
+void test_source_sync_review() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-201: a message about the browsed line stays; only the map going away ends the browse
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("sync-missing.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "missing.bas|3||0|" + b + "|36864|T|\n"), false);
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x9000);
+        for (int i = 0; i < 5; ++i) w.tick();
+        QPushButton* goto_pc = button(w.sp, QStringLiteral("Go to PC Line"));
+        QPushButton* locate = button(w.sp, QStringLiteral("Locate File..."));
+        const bool stays = w.sp->location_text() == QStringLiteral("missing.bas:3 - source file not found") &&
+                           w.sp->browsing() && locate->isEnabled() && goto_pc->isEnabled();
+        goto_pc->click();
+        QApplication::processEvents();
+        const bool back = w.sp->location_text().startsWith(QStringLiteral("main.bas:10")) && !w.sp->browsing() &&
+                          !locate->isEnabled() && !goto_pc->isEnabled() && w.ed->textCursor().blockNumber() == 9;
+        // the map cleared, then loaded again: the browse is over
+        fx.load_map();
+        w.tick();
+        w.dis_click(0x9000);
+        const bool before = w.sp->browsing() && w.sp->shown_file() == "sub.bas";
+        fx.backend->clear_source_map();
+        w.tick();
+        fx.load_map();
+        w.tick();
+        const bool cleared = before && !w.sp->browsing() && w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 10;
+        check("QSRC-201", "browsing a line whose file is not found keeps the message through five ticks, Locate File... and "
+                          "Go to PC Line enabled, and Go to PC Line returns to main.bas:10; a map cleared and loaded again "
+                          "ends a browse",
+              stays && back && cleared,
+              "stays=" + std::to_string(stays) + " back=" + std::to_string(back) + " cleared=" + std::to_string(cleared) +
+                  " " + s(w.sp->location_text()));
+    }
+    {   // QSRC-202: every accepted Disassembly selection places the cursor on the caret's line
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x8002);
+        const bool first = w.ed->textCursor().blockNumber() == 10;
+        w.src_move(13);
+        w.dis_click(0x8002);
+        const bool again = w.ed->textCursor().blockNumber() == 10 && w.tinted() == std::set<int>{10} &&
+                           w.dp->source_linked(0x8002) && !w.dp->source_linked(0x8006);
+        w.src_move(12);
+        w.dis_click(0x8001);   // the PC's own statement: the cursor goes back to line 10
+        const bool pc_stmt = w.ed->textCursor().blockNumber() == 9 && !w.sp->browsing();
+        check("QSRC-202", "clicking $8002 puts the cursor on line 11; after a Source move to line 13, clicking $8002 again "
+                          "puts it back on 11 and the Disassembly tints $8002, not $8006; after a move to 12 a click in the "
+                          "PC's own statement ($8001) returns it to line 10",
+              first && again && pc_stmt,
+              "first=" + std::to_string(first) + " again=" + std::to_string(again) + " pc_stmt=" + std::to_string(pc_stmt));
+    }
+    {   // QSRC-203: a browsed line in view is not scrolled to; one out of view is
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80);
+        fx.backend->load_source_map(write_sld("sync-long.sld",
+            "main.bas|100||0|" + a + "|32768|T|\n" + "main.bas|102||0|" + a + "|32770|T|\n" +
+            "main.bas|250||0|" + a + "|32773|T|\n"), false);
+        std::string text;
+        for (int i = 1; i <= 300; ++i) text += "REM line " + std::to_string(i) + "\n";
+        write_text(tmp + "/main.bas", text);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        const int top = v.ed->verticalScrollBar()->value();
+        v.sp->set_disasm_selection(0x8002, 0x8002, 0x8002);   // line 102, two below the PC's, in view
+        QApplication::processEvents();
+        const bool kept = v.ed->verticalScrollBar()->value() == top && v.ed->textCursor().blockNumber() == 101;
+        v.sp->set_disasm_selection(0x8005, 0x8005, 0x8005);   // line 250: far out of view
+        QApplication::processEvents();
+        const QRect r = v.ed->cursorRect();
+        const bool shown = v.ed->verticalScrollBar()->value() != top && v.ed->viewport()->rect().contains(r) &&
+                           v.ed->textCursor().blockNumber() == 249;
+        write_main({});
+        check("QSRC-203", "in a 300-line file with the PC on line 100, browsing line 102 keeps the scroll position and puts the "
+                          "cursor there; browsing line 250 scrolls it into view",
+              kept && shown, "kept=" + std::to_string(kept) + " shown=" + std::to_string(shown));
+    }
+    {   // QSRC-204: a browsed address that has no line any more ends the browse
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x9000);
+        const bool on = w.sp->browsing();
+        const uint8_t old_page = static_cast<uint8_t>(fx.p80);
+        fx.emu.mmu().set_page(4, static_cast<uint8_t>(old_page + 2));   // the page the record names is gone from $8000-$9FFF
+        w.tick();
+        const bool ended = !w.sp->browsing();
+        fx.emu.mmu().set_page(4, old_page);
+        w.tick();
+        check("QSRC-204", "browsing $9000 and then unmapping its page while paused ends the browse",
+              on && ended && !w.sp->browsing(), "on=" + std::to_string(on) + " ended=" + std::to_string(ended));
+    }
+    {   // QSRC-205: the Disassembly's keys, Select All and the menu's collapse are user selections too
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x8002);
+        w.dp->setFocus();
+        QTest::keyClick(w.dp, Qt::Key_Down);   // the caret moves to $8005 (line 12)
+        const bool keys = w.ed->textCursor().blockNumber() == 11 && w.tinted() == std::set<int>{11};
+        w.dis_click(0x8002);
+        w.dp->select_all_visible();            // the whole view: lines 10-13 are in it
+        const bool all = w.tinted().count(9) && w.tinted().count(10) && w.tinted().count(11) && w.tinted().count(12);
+        w.dis_click(0x8002);
+        w.ed->setFocus();
+        disasm_menu(w.dp, w.centre() + 1, false);   // right-click $8005, outside the selection: it collapses onto it
+        const bool menu = w.ed->textCursor().blockNumber() == 11;
+        check("QSRC-205", "an arrow key in the Disassembly moves the Source cursor to the new row's line; Select All tints "
+                          "the lines of the view; a right click outside the selection moves the Source cursor to that row's line",
+              keys && all && menu,
+              "keys=" + std::to_string(keys) + " all=" + std::to_string(all) + " menu=" + std::to_string(menu));
+    }
+    {   // QSRC-206: two files whose lines share a number
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("sync-twofiles.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "util.bas|10||0|" + b + "|36864|T|\n"), false);
+        write_main({});
+        {
+            std::string util;
+            for (int i = 1; i <= 12; ++i) util += "REM util " + std::to_string(i) + "\n";
+            write_text(tmp + "/util.bas", util);
+        }
+        SyncWin w(fx);
+        QSignalSpy lines(w.sp, &SourcePanel::source_lines_selected);
+        w.dis_click(0x9000);   // util.bas:10 against the PC on main.bas:10: another line, browsed
+        bool quiet = true;     // loading the file is no user move
+        for (int i = 0; i < lines.count(); ++i) quiet = quiet && lines.at(i).at(3).toBool() == false;
+        const bool browse = w.sp->browsing() && w.sp->shown_file() == "util.bas" && w.ed->textCursor().blockNumber() == 9;
+        // a range over both files tints only the lines of the file shown
+        w.sp->set_disasm_selection(0x8000, 0x9000, 0x9000);
+        const bool only = w.tinted() == std::set<int>{9};
+        // Source line 10 of main.bas lights $8000 and not util.bas's line 10 at $9000
+        w.sp->go_to_pc_line();
+        w.src_move(10);
+        const bool other = w.linked({0x8000}, {0x9000});
+        check("QSRC-206", "util.bas:10 against the PC on main.bas:10 is browsed, and loading it announces no user move; a range "
+                          "over both files tints only util.bas's line 10; Source line 10 of main.bas lights $8000 and not "
+                          "util.bas's line 10 at $9000",
+              quiet && browse && only && other,
+              "quiet=" + std::to_string(quiet) + " browse=" + std::to_string(browse) + " only=" + std::to_string(only) +
+                  " other=" + std::to_string(other));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -6681,6 +6850,7 @@ int main(int argc, char** argv) {
     test_z88dk_c_names_source();
     test_source_current_line();   // GH #347 stage 1
     test_source_sync();           // GH #347 stage 2
+    test_source_sync_review();    // GH #347 stage 2, review 1
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

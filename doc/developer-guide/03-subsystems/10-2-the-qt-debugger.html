@@ -2791,14 +2791,18 @@ couples them. Each carries only what the USER did in its sender, so no move echo
   and before the pending note, the highlight and the wedge are on the PC's line only when the PC's
   primary location is in the file shown, and the cursor is centred only when the line is out of
   view. The lines of the instructions in the range (<code>linked_lines_()</code>, walking <code>instruction_length</code>
-  over <code>memory_reader()</code>; a full 64K range costs about 3 ms per refresh) get an <code>ExtraSelection</code> in
+  over <code>memory_reader()</code>; a full 64K range costs about 3.5 ms, and <code>refresh()</code> runs on every paused tick, about 50 times a second, so such a selection keeps about a fifth of a core busy; no cache yet) get an <code>ExtraSelection</code> in
   the scheme's <code>linked_line</code> (<code>SchemeColours</code>), after #388's coverage tints and before the PC's.</li>
 <li><strong>Show in Source.</strong> <code>DisasmPanel::show_source_requested(addr)</code>, from a menu item present only
   while a map is loaded and enabled only where <code>lookup()</code> finds a line. The window raises the
   Source tab and calls <code>SourcePanel::show_address()</code>.</li>
 </ul>
-<p>Browsing ends at <code>follow_pc()</code> (every stop), <code>show_running()</code>, <code>show_message()</code>, another loaded map
-(<code>browse_map_</code>), an address with no line now, and <strong>Go to PC Line</strong>. The gutter, the menu, Copy with
+<p>Browsing ends at <code>follow_pc()</code> (every stop), <code>show_running()</code>, the map going away (the None and Stale branches of
+<code>refresh_()</code>), another loaded map (<code>browse_map_</code>), an address with no line now, and <strong>Go to PC Line</strong>. A message about the
+browsed line itself (file not found, a <code>.m4</code> line without a listing) does NOT end it, so the message and Locate File...
+stay usable, and Go to PC Line stays enabled. Every accepted Disassembly selection places the cursor on the caret's line
+(<code>place_now_</code>); the view is centred only when that line is out of view. A Source move made while the machine runs
+announces nothing. The gutter, the menu, Copy with
 Addresses and Run to Cursor act on <code>shown_file_</code>, so they act on the file browsed. Rows
 QSRC-176..189 pin the behaviour; <code>source_sync_colors.h</code> is the one definition of the linked colour
 for both views (the Source tab keeps one per scheme, tested for legibility like the coverage tint).</p>

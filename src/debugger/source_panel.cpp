@@ -402,7 +402,7 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
 
     // GH #347 - a cursor or selection move the USER made tells the Disassembly (see emit_lines_()).
     auto user_move = [this]() {
-        if (!syncing_ && !shown_file_.empty()) emit_lines_(true, false);
+        if (!syncing_ && !shown_file_.empty() && dbg_ && dbg_->state().paused) emit_lines_(true);
     };
     connect(editor_, &QPlainTextEdit::cursorPositionChanged, this, user_move);
     connect(editor_, &QPlainTextEdit::selectionChanged, this, user_move);
@@ -465,7 +465,7 @@ void SourcePanel::show_message(const QString& message)
     location_label_->setText(message);
     location_label_->setToolTip(QString());
     shown_file_.clear();
-    browse_addr_.reset();   // GH #347: no map, or no line to show
+    place_now_ = false;
     if (!loaded_source_.isEmpty()) {
         SyncScope sync(syncing_);
         highlighter_->set_language(SourceLanguage::Plain);
@@ -475,7 +475,7 @@ void SourcePanel::show_message(const QString& message)
     }
     editor_->setExtraSelections({});
     highlighted_line_ = 0;
-    emit_lines_(false, false);
+    emit_lines_(false);
 }
 
 void SourcePanel::show_running()
@@ -485,8 +485,9 @@ void SourcePanel::show_running()
     editor_->setExtraSelections({});
     highlighted_line_ = 0;
     browse_addr_.reset();     // GH #347: the stop that follows shows the PC
+    place_now_ = false;
     disasm_range_.reset();
-    emit_lines_(false, false, /*none=*/true);   // the text stays, but nothing of it is selected now
+    emit_lines_(false, /*none=*/true);   // the text stays, but nothing of it is selected now
 }
 
 void SourcePanel::update_buttons(bool paused)
@@ -582,6 +583,7 @@ void SourcePanel::refresh_()
 
     const auto status = dbg_->source_map_status();
     if (status.state == jnext::dbg::Debugger::SourceMapStatus::State::Stale) {
+        browse_addr_.reset();   // GH #347: the map is gone
         show_message(tr("Source map '%1' does not match the program in memory: %2. "
                         "Load it again to use it.")
                          .arg(QString::fromStdString(status.file),
@@ -589,6 +591,7 @@ void SourcePanel::refresh_()
         return;
     }
     if (status.state == jnext::dbg::Debugger::SourceMapStatus::State::None) {
+        browse_addr_.reset();   // GH #347: the map is gone
         show_message(status.reason.empty()
                          ? tr("No source map loaded")
                          : tr("No source map loaded: %1")
@@ -773,7 +776,8 @@ void SourcePanel::refresh_()
     // Placed only when something moved. This runs on every tick while paused,
     // and centring again each time would snap the view back to the line
     // whenever the user scrolled away from it.
-    if (!placed_ || location->line != placed_line_ || addr != placed_pc_) {
+    if (!placed_ || place_now_ || location->line != placed_line_ || addr != placed_pc_) {
+        place_now_ = false;
         QTextCursor at(block);
         at.clearSelection();
         {
@@ -789,7 +793,7 @@ void SourcePanel::refresh_()
         placed_pc_ = addr;
     }
     highlighted_line_ = pc_line;
-    emit_lines_(false, false);   // a stop put the cursor on the PC's line: the Disassembly tints it
+    emit_lines_(false);   // a stop put the cursor on the PC's line: the Disassembly tints it
 }
 
 // GH #347 - the Disassembly's selection leads the view.
@@ -801,14 +805,12 @@ void SourcePanel::set_disasm_selection(uint16_t lo, uint16_t hi, uint16_t caret)
         const SourceLocation* pc_loc = dbg_->source_location();
         if (pc_loc && pc_loc->file == loc->file && pc_loc->line == loc->line) {
             browse_addr_.reset();   // the PC's own statement
-            placed_ = false;        // the cursor goes back to it
         } else {
             browse_addr_ = caret;
             browse_map_ = dbg_->source_map().loaded_file();
         }
-        const int sent = emitted_;
+        place_now_ = true;   // the cursor goes to the caret's line, whatever it was on
         refresh();
-        if (emitted_ == sent) emit_lines_(false, true);   // the Disassembly tints the lines the cursor is on now
     } else {
         refresh();   // only the tint follows the range
     }
@@ -838,7 +840,7 @@ void SourcePanel::selected_blocks_(QTextBlock& first, QTextBlock& last) const
     if (last.position() == cur.selectionEnd() && last != first) last = last.previous();
 }
 
-void SourcePanel::emit_lines_(bool reveal, bool force, bool none)
+void SourcePanel::emit_lines_(bool reveal, bool none)
 {
     QString file;
     int first_line = 0, last_line = 0;
@@ -850,8 +852,7 @@ void SourcePanel::emit_lines_(bool reveal, bool force, bool none)
         last_line = std::min(last.blockNumber() + 1, lines);
         file = QString::fromStdString(shown_file_);
     }
-    if (!force && file == lines_file_ && first_line == lines_first_ && last_line == lines_last_) return;
-    ++emitted_;
+    if (file == lines_file_ && first_line == lines_first_ && last_line == lines_last_) return;
     lines_file_ = file;
     lines_first_ = first_line;
     lines_last_ = last_line;

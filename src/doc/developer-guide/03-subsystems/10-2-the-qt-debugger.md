@@ -366,14 +366,18 @@ couples them. Each carries only what the USER did in its sender, so no move echo
   and before the pending note, the highlight and the wedge are on the PC's line only when the PC's
   primary location is in the file shown, and the cursor is centred only when the line is out of
   view. The lines of the instructions in the range (`linked_lines_()`, walking `instruction_length`
-  over `memory_reader()`; a full 64K range costs about 3 ms per refresh) get an `ExtraSelection` in
+  over `memory_reader()`; a full 64K range costs about 3.5 ms, and `refresh()` runs on every paused tick, about 50 times a second, so such a selection keeps about a fifth of a core busy; no cache yet) get an `ExtraSelection` in
   the scheme's `linked_line` (`SchemeColours`), after #388's coverage tints and before the PC's.
 - **Show in Source.** `DisasmPanel::show_source_requested(addr)`, from a menu item present only
   while a map is loaded and enabled only where `lookup()` finds a line. The window raises the
   Source tab and calls `SourcePanel::show_address()`.
 
-Browsing ends at `follow_pc()` (every stop), `show_running()`, `show_message()`, another loaded map
-(`browse_map_`), an address with no line now, and **Go to PC Line**. The gutter, the menu, Copy with
+Browsing ends at `follow_pc()` (every stop), `show_running()`, the map going away (the None and Stale branches of
+`refresh_()`), another loaded map (`browse_map_`), an address with no line now, and **Go to PC Line**. A message about the
+browsed line itself (file not found, a `.m4` line without a listing) does NOT end it, so the message and Locate File...
+stay usable, and Go to PC Line stays enabled. Every accepted Disassembly selection places the cursor on the caret's line
+(`place_now_`); the view is centred only when that line is out of view. A Source move made while the machine runs
+announces nothing. The gutter, the menu, Copy with
 Addresses and Run to Cursor act on `shown_file_`, so they act on the file browsed. Rows
 QSRC-176..189 pin the behaviour; `source_sync_colors.h` is the one definition of the linked colour
 for both views (the Source tab keeps one per scheme, tested for legibility like the coverage tint).

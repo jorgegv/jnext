@@ -173,7 +173,7 @@ private:
     void set_source_text(const QString& text, const std::string& file);
     void apply_scheme_();
     /// GH #347 - announce the lines under the cursor (see source_lines_selected()).
-    void emit_lines_(bool reveal, bool force, bool none = false);
+    void emit_lines_(bool reveal, bool none = false);
     /// The blocks of the lines the cursor or its selection covers (a selection that ends at
     /// the start of a block does not take that block).
     void selected_blocks_(QTextBlock& first, QTextBlock& last) const;
@@ -222,5 +222,5 @@ private:
     bool syncing_ = false;
     QString lines_file_;
     int lines_first_ = 0, lines_last_ = 0;
-    int emitted_ = 0;   // source_lines_selected() emissions so far
+    bool place_now_ = false;   // the next refresh puts the cursor on its line even if it was placed there
 };

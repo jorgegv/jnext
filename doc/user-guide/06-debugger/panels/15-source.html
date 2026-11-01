@@ -3776,10 +3776,11 @@ two views of the same code, and a selection in one lights what it covers in the 
 the address you clicked, not the PC, and ends <code>(browsing; the PC is at main.bas:10, $8000)</code> (or
 <code>the PC is in no source line</code>), and the Source tab shows that line's file, which may be another one
 than the PC's. The arrow stays on the CPU's own line, and the highlight too, when that line is in
-the file shown. The view stays where you put it through the refreshes while paused. Browsing ends at
-the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when another source
-map is loaded, and when you press <strong>Go to PC Line</strong>, which is enabled only while browsing and shows
+the file shown. The view stays where you put it through the refreshes while paused. If the clicked line's file cannot be found, the tab says so and <strong>Locate File...</strong> and <strong>Go to PC Line</strong> stay available. Browsing ends at
+the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when the source
+map is cleared or another is loaded, and when you press <strong>Go to PC Line</strong>, which is enabled only while browsing and shows
 the CPU's line again. A click on an instruction of the CPU's own line is not browsing.</p>
+<p>While the machine runs, neither tab follows the other.</p>
 <p>The tint is a pale violet in Light and a dark violet in Dark and Borland; it differs from the
 current-line bar and the coverage tint in every scheme. Nothing is configurable: the two views always
 follow each other.</p>

@@ -91,10 +91,12 @@ When the line you clicked is not the line the CPU is on, the tab is **browsing**
 the address you clicked, not the PC, and ends `(browsing; the PC is at main.bas:10, $8000)` (or
 `the PC is in no source line`), and the Source tab shows that line's file, which may be another one
 than the PC's. The arrow stays on the CPU's own line, and the highlight too, when that line is in
-the file shown. The view stays where you put it through the refreshes while paused. Browsing ends at
-the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when another source
-map is loaded, and when you press **Go to PC Line**, which is enabled only while browsing and shows
+the file shown. The view stays where you put it through the refreshes while paused. If the clicked line's file cannot be found, the tab says so and **Locate File...** and **Go to PC Line** stay available. Browsing ends at
+the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when the source
+map is cleared or another is loaded, and when you press **Go to PC Line**, which is enabled only while browsing and shows
 the CPU's line again. A click on an instruction of the CPU's own line is not browsing.
+
+While the machine runs, neither tab follows the other.
 
 The tint is a pale violet in Light and a dark violet in Dark and Borland; it differs from the
 current-line bar and the coverage tint in every scheme. Nothing is configurable: the two views always
