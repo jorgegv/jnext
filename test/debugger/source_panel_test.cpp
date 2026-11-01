@@ -24,7 +24,7 @@
 //
 //   QSRC-120..139  language detection and syntax highlighting (GH #422)
 //   QSRC-190..199  owner classes, punctuation and operators, colour schemes (GH #422 stage 2)
-//   QSRC-170..189, 201..206  the current-line wedge, the also: list, selection sync, browse mode (GH #347)
+//   QSRC-170..189, 201..208  the current-line wedge, the also: list, selection sync, browse mode (GH #347)
 //
 // Qt is required; a display is not (offscreen QPA, as the other suites).
 // Run: ./build/test/debugger_source_panel_test
@@ -6766,6 +6766,61 @@ void test_source_sync_review() {
                           "the lines of the view; a right click outside the selection moves the Source cursor to that row's line",
               keys && all && menu,
               "keys=" + std::to_string(keys) + " all=" + std::to_string(all) + " menu=" + std::to_string(menu));
+    }
+    {   // QSRC-207: after a Disassembly click the Source cursor and scroll stay where the user puts them
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        bool cursor = true;
+        for (uint16_t addr : {uint16_t(0x8001), uint16_t(0x8002)}) {   // the PC's own statement, then a browse
+            w.dis_click(addr);
+            w.src_move(13);
+            for (int i = 0; i < 4; ++i) w.tick();
+            cursor = cursor && w.ed->textCursor().blockNumber() == 12;
+        }
+        // the scroll too: a 300-line file, the PC on line 100, a click on line 102's address and a click on the PC's statement
+        Fixture fy;
+        fy.enable();
+        const std::string a = std::to_string(fy.p80);
+        fy.backend->load_source_map(write_sld("sync-keep.sld",
+            "main.bas|100||0|" + a + "|32768|T|\n" + "main.bas|102||0|" + a + "|32770|T|\n"), false);
+        std::string text;
+        for (int i = 1; i <= 300; ++i) text += "REM line " + std::to_string(i) + "\n";
+        write_text(tmp + "/main.bas", text);
+        BreakpointModel& m = fy.mgr->breakpoints();
+        SrcView v(fy, m);
+        bool scroll = true;
+        for (uint16_t addr : {uint16_t(0x8001), uint16_t(0x8002)}) {
+            v.sp->set_disasm_selection(addr, addr, addr);
+            QApplication::processEvents();
+            v.ed->verticalScrollBar()->setValue(200);
+            for (int i = 0; i < 4; ++i) { v.sp->refresh(); QApplication::processEvents(); }
+            scroll = scroll && v.ed->verticalScrollBar()->value() == 200;
+        }
+        write_main({});
+        check("QSRC-207", "after a Disassembly click on the PC's statement and on another line, a Source move to line 13 and "
+                          "a scroll to line 200 both survive four paused ticks",
+              cursor && scroll, "cursor=" + std::to_string(cursor) + " scroll=" + std::to_string(scroll));
+    }
+    {   // QSRC-208: a run ends the Source tab's tint of the Disassembly's range
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x8002);
+        const bool lit = w.tinted() == std::set<int>{10};
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        w.sp->refresh();
+        fx.emu.debug_state().pause();
+        w.fx.dbg()->activate_follow_pc();   // the stop
+        w.tick();
+        check("QSRC-208", "a Disassembly selection tints Source line 11; after a run and a stop no line of the Source tab is "
+                          "tinted by it and the PC line is shown",
+              lit && w.tinted().empty() && !w.sp->browsing() && w.sp->highlighted_line() == 10,
+              "lit=" + std::to_string(lit) + " tinted=" + std::to_string(w.tinted().size()));
     }
     {   // QSRC-206: two files whose lines share a number
         Fixture fx;

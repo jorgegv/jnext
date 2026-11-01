@@ -2785,7 +2785,7 @@ couples them. Each carries only what the USER did in its sender, so no move echo
   collapse), when the triple differs from the last one sent. <code>show_address()</code> and a refresh do not
   emit; <code>set_source_lines()</code> forgets the last triple, so the next click on the same lines is a
   change again. <code>SourcePanel::set_disasm_selection()</code> is ignored while running or without a map,
-  stores the range (<code>disasm_range_</code>), and sets <code>browse_addr_</code> unless the caret's primary line is the
+  stores the range (<code>disasm_range_</code>, dropped when the machine runs, so a stop shows no tint of it), and sets <code>browse_addr_</code> unless the caret's primary line is the
   PC's own. <code>refresh_()</code> then describes <code>browse_addr_</code> instead of the PC: its file is loaded
   through the same text paths, the label ends <code>(browsing; the PC is at f:l, $addr)</code> after <code>also:</code>
   and before the pending note, the highlight and the wedge are on the PC's line only when the PC's
@@ -2801,10 +2801,10 @@ couples them. Each carries only what the USER did in its sender, so no move echo
 <code>refresh_()</code>), another loaded map (<code>browse_map_</code>), an address with no line now, and <strong>Go to PC Line</strong>. A message about the
 browsed line itself (file not found, a <code>.m4</code> line without a listing) does NOT end it, so the message and Locate File...
 stay usable, and Go to PC Line stays enabled. Every accepted Disassembly selection places the cursor on the caret's line
-(<code>place_now_</code>); the view is centred only when that line is out of view. A Source move made while the machine runs
+(<code>place_now_</code>, cleared by the placement itself, so the next ticks leave the cursor and scroll alone); the view is centred only when that line is out of view. A Source move made while the machine runs
 announces nothing. The gutter, the menu, Copy with
 Addresses and Run to Cursor act on <code>shown_file_</code>, so they act on the file browsed. Rows
-QSRC-176..189 pin the behaviour; <code>source_sync_colors.h</code> is the one definition of the linked colour
+QSRC-176..189 and QSRC-201..208 pin the behaviour; <code>source_sync_colors.h</code> is the one definition of the linked colour
 for both views (the Source tab keeps one per scheme, tested for legibility like the coverage tint).</p>
 <h2 id="memory-coverage">Memory coverage<a class="headerlink" href="#memory-coverage" title="Permanent link">&para;</a></h2>
 <p><strong>Debug ▸ Coverage</strong> (<code>Enable Coverage</code>, <code>Clear Coverage</code>) drives INS-21

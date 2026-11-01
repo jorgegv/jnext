@@ -360,7 +360,7 @@ couples them. Each carries only what the USER did in its sender, so no move echo
   collapse), when the triple differs from the last one sent. `show_address()` and a refresh do not
   emit; `set_source_lines()` forgets the last triple, so the next click on the same lines is a
   change again. `SourcePanel::set_disasm_selection()` is ignored while running or without a map,
-  stores the range (`disasm_range_`), and sets `browse_addr_` unless the caret's primary line is the
+  stores the range (`disasm_range_`, dropped when the machine runs, so a stop shows no tint of it), and sets `browse_addr_` unless the caret's primary line is the
   PC's own. `refresh_()` then describes `browse_addr_` instead of the PC: its file is loaded
   through the same text paths, the label ends `(browsing; the PC is at f:l, $addr)` after `also:`
   and before the pending note, the highlight and the wedge are on the PC's line only when the PC's
@@ -376,10 +376,10 @@ Browsing ends at `follow_pc()` (every stop), `show_running()`, the map going awa
 `refresh_()`), another loaded map (`browse_map_`), an address with no line now, and **Go to PC Line**. A message about the
 browsed line itself (file not found, a `.m4` line without a listing) does NOT end it, so the message and Locate File...
 stay usable, and Go to PC Line stays enabled. Every accepted Disassembly selection places the cursor on the caret's line
-(`place_now_`); the view is centred only when that line is out of view. A Source move made while the machine runs
+(`place_now_`, cleared by the placement itself, so the next ticks leave the cursor and scroll alone); the view is centred only when that line is out of view. A Source move made while the machine runs
 announces nothing. The gutter, the menu, Copy with
 Addresses and Run to Cursor act on `shown_file_`, so they act on the file browsed. Rows
-QSRC-176..189 pin the behaviour; `source_sync_colors.h` is the one definition of the linked colour
+QSRC-176..189 and QSRC-201..208 pin the behaviour; `source_sync_colors.h` is the one definition of the linked colour
 for both views (the Source tab keeps one per scheme, tested for legibility like the coverage tint).
 
 ## Memory coverage

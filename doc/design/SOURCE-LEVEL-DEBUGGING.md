@@ -1103,7 +1103,7 @@ location is; a `space` on a kind other than `Execute` is refused.
   line's instructions being those with ANY location on it, D6), the Disassembly's reveal only for a
   move the user made in the Source tab (D7), browsing (D8: any Disassembly selection whose primary
   line is not the PC's shows that line, in its file, with `(browsing; the PC is at f:l, $addr)`,
-  until a stop, a run, another map or **Go to PC Line**), and **Show in Source** in the
+  until a stop, a run, another map, a cleared or stale map or **Go to PC Line**), and **Show in Source** in the
   Disassembly's menu while a map is loaded (D10).
 - **Address fields**: a number first, `@` forces a symbol, `$` or `0x` force hex (OD-12; done).
   `file:line` is accepted wherever an Execute address is (done). Call Stack "Called from" uses
@@ -1768,6 +1768,6 @@ E23-30 (#423) added QSRC-99 to QSRC-119 (`debugger_source_panel_test`: the Sourc
 Disassembly, the copy forms, the operand entries and the Disassembly's menu pinned across the shared builder),
 SRCRUN-01 to SRCRUN-07 (`source_debug_test`: `run_to_source_line`) and CTL-06-04 (`debugger_backend_test`: a run-to on
 a running machine drops the caller's earlier transient target, not another client's).
-E23-16 (#347) added QSRC-170 to QSRC-189 (`debugger_source_panel_test`: the current-line wedge, the `also:` list, selection sync
+E23-16 (#347) added QSRC-170 to QSRC-189 and QSRC-201 to QSRC-208 (`debugger_source_panel_test`: the current-line wedge, the `also:` list, selection sync
 both ways, the reveal and browse rules, Go to PC Line, Show in Source, the real z88dk map's two-start line, and the tint in
 every colour scheme).
