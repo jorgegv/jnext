@@ -5722,7 +5722,8 @@ void test_source_highlight_schemes() {
     {   // QSRC-200
         // Oracle: GH #388 (an executed line has a whole-line tint, the current line wins) x GH #422
         // (the scheme owns the colours): on a LIGHT application palette Dark and Borland must tint
-        // with their own colour, never the pale green that is unreadable under their text.
+        // with their own colour, never the pale green that is unreadable under their text; and on a
+        // DARK application palette the pale green would be invisible in Light and unreadable in the rest.
         Fixture fx;
         fx.enable();
         fx.load_map();
@@ -5746,11 +5747,15 @@ void test_source_highlight_schemes() {
             SrcView sv(fx, bm);
             SourcePanel* vp = sv.sp;
             QPlainTextEdit* ved = sv.ed;
-            for (SourceScheme sch : {SourceScheme::Light, SourceScheme::Dark, SourceScheme::Borland, SourceScheme::Auto}) {
+            const QPalette app0 = QApplication::palette();
+            for (bool dark_app : {false, true}) {
+              if (dark_app) QApplication::setPalette(dark_test_palette());
+              QApplication::processEvents();
+              for (SourceScheme sch : {SourceScheme::Light, SourceScheme::Dark, SourceScheme::Borland, SourceScheme::Auto}) {
                 sp->set_colour_scheme(sch);
                 fx.mgr->refresh_panels();
                 QApplication::processEvents();
-                const std::string tag = std::to_string(static_cast<int>(sch)) + " ";
+                const std::string tag = std::string(dark_app ? "dark-app/" : "light-app/") + std::to_string(static_cast<int>(sch)) + " ";
                 const SC& c = hl->colours_in_force();
                 const auto sels = ed->extraSelections();
                 bool tinted = sels.size() >= 2;
@@ -5761,6 +5766,9 @@ void test_source_highlight_schemes() {
                 if (!current_last) bad += tag + "current-line-not-last ";
                 if ((sch == SourceScheme::Dark || sch == SourceScheme::Borland) && c.coverage_line == pale)
                     bad += tag + "pale-green ";
+                // Light is #388's pale green whatever the application palette is (white on white
+                // would hide it if the tint followed the application)
+                if (sch == SourceScheme::Light && c.coverage_line != pale) bad += tag + "light-not-pale ";
                 // The same backend (coverage and PC state) painted in a shown panel: an executed
                 // line (10) carries the tint near the right edge, the current line (12) the bar.
                 vp->set_colour_scheme(sch);
@@ -5773,11 +5781,17 @@ void test_source_highlight_schemes() {
                 const int y12 = ved->cursorRect(QTextCursor(ved->document()->findBlockByNumber(11))).center().y();
                 if (QColor::fromRgb(img.pixel(img.width() - 4, y10)) != c.coverage_line) bad += tag + "pixel-line10 ";
                 if (QColor::fromRgb(img.pixel(img.width() - 4, y12)) != c.pc_background) bad += tag + "pixel-bar ";
+              }
+              if (dark_app) {
+                QApplication::setPalette(app0);
+                QApplication::processEvents();
+              }
             }
         }
         check("QSRC-200", "with coverage on, an executed line is tinted with the SCHEME's colour (Light the pale "
-                          "green, Dark and Borland their own, never the pale green, on a light application "
-                          "palette), and the current line's bar stays last and on top",
+                          "green, Dark and Borland their own, never the pale green), on a light AND on a dark "
+                          "application palette, in the selections and in the pixels (line 10 the tint, line 12 "
+                          "the bar), and the current line's bar stays last and on top",
               bad.empty(), bad);
     }
 }
