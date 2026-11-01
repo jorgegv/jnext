@@ -198,6 +198,12 @@ private:
     bool initial_fit_done_ = false;
     int  initial_fit_passes_ = 0;
     static constexpr int kMaxInitialFitPasses = 4;
+    // GH #360 - the width fit (left column of tabs) has its own bound and its own measured response,
+    // so it converges whatever share of a widening the splitter gives that column.
+    int    initial_fit_width_passes_ = 0;
+    int    fit_last_add_ = 0;       // window width added by the previous width pass
+    int    fit_last_lacking_ = 0;   // what the left column still lacked before it
+    static constexpr int kMaxWidthFitPasses = 8;
     // GH #363 — one queued refresh_panels() per palette change (changeEvent).
     bool palette_refresh_queued_ = false;
 

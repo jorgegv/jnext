@@ -344,6 +344,16 @@ static void test_window(const QString& cfg_dir)
 
     const QRect avail = work_area();
 
+    // WF-12 (GH #360) — the FRAME fits the work area horizontally as well: the side borders come off
+    // the width the way the title bar comes off the height. 1366 wide with 2 x 2 px borders: 1362.
+    {
+        WindowSize s = clamp_window_size_to_screen(1397, 700, AttachRect{0, 0, 1366, 768}, kTitleBar, 4);
+        WindowSize n = clamp_window_size_to_screen(1397, 700, AttachRect{0, 0, 1366, 768}, kTitleBar);
+        check("WF-12", "a side-border width given to the clamp comes off the width budget (1366 - 4); "
+                       "without one the old client-only clamp is unchanged (1366)",
+              s.w == 1362 && n.w == 1366, fmt("%d / %d", s.w, n.w));
+    }
+
     // Rows on a window opened with NO saved geometry.
     {
         clear_saved_geometry(cfg_dir);
@@ -356,6 +366,14 @@ static void test_window(const QString& cfg_dir)
         // DW-01 — the window fits the screen it opened on. Before #114 it
         // opened at its layout minimum (1170x1069) whatever the screen was,
         // which is the whole report.
+        // DW-11 (GH #360) - the FRAME, not only the client, is inside the work area horizontally. The
+        // width growth reaches the screen width on 1280 and 1366 px laptops, where the side borders
+        // used to push the frame over the edge.
+        check("DW-11", "the window FRAME opens no wider than the screen work area",
+              fx.dbg->frameGeometry().width() <= avail.width(),
+              fmt("frame %d wide, client %d, work area %d", fx.dbg->frameGeometry().width(),
+                  fx.dbg->width(), avail.width()));
+
         check("DW-01", "the window opens no larger than the screen work area",
               fx.dbg->width() <= avail.width() && fx.dbg->height() <= avail.height(),
               fmt("opened %dx%d, work area %dx%d",

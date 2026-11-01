@@ -492,41 +492,62 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (!size_is_default_ || !scroll)
         return;
 
-    int hidden_w = scroll->horizontalScrollBar()->maximum();
+    const int scroll_w = scroll->horizontalScrollBar()->maximum();
     const int hidden_h = scroll->verticalScrollBar()->maximum();
 
     // GH #360: nothing scrolling sideways does not mean the left column of tabs is wide enough: it
     // only has to fit its panels' MINIMUMS to avoid a scrollbar, yet the Video panel asks for more
-    // (its sizeHint) and is clipped at 1170 px. Measure what its pages lack, and widen the window by
-    // enough that the splitter gives the left column that much (it shares an increase by the two
-    // sides' stretch factors, set in create_panels()).
-    if (tab_widget_ && top_splitter_) {
-        int lacking = 0;
+    // (its sizeHint) and is clipped at 1170 px. Measure what its pages lack and widen the window.
+    // The share of a widening the splitter gives that column is MEASURED, from what the previous
+    // width pass gained (the stretch factors, set in create_panels(), are only the first guess), so
+    // this converges on its own bound whatever the style, font or DPI.
+    int add_w = scroll_w;
+    int lacking = 0;
+    if (tab_widget_ && top_splitter_ && initial_fit_width_passes_ < kMaxWidthFitPasses) {
         for (int i = 0; i < tab_widget_->count(); ++i) {
             QWidget* page = tab_widget_->widget(i);
             lacking = std::max(lacking, page->sizeHint().width() - page->width());
         }
-        const int left  = top_splitter_->widget(0)->sizePolicy().horizontalStretch();
-        const int right = top_splitter_->widget(1)->sizePolicy().horizontalStretch();
-        if (lacking > 0 && left > 0)
-            hidden_w = std::max(hidden_w, (lacking * (left + right) + left - 1) / left);
+        if (lacking > 0) {
+            const int left  = top_splitter_->widget(0)->sizePolicy().horizontalStretch();
+            const int right = top_splitter_->widget(1)->sizePolicy().horizontalStretch();
+            double share = (left + right) > 0 ? double(left) / (left + right) : 1.0;
+            if (fit_last_add_ > 0 && fit_last_lacking_ > lacking)
+                share = double(fit_last_lacking_ - lacking) / fit_last_add_;
+            share = std::min(1.0, std::max(0.2, share));
+            add_w = std::max(add_w, static_cast<int>(std::ceil(lacking / share)));
+        }
     }
-    if (hidden_w <= 0 && hidden_h <= 0)
-        return;   // nothing is out of view; the window is already big enough
 
+    // The FRAME must fit the screen: the side borders come off the width as the title bar comes off the height.
+    const int deco_w = std::max(0, frameGeometry().width() - width());
     const jnext::WindowSize fit = jnext::clamp_window_size_to_screen(
-        width() + hidden_w, height() + hidden_h,
-        work_area_of(this), title_bar_height(this));
+        width() + add_w, height() + hidden_h,
+        work_area_of(this), title_bar_height(this), deco_w);
     if (fit.w == width() && fit.h == height())
-        return;   // the screen has no more room to give
+        return;   // nothing to grow, or the screen has no more room to give
+    const int old_w = width();
     resize(fit.w, fit.h);
+
+    const bool width_pass = lacking > 0 && add_w > scroll_w;
+    if (width_pass) {
+        ++initial_fit_width_passes_;
+        fit_last_add_ = fit.w - old_w;
+        fit_last_lacking_ = lacking;
+    } else {
+        fit_last_add_ = 0;
+    }
 
     // A panel's minimum can itself change as the window grows (a wider panel
     // may need more height), so one pass lands close but not always exactly.
     // Repeat while it keeps helping, with a hard bound: each pass either grows
     // the window or returns above, so this terminates on its own — the bound is
-    // there so a pathological layout cannot ping-pong forever.
-    if (++initial_fit_passes_ < kMaxInitialFitPasses)
+    // there so a pathological layout cannot ping-pong forever. The scroll-range
+    // passes (GH #114) and the width passes (GH #360) have a bound each.
+    const bool scroll_pass = scroll_w > 0 || hidden_h > 0;
+    if (scroll_pass) ++initial_fit_passes_;
+    if ((scroll_pass && initial_fit_passes_ < kMaxInitialFitPasses) ||
+        (width_pass && initial_fit_width_passes_ < kMaxWidthFitPasses))
         QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
 }
 

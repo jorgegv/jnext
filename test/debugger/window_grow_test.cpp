@@ -276,12 +276,16 @@ int main(int argc, char** argv)
                     if (page->width() < page->sizeHint().width())
                         bad += fmt("%s %d<%d ", tw->tabText(i).toStdString().c_str(), page->width(),
                                    page->sizeHint().width());
+                    // ... and not wider by more than a few px: the widest page that lacked ends at its
+                    // sizeHint, so a window that overshoots (33 px with the stretch factors swapped) fails.
+                    if (tw->tabText(i) == QLatin1String("Video") && page->width() > page->sizeHint().width() + 4)
+                        bad += fmt("Video overshoots %d>%d+4 ", page->width(), page->sizeHint().width());
                 }
             }
         }
         check("GR-05",
               "at the default window size, grown to natural on a 3000x2200 screen, every page of the left "
-              "column of tabs is at least as wide as its sizeHint (no tolerance)",
+              "column of tabs is at least as wide as its sizeHint (no tolerance) and the Video page at most 4 px wider",
               fx.ok && pages == 7 && bad.empty(),
               fx.ok ? bad + fmt("pages=%d window %dx%d", pages, fx.dbg->width(), fx.dbg->height())
                     : std::string("fixture failed"));
