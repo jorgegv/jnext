@@ -1251,7 +1251,7 @@ static void test_idle_refresh() {
     Fixture fx(MachineType::ZXN_ISSUE2);
     if (!fx.ok) {
         for (const char* id : {"QIDLE-01", "QIDLE-02", "QIDLE-03", "QIDLE-04", "QIDLE-05",
-                               "QIDLE-07", "QIDLE-08"})
+                               "QIDLE-07", "QIDLE-08", "QIDLE-09"})
             check(id, "fixture", false);
         return;
     }
@@ -1371,6 +1371,28 @@ static void test_idle_refresh() {
               quiet == 0 && n1 >= 1 && before != "6B" && after == "6B",
               fmt("quiet=%llu n1=%llu before=%s after=%s", (unsigned long long)quiet,
                   (unsigned long long)n1, s(before).c_str(), s(after).c_str()));
+    }
+
+    // QIDLE-09: a direct core write of the CPU registers (a host action or a
+    // test; no backend verb, no input) is seen: one refresh at the next tick,
+    // the CPU panel shows it, then nothing.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.BC = 0x1D2E;
+        fx.emu.cpu().set_registers(r);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        const QString bc = cpu_value(win, "BC: ");
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-09",
+              "a direct core register write alone refreshes once at the next tick (the CPU panel "
+              "shows it) and the tick after refreshes nothing",
+              n1 == 1 && n2 == 0 && bc.toUpper() == "1D2E",
+              fmt("n1=%llu n2=%llu BC=%s", (unsigned long long)n1, (unsigned long long)n2,
+                  s(bc).c_str()));
     }
 
     // QIDLE-07: a guest cold boot reaches the backend as begin / done.

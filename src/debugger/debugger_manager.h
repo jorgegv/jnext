@@ -187,7 +187,8 @@ protected:
 
 private:
     /// GH #428 — everything a paused panel can show that a tick can see
-    /// change: the master clock (steps, run-to, rewinds), the backend's state
+    /// change: the CPU register file (a direct core write, as the tests and host
+    /// actions make), the master clock (steps, run-to, rewinds), the backend's state
     /// revision (writes from any client, metadata verbs, cold boots), the
     /// host-input epoch (a key / mouse button / wheel event anywhere in the
     /// app: the generic catch-all for host-side changes made on user input,
@@ -196,8 +197,17 @@ private:
     struct PausedStamp {
         uint64_t cycle = 0, revision = 0, input_epoch = 0;
         bool source_file_changed = false;
+        Z80Registers regs{};   // the whole register file: a direct core write behind the backend
+        static bool same(const Z80Registers& a, const Z80Registers& b) {
+            return a.AF == b.AF && a.BC == b.BC && a.DE == b.DE && a.HL == b.HL &&
+                   a.AF2 == b.AF2 && a.BC2 == b.BC2 && a.DE2 == b.DE2 && a.HL2 == b.HL2 &&
+                   a.IX == b.IX && a.IY == b.IY && a.SP == b.SP && a.PC == b.PC &&
+                   a.MEMPTR == b.MEMPTR && a.I == b.I && a.R == b.R && a.IFF1 == b.IFF1 &&
+                   a.IFF2 == b.IFF2 && a.IM == b.IM && a.Q == b.Q && a.halted == b.halted &&
+                   a.IncDecZ == b.IncDecZ;
+        }
         bool operator==(const PausedStamp& o) const {
-            return cycle == o.cycle && revision == o.revision &&
+            return same(regs, o.regs) && cycle == o.cycle && revision == o.revision &&
                    input_epoch == o.input_epoch &&
                    source_file_changed == o.source_file_changed;
         }

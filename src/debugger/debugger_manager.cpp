@@ -753,6 +753,7 @@ DebuggerManager::PausedStamp DebuggerManager::paused_stamp() const {
     s.cycle = dbg_.time().master_cycle;
     s.revision = dbg_.state_revision();
     s.input_epoch = input_epoch_;
+    s.regs = dbg_.registers();
     if (debugger_window_ && debugger_window_->source_panel())
         s.source_file_changed = debugger_window_->source_panel()->file_changed_on_disk();
     return s;
