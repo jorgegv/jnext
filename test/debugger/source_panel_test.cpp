@@ -6413,10 +6413,25 @@ void test_source_sync() {
         w.tick();
         const bool back = w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 10 && !w.sp->browsing() &&
                           w.ed->textCursor().blockNumber() == 9;
+        // the PC line number exists in the browsed file (util.bas has 12 lines): still no PC highlight
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("sync-util.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "util.bas|7||0|" + b + "|36864|T|\n"), false);
+        {
+            std::string util;
+            for (int i = 1; i <= 12; ++i) util += "REM util " + std::to_string(i) + "\n";
+            write_text(g_tmp->path().toStdString() + "/util.bas", util);
+        }
+        w.tick();
+        w.dis_click(0x9000);
+        const auto usels = w.ed->extraSelections();
+        const bool other_file = w.sp->shown_file() == "util.bas" && w.sp->highlighted_line() == 0 && w.tinted() == std::set<int>{6} &&
+                                usels.size() == 1 && w.ed->textCursor().blockNumber() == 6;
         check("QSRC-184", "a click on $9000 shows sub.bas with the cursor on line 1 tinted, no PC highlight and the "
-                          "'browsing' label; 20 ticks keep it; a stop returns to main.bas with line 10 highlighted",
-              shown && kept && back,
-              "shown=" + std::to_string(shown) + " kept=" + std::to_string(kept) + " back=" + std::to_string(back) +
+                          "'browsing' label; 20 ticks keep it; a stop returns to main.bas with line 10 highlighted; in a 12-line "
+                          "util.bas the PC's own line number 10 is not highlighted either",
+              shown && kept && back && other_file,
+              "other_file=" + std::to_string(other_file) + " shown=" + std::to_string(shown) + " kept=" + std::to_string(kept) + " back=" + std::to_string(back) +
                   " " + s(w.sp->location_text()));
     }
     {   // QSRC-185: Go to PC Line
@@ -6502,18 +6517,23 @@ void test_source_sync() {
                                  " cur=" + std::to_string(cur.count()) + " lines=" + std::to_string(lines.count());
         const bool dis_click = quiet_show && sel.count() == 1 && scr.count() == 0 && cur.count() == 1 && lines.count() == 1 &&
                                lines.at(0).at(3).toBool() == false && lines.at(0).at(1).toInt() == 12;
+        w.press(w.centre() + 3);   // the same row again: the same selection, nothing to announce
+        const bool same_row = sel.count() == 1;
         sel.clear(); lines.clear(); cur.clear(); scr.clear();
         w.src_move(11);   // a move in the Source tab
         const bool src_click = lines.count() == 1 && lines.at(0).at(3).toBool() == true && lines.at(0).at(1).toInt() == 11 &&
                                sel.count() == 0;
+        w.press(w.centre() + 3);   // the Source tab has moved since: the same row is a change again
+        const bool again = sel.count() == 1;
         sel.clear(); lines.clear(); cur.clear(); scr.clear();
         for (int i = 0; i < 10; ++i) w.tick();
         const bool ticks = sel.count() == 0 && lines.count() == 0 && scr.count() == 0;
         check("QSRC-187", "show_address() never emits selection_changed; one Disassembly click: one selection_changed, no scroll of the Disassembly, one Source cursor "
                           "move, one source_lines_selected without reveal; one Source move: one source_lines_selected "
-                          "with reveal and no selection_changed; ten ticks: neither signal",
-              dis_click && src_click && ticks,
-              "dis=" + std::to_string(dis_click) + " (" + d187 + ") src=" + std::to_string(src_click) + " ticks=" + std::to_string(ticks));
+                          "with reveal and no selection_changed; the same row twice announces once, and again after the Source tab moved; ten ticks: neither signal",
+              dis_click && same_row && src_click && again && ticks,
+              "dis=" + std::to_string(dis_click) + " (" + d187 + ") same_row=" + std::to_string(same_row) +
+                  " src=" + std::to_string(src_click) + " again=" + std::to_string(again) + " ticks=" + std::to_string(ticks));
     }
     {   // QSRC-188: the real z88dk map; main.c:18 has two starts
         Fixture fx;

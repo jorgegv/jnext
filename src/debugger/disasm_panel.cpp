@@ -413,7 +413,9 @@ void DisasmPanel::notify_selection_()
     const std::array<uint16_t, 3> now{lo, hi, sel_cursor_};
     if (notified_ && *notified_ == now) return;
     notified_ = now;
+    notifying_ = true;   // the Source tab's echo (set_source_lines) arrives inside the emit
     emit selection_changed(lo, hi, sel_cursor_);
+    notifying_ = false;
 }
 
 bool DisasmPanel::linked_at_(jnext::dbg::MemSpace space, uint16_t addr) const
@@ -434,7 +436,9 @@ void DisasmPanel::set_source_lines(const std::string& file, int first, int last,
     link_file_ = file;
     link_first_ = first;
     link_last_ = last;
-    notified_.reset();   // the Source tab moved: the next click on the same lines is a change again
+    // The Source tab moved on its own (a stop, the user's click there): the next click on the same
+    // lines is a change again. Its echo of our own notification is not such a move.
+    if (!notifying_) notified_.reset();
     if (dbg_ && reveal && !file.empty()) {
         bool in_view = false;
         for (const DisasmEntry& e : entries_)

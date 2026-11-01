@@ -218,6 +218,7 @@ private:
     std::string link_file_;
     int link_first_ = 0, link_last_ = 0;
     std::optional<std::array<uint16_t, 3>> notified_;
+    bool notifying_ = false;
 
     // Vertical offset for the painting area (below the top bar)
     int paint_y_offset_ = 0;
