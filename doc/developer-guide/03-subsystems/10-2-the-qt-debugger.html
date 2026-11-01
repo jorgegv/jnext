@@ -2652,6 +2652,42 @@ map loads as source lines only. Its mismatch box and failure title do not name a
 <code>source_map_status().pending</code> is set (a tape program's map, waiting for its program) the panel
 appends a note line, <em>Source map not verified yet: it is checked when the program first runs its
 code</em>, to whatever it shows.
+The text is coloured by <code>SourceHighlighter</code> (<code>source_highlighter.*</code>, a <code>QSyntaxHighlighter</code> that exists only in
+<code>jnext_debugger</code>; GH #422). <code>source_language_for(file, text)</code> picks the language: the extension, case-insensitive,
+with a trailing <code>.m4</code> dropped (z88dk's <code>zxn_crt.asm.m4</code> is assembly), then the first 200 lines by content (a line is
+evidence for a language when its first word is in that language's set alone, a column-0 label skipped; the winner
+needs three lines and strictly more than the others), else Plain. The Z80/Z80N mnemonics and the register words are
+not listed anywhere: they are enumerated once from <code>disasm_one()</code> over the seven opcode pages, so a new Z80N opcode is
+coloured the day the disassembler names it. The directive, C and Boriel tables are committed with the upstream file
+and commit they were read from (z80asm <code>scan_def.h</code> and <code>keyword.def</code>, sjasmplus <code>directives.cpp</code>, ISO C11 6.4.1,
+Boriel <code>keywords.py</code>). The scanners are hand-written, linear per line, allocation-free per word, and carry multi-line
+comments and embedded assembly in the block state. The classes are the owner's ten (<code>Role</code>: Text, Keyword,
+Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment); Text is the editor palette's text colour
+and never a format. Punctuation, grouping and operators (the one literal <code>kKeywordPunct</code>) are Keyword, tested at each
+scanner's fall-through point after comment, string, char, number and word detection, so those win; Qt merges adjacent
+equal formats, so <code>-&gt;</code> or <code>&lt;&lt;=</code> is one Keyword range. A sign is part of a number only inside an exponent (<code>-5</code> is a
+Keyword and an Integer); C and Boriel numbers have their own scanners (Float = a point or an exponent, including
+the C hex-float <code>p</code> exponent; Boriel's <code>t_HEXA</code>/<code>t_OCTAL</code>/<code>t_BIN</code> before <code>t_NUMBER</code>, and a <code>$</code>/<code>%</code> suffix belongs to
+its identifier). Formats set the foreground colour and nothing else (the line geometry and the gutter alignment equal
+Plain's). <code>SourcePanel::set_source_text()</code> is the one way a text enters the editor: the language first, then the text,
+so a load is highlighted once with its own language.
+The colours are a scheme (<code>SourceScheme</code> in <code>platform/source_scheme.h</code>, the order of the words of the
+<code>source.colour_scheme</code> key: Auto, Light, Dark, Borland; <code>static_assert</code>ed in <code>app_config.cpp</code> and
+<code>source_highlighter.cpp</code>). <code>SourceHighlighter::scheme_colours()</code> holds one table per concrete scheme: background, text,
+the current-line bar's two colours, and a colour per class. Dark is not hand-kept: it is <code>palette_tint::ink()</code> of the
+Light colours over a fixed dark palette (Base <code>#242424</code>, Text <code>#F0F0F0</code>), so it does not depend on the application's own
+dark palette. Every scheme must meet one legibility rule, which <code>QSRC-195</code> checks for all of them: text and classes
+4.5:1 against the background (WCAG 1.4.3), bar text 4.5:1, bar against background 3:1, and any two colours at least
+CIE76 12 apart unless the scheme declares them shared (Borland's owner-given groups). <code>SourcePanel::apply_scheme_()</code>
+takes the PANEL's palette (the application's, never the editor's) in, resolves Auto against it, hands the classes to
+the highlighter (<code>apply_palette()</code> rehighlights only when a class colour changed, never on a paused tick or a repeat)
+and puts the background, text and the bar colours on the EDITOR's palette (<code>Base</code>, <code>Text</code>, <code>Highlight</code>,
+<code>HighlightedText</code>): the background is a palette role, not a format, so it fills the whole viewport. <code>set_colour_scheme()</code>
+applies at once (Preferences Apply while the machine runs). The current-line marker is the same <code>ExtraSelection</code> as
+before, reading the editor's <code>Highlight</code>, and Qt draws a selection's colours over the layout's formats, so no syntax
+colour shows on that line. The gutter and its header paint from the panel's palette, so a scheme never reaches
+them, and the breakpoint marks stay as they are. The setting is <code>DebuggerManager::set_source_scheme()</code> (held there
+and pushed by <code>ensure_window()</code>, because the window is created lazily), fed by <code>MainWindow::apply_startup_config()</code>.
 The editor is a private <code>QPlainTextEdit</code> subclass (<code>SourceEdit</code>) with a gutter widget in a left
 viewport margin and a header strip above it (<code>setViewportMargins</code>; objects <code>source_gutter</code> and
 <code>source_gutter_header</code>), because the visible blocks' geometry is protected. The gutter
@@ -2715,12 +2751,14 @@ Stack's last column looks up each frame's caller with its recorded
 the backend on every <code>refresh_panels()</code> and at construction, so a window built over
 a backend that <code>--coverage</code> already switched on shows it ticked. All colours come
 from <code>coverage_colors.h</code> (X green, R blue, W orange-red, the Source tint a pale
-green), each through <code>palette_tint</code>. The Disassembly paints a 3 px bar right of the
+green), each through <code>palette_tint</code>; the Source tab alone takes its tint from the scheme
+(<code>SchemeColours::coverage_line</code>: Light is <code>coverage_colors::exec_line()</code> of a light palette, Dark and
+Borland their own dark greens, so every class colour reads on it, QSRC-195 clause 5, QSRC-200). The Disassembly paints a 3 px bar right of the
 gutter separator on a line where <code>mem_coverage_fetch(addr)</code> has X, after the PC and
 selection fills; the Memory panel asks <code>mem_coverage()</code> for each row through the
 same <code>locate()</code> as the bytes and underlines each covered byte in thirds, X | R | W,
 with a legend label in its top bar; the Source tab adds a full-width
-<code>ExtraSelection</code> for each line in <code>executed_source_lines(file)</code> before the
+<code>ExtraSelection</code>, in the scheme's tint, for each line in <code>executed_source_lines(file)</code> before the
 current-line selection, so that one wins on its own line. Nothing is drawn while
 coverage is off.</p>
 <h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>

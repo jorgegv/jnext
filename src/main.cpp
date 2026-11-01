@@ -512,6 +512,7 @@ int main(int argc, char* argv[]) {
         case KeyId::PathsScreenshotDir:
         case KeyId::ScreenshotQuickDir:
         case KeyId::ScreenshotQuickFormat:
+        case KeyId::SourceColourScheme:
             qt_assignments.push_back(a);   // merged into the Qt session's copy (merge_cli_assignments)
             break;
         case KeyId::StartupSilent:

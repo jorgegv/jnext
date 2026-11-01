@@ -18,9 +18,34 @@ use the disassembly there. The start-up code of a z88dk program built with `--li
 shows its m4 text from the listing, the label ending `(m4 output, from prog.lis)`;
 **Locate File...** does not apply to it.
 
+The text is coloured by its language: C (`.c`, `.h`), Z80 and Z80N assembly (`.asm`, `.s`,
+`.z80`, `.inc`; the sjasmplus and z88dk z80asm directives are recognised) and Boriel ZX Basic
+(`.bas`). A file with another extension is recognised by its first lines, and shown plain when
+they do not decide. Assembly written inside C (`#asm`, `__asm`) or inside Boriel Basic (`asm` ...
+`end asm`) is coloured as assembly.
+
+Ten classes are coloured: *Text* (identifiers and everything else), *Keyword*, *Instruction*,
+*Preprocessor*, *Label*, *String*, *Char*, *Integer*, *Float* and *Comment*. In C, a keyword is a
+Keyword, a `#` line is Preprocessor and a character constant is Char; a number is Integer, or Float
+when it has a point or an exponent (`1.5`, `1e-3`, `0x1p-3`). In assembly, a directive (`defb`,
+`section`, `include`, ...) is a Keyword, a mnemonic or a register is an Instruction, a label at the
+start of the line is a Label and every number is an Integer. In Boriel ZX Basic, a Basic keyword is
+a Keyword, a `#` line is Preprocessor, a line number is a Label and a number is Integer or Float. The
+punctuation and operators (`: , ; ( ) [ ] { } + - * / = < > & | ! ~ ^ % ? .`, a multi-character one
+such as `->` or `<<=` as a whole) are coloured as keywords; a comment, string, character or number
+keeps its own colour.
+
+The colours come from a scheme, chosen in **Settings > Preferences… > Debugger** or for one run with
+`--set source.colour_scheme=WORD`: **Auto** (the default) is Light or Dark after the application's
+theme, **Light** and **Dark** are the two fixed schemes, and **Borland** is Borland C++ 3.1, yellow
+text on a blue background. A scheme sets the Source tab's background, text colour and syntax colours
+and the colours of the current-line bar, and applies at once. The current line keeps its bar in every
+scheme, and the gutter (line numbers and breakpoint marks) is not affected.
+
 With [memory coverage](../functions/15-memory-coverage.md) on, every line of the
-shown file that ran has a pale green background (the current line keeps its
-highlight).
+shown file that ran has a tinted background that follows the colour scheme (pale
+green in Light, a dark green in Dark, a dark teal in Borland; the current line keeps
+its highlight).
 
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the

@@ -361,6 +361,9 @@ public:
     /// called when the manager is created and from apply_startup_config().
     void push_source_dirs();
 
+    /// GH #422 stage 2 - the same for the Source tab's colour scheme (source_scheme_).
+    void push_source_scheme();
+
     /// Update status bar information.  Called once per second from the frame timer.
     /// Refresh the status bar. `fps` is the EMULATED frame rate (run_frame()
     /// calls/s); `presented_fps` is the rate at which frames actually reached
@@ -734,6 +737,7 @@ private:
     // the saved list; Preferences takes over). Not app_config_'s, for the same reason
     // as session_ below: a command-line list must never reach jnext.conf.
     QStringList source_dirs_;
+    SourceScheme source_scheme_ = SourceScheme::Auto;   // GH #422 stage 2: IN EFFECT (the command line's, else saved)
 
     // GH #417 - the four paths/format settings this session reads LIVE, kept apart
     // from app_config_ so a command-line value (`--set paths.last_load_dir=...`)
