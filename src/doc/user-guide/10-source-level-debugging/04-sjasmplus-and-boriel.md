@@ -73,10 +73,10 @@ instead: load it again. The full account is in
 
 ## Boriel ZX Basic and NextBuild: `Memory.txt`
 
-The Boriel compiler, `zxbc`, has an option `-M` (long form `--mmap`) that
-"generates a label memory map". NextBuild, the build system around it, passes
-`-M Memory.txt` on every compile, so a NextBuild project has a `Memory.txt` of
-lines like
+The Boriel compiler, `zxbc`, has an option `-M` (long form `--mmap`), whose help
+text is "Generate label memory map". NextBuild, the build system around it,
+passes `-M Memory.txt` on the compiles that produce the program, so a NextBuild
+project has a `Memory.txt` of lines like
 
 ```
 8000: ._Main

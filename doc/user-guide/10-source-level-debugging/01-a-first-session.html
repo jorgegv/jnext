@@ -3908,7 +3908,7 @@
   <span class="md-ellipsis">
     
   
-    10.8 In the Source tab, names, watches and coverage
+    10.8 In the Source tab: names, watches and coverage
   
 
     
@@ -4068,64 +4068,94 @@ these beside each other, and they must stay together:</p>
 saw them: JNEXT looks for them beside the map, then in its parent directories
 (<a href="../06-debugger/functions/14-source-level-debugging.html#where-the-source-tab-finds-the-files">where the Source tab finds the files</a>).</p>
 <h2 id="load-it">Load it<a class="headerlink" href="#load-it" title="Permanent link">&para;</a></h2>
-<p>Start JNEXT, open the debugger with <strong>Alt+D</strong>, and press <strong>Pause</strong>. Then choose
-<strong>File ▸ Load NEX File...</strong> and pick <code>prog.nex</code>. A program loaded into a paused
-machine leaves it paused, at the program's first instruction, which for z88dk
-is the start-up code and not yet <code>main</code>.</p>
+<p>Start JNEXT with rewind switched on, so that <strong>Back</strong> works later:</p>
+<pre><code>jnext --machine next --rewind-buffer-size 200
+</code></pre>
+<p>(Rewind is off by default. The option also switches on the trace log that Back
+needs. Instead, you can enable <strong>Debug ▸ Rewind ▸ Enable Rewind</strong> in the debugger
+before loading: a load clears the recorded history but keeps the setting. See
+<a href="../06-debugger/functions/07-backward-execution-rewind.html">Backward execution</a>.)</p>
+<p>Open the debugger with <strong>Alt+D</strong> and pause the machine with <strong>Debug ▸ Pause /
+Break</strong> (<strong>F9</strong>). Then choose <strong>File ▸ Load NEX File...</strong> in the emulator window
+and pick <code>prog.nex</code>. A program loaded into a paused machine leaves it paused, at
+the program's first instruction, which for z88dk is the start-up code and not
+yet <code>main</code>.</p>
 <p>JNEXT finds <code>prog.map</code> beside the program and says so in its log (the terminal
 it was started from). With z88dk 2.4 the lines are:</p>
-<pre><code>Loaded 332 z88dk symbols from 'prog.map'
+<pre><code>Loaded 332 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>
 <p>"Program identity verified" means <code>prog_CODE.bin</code> matches the bytes in memory:
-the map belongs to this program. The count is for z88dk 2.4; the current master
-gives 333 symbols and the same 281 lines. If the line says <code>program identity not
-verified</code> the map is still used; see <a href="10-limits-and-troubleshooting.html">10.10</a>.</p>
-<p>Open the <strong>Source</strong> tab. It shows the start-up code, labelled <code>(m4 output, from
-prog.lis)</code>: that text exists only because the build used <code>--list</code>.</p>
+the map belongs to this program. The counts are for z88dk 2.4; the 2026-10-16
+master gives 333 symbols and the same 281 lines. If the line says <code>program
+identity not verified</code> the map is still used; see
+<a href="10-limits-and-troubleshooting.html">10.10</a>. (Started from the command line with
+<code>--load prog.nex</code>, the path in the first line is the name you typed.)</p>
+<p>Open the <strong>Source</strong> tab. The machine is at <code>$8000</code>, and the tab shows the file the
+map names for that address: a start-up file from your z88dk installation,
+<code>crt_start_di.inc</code>, with line 3 (<code>di</code>) highlighted. The position line above the
+text reads like this (the path is that of your installation):</p>
+<pre><code>/home/you/z88dk/lib/config/../../libsrc/_DEVELOPMENT/target/zxn/../crt_start_di.inc:3  $8000  page 04
+</code></pre>
+<p>That is z88dk's own start-up code, not yours; the map records its absolute path,
+so the tab finds it on the machine that built the program. Parts of the start-up
+code that come from an m4 template have no file on disk; for those the tab shows
+the text from <code>prog.lis</code>, labelled <code>(m4 output, from prog.lis)</code>.</p>
 <h2 id="stop-on-a-line">Stop on a line<a class="headerlink" href="#stop-on-a-line" title="Permanent link">&para;</a></h2>
 <p>In the <strong>Breakpoints</strong> panel press <strong>Add</strong>, leave the type on Execute, and enter
 <code>main.c:19</code>. It is accepted because the map has code for that line; a line with
-no code is refused (<code>no code at main.c:3</code>). Press <strong>Continue</strong>.</p>
+no code is refused (<code>no code at main.c:3</code>, in red in the dialog). The panel lists
+the breakpoint as <code>main.c:19</code> at <code>$8CB5 @04</code>. Press <strong>F5: Continue</strong>.</p>
 <p>The machine stops on <code>table[i] = square(i);</code>, the first time through the loop.
 The Source tab shows <code>main.c</code> with line 19 highlighted, and a line above the
-text names the position: file and line, the address (<code>$8CB5</code> in the 2.4 build)
-and the 8K page that supplies it. Addresses depend on the build; the lines do not.
-Once <code>main.c</code> is on the screen you can also set and clear the breakpoint with a
-click in the gutter, left of the line number.</p>
+text names the position: <code>main.c:19  $8CB5  page 04</code>, that is, file and line, the
+address and the 8K page that supplies it. Addresses are those of the z88dk 2.4
+build; another build can place the code elsewhere, and the lines do not move.
+The breakpoint also shows as a red dot in the gutter, left of the line number,
+and a click on the dot clears it (a click on a line sets one).</p>
 <h2 id="watch-a-variable">Watch a variable<a class="headerlink" href="#watch-a-variable" title="Permanent link">&para;</a></h2>
-<p>Right-click <code>counter</code> in the source and choose <strong>Watch</strong>: it is added to the
+<p>Right-click <code>counter</code> in the source (line 20, say) and choose <strong>Watch</strong>: it is added to the
 Watches panel under its C name, <code>counter</code> (the compiler's <code>_counter</code> is hidden).
 <strong>Break on Write</strong> from the same menu stops whenever the program writes it. See
 <a href="08-around-the-source.html">10.8</a>.</p>
 <h2 id="step">Step<a class="headerlink" href="#step" title="Permanent link">&para;</a></h2>
 <p>The five source steps are buttons at the top of the Source tab and in <strong>Debug ▸
 Source</strong>. <strong>Into</strong>, <strong>Over</strong> and <strong>Out</strong> are also on <strong>Ctrl+F6</strong>, <strong>Ctrl+F7</strong> and
-<strong>Ctrl+F8</strong>.</p>
-<ul>
-<li><strong>Into</strong> at line 19 enters <code>square</code> and stops at <code>main.c:11</code>,
-  <code>return x * x;</code>.</li>
-<li><strong>Out</strong> runs until the routine that called this one is reached again, back in
-  <code>main</code>.</li>
-<li><strong>Over</strong> at line 19 runs <code>square</code> in full and stops at the next source
-  statement, line 20, <code>counter += table[i];</code>.</li>
-<li><strong>Back</strong> rewinds to the start of the previous source statement that ran, so
-  you can see line 19 again. It needs the trace log and rewind, as
-  <a href="../06-debugger/functions/07-backward-execution-rewind.html">Step Back</a> does.</li>
-</ul>
-<p>Instructions that belong to no source line (the compiler's runtime, library
-code) are run through by every step.</p>
+<strong>Ctrl+F8</strong>. Instructions that belong to no source line (the compiler's runtime,
+library code) are run through by every step.</p>
+<p>This is the sequence you see with the z88dk 2.4 build, starting at the stop on
+line 19 (<code>counter</code> is <code>0</code>). The positions are shown above the text, as before.</p>
+<ol>
+<li><strong>Over</strong> stops at <code>main.c:20  $8CBE</code>. It did not run <code>square</code> first: 2.4's
+   sccz80 lists the call to <code>square</code> under line 20, so line 19 ends before it and
+   line 20 starts with the call's setup. (This is the toolchain's line attribution,
+   and it differs between z88dk versions; with the 2026-10-16 master, the call is
+   listed under line 19 and <strong>Over</strong> from 19 runs <code>square</code> before it stops at 20.)</li>
+<li><strong>Back</strong> returns to <code>main.c:19  $8CB5</code>. It rewinds to the start of the previous
+   source statement that ran. It needs rewind and the trace log: that is why JNEXT
+   was started with <code>--rewind-buffer-size</code>.</li>
+<li><strong>Into</strong> stops at <code>main.c:20  $8CBE</code> again. <strong>Into</strong> again enters <code>square</code> and
+   stops at <code>main.c:10  $8C78</code>, the <code>{</code> of the function, where the <code>-debug</code>
+   build's entry code runs. A third <strong>Into</strong> stops at <code>main.c:11  $8C7B</code>,
+   <code>return x * x;</code>.</li>
+<li><strong>Out</strong> leaves <code>square</code> and stops back in <code>main</code>, at <code>main.c:20  $8CC9</code>, in
+   the middle of the statement that follows the call.</li>
+</ol>
 <h2 id="run-to-a-line">Run to a line<a class="headerlink" href="#run-to-a-line" title="Permanent link">&para;</a></h2>
-<p>Right-click line 23, <code>asm_bump();</code>, and choose <strong>Run to Here</strong> (or select the
-line and press <strong>Enter</strong>). The machine runs the rest of the loop and stops at
-line 23. No breakpoint is left behind. In the Watches panel <code>counter</code> is <code>100</code>:
-the loop added the squares 0 to 49, which is 140, and line 22 clamped it to 100.</p>
-<p><strong>Into</strong> now enters <code>asm_bump</code> and the Source tab switches to <code>asmfn.asm</code>, which
-is shown in the same way, as assembly source. <strong>Out</strong> returns to <code>main</code>.</p>
-<p>The rest of the program changes <code>counter</code> twice more: <code>asm_bump</code> adds 3 (103),
-and <code>util_twice</code> doubles it and adds 1 (207). The values at the start of lines
-22, 23, 24 and 26, the first time each is reached, are <code>140</code>, <code>100</code>, <code>103</code> and
-<code>207</code>; a <a href="../06-debugger/functions/14-source-level-debugging.html#from-scripts-and-z88dk-gdb">script</a>
+<p>First clear the breakpoint on line 19 with a click on its red dot, or the run
+stops there again at the next pass of the loop. Then right-click line 23,
+<code>asm_bump();</code>, and choose <strong>Run to Here</strong> (or select the line and press
+<strong>Enter</strong>). The machine runs the rest of the loop and stops at <code>main.c:23  $8D0F</code>.
+No breakpoint is left behind. In the Watches panel <code>counter</code> is <code>$64 (100d)</code>: the
+loop added the squares 0 to 49, which is 140, and line 22 clamped it to 100.</p>
+<p><strong>Into</strong> now enters <code>asm_bump</code> and the Source tab switches to <code>asmfn.asm</code>, at
+<code>asmfn.asm:6  $8D65</code>, shown in the same way, as assembly source. <strong>Out</strong> returns
+to <code>main</code> at <code>main.c:25  $8D12</code>, with <code>counter</code> at <code>$67 (103d)</code>: lines 24 and 25
+start at the same address in this build, so the tab names the later one.</p>
+<p>The rest of the program changes <code>counter</code> once more: <code>util_twice</code> doubles it and
+adds 1 (207). The values at the start of lines 22, 23, 24 and 26, the first time
+each is reached, are <code>140</code>, <code>100</code>, <code>103</code> and <code>207</code>; a
+<a href="../06-debugger/functions/14-source-level-debugging.html#from-scripts-and-z88dk-gdb">script</a>
 (<code>on execute main.c:26 once do log "${mem[@counter]:d}" end</code>) prints them
 without the GUI.</p>
 <h2 id="where-next">Where next<a class="headerlink" href="#where-next" title="Permanent link">&para;</a></h2>

@@ -3870,7 +3870,7 @@
   <span class="md-ellipsis">
     
   
-    10.8 In the Source tab, names, watches and coverage
+    10.8 In the Source tab: names, watches and coverage
   
 
     
@@ -3997,10 +3997,10 @@ clears a few frames later). A map you loaded by hand goes <em>stale</em> on a re
 instead: load it again. The full account is in
 <a href="../06-debugger/functions/14-source-level-debugging.html#loading-them">loading a source map</a>.</p>
 <h2 id="boriel-zx-basic-and-nextbuild-memorytxt">Boriel ZX Basic and NextBuild: <code>Memory.txt</code><a class="headerlink" href="#boriel-zx-basic-and-nextbuild-memorytxt" title="Permanent link">&para;</a></h2>
-<p>The Boriel compiler, <code>zxbc</code>, has an option <code>-M</code> (long form <code>--mmap</code>) that
-"generates a label memory map". NextBuild, the build system around it, passes
-<code>-M Memory.txt</code> on every compile, so a NextBuild project has a <code>Memory.txt</code> of
-lines like</p>
+<p>The Boriel compiler, <code>zxbc</code>, has an option <code>-M</code> (long form <code>--mmap</code>), whose help
+text is "Generate label memory map". NextBuild, the build system around it,
+passes <code>-M Memory.txt</code> on the compiles that produce the program, so a NextBuild
+project has a <code>Memory.txt</code> of lines like</p>
 <pre><code>8000: ._Main
 </code></pre>
 <p>(a hex address, then the label). JNEXT loads it by itself when it finds

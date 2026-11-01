@@ -20,14 +20,10 @@ See [Symbols from MAP files](../06-debugger/functions/05-symbols-from-z88dk-map-
 
 ## Watching and breaking from the source
 
-Right-click a name in the Source tab and the menu offers **Watch** and **Break on
-Read / Write** for it. What is under the pointer can be a symbol (`counter`,
-whether the text says `counter` or `_counter`), a number (`$5800`, `0x5800`,
-`5800h`, `#5800` or decimal) or a register in parentheses (`(hl)`, `(ix+2)`).
-The watch is by CPU address, whatever is mapped there. In the example of
-[10.1](01-a-first-session.md), right-click `counter` on line 20 and choose
-**Watch**; **Break on Write** stops the machine whenever the program writes it.
-The rest of the menu is described in the panel page's
+In the example of [10.1](01-a-first-session.md), right-click `counter` on line 20
+and choose **Watch**: it joins the Watches panel under its C name. **Break on
+Write** from the same menu stops the machine whenever the program writes it. What
+the menu offers, and for what under the pointer, is described in the panel page's
 [right-click menu](../06-debugger/panels/15-source.md#right-click-menu).
 
 ## Which lines have run

@@ -3771,7 +3771,7 @@
   <span class="md-ellipsis">
     
   
-    10.8 In the Source tab, names, watches and coverage
+    10.8 In the Source tab: names, watches and coverage
   
 
     
@@ -3910,9 +3910,12 @@
 
 
 <h1 id="1010-limits-and-troubleshooting">10.10 Limits and troubleshooting<a class="headerlink" href="#1010-limits-and-troubleshooting" title="Permanent link">&para;</a></h1>
-<p>The messages JNEXT gives while loading and using a source map, what causes
-each, and what to do. They are in the log, in the main window's status bar for
-ten seconds, and in the Source tab in place of "No source map loaded".</p>
+<p>The messages that come with loading and using a source map, what causes each,
+and what to do. Where one appears is in the row: a source map that is found and
+refused is also in the log, in the main window's status bar for ten seconds, and
+in the Source tab in place of "No source map loaded" (see the paragraph after the table); the
+others are in the log, the Source tab, the Add dialog or the compiler's own
+output.</p>
 <h2 id="messages">Messages<a class="headerlink" href="#messages" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3925,7 +3928,7 @@ ten seconds, and in the Source tab in place of "No source map loaded".</p>
 <tbody>
 <tr>
 <td><code>program identity not verified: no section binaries beside it</code></td>
-<td>a z88dk map with no <code>prog_CODE.bin</code> beside it: a classic build (<code>+zx</code> without <code>-clib=new</code>, or <code>+zxn -clib=classic</code>), or the file was moved or deleted</td>
+<td>a z88dk map with no <code>prog_CODE.bin</code> beside it: a classic build (<code>+zx</code> with its default, classic, library, or <code>+zxn -clib=classic</code>), or the file was moved or deleted</td>
 <td>the map is used anyway. For a verified map, build with <code>-clib=new</code> and keep <code>prog_CODE.bin</code> (and <code>prog_&lt;SECTION&gt;.bin</code>) beside <code>prog.map</code></td>
 </tr>
 <tr>
@@ -3940,7 +3943,7 @@ ten seconds, and in the Source tab in place of "No source map loaded".</p>
 </tr>
 <tr>
 <td><code>z88dk listings for 'prog.map': prog.lis: 17 listed lines could not be placed (no label of their section piece is in the map, or inside PHASE)</code></td>
-<td>a program with <code>__banked</code> functions (it is printed for every one): the start-up section is no longer one piece, or code is in a <code>PHASE</code> block</td>
+<td>a newlib program with <code>__banked</code> functions (seen with both z88dk installs): the start-up section is no longer one piece, or code is in a <code>PHASE</code> block</td>
 <td>harmless for the banked case: the start-up code shows no m4 text there. See <a href="02-building-with-z88dk.html#banked-code">10.2</a></td>
 </tr>
 <tr>
@@ -3966,7 +3969,7 @@ ten seconds, and in the Source tab in place of "No source map loaded".</p>
 <tr>
 <td><code>no code at main.c:3</code></td>
 <td>the line has no machine code (a comment, a declaration)</td>
-<td>choose a line with code; breakpoints on a line that has several places are one breakpoint</td>
+<td>choose a line with code</td>
 </tr>
 <tr>
 <td><code>ROM or overlay</code> (Source tab)</td>
@@ -4012,8 +4015,8 @@ the two pragmas: see <a href="02-building-with-z88dk.html#banked-code">10.2</a>.
   statement (a loop on one line, a <code>HALT</code> with interrupts disabled) stops by itself
   at a disabled-interrupt <code>HALT</code>, or after a million instructions or 100 frames,
   and says so in the log.</li>
-<li><strong><code>-debug</code> changes the code</strong>, so addresses and timing differ from your
-  release build.</li>
+<li><strong>With sccz80 and 80cc, <code>-debug</code> changes the code</strong>, so addresses and timing
+  differ from your release build. sdcc's <code>-debug</code> leaves the code unchanged.</li>
 <li><strong>Headless and SDL builds attach the map but do not show it.</strong> Only the Qt
   debugger has a Source tab; with <code>--headless</code> or the SDL frontend the map is read
   by scripts and by <code>monitor src</code> over the GDB server.</li>

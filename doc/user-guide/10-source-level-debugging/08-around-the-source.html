@@ -25,7 +25,7 @@
     
     
       
-        <title>10.8 In the Source tab, names, watches and coverage - JNEXT User Guide</title>
+        <title>10.8 In the Source tab: names, watches and coverage - JNEXT User Guide</title>
       
     
     
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              10.8 In the Source tab, names, watches and coverage
+              10.8 In the Source tab: names, watches and coverage
             
           </span>
         </div>
@@ -3782,7 +3782,7 @@
   <span class="md-ellipsis">
     
   
-    10.8 In the Source tab, names, watches and coverage
+    10.8 In the Source tab: names, watches and coverage
   
 
     
@@ -3800,7 +3800,7 @@
   <span class="md-ellipsis">
     
   
-    10.8 In the Source tab, names, watches and coverage
+    10.8 In the Source tab: names, watches and coverage
   
 
     
@@ -3938,14 +3938,10 @@ map (<code>_counter</code>). JNEXT shows and accepts the C name:</p>
 when the program has a variable of that name. Write <code>@FE</code> to mean the symbol.</p>
 <p>See <a href="../06-debugger/functions/05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>.</p>
 <h2 id="watching-and-breaking-from-the-source">Watching and breaking from the source<a class="headerlink" href="#watching-and-breaking-from-the-source" title="Permanent link">&para;</a></h2>
-<p>Right-click a name in the Source tab and the menu offers <strong>Watch</strong> and <strong>Break on
-Read / Write</strong> for it. What is under the pointer can be a symbol (<code>counter</code>,
-whether the text says <code>counter</code> or <code>_counter</code>), a number (<code>$5800</code>, <code>0x5800</code>,
-<code>5800h</code>, <code>#5800</code> or decimal) or a register in parentheses (<code>(hl)</code>, <code>(ix+2)</code>).
-The watch is by CPU address, whatever is mapped there. In the example of
-<a href="01-a-first-session.html">10.1</a>, right-click <code>counter</code> on line 20 and choose
-<strong>Watch</strong>; <strong>Break on Write</strong> stops the machine whenever the program writes it.
-The rest of the menu is described in the panel page's
+<p>In the example of <a href="01-a-first-session.html">10.1</a>, right-click <code>counter</code> on line 20
+and choose <strong>Watch</strong>: it joins the Watches panel under its C name. <strong>Break on
+Write</strong> from the same menu stops the machine whenever the program writes it. What
+the menu offers, and for what under the pointer, is described in the panel page's
 <a href="../06-debugger/panels/15-source.html#right-click-menu">right-click menu</a>.</p>
 <h2 id="which-lines-have-run">Which lines have run<a class="headerlink" href="#which-lines-have-run" title="Permanent link">&para;</a></h2>
 <p>Switch on memory coverage and every line of the shown file that has run gets a

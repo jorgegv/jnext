@@ -3792,10 +3792,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#which-compiler-and-library-works" class="md-nav__link">
+  <a href="#which-compiler-and-library-work" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Which compiler and library works
+        Which compiler and library work
       
     </span>
   </a>
@@ -3886,7 +3886,7 @@
   <span class="md-ellipsis">
     
   
-    10.8 In the Source tab, names, watches and coverage
+    10.8 In the Source tab: names, watches and coverage
   
 
     
@@ -3963,7 +3963,7 @@ and what changes for tape builds and banked code. <a href="01-a-first-session.ht
 uses the first line below.</p>
 <p>Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
 and with a master build of 2026-10-16 (commit 39421a01cd, sdcc 4.6.0), unless a
-table says one of them is different. Both were run with <code>LANG=C</code>.</p>
+table says one of them is different.</p>
 <h2 id="the-recommended-build">The recommended build<a class="headerlink" href="#the-recommended-build" title="Permanent link">&para;</a></h2>
 <pre><code>zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog main.c util.c asmfn.asm
 </code></pre>
@@ -3977,7 +3977,7 @@ table says one of them is different. Both were run with <code>LANG=C</code>.</p>
 <tbody>
 <tr>
 <td><code>-debug</code></td>
-<td>the C line records in the map (<code>__C_LINE_</code> symbols). It also changes the program: see below</td>
+<td>the C line records in the map (<code>__C_LINE_</code> symbols). With sccz80 and 80cc it also changes the program: see below</td>
 </tr>
 <tr>
 <td><code>-m</code></td>
@@ -4000,7 +4000,7 @@ table says one of them is different. Both were run with <code>LANG=C</code>.</p>
 <p>The minimum is <code>-debug -m</code>. With it JNEXT gets the C lines and the symbols; for
 the example program that is 46 source lines instead of 281 with <code>--list</code>.</p>
 <p>Loading <code>prog.nex</code> gives (z88dk 2.4):</p>
-<pre><code>Loaded 332 z88dk symbols from 'prog.map'
+<pre><code>Loaded 332 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>
 <p>and 333 symbols with the same 281 lines on the master build.</p>
@@ -4051,7 +4051,7 @@ zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog ../src/main
 <p><code>prog.nex</code>, <code>prog.map</code>, <code>prog.lis</code> and <code>prog_CODE.bin</code> land in <code>build/</code>, the
 <code>.lis</code> files land beside the sources (<code>src/main.c.lis</code>), and JNEXT finds them
 there. The map records <code>../src/main.c</code>, and the Source tab finds the file.</p>
-<h2 id="which-compiler-and-library-works">Which compiler and library works<a class="headerlink" href="#which-compiler-and-library-works" title="Permanent link">&para;</a></h2>
+<h2 id="which-compiler-and-library-work">Which compiler and library work<a class="headerlink" href="#which-compiler-and-library-work" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -4089,10 +4089,10 @@ there. The map records <code>../src/main.c</code>, and the Source tab finds the 
 <tr>
 <td>classic on the Next, no <code>-debug</code>: <code>+zxn -clib=classic -m --list</code></td>
 <td>builds: 171 lines, from the listings. No <code>prog_CODE.bin</code>, so the identity is not verified</td>
-<td></td>
+<td>builds: 171 lines, same</td>
 </tr>
 <tr>
-<td>classic on the 48K Spectrum: <code>+zx -debug -m --list</code></td>
+<td>classic on the 48K Spectrum: <code>+zx -debug -m --list</code> (no <code>-clib</code>: classic is the default)</td>
 <td>works: 251 lines. No <code>prog_CODE.bin</code>: <code>(program identity not verified: no section binaries beside it)</code></td>
 <td>works</td>
 </tr>
@@ -4157,7 +4157,7 @@ as before.</p>
 <p>A program loaded from tape is not in memory when the load call returns, so its
 binary identity is checked later, the first time the CPU runs the code the map
 describes. This is the log of the 48K tape build (z88dk 2.4 and master alike):</p>
-<pre><code>Loaded 337 z88dk symbols from 'prog.map'
+<pre><code>Loaded 337 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (identity check pending: the program loads from tape)
 Verified z88dk source map '/home/you/prog/prog.map': the program loaded from tape matches its binary identity
 </code></pre>
@@ -4165,8 +4165,8 @@ Verified z88dk source map '/home/you/prog/prog.map': the program loaded from tap
 <a href="../06-debugger/functions/14-source-level-debugging.html#loading-them">loading a source map</a>.</p>
 <h2 id="banked-code">Banked code<a class="headerlink" href="#banked-code" title="Permanent link">&para;</a></h2>
 <p>A function that lives in a bank, built with z88dk's <code>__banked</code> on the Next, is
-matched to its source only while its 8K page is mapped. These are the two steps
-that were run (<code>-DUSE_BANKED_KW</code> makes <code>banked.h</code> use <code>__banked</code>; the sources are
+matched to its source only while its 8K page is mapped. The two steps
+(<code>-DUSE_BANKED_KW</code> makes <code>banked.h</code> use <code>__banked</code>; the sources are
 <code>bmain.c</code>, <code>banked.c</code>, <code>banked.h</code> and <code>bankin.asm</code> in <code>test/fixtures/z88dk/src/</code>):</p>
 <pre><code>zcc +zxn -clib=new -debug -DUSE_BANKED_KW --codesegPAGE_20 --list -c banked.c -o banked.o
 zcc +zxn -clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000 -m --list -subtype=nex -create-app -o prog bmain.c bankin.asm banked.o
@@ -4182,7 +4182,7 @@ this page; on anything newer, build the example and look.</p>
 <pre><code>z88dk listings for 'prog.map': prog.lis: 17 listed lines could not be placed (no label of their section piece is in the map, or inside PHASE)
 Loaded 176 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>
-<p>The warning is expected for every <code>__banked</code> program, on both installs. The
+<p>The warning is expected for a newlib <code>__banked</code> program, on both installs. The
 banking driver adds code to the start-up section, so JNEXT can no longer tell
 where the start-up listing's label-less lines go. The cost is small: those
 start-up lines show no m4 text in the Source tab (the disassembly still works),
@@ -4190,9 +4190,11 @@ and everything else is attached. How banked code, pages and addresses show is in
 <a href="../06-debugger/functions/14-source-level-debugging.html#banked-code">banked code</a>.</p>
 <h2 id="things-that-change-the-result">Things that change the result<a class="headerlink" href="#things-that-change-the-result" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><code>-debug</code> changes the program.</strong> It adds <code>l_debug_push_frame</code> and
-  <code>l_debug_pop_frame</code> around functions, so the build you debug is not the build
-  you ship. Debug the one that has it.</li>
+<li><strong>With sccz80 and 80cc, <code>-debug</code> changes the program.</strong> It adds
+  <code>l_debug_push_frame</code> and <code>l_debug_pop_frame</code> around functions, so the build you
+  debug is not the build you ship: debug the <code>-debug</code> build, and do not compare its
+  addresses or timing with the release build. sdcc's <code>-debug</code> leaves the code
+  unchanged (the same <code>prog_CODE.bin</code> with and without it).</li>
 <li><strong>Optimisation moves code across lines.</strong> The default is <code>-O2 -SO2</code>
   (<code>zxn.cfg</code> and <code>zx.cfg</code>). For sdcc, the <code>-SO</code> level decides which line a piece
   of code sits under; <code>-SO0</code> stays closest to the source. For sccz80, <code>-O3</code> made

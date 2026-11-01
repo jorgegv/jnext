@@ -8,7 +8,7 @@ uses the first line below.
 
 Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
 and with a master build of 2026-10-16 (commit 39421a01cd, sdcc 4.6.0), unless a
-table says one of them is different. Both were run with `LANG=C`.
+table says one of them is different.
 
 ## The recommended build
 
@@ -18,7 +18,7 @@ zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog main.c util
 
 | Option | What it gives you |
 |---|---|
-| `-debug` | the C line records in the map (`__C_LINE_` symbols). It also changes the program: see below |
+| `-debug` | the C line records in the map (`__C_LINE_` symbols). With sccz80 and 80cc it also changes the program: see below |
 | `-m` | writes `prog.map`, the file JNEXT reads |
 | `--list` | writes `prog.lis` and one `<source>.lis` beside each source: every assembly line, every address of a C line, exact extents, and the text of the start-up code |
 | `-subtype=nex` and `-create-app` | write `prog.nex`, the loadable file (see the targets below) |
@@ -30,7 +30,7 @@ the example program that is 46 source lines instead of 281 with `--list`.
 Loading `prog.nex` gives (z88dk 2.4):
 
 ```
-Loaded 332 z88dk symbols from 'prog.map'
+Loaded 332 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 ```
 
@@ -61,7 +61,7 @@ zcc +zxn -clib=new -debug -m --list -subtype=nex -create-app -o prog ../src/main
 `.lis` files land beside the sources (`src/main.c.lis`), and JNEXT finds them
 there. The map records `../src/main.c`, and the Source tab finds the file.
 
-## Which compiler and library works
+## Which compiler and library work
 
 | Build | z88dk 2.4 | z88dk master (39421a01cd) |
 |---|---|---|
@@ -70,8 +70,8 @@ there. The map records `../src/main.c`, and the Source tab finds the file.
 | sdcc on 2.4: `+zxn -clib=sdcc_iy --c-code-in-asm -m --list` (no `-debug`) | works: 230 lines, from the listings alone | not needed |
 | 80cc: `+zxn -clib=new -compiler=80cc -debug -m --list` | not available | works: 234 lines. Some lines are shared |
 | classic on the Next: `+zxn -clib=classic -debug` | **fails**: `Unknown option2 --hardware-keyboard` | fails the same way |
-| classic on the Next, no `-debug`: `+zxn -clib=classic -m --list` | builds: 171 lines, from the listings. No `prog_CODE.bin`, so the identity is not verified | |
-| classic on the 48K Spectrum: `+zx -debug -m --list` | works: 251 lines. No `prog_CODE.bin`: `(program identity not verified: no section binaries beside it)` | works |
+| classic on the Next, no `-debug`: `+zxn -clib=classic -m --list` | builds: 171 lines, from the listings. No `prog_CODE.bin`, so the identity is not verified | builds: 171 lines, same |
+| classic on the 48K Spectrum: `+zx -debug -m --list` (no `-clib`: classic is the default) | works: 251 lines. No `prog_CODE.bin`: `(program identity not verified: no section binaries beside it)` | works |
 
 Notes:
 
@@ -108,7 +108,7 @@ binary identity is checked later, the first time the CPU runs the code the map
 describes. This is the log of the 48K tape build (z88dk 2.4 and master alike):
 
 ```
-Loaded 337 z88dk symbols from 'prog.map'
+Loaded 337 z88dk symbols from '/home/you/prog/prog.map'
 Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (identity check pending: the program loads from tape)
 Verified z88dk source map '/home/you/prog/prog.map': the program loaded from tape matches its binary identity
 ```
@@ -119,8 +119,8 @@ Verified z88dk source map '/home/you/prog/prog.map': the program loaded from tap
 ## Banked code
 
 A function that lives in a bank, built with z88dk's `__banked` on the Next, is
-matched to its source only while its 8K page is mapped. These are the two steps
-that were run (`-DUSE_BANKED_KW` makes `banked.h` use `__banked`; the sources are
+matched to its source only while its 8K page is mapped. The two steps
+(`-DUSE_BANKED_KW` makes `banked.h` use `__banked`; the sources are
 `bmain.c`, `banked.c`, `banked.h` and `bankin.asm` in `test/fixtures/z88dk/src/`):
 
 ```
@@ -143,7 +143,7 @@ z88dk listings for 'prog.map': prog.lis: 17 listed lines could not be placed (no
 Loaded 176 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 ```
 
-The warning is expected for every `__banked` program, on both installs. The
+The warning is expected for a newlib `__banked` program, on both installs. The
 banking driver adds code to the start-up section, so JNEXT can no longer tell
 where the start-up listing's label-less lines go. The cost is small: those
 start-up lines show no m4 text in the Source tab (the disassembly still works),
@@ -152,9 +152,11 @@ and everything else is attached. How banked code, pages and addresses show is in
 
 ## Things that change the result
 
-- **`-debug` changes the program.** It adds `l_debug_push_frame` and
-  `l_debug_pop_frame` around functions, so the build you debug is not the build
-  you ship. Debug the one that has it.
+- **With sccz80 and 80cc, `-debug` changes the program.** It adds
+  `l_debug_push_frame` and `l_debug_pop_frame` around functions, so the build you
+  debug is not the build you ship: debug the `-debug` build, and do not compare its
+  addresses or timing with the release build. sdcc's `-debug` leaves the code
+  unchanged (the same `prog_CODE.bin` with and without it).
 - **Optimisation moves code across lines.** The default is `-O2 -SO2`
   (`zxn.cfg` and `zx.cfg`). For sdcc, the `-SO` level decides which line a piece
   of code sits under; `-SO0` stays closest to the source. For sccz80, `-O3` made

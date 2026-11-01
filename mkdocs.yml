@@ -146,7 +146,7 @@ nav:
       - 10.1 A first session: 10-source-level-debugging/01-a-first-session.md
       - 10.2 Building programs with z88dk: 10-source-level-debugging/02-building-with-z88dk.md
       - 10.4 sjasmplus and Boriel ZX Basic: 10-source-level-debugging/04-sjasmplus-and-boriel.md
-      - 10.8 In the Source tab, names, watches and coverage: 10-source-level-debugging/08-around-the-source.md
+      - '10.8 In the Source tab: names, watches and coverage': 10-source-level-debugging/08-around-the-source.md
       - 10.10 Limits and troubleshooting: 10-source-level-debugging/10-limits-and-troubleshooting.md
 
 # Make `mkdocs build --strict` fail on the two classes of breakage this guide
