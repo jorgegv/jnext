@@ -16,6 +16,7 @@ class QLabel;
 class QMenu;
 class QPlainTextEdit;
 class QPushButton;
+class QTextBlock;
 class SourceHighlighter;
 enum class SourceLanguage;
 class WatchPanel;
@@ -40,7 +41,7 @@ public:
     /// The machine stopped (a breakpoint, a step, a Pause, a rewind): the next
     /// refresh puts the view on the current line even when the line and the PC
     /// are the ones it last showed and the user has scrolled away since.
-    void follow_pc() { placed_ = false; }
+    void follow_pc() { placed_ = false; browse_addr_.reset(); }
     /// Enable the step buttons for this state, without re-reading anything.
     void update_buttons(bool paused);
 
@@ -100,6 +101,21 @@ public:
     /// Empty without a selection.
     QString selection_text_with_addresses() const;
 
+    // --- GH #347: the Disassembly's selection -------------------------------
+
+    /// The Disassembly's USER selection `lo..hi` with its caret line: the cursor goes to
+    /// the caret's source line, shown in its own file when that is not the PC's line
+    /// ("browsing", until the next stop, a run, another map or Go to PC Line), and every
+    /// line with an instruction of the range is tinted. Ignored while the machine runs or
+    /// no map is loaded; an address with no source line leaves the view and tints nothing.
+    void set_disasm_selection(uint16_t lo, uint16_t hi, uint16_t caret);
+    /// The Disassembly menu's Show in Source: as a one-address selection, centred.
+    void show_address(uint16_t addr);
+    /// Go to PC Line: end browsing and put the view on the PC's line.
+    void go_to_pc_line();
+    /// Whether the label describes an address the Disassembly led to, not the PC.
+    bool browsing() const { return browse_addr_.has_value(); }
+
     /// What the panel shows right now (for tests and the status line).
     QString location_text() const;
     /// The label's tooltip: the path of the file shown (empty when none is).
@@ -127,6 +143,12 @@ signals:
     void run_to_line_requested(const QString& file_line);
     /// GH #423 - Show in Disassembly: put the Disassembly on `addr`.
     void show_address_requested(uint16_t addr);
+    /// GH #347 - the lines the Source cursor or selection covers, `first..last` of `file`
+    /// (an empty file: none, a message or Running is shown). `reveal`: the user made the
+    /// move in this tab, so the Disassembly may scroll to the addresses; a placement the
+    /// panel made itself (a stop, the Disassembly's own click) never asks for it. Emitted
+    /// only when the file or the lines changed.
+    void source_lines_selected(const QString& file, int first, int last, bool reveal);
 
 private:
     void refresh_();
@@ -150,6 +172,13 @@ private:
     /// GH #422 - the one way a text enters the editor: language first, then the text.
     void set_source_text(const QString& text, const std::string& file);
     void apply_scheme_();
+    /// GH #347 - announce the lines under the cursor (see source_lines_selected()).
+    void emit_lines_(bool reveal, bool force);
+    /// The blocks of the lines the cursor or its selection covers (a selection that ends at
+    /// the start of a block does not take that block).
+    void selected_blocks_(QTextBlock& first, QTextBlock& last) const;
+    /// The lines of `file` with an instruction (any location) in the Disassembly's range.
+    std::vector<int> linked_lines_(const std::string& file) const;
     /// While the machine runs there is no current line: say so, and drop the
     /// highlight of the last stop.
     void show_running();
@@ -164,6 +193,7 @@ private:
     QPushButton* back_btn_ = nullptr;
     QPushButton* reverse_btn_ = nullptr;
     QPushButton* locate_btn_ = nullptr;
+    QPushButton* goto_pc_btn_ = nullptr;
     QPointer<BreakpointModel> bp_model_;
     QPointer<WatchPanel> watch_panel_;
     QAction* copy_action_ = nullptr;
@@ -181,4 +211,15 @@ private:
     bool placed_ = false;
     int placed_line_ = 0;
     uint16_t placed_pc_ = 0;
+
+    // GH #347 - browsing: the address the Disassembly led to (the label describes it, not the PC),
+    // and the map it was in. The Disassembly's range, whose lines are tinted. The guard around the
+    // panel's own cursor moves, and the lines last announced.
+    std::optional<uint16_t> browse_addr_;
+    std::string browse_map_;
+    struct DisasmRange { uint16_t lo, hi, caret; };
+    std::optional<DisasmRange> disasm_range_;
+    bool syncing_ = false;
+    QString lines_file_;
+    int lines_first_ = 0, lines_last_ = 0;
 };

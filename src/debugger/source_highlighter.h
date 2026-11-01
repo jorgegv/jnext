@@ -50,6 +50,9 @@ public:
         /// The whole-line background of an executed line (memory coverage, GH #388), chosen so
         /// every class colour and Text read on it.
         QColor coverage_line;
+        /// The whole-line background of a line linked to the Disassembly's selection (GH #347),
+        /// legible like coverage_line and distinct from it, from the background and from the bar.
+        QColor linked_line;
         QColor role[kRoles];
     };
     /// The colours of Light, Dark or Borland (Auto is resolved first).
