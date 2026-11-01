@@ -2876,11 +2876,11 @@ trailing CR dropped.</p>
   (built without <code>-debug</code>, no usable listing) is refused with
   <code>"no source lines in '&lt;path&gt;' ..."</code> and the listing notes appended.</li>
 </ul>
-<p>On success the map is filed as the user's. <code>load_source_map()</code> then checks the
-program identity (<a href="02-the-source-map.html">7.2</a>): a mismatch is refused unless
+<p>Before the map is filed as the user's, <code>load_source_map()</code> checks the program
+identity (<a href="02-the-source-map.html">7.2</a>): a mismatch is refused unless
 <code>accept_identity_mismatch</code>, and for a program that is not in memory yet
 (<code>verify_at_first_execution</code>, used for tapes) a map with an identity attaches
-<em>pending</em> (<a href="06-lifetime.html">7.6</a>). <code>SourceMapLoad::identity_note</code> is the suffix a
+<em>pending</em> (<a href="06-lifetime.html">7.6</a>). Only then does the user's store take it. <code>SourceMapLoad::identity_note</code> is the suffix a
 frontend appends to its report: verified, not verified for lack of section
 binaries, or verified for the code the binaries cover with N ranges unchecked
 (<code>identity_note()</code> in <code>debugger_source.cpp</code>).</p>

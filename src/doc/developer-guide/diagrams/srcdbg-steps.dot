@@ -31,7 +31,7 @@ digraph srcdbg_steps {
         b3 [label="EventFilter::matches(ev)\lthe one predicate\l", fillcolor="#e9d3d6"];
         b4 [label="live gate (execute_gate)\lprobe_execute()\lhistory_stop_at()\l"];
         b0 -> b1 -> b2 -> b3;
-        b4 -> b3 [dir=back];
+        b4 -> b3;
     }
 
     subgraph cluster_fwd {

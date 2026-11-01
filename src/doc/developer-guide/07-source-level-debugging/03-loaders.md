@@ -74,11 +74,11 @@ trailing CR dropped.
   (built without `-debug`, no usable listing) is refused with
   `"no source lines in '<path>' ..."` and the listing notes appended.
 
-On success the map is filed as the user's. `load_source_map()` then checks the
-program identity ([7.2](02-the-source-map.md)): a mismatch is refused unless
+Before the map is filed as the user's, `load_source_map()` checks the program
+identity ([7.2](02-the-source-map.md)): a mismatch is refused unless
 `accept_identity_mismatch`, and for a program that is not in memory yet
 (`verify_at_first_execution`, used for tapes) a map with an identity attaches
-*pending* ([7.6](06-lifetime.md)). `SourceMapLoad::identity_note` is the suffix a
+*pending* ([7.6](06-lifetime.md)). Only then does the user's store take it. `SourceMapLoad::identity_note` is the suffix a
 frontend appends to its report: verified, not verified for lack of section
 binaries, or verified for the code the binaries cover with N ranges unchecked
 (`identity_note()` in `debugger_source.cpp`).

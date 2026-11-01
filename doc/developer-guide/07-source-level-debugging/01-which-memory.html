@@ -3050,7 +3050,10 @@ distinct. <code>Floating</code> and <code>Cpu</code> are never recorded.</p>
   <code>COVERAGE_EXEC</code>, with each range's own space and <code>space_offset()</code>.</li>
 </ul>
 <p>This is a store, not a file format: nothing reads or writes a coverage file, and
-no DZRP, ZRCP, GDB or DSL verb exposes it. The separate logical-PC set of the
+no DZRP, ZRCP, GDB or DSL verb exposes it. Its readers are the Qt Disassembly and
+Memory panels (<code>disasm_panel.cpp</code>, <code>memory_panel.cpp</code>), the Source tab, and
+<code>--coverage</code> (<code>platform/coverage_startup.h</code>), which switches it on at startup and
+logs a summary at exit. The separate logical-PC set of the
 INS-20 <code>coverage</code> verbs is described with the trace in
 <a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>.</p>
 
