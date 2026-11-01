@@ -202,8 +202,8 @@ These 127 suites (9222 live rows) have no VHDL-derived plan row to map, so they 
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 14 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
 | `debugger_inspect_watchpoint_test` | 18 | debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus |
-| `debugger_window_size_test` | 40 | debugger window geometry (host GUI) |
-| `debugger_window_grow_test` | 4 | debugger window geometry (host GUI) |
+| `debugger_window_size_test` | 39 | debugger window geometry (host GUI) |
+| `debugger_window_grow_test` | 5 | debugger window geometry (host GUI) |
 | `debugger_accel_test` | 8 | debugger keyboard accelerators (host GUI) |
 | `debugger_keymap_test` | 44 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
 | `debugger_menu_test` | 65 | debugger menu reachability (host GUI) |
