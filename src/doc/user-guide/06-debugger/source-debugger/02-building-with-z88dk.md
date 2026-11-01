@@ -143,8 +143,8 @@ Loaded 193 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (pro
 ```
 
 The banking driver adds its own code to the start-up section, after the start-up
-code's. That part of `prog.lis` has no label in the map, so JNEXT places it by its
-bytes. It goes where `prog_CODE.bin` holds its instructions, and only when exactly
+code's. The start-up code's part of that section has no label in the map, so JNEXT
+places it by its bytes. It goes where `prog_CODE.bin` holds its instructions, and only when exactly
 one place in the section does. How banked code, pages and addresses show is in
 [banked code](../functions/14-source-level-debugging.md#banked-code).
 

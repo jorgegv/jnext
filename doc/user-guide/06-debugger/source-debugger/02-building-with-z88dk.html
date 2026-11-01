@@ -4187,8 +4187,8 @@ this page; on anything newer, build the example and look.</p>
 <pre><code>Loaded 193 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (program identity verified)
 </code></pre>
 <p>The banking driver adds its own code to the start-up section, after the start-up
-code's. That part of <code>prog.lis</code> has no label in the map, so JNEXT places it by its
-bytes. It goes where <code>prog_CODE.bin</code> holds its instructions, and only when exactly
+code's. The start-up code's part of that section has no label in the map, so JNEXT
+places it by its bytes. It goes where <code>prog_CODE.bin</code> holds its instructions, and only when exactly
 one place in the section does. How banked code, pages and addresses show is in
 <a href="../functions/14-source-level-debugging.html#banked-code">banked code</a>.</p>
 <h2 id="things-that-change-the-result">Things that change the result<a class="headerlink" href="#things-that-change-the-result" title="Permanent link">&para;</a></h2>
