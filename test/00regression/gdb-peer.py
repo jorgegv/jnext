@@ -216,8 +216,9 @@ def main():
             print("PASS interrupted, held, poked, resumed")
         elif len(sys.argv) >= 4 and sys.argv[1] == "idle-check":
             n = idle_check(sys.argv[2], sys.argv[3])
-            print("PASS %d one-second windows: running redraws, held machine redraws nothing "
-                  "(a poke refreshes the panels once), resume redraws" % n)
+            extra = ", a poke refreshes the panels once" if sys.argv[2] == "qt" else ""
+            print("PASS %d one-second windows: running redraws, held machine redraws nothing%s, "
+                  "resume redraws" % (n, extra))
         else:
             print("FAIL usage: gdb-peer.py handshake PORT | both GDBPORT DZRPPORT | hold PORT "
                   "| idle-check qt|sdl LOG")

@@ -71,7 +71,10 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QKeyEvent>
+#include <QKeySequence>
 #include <QMouseEvent>
+#include <QShortcutEvent>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSlider>
@@ -1251,7 +1254,7 @@ static void test_idle_refresh() {
     Fixture fx(MachineType::ZXN_ISSUE2);
     if (!fx.ok) {
         for (const char* id : {"QIDLE-01", "QIDLE-02", "QIDLE-03", "QIDLE-04", "QIDLE-05",
-                               "QIDLE-07", "QIDLE-08", "QIDLE-09", "QIDLE-10"})
+                               "QIDLE-07", "QIDLE-08", "QIDLE-09", "QIDLE-10", "QIDLE-11", "QIDLE-12", "QIDLE-13"})
             check(id, "fixture", false);
         return;
     }
@@ -1356,11 +1359,15 @@ static void test_idle_refresh() {
         fx.tick();
         const uint64_t quiet = fx.mgr->take_panel_refresh_count();
         const QString before = table_cell(nr, 0x7F, 2);
+        // The click goes to a CHILD of the main window (its menu bar, where the
+        // CPU-speed menu lives), not to the main window object itself: the
+        // manager's older per-object filter sees only the latter, so only the
+        // qApp filter can make this row pass.
         for (QEvent::Type t : {QEvent::MouseButtonPress, QEvent::MouseButtonRelease}) {
             QMouseEvent ev(t, QPointF(2, 2), QPointF(2, 2), Qt::LeftButton,
                            t == QEvent::MouseButtonPress ? Qt::LeftButton : Qt::NoButton,
                            Qt::NoModifier);
-            QApplication::sendEvent(&fx.win, &ev);
+            QApplication::sendEvent(fx.win.menuBar(), &ev);
         }
         fx.tick();
         const uint64_t n1 = fx.mgr->take_panel_refresh_count();
@@ -1414,6 +1421,52 @@ static void test_idle_refresh() {
               "tick, then nothing",
               n1 == 1 && n2 == 0,
               fmt("n1=%llu n2=%llu", (unsigned long long)n1, (unsigned long long)n2));
+    }
+
+    // QIDLE-11: input to the OTHER top-level window (the debugger window), which
+    // no per-object filter of the manager covers: a direct NextREG write alone
+    // refreshes nothing; a click in the debugger window makes the next tick do.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        fx.emu.nextreg().write(0x7F, 0x7C);
+        fx.tick();
+        const uint64_t quiet = fx.mgr->take_panel_refresh_count();
+        for (QEvent::Type t : {QEvent::MouseButtonPress, QEvent::MouseButtonRelease}) {
+            QMouseEvent ev(t, QPointF(2, 2), QPointF(2, 2), Qt::LeftButton,
+                           t == QEvent::MouseButtonPress ? Qt::LeftButton : Qt::NoButton,
+                           Qt::NoModifier);
+            QApplication::sendEvent(win, &ev);
+        }
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-11",
+              "a click in the debugger window (another top-level) makes the next paused tick refresh",
+              quiet == 0 && n1 >= 1,
+              fmt("quiet=%llu n1=%llu", (unsigned long long)quiet, (unsigned long long)n1));
+    }
+
+    // QIDLE-12 / QIDLE-13: a matched shortcut consumes the KeyPress itself, so
+    // the input epoch must count the ShortcutOverride that precedes it and the
+    // Shortcut event; sent to a child widget (the menu bar), with nothing else
+    // having changed.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        QKeyEvent so(QEvent::ShortcutOverride, Qt::Key_F20, Qt::NoModifier);
+        QApplication::sendEvent(fx.win.menuBar(), &so);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-12", "a ShortcutOverride event makes the next paused tick refresh",
+              n1 >= 1, fmt("n1=%llu", (unsigned long long)n1));
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        QShortcutEvent sc(QKeySequence(Qt::Key_F20), 1);
+        QApplication::sendEvent(fx.win.menuBar(), &sc);
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-13", "a Shortcut event makes the next paused tick refresh",
+              n2 >= 1, fmt("n2=%llu", (unsigned long long)n2));
     }
 
     // QIDLE-07: a guest cold boot reaches the backend as begin / done.

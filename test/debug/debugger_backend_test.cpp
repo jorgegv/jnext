@@ -6598,12 +6598,14 @@ static void gh428_rev_rows() {
         const uint64_t r0 = dbg.state_revision();
         const uint64_t fb0 = emu.framebuffer_generation();
         uint8_t buf[16];
+        std::vector<uint32_t> layer_buf(640 * 16);
         for (int i = 0; i < 100; ++i) {
             dbg.peek(MemSpace::cpu(), 0x8000, 16, buf);
             dbg.registers();
             dbg.time();
             dbg.raster();
             dbg.sprites();
+            dbg.render_layer(jnext::dbg::Layer::Composite, 8, layer_buf.data(), 640);   // the Video tab's query
             dbg.nextreg_peek(0x07);
             dbg.subscriptions(true);
             dbg.state();

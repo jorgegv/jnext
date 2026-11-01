@@ -582,7 +582,7 @@ void DebuggerManager::on_load_map_z88dk() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
-        force_refresh();   // GH #390: the Breakpoints / Call Stack names are computed there
+        refresh_panels();   // GH #390: the Breakpoints / Call Stack names are computed there
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
@@ -601,7 +601,7 @@ void DebuggerManager::on_load_map_simple() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
-        force_refresh();
+        refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
@@ -620,7 +620,7 @@ void DebuggerManager::on_load_map_sjasmplus() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
-        force_refresh();
+        refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
@@ -640,7 +640,7 @@ void DebuggerManager::on_load_nextbuild_memory() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
-        force_refresh();
+        refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load NextBuild symbols from:\n%1\n\n%2")
@@ -674,7 +674,8 @@ void DebuggerManager::on_load_sld() {
     if (r.count >= 0) {
         QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
             QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path));
-        force_refresh();
+        refresh_panels();
+        update_actions();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load SLD source map:\n%1\n\n%2")
@@ -757,13 +758,6 @@ DebuggerManager::PausedStamp DebuggerManager::paused_stamp() const {
     if (debugger_window_ && debugger_window_->source_panel())
         s.source_file_changed = debugger_window_->source_panel()->file_changed_on_disk();
     return s;
-}
-
-void DebuggerManager::force_refresh() {
-    if (!enabled_ || !debugger_window_)
-        return;
-    refresh_window();
-    update_actions();
 }
 
 void DebuggerManager::refresh_panels() {

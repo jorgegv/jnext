@@ -82,11 +82,6 @@ public:
     /// are re-derived every tick.
     void refresh_panels();
 
-    /// Refresh the window now and re-derive the actions, with no stamp gate:
-    /// for a verb of this window whose result must show at once (map / SLD
-    /// loads).
-    void force_refresh();
-
     /// GH #428 — calls of DebuggerWindow::refresh_panels() made by this manager
     /// (whatever the reason) since the last take. The `ticks:` debug line
     /// reports it; the paused-idle rows pin it at 0 for an idle machine.

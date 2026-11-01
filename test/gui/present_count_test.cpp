@@ -428,6 +428,35 @@ int main(int argc, char* argv[])
         settle();
         iw.update_frame(fb.data(), FB_W, FB_H, false, g + 1);
         settle();
+        // PC-IDLE-06 / PC-IDLE-07: each term of the target on its own. The mode
+        // alone (no resize) matters because MainWindow sets it before the window
+        // manager's resize arrives; the pixel ratio alone matters when a window
+        // moves between screens of equal physical width (it is the only term that
+        // sees it), so it is pinned on the comparison itself.
+        {
+            EmulatorWidget fw;
+            fw.show();
+            settle();
+            fw.update_frame(fb.data(), FB_W, FB_H, true, 40);
+            settle();
+            fw.take_upload_count();
+            fw.update_frame(fb.data(), FB_W, FB_H, false, 40);
+            const uint64_t same = fw.take_upload_count();
+            fw.set_fullscreen_mode(true);          // the mode only: same size, same generation
+            fw.update_frame(fb.data(), FB_W, FB_H, false, 40);
+            const uint64_t after_mode = fw.take_upload_count();
+            check("PC-IDLE-06", "the same generation and size, with only fullscreen mode changed, "
+                                "uploads again (and not before)",
+                  same == 0 && after_mode == 1,
+                  "same=" + std::to_string(same) + " after_mode=" + std::to_string(after_mode));
+            EmulatorWidget::UploadTarget a, b;
+            a.pw = b.pw = 1280; a.ph = b.ph = 1024; a.w = b.w = FB_W; a.h = b.h = FB_H;
+            a.dpr = b.dpr = 1.0;
+            const bool equal_before = (a == b);
+            b.dpr = 2.0;
+            check("PC-IDLE-07", "two targets that differ only in device pixel ratio are different",
+                  equal_before && !(a == b));
+        }
         check("PC-IDLE-04", "the same generation after entering fullscreen and resizing uploads "
                             "again, the picture centred (offset 320,28) with black bars",
               iw.take_upload_count() == 1 &&

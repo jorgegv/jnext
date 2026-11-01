@@ -106,9 +106,8 @@ verbs: symbols, source map, subscriptions, trace / coverage / rewind settings,
 attach / detach), a host-input epoch (key, mouse-button and wheel events
 anywhere in the app, counted by an event filter on `qApp` while the debugger is
 enabled; mouse movement is not counted), and the loaded source file's
-modification time. A verb of the window that must show its result at once (the
-map and SLD loads) calls `force_refresh()`. `take_panel_refresh_count()` counts
-the redraws; the `ticks:` line reports it as `panel-refreshes=`.
+modification time. The map and SLD loads need no special call: they bump the
+revision, so the tick redraws. `take_panel_refresh_count()` counts the redraws; the `ticks:` line reports it as `panel-refreshes=`.
 
 **The breakpoint views follow the model.** The Breakpoints list and the
 disassembly gutter follow `BreakpointModel::changed(kinds)`, so a breakpoint

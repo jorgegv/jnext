@@ -221,8 +221,10 @@ private:
     /// Software-scale native_ into scaled_ at the current scale factor.
     void prescale();
 
+public:
     /// GH #428 — what the last upload was drawn into; a difference means the
-    /// same framebuffer has to be drawn again.
+    /// same framebuffer has to be drawn again. Public so a test can compare
+    /// targets field by field (present_count_test PC-IDLE-07).
     struct UploadTarget {
         int pw = -1, ph = -1, w = -1, h = -1;
         qreal dpr = 0;
@@ -232,6 +234,7 @@ private:
                    dpr == o.dpr && fullscreen == o.fullscreen;
         }
     };
+private:
     UploadTarget last_target_;
     uint64_t last_uploaded_gen_ = ~uint64_t{0};   ///< render_policy::NOTHING_UPLOADED
     uint64_t upload_count_ = 0;
