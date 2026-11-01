@@ -1273,9 +1273,9 @@ static void test_idle_refresh() {
     const uint64_t idle = fx.mgr->take_panel_refresh_count();
     fx.mgr->on_run();
     fx.tick();
-    fx.mgr->on_pause();
-    fx.mgr->take_panel_refresh_count();
-    fx.tick();
+    fx.mgr->take_panel_refresh_count();     // the running tick's own (throttled) refresh, if any
+    fx.mgr->on_pause();                      // the pause edge redraws the window (once) ...
+    fx.tick();                               // ... and the tick after it has nothing to add
     const uint64_t after_edge = fx.mgr->take_panel_refresh_count();
     fx.tick();
     const uint64_t settled = fx.mgr->take_panel_refresh_count();
