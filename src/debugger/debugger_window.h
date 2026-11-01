@@ -205,9 +205,6 @@ private:
     // (or anything else) resized it meanwhile, and leaves it alone.
     QSize  fit_set_size_;        // what the last fit pass ASKED for
     QSize  fit_prev_size_;       // the size before that request
-    // A window manager applies a resize later: until then size() still reads the previous size. The
-    // fit waits for the resize event of the size it asked for instead of taking that for a user resize.
-    bool   fit_awaiting_ = false;
     bool   fit_over_ = false;   // the user resized the window: the fit never resumes
     // A window manager can answer the map of a window with the size it had BEFORE the fit's first
     // (pre-map) request. The fit then starts again from that size, a bounded number of times.

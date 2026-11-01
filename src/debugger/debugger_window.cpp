@@ -472,24 +472,17 @@ void DebuggerWindow::changeEvent(QEvent* event) {
 
 void DebuggerWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
-    // The size the opening fit asked for has been applied: take the next pass (queued, so the
-    // layout has settled and the scroll ranges it reads are final).
-    if (fit_awaiting_ && size() == fit_set_size_) {
-        fit_awaiting_ = false;
-        QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
-    } else if (!fit_awaiting_ && !fit_over_ && size_is_default_ && fit_set_size_.isValid() && size() == fit_prev_size_ &&
-               fit_reverts_ < kMaxFitReverts) {
-        // The window manager answered the map with the size from before our (pre-map) request, and
-        // took our size back. Nothing else resized the window: ask again from here, as the first
-        // pass did, now that the window is managed and its frame is known.
+    // A window manager can answer the map of the window with the size it had before the fit's first
+    // (pre-map) request, taking our size back. Nothing else resized the window: ask again from here,
+    // as the first pass did, now that the window is managed and its frame is known (a bounded number
+    // of times). Qt applies a resize() to size() at once, so a pass never meets a request that is
+    // merely "not applied yet": a size that is neither the one asked for nor this revert is the
+    // user's (the pass below ends the fit).
+    if (!fit_over_ && size_is_default_ && fit_set_size_.isValid() && size() == fit_prev_size_ &&
+        fit_reverts_ < kMaxFitReverts) {
         ++fit_reverts_;
         fit_set_size_ = QSize();
         QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
-    } else if (fit_awaiting_ && size() != fit_prev_size_) {
-        // Neither the size asked for nor the one before it: someone else resized the window. The fit
-        // is over, so a later restore of exactly the requested size must not resume it.
-        fit_awaiting_ = false;
-        fit_over_ = true;
     }
 }
 
@@ -518,9 +511,8 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (fit_over_)
         return;
     if (fit_set_size_.isValid() && size() != fit_set_size_) {
-        // Not applied yet (a window manager answers later; size() is still the one before our request):
-        // wait for its resize event. Any other size is the user's: the fit is over, their size stands.
-        if (size() == fit_prev_size_) fit_awaiting_ = true; else fit_over_ = true;
+        // Not the size the last pass asked for: the user's. The fit is over, their size stands.
+        fit_over_ = true;
         return;
     }
 
