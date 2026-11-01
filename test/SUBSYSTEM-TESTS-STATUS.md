@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |      365 |      365 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |      368 |      368 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind call stack     |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -72,9 +72,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (host gain)     |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (subsystem gains) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Render-skip policy    |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Screenshot output (PNG/.SCR) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |      129 |      129 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Fullscreen Sync (GH #404) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Recent Files logic (GH #406) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -120,7 +120,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Source maps + symbols |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (backend) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1469 |     1469 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1518 |     1518 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -139,7 +139,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Mouse Release Gesture (GH #365) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Present count (widget) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Present count (widget) |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI frame timer (single-shot, GH #155) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -156,7 +156,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Joystick controller picker (Input menu, Preferences) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Window scale + fullscreen geometry |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CRT display effect (widget, settings, menu) |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CRT display effect (widget, settings, menu) |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window title (version) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI light/dark scheme (GH #363) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI scheme: private bus dies with the suite (GH #414) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -176,8 +176,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Menus        |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       89 |       89 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Verbs (GH #278) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Source panel |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14107**| **14107**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Verbs (GH #278) |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Source panel |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **14181**| **14181**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
