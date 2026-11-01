@@ -1,4 +1,4 @@
-# 10.4 sjasmplus and Boriel ZX Basic
+# sjasmplus and Boriel ZX Basic
 
 JNEXT reads two source map formats besides z88dk's: the **SLD** that sjasmplus
 writes, and the **`Memory.txt`** that the NextBuild / Boriel ZX Basic toolchain
@@ -69,7 +69,7 @@ which is fine for a program you just built; but it also means a reset drops it
 (a source map without an identity cannot be checked against the memory the ROM
 clears a few frames later). A map you loaded by hand goes *stale* on a reset
 instead: load it again. The full account is in
-[loading a source map](../06-debugger/functions/14-source-level-debugging.md#loading-them).
+[loading a source map](../functions/14-source-level-debugging.md#loading-them).
 
 ## Boriel ZX Basic and NextBuild: `Memory.txt`
 
@@ -105,4 +105,4 @@ Where this page's statements about Boriel come from:
 
 A plain `--sym` or `--exp` file from sjasmplus carries symbols but no lines. Load
 it with `--map` or **Map ▸ Load MAP File**; see
-[Symbols from MAP files](../06-debugger/functions/05-symbols-from-z88dk-map-files.md).
+[Symbols from MAP files](../functions/05-symbols-from-z88dk-map-files.md).

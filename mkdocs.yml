@@ -127,6 +127,13 @@ nav:
           - Catching memory-corruption bugs: 06-debugger/scripting/11-catching-memory-corruption-bugs.md
           - The demo scripts: 06-debugger/scripting/12-the-demo-scripts.md
           - Quick reference: 06-debugger/scripting/13-quick-reference.md
+      - The Source Debugger:
+          - 06-debugger/source-debugger/index.md
+          - A first session: 06-debugger/source-debugger/01-a-first-session.md
+          - Building programs with z88dk: 06-debugger/source-debugger/02-building-with-z88dk.md
+          - sjasmplus and Boriel ZX Basic: 06-debugger/source-debugger/04-sjasmplus-and-boriel.md
+          - 'In the Source tab: names, watches and coverage': 06-debugger/source-debugger/08-around-the-source.md
+          - Limits and troubleshooting: 06-debugger/source-debugger/10-limits-and-troubleshooting.md
   - 7. Automation and CI:
       - 07-automation-and-ci/index.md
       - 7.1 Headless mode: 07-automation-and-ci/01-headless-mode.md
@@ -141,13 +148,6 @@ nav:
       - 9.2 Files and directories: 09-reference/02-files-and-directories.md
       - 9.3 ZX Spectrum Next hardware documentation: 09-reference/03-zx-spectrum-next-hardware-documentation.md
       - 9.4 The project: 09-reference/04-the-project.md
-  - 10. Source-level debugging:
-      - 10-source-level-debugging/index.md
-      - 10.1 A first session: 10-source-level-debugging/01-a-first-session.md
-      - 10.2 Building programs with z88dk: 10-source-level-debugging/02-building-with-z88dk.md
-      - 10.4 sjasmplus and Boriel ZX Basic: 10-source-level-debugging/04-sjasmplus-and-boriel.md
-      - '10.8 In the Source tab: names, watches and coverage': 10-source-level-debugging/08-around-the-source.md
-      - 10.10 Limits and troubleshooting: 10-source-level-debugging/10-limits-and-troubleshooting.md
 
 # Make `mkdocs build --strict` fail on the two classes of breakage this guide
 # is most exposed to now that it is split across 70 files: a page missing from

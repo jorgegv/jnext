@@ -22,11 +22,10 @@ it.
 | 3 | [First run](03-first-run/index.md) | The SD card image and your first boot |
 | 4 | [Configuration](04-configuration/index.md) | Preferences and the config file |
 | 5 | [Running programs](05-running-programs/index.md) | Machines, input, display, sound, recording |
-| 6 | [The debugger](06-debugger/index.md) | Every panel and every function |
+| 6 | [The debugger](06-debugger/index.md) | Every panel and every function, scripting, and source-level debugging |
 | 7 | [Automation and CI](07-automation-and-ci/index.md) | Screenshot-testing your own programs |
 | 8 | [Known issues](08-known-issues/index.md) | What to expect when something is wrong |
 | 9 | [Reference](09-reference/index.md) | Where everything else lives |
-| 10 | [Source-level debugging](10-source-level-debugging/index.md) | Source lines, breakpoints and steps, with a z88dk walkthrough |
 
 ## Getting help
 

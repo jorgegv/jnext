@@ -1,5 +1,9 @@
 # Source-level debugging
 
+This page is the reference for source maps and the Source tab's steps. For a
+worked example and the build routes, see [The Source
+Debugger](../source-debugger/index.md).
+
 When your program comes with a **source map**, the debugger can show the line
 of BASIC or assembly the CPU is running and step through the program one
 source statement at a time — including over and out of calls, and backwards
@@ -282,19 +286,11 @@ Address box of the Disassembly and Memory panels.
 
 ## Debugging z88dk C programs
 
-Build with z88dk's `-debug` and `-m` and let it write the application files
-(`-create-app`), so the map and the section binaries land next to the program:
+Build with z88dk's `-debug -m` (the command lines for a NEX, a tape and a
+snapshot are in [Building programs with
+z88dk](../source-debugger/02-building-with-z88dk.md)).
 
-```
-zcc +zxn -clib=new -debug -m -create-app -subtype=nex -o prog main.c util.c
-```
-
-For a 48K Spectrum tape build for `+zx` instead (`zcc +zx -clib=new -debug -m
--create-app -o prog main.c util.c` writes `prog.tap`, `prog.map` and
-`prog_CODE.bin`) and load `prog.tap`: the map attaches while the tape loads and is
-verified when the program starts.
-
-Load `prog.nex`. The `prog.map` beside it attaches by itself (see above): the
+Load the program (`prog.nex`, say). The `prog.map` beside it attaches by itself (see above): the
 Source tab shows `main.c` with the current line, **Into / Over / Out** step by C
 statement, and `main.c:19` works in the Breakpoints panel. Each line of the
 map becomes a range that runs to the next line, the next function of another
@@ -307,19 +303,11 @@ C names: `counter` works wherever `_counter` does (the compiler adds the `_`):
 in the Add dialogs, Go to Address and a script's `@counter`, and the views show
 `counter`; see [Symbols from MAP files](05-symbols-from-z88dk-map-files.md).
 
-What z88dk and the library can do changes the result:
+Which compilers and libraries work on which z88dk, and what the options
+(`--list`, `-debug`, optimisation) change, is in the same page; the messages are in [Limits and
+troubleshooting](../source-debugger/10-limits-and-troubleshooting.md). What is
+specific to how the map is read:
 
-| compiler / library | z88dk 2.4 | z88dk master (from 2026-04) |
-|---|---|---|
-| sccz80 newlib | `zcc +zxn -clib=new -debug -m -create-app -subtype=nex`: works, but part of a statement can show on the next line | works |
-| sdcc newlib | `-debug` fails to build: no source lines from the map; `--c-code-in-asm --list` gives them from the listings | `-clib=sdcc_iy -debug -m -create-app`: works, header code may show the wrong line |
-| 80cc | not available | `-compiler=80cc -clib=new -debug`: works (some lines are shared, e.g. 19 and 20 in the fixture) |
-| classic | `-debug` fails | fails |
-
-- **`-debug` changes the program** (it adds `l_debug_push_frame` and
-  `l_debug_pop_frame` around functions): debug with the build that has it.
-- **Optimisation moves code across lines**: with `-SO3` or `-O2` the stepping
-  order follows the machine code, not the source.
 - **Banked code**: a function in a `PAGE_n` or `BANK_n` section is found only
   while its 8K page is mapped where it runs (the Source tab, Call Stack and
   Breakpoints panels all follow the page). The map's address for a `BANK_n`
@@ -333,24 +321,10 @@ What z88dk and the library can do changes the result:
   (`-pragma-define:REGISTER_SP=0xC000`): without them the program itself calls
   page 0 or loses its stack. **Over** and **Out** step across `banked_call` and
   the `-debug` helpers; **Out** lands on the calling line at the return address
-  (mid-statement), as gdb's `finish` does.
+  (mid-statement), as gdb's `finish` does. The build commands are in
+  [Building programs with z88dk](../source-debugger/02-building-with-z88dk.md#banked-code).
 - **DivMMC sections** (`DIV_n`) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.
-- **`--list` listings beside the map**: with `--list`, z88dk writes a z80asm
-  listing for each source (`main.c.lis`, `prog.lis`) and JNEXT reads the ones
-  beside the map by itself (the log says `and 4 listings`; Load Source Map...
-  says `with 4 z88dk listings`). They add every assembly line, every address of
-  a C line, exact instruction extents and the start-up code's text; on z88dk
-  2.4, where sdcc's `-debug` does not build, `zcc +zxn -clib=sdcc_iy
-  --c-code-in-asm --list -m -create-app` gives sdcc's C lines from the
-  listings alone. sccz80 without `-debug` marks only the start of each
-  function. Code in a `PHASE` block is not placed. A listing that cannot be
-  followed is dropped, with a note (rebuild with `--list`, or delete stale
-  `.lis` files), and its module keeps the map's lines: that covers a section switched inside an `IF` branch
-  the listing cannot judge, a macro or `REPT` body that switches section, and
-  a listing that does not match the map or the section binaries. Classic
-  builds have no section binaries, so their placement rests on the labels of
-  the map and on that check alone.
 - Code in a section that names no page (`CODE`, `code_compiler`, the program
   itself) is tied to the RAM page the MMU maps at that address when the program
   is in memory (page 4 at $8000 for a NEX).

@@ -1,9 +1,9 @@
-# 10.2 Building programs with z88dk
+# Building programs with z88dk
 
 JNEXT reads the map z88dk writes with `-debug -m`. This page is the reference
 for building a program so that the Source tab works: which options, which
 files must end up where, which compilers and libraries work on which z88dk,
-and what changes for tape builds and banked code. [10.1](01-a-first-session.md)
+and what changes for tape builds and banked code. [A first session](01-a-first-session.md)
 uses the first line below.
 
 Every command line here was run with z88dk 2.4 (commit 4d530b6eb7, sdcc 4.5.0)
@@ -44,7 +44,7 @@ and 333 symbols with the same 281 lines on the master build.
 | `prog_CODE.bin` (and `prog_<SECTION>.bin` for banked sections) | beside the map | the **binary identity**: JNEXT compares the bytes of every code range with the program in memory. z88dk's linker writes them with or without `-create-app`; `-create-app` makes the loadable file |
 | `prog.lis` | beside the map | the start-up code's text (labelled `m4 output, from prog.lis`) |
 | `main.c.lis`, `util.c.lis`, `asmfn.asm.lis` | where zcc wrote them: beside each source | found there, whatever the map's directory |
-| the sources | beside the map, in a parent directory, or on the search path | [where the Source tab finds the files](../06-debugger/functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files) |
+| the sources | beside the map, in a parent directory, or on the search path | [where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files) |
 
 If the map is not beside the program, load it by hand with **Load Source
 Map...** in the Source tab, or with `--source-map FILE` after `--load`.
@@ -85,7 +85,7 @@ Notes:
 - The `--hardware-keyboard` failure is a z88dk bug that is fixed upstream (PR
   #3198, merged 2026-10-23) and not yet in a release.
 - A `.lis` file from a different build is detected and dropped with a warning;
-  see [10.10](10-limits-and-troubleshooting.md).
+  see [Limits and troubleshooting](10-limits-and-troubleshooting.md).
 
 ## Other targets
 
@@ -114,7 +114,7 @@ Verified z88dk source map '/home/you/prog/prog.map': the program loaded from tap
 ```
 
 (338 symbols on the master build.) More about tapes is in
-[loading a source map](../06-debugger/functions/14-source-level-debugging.md#loading-them).
+[loading a source map](../functions/14-source-level-debugging.md#loading-them).
 
 ## Banked code
 
@@ -148,7 +148,7 @@ banking driver adds code to the start-up section, so JNEXT can no longer tell
 where the start-up listing's label-less lines go. The cost is small: those
 start-up lines show no m4 text in the Source tab (the disassembly still works),
 and everything else is attached. How banked code, pages and addresses show is in
-[banked code](../06-debugger/functions/14-source-level-debugging.md#banked-code).
+[banked code](../functions/14-source-level-debugging.md#banked-code).
 
 ## Things that change the result
 

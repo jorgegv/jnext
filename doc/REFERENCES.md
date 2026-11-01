@@ -73,7 +73,7 @@ Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURC
 | DeZog - its z88dk parsers (`src/labels/z88dklabelparserv2.ts`, `z88dkmapfile.ts`) are the oracle for the line-extent rule; read on master, 2026-10-18 (the files as last changed in 558d057877 and f3bb0f5f18; the latest release, v3.7.0 of 2025-12-19, predates both) | <https://github.com/maziac/DeZog> |
 | sjasmplus - the SLD format v1 (`docs/documentation.xml`, chapter "Source Level Debugging (SLD) data", read at v1.23.1) and the `--sym` / `--exp` EQU files | <https://github.com/z00m128/sjasmplus> |
 | Boriel ZX Basic (`zxbc`) - the `-M/--mmap` label memory map option (`src/zxbc/args_parser.py`), read on main, 2026-11-01; no SLD option | <https://github.com/boriel-basic/zxbasic> |
-| NextBuild - `Scripts/nextbuild.py` passes `-M Memory.txt` to `zxbc`, the `Memory.txt` the user guide's chapter 10 cites | <https://github.com/em00k/NextBuild> |
+| NextBuild - `Scripts/nextbuild.py` passes `-M Memory.txt` to `zxbc`, the `Memory.txt` the user guide's source-debugger section cites | <https://github.com/em00k/NextBuild> |
 | SkoolKit - control files (`sphinx/source/control-files.rst`), `sna2skool.py` (`commands.rst`) and the `@bank` directive (`asm.rst`), read on master after release 10.1 | <https://github.com/skoolkid/skoolkit> |
 | Ghidra - `Ghidra/Extensions/Jython/ghidra_scripts/ImportSymbolsScript.py`, the symbol import that the ghidra export targets | <https://github.com/NationalSecurityAgency/ghidra> |
 

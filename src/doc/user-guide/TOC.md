@@ -127,6 +127,15 @@ checks; keys, joysticks and host keys; changing the machine; running scripts
 (CLI, GUI, exit codes, watchdog, CI); recording and replaying a session;
 catching memory-corruption bugs (#279); the demo scripts; a quick reference.
 
+**The Source Debugger** (GH #426, its own section): the task-oriented guide to
+stepping a program by its source lines: what a source map is and which file each
+toolchain produces; a worked first session in C with z88dk; building with z88dk
+(options, which compiler and library work on which version, tape and snapshot
+builds, banked code); sjasmplus and Boriel ZX Basic; what the Source tab offers
+beyond stepping (C names, watches, coverage); and the messages and limits. The
+per-panel reference stays in the Source panel page and in the function page
+Source-level debugging.
+
 ## 7. Automation and CI
 
 The same machinery that automates JNEXT's own test suite automates testing of
@@ -153,14 +162,3 @@ catch-up; issue #9), the DAC buzzing (#38), and the debugger window positioning
 The full option reference, generated from the `jnext(1)` man page source so it
 cannot drift; then pointers, not restatements: file and directory locations,
 and links to the ZX Spectrum Next hardware documentation.
-
-## 10. Source-level debugging
-
-Added after the rest of the guide was written (appended, so that no chapter
-number and no published URL changed). The task-oriented guide to stepping a
-program by its source lines: what a source map is and which file each toolchain
-produces; a worked first session in C with z88dk; building with z88dk (options,
-which compiler and library work on which version, tape and snapshot builds,
-banked code); sjasmplus and Boriel ZX Basic; what the Source tab offers beyond
-stepping (C names, watches, coverage); and the messages and limits. The
-per-panel reference stays in chapter 6 (the Source panel).

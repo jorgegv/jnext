@@ -1,7 +1,7 @@
-# 10.8 In the Source tab: names, watches and coverage
+# In the Source tab: names, watches and coverage
 
 Three things that work from the Source tab beyond stepping. The tab's controls
-are in [its panel page](../06-debugger/panels/15-source.md).
+are in [its panel page](../panels/15-source.md).
 
 ## C names
 
@@ -16,15 +16,15 @@ map (`_counter`). JNEXT shows and accepts the C name:
 A number wins over a symbol in an address field: `FE` or `B` is that address even
 when the program has a variable of that name. Write `@FE` to mean the symbol.
 
-See [Symbols from MAP files](../06-debugger/functions/05-symbols-from-z88dk-map-files.md).
+See [Symbols from MAP files](../functions/05-symbols-from-z88dk-map-files.md).
 
 ## Watching and breaking from the source
 
-In the example of [10.1](01-a-first-session.md), right-click `counter` on line 20
+In the example of [A first session](01-a-first-session.md), right-click `counter` on line 20
 and choose **Watch**: it joins the Watches panel under its C name. **Break on
 Write** from the same menu stops the machine whenever the program writes it. What
 the menu offers, and for what under the pointer, is described in the panel page's
-[right-click menu](../06-debugger/panels/15-source.md#right-click-menu).
+[right-click menu](../panels/15-source.md#right-click-menu).
 
 ## Which lines have run
 
@@ -39,4 +39,4 @@ enable coverage while the machine is paused at the start, add a breakpoint on
 `main.c:24` and Continue: the lines of `main` before it are green, and `counter++` in the final
 `while (1)` is not. Coverage is kept per physical
 memory, so the same address in two RAM pages has separate marks. All of it is in
-[Memory coverage](../06-debugger/functions/15-memory-coverage.md).
+[Memory coverage](../functions/15-memory-coverage.md).

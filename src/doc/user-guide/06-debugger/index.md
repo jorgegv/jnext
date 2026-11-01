@@ -8,15 +8,17 @@ registers, all as the hardware sees them at that instant.
 This chapter is a reference. Each panel and each function has its own section,
 so you can look one up while you are debugging.
 
-To debug a program by its source lines (C, assembly, BASIC), see [chapter
-10](../10-source-level-debugging/index.md): a worked example with z88dk and
-the build options that make it work.
-
 **[Debugger scripting](scripting/index.md)** has a section of its own: scripts
 that watch the running machine and stop, log or check the moment something
 happens — a write into your code, an MMU slot out of step, an interrupt handler
 that returns with a clobbered register — in the GUI while you play, and
 headless as tests in your build. It is the most powerful tool JNEXT gives you.
+
+**[The Source Debugger](source-debugger/index.md)** is the other section of its
+own: debugging a program by its source lines (C, assembly, BASIC) instead of its
+instructions. It has a worked first session in C with z88dk, the build options
+that make a source map, the sjasmplus and Boriel routes, and the messages and
+limits to know. Start there if your program comes from a compiler.
 
 Open the debugger with **Alt+D**, with **Debug ▸ Debugger** or **View ▸
 Debugger** (the same entry, in both menus), or with the Debug button (a magnifier over a chip) on the

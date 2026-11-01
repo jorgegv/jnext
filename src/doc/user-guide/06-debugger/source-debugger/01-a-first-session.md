@@ -1,9 +1,9 @@
-# 10.1 A first session
+# A first session
 
 This page takes a small C program from source to a breakpoint on `main.c:19`,
 steps through it and watches a variable change. It uses z88dk. Nothing here is
 specific to z88dk except the build line; a program from sjasmplus gets the same
-Source tab (see [10.4](04-sjasmplus-and-boriel.md)).
+Source tab (see [sjasmplus and Boriel ZX Basic](04-sjasmplus-and-boriel.md)).
 
 ## The program
 
@@ -107,9 +107,9 @@ prog.nex  prog.map  prog_CODE.bin  prog.lis  main.c.lis  util.c.lis  asmfn.asm.l
 ```
 
 Why each is there, and the other ways to build, are in
-[10.2](02-building-with-z88dk.md). Keep the four source files where the compiler
+[Building programs with z88dk](02-building-with-z88dk.md). Keep the four source files where the compiler
 saw them: JNEXT looks for them beside the map, then in its parent directories
-([where the Source tab finds the files](../06-debugger/functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files)).
+([where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files)).
 
 ## Load it
 
@@ -122,7 +122,7 @@ jnext --machine next --rewind-buffer-size 200
 (Rewind is off by default. The option also switches on the trace log that Back
 needs. Instead, you can enable **Debug ▸ Rewind ▸ Enable Rewind** in the debugger
 before loading: a load clears the recorded history but keeps the setting. See
-[Backward execution](../06-debugger/functions/07-backward-execution-rewind.md).)
+[Backward execution](../functions/07-backward-execution-rewind.md).)
 
 Open the debugger with **Alt+D** and pause the machine with **Debug ▸ Pause /
 Break** (**F9**). Then choose **File ▸ Load NEX File...** in the emulator window
@@ -142,7 +142,7 @@ Loaded 281 z88dk source lines from '/home/you/prog/prog.map' and 4 listings (pro
 the map belongs to this program. The counts are for z88dk 2.4; the 2026-10-16
 master gives 333 symbols and the same 281 lines. If the line says `program
 identity not verified` the map is still used; see
-[10.10](10-limits-and-troubleshooting.md). (Started from the command line with
+[Limits and troubleshooting](10-limits-and-troubleshooting.md). (Started from the command line with
 `--load prog.nex`, the path in the first line is the name you typed.)
 
 Open the **Source** tab. The machine is at `$8000`, and the tab shows the file the
@@ -179,7 +179,7 @@ and a click on the dot clears it (a click on a line sets one).
 Right-click `counter` in the source (line 20, say) and choose **Watch**: it is added to the
 Watches panel under its C name, `counter` (the compiler's `_counter` is hidden).
 **Break on Write** from the same menu stops whenever the program writes it. See
-[10.8](08-around-the-source.md).
+[In the Source tab](08-around-the-source.md).
 
 ## Step
 
@@ -223,13 +223,13 @@ start at the same address in this build, so the tab names the later one.
 The rest of the program changes `counter` once more: `util_twice` doubles it and
 adds 1 (207). The values at the start of lines 22, 23, 24 and 26, the first time
 each is reached, are `140`, `100`, `103` and `207`; a
-[script](../06-debugger/functions/14-source-level-debugging.md#from-scripts-and-z88dk-gdb)
+[script](../functions/14-source-level-debugging.md#from-scripts-and-z88dk-gdb)
 (`on execute main.c:26 once do log "${mem[@counter]:d}" end`) prints them
 without the GUI.
 
 ## Where next
 
-- All the ways to build, and what does not work: [10.2](02-building-with-z88dk.md).
+- All the ways to build, and what does not work: [Building programs with z88dk](02-building-with-z88dk.md).
 - A source map is checked against the program and can be dropped by a reset:
-  [loading a source map](../06-debugger/functions/14-source-level-debugging.md#loading-them).
-- Something looks wrong: [10.10](10-limits-and-troubleshooting.md).
+  [loading a source map](../functions/14-source-level-debugging.md#loading-them).
+- Something looks wrong: [Limits and troubleshooting](10-limits-and-troubleshooting.md).

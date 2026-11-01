@@ -11,28 +11,28 @@
       
       
       
-        <link rel="prev" href="02-building-with-z88dk.html">
+        <link rel="prev" href="08-around-the-source.html">
       
       
-        <link rel="next" href="08-around-the-source.html">
+        <link rel="next" href="../../07-automation-and-ci/index.html">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>10.4 sjasmplus and Boriel ZX Basic - JNEXT User Guide</title>
+        <title>Limits and troubleshooting - JNEXT User Guide</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,7 +51,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#104-sjasmplus-and-boriel-zx-basic" class="md-skip">
+        <a href="#limits-and-troubleshooting" class="md-skip">
           Skip to content
         </a>
       
@@ -92,7 +92,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../index.html" title="JNEXT User Guide" class="md-header__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
+    <a href="../../index.html" title="JNEXT User Guide" class="md-header__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              10.4 sjasmplus and Boriel ZX Basic
+              Limits and troubleshooting
             
           </span>
         </div>
@@ -263,7 +263,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../index.html" title="JNEXT User Guide" class="md-nav__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
+    <a href="../../index.html" title="JNEXT User Guide" class="md-nav__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -326,7 +326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../index.html" class="md-nav__link">
+      <a href="../../index.html" class="md-nav__link">
         
   
   
@@ -379,7 +379,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../01-introduction/index.html" class="md-nav__link ">
+            <a href="../../01-introduction/index.html" class="md-nav__link ">
               
   
   
@@ -423,7 +423,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/01-what-it-emulates.html" class="md-nav__link">
+      <a href="../../01-introduction/01-what-it-emulates.html" class="md-nav__link">
         
   
   
@@ -451,7 +451,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/02-how-faithful-it-is.html" class="md-nav__link">
+      <a href="../../01-introduction/02-how-faithful-it-is.html" class="md-nav__link">
         
   
   
@@ -479,7 +479,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/03-machines-at-a-glance.html" class="md-nav__link">
+      <a href="../../01-introduction/03-machines-at-a-glance.html" class="md-nav__link">
         
   
   
@@ -507,7 +507,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/04-getting-help-and-reporting-bugs.html" class="md-nav__link">
+      <a href="../../01-introduction/04-getting-help-and-reporting-bugs.html" class="md-nav__link">
         
   
   
@@ -572,7 +572,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../02-installing/index.html" class="md-nav__link ">
+            <a href="../../02-installing/index.html" class="md-nav__link ">
               
   
   
@@ -616,7 +616,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/01-linux.html" class="md-nav__link">
+      <a href="../../02-installing/01-linux.html" class="md-nav__link">
         
   
   
@@ -644,7 +644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/02-windows.html" class="md-nav__link">
+      <a href="../../02-installing/02-windows.html" class="md-nav__link">
         
   
   
@@ -672,7 +672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/03-macos.html" class="md-nav__link">
+      <a href="../../02-installing/03-macos.html" class="md-nav__link">
         
   
   
@@ -700,7 +700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/04-optional-video-recording.html" class="md-nav__link">
+      <a href="../../02-installing/04-optional-video-recording.html" class="md-nav__link">
         
   
   
@@ -728,7 +728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/05-checking-it-worked.html" class="md-nav__link">
+      <a href="../../02-installing/05-checking-it-worked.html" class="md-nav__link">
         
   
   
@@ -756,7 +756,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/06-building-from-source.html" class="md-nav__link">
+      <a href="../../02-installing/06-building-from-source.html" class="md-nav__link">
         
   
   
@@ -821,7 +821,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../03-first-run/index.html" class="md-nav__link ">
+            <a href="../../03-first-run/index.html" class="md-nav__link ">
               
   
   
@@ -865,7 +865,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html" class="md-nav__link">
+      <a href="../../03-first-run/01-why-jnext-needs-an-sd-card-image.html" class="md-nav__link">
         
   
   
@@ -893,7 +893,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/02-letting-jnext-fetch-one.html" class="md-nav__link">
+      <a href="../../03-first-run/02-letting-jnext-fetch-one.html" class="md-nav__link">
         
   
   
@@ -921,7 +921,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/03-using-your-own-image.html" class="md-nav__link">
+      <a href="../../03-first-run/03-using-your-own-image.html" class="md-nav__link">
         
   
   
@@ -949,7 +949,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/04-the-first-boot.html" class="md-nav__link">
+      <a href="../../03-first-run/04-the-first-boot.html" class="md-nav__link">
         
   
   
@@ -977,7 +977,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/05-running-a-program.html" class="md-nav__link">
+      <a href="../../03-first-run/05-running-a-program.html" class="md-nav__link">
         
   
   
@@ -1005,7 +1005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/06-if-something-goes-wrong.html" class="md-nav__link">
+      <a href="../../03-first-run/06-if-something-goes-wrong.html" class="md-nav__link">
         
   
   
@@ -1064,7 +1064,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../04-configuration/index.html" class="md-nav__link ">
+            <a href="../../04-configuration/index.html" class="md-nav__link ">
               
   
   
@@ -1108,7 +1108,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/01-preferences.html" class="md-nav__link">
+      <a href="../../04-configuration/01-preferences.html" class="md-nav__link">
         
   
   
@@ -1136,7 +1136,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/02-the-configuration-file.html" class="md-nav__link">
+      <a href="../../04-configuration/02-the-configuration-file.html" class="md-nav__link">
         
   
   
@@ -1164,7 +1164,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/03-what-wins-the-command-line.html" class="md-nav__link">
+      <a href="../../04-configuration/03-what-wins-the-command-line.html" class="md-nav__link">
         
   
   
@@ -1239,7 +1239,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../05-running-programs/index.html" class="md-nav__link ">
+            <a href="../../05-running-programs/index.html" class="md-nav__link ">
               
   
   
@@ -1283,7 +1283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/01-choosing-a-machine.html" class="md-nav__link">
+      <a href="../../05-running-programs/01-choosing-a-machine.html" class="md-nav__link">
         
   
   
@@ -1311,7 +1311,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/02-input.html" class="md-nav__link">
+      <a href="../../05-running-programs/02-input.html" class="md-nav__link">
         
   
   
@@ -1339,7 +1339,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/03-display.html" class="md-nav__link">
+      <a href="../../05-running-programs/03-display.html" class="md-nav__link">
         
   
   
@@ -1367,7 +1367,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/04-sound.html" class="md-nav__link">
+      <a href="../../05-running-programs/04-sound.html" class="md-nav__link">
         
   
   
@@ -1395,7 +1395,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/05-recording-and-playback.html" class="md-nav__link">
+      <a href="../../05-running-programs/05-recording-and-playback.html" class="md-nav__link">
         
   
   
@@ -1423,7 +1423,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/06-networking.html" class="md-nav__link">
+      <a href="../../05-running-programs/06-networking.html" class="md-nav__link">
         
   
   
@@ -1451,7 +1451,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/07-the-joystick-port-serial-cable.html" class="md-nav__link">
+      <a href="../../05-running-programs/07-the-joystick-port-serial-cable.html" class="md-nav__link">
         
   
   
@@ -1479,7 +1479,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/08-host-files-for-a-loaded-program.html" class="md-nav__link">
+      <a href="../../05-running-programs/08-host-files-for-a-loaded-program.html" class="md-nav__link">
         
   
   
@@ -1507,7 +1507,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/09-snapshots.html" class="md-nav__link">
+      <a href="../../05-running-programs/09-snapshots.html" class="md-nav__link">
         
   
   
@@ -1535,7 +1535,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/10-the-raspberry-pi-serial-link.html" class="md-nav__link">
+      <a href="../../05-running-programs/10-the-raspberry-pi-serial-link.html" class="md-nav__link">
         
   
   
@@ -1563,7 +1563,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/11-pok-trainers.html" class="md-nav__link">
+      <a href="../../05-running-programs/11-pok-trainers.html" class="md-nav__link">
         
   
   
@@ -1595,6 +1595,8 @@
       
   
   
+    
+  
   
   
     
@@ -1610,19 +1612,21 @@
       
         
       
+        
+      
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/index.html" class="md-nav__link ">
+            <a href="../index.html" class="md-nav__link ">
               
   
   
@@ -1646,7 +1650,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1714,7 +1718,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/panels/index.html" class="md-nav__link ">
+            <a href="../panels/index.html" class="md-nav__link ">
               
   
   
@@ -1758,7 +1762,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/01-cpu-registers.html" class="md-nav__link">
+      <a href="../panels/01-cpu-registers.html" class="md-nav__link">
         
   
   
@@ -1786,7 +1790,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/02-mmu.html" class="md-nav__link">
+      <a href="../panels/02-mmu.html" class="md-nav__link">
         
   
   
@@ -1814,7 +1818,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/03-disassembly.html" class="md-nav__link">
+      <a href="../panels/03-disassembly.html" class="md-nav__link">
         
   
   
@@ -1842,7 +1846,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/04-memory.html" class="md-nav__link">
+      <a href="../panels/04-memory.html" class="md-nav__link">
         
   
   
@@ -1870,7 +1874,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/05-stack.html" class="md-nav__link">
+      <a href="../panels/05-stack.html" class="md-nav__link">
         
   
   
@@ -1898,7 +1902,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/06-call-stack.html" class="md-nav__link">
+      <a href="../panels/06-call-stack.html" class="md-nav__link">
         
   
   
@@ -1926,7 +1930,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/07-watches.html" class="md-nav__link">
+      <a href="../panels/07-watches.html" class="md-nav__link">
         
   
   
@@ -1954,7 +1958,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/08-breakpoints.html" class="md-nav__link">
+      <a href="../panels/08-breakpoints.html" class="md-nav__link">
         
   
   
@@ -1982,7 +1986,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/09-video.html" class="md-nav__link">
+      <a href="../panels/09-video.html" class="md-nav__link">
         
   
   
@@ -2010,7 +2014,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/10-sprites.html" class="md-nav__link">
+      <a href="../panels/10-sprites.html" class="md-nav__link">
         
   
   
@@ -2038,7 +2042,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/11-copper.html" class="md-nav__link">
+      <a href="../panels/11-copper.html" class="md-nav__link">
         
   
   
@@ -2066,7 +2070,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/12-nextreg.html" class="md-nav__link">
+      <a href="../panels/12-nextreg.html" class="md-nav__link">
         
   
   
@@ -2094,7 +2098,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/13-audio.html" class="md-nav__link">
+      <a href="../panels/13-audio.html" class="md-nav__link">
         
   
   
@@ -2122,7 +2126,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/14-script.html" class="md-nav__link">
+      <a href="../panels/14-script.html" class="md-nav__link">
         
   
   
@@ -2150,7 +2154,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/15-source.html" class="md-nav__link">
+      <a href="../panels/15-source.html" class="md-nav__link">
         
   
   
@@ -2234,7 +2238,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/functions/index.html" class="md-nav__link ">
+            <a href="../functions/index.html" class="md-nav__link ">
               
   
   
@@ -2278,7 +2282,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/01-run-pause-and-the-step-family.html" class="md-nav__link">
+      <a href="../functions/01-run-pause-and-the-step-family.html" class="md-nav__link">
         
   
   
@@ -2306,7 +2310,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html" class="md-nav__link">
+      <a href="../functions/02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html" class="md-nav__link">
         
   
   
@@ -2334,7 +2338,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/03-breakpoints-execute-read-write.html" class="md-nav__link">
+      <a href="../functions/03-breakpoints-execute-read-write.html" class="md-nav__link">
         
   
   
@@ -2362,7 +2366,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/04-watches-and-watch-sizes.html" class="md-nav__link">
+      <a href="../functions/04-watches-and-watch-sizes.html" class="md-nav__link">
         
   
   
@@ -2390,7 +2394,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/05-symbols-from-z88dk-map-files.html" class="md-nav__link">
+      <a href="../functions/05-symbols-from-z88dk-map-files.html" class="md-nav__link">
         
   
   
@@ -2418,7 +2422,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/06-the-trace-log.html" class="md-nav__link">
+      <a href="../functions/06-the-trace-log.html" class="md-nav__link">
         
   
   
@@ -2446,7 +2450,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/07-backward-execution-rewind.html" class="md-nav__link">
+      <a href="../functions/07-backward-execution-rewind.html" class="md-nav__link">
         
   
   
@@ -2474,7 +2478,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/08-the-magic-breakpoint-and-the-magic-port.html" class="md-nav__link">
+      <a href="../functions/08-the-magic-breakpoint-and-the-magic-port.html" class="md-nav__link">
         
   
   
@@ -2502,7 +2506,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/09-changing-the-keys.html" class="md-nav__link">
+      <a href="../functions/09-changing-the-keys.html" class="md-nav__link">
         
   
   
@@ -2530,7 +2534,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/10-remote-debugging-with-dezog.html" class="md-nav__link">
+      <a href="../functions/10-remote-debugging-with-dezog.html" class="md-nav__link">
         
   
   
@@ -2558,7 +2562,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/11-debugging-with-z88dk-gdb.html" class="md-nav__link">
+      <a href="../functions/11-debugging-with-z88dk-gdb.html" class="md-nav__link">
         
   
   
@@ -2586,7 +2590,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/12-remote-debugging-over-zrcp.html" class="md-nav__link">
+      <a href="../functions/12-remote-debugging-over-zrcp.html" class="md-nav__link">
         
   
   
@@ -2614,7 +2618,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/13-debugger-scripts.html" class="md-nav__link">
+      <a href="../functions/13-debugger-scripts.html" class="md-nav__link">
         
   
   
@@ -2642,7 +2646,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/14-source-level-debugging.html" class="md-nav__link">
+      <a href="../functions/14-source-level-debugging.html" class="md-nav__link">
         
   
   
@@ -2670,7 +2674,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/15-memory-coverage.html" class="md-nav__link">
+      <a href="../functions/15-memory-coverage.html" class="md-nav__link">
         
   
   
@@ -2750,7 +2754,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/scripting/index.html" class="md-nav__link ">
+            <a href="../scripting/index.html" class="md-nav__link ">
               
   
   
@@ -2794,7 +2798,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/01-your-first-script.html" class="md-nav__link">
+      <a href="../scripting/01-your-first-script.html" class="md-nav__link">
         
   
   
@@ -2822,7 +2826,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/02-the-language.html" class="md-nav__link">
+      <a href="../scripting/02-the-language.html" class="md-nav__link">
         
   
   
@@ -2850,7 +2854,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/03-events.html" class="md-nav__link">
+      <a href="../scripting/03-events.html" class="md-nav__link">
         
   
   
@@ -2878,7 +2882,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/04-reading-the-machine.html" class="md-nav__link">
+      <a href="../scripting/04-reading-the-machine.html" class="md-nav__link">
         
   
   
@@ -2906,7 +2910,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/05-actions.html" class="md-nav__link">
+      <a href="../scripting/05-actions.html" class="md-nav__link">
         
   
   
@@ -2934,7 +2938,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/06-snapshots-and-span-checks.html" class="md-nav__link">
+      <a href="../scripting/06-snapshots-and-span-checks.html" class="md-nav__link">
         
   
   
@@ -2962,7 +2966,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/07-keys-joysticks-and-host-keys.html" class="md-nav__link">
+      <a href="../scripting/07-keys-joysticks-and-host-keys.html" class="md-nav__link">
         
   
   
@@ -2990,7 +2994,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/08-changing-the-machine.html" class="md-nav__link">
+      <a href="../scripting/08-changing-the-machine.html" class="md-nav__link">
         
   
   
@@ -3018,7 +3022,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/09-running-scripts.html" class="md-nav__link">
+      <a href="../scripting/09-running-scripts.html" class="md-nav__link">
         
   
   
@@ -3046,7 +3050,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/10-recording-and-replaying.html" class="md-nav__link">
+      <a href="../scripting/10-recording-and-replaying.html" class="md-nav__link">
         
   
   
@@ -3074,7 +3078,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/11-catching-memory-corruption-bugs.html" class="md-nav__link">
+      <a href="../scripting/11-catching-memory-corruption-bugs.html" class="md-nav__link">
         
   
   
@@ -3102,7 +3106,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/12-the-demo-scripts.html" class="md-nav__link">
+      <a href="../scripting/12-the-demo-scripts.html" class="md-nav__link">
         
   
   
@@ -3130,7 +3134,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/scripting/13-quick-reference.html" class="md-nav__link">
+      <a href="../scripting/13-quick-reference.html" class="md-nav__link">
         
   
   
@@ -3146,6 +3150,297 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Source Debugger
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_5" id="__nav_7_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    The Source Debugger
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="01-a-first-session.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A first session
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="02-building-with-z88dk.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building programs with z88dk
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-sjasmplus-and-boriel.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sjasmplus and Boriel ZX Basic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="08-around-the-source.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    In the Source tab: names, watches and coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limits and troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="10-limits-and-troubleshooting.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limits and troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Messages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -3201,7 +3496,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../07-automation-and-ci/index.html" class="md-nav__link ">
+            <a href="../../07-automation-and-ci/index.html" class="md-nav__link ">
               
   
   
@@ -3245,7 +3540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/01-headless-mode.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/01-headless-mode.html" class="md-nav__link">
         
   
   
@@ -3273,7 +3568,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/02-determinism.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/02-determinism.html" class="md-nav__link">
         
   
   
@@ -3301,7 +3596,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.html" class="md-nav__link">
         
   
   
@@ -3329,7 +3624,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/04-a-worked-example.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/04-a-worked-example.html" class="md-nav__link">
         
   
   
@@ -3357,7 +3652,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/05-beyond-screenshots.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/05-beyond-screenshots.html" class="md-nav__link">
         
   
   
@@ -3392,7 +3687,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../08-known-issues/index.html" class="md-nav__link">
+      <a href="../../08-known-issues/index.html" class="md-nav__link">
         
   
   
@@ -3445,7 +3740,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../09-reference/index.html" class="md-nav__link ">
+            <a href="../../09-reference/index.html" class="md-nav__link ">
               
   
   
@@ -3489,7 +3784,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/01-command-line-options.html" class="md-nav__link">
+      <a href="../../09-reference/01-command-line-options.html" class="md-nav__link">
         
   
   
@@ -3517,7 +3812,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/02-files-and-directories.html" class="md-nav__link">
+      <a href="../../09-reference/02-files-and-directories.html" class="md-nav__link">
         
   
   
@@ -3545,7 +3840,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/03-zx-spectrum-next-hardware-documentation.html" class="md-nav__link">
+      <a href="../../09-reference/03-zx-spectrum-next-hardware-documentation.html" class="md-nav__link">
         
   
   
@@ -3573,7 +3868,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/04-the-project.html" class="md-nav__link">
+      <a href="../../09-reference/04-the-project.html" class="md-nav__link">
         
   
   
@@ -3581,324 +3876,6 @@
     
   
     9.4 The project
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    
-    
-      
-        
-          
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" checked>
-        
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="index.html" class="md-nav__link ">
-              
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    10. Source-level debugging
-  
-
-    
-  </span>
-  
-  
-
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_11">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    10. Source-level debugging
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="01-a-first-session.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    10.1 A first session
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="02-building-with-z88dk.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    10.2 Building programs with z88dk
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    10.4 sjasmplus and Boriel ZX Basic
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="04-sjasmplus-and-boriel.html" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    10.4 sjasmplus and Boriel ZX Basic
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#sjasmplus-the-sld" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        sjasmplus: the SLD
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="sjasmplus: the SLD">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#telling-jnext-the-sld-belongs-to-this-build" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Telling JNEXT the SLD belongs to this build
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#boriel-zx-basic-and-nextbuild-memorytxt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Boriel ZX Basic and NextBuild: Memory.txt
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sjasmplus-symbol-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        sjasmplus symbol files
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="08-around-the-source.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    10.8 In the Source tab: names, watches and coverage
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="10-limits-and-troubleshooting.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    10.10 Limits and troubleshooting
   
 
     
@@ -3939,91 +3916,120 @@
   
 
 
-<h1 id="104-sjasmplus-and-boriel-zx-basic">10.4 sjasmplus and Boriel ZX Basic<a class="headerlink" href="#104-sjasmplus-and-boriel-zx-basic" title="Permanent link">&para;</a></h1>
-<p>JNEXT reads two source map formats besides z88dk's: the <strong>SLD</strong> that sjasmplus
-writes, and the <strong><code>Memory.txt</code></strong> that the NextBuild / Boriel ZX Basic toolchain
-writes. They differ in what they carry: an SLD has the source lines and the
-labels; <code>Memory.txt</code> has symbols only.</p>
-<h2 id="sjasmplus-the-sld">sjasmplus: the SLD<a class="headerlink" href="#sjasmplus-the-sld" title="Permanent link">&para;</a></h2>
-<p>sjasmplus writes a source map when asked for one with <code>--sld</code>. This is a
-complete example, <code>hello.asm</code>:</p>
-<pre><code>        DEVICE ZXSPECTRUMNEXT
-        SLDOPT COMMENT WPMEM, LOGPOINT, ASSERTION
-        ORG $8000
-start:  ld a,2
-        out ($fe),a
-loop:   inc a
-        and 7
-        out ($fe),a
-        call delay
-        jr loop
-delay:  ld b,0
-.wait:  djnz .wait
-        ret
-        SAVENEX OPEN &quot;hello.nex&quot;, start, $BFFE
-        SAVENEX CORE 3,0,0
-        SAVENEX AUTO
-        SAVENEX CLOSE
-</code></pre>
-<p>built with sjasmplus 1.23.1:</p>
-<pre><code>sjasmplus --sld=hello.sld --fullpath hello.asm
-</code></pre>
-<p>That writes <code>hello.nex</code> and <code>hello.sld</code> (its first line is <code>|SLD.data.version|1</code>).
-Without <code>--fullpath</code>, sjasmplus warns that <code>--sld</code> "may produce incomplete file
-paths". Loading <code>hello.nex</code> (with <code>hello.sld</code> beside
-it) logs:</p>
-<pre><code>Loaded 4 SLD labels from 'hello.sld'
-Loaded 10 SLD source traces from '/home/you/hello/hello.sld'
-</code></pre>
-<p>The Source tab then shows <code>hello.asm</code> with the current line, and <code>hello.asm:7</code>
-works in the Breakpoints panel. The labels of the SLD join the symbols
-(<code>start</code>, <code>loop</code>, <code>delay</code>, <code>delay.wait</code>). A label assembled for a bank names its
-address only while that bank is mapped.</p>
-<p>JNEXT looks for <code>&lt;name&gt;.sld</code>, else <code>&lt;name&gt;.sld.txt</code>, beside the program.</p>
-<h3 id="telling-jnext-the-sld-belongs-to-this-build">Telling JNEXT the SLD belongs to this build<a class="headerlink" href="#telling-jnext-the-sld-belongs-to-this-build" title="Permanent link">&para;</a></h3>
-<p>An SLD from a build that is not the one in memory would show the wrong lines. If
-the SLD records the program's bytes, JNEXT checks them. Three comment records do
-that; other SLD readers ignore them:</p>
+<h1 id="limits-and-troubleshooting">Limits and troubleshooting<a class="headerlink" href="#limits-and-troubleshooting" title="Permanent link">&para;</a></h1>
+<p>The messages that come with loading and using a source map, what causes each,
+and what to do. Where one appears is in the row: a source map that is found and
+refused is also in the log, in the main window's status bar for ten seconds, and
+in the Source tab in place of "No source map loaded" (see the paragraph after the table); the
+others are in the log, the Source tab, the Add dialog or the compiler's own
+output.</p>
+<h2 id="messages">Messages<a class="headerlink" href="#messages" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Message</th>
+<th>Cause</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>program identity not verified: no section binaries beside it</code></td>
+<td>a z88dk map with no <code>prog_CODE.bin</code> beside it: a classic build (<code>+zx</code> with its default, classic, library, or <code>+zxn -clib=classic</code>), or the file was moved or deleted</td>
+<td>the map is used anyway. For a verified map, build with <code>-clib=new</code> and keep <code>prog_CODE.bin</code> (and <code>prog_&lt;SECTION&gt;.bin</code>) beside <code>prog.map</code></td>
+</tr>
+<tr>
+<td><code>z88dk listings for 'prog.map': main.c.lis: it has no line information (sdcc writes it with --c-code-in-asm)</code></td>
+<td>an sdcc build with <code>--list</code> but without <code>--c-code-in-asm</code></td>
+<td>add <code>--c-code-in-asm</code>; on z88dk 2.4 this is the only way to get sdcc's C lines</td>
+</tr>
+<tr>
+<td><code>z88dk listings for 'prog.map': main.c.lis: line 579: labels '_square' (line 558) and '_main' put section 'code_compiler' at different places; this is not the listing of this build</code></td>
+<td>a <code>.lis</code> file left from another build, copied or from before a change</td>
+<td>rebuild with <code>--list</code>, or delete the stale <code>.lis</code>; the map's own lines stay</td>
+</tr>
+<tr>
+<td><code>z88dk listings for 'prog.map': prog.lis: 17 listed lines could not be placed (no label of their section piece is in the map, or inside PHASE)</code></td>
+<td>a newlib program with <code>__banked</code> functions (seen with both z88dk installs): the start-up section is no longer one piece, or code is in a <code>PHASE</code> block</td>
+<td>harmless for the banked case: the start-up code shows no m4 text there. See <a href="02-building-with-z88dk.html#banked-code">Building programs with z88dk</a></td>
+</tr>
+<tr>
+<td><code>(identity check pending: the program loads from tape)</code>, then <code>Verified z88dk source map ...</code></td>
+<td>a tape program: the map attaches at once and is checked when the program first runs</td>
+<td>nothing; wait for the <code>Verified</code> line</td>
+</tr>
+<tr>
+<td><code>Rejected z88dk source map ...: the program loaded from tape does not match its binary identity</code></td>
+<td>the tape holds a different build than the map</td>
+<td>the map and its symbols are dropped. Load the tape the map was built with</td>
+</tr>
+<tr>
+<td><code>main.c:19 - source file not found</code> (Source tab)</td>
+<td>the map names a file the Source tab cannot find</td>
+<td><strong>Locate File...</strong>, the source search path, or <code>--source-dir</code>: <a href="../functions/14-source-level-debugging.html#where-the-source-tab-finds-the-files">where the Source tab finds the files</a></td>
+</tr>
+<tr>
+<td><code>main.c:19 - /path/main.c has only 12 lines; it is not the text the build used</code></td>
+<td>the file found is not the one the program was built from</td>
+<td>put the right file where it is found first</td>
+</tr>
+<tr>
+<td><code>no code at main.c:3</code></td>
+<td>the line has no machine code (a comment, a declaration)</td>
+<td>choose a line with code</td>
+</tr>
+<tr>
+<td><code>ROM or overlay</code> (Source tab)</td>
+<td>the address is supplied by a ROM or an overlay (DivMMC, Multiface, Layer 2, boot ROM), not a RAM page</td>
+<td>use the disassembly there</td>
+</tr>
+<tr>
+<td><code>Unknown option2 --hardware-keyboard</code> (z88dk, at build)</td>
+<td><code>+zxn -clib=classic -debug</code></td>
+<td>use <code>-clib=new</code>, or <code>+zx</code> with the default classic library. Fixed upstream (PR #3198), not in a release</td>
+</tr>
+<tr>
+<td><code>defc Gcounter0_00==.</code> syntax error (z88dk 2.4, at build)</td>
+<td>sdcc with <code>-debug</code> on 2.4</td>
+<td>use <code>--c-code-in-asm --list</code> instead of <code>-debug</code>, or master</td>
+</tr>
+</tbody>
+</table>
+<p>A source map that is found and refused says why. The reasons: the SLD or map was
+built for another binary, the file is not a map, is not a regular file, or is
+larger than 64 MiB. A source map you loaded by hand that stops matching (a reset,
+or a state load, where it carries no identity or the memory has changed) is kept
+but goes <strong>stale</strong>: the Source tab says so and why, the steps are off, and
+<strong>Load Source Map...</strong> again loads it.</p>
+<p>A banked program that runs page 0, or returns to <code>$FFFF</code>, was built without
+the two pragmas: see <a href="02-building-with-z88dk.html#banked-code">Building programs with z88dk</a>.</p>
+<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <ul>
-<li><code>||program.sha256:</code>, the SHA-256 of the program as built;</li>
-<li><code>||program.org:</code> and <code>||program.size:</code>, where it was placed and how long it is.</li>
+<li><strong>Toolchain mis-attributions.</strong> A map is only as good as the compiler's line
+  records: on z88dk 2.4 part of an sccz80 statement can show on the next line,
+  on master sdcc code from a header can show under the wrong line, and an
+  optimising build moves code between lines.</li>
+<li><strong>Code the program copies at run time</strong> to another address has no record where
+  it runs, unless your build made one, and shows as unmapped there. Code in a
+  <code>PHASE</code> block is not placed.</li>
+<li><strong>Programs the guest loads itself</strong> (one chosen in the NextZXOS browser, or
+  <code>LOAD ""</code>) are not seen by JNEXT: load their source map by hand.</li>
+<li><strong>DivMMC sections</strong> (<code>DIV_n</code>, and z88dk's <code>dotn</code> programs) are refused: a map
+  with a line in one is rejected, with the line named, rather than attached half.</li>
+<li><strong>C variables beyond their names</strong> (types, locals, structs) are not in the
+  debugger yet.</li>
+<li><strong>A step is synchronous and bounded.</strong> A step that never reaches another
+  statement (a loop on one line, a <code>HALT</code> with interrupts disabled) stops by itself
+  at a disabled-interrupt <code>HALT</code>, or after a million instructions or 100 frames,
+  and says so in the log.</li>
+<li><strong>With sccz80 and 80cc, <code>-debug</code> changes the code</strong>, so addresses and timing
+  differ from your release build. sdcc's <code>-debug</code> leaves the code unchanged.</li>
+<li><strong>Headless and SDL builds attach the map but do not show it.</strong> Only the Qt
+  debugger has a Source tab; with <code>--headless</code> or the SDL frontend the map is read
+  by scripts and by <code>monitor src</code> over the GDB server.</li>
+<li><strong>Back does not cross a state load</strong>, or a reset: it stops at the load, since
+  the history before it belongs to another program.</li>
 </ul>
-<p><strong>sjasmplus does not write these records.</strong> They are an extension for tools that
-produce an SLD and know the program's bytes, such as a build script that adds
-them after the assembler has run. Without them the SLD attaches unverified,
-which is fine for a program you just built; but it also means a reset drops it
-(a source map without an identity cannot be checked against the memory the ROM
-clears a few frames later). A map you loaded by hand goes <em>stale</em> on a reset
-instead: load it again. The full account is in
-<a href="../06-debugger/functions/14-source-level-debugging.html#loading-them">loading a source map</a>.</p>
-<h2 id="boriel-zx-basic-and-nextbuild-memorytxt">Boriel ZX Basic and NextBuild: <code>Memory.txt</code><a class="headerlink" href="#boriel-zx-basic-and-nextbuild-memorytxt" title="Permanent link">&para;</a></h2>
-<p>The Boriel compiler, <code>zxbc</code>, has an option <code>-M</code> (long form <code>--mmap</code>), whose help
-text is "Generate label memory map". NextBuild, the build system around it,
-passes <code>-M Memory.txt</code> on the compiles that produce the program, so a NextBuild
-project has a <code>Memory.txt</code> of lines like</p>
-<pre><code>8000: ._Main
-</code></pre>
-<p>(a hex address, then the label). JNEXT loads it by itself when it finds
-<code>&lt;name&gt;.Memory.txt</code>, else <code>Memory.txt</code>, beside a <code>.nex</code>; you can also use <strong>Load
-Memory.txt...</strong> in the Source tab. It gives the <strong>symbols</strong>: names in the
-disassembly, the Breakpoints and Call Stack panels and in the Add dialogs. It
-does not give source lines.</p>
-<p>Source lines for a BASIC program need an SLD. From the options of <code>zxbc</code> that are
-documented in its source, Boriel's compiler does not write an SLD by itself, and
-this guide does not describe a recipe for producing one. If your build produces
-an SLD, name it <code>&lt;program&gt;.sld</code> beside the program and JNEXT reads it as above. If both a <code>Memory.txt</code> and an
-SLD have a label, the <code>Memory.txt</code> one wins.</p>
-<p>Where this page's statements about Boriel come from:</p>
-<ul>
-<li><code>zxbc</code>'s <code>-M/--mmap</code> option: <code>src/zxbc/args_parser.py</code> in the
-  <a href="https://github.com/boriel-basic/zxbasic">zxbasic repository</a>;</li>
-<li>NextBuild's use of <code>-M Memory.txt</code>: <code>Scripts/nextbuild.py</code> in the
-  <a href="https://github.com/em00k/NextBuild">NextBuild repository</a>.</li>
-</ul>
-<h2 id="sjasmplus-symbol-files">sjasmplus symbol files<a class="headerlink" href="#sjasmplus-symbol-files" title="Permanent link">&para;</a></h2>
-<p>A plain <code>--sym</code> or <code>--exp</code> file from sjasmplus carries symbols but no lines. Load
-it with <code>--map</code> or <strong>Map ▸ Load MAP File</strong>; see
-<a href="../06-debugger/functions/05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>.</p>
 
 
 
@@ -4073,10 +4079,10 @@ it with <code>--map</code> or <strong>Map ▸ Load MAP File</strong>; see
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
