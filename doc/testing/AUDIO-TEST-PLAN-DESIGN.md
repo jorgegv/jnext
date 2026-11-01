@@ -487,6 +487,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-51  | Pi I2S source: a header split between bytes 12 and 44 | Back-to-back streams as MX-43, but B's header is split after 20 bytes (RIFF...WAVE recognisable, header incomplete): the other 24 bytes are skipped on the next read; exactly 6000 frames arrive, exact. jnext-only, no VHDL counterpart |
 | MX-52  | Pi I2S source: RIFF without WAVE is audio | Frames whose bytes spell `RIFF`, `abcd`, `NOTW` at a frame boundary, then 3000 more: all 3003 frames arrive, exact (a header needs `WAVE` at byte 8). jnext-only, no VHDL counterpart |
 | MX-53  | Pi I2S source: no pause after a poll that waited | On a FIFO that has never had a writer, once `eof_reads()` reaches 5, `no_writer_pauses()` is 0: `poll()` timed out and that wait paced the loop, so no further 20 ms pause (oracles: Linux `pipe_poll` EPOLLHUP only after a writer has come and gone; XNU `filt_vnode_common` readable only when `FIONREAD != 0`). A counter, not a timing. jnext-only, no VHDL counterpart |
+| MX-58  | I2S: NR 0xA2 routes the Pi to EAR (`I2s::ear_routed`) | True for 0xC1, 0x81, 0x41, 0xFF; false for 0x01, 0xC0, 0x00, 0x3F; true at 0xC1 while the comparator (`fe_ear()`) is 0, so it is the route, not the level (`zxnext.vhd:2361-2373`). In `audio_test`, every OS |
 
 ### 5.2 Final Mix
 
