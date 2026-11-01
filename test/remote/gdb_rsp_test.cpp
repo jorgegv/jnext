@@ -2032,11 +2032,11 @@ static void monitor_rows() {
         const auto inside = c.monitor("sym $8F5B", f);
         const auto by_asm = c.monitor("sym _counter", f);
         const auto not_c = c.monitor("sym asm_bump", f);
-        check("GDB-MON-14", "monitor sym takes a z88dk C name and names an address by it: counter = $8F59, "
-                            "$8F59 = counter, $8F5B = table+1, _counter still works, asm_bump (asm module) is no symbol",
-              loaded.status == Result::Ok && premise && by_c.size() == 1 && by_c[0] == "counter = $8F59\n" &&
-                  by_addr.size() == 1 && by_addr[0] == "$8F59 = counter\n" && inside.size() == 1 &&
-                  inside[0] == "$8F5B = table+1\n" && by_asm.size() == 1 && by_asm[0] == "_counter = $8F59\n" &&
+        check("GDB-MON-14", "monitor sym takes a z88dk C name and names an address by it: counter = $8F59 P04, "
+                            "$8F59 P04 = counter, $8F5B P04 = table+1, _counter still works, asm_bump (asm module) is no symbol",
+              loaded.status == Result::Ok && premise && by_c.size() == 1 && by_c[0] == "counter = $8F59 P04\n" &&
+                  by_addr.size() == 1 && by_addr[0] == "$8F59 P04 = counter\n" && inside.size() == 1 &&
+                  inside[0] == "$8F5B P04 = table+1\n" && by_asm.size() == 1 && by_asm[0] == "_counter = $8F59 P04\n" &&
                   not_c.size() == 1 && not_c[0] == "no symbol asm_bump\n",
               join(by_c) + join(by_addr) + join(inside) + join(by_asm) + join(not_c));
     }
