@@ -120,34 +120,22 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Source maps + symbols |      107 |      107 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk -debug map adapter |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk --list listing adapter |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
-<<<<<<< HEAD
-| Source debugging (backend) |      310 |      310 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (POSIX file types) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1510 |     1510 |      0 |       0 |    100% | 🟢 All tests pass. |
-=======
 | Source debugging (backend) |      325 |      325 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1496 |     1496 |      0 |       0 |    100% | 🟢 All tests pass. |
->>>>>>> epic23-source-debugging
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger resume step-off |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster State (beam + ULA fetch) |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger socket transport (GH #287) |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
-<<<<<<< HEAD
-| DZRP remote debugger adapter (GH #12) |      164 |      164 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GDB RSP remote debugger adapter (GH #281) |      104 |      103 |      1 |       0 |     99% | 🔴 1 test(s) failed. |
-| Debugger DSL front end (GH #26) |      260 |      260 |      0 |       0 |    100% | 🟢 All tests pass. |
-=======
 | DZRP remote debugger adapter (GH #12) |      163 |      163 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GDB RSP remote debugger adapter (GH #281) |      105 |      105 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL front end (GH #26) |      265 |      265 |      0 |       0 |    100% | 🟢 All tests pass. |
->>>>>>> epic23-source-debugging
 | Debugger DSL evaluator (GH #26) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL engine (GH #26) |      151 |      151 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger session recorder (GH #20) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ZRCP remote debugger adapter (GH #280) |      223 |      223 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ZRCP remote debugger adapter (GH #280) |      216 |      216 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect rules (pure) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (AppConfig) |      175 |      175 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -183,20 +171,15 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Quit Gate    |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Window Sizing |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Window Growing |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Window Sizing |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Key Bindings |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Menus        |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Disasm Copy  |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Menus        |       63 |       63 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Disasm Copy  |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Panels (GH #278) |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       81 |       81 |      0 |       0 |    100% | 🟢 All tests pass. |
-<<<<<<< HEAD
-| Debugger Source panel |      191 |      191 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14750**| **14749**|  **1** |   **0** | **99%** | 🔴 1 test(s) failed. |
-=======
 | Debugger Source panel |      189 |      189 |      0 |       0 |    100% | 🟢 All tests pass. |
 | **Total**             | **14763**| **14763**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
->>>>>>> epic23-source-debugging
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
