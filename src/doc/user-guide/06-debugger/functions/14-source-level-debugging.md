@@ -304,7 +304,7 @@ in the Add dialogs, Go to Address and a script's `@counter`, and the views show
 `counter`; see [Symbols from MAP files](05-symbols-from-z88dk-map-files.md).
 
 Which compilers and libraries work on which z88dk, and what the options
-(`--list`, `-debug`, optimisation) change, is in the same page; the messages are in [Limits and
+(`--list`, `-debug`, optimisation) change, is in [Building programs with z88dk](../source-debugger/02-building-with-z88dk.md); the messages are in [Limits and
 troubleshooting](../source-debugger/10-limits-and-troubleshooting.md). What is
 specific to how the map is read:
 
@@ -325,6 +325,18 @@ specific to how the map is read:
   [Building programs with z88dk](../source-debugger/02-building-with-z88dk.md#banked-code).
 - **DivMMC sections** (`DIV_n`) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.
+- **`--list` listings beside the map**: JNEXT reads the z80asm listings z88dk
+  writes with `--list` (`main.c.lis`, `prog.lis`) by itself; the log says `and 4
+  listings` and **Load Source Map...** says `with 4 z88dk listings`. What they
+  add, and how to build them, is in [Building programs with
+  z88dk](../source-debugger/02-building-with-z88dk.md). A listing that cannot be
+  followed is dropped, with a note (rebuild with `--list`, or delete stale `.lis`
+  files), and its module keeps the map's lines: that covers a section switched
+  inside an `IF` branch the listing cannot judge, a macro or `REPT` body that
+  switches section, and a listing that does not match the map or the section
+  binaries. sccz80 without `-debug` marks only the start of each function.
+  Classic builds have no section binaries, so their placement rests on the
+  labels of the map and on that check alone.
 - Code in a section that names no page (`CODE`, `code_compiler`, the program
   itself) is tied to the RAM page the MMU maps at that address when the program
   is in memory (page 4 at $8000 for a NEX).

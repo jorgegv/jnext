@@ -35,7 +35,7 @@ attaches it. Which file you need depends on the tool:
   message means and what to do, then the known limits.
 
 The reference page [Source-level debugging](../functions/14-source-level-debugging.md)
-is the reference for [loading a source map](../functions/14-source-level-debugging.md#loading-them)
+covers [loading a source map](../functions/14-source-level-debugging.md#loading-them)
 (sidecars, by hand, `--source-map`, tapes, binary identity),
 [where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files),
 [banked code](../functions/14-source-level-debugging.md#banked-code),

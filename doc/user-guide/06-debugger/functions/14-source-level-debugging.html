@@ -4260,7 +4260,7 @@ later line, and the earlier one is its alias if both are in the same function
 in the Add dialogs, Go to Address and a script's <code>@counter</code>, and the views show
 <code>counter</code>; see <a href="05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>.</p>
 <p>Which compilers and libraries work on which z88dk, and what the options
-(<code>--list</code>, <code>-debug</code>, optimisation) change, is in the same page; the messages are in <a href="../source-debugger/10-limits-and-troubleshooting.html">Limits and
+(<code>--list</code>, <code>-debug</code>, optimisation) change, is in <a href="../source-debugger/02-building-with-z88dk.html">Building programs with z88dk</a>; the messages are in <a href="../source-debugger/10-limits-and-troubleshooting.html">Limits and
 troubleshooting</a>. What is
 specific to how the map is read:</p>
 <ul>
@@ -4281,6 +4281,18 @@ specific to how the map is read:</p>
   <a href="../source-debugger/02-building-with-z88dk.html#banked-code">Building programs with z88dk</a>.</li>
 <li><strong>DivMMC sections</strong> (<code>DIV_n</code>) are not supported yet: a map with a line in one
   is refused, with the line named, rather than attached half.</li>
+<li><strong><code>--list</code> listings beside the map</strong>: JNEXT reads the z80asm listings z88dk
+  writes with <code>--list</code> (<code>main.c.lis</code>, <code>prog.lis</code>) by itself; the log says <code>and 4
+  listings</code> and <strong>Load Source Map...</strong> says <code>with 4 z88dk listings</code>. What they
+  add, and how to build them, is in <a href="../source-debugger/02-building-with-z88dk.html">Building programs with
+  z88dk</a>. A listing that cannot be
+  followed is dropped, with a note (rebuild with <code>--list</code>, or delete stale <code>.lis</code>
+  files), and its module keeps the map's lines: that covers a section switched
+  inside an <code>IF</code> branch the listing cannot judge, a macro or <code>REPT</code> body that
+  switches section, and a listing that does not match the map or the section
+  binaries. sccz80 without <code>-debug</code> marks only the start of each function.
+  Classic builds have no section binaries, so their placement rests on the
+  labels of the map and on that check alone.</li>
 <li>Code in a section that names no page (<code>CODE</code>, <code>code_compiler</code>, the program
   itself) is tied to the RAM page the MMU maps at that address when the program
   is in memory (page 4 at $8000 for a NEX).</li>
