@@ -478,10 +478,14 @@ void DebuggerWindow::resizeEvent(QResizeEvent* event) {
     // of times). Qt applies a resize() to size() at once, so a pass never meets a request that is
     // merely "not applied yet": a size that is neither the one asked for nor this revert is the
     // user's (the pass below ends the fit).
+    if (fit_reverted_ && size() != fit_prev_size_ && size() != fit_set_size_) {
+        fit_over_ = true;   // between the revert and the pass it queued: the user resized the window
+        return;
+    }
     if (!fit_over_ && size_is_default_ && fit_set_size_.isValid() && size() == fit_prev_size_ &&
         fit_reverts_ < kMaxFitReverts) {
         ++fit_reverts_;
-        fit_set_size_ = QSize();
+        fit_reverted_ = true;   // until the queued pass runs, any size but those two is the user's (above)
         QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
     }
 }
@@ -510,7 +514,9 @@ void DebuggerWindow::grow_default_size_to_natural() {
 
     if (fit_over_)
         return;
-    if (fit_set_size_.isValid() && size() != fit_set_size_) {
+    const bool reverted = fit_reverted_;   // the queued pass of a revert meets the size asked for or the one before
+    fit_reverted_ = false;
+    if (!reverted && fit_set_size_.isValid() && size() != fit_set_size_) {
         // Not the size the last pass asked for: the user's. The fit is over, their size stands.
         fit_over_ = true;
         return;

@@ -209,6 +209,7 @@ private:
     // A window manager can answer the map of a window with the size it had BEFORE the fit's first
     // (pre-map) request. The fit then starts again from that size, a bounded number of times.
     int    fit_reverts_ = 0;
+    bool   fit_reverted_ = false;   // a revert was seen and its pass is queued
     static constexpr int kMaxFitReverts = 3;
     int    initial_fit_width_passes_ = 0;
     int    fit_last_add_ = 0;       // window width added by the previous width pass

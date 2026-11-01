@@ -197,7 +197,7 @@ struct Fixture {
         if (ok) {
             QSize last = dbg->size();
             int stable = 0;
-            for (int i = 0; i < 50 && stable < 2; ++i) {
+            for (int i = 0; i < 50 && stable < 5; ++i) {
                 settle(100);
                 stable = (dbg->size() == last) ? stable + 1 : 0;
                 last = dbg->size();
