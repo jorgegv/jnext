@@ -200,8 +200,11 @@ int main(int argc, char** argv)
                 "  ]\n"
                 "}\n");
     }
-    qputenv("QT_QPA_PLATFORM",
-            QStringLiteral("offscreen:configfile=%1").arg(qpa_config).toUtf8());
+    // JNEXT_TEST_KEEP_QPA (set by the debugger-window-wm-func row): keep the platform the
+    // environment names (xcb under a real window manager) instead of forcing offscreen.
+    if (qgetenv("JNEXT_TEST_KEEP_QPA").isEmpty())
+        qputenv("QT_QPA_PLATFORM",
+                QStringLiteral("offscreen:configfile=%1").arg(qpa_config).toUtf8());
     // Isolate the config file: this suite writes saved geometries, and the real
     // ~/.jnext/jnext.conf belongs to the user.
     qputenv("JNEXT_CONFIG_DIR", dir.path().toUtf8());

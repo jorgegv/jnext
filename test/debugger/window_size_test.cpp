@@ -925,7 +925,10 @@ int main(int argc, char** argv)
 {
     // The debugger window owns QWidgets, so a QApplication is required — but
     // not a display: force the offscreen QPA platform.
-    qputenv("QT_QPA_PLATFORM", "offscreen");
+    // JNEXT_TEST_KEEP_QPA (set by the debugger-window-wm-func row): keep the platform the
+    // environment names (xcb under a real window manager) instead of forcing offscreen.
+    if (qgetenv("JNEXT_TEST_KEEP_QPA").isEmpty())
+        qputenv("QT_QPA_PLATFORM", "offscreen");
 
     // Isolate the config file: these rows write saved geometries, and the real
     // ~/.jnext/Debugger.conf belongs to the user.
