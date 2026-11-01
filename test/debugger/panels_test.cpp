@@ -3611,6 +3611,9 @@ static void test_long_address() {
         emu.port().out(0x00E3, 0x80);   // conmem
         mem.refresh();
         const QString div = after_label(painted(&mem), "$0010", 18);
+        // The selector names the slot's OWN memory, overlay or not (plan F4).
+        auto* combo = mem.findChild<QComboBox*>();
+        const QString sel_conmem = combo ? combo->itemText(1) : QString();
         // The Slot 0 view shows the slot's own space, the ROM, with DivMMC still over the CPU view.
         select_view(&mem, 1);   // Slot 0
         mem.refresh();
@@ -3623,14 +3626,13 @@ static void test_long_address() {
         mem.set_address_style(AddressStyle::Physical);
         mem.refresh();
         const QString bram = after_label(painted(&mem), "$4000", 18);
-        auto* combo = mem.findChild<QComboBox*>();
         const QString sel = combo ? combo->itemText(1) : QString();
         check("QLADDR-04",
               "Memory panel: every row ends with the memory tag after the ASCII item: CPU view $0010 "
               "ROM0 without DivMMC and DIVROM under conmem, $4000 P0A (BRAM5+$0000 physical); the Slot 0 "
-              "view ROM0 even under conmem and its selector reads Slot 0 (ROM0)",
+              "view ROM0 even under conmem and its selector reads Slot 0 (ROM0), also under conmem",
               built && rom0 == "ROM0" && div == "DIVROM" && p0a == "P0A" && bram == "BRAM5+$0000" &&
-                  slot0 == "ROM0" && sel == "Slot 0 (ROM0)",
+                  slot0 == "ROM0" && sel == "Slot 0 (ROM0)" && sel_conmem == "Slot 0 (ROM0)",
               s(rom0) + "|" + s(div) + "|" + s(p0a) + "|" + s(bram) + "|" + s(slot0) + "|" + s(sel));
     }
 

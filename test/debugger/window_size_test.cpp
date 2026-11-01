@@ -53,6 +53,9 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debugger/breakpoint_model.h"
+#include "debugger/callstack_panel.h"
+#include "debugger/stack_panel.h"
+#include "debugger/watch_panel.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/window_attach.h"
@@ -73,6 +76,7 @@
 #include <QScrollBar>
 #include <QTabWidget>
 #include <QSet>
+#include <QTableWidget>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -853,7 +857,31 @@ static void test_physical_override(const QString& dir)
             if (l->text() == QLatin1String("BRAM5+$0000")) mmu = true;
         f.mgr->breakpoints().add(BreakpointModel::Execute, 0x8005, jnext::dbg::MemSpace::page(4));
         const auto rows = f.mgr->breakpoints().rows();
-        return mmu && !rows.empty() && rows[0].addr_text == QLatin1String("$8005 $048005");
+        // Watches, Stack and Call Stack: one physical cell each (page 4 at $8000, $9000).
+        auto cell = [](QWidget* w, int r, int c) {
+            QTableWidget* t = w ? w->findChild<QTableWidget*>() : nullptr;
+            return t && t->item(r, c) ? t->item(r, c)->text() : QString("<none>");
+        };
+        f.dbg->watch_panel()->add_watch(0x8000, "w", 0);
+        Z80Registers regs = f.emu.cpu().get_registers();
+        regs.PC = 0x8000;
+        regs.SP = 0x8000;
+        f.emu.cpu().set_registers(regs);
+        f.emu.mmu().write(0x8000, 0xCD);   // CALL $9000, then its first instruction
+        f.emu.mmu().write(0x8001, 0x00);
+        f.emu.mmu().write(0x8002, 0x90);
+        f.emu.debug_state().pause();
+        f.backend->set_call_stack_enabled(true);
+        f.backend->step_into(jnext::dbg::CLIENT_NONE);
+        f.backend->step_into(jnext::dbg::CLIENT_NONE);
+        f.dbg->stack_panel()->set_paused(true);
+        f.dbg->callstack_panel()->set_paused(true);
+        f.dbg->refresh_panels();
+        const bool views = cell(f.dbg->watch_panel(), 0, 4) == QLatin1String("$048000") &&
+                           cell(f.dbg->stack_panel(), 0, 4) == QLatin1String("BRAM5+$3FFE") &&   // SP $7FFE, page 0x0B
+                           cell(f.dbg->callstack_panel(), 0, 5) == QLatin1String("$048000") &&
+                           cell(f.dbg->callstack_panel(), 0, 6) == QLatin1String("$049000");
+        return views && mmu && !rows.empty() && rows[0].addr_text == QLatin1String("$8005 $048005");
     };
     wipe_dir(dir);
     { QSettings s(conf, QSettings::IniFormat); s.setValue(key, false); s.sync(); }
@@ -890,7 +918,7 @@ static void test_physical_override(const QString& dir)
         reopened_shown = fx.ok && shown(fx);
     }
     check("DWK-04", "a physical-addresses override opens the window in the physical style and a save leaves the file's "
-                    "value, and the panels and the Breakpoints rows show it at once, without a toggle; toggling Physical "
+                    "value, and the panels (Watches, Stack, Call Stack, MMU) and the Breakpoints rows show it at once, without a toggle; toggling Physical "
                     "Addresses then writes the toggled value at once, and a new window starts as the file says "
                     "(its panels too)",
           ok && physical && panels_physical && reopened_shown && checked && opened == QLatin1String("false") && saved == QLatin1String("false") &&
