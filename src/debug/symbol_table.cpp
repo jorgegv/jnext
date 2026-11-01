@@ -76,11 +76,15 @@ int SymbolTable::read_z88dk_map(std::istream& file)
 
     // Pass 2: place every symbol, in file order (first occurrence wins).
     const auto page_head = [&](int n) { return z88dk_page_head(consts, n); };
+    // A dot command (GH #351): placed by the same rule as its source half. A map
+    // that is refused as one has its symbols placed as any map's.
+    const std::optional<Z88dkDot> dot_command = z88dk_dot_command(consts, nullptr);
+    const Z88dkDot* dot = dot_command ? &*dot_command : nullptr;
     int count = 0;
     for (const Z88dkMapLine& s : symbols) {
         if (s.value > 0xFFFFFF) continue;   // no rule places it; never truncated
         const Z88dkSpace placed = z88dk_section_space(s.section, static_cast<uint32_t>(s.value),
-                                                      page_head);
+                                                      page_head, dot);
         const bool c = is_z88dk_c_symbol(s);
         switch (placed.kind) {
         case Z88dkSpace::Kind::Paged:

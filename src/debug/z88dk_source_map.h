@@ -22,8 +22,12 @@ enum class Z88dkListings { None, Beside };
 /// for a section that names none (rule 4), the page `space_of` says supplies the
 /// address now.
 ///
+/// A z88dk DOT COMMAND's map (`z88dk_dot_command()`, design 9.4 rule 5, GH #351) places
+/// its $2000-$3FFF records in DivMMC RAM bank 2 whatever `space_of` says is mapped there;
+/// the result map reports `dot()`.
+///
 /// Strict, like the SLD half: a record that cannot be placed (an unparsable
-/// location, a value over 24 bits, a DivMMC / out-of-range / head-less section,
+/// location, a value over 24 bits, a DIV_n / out-of-range / head-less section, a dotn,
 /// a rule-4 address outside RAM) refuses the half, `count == -1`, the reason
 /// naming the map line, and the store is untouched. A map with no line record
 /// (built without -debug, or every line in an empty section) gives `count == 0`,
