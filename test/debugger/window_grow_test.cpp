@@ -147,6 +147,18 @@ struct Fixture {
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
         settle();
+        // The fit is a chain of queued passes; on a loaded host 300 ms can end between two of them
+        // (GR-05 read Video 599<600 in `make unit-test` with the host at load 16). Keep waiting until
+        // the size has not changed for two consecutive 100 ms polls (bounded at 5 s).
+        if (ok) {
+            QSize last = dbg->size();
+            int stable = 0;
+            for (int i = 0; i < 50 && stable < 2; ++i) {
+                settle(100);
+                stable = (dbg->size() == last) ? stable + 1 : 0;
+                last = dbg->size();
+            }
+        }
     }
     ~Fixture() {
         if (mgr) mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
