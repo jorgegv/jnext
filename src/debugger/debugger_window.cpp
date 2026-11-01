@@ -492,8 +492,25 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (!size_is_default_ || !scroll)
         return;
 
-    const int hidden_w = scroll->horizontalScrollBar()->maximum();
+    int hidden_w = scroll->horizontalScrollBar()->maximum();
     const int hidden_h = scroll->verticalScrollBar()->maximum();
+
+    // GH #360: nothing scrolling sideways does not mean the left column of tabs is wide enough: it
+    // only has to fit its panels' MINIMUMS to avoid a scrollbar, yet the Video panel asks for more
+    // (its sizeHint) and is clipped at 1170 px. Measure what its pages lack, and widen the window by
+    // enough that the splitter gives the left column that much (it shares an increase by the two
+    // sides' stretch factors, set in create_panels()).
+    if (tab_widget_ && top_splitter_) {
+        int lacking = 0;
+        for (int i = 0; i < tab_widget_->count(); ++i) {
+            QWidget* page = tab_widget_->widget(i);
+            lacking = std::max(lacking, page->sizeHint().width() - page->width());
+        }
+        const int left  = top_splitter_->widget(0)->sizePolicy().horizontalStretch();
+        const int right = top_splitter_->widget(1)->sizePolicy().horizontalStretch();
+        if (lacking > 0 && left > 0)
+            hidden_w = std::max(hidden_w, (lacking * (left + right) + left - 1) / left);
+    }
     if (hidden_w <= 0 && hidden_h <= 0)
         return;   // nothing is out of view; the window is already big enough
 

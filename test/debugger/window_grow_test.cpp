@@ -59,6 +59,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -251,6 +252,39 @@ int main(int argc, char** argv)
                   fmt("opened %dx%d, default height %d",
                       fx.dbg->width(), fx.dbg->height(), kDefaultHeight));
         }
+    }
+
+    // GR-05 (GH #360) — the default window opens wide enough for its left column. With no saved
+    // geometry the window asks for 1170 px (kDefaultWidth) and grows to its natural size on a roomy
+    // (3000x2200) screen. At 1170 the left tab widget was 506 px and the Video panel (sizeHint 600)
+    // lost its raster labels, palette strip and preview. Oracle: after the opening fit, every page of
+    // the left column of tabs is at least as wide as its own sizeHint().width(), with no tolerance.
+    {
+        clear_saved_geometry(dir.path());
+        Fixture fx;
+        std::string bad;
+        int pages = 0;
+        if (fx.ok) {
+            for (QTabWidget* tw : fx.dbg->findChildren<QTabWidget*>()) {
+                bool left = false;
+                for (int i = 0; i < tw->count(); ++i)
+                    if (tw->tabText(i) == QLatin1String("Video")) left = true;
+                if (!left) continue;
+                for (int i = 0; i < tw->count(); ++i) {
+                    QWidget* page = tw->widget(i);
+                    ++pages;
+                    if (page->width() < page->sizeHint().width())
+                        bad += fmt("%s %d<%d ", tw->tabText(i).toStdString().c_str(), page->width(),
+                                   page->sizeHint().width());
+                }
+            }
+        }
+        check("GR-05",
+              "at the default window size, grown to natural on a 3000x2200 screen, every page of the left "
+              "column of tabs is at least as wide as its sizeHint (no tolerance)",
+              fx.ok && pages == 7 && bad.empty(),
+              fx.ok ? bad + fmt("pages=%d window %dx%d", pages, fx.dbg->width(), fx.dbg->height())
+                    : std::string("fixture failed"));
     }
 
     // GR-04 — the gate on the other side: a size the user saved is NOT grown,
