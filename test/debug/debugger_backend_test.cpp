@@ -7311,6 +7311,11 @@ static void gh428_rev_rows() {
         rev_row("REV-45", "set_group_enabled advances the revision (merge of E23-09 with GH #428)",
                 [&](Debugger& d, Emulator&, ClientId a) { return d.set_group_enabled(a, prepared_group, false) == Result::Ok; },
                 group_prep);
+        rev_row("REV-46", "subscribe_source_line advances the revision (merge of E23-09 with GH #428)",
+                [&](Debugger& d, Emulator&, ClientId a) {
+                    Subscription s; s.kind = EventKind::Execute; s.action = Action::Stop;
+                    return d.subscribe_source_line(a, "main.bas:10", s).status == Result::Ok; },
+                [&](Debugger& d, Emulator&, ClientId) { (void)d.load_source_map(sld, true); });
         std::remove(sld.c_str());
     }
     {

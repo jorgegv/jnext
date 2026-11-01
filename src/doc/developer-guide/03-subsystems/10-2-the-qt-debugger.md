@@ -247,8 +247,8 @@ sidecar reason `report_sidecars()` gave it. `refresh()` runs while the machine
 is paused whenever the paused stamp changes (the loaded file's modification
 time is part of it, so an edit on disk still shows), so it moves the cursor and centres only when the line or
 the PC changed or the text was loaded since (a user who scrolled stays put).
-`follow_pc()` forces the next one: `DebuggerWindow::activate_follow_pc()` calls
-it, and `apply_pause_state(true)` runs that at every stop and every step, as it
+`follow_pc()` repaints the tab at once (a stop moves nothing the paused stamp sees):
+`DebuggerWindow::activate_follow_pc()` calls it, and `apply_pause_state(true)` runs that at every stop and every step, as it
 does for the disassembly, so a stop at the very PC and line already shown still
 puts the view back. While the machine runs the tab says "Running" and drops the
 highlight. The Source tab's **Load Source Map...** button and the Debug > Source > Load
