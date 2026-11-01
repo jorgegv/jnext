@@ -1210,6 +1210,20 @@ void test_navigation() {
 
 } // namespace
 
+// QLADDR-17 (GH #360): the Mem column takes its room from the mnemonic area, not from the panel's
+// minimum. The debugger's left column of tabs gets what the right-hand side does not ask for, so a
+// minimum that includes MEM_WIDTH took ~50 px from the Video panel on 1366 and 1280 px screens.
+// Oracle: the minimum is the columns without Mem: gutter 20 + address 48 + bytes 100 + 200 of mnemonic = 368.
+void test_minimum_width() {
+    set_group("QLADDR");
+    Fixture fx;
+    check("QLADDR-17",
+          "the Disassembly's minimum width does not include the Mem column (20 + 48 + 100 + 200 = 368)",
+          fx.ok && fx.panel->minimumWidth() == 368,
+          fx.ok ? fmt("min %d", fx.panel->minimumWidth())
+                : std::string("fixture failed"));
+}
+
 int main(int argc, char** argv)
 {
     // DisasmPanel is a QWidget and QClipboard needs a QGuiApplication, so a
@@ -1248,6 +1262,7 @@ int main(int argc, char** argv)
     test_painter_symbols();
     test_paged_symbols();
     test_c_names();
+    test_minimum_width();
     std::printf("  Group: SYM            — done\n");
     test_edge_cases();
     std::printf("  Group: EDGE           — done\n");

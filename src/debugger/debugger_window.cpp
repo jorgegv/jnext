@@ -470,6 +470,16 @@ void DebuggerWindow::changeEvent(QEvent* event) {
     }
 }
 
+void DebuggerWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    // The size the opening fit asked for has been applied: take the next pass (queued, so the
+    // layout has settled and the scroll ranges it reads are final).
+    if (fit_awaiting_ && size() == fit_set_size_) {
+        fit_awaiting_ = false;
+        QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+    }
+}
+
 void DebuggerWindow::grow_default_size_to_natural() {
     // GH #114: a window opening at its DEFAULT size still opens at the size
     // where nothing has to scroll, whenever the screen has room for it. That
@@ -492,8 +502,12 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (!size_is_default_ || !scroll)
         return;
 
-    if (fit_set_size_.isValid() && size() != fit_set_size_)
-        return;   // resized since the last pass (by the user): the fit is over, their size stands
+    if (fit_set_size_.isValid() && size() != fit_set_size_) {
+        // Not applied yet (a window manager answers later; size() is still the one before our request):
+        // wait for its resize event. Any other size is the user's: the fit is over, their size stands.
+        if (size() == fit_prev_size_) fit_awaiting_ = true;
+        return;
+    }
 
     const int scroll_w = scroll->horizontalScrollBar()->maximum();
     const int hidden_h = scroll->verticalScrollBar()->maximum();
@@ -527,14 +541,19 @@ void DebuggerWindow::grow_default_size_to_natural() {
 
     // The FRAME must fit the screen: the side borders come off the width as the title bar comes off the height.
     const int deco_w = std::max(0, frameGeometry().width() - width());
+    // The height decoration is what the window manager really added now that the window is mapped; the
+    // style's title bar height is only the estimate for before that (it is smaller than some managers').
+    const int real_deco_h = frameGeometry().height() - height();
+    const int deco_h = real_deco_h > 0 ? real_deco_h : title_bar_height(this);
     const jnext::WindowSize fit = jnext::clamp_window_size_to_screen(
         width() + add_w, height() + hidden_h,
-        work_area_of(this), title_bar_height(this), deco_w);
+        work_area_of(this), deco_h, deco_w);
     if (fit.w == width() && fit.h == height())
         return;   // nothing to grow, or the screen has no more room to give
     const int old_w = width();
+    fit_prev_size_ = size();
+    fit_set_size_ = QSize(fit.w, fit.h);
     resize(fit.w, fit.h);
-    fit_set_size_ = size();
 
     const bool width_pass = lacking > 0 && add_w > scroll_w;
     if (width_pass) {

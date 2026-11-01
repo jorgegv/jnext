@@ -374,6 +374,13 @@ static void test_window(const QString& cfg_dir)
               fmt("frame %d wide, client %d, work area %d", fx.dbg->frameGeometry().width(),
                   fx.dbg->width(), avail.width()));
 
+        // DW-12 (GH #360) - and vertically: the frame height uses the decoration the window manager
+        // really added once mapped, not only the style's title-bar estimate (3 px short under openbox).
+        check("DW-12", "the window FRAME opens no taller than the screen work area",
+              fx.dbg->frameGeometry().height() <= avail.height(),
+              fmt("frame %d tall, client %d, work area %d", fx.dbg->frameGeometry().height(),
+                  fx.dbg->height(), avail.height()));
+
         check("DW-01", "the window opens no larger than the screen work area",
               fx.dbg->width() <= avail.width() && fx.dbg->height() <= avail.height(),
               fmt("opened %dx%d, work area %dx%d",

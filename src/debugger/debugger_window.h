@@ -137,6 +137,7 @@ protected:
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
     void changeEvent(QEvent* event) override;   // GH #363
+    void resizeEvent(QResizeEvent* event) override;   // GH #360: resumes the opening fit
 
 private:
     void create_panels();
@@ -202,7 +203,11 @@ private:
     // so it converges whatever share of a widening the splitter gives that column.
     // The size the last fit pass gave the window: a later pass that finds another size knows the user
     // (or anything else) resized it meanwhile, and leaves it alone.
-    QSize  fit_set_size_;
+    QSize  fit_set_size_;        // what the last fit pass ASKED for
+    QSize  fit_prev_size_;       // the size before that request
+    // A window manager applies a resize later: until then size() still reads the previous size. The
+    // fit waits for the resize event of the size it asked for instead of taking that for a user resize.
+    bool   fit_awaiting_ = false;
     int    initial_fit_width_passes_ = 0;
     int    fit_last_add_ = 0;       // window width added by the previous width pass
     int    fit_last_lacking_ = 0;   // what the left column still lacked before it
