@@ -1,6 +1,7 @@
 #include "disasm_panel.h"
 #include "qt/palette_tint_qt.h"   // GH #363
 #include "debugger/coverage_colors.h"   // GH #388
+#include "debugger/source_sync_colors.h"   // GH #347
 #include "debugger/breakpoint_model.h"
 #include "debugger/operand_menu.h"
 
@@ -402,6 +403,58 @@ int DisasmPanel::line_at_y_clamped(int y) const
 // GH #21 — selection and copy
 // ---------------------------------------------------------------------------
 
+// GH #347 - the selection as the Source tab sees it. Called from the user's paths only
+// (a click, a drag, a key, Select All, the menu's collapse); show_address() is the Source
+// tab's own request and goes through set_selection() directly, so it never echoes back.
+void DisasmPanel::notify_selection_()
+{
+    uint16_t lo = 0, hi = 0;
+    if (!selection_range(lo, hi)) return;
+    const std::array<uint16_t, 3> now{lo, hi, sel_cursor_};
+    if (notified_ && *notified_ == now) return;
+    notified_ = now;
+    notifying_ = true;   // the Source tab's echo (set_source_lines) arrives inside the emit
+    emit selection_changed(lo, hi, sel_cursor_);
+    notifying_ = false;
+}
+
+bool DisasmPanel::linked_at_(jnext::dbg::MemSpace space, uint16_t addr) const
+{
+    if (!dbg_ || link_file_.empty()) return false;
+    for (const SourceLocation* l : dbg_->source_map().lookup_all(space, addr))
+        if (l->file == link_file_ && l->line >= link_first_ && l->line <= link_last_) return true;
+    return false;
+}
+
+bool DisasmPanel::source_linked(uint16_t addr) const
+{
+    return dbg_ && linked_at_(dbg_->source_page(addr), addr);
+}
+
+void DisasmPanel::set_source_lines(const std::string& file, int first, int last, bool reveal)
+{
+    link_file_ = file;
+    link_first_ = first;
+    link_last_ = last;
+    // The Source tab moved on its own (a stop, the user's click there): the next click on the same
+    // lines is a change again. Its echo of our own notification is not such a move.
+    if (!notifying_) notified_.reset();
+    if (dbg_ && reveal && !file.empty()) {
+        bool in_view = false;
+        for (const DisasmEntry& e : entries_)
+            if (linked_at_(e.space, e.line.addr)) { in_view = true; break; }
+        if (!in_view) {
+            // The first place of the first line that has one mapped now.
+            for (int line = first; line <= last && line <= first + 500; ++line) {
+                const SourceResolution res = dbg_->source_map().resolve(file + ":" + std::to_string(line));
+                for (const SourceAddress& s : res.starts)
+                    if (dbg_->source_page(s.address) == s.space) { center_on(s.address); return; }
+            }
+        }
+    }
+    update();
+}
+
 void DisasmPanel::set_selection(uint16_t addr, bool extend)
 {
     if (!extend || !has_selection_) sel_anchor_ = addr;
@@ -445,6 +498,7 @@ void DisasmPanel::select_all_visible()
     // trap for whoever wires it to something.
     selected_line_ = static_cast<int>(entries_.size()) - 1;
     update();
+    notify_selection_();
 }
 
 // The one naming rule: a label names an address in the memory that supplies it.
@@ -514,6 +568,12 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         int y = paint_y_offset_ + i * LINE_HEIGHT;
         int text_y = y + fm.ascent() + (LINE_HEIGHT - fm.height()) / 2;
 
+        // GH #347 - the Source tab's lines: drawn first, so the PC row keeps its yellow and the
+        // selection and the coverage bar show over it.
+        if (linked_at_(entry.space, entry.line.addr)) {
+            painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
+                             source_sync_colors::linked(palette()));
+        }
         // Row background highlights
         if (entry.is_current_pc) {
             painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
@@ -640,6 +700,7 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
                       (event->modifiers() & Qt::ShiftModifier) != 0);
         dragging_ = true;
         update();
+        notify_selection_();
     }
 }
 
@@ -659,6 +720,7 @@ void DisasmPanel::mouseMoveEvent(QMouseEvent* event)
     if (line < 0) return;
     selected_line_ = line;
     set_selection(entries_[line].line.addr, /*extend=*/true);
+    notify_selection_();
 }
 
 void DisasmPanel::mouseReleaseEvent(QMouseEvent* event)
@@ -821,7 +883,10 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
     // as Shift-click does.
     if (nav && selected_line_ >= 0 &&
         selected_line_ < static_cast<int>(entries_.size()))
+    {
         set_selection(entries_[selected_line_].line.addr, extend);
+        notify_selection_();
+    }
 }
 
 void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
@@ -839,6 +904,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         set_selection(clicked_addr, /*extend=*/false);
 
     update();
+    notify_selection_();
 
     uint16_t addr = entries_[line].line.addr;
 
@@ -872,6 +938,18 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         addr_input_->setFocus();
         addr_input_->selectAll();
     });
+
+    // GH #347 - the Source tab's counterpart of its "Show in Disassembly": only with a source
+    // map loaded, and disabled where no source line covers the address.
+    if (dbg_ && !dbg_->source_map().empty()) {
+        menu.setToolTipsVisible(true);
+        auto* show_src = menu.addAction("Show in Source");
+        if (!dbg_->source_map().lookup(entries_[line].space, addr)) {
+            show_src->setEnabled(false);
+            show_src->setToolTip(tr("no source line at $%1").arg(QString::asprintf("%04X", addr)));
+        }
+        connect(show_src, &QAction::triggered, this, [this, addr]() { emit show_source_requested(addr); });
+    }
 
     // --- The operands of the line: watch and data breakpoint entries ---
     // One builder for this view and the Source tab (GH #423), so the two cannot

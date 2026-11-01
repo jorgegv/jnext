@@ -6,6 +6,9 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <array>
+#include <optional>
+#include <string>
 #include <vector>
 #include "debug/disasm.h"
 #include "debug/disasm_text.h"
@@ -116,8 +119,24 @@ public:
     /// Drop the selection (nothing is highlighted, a copy is a no-op).
     void clear_selection();
 
+    // --- GH #347: the Source tab's selection --------------------------------
+
+    /// The Source tab's selected lines, `first..last` of `file` (an empty file: none).
+    /// Every instruction with a source location on one of them (any location, not only
+    /// the primary) is tinted. With `reveal` (a move the user made in the Source tab)
+    /// and none of them in view, the view centres on the first of those addresses that
+    /// is mapped now; without it the view stays where it is. The selection is untouched.
+    void set_source_lines(const std::string& file, int first, int last, bool reveal);
+    /// Whether the instruction at `addr` is tinted by the Source tab's lines now.
+    bool source_linked(uint16_t addr) const;
+
 signals:
     void run_to_requested(uint16_t addr);
+    /// GH #347 - the USER changed the selection: its bounds and the caret line. Not
+    /// emitted by show_address() (the Source tab asked for that one), nor by a refresh.
+    void selection_changed(uint16_t lo, uint16_t hi, uint16_t caret);
+    /// GH #347 - the menu's Show in Source on `addr`.
+    void show_source_requested(uint16_t addr);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -150,6 +169,9 @@ private:
     /// Execute breakpoint drawn at `addr`, or add a logical one.
     void toggle_breakpoint(uint16_t addr, int line);
     static uint16_t extract_immediate16(const char* mnemonic);
+    /// Emit selection_changed() when the (lo, hi, caret) differs from the last one emitted.
+    void notify_selection_();
+    bool linked_at_(jnext::dbg::MemSpace space, uint16_t addr) const;
 
     const jnext::dbg::Debugger* dbg_;
 
@@ -191,6 +213,12 @@ private:
     uint16_t sel_anchor_    = 0;   // where the drag started
     uint16_t sel_cursor_    = 0;   // where it is now
     uint16_t view_addr_ = 0; // top address in view
+
+    // GH #347 - the Source tab's lines, and the last selection announced to it.
+    std::string link_file_;
+    int link_first_ = 0, link_last_ = 0;
+    std::optional<std::array<uint16_t, 3>> notified_;
+    bool notifying_ = false;
 
     // Vertical offset for the painting area (below the top bar)
     int paint_y_offset_ = 0;

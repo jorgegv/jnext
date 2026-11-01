@@ -2750,6 +2750,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#moving-between-the-source-and-the-disassembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Moving between the source and the disassembly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#running-to-a-source-line" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4001,6 +4012,12 @@ the debugger window is open. <strong>Back</strong> and <strong>Reverse</strong> 
 rewind, like <strong>Step Back</strong>
 (<a href="07-backward-execution-rewind.html">Backward execution (rewind)</a>); they look for
 their target in the instructions the trace has kept.</p>
+<h2 id="moving-between-the-source-and-the-disassembly">Moving between the source and the disassembly<a class="headerlink" href="#moving-between-the-source-and-the-disassembly" title="Permanent link">&para;</a></h2>
+<p>The Source tab and the Disassembly follow each other's selection: click a source line and its
+instructions are tinted in the Disassembly; click an instruction and the Source cursor goes to its
+line, in its own file if that is not the CPU's, until the next stop or <strong>Go to PC Line</strong>. The
+disassembly's right-click menu has <strong>Show in Source</strong>, the counterpart of <strong>Show in Disassembly</strong>
+(<a href="../panels/15-source.html#following-the-disassembly">Following the disassembly</a>).</p>
 <h2 id="running-to-a-source-line">Running to a source line<a class="headerlink" href="#running-to-a-source-line" title="Permanent link">&para;</a></h2>
 <p><strong>Run to Here</strong> in the Source tab's right-click menu (or <strong>Enter</strong> on the line) runs the machine
 until the line is reached. A line that compiled to several places stops at the first one

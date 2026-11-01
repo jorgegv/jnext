@@ -2,6 +2,7 @@
 
 #include "debug/disasm.h"
 #include "debugger/coverage_colors.h"
+#include "debugger/source_sync_colors.h"
 #include "platform/config_keys.h"
 #include "qt/palette_tint_qt.h"
 
@@ -518,6 +519,7 @@ SourceHighlighter::SchemeColours make_light()
         lp.setColor(g, QPalette::Text, QColor(0x00, 0x00, 0x00));
     }
     c.coverage_line = coverage_colors::exec_line(lp);
+    c.linked_line = source_sync_colors::linked(lp);   // GH #347: the Disassembly's fill, on a light palette
     for (int r = 0; r < SourceHighlighter::kRoles; ++r)
         c.role[r] = SourceHighlighter::light_colour(static_cast<SourceHighlighter::Role>(r));
     return c;
@@ -544,6 +546,8 @@ SourceHighlighter::SchemeColours make_dark(const SourceHighlighter::SchemeColour
     // read on (Keyword 3.45:1, Char 4.07, Float 3.69). A darker green (L 0.022) reaches 4.5:1 for all
     // ten and stays a visibly green line on the #242424 background.
     c.coverage_line = QColor(0x0A, 0x30, 0x14);
+    // A dark violet of the same lightness (GH #347), so every Dark class colour reads on it as on the green.
+    c.linked_line = QColor(0x2B, 0x17, 0x45);
     for (int r = 0; r < SourceHighlighter::kRoles; ++r) c.role[r] = palette_tint::ink(p, light.role[r]);
     return c;
 }
@@ -562,6 +566,8 @@ SourceHighlighter::SchemeColours make_borland()
     // Dark teal: 4.9:1 or better against every class colour (the grey comment is the limit), and
     // a different hue from the blue background. Owner to confirm (GH #422 landing prep).
     c.coverage_line = QColor(0x00, 0x40, 0x40);
+    // Dark purple (GH #347): not the blue of the background, not the teal of the coverage.
+    c.linked_line = QColor(0x40, 0x00, 0x40);
     auto set = [&](R r, const QColor& v) { c.role[static_cast<int>(r)] = v; };
     set(R::Text, yellow);
     set(R::Keyword, white);
