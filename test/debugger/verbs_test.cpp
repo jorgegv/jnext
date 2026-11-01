@@ -1251,7 +1251,7 @@ static void test_idle_refresh() {
     Fixture fx(MachineType::ZXN_ISSUE2);
     if (!fx.ok) {
         for (const char* id : {"QIDLE-01", "QIDLE-02", "QIDLE-03", "QIDLE-04", "QIDLE-05",
-                               "QIDLE-07", "QIDLE-08", "QIDLE-09"})
+                               "QIDLE-07", "QIDLE-08", "QIDLE-09", "QIDLE-10"})
             check(id, "fixture", false);
         return;
     }
@@ -1393,6 +1393,27 @@ static void test_idle_refresh() {
               n1 == 1 && n2 == 0 && bc.toUpper() == "1D2E",
               fmt("n1=%llu n2=%llu BC=%s", (unsigned long long)n1, (unsigned long long)n2,
                   s(bc).c_str()));
+    }
+
+    // QIDLE-10: the clock term on its own. Another client steps the machine
+    // (clock + registers move), then the registers are written back to exactly
+    // what the window last drew: only the master clock differs, and that alone
+    // is enough for one refresh at the next tick.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        const Z80Registers drawn = fx.emu.cpu().get_registers();
+        fx.backend->step_into(other);
+        fx.emu.cpu().set_registers(drawn);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-10",
+              "the master clock moving alone (registers back as drawn) refreshes once at the next "
+              "tick, then nothing",
+              n1 == 1 && n2 == 0,
+              fmt("n1=%llu n2=%llu", (unsigned long long)n1, (unsigned long long)n2));
     }
 
     // QIDLE-07: a guest cold boot reaches the backend as begin / done.
