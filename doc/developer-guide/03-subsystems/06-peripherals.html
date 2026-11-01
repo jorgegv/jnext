@@ -2725,8 +2725,10 @@ while jnext runs neither starts nor stops it. Three pieces:</p>
   mixer output sample into <code>I2s</code>, whose NR 0xA2 gating and mixer sum already
   modelled the hardware. The ring prebuffers 50 ms, plays silence on an
   underrun and trims a backlog beyond 300 ms, absorbing the drift between QEMU's
-  host clock and the emulated one. RZX playback does not consume it; a rewind's
-  replay never generates audio at all.</p>
+  host clock and the emulated one. While NR 0xA2 sends the Pi's audio to EAR it
+  switches to tape mode (250 ms, single-frame drift correction), so a tape
+  loaded from the Pi is not cut by a refill or a trim. RZX playback does not
+  consume it; a rewind's replay never generates audio at all.</p>
 </li>
 </ul>
 <p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved

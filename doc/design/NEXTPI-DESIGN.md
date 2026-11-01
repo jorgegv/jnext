@@ -566,10 +566,12 @@ preference: a GUI session with `[nextpi] audio=none` must start the stand-in
 QEMU with `-audiodev none`, not the mixer's wav FIFO, which is the one test of
 `main()` copying that preference into the start (`spec.audio =
 saved.nextpi_audio`); dropping that line fails the row. Its third is NR 0xA2
-bit 0 end to end: on a 48K machine an injected program sets NR 0xA2 = 0xC3 and
-counts changes of port 0xFE bit 6 over 60000 reads, reporting the count on the
-magic port; with the stand-in looping a square wave in both channels it must
-see at least 20, and with the EAR path off it sees 0.
+bit 0 end to end: on a 48K machine an injected program sets NR 0xA2 = 0xC3,
+waits for port 0xFE bit 6 to change once (tape mode plays nothing until it holds
+250 ms, and the headless run is uncapped), then counts its changes over 60000
+reads, reporting the count on the magic port; with the stand-in looping a square
+wave in both channels it must see at least 20, and with the EAR path off it
+never reports.
 
 Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
