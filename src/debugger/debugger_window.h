@@ -210,6 +210,14 @@ private:
     // (pre-map) request. The fit then starts again from that size, a bounded number of times.
     int    fit_reverts_ = 0;
     bool   fit_reverted_ = false;   // a revert was seen and its pass is queued
+    // A window manager can also answer an EARLIER request late (openbox applies the first one after
+    // the later ones). Every size the fit asked for, or started a pass from, is its own: a resize to
+    // one of them is the manager's answer, not the user's, and the current request is asked again
+    // (bounded). Any other size is the user's.
+    std::vector<QSize> fit_sizes_;
+    int    fit_echoes_ = 0;
+    static constexpr int kMaxFitEchoes = 6;
+    bool   fit_known_size_(const QSize& s) const;
     static constexpr int kMaxFitReverts = 3;
     int    initial_fit_width_passes_ = 0;
     int    fit_last_add_ = 0;       // window width added by the previous width pass

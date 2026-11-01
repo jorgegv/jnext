@@ -7001,6 +7001,27 @@ void test_source_sync_review() {
               lit && w.tinted().empty() && !w.sp->browsing() && w.sp->highlighted_line() == 10,
               "lit=" + std::to_string(lit) + " tinted=" + std::to_string(w.tinted().size()));
     }
+    {   // QSRC-209 (GH #360 review): the browsed label names the memory of the BROWSED address, not the PC's
+        Fixture fx;
+        fx.enable();
+        const unsigned pc_page = fx.backend->effective_page(0x8000), far_page = fx.backend->effective_page(0xC000);
+        fx.backend->load_source_map(write_sld("sync-far.sld",
+            "main.bas|10||0|" + std::to_string(pc_page) + "|32768|T|\n" +
+            "util.bas|7||0|" + std::to_string(far_page) + "|49152|T|\n"), false);
+        write_main({});
+        {
+            std::string util;
+            for (int i = 1; i <= 12; ++i) util += "REM util " + std::to_string(i) + "\n";
+            write_text(g_tmp->path().toStdString() + "/util.bas", util);
+        }
+        SyncWin w(fx);
+        w.dis_click(0xC000);
+        const QString want = QString::asprintf("util.bas:7  $C000  P%02X  (browsing; the PC is at main.bas:10, $8000)", far_page);
+        check("QSRC-209", "a Disassembly click on $C000, in another MMU slot and page than the PC at $8000, labels the "
+                          "line with the memory of $C000 (its own page tag), not the PC's",
+              pc_page != far_page && w.sp->browsing() && w.sp->location_text() == want,
+              "pc_page=" + std::to_string(pc_page) + " far_page=" + std::to_string(far_page) + " " + s(w.sp->location_text()));
+    }
     {   // QSRC-206: two files whose lines share a number
         Fixture fx;
         fx.enable();

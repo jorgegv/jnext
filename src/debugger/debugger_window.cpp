@@ -470,23 +470,36 @@ void DebuggerWindow::changeEvent(QEvent* event) {
     }
 }
 
+bool DebuggerWindow::fit_known_size_(const QSize& s) const {
+    return s == fit_prev_size_ || std::find(fit_sizes_.begin(), fit_sizes_.end(), s) != fit_sizes_.end();
+}
+
 void DebuggerWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
-    // A window manager can answer the map of the window with the size it had before the fit's first
-    // (pre-map) request, taking our size back. Nothing else resized the window: ask again from here,
-    // as the first pass did, now that the window is managed and its frame is known (a bounded number
-    // of times). Qt applies a resize() to size() at once, so a pass never meets a request that is
-    // merely "not applied yet": a size that is neither the one asked for nor this revert is the
-    // user's (the pass below ends the fit).
-    if (fit_reverted_ && size() != fit_prev_size_ && size() != fit_set_size_) {
+    // While the opening fit runs, a window manager can answer its requests in ways a user never
+    // would. Qt applies a resize() to size() at once, so a size that is neither the one asked for nor
+    // one the fit knows (it asked for it, or started a pass from it) is the user's: the pass ends the
+    // fit. The known ones are the manager's:
+    //  - the REVERT: the map answered with the size from before the (pre-map) request. Ask again
+    //    from here with a fresh pass, now that the window is managed and its frame is known;
+    //  - a late ECHO of an earlier request (openbox applies the first one after the later ones):
+    //    ask the current request again, so the stale size is not the final one.
+    // Both are bounded.
+    if (fit_over_ || !size_is_default_ || !fit_set_size_.isValid())
+        return;
+    if (fit_reverted_ && !fit_known_size_(size())) {
         fit_over_ = true;   // between the revert and the pass it queued: the user resized the window
         return;
     }
-    if (!fit_over_ && size_is_default_ && fit_set_size_.isValid() && size() == fit_prev_size_ &&
-        fit_reverts_ < kMaxFitReverts) {
+    if (size() == fit_prev_size_ && fit_reverts_ < kMaxFitReverts) {
         ++fit_reverts_;
-        fit_reverted_ = true;   // until the queued pass runs, any size but those two is the user's (above)
+        fit_reverted_ = true;
         QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+    } else if (size() != fit_set_size_ && fit_known_size_(size()) && fit_echoes_ < kMaxFitEchoes) {
+        ++fit_echoes_;
+        QTimer::singleShot(0, this, [this]() {
+            if (!fit_over_ && size() != fit_set_size_ && fit_known_size_(size())) resize(fit_set_size_);
+        });
     }
 }
 
@@ -517,7 +530,14 @@ void DebuggerWindow::grow_default_size_to_natural() {
     const bool reverted = fit_reverted_;   // the queued pass of a revert meets the size asked for or the one before
     fit_reverted_ = false;
     if (!reverted && fit_set_size_.isValid() && size() != fit_set_size_) {
-        // Not the size the last pass asked for: the user's. The fit is over, their size stands.
+        if (fit_known_size_(size()) && fit_echoes_ < kMaxFitEchoes) {
+            // The manager's late answer to an earlier request: ask again, then measure again.
+            ++fit_echoes_;
+            resize(fit_set_size_);
+            QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+            return;
+        }
+        // Not a size of the fit's own: the user's. The fit is over, their size stands.
         fit_over_ = true;
         return;
     }
@@ -566,6 +586,8 @@ void DebuggerWindow::grow_default_size_to_natural() {
     const int old_w = width();
     fit_prev_size_ = size();
     fit_set_size_ = QSize(fit.w, fit.h);
+    fit_sizes_.push_back(fit_prev_size_);
+    fit_sizes_.push_back(fit_set_size_);
     resize(fit.w, fit.h);
 
     const bool width_pass = lacking > 0 && add_w > scroll_w;
