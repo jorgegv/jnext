@@ -475,15 +475,17 @@ int main() {
                   starts_are(m.resolve("asmfn.asm:5"), {{P4, 0x8CDB}}));
     }
 
-    // ── Z88LIS-19: the size rule needs equal sizes ──
+    // ── Z88LIS-19: a label-less piece smaller than its section is placed by its bytes (owner-approved 2026-11-01) ──
+    // Was "the size rule needs equal sizes" (17 lines unplaced); design 9.5 as widened by GH #426 F4
+    // places it where the section binary holds its opcode bytes, at exactly one start: here $800C, not $800D.
     {
         const fs::path d = copy_fixture(dir, master / "sdcc-debug", "z19");
         const bool edited = edit_file(d / "prog.map", "__code_crt_init_tail            = $8032", "__code_crt_init_tail            = $8033");
         SourceMap m;
         const auto r = load(m, d / "prog.map");
-        check("Z88LIS-19", "code_crt_init one byte longer in the map than in prog.lis: its 17 label-less lines are not placed ($800C has no line, a note counts 17), the rest of the CRT is",
-              edited && r && !m.lookup(P4, 0x800C) && any_note_has(r, "17 listed lines") &&
-                  is_at(m.lookup(P4, 0x8001), CRTM, 9470));
+        check("Z88LIS-19", "code_crt_init one byte longer in the map than in prog.lis (owner-approved 2026-11-01, was: not placed): only $800C of the two starts holds the 17 opcode bytes, so its lines are placed ($800C is m4:9148, no note counts 17) and $8001 is still :9470",
+              edited && r && is_in(m.lookup(P4, 0x800C), "newlib/target/zxn/zxn_crt.asm.m4", 9148) &&
+                  !any_note_has(r, "17 listed lines") && is_at(m.lookup(P4, 0x8001), CRTM, 9470));
     }
 
     // ── Z88LIS-20: sccz80 zero-width lines ──
@@ -840,6 +842,116 @@ int main() {
               r3 && r3.count == 0 && r3.listings == 0 && !m3.lookup(P4, 0x8001) && any_note_has(r3, "'ph'") &&
                   r4 && r4.count == 0 && r4.listings == 0 && !m4.lookup(P4, 0x8001) && any_note_has(r4, "REPT") &&
                   any_note_has(r4, "p2.asm.lis"));
+    }
+
+    // ── Z88LIS-36, 37: a CRT piece that shares code_crt_init with the banking driver is placed by its bytes (GH #426 F4) ──
+    {
+        struct Banked { const char* name; const fs::path& root; const char* crt; const char* vars; } cases[] = {
+            {"Z88LIS-36", v24, "_DEVELOPMENT/target/zxn/zxn_crt.asm.m4", "clib_variables.inc"},
+            {"Z88LIS-37", master, "newlib/target/zxn/zxn_crt.asm.m4", "z88dk/lib/crt/newlib/clib_variables.inc"},
+        };
+        for (const Banked& c : cases) {
+            const fs::path d = c.root / "sccz80-banked-crt";
+            SourceMap m;
+            const auto r = load(m, d / "prog.map");
+            const NexMemory nex(d / "prog.nex");
+            const bool is36 = c.root == v24;
+            bool ok = r && nex.ok && r.listings == 4 && r.count == 193 && !any_note_has(r, "could not be placed") &&
+                      is_in(m.lookup(P4, 0x800C), c.crt, 9164) &&
+                      is_in(m.lookup(P4, 0x8011), c.vars, 39) &&
+                      is_in(m.lookup(P4, 0x802F), c.vars, 81) && is_in(m.lookup(P4, 0x8031), c.vars, 81) &&
+                      !m.lookup(P4, 0x8032) && is_in(m.lookup(P4, 0x8048), c.crt, 9540) &&
+                      m.verify_program(logical_junk, nex.reader()) == std::optional<bool>(true);
+            if (is36)
+                check("Z88LIS-36", "v2.4 sccz80 banked build (code_crt_init $3C, the CRT piece $26, the driver's 22 bytes after it): no 'could not be placed' note, 4 listings, 193 lines; $800C is the m4 :9164, $8011 clib_variables.inc:39, $802F and $8031 :81, $8032 (the driver) has no line, $8048 is the m4 :9540; the program's identity verifies against prog.nex",
+                      ok);
+            else
+                check("Z88LIS-37", "master sccz80 banked build: the same values at the same addresses, in master's paths",
+                      ok);
+        }
+    }
+
+    // ── Z88LIS-38..43: placement by bytes, case by case (design 9.5 as widened; listings in z80asm's format) ──
+    // code_user/data_user is [$8000, 8000+tail); the module's `_g` sits in code_home after it; the section
+    // binary q_CODE.bin is `bin`.
+    auto by_bytes = [&](const char* name, const char* sec, int user_size, const std::vector<uint8_t>& bin,
+                        const std::vector<LisRow>& piece, SourceMap& m) {
+        const fs::path d = dir / name;
+        fs::create_directories(d);
+        std::string lis = "q.asm:\n" + lis_row(1, nullptr, nullptr, std::string(" SECTION ") + sec);
+        int line = 2;
+        for (const LisRow& r : piece) lis += lis_row(line++, r.addr, r.bytes, r.text);
+        lis += lis_row(line++, nullptr, nullptr, " SECTION code_home");
+        lis += lis_row(line, nullptr, nullptr, "_g:");
+        const int g_line = line++;
+        lis += lis_row(line, "0000", "c9", " ret");
+        write_text(d / "q.asm.lis", lis);
+        char b[1400];
+        std::snprintf(b, sizeof b,
+            "__CODE_head                     = $8000 ; const, public, def, , ,\n"
+            "__CODE_size                     = $%04X ; const, public, def, , ,\n"
+            "__CODE_tail                     = $%04X ; const, public, def, , ,\n"
+            "__%s_head = $8000 ; const, public, def, , ,\n"
+            "__%s_size = $%04X ; const, public, def, , ,\n"
+            "__%s_tail = $%04X ; const, public, def, , ,\n"
+            "__code_home_head                = $%04X ; const, public, def, , ,\n"
+            "__code_home_size                = $0001 ; const, public, def, , ,\n"
+            "__code_home_tail                = $%04X ; const, public, def, , ,\n"
+            "_g                              = $%04X ; addr, public, , q, code_home, q.asm:%d\n",
+            user_size + 1, 0x8000 + user_size + 1, sec, sec, user_size, sec, 0x8000 + user_size,
+            0x8000 + user_size, 0x8001 + user_size, 0x8000 + user_size, g_line);
+        write_text(d / "q.map", b);
+        write_text(d / "q_CODE.bin", std::string(bin.begin(), bin.end()));
+        return load(m, d / "q.map");
+    };
+    const std::vector<LisRow> ld_ret = {{2, "0000", "3e01", "ld a,1"}, {3, "0002", "c9", "ret"}};
+
+    // Z88LIS-38: a defw (patched by the linker) and a PHASE row; the true start is the LAST candidate.
+    {
+        SourceMap m;
+        const auto r = by_bytes("z38", "code_user", 10, {0, 0, 0, 0x3e, 1, 0x0a, 0x80, 0x3e, 2, 0xc9, 0xc9},
+            {{2, "0000", "3e01", "ld a,1"}, {3, "0002", "0000", "defw _g"}, {4, nullptr, nullptr, "PHASE $6000"},
+             {5, "6000", "3e02", "ld a,2"}, {6, nullptr, nullptr, "DEPHASE"}, {7, "0006", "c9", "ret"}}, m);
+        check("Z88LIS-38", "code_user [$8000,$800A): 3 bytes of another module, then ld a,1 / defw _g (listed 0000, linked 0a 80) / PHASE ld a,2 / ret: the piece starts at the last candidate, $8003 is q.asm:2 and $8009 q.asm:7 (the operand bytes and the PHASE row are not compared); the PHASE row is not placed, the note counts 1",
+              r && is_at(m.lookup(P4, 0x8003), "q.asm", 2) && is_at(m.lookup(P4, 0x8009), "q.asm", 7) &&
+                  !m.lookup(P4, 0x8000) && any_note_has(r, "1 listed lines could not be placed"));
+    }
+    // Z88LIS-39: two rets in five rets: three starts match, nothing is guessed.
+    {
+        SourceMap m;
+        const auto r = by_bytes("z39", "code_user", 4, {0xc9, 0xc9, 0xc9, 0xc9, 0xc9},
+                                {{2, "0000", "c9", "ret"}, {3, "0001", "c9", "ret"}}, m);
+        check("Z88LIS-39", "code_user [$8000,$8004) holds five rets and the piece is ret / ret: three starts match, nothing is placed ($8000 and $8002 have no line), the note counts 2",
+              r && !m.lookup(P4, 0x8000) && !m.lookup(P4, 0x8002) && any_note_has(r, "2 listed lines could not be placed"));
+    }
+    // Z88LIS-40: a start whose bytes are beyond the binary is not excluded.
+    {
+        SourceMap m;
+        const auto r = by_bytes("z40", "code_user", 6, {0x3e, 0x01, 0xc9, 0x3e}, ld_ret, m);
+        check("Z88LIS-40", "binary 3e 01 c9 3e only: $8000 is fully verified but $8003 is not excluded (its ret is beyond the binary), so nothing is placed, the note counts 2",
+              r && !m.lookup(P4, 0x8000) && !m.lookup(P4, 0x8003) && any_note_has(r, "2 listed lines could not be placed"));
+    }
+    // Z88LIS-41: the only start left has an unknown byte.
+    {
+        SourceMap m;
+        const auto r = by_bytes("z41", "code_user", 6, {0, 0, 0, 0x3e}, ld_ret, m);
+        check("Z88LIS-41", "binary 00 00 00 3e: the only start left, $8003, has an unknown byte (the ret): nothing is placed, the note counts 2",
+              r && !m.lookup(P4, 0x8003) && any_note_has(r, "2 listed lines could not be placed"));
+    }
+    // Z88LIS-42: no start matches, the listing is not this build's.
+    {
+        SourceMap m;
+        const auto r = by_bytes("z42", "code_user", 6, {0, 0, 0, 0, 0, 0, 0xc9}, ld_ret, m);
+        check("Z88LIS-42", "binary 00 x6 c9: no start holds ld a,1 / ret: the whole listing is dropped (the note says the lines match no place ... not the listing of this build; _g's line at $8006 is not kept either)",
+              r && r.listings == 0 && !m.lookup(P4, 0x8006) && any_note_has(r, "match no place in the section binary") &&
+                  any_note_has(r, "not the listing of this build"));
+    }
+    // Z88LIS-43: a data section has no checked rows.
+    {
+        SourceMap m;
+        const auto r = by_bytes("z43", "data_user", 4, {0, 0x3e, 1, 0xc9, 0xc9}, ld_ret, m);
+        check("Z88LIS-43", "the same piece in data_user [$8000,$8004): a data section has no checked rows, so both starts survive and nothing is placed ($8001 has no line), the note counts 2",
+              r && !m.lookup(P4, 0x8001) && !m.lookup(P4, 0x8000) && any_note_has(r, "2 listed lines could not be placed"));
     }
 
     fs::remove_all(dir);
