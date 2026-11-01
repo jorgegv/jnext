@@ -979,6 +979,34 @@ int main() {
                   any_note_has(r, "2 listed lines could not be placed"));
     }
 
+    // Z88LIS-47: a LABELLED piece over two overlapping section binaries: 9.7 abstains (the byte is unknown), the label places it,
+    // and the identity check runs over the overlapping binaries (GH #426 F4 review round 2).
+    {
+        const fs::path d = dir / "z47";
+        fs::create_directories(d);
+        write_text(d / "q.asm.lis", "q.asm:\n" + lis_row(1, nullptr, nullptr, " SECTION code_user") +
+                   lis_row(2, nullptr, nullptr, "_f:") + lis_row(3, "0000", "3e01", " ld a,1") +
+                   lis_row(4, "0002", "c9", " ret"));
+        write_text(d / "q.map",
+            "__CODE_head                     = $8000 ; const, public, def, , ,\n"
+            "__CODE_size                     = $0006 ; const, public, def, , ,\n"
+            "__CODE_tail                     = $8006 ; const, public, def, , ,\n"
+            "__AOVL_head                     = $8000 ; const, public, def, , ,\n"
+            "__AOVL_size                     = $0006 ; const, public, def, , ,\n"
+            "__AOVL_tail                     = $8006 ; const, public, def, , ,\n"
+            "__code_user_head                = $8000 ; const, public, def, , ,\n"
+            "__code_user_size                = $0006 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8006 ; const, public, def, , ,\n"
+            "_f                              = $8003 ; addr, public, , q, code_user, q.asm:2\n");
+        write_text(d / "q_AOVL.bin", std::string("\x00\x3e\x01\xc9\x00\x00", 6));
+        write_text(d / "q_CODE.bin", std::string("\x00\x00\x00\x3e\x01\xc9", 6));
+        SourceMap m;
+        const auto r = load(m, d / "q.map");
+        check("Z88LIS-47", "_f = $8003 labels ld a,1 / ret in code_user; q_AOVL.bin (00 3e 01 c9 ..) and q_CODE.bin (00 00 00 3e 01 c9) both cover it: the 9.7 opcode check abstains over the ambiguous byte, so the listing is kept (1 listing), $8003 is q.asm:3 and no note says it is not the listing of this build",
+              r && r.listings == 1 && is_at(m.lookup(P4, 0x8003), "q.asm", 3) &&
+                  !any_note_has(r, "not the listing of this build"));
+    }
+
     // Z88LIS-46: a label-less partial piece whose section is not in RAM cannot be placed: its bytes are unknown, the rest of the listing stays.
     {
         SourceMap m;

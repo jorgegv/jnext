@@ -1619,7 +1619,7 @@ zero-width lines, the cross-check, dropped listings, the classic CRT, MACRO/REPT
 SRCTXT-01 (`source_map_test`), Z88MAP-30, SRCDBG-LIS-01 to 04 (`source_debug_test`) and QSRC-140/141
 (`debugger_source_panel_test`).
 
-GH #426 (F4) added Z88LIS-36 to 43 and 45, 46 (review round 1: overlapping section binaries, a ROM-area piece) and re-specified Z88LIS-19 (owner-approved 2026-11-01).
+GH #426 (F4) added Z88LIS-36 to 43 and 45, 46 and 47 (review rounds 1 and 2: overlapping section binaries, a ROM-area piece, a labelled piece over overlapping binaries) and re-specified Z88LIS-19 (owner-approved 2026-11-01).
 
 Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22 when E23-17 made the two
 `classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
