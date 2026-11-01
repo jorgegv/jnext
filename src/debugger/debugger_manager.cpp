@@ -287,6 +287,12 @@ void DebuggerManager::set_source_dirs(const QStringList& configured) {
     if (source_dirs() != before) push_source_dirs(true);
 }
 
+void DebuggerManager::set_source_scheme(SourceScheme scheme) {
+    source_scheme_ = scheme;
+    if (debugger_window_ && debugger_window_->source_panel())
+        debugger_window_->source_panel()->set_colour_scheme(scheme);
+}
+
 void DebuggerManager::on_source_dir_located(const QString& dir) {
     if (dir.isEmpty() || located_source_dirs_.contains(dir)) return;
     located_source_dirs_ << dir;
@@ -313,6 +319,8 @@ void DebuggerManager::ensure_window() {
                 &DebuggerManager::source_dir_save_requested);
     }
     push_source_dirs(false);
+    // GH #422 stage 2 - and its colour scheme.
+    if (auto* sp = debugger_window_->source_panel()) sp->set_colour_scheme(source_scheme_);
 
     // Closing the debugger window disables the debugger.
     connect(debugger_window_, &DebuggerWindow::window_closed, this, [this]() {
@@ -707,11 +715,14 @@ void DebuggerManager::on_load_sld() {
         r = dbg_.load_source_map(path.toStdString(), /*accept_identity_mismatch=*/true);
     }
     if (r.count >= 0) {
-        QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
-            r.labels > 0
-                ? QObject::tr("Loaded %1 source traces and %2 labels from:\n%3")
-                      .arg(r.count).arg(r.labels).arg(path)
-                : QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path));
+        QString text = r.labels > 0
+            ? QObject::tr("Loaded %1 source traces and %2 labels from:\n%3")
+                  .arg(r.count).arg(r.labels).arg(path)
+            : QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path);
+        if (r.listings == 1) text += QObject::tr("\nwith 1 z88dk listing");
+        else if (r.listings > 1) text += QObject::tr("\nwith %1 z88dk listings").arg(r.listings);
+        if (!r.listing_note.empty()) text += "\n\n" + QString::fromStdString(r.listing_note);
+        QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"), text);
         refresh_panels();
         update_actions();
     } else {

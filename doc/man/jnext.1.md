@@ -101,7 +101,10 @@ naming the option and the value, and exits with status 1.
     identity attaches at once and each memory space it covers is checked the first
     time the program runs its code there; a space that does not match drops the map
     and the symbols that came with it, with the reason in the log. A map given with **\--map** or
-    loaded by hand is kept over them. A map built for another binary, or a
+    loaded by hand is kept over them. z88dk's `--list` listings beside the map
+    (*NAME*`.lis`, *FILE*`.lis`) are read too when they match the map, and add
+    assembly lines and sdcc's lines on z88dk 2.4; a listing that does not match
+    is skipped with a note in the log. A map built for another binary, or a
     file over 64 MiB, is refused, with the reason in the log.
 
 **\--nex-args** *LINE*
@@ -748,6 +751,15 @@ naming the option and the value, and exits with status 1.
     implicitly by **\--rewind-buffer-size** *N* with *N* > 0, and toggleable in
     the debugger.
 
+**\--coverage**
+:   Record memory coverage from the start: for every byte of every memory
+    (each RAM page, ROM image, DivMMC and Multiface window, Layer 2 mapping, ...)
+    whether the program executed it (first opcode byte of an instruction), read it
+    or wrote it. Toggleable in the debugger (Debug > Coverage), where the
+    Disassembly, Memory and Source views show it. With the SDL frontend or
+    **\--headless** it records but there is no viewer; it logs one summary line at
+    exit. Costs a little speed while on (3-8% in release builds); no measurable cost while off.
+
 ## Headless and automation
 
 **\--headless**
@@ -1004,7 +1016,14 @@ naming the option and the value, and exits with status 1.
     scripts load, and their rules run, in the order given. A script that
     cannot be read, or that has any error, is reported as
     *file*:*line*:*column*: *message* and jnext exits 1 before the machine
-    runs - nothing of it runs partially. In **\--headless** and the SDL-only
+    runs - nothing of it runs partially. With **\--load**, a script that names a source
+    line (`on execute main.c:19`), an `@symbol` that **\--map** does not know,
+    or a z88dk **\--map** symbol of a section that names no page waits, with the scripts after it, until the
+    program is in (it is still read and parsed at once); an error then also
+    exits 1. Its rules start at the load: an `on frame` *N* or a **\--script-key**
+    due before it never fires (a `.tzx` or `.wav` loads about 100 frames in), so
+    give such rules in an earlier script that names neither.
+    In **\--headless** and the SDL-only
     build a script decides the exit status: `exit` *N* exits *N*, a `stop` or
     a failed `assert` exits 3, a run-time error exits 1. In the Qt GUI a script
     never ends the program: `stop` and `exit` pause the machine instead.
@@ -1036,8 +1055,15 @@ naming the option and the value, and exits with status 1.
 **\--source-map** *FILE*
 :   Attach a source map, an sjasmplus SLD or a z88dk `-debug` `.map` (told apart
     by its contents), to the program **\--load** loads, as if loaded by hand with
-    **Debug > Source > Load Source Map...**. A z88dk map gives source lines only;
-    its symbols stay with **\--map**. Requires **\--load**. A map whose binary
+    **Debug > Source > Load Source Map...**. A z88dk map gives source lines only
+    (and reads the `--list` listings beside it); its symbols stay with **\--map**. Requires **\--load**, unless *FILE* is the
+    map of a z88dk dot command (`-subtype=dot`, `dotx`; built with `-debug`): that map is attached
+    at once, before any script loads, and stays pending until the guest runs the
+    command, when it is checked (the command is loaded into DivMMC RAM by
+    NextZXOS, which jnext does not know until it runs; see the User Guide). Any
+    other map without **\--load** is refused (exit status 1). An RZX replay (**\--rzx-play** *R*, or
+    **\--load** *R*`.rzx`) is the same case: a dot command's map attaches pending, any other map is
+    refused at start-up naming RZX (exit status 1). A map whose binary
     identity does not match the program, or that cannot be loaded, is a startup
     error (exit status 1). With a tape program (`.tap`, `.tzx`, `.wav`) the map
     attaches at once and is checked the first time the program runs its code; a
@@ -1195,6 +1221,12 @@ The entries say which frontends use the key: the Qt window, the SDL-only build
     that is not legal there, or that another action already holds (unless the
     same command line frees it), is refused with exit status 1 before the
     window opens. The Qt window with the debugger.
+
+`source.colour_scheme` *auto|light|dark|borland*
+:   The colour scheme of the debugger's Source tab, like the **Preferences**
+    Debugger tab: `auto` (the default) is light or dark after the application,
+    `borland` is Borland C++ 3.1 (yellow on blue). The Qt window with the
+    debugger.
 
 `esp.enabled` *true|false*
 :   The emulated ESP-01 WiFi module; **\--esp** and **\--no-esp**. All
@@ -2383,8 +2415,8 @@ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
 - **`monitor` commands** (z88dk-gdb versions that have `monitor`) reach the
   Next-specific state: `mmu`, `nextreg`, `page` (a physical 8 KB page),
   `in`/`out` (a real port access, which can change the device's state),
-  `sym`, `time`, `reset soft`/`reset hard` and `bp`. `monitor help` lists
-  them.
+  `sym`, `src` (the source line and memory of an address), `time`,
+  `reset soft`/`reset hard` and `bp`. `monitor help` lists them.
 - **Either side may pause or resume**, as with DeZog: the client is told the
   machine stopped when something else stops it while the client has it
   running.
@@ -2424,6 +2456,12 @@ rule body runs only for the accesses that match. A script observes the machine
 without disturbing it; it changes the machine only through `set` and `out`,
 and each such write is logged as a `MUTATE` line. Script output goes to the log
 as `[jds F:`*frame* `C:`*cycle*`]` lines.
+
+**Source lines.** With a source map loaded, `on execute main.c:19` (or
+`on execute "dir with space/main.c:19"`) breaks on every place the line's code
+starts, each in the memory it was built for; it takes no range and no `page`.
+`on execute @name` with a banked label (an SLD label of a page) fires only in
+that label's own page.
 
 **Host keys.** In the emulator window (Qt or SDL) and in the debugger window,
 Alt + 1 to Alt + 8 are the script host keys: Alt + *N* runs the loaded

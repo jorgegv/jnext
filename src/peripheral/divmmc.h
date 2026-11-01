@@ -255,6 +255,11 @@ public:
         bool           ram;   ///< false: the ROM (page 0, MAPRAM clear)
         uint8_t        bank;  ///< the RAM bank when `ram`, else 0
         const uint8_t* ptr;   ///< the byte at `addr`
+        /// divmmc.vhd:100, o_divmmc_rdonly: page 0 (ROM, or RAM bank 3 under
+        /// MAPRAM) or RAM bank 3 under MAPRAM at page 1. A write there is
+        /// dropped (zxnext.vhd:3089, :3097). The ONE copy of the decision:
+        /// `write()` and `Mmu`'s write route both read it.
+        bool           rdonly;
     };
     Overlay overlay_at(uint16_t addr) const;
 

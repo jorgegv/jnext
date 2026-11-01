@@ -27,6 +27,7 @@
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
 #include "debug/event_table.h"
+#include "debug/mem_coverage.h"
 #include "debug/resume_guard.h"
 #include "debug/symbol_table.h"
 
@@ -125,7 +126,39 @@ struct Debugger::Impl {
         bool guards_sources = false;
         bool guards_symbols = false;
         bool mismatch       = false;   ///< a unit did not match: drop on the next recheck()
+        /// GH #351 - a z88dk dot command's map (`SourceMap::dot()`). NextZXOS loads the
+        /// command into DivMMC RAM when it is typed and every dot shares that bank, so
+        /// the DivMMC unit (`dot_entry_unit()`) is judged at the command's ENTRY only
+        /// (the CPU about to execute $2000 from it), a mismatch there means another
+        /// dot command (the map stays pending, never dropped), and a match arms the
+        /// other units (`held`: dotx's main part) for the tape rule. The check is never
+        /// finished: a later entry that does not match puts the map back to pending.
+        bool dot            = false;
+        bool entry_ok       = false;   ///< the entry matched; `units` holds the others only
+        bool noted          = false;   ///< the 'not the one' line was told, still pending
+        enum class DotEvent : uint8_t { None, Verified, NotTheOne } dot_event = DotEvent::None;
+        std::vector<SourceMap::VerifySpan> held;   ///< spans of the units not armed yet
+        /// The state after each change, by clock cycle and load generation (see
+        /// `dot_record()`): what a ring landing reads back.
+        struct DotSnap {
+            uint64_t gen = 0, cycle = 0;
+            bool entry_ok = false;
+            std::vector<FetchSource> units;
+            std::vector<SourceMap::VerifySpan> spans, held;
+        };
+        std::vector<DotSnap> history;
     };
+    static constexpr size_t kDotHistoryMax = 256;
+    void dot_record(DeferredCheck& c);
+    void dot_adopt();
+    /// The DivMMC unit of a dot command's map, judged at its entry.
+    static FetchSource dot_entry_unit();
+    /// Back to "waiting for the entry": every unit to judge, the others not armed.
+    static void dot_reset(DeferredCheck& c);
+    /// The entry matched: the DivMMC unit is done, the other units are armed.
+    static void dot_match(DeferredCheck& c);
+    /// A landing: fresh = pending; a ring landing = what the original run showed at that cycle.
+    void dot_landing(bool fresh);
     std::vector<DeferredCheck> checks;
     bool verify_due = false;           ///< the hook judged a unit since recheck() last ran
     void add_check(const SourceMap& map, bool user, bool sources, bool symbols);
@@ -182,7 +215,9 @@ struct Debugger::Impl {
     /// (a `Page` is read whatever the MMU maps over it; any other space is
     /// unreadable, so a byte check in one fails).
     std::optional<bool> verify_identity(const SourceMap& map) const;
-    /// One unit of `map`'s identity (see `DeferredCheck`), through the same two readers.
+    /// One unit of `map`'s identity (see `DeferredCheck`), through the same two readers,
+    /// except that a unit may also be `DivMmcRam{b}` (a dot command's, GH #351; its map
+    /// is never judged whole, so `verify_identity()` does not read that space).
     std::optional<bool> verify_identity_unit(const SourceMap& map, FetchSource unit) const;
     /// The machine this backend describes was reset or replaced: both the
     /// hook `DebugState` calls and the re-application after a cold boot
@@ -575,6 +610,19 @@ struct Debugger::Impl {
     CoverageBits coverage;
     bool         coverage_on = false;
     void publish_coverage() { ds().set_coverage_sink(coverage_on ? &coverage : nullptr); }
+
+    // ── GH #388 (E23-25, INS-21) - memory coverage ──────────────────────────
+    //
+    // Same arrangement as INS-20 above: the set and its switch are BACKEND
+    // state; the machine only holds a pointer (`DebugState::mem_coverage_sink()`).
+    // `publish_mem_coverage()` is the ONE writer of that pointer; the enable and
+    // the re-application end with it and `~Debugger()` retires it. The set is
+    // created on the first enable and kept (an off clears it, not frees it).
+    std::unique_ptr<jnext::dbg::MemCoverage> mem_cov;
+    bool                                     mem_cov_on = false;
+    void publish_mem_coverage() {
+        ds().set_mem_coverage_sink(mem_cov_on ? mem_cov.get() : nullptr);
+    }
 
     // ── B4 (§4.5 CAP-01) — deferred screenshots ─────────────────────────────
     //

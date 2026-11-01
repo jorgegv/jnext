@@ -31,6 +31,7 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 #include "debug/event_table.h"
+#include "platform/emulator_boot.h"
 #include "peripheral/dma.h"
 
 #include <cstdint>
@@ -1959,9 +1960,10 @@ struct HostRig {
     std::unique_ptr<ScriptHost> host;
     /// `prime` false leaves the backend unpumped, as a loop owner's is before
     /// its first tick.
-    explicit HostRig(const std::vector<uint8_t>& prog = kPark, bool prime = true) {
+    explicit HostRig(const std::vector<uint8_t>& prog = kPark, bool prime = true,
+                     MachineType type = MachineType::ZX48K) {
         EmulatorConfig cfg;
-        cfg.type = MachineType::ZX48K;
+        cfg.type = type;
         emu.init(cfg);
         for (size_t i = 0; i < prog.size(); ++i) emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
         Z80Registers r = emu.cpu().get_registers();
@@ -2323,6 +2325,50 @@ static void host_rows() {
               ok && g.sink.count("--map " + o.map_file + ": 4 symbols") == 1 && g.sink.count("Z 57344 49168 57348") == 1 &&
                   refused && h.sink.count("unknown symbol `@_far` (not in any loaded MAP)") == 1,
               g.sink.tail(4) + h.sink.tail(3));
+    }
+    {
+        // GH #424: `--map` of a z88dk map; a C symbol (module main_c / util_c) is a script `@name` under its C
+        // name too, as the compiler's `_name`. Oracle: the fixture's own map ($8F59, $8C92, $8D35).
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.map";
+        o.scripts  = {tmp_file("cn1.jds",
+                               "on frame 0 do log \"C ${@counter} ${@_counter} ${@main} ${@util_twice}\" end\n")};
+        const bool ok = g.start(o);
+        g.run(1);
+        check("SCRIPT-HOST-CN-01", "--map of a z88dk map: `@counter` is the address of `@_counter` (36697), "
+                                   "`@main` 35986, `@util_twice` 36149, and the load-time check accepts the C names",
+              ok && g.sink.count("C 36697 36697 35986 36149") == 1, g.sink.tail(4));
+    }
+    {
+        // GH #424: what is not C stays unresolved by its stripped name: an asm module's `_asm_bump`, and a
+        // refused 24-bit `_far`; a banked C name works.
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.map";
+        o.scripts  = {tmp_file("cn2a.jds", "on frame 0 do log \"A ${@asm_bump}\" end\n")};
+        const bool refused_asm = !g.start(o);
+        const std::string body =
+            "__PAGE_20_head = $14C000 ; const, public, def, , ,\n"
+            "_banked_add    = $14C000 ; addr, public, , banked_c, PAGE_20, banked.c:5\n"
+            "_far           = $14E000 ; addr, public, , m_c, code_compiler, m.c:3\n";
+        HostRig h;
+        ScriptHostOptions p;
+        p.map_file = tmp_file("cn2.map", body);
+        p.scripts  = {tmp_file("cn2b.jds", "on frame 0 do log \"B ${@banked_add}\" end\n")};
+        const bool ok = h.start(p);
+        h.run(1);
+        HostRig i;
+        ScriptHostOptions q;
+        q.map_file = p.map_file;
+        q.scripts  = {tmp_file("cn2c.jds", "on frame 0 do log \"F ${@far}\" end\n")};
+        const bool refused_far = !i.start(q);
+        check("SCRIPT-HOST-CN-02", "`@asm_bump` (asm module) and `@far` (refused 24-bit) are refused as unknown symbols, "
+                                   "exactly as the stripped name of a non-C symbol; the banked C name `@banked_add` is 49152",
+              refused_asm && g.sink.count("unknown symbol `@asm_bump` (not in any loaded MAP)") == 1 && ok &&
+                  h.sink.count("B 49152") == 1 && refused_far &&
+                  i.sink.count("unknown symbol `@far` (not in any loaded MAP)") == 1,
+              g.sink.tail(3) + h.sink.tail(2) + i.sink.tail(3));
     }
     {
         // SCRIPT-SLD-01 (GH #375): the labels of an SLD loaded into the backend are the one table the
@@ -2811,6 +2857,447 @@ static void static_stop_rows() {
     }
 }
 
+
+// ── GH #346: `on execute FILE:LINE`, and `@name` in its own memory ──────────
+// Oracles. Z = test/fixtures/z88dk/v2.4/sccz80-debug: prog.map `__C_LINE_19` = $8CB5 and
+// `__C_LINE_20` = $8CBE (so main.c:19 is $8CB5..$8CBD), `_main` = $8C92 where lines 14 and 15
+// both start (15, the highest, owns the address; 14 is zero-width: "no code at main.c:14"),
+// the NEX default slot 4 = page 4. M = master/sdcc-debug: main.c:18 starts at $8C6F and $8C89,
+// both page 4. S = an SLD written here with no identity: main.bas:11 at $8000 page 4 AND at
+// $C000 page 20. equlabels.sld: `banked` = $C000 page 20, `other_bank` = $C000 page 30.
+static const char* const kZNex = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-debug/prog.nex";
+
+static void attach_program(Emulator& emu, Debugger& dbg, const std::string& nex) {
+    emulator_apply_load(emu, nex, false);
+    dbg.load_program_sidecars(nex);
+}
+
+static const std::string kSldHead =
+    "|SLD.data.version|1\n"
+    "main.bas|1||0|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+    "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n";
+
+static std::string s_sld(const std::string& file) {
+    return kSldHead + file + "|11||0|4|32768|T|\n" + file + "|11||0|20|49152|T|\n";
+}
+
+static void src_rows() {
+    using jnext::dbg::MemSpace;
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute main.c:19 do stop end\n");
+        const auto s = g.subs();
+        const bool shape = s.size() == 1 && s[0].kind == EventKind::Execute && s[0].filter.lo == 0x8CB5 &&
+                           s[0].filter.hi == 0x8CB5 && s[0].filter.space == MemSpace::page(4);
+        g.frames(5);
+        check("DSL-SRC-01", "`on execute main.c:19` is ONE Execute subscription at $8CB5 in Page{4} (the map's "
+                            "start), and the run stops at $8CB5",
+              ok && shape && g.paused() && g.pc() == 0x8CB5, dstr(g.last.errors) + " " + show(s));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute main.c:99 do stop end\n");
+        const bool one = g.last.errors.size() == 1 && g.last.errors[0].message.find("main.c:99") != std::string::npos &&
+                         g.subs().empty();
+        const bool ok2 = g.load("on execute nofile.c:3 do stop end\n");
+        check("DSL-SRC-02", "a line the map does not have, or a file it does not have, is a load error naming "
+                            "it (`main.c:99`, `nofile.c:3`), and registers nothing",
+              !ok && one && !ok2 && g.last.errors.size() == 1 &&
+                  g.last.errors[0].message.find("nofile.c:3") != std::string::npos && g.subs().empty(),
+              dstr(g.last.errors));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute main.c:14 do stop end\n");
+        check("DSL-SRC-03", "a zero-width line (main.c:14 starts where 15 does) is the error `no code at main.c:14`",
+              !ok && g.last.errors.size() == 1 && g.last.errors[0].message.find("no code at main.c:14") != std::string::npos &&
+                  g.subs().empty(),
+              dstr(g.last.errors));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const bool ok = g.load("on execute main.c:19 do stop end\n");
+        check("DSL-SRC-04", "with no source map loaded the error says so and names `main.c:19`",
+              !ok && g.last.errors.size() == 1 &&
+                  g.last.errors[0].message.find("`main.c:19`: no source map is loaded") != std::string::npos &&
+                  g.subs().empty(),
+              dstr(g.last.errors));
+    }
+    {
+        Rig m(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(m.emu, *m.dbg, JNEXT_Z88DK_FIXTURE_DIR "/master/sdcc-debug/prog.nex");
+        const bool okm = m.load("on execute main.c:18 do stop end\n");
+        const auto sm = m.subs();
+        const bool shape_m = sm.size() == 2 && sm[0].filter.lo == 0x8C6F && sm[1].filter.lo == 0x8C89 &&
+                             sm[0].filter.space == MemSpace::page(4) && sm[1].filter.space == MemSpace::page(4);
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const std::string sld = sev_tmp("s5.sld");
+        write_file(sld, s_sld("main.bas"));
+        g.dbg->load_source_map(sld, false);
+        const bool oks = g.load("on execute main.bas:11 do stop end\n");
+        const auto ss = g.subs();
+        const bool shape_s = ss.size() == 2 && ss[0].filter.lo == 0x8000 && ss[0].filter.space == MemSpace::page(4) &&
+                             ss[1].filter.lo == 0xC000 && ss[1].filter.space == MemSpace::page(20);
+        g.dbg->set_mmu_slot(g.tc, 6, 20);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        g.frames(4);
+        check("DSL-SRC-05", "a line with two starts is two subscriptions, each in its own memory (main.c:18 of the "
+                            "sdcc build: $8C6F and $8C89, Page{4}; main.bas:11: $8000 Page{4} and $C000 Page{20}), "
+                            "and the second start stops the run",
+              okm && shape_m && oks && shape_s && g.paused() && g.pc() == 0xC000,
+              show(sm) + " " + show(ss));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        const std::string sld = sev_tmp("s6.sld");
+        write_file(sld, s_sld("main.bas"));
+        g.dbg->load_source_map(sld, false);
+        const bool ok = g.load("on execute main.bas:11 do stop end\n");
+        g.dbg->set_mmu_slot(g.tc, 6, 21);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        g.frames(4);
+        const bool quiet = !g.paused();
+        g.dbg->set_mmu_slot(g.tc, 6, 20);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        g.frames(4);
+        check("DSL-SRC-06", "the address alone is not enough: $C000 with page 21 mapped does not stop the rule "
+                            "built for page 20, page 20 does",
+              ok && quiet && g.paused() && g.pc() == 0xC000, dstr(g.last.errors));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute \"main.c:19\" do stop end\n");
+        const auto s = g.subs();
+        const bool z = ok && s.size() == 1 && s[0].filter.lo == 0x8CB5 && s[0].filter.space == MemSpace::page(4);
+        Rig h(kPark, MachineType::ZXN_ISSUE2);
+        const std::string sld = sev_tmp("my game.sld");
+        write_file(sld, s_sld("my game.asm"));
+        h.dbg->load_source_map(sld, false);
+        const bool ok2 = h.load("on execute \"my game.asm:11\" do stop end\n");
+        const auto s2 = h.subs();
+        check("DSL-SRC-07", "the quoted form is the same rule, and the only way to name a file with a space",
+              z && ok2 && s2.size() == 2 && s2[0].filter.lo == 0x8000 && s2[1].filter.lo == 0xC000,
+              dstr(g.last.errors) + dstr(h.last.errors) + show(s2));
+    }
+    {
+        Rig m(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(m.emu, *m.dbg, JNEXT_Z88DK_FIXTURE_DIR "/master/sdcc-debug/prog.nex");
+        const bool ok = m.load("on execute main.c:18 do stop end\n");
+        const auto r = m.eng->rules();
+        check("DSL-SRC-08", "the Script tab shows every start of a source-line rule: `execute main.c:18 (8C6F, 8C89)`",
+              ok && r.size() == 1 && r[0].event == "execute main.c:18 (8C6F, 8C89)",
+              r.empty() ? std::string("(no rule)") : r[0].event);
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool ok = g.load("on execute @banked do stop end\n");
+        const auto s = g.subs();
+        const bool shape = ok && s.size() == 1 && s[0].filter.lo == 0xC000 && s[0].filter.space == MemSpace::page(20);
+        auto run_with = [&](unsigned page) {
+            Rig h(kPark, MachineType::ZXN_ISSUE2);
+            h.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+            h.load("on execute @banked do stop end\n");
+            h.dbg->set_mmu_slot(h.tc, 6, static_cast<uint8_t>(page));
+            h.emu.mmu().write(0xC000, 0x18);
+            h.emu.mmu().write(0xC001, 0xFE);
+            Z80Registers r = h.emu.cpu().get_registers();
+            r.PC = 0xC000;
+            h.emu.cpu().set_registers(r);
+            h.frames(4);
+            return h.paused();
+        };
+        const bool stops30 = run_with(30);
+        const bool stops20 = run_with(20);
+        check("DSL-SYMSP-01", "`on execute @banked` (an SLD label of page 20) arms $C000 in Page{20} only: page 30 "
+                              "there does not stop it, page 20 does",
+              shape && !stops30 && stops20, dstr(g.last.errors) + " " + show(s));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool ok = g.load("on execute @banked page 30 do stop end\n");
+        const auto s = g.subs();
+        g.dbg->set_mmu_slot(g.tc, 6, 30);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        g.frames(4);
+        check("DSL-SYMSP-02", "an explicit `page 30` keeps its legacy meaning (the documented workaround): "
+                              "space unqualified, page 30, and the run stops with page 30 mapped",
+              ok && s.size() == 1 && s[0].filter.space == MemSpace::cpu() && s[0].filter.page == 30 &&
+                  g.paused() && g.pc() == 0xC000,
+              dstr(g.last.errors) + " " + show(s));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool a = g.load("on execute @banked+0 do stop end\n");
+        const auto sa = g.subs();
+        Rig h(kPark, MachineType::ZXN_ISSUE2);
+        h.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool b = h.load("on execute @banked..@banked do stop end\n");
+        const auto sb = h.subs();
+        Rig k(kPark, MachineType::ZXN_ISSUE2);
+        k.dbg->load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", jnext::dbg::MapFormat::Z88dkOrSjasmplus);
+        const auto key = k.dbg->symbols().find_name("main");
+        const bool premise = key && !key->space;
+        const bool c = k.load("on execute @main do stop end\n");
+        const auto sc = k.subs();
+        check("DSL-SYMSP-03", "an expression (`@banked+0`, `@banked..@banked`) and a label with no memory of its "
+                              "own (an sjasmplus --sym symbol) stay unqualified",
+              a && b && c && premise && sa.size() == 1 && sb.size() == 1 && sc.size() == 1 &&
+                  sa[0].filter.space == MemSpace::cpu() && sb[0].filter.space == MemSpace::cpu() &&
+                  sc[0].filter.space == MemSpace::cpu(),
+              dstr(g.last.errors) + dstr(h.last.errors) + dstr(k.last.errors));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool ok = g.load("on execute @main do stop end\n");
+        const auto s = g.subs();
+        check("DSL-SYMSP-04", "a z88dk C name (`@main`, GH #424) arms $8C92 in Page{4}: find_name is the one resolver",
+              ok && s.size() == 1 && s[0].filter.lo == 0x8C92 && s[0].filter.space == MemSpace::page(4),
+              dstr(g.last.errors) + " " + show(s));
+    }
+    {
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool rd = g.load("on read @banked do stop end\n");
+        const auto sr = g.subs();
+        Rig h(kPark, MachineType::ZXN_ISSUE2);
+        h.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        const bool wr = h.load("on write @banked do stop end\n");
+        const auto sw = h.subs();
+        check("DSL-SYMSP-05", "`on read @banked` and `on write @banked` load with no memory qualifier (the backend "
+                              "refuses one on a Mem subscription)",
+              rd && wr && sr.size() == 1 && sw.size() == 1 && sr[0].filter.space == MemSpace::cpu() &&
+                  sw[0].filter.space == MemSpace::cpu(),
+              dstr(g.last.errors) + dstr(h.last.errors));
+    }
+    {
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("src1.jds", "on execute main.c:19 do stop end\n")};
+        const bool ok = g.start(o);
+        const bool waits = g.engine_subs() == 0 && g.sink.count("names a source line; it loads when the --load program has loaded") == 1;
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool loaded = g.host->program_loaded();
+        // The quoted form is held and resolved the same way.
+        HostRig q(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("src1q.jds", "on execute \"main.c:19\" do stop end\n")};
+        const bool qok = q.start(o);
+        const bool qwaits = q.engine_subs() == 0 && q.sink.count("names a source line; it loads when the --load program has loaded") == 1;
+        attach_program(q.emu, *q.dbg, kZNex);
+        const bool qloaded = q.host->program_loaded();
+        check("SCRIPT-HOST-SRC-01", "with a --load pending, a script naming a source line (bare or quoted) waits (logged, "
+                                    "nothing registered), and program_loaded() loads it against the program's map",
+              ok && waits && loaded && g.engine_subs() == 1 && qok && qwaits && qloaded && q.engine_subs() == 1,
+              g.sink.tail(4) + q.sink.tail(3));
+    }
+    {
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("plain2.jds", "on frame 0 do log \"P\" end\n"),
+                     tmp_file("bad2.jds", "on execute main.c:99 do stop end\n")};
+        const bool ok = g.start(o);
+        const bool early = g.engine_subs() == 1;
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool loaded = g.host->program_loaded();
+        check("SCRIPT-HOST-SRC-02", "a deferred script that fails to resolve fails the whole set: the error with "
+                                    "its position, no script left registered, exit 1 requested",
+              ok && early && !loaded && g.engine_subs() == 0 && !g.host->active() && g.host->exit_requested() &&
+                  g.host->exit_code() == 1 &&
+                  g.sink.count("SCRIPT ERROR " + o.scripts[1] + ":1:12:") == 1 && g.sink.count("main.c:99") >= 1,
+              g.sink.tail(4));
+    }
+    {
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("a3.jds", "on frame 0 do log \"A\" end\n"),
+                     tmp_file("b3.jds", "on execute main.c:19 do stop end\n"),
+                     tmp_file("c3.jds", "on frame 0 do log \"C\" end\n")};
+        const bool ok = g.start(o);
+        const size_t before = g.host->engine() ? g.host->engine()->rules().size() : 99;
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool loaded = g.host->program_loaded();
+        const auto r = g.host->engine()->rules();
+        check("SCRIPT-HOST-SRC-03", "scripts A (plain), B (source line), C (plain): A loads at start, B and C wait "
+                                    "and load in order after the program",
+              ok && before == 1 && loaded && r.size() == 3 && r[0].file == o.scripts[0] &&
+                  r[1].file == o.scripts[1] && r[2].file == o.scripts[2] && g.host->files().size() == 3,
+              g.sink.tail(4));
+    }
+    {
+        // R1: no --load pending: a source line resolves at once.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("nopend.jds", "on execute main.c:19 do stop end\n")};
+        const bool refused = !g.start(o);
+        const bool said = g.sink.count("`main.c:19`: no source map is loaded") == 1;
+        HostRig h(kPark, true, MachineType::ZXN_ISSUE2);
+        attach_program(h.emu, *h.dbg, kZNex);
+        const bool ok = h.start(o);
+        check("SCRIPT-HOST-SRC-04", "with no --load pending a source-line script is not held: with no map start() "
+                                    "fails at once ('no source map is loaded'), with the map attached it registers",
+              refused && said && ok && h.engine_subs() == 1, g.sink.tail(3));
+    }
+    {
+        // R2: a second program_loaded() (File > Open, a cold boot) is a no-op.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("twice.jds", "on execute main.c:19 do stop end\n")};
+        g.start(o);
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool first = g.host->program_loaded();
+        const size_t subs = g.engine_subs();
+        const size_t files = g.host->files().size();
+        const bool second = g.host->program_loaded();
+        check("SCRIPT-HOST-SRC-05", "program_loaded() twice: the second call returns true and registers nothing more",
+              first && second && subs == 1 && g.engine_subs() == 1 && files == 1 && g.host->files().size() == 1 &&
+                  g.host->engine()->rules().size() == 1,
+              g.sink.tail(3));
+    }
+    check("SCRIPT-HOST-SRC-06", "load_pending_for_scripts(): empty, .rzx and .RZX are not a pending program; .nex, .tap, .NEX "
+                                "and a name with no extension are",
+          !load_pending_for_scripts("") && load_pending_for_scripts("a.nex") && load_pending_for_scripts("a.tap") &&
+              load_pending_for_scripts("A.NEX") && load_pending_for_scripts("noext") &&
+              !load_pending_for_scripts("r.rzx") && !load_pending_for_scripts("R.RZX"));
+    {
+        // R7: read and parse errors are reported by start(), whatever is held.
+        const std::string good = "on execute main.c:19 do stop end\n";
+        ScriptHostOptions o;
+        o.program_pending = true;
+        HostRig a(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("broken1.jds", "on frame 0 do\n  log \"x\" +\nend\n")};
+        const bool broken_alone = !a.start(o) && a.sink.count("SCRIPT ERROR " + o.scripts[0]) == 1;
+        HostRig b(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {sev_tmp("no-such-script.jds")};
+        const bool unreadable = !b.start(o) && b.sink.count("cannot be read") >= 1;
+        HostRig c(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("line9.jds", good), tmp_file("broken9.jds", "on frame 0 do\n  log \"x\" +\nend\n")};
+        const bool after_line = !c.start(o) && c.sink.count("SCRIPT ERROR " + o.scripts[1]) == 1 && !c.host->active();
+        HostRig d(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("line10.jds", good), sev_tmp("no-such-script-2.jds")};
+        const bool unreadable_after = !d.start(o) && d.sink.count("cannot be read") >= 1;
+        check("SCRIPT-HOST-SRC-07", "with a --load pending, a broken script, an unreadable one, and a broken or unreadable "
+                                    "one after a held source-line script each make start() fail at once",
+              broken_alone && unreadable && after_line && unreadable_after,
+              a.sink.tail(2) + b.sink.tail(2) + c.sink.tail(2) + d.sink.tail(2));
+    }
+    {
+        // N2: a symbol of the program's own sidecar map exists only after the load.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.scripts = {tmp_file("sidecar-sym.jds", "on execute @_main do stop end\n")};
+        const bool ok = g.start(o);
+        const bool waits = g.engine_subs() == 0 && g.sink.count("names a symbol; it loads when the --load program has loaded") == 1;
+        attach_program(g.emu, *g.dbg, kZNex);
+        const bool loaded = g.host->program_loaded();
+        const auto s = g.host->engine() ? g.dbg->subscriptions(true) : std::vector<SubscriptionInfo>{};
+        size_t mine = 0;
+        bool shape = false;
+        for (const auto& x : s)
+            if (x.owner == g.host->engine()->client()) {
+                ++mine;
+                shape = x.filter.lo == 0x8C92 && x.filter.space == jnext::dbg::MemSpace::page(4);
+            }
+        // The same for a symbol that appears only in a string interpolation.
+        HostRig h(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("interp-sym.jds", "on frame 0 do log \"${@_main}\" end\n")};
+        const bool held_interp = h.start(o) && h.host->files().empty() && h.sink.count("names a symbol") == 1;
+        check("SCRIPT-HOST-SRC-08", "a script naming only a symbol of the sidecar map (also inside a ${...}) waits for the "
+                                    "program and then arms @_main = $8C92 in Page{4}",
+              ok && waits && loaded && mine == 1 && shape && held_interp, g.sink.tail(3));
+    }
+    {
+        // N1: a --map rule-4 symbol takes the memory the program's load maps, not the one mapped at init.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.map_file = tmp_file("rule4.map", "_func = $C000 ; addr, public, , m_c, code_compiler, m.c:1\n");
+        o.scripts = {tmp_file("rule4.jds", "on execute @_func do stop end\n")};
+        const bool ok = g.start(o);
+        g.dbg->set_mmu_slot(g.dbg->attach({"t", jnext::dbg::ClientKind::Test}).value, 6, 20);   // the program's load
+        g.dbg->load_program_sidecars(kZNex);                                                  // rebinds rule-4 symbols
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        const bool loaded = g.host->program_loaded();
+        g.run(4);
+        check("SCRIPT-HOST-SRC-09", "a --map rule-4 symbol in a script takes the memory mapped after the program's load "
+                                    "(Page{20}), not the init-time one: the rule fires at $C000",
+              ok && loaded && g.dbg->state().paused && g.emu.cpu().get_registers().PC == 0xC000, g.sink.tail(3));
+    }
+    {
+        // A symbol known now, with no binding made at the load (an sjasmplus --sym), is NOT held: the
+        // script loads in start(), before the program, as it did before GH #346.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.map_file = JNEXT_SJASMEQU_DIR "/equlabels.sym";
+        o.scripts = {tmp_file("known-sym.jds", "on execute @main do stop end\n")};
+        const bool ok = g.start(o);
+        const size_t before = g.engine_subs();
+        const bool silent = g.sink.count("names a symbol") == 0 && g.host->files().size() == 1;
+        // A known final symbol only inside ${...} does not hold either.
+        HostRig h(kPark, true, MachineType::ZXN_ISSUE2);
+        o.scripts = {tmp_file("known-interp.jds", "on frame 0 do log \"${@main}\" end\n")};
+        const bool interp_ok = h.start(o) && h.host->files().size() == 1 && h.sink.count("names a symbol") == 0;
+        check("SCRIPT-HOST-SRC-10", "with a --load pending, a script whose symbols are all known at start() with no "
+                                    "binding at the load (a --map sjasmplus symbol, also inside ${...}) loads at once, "
+                                    "not held",
+              ok && before == 1 && silent && interp_ok, g.sink.tail(3) + h.sink.tail(2));
+    }
+    {
+        // A final symbol first (a banked PAGE_n one) must not decide for a load-bound one after it.
+        HostRig g(kPark, true, MachineType::ZXN_ISSUE2);
+        ScriptHostOptions o;
+        o.program_pending = true;
+        o.map_file = tmp_file("mixed.map",
+            "__PAGE_21_head = $14E000 ; const, public, def, , ,\n"
+            "_banked_add    = $14E000 ; addr, public, , banked_c, PAGE_21, banked.c:5\n"
+            "_func          = $C000   ; addr, public, , m_c, code_compiler, m.c:1\n");
+        o.scripts = {tmp_file("mixed.jds", "on execute @_banked_add once do log \"B\" end\non execute @_func do stop end\n")};
+        const bool ok = g.start(o);
+        const bool held = g.engine_subs() == 0 && g.host->files().empty() && g.sink.count("names a symbol") == 1;
+        g.dbg->set_mmu_slot(g.dbg->attach({"t", jnext::dbg::ClientKind::Test}).value, 6, 20);
+        g.dbg->load_program_sidecars(kZNex);
+        g.emu.mmu().write(0xC000, 0x18);
+        g.emu.mmu().write(0xC001, 0xFE);
+        Z80Registers r = g.emu.cpu().get_registers();
+        r.PC = 0xC000;
+        g.emu.cpu().set_registers(r);
+        const bool loaded = g.host->program_loaded();
+        g.run(4);
+        check("SCRIPT-HOST-SRC-11", "a script naming a final banked symbol and then a load-bound one is held, and the "
+                                    "second rule fires on the page the load maps (Page{20})",
+              ok && held && loaded && g.dbg->state().paused && g.emu.cpu().get_registers().PC == 0xC000, g.sink.tail(3));
+    }
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -2839,6 +3326,7 @@ int main() {
     run_group("host_gui", host_gui_rows);
     run_group("static_stop", static_stop_rows);
     run_group("exit", exit_rows);
+    run_group("src", src_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

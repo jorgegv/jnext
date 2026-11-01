@@ -1,4 +1,5 @@
 #include "debug/source_map.h"
+#include <limits>
 
 #include "core/sha256.h"
 
@@ -48,7 +49,9 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
                         std::vector<SourceAlias> aliases,
                         std::optional<SourceProgramIdentity> identity,
                         std::string loaded_file,
-                        std::string format)
+                        std::string format,
+                        std::map<std::string, SourceText> texts,
+                        bool dot)
 {
     SourceMap next;
     std::map<std::tuple<std::string, int, int>, size_t> location_ids;
@@ -118,7 +121,15 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
     next.identity_ = std::move(identity);
     next.loaded_file_ = std::move(loaded_file);
     next.format_ = std::move(format);
+    next.dot_ = dot;
+    for (auto& [file, text] : texts) next.texts_.emplace(normalized_file(file), std::move(text));
     *this = std::move(next);
+}
+
+const SourceText* SourceMap::embedded_text(std::string_view file) const
+{
+    const auto it = texts_.find(std::string(file));
+    return it == texts_.end() ? nullptr : &it->second;
 }
 
 const SourceMap::Segment* SourceMap::segment_at(FetchSource space, uint16_t address) const
@@ -147,6 +158,20 @@ std::vector<const SourceLocation*> SourceMap::lookup_all(FetchSource space,
             all.push_back(&locations_[ranges_[cover_[seg->first + i]].location]);
     }
     return all;
+}
+
+std::vector<SourceMap::FileRange> SourceMap::file_ranges(const std::string& file) const
+{
+    std::vector<FileRange> out;
+    for (auto it = by_line_.lower_bound(FileLine{file, std::numeric_limits<int>::min()});
+         it != by_line_.end() && it->first.first == file; ++it) {
+        for (const size_t i : it->second) {
+            const Range& r = ranges_[i];
+            out.push_back({it->first.second, key_space(r.space_key),
+                           static_cast<uint16_t>(r.lo), r.hi});
+        }
+    }
+    return out;
 }
 
 SourceResolution SourceMap::resolve(std::string_view expression) const
@@ -315,5 +340,7 @@ void SourceMap::clear()
     files_.clear();
     loaded_file_.clear();
     format_ = "SLD";
+    dot_ = false;
+    texts_.clear();
     identity_.reset();
 }

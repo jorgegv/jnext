@@ -166,6 +166,10 @@ struct EventSpec {
     CopperSub copper = CopperSub::Move;
     DmaSub    dma = DmaSub::Start;
     ExprPtr   at_lo, at_hi;
+    /// execute: a source line (`main.c:19`, bare or quoted; GH #346) instead of
+    /// `lo`/`hi`. Empty = not a source-line rule.
+    std::string file_line;
+    SourcePos   file_line_pos;
 };
 
 // ---------------------------------------------------------------------------

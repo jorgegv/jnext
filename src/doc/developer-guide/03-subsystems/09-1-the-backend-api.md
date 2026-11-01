@@ -126,7 +126,7 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 | video | `framebuffer()`, `render_layer(layer, vc, dst, stride)`, `palette(id)`, `active_ula_palette_bank()`, `ula_screen_regs()`, `clip_window(layer)` | `set_palette(...)`, `set_border(by, colour)` |
 | disassembly | `disassemble(addr, n, symbols)`, `instruction_length(addr)`, `is_call_like(addr)` | — |
 | call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled`, `set_trace_enabled`, `trace_clear`, `trace_resize` |
-| coverage | `coverage()`, `coverage_enabled()` | `coverage_enable`, `coverage_clear` |
+| coverage | `coverage()`, `coverage_enabled()`; INS-21: `mem_coverage_enabled()`, `mem_coverage(space, addr, n, out)`, `mem_coverage_fetch(addr)`, `mem_coverage_spaces()`, `executed_source_lines(file)` | `coverage_enable`, `coverage_clear`; INS-21: `mem_coverage_enable`, `mem_coverage_clear` |
 | input | `input_state()` | see input injection below |
 | the event model | `subscriptions(include_transient)`, `events_fired_since(seq)` | see [3.9.2](09-2-event-delivery-and-mutation.md) |
 
@@ -309,6 +309,15 @@ are dropped by the loader, so they never name an address or resolve by name.
 over the size cap before opening it, with the table untouched, and say why
 through their optional `why` argument; a file that merely fails to open leaves it
 empty (rows Z88MAP-27).
+A symbol of a z88dk C module (`; addr`, name `_x`, module `<file>_c`; design 10.6) also has a C name. The
+loader marks each such label (`SymbolLabel::c_symbol`) and records its key under the C name in
+`c_name_to_key_`, first C symbol wins; the rule is per symbol, so an asm `_dup` and a C `_dup` stay two
+symbols. `find_name()` tries `c_name_to_key_` after every exact name and constant (so `resolve()`,
+`resolve_key()` and `lookup_name()` take `counter`); `lookup()`/`nearest()` show a C label's C name only when
+nothing else holds it and its own key is the one the C name resolves to (else its assembler name, which is the
+case of a second C module's local `_util_inc`); `shown_name(name)` gives the same for a typed name.
+`lookup_assembler()` keeps the assembler name for text that must assemble. `merge()` carries `c_name_to_key_`
+for the names the receiving table does not own, and `clear()` empties it (rows Z88CN-01..16).
 `MapFormat::NextBuild` reads a NextBuild / Boriel ZX Basic `Memory.txt` (`8000: ._Main`): the shown name drops the `.` and the
 compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
 turns an address field's text into an address: hex first (`4000`, `$4000`,
@@ -333,6 +342,10 @@ a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
 the functional row `script-map-pipe-func`).
 
 ### Source maps — CAP-SRC
+
+Remote and script consumers of the map (GH #346): the GDB server's `monitor src`
+reads `source_location()`; the DSL's `on execute file:line` reads
+`source_map().resolve()` and subscribes one `Execute` per start.
 
 The backend also owns one `SourceMap` (`src/debug/source_map.*`): records of
 ranges `{space, lo, hi_excl, location}` (file, line, column) keyed by the
@@ -384,6 +397,17 @@ An SLD may carry a SHA-256 of the program's bytes (`||program.*` comment
 records); `load_source_map(path, accept_mismatch)` checks it against memory and
 stores the path absolute.
 
+The z88dk adapter's listing half (GH #348) is `src/debug/z88dk_lis.*` (std-only):
+`parse_z88dk_listing()` tokenises a z80asm `.lis`, `place_z88dk_listing()` interprets it
+against a `Z88dkMapView` (the map's symbols, line records, section bounds, a `place`
+function and the section binaries). `load_z88dk_source_map(..., Z88dkListings::Beside)`
+finds `<stem>.lis` and `<file>.lis` for the files the map's module symbols name, drops a
+listing that does not hold up (a note in `SourceMapLoadResult::listing_notes`, never the
+half), merges the used ones (their module's map records are replaced), cross-checks the
+map's line records and hands the CRT's m4 text to `SourceMap::replace(..., texts)`
+(`SourceMap::embedded_text()`). `SourceMapLoad::listings` and `listing_note` carry the
+result to the frontends; the sidecar logs `and N listings` and one Warn per note.
+
 The second source adapter is `load_z88dk_source_map()` (`src/debug/z88dk_source_map.*`,
 GH #344), which reads the `__C_LINE_` and `__ASM_LINE_` records of a z88dk
 `-debug` map. The symbols of the same file take their pages from the same rules (see
@@ -425,7 +449,15 @@ binaries, or verified for the code the binaries cover (`SourceMapLoadResult::unc
 counts the ranges they do not). `--source-map FILE` (`EmulatorConfig::source_map_file`)
 is this load, made once by each frontend right after the first successful `--load` and
 its sidecars (`emulator_attach_cli_source_map()` in `platform/emulator_boot.h`); a
-refusal logs an error and the run exits 1. `main.cpp` refuses it without `--load`. With a tape
+refusal logs an error and the run exits 1. Without `--load` (GH #351) each frontend makes it
+once at start-up, before `ScriptHost::start()`, with `dot_only`: only a z88dk dot command's map
+(`SourceMap::dot()`, told by `z88dk_dot_command()`) is accepted, and any other is refused with
+`SourceMapLoad::not_dot`. A dot map is
+deferred whatever `verify_at_first_execution` says (it attaches pending, except that a hand load made while
+the CPU already runs the command from bank 2 judges like a landing and is verified, `dot_adopt()`), and is judged at its entry (the CPU
+about to execute `$2000` fetched from `DivMmcRam{2}`, `kNextZxosDotBank`): see the design, 6.2
+and 6.5; `DeferredCheck::dot` carries it, `SourceMapStatus::dot` tells the Source tab. The check keeps a capped history of its state by clock cycle and generation (`dot_record()`): a ring landing reads back the state the original run had at that cycle (`dot_landing()`), a fresh landing leaves it pending, and a hand load judges like a landing (`dot_adopt()`). `--source-map` with `--rzx-play` / `--load R.rzx` is the no-`--load` case (`EmulatorConfig::source_map_no_program` = 2; the refusal names RZX). `peek`
+reads `DivMmcRam{b}` (read-only; `poke` refuses it). With a tape
 `--load` the helper passes `deferred` (`program_loads_later()`), the map attaches pending
 (*Tapes*), and the frontend watches it with `emulator_poll_cli_source_map()` once per tick
 (`source_map_watch_` in `HeadlessApp`, `SdlApp` and `QtApp`): a map dropped by the check
@@ -563,6 +595,35 @@ INS-20 coverage is recorded in `step_one_instruction()`, the one body that
 `run_frame()`, the debugger's Step and `execute_single_instruction()` share,
 and only for a slot that fetched the opcode at PC. An NMI or INT acknowledge
 does not run it. Switched off it costs one pointer test per instruction.
+
+**INS-21, memory coverage by execute, read and write** (GH #388, CAP-INS-21) is
+the physical-memory counterpart, with a separate switch: INS-20 holds 16-bit
+logical PCs (ZRCP `cpu-code-coverage` returns them, and the logical address a page
+ran at cannot be rebuilt from a physical byte), INS-21 holds one byte of flags
+(`dbg::COVERAGE_EXEC | COVERAGE_READ | COVERAGE_WRITE`) per byte of every
+`MemSpace`, in lazily allocated 8 KB chunks (`dbg::MemCoverage`,
+`debug/mem_coverage.h`; a 16 KB store, `Rom`, `AltRom` or `Config`, is two chunks).
+`Mmu` writes it from the one arbiter (see [3.2](02-memory.md)): X is the first
+opcode byte of an executed instruction (`read_m1()`; a prefix's inner M1 is no
+mark), R every other read including the DMA's, W a write that landed, each at the
+space and offset the route names and only for guest accesses (inside
+`GuestExecutionScope`, not `InspectionScope`: exactly what a watchpoint can see, so
+`peek`/`poke`, the trace's captures and loaders mark nothing). The set and its
+switch are backend state, published to `DebugState::mem_coverage_sink()` by
+`Impl::publish_mem_coverage()` and retired by `~Debugger()` like INS-20's, and
+re-published at the one re-application, so a rewind, reset, state load or cold boot
+keeps the bits; a rewind's replay sets the same bits again, so nothing is counted
+twice. Off clears; `mem_coverage_clear()` empties and recording goes on.
+`mem_coverage(space, addr, n, out)` addresses like `peek()` (`Cpu` through the live
+data route, any other space by offset in its store);
+`mem_coverage_fetch(addr)` is the byte an M1 at `addr` would fetch now
+(`source_page(addr)` plus `space_offset()`), which is what the Disassembly paints;
+`mem_coverage_spaces()` lists the marked spaces sorted by (kind, index), for an
+exporter to walk. `executed_source_lines(file)` is the Source tab's: the lines of a
+file any of whose ranges (`SourceMap::file_ranges()`) holds an X byte. The
+front-ends add `--coverage` (`EmulatorConfig::coverage`, applied by the three loop
+owners through `apply_startup_coverage()`) and the Qt window's **Debug ▸ Coverage**.
+There is no DZRP, ZRCP, GDB or DSL verb.
 
 Each trace entry carries the registers (including I, R, IM, IFF1 and IFF2), the
 word at SP read with `peek()`, the eight MMU pages and `rom_slots`, a bit per

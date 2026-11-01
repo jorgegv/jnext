@@ -79,6 +79,7 @@ private:
     static std::string describe(const Token& tk) {
         if (tk.kind == Tok::Ident) return "`" + tk.text + "`";
         if (tk.kind == Tok::Symbol) return "`@" + tk.text + "`";
+        if (tk.kind == Tok::FileLine) return "`" + tk.text + "`";
         if (tk.kind == Tok::Int) return "the number " + std::to_string(tk.value);
         return tok_name(tk.kind);
     }
@@ -210,6 +211,11 @@ private:
                     : w == "read"    ? EventType::Read
                                      : EventType::Write;
             take();
+            if (ev.type == EventType::Execute && (is(Tok::FileLine) || string_is_source_line())) {
+                parse_source_line(ev);
+                return ev;
+            }
+            if (is(Tok::FileLine)) fail_source_line_only(cur());
             if (!starts_expr() && !is_kw("page"))
                 fail(cur().pos, "expected an address, a range or `page` after `" + w + "`, found " +
                                     describe(cur()));
@@ -281,6 +287,7 @@ private:
             } else if (is_kw("byte")) {
                 take();
                 ev.dma = DmaSub::Byte;
+                if (is(Tok::FileLine)) fail_source_line_only(cur());
                 if (starts_expr() || is_kw("page")) parse_addr_spec(ev);
             } else if (is_kw("end")) {
                 take();
@@ -293,6 +300,46 @@ private:
             fail(cur().pos, "unknown event `" + w + "`");
         }
         return ev;
+    }
+
+    /// A string that ends in `:` and digits is a quoted source line; any other
+    /// string after `execute` stays what it always was, a (refused) expression.
+    bool string_is_source_line() const {
+        if (!is(Tok::String) || cur().pieces.empty()) return false;
+        const StrPiece& last = cur().pieces.back();
+        if (last.is_expr) return false;
+        const std::string& t = last.text;
+        size_t n = t.size();
+        while (n > 0 && t[n - 1] >= '0' && t[n - 1] <= '9') --n;
+        return n < t.size() && n > 0 && t[n - 1] == ':';
+    }
+
+    [[noreturn]] static void fail_source_line_only_expr(const Token& tk) {
+        fail(tk.pos, "a source line (`" + tk.text + "`) is valid only after `on execute`");
+    }
+
+    [[noreturn]] static void fail_source_line_only(const Token& tk) {
+        fail(tk.pos, "a source line (`" + tk.text + "`) is an `execute` address");
+    }
+
+    // `on execute main.c:19` / `on execute "dir with space/main.c:19"` (GH #346):
+    // a line names the code built for it, so no range and no `page`.
+    void parse_source_line(EventSpec& ev) {
+        const Token& tk = cur();
+        ev.file_line_pos = tk.pos;
+        if (tk.kind == Tok::FileLine) {
+            ev.file_line = tk.text;
+        } else {
+            for (const StrPiece& p : tk.pieces)
+                if (p.is_expr)
+                    fail(tk.pos, "a source line takes no `${...}`: write the file and line as they are");
+            for (const StrPiece& p : tk.pieces) ev.file_line += p.text;
+            if (ev.file_line.empty()) fail(tk.pos, "an empty source line");
+        }
+        take();
+        if (is(Tok::DotDot) || is_kw("page"))
+            fail(cur().pos, "a source line takes no range and no `page`: it names the memory its "
+                            "code was built for (`" + ev.file_line + "`)");
     }
 
     void parse_range(ExprPtr& lo, ExprPtr& hi) {
@@ -675,6 +722,7 @@ private:
                 e->str  = take_string("");
                 return sealed(std::move(e));
             }
+            case Tok::FileLine: fail_source_line_only_expr(tk);
             case Tok::Symbol: {
                 auto e  = std::make_shared<Expr>();
                 e->kind = ExprKind::Symbol;

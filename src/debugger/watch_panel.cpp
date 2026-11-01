@@ -190,7 +190,7 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
         std::string name = entered;
         if (!name.empty() && name.front() == '@')
             name = QString::fromStdString(name.substr(1)).trimmed().toStdString();
-        if (dbg_->lookup_name(name) == resolved) label = name;
+        if (dbg_->lookup_name(name) == resolved) label = dbg_->symbols().shown_name(name);
     }
     type = type_combo->currentIndex();
     return true;

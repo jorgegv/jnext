@@ -14,6 +14,7 @@ const char* tok_name(Tok t) {
         case Tok::Int:      return "a number";
         case Tok::String:   return "a string";
         case Tok::Symbol:   return "a symbol";
+        case Tok::FileLine: return "a source line";
         case Tok::MemL:     return "`mem[`";
         case Tok::Mem16L:   return "`mem16[`";
         case Tok::PhysL:    return "`phys[`";
@@ -188,6 +189,31 @@ struct Lexer {
         return true;
     }
 
+    // `file:line` by lookahead (see the banner): consumes nothing unless the
+    // whole token is there.
+    bool try_file_line() {
+        // `..` is the range operator (`main.c:19..`), unless a `../dir` path.
+        if (cur() == '.' && peek() == '.' && peek(2) != '/') return false;
+        size_t j = i;
+        while (j < s.size() &&
+               (is_ident_char(s[j]) || s[j] == '.' || s[j] == '/' || s[j] == '-')) {
+            if (s[j] == '/' && j + 1 < s.size() && s[j + 1] == '/') break;
+            ++j;
+        }
+        if (j == i || j >= s.size() || s[j] != ':' || j + 1 >= s.size() || !is_digit(s[j + 1]))
+            return false;
+        size_t k = j + 1;
+        while (k < s.size() && is_digit(s[k])) ++k;
+        if (k < s.size() && is_ident_char(s[k])) return false;
+        Token t;
+        t.kind = Tok::FileLine;
+        t.pos  = p;
+        t.text = s.substr(i, k - i);
+        while (i < k) adv();
+        out.tokens.push_back(std::move(t));
+        return true;
+    }
+
     bool lex_symbol() {
         const SourcePos at = p;
         adv();  // '@'
@@ -298,6 +324,7 @@ struct Lexer {
                 continue;
             }
             if (c == '$') return fail(at, "malformed number: no digits after the prefix");
+            if (!embedded && (is_ident_start(c) || c == '.') && try_file_line()) continue;
             if (is_ident_start(c)) {
                 if (!lex_ident()) return false;
                 continue;

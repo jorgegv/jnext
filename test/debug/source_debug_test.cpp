@@ -44,6 +44,9 @@
 //                    section binaries, the lifetime of a z88dk map, real z88dk code (GH #344)
 //   SRCSTEP-*        C steps on real z88dk code: Into/Over/Out across banked_call and the
 //                    -debug helpers, a tail JP, the esxDOS shim (GH #345)
+//   SRCDOT-*         a z88dk dot command's map, which NextZXOS runs from DivMMC RAM bank 2: a source
+//                    breakpoint and the steps inside it, the same bytes in RAM or ROM, the judgement
+//                    at the entry, the hand load, landings, dotx and a rewind (GH #351)
 //   SRCLIFE-*        the source map's lifetime: load generations, the attachment
 //                    cache, stale user maps, Back stops at a landing (GH #342)
 //
@@ -268,6 +271,16 @@ static void z88_copy(const char* fixture, const fs::path& to, bool bins = true) 
         const std::string n = e.path().filename().string();
         const bool is_bin = n.size() > 4 && n.compare(n.size() - 4, 4, ".bin") == 0;
         if (n == "prog.nex" || n == "prog.map" || (bins && is_bin))
+            fs::copy_file(e.path(), to / n, fs::copy_options::overwrite_existing);
+    }
+}
+
+// Also the fixture's `--list` listings (GH #348): every `*.lis` beside the map.
+static void z88_copy_lis(const char* fixture, const fs::path& to) {
+    z88_copy(fixture, to);
+    for (const auto& e : fs::directory_iterator(kZ88Fixtures / fixture)) {
+        const std::string n = e.path().filename().string();
+        if (n.size() > 4 && n.compare(n.size() - 4, 4, ".lis") == 0)
             fs::copy_file(e.path(), to / n, fs::copy_options::overwrite_existing);
     }
 }
@@ -4792,7 +4805,7 @@ int main() {
                       m.dbg->source_map().format() == "z88dk" &&
                       st.state == Debugger::SourceMapStatus::State::Attached && !st.by_user &&
                       line_of(*m.dbg, 0x8CB8) == "main.c:19" &&
-                      m.dbg->lookup(0x8C92) == std::string("_main") &&
+                      m.dbg->lookup(0x8C92) == std::string("main") &&
                       has(log, "Loaded 19 z88dk symbols from '" + map1 + "'") &&
                       has(log, "Loaded 46 z88dk source lines from '" + map1 +
                                    "' (program identity verified)"),
@@ -5011,6 +5024,86 @@ int main() {
                                    "source step ends at main.c:20's start ($8CBE)",
                   at_line && m.pc() == 0x8CBE && line_of(*m.dbg, m.pc()) == "main.c:20", m.where());
         }
+        {   // COV-01 (GH #388): executed_source_lines on real z88dk code
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d1 / "prog.nex");
+            m.dbg->load_program_sidecars((d1 / "prog.nex").string());
+            m.dbg->mem_coverage_enable(true);
+            m.dbg->subscribe(m.a, execute_stop(0x8CB5));
+            m.dbg->run(m.a);
+            for (int i = 0; i < 100 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+            const bool at19 = m.dbg->state().paused && m.pc() == 0x8CB5;
+            const auto before = m.dbg->executed_source_lines("main.c");
+            m.dbg->source_step(m.a, Step::Into);                     // runs line 19 (and square()) to 0x8CBE
+            auto listed = [](const std::vector<uint32_t>& v, uint32_t l) {
+                return std::find(v.begin(), v.end(), l) != v.end();
+            };
+            {   // line 20's first byte READ by the guest: an R mark, not an X
+                DebugState::GuestExecutionScope g(m.emu.debug_state());
+                (void)m.emu.mmu().read(0x8CBE);
+            }
+            const auto lines = m.dbg->executed_source_lines("main.c");
+            const auto util  = m.dbg->executed_source_lines("util.c");
+            const bool util_in_map = !m.dbg->source_map().file_ranges("util.c").empty();
+            std::string got;
+            for (uint32_t l : lines) got += std::to_string(l) + " ";
+            check("SRCDBG-COV-01", "executed_source_lines: the lines a run executed are listed (main.c "
+                                   "15, 17, 18 before the stop at 19's start; 19 after the step); a line not "
+                                   "yet executed (20), a function never called (util.c is in the map) and a "
+                                   "line with only R-marked bytes (20 was read) are not",
+                  at19 && m.pc() == 0x8CBE && before == std::vector<uint32_t>({15, 17, 18}) &&
+                      lines == std::vector<uint32_t>({15, 17, 18, 19}) && !listed(lines, 20) &&
+                      util_in_map && util.empty() && m.dbg->executed_source_lines("nosuch.c").empty(),
+                  "lines=" + got + " pc=" + hex(m.pc()));
+        }
+        {   // COV-02 (GH #388): a banked line, ranges in two pages
+            const unsigned pa = 0x30, pb = 0x31;
+            const fs::path two = dir / "cov2.sld";
+            write_text(two, std::string("|SLD.data.version|1\n") + "x.asm|1||0" + kNextDevice +
+                                "x.asm|7||0|" + std::to_string(pa) + "|32768|T|\n" +
+                                "x.asm|7||0|" + std::to_string(pb) + "|32768|T|\n" +
+                                "x.asm|8||0|" + std::to_string(pa) + "|32769|T|\n");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.emu.mmu().set_boot_rom_enabled(false);
+            m.emu.mmu().set_config_mode(false);
+            for (uint8_t pg : { pb, pa }) {
+                m.emu.mmu().set_page(4, pg);
+                m.emu.mmu().write(0x8000, 0x00);      // NOP
+                m.emu.mmu().write(0x8001, 0x00);      // NOP
+                m.emu.mmu().write(0x8002, 0x18);      // JR $
+                m.emu.mmu().write(0x8003, 0xFE);
+            }
+            m.dbg->load_source_map(two.string(), false);
+            m.dbg->mem_coverage_enable(true);
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);                    // one NOP of Page{pa}'s copy
+            auto has_line = [&](uint32_t l) {
+                const auto v = m.dbg->executed_source_lines("x.asm");
+                return std::find(v.begin(), v.end(), l) != v.end();
+            };
+            const bool only_a = has_line(7) && !has_line(8);   // line 7 via Page{pa}; Page{pb} never ran
+            m.dbg->mem_coverage_clear();
+            const bool cleared = !has_line(7);
+            // run neither: switch the mapping to a THIRD page holding the same bytes
+            m.emu.mmu().set_page(4, 0x32);
+            for (uint16_t a = 0x8000; a < 0x8004; ++a) m.emu.mmu().write(a, a == 0x8002 ? 0x18 : (a == 0x8003 ? 0xFE : 0x00));
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const bool third_page = !has_line(7) && !has_line(8);
+            // And only Page{pb}'s copy (the SECOND range of line 7 in the map): still listed, and
+            // line 8, which has a range in Page{pa} alone, is not.
+            m.dbg->mem_coverage_clear();
+            m.emu.mmu().set_page(4, pb);
+            m.set_pc(0x8000);
+            m.dbg->step_into(m.a);
+            const bool second_copy = has_line(7) && !has_line(8);
+            check("SRCDBG-COV-02", "a line with ranges in two pages is listed once a copy in either page "
+                                   "ran (only Page{p1} ran: listed; only Page{p2} ran: listed); after Clear it is not, and the same "
+                                   "bytes executed in a third page do not list it",
+                  only_a && cleared && third_page && second_copy,
+                  std::string("only_a=") + std::to_string(only_a) + " cleared=" + std::to_string(cleared) +
+                      " third=" + std::to_string(third_page) + " second=" + std::to_string(second_copy));
+        }
         {   // Z88-18: some code ranges have no binary
             const fs::path d = z / "d18";
             z88_copy("v2.4/sccz80-page20", d);
@@ -5057,6 +5150,145 @@ int main() {
                                    "the map already loaded is kept",
                   out.count == -1 && has(out.error, "no source lines in") &&
                       has(out.error, "built without -debug") && m.dbg->source_map().size() == 46);
+        }
+        {   // SRCDBG-LIS-01..04 (GH #348): the --list listings beside a z88dk map
+            const fs::path d = z / "lis";
+            z88_copy_lis("v2.4/sdcc-SO2", d);
+            const std::string map = (d / "prog.map").string();
+            {   // LIS-01
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool ok = z88_load(m, d / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                });
+                check("SRCDBG-LIS-01", "the sidecar attaches the listings' 230 source lines, the log says "
+                                       "'and 4 listings', the identity is verified, and $8C6F is main.c:18",
+                      ok && r.sources == 230 && line_of(*m.dbg, 0x8C6F) == "main.c:18" &&
+                          has(log, "Loaded 230 z88dk source lines from '" + map + "' and 4 listings") &&
+                          has(log, "(program identity verified") && !has(log, "not verified"),
+                      std::to_string(r.sources) + "\n" + log);
+            }
+            {   // LIS-02
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                const auto out = m.dbg->load_source_map(map, true);
+                const fs::path bare = z / "lis-bare";
+                z88_copy("v2.4/sdcc-SO2", bare);
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, bare / "prog.nex");
+                const auto none = n.dbg->load_source_map((bare / "prog.map").string(), true);
+                check("SRCDBG-LIS-02", "a hand load gives 230 lines from 4 listings and no note; the same map "
+                                       "with no listings is refused, the reason pointing at --list",
+                      out.count == 230 && out.listings == 4 && out.listing_note.empty() &&
+                          none.count == -1 && has(none.error, "no source lines in") &&
+                          has(none.error, "--list"),
+                      none.error);
+            }
+            {   // LIS-03
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                const auto line = emulator_attach_cli_source_map(*m.dbg, map);
+                check("SRCDBG-LIS-03", "--source-map's line carries the listing count",
+                      line.ok && has(line.line, "230 source lines") && has(line.line, "(4 z88dk listings)"),
+                      line.line);
+            }
+            {   // LIS-04
+                const fs::path st = z / "lis-stale";
+                z88_copy_lis("v2.4/sdcc-SO2", st);
+                {
+                    std::string text;
+                    {
+                        std::ifstream in(st / "main.c.lis", std::ios::binary);
+                        text.assign(std::istreambuf_iterator<char>(in), {});
+                    }
+                    const size_t at = text.find("0023  af");
+                    if (at != std::string::npos) text.replace(at, 8, "0023  b7");
+                    write_text(st / "main.c.lis", text);
+                }
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, st / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((st / "prog.nex").string());
+                });
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, st / "prog.nex");
+                const auto hand = n.dbg->load_source_map((st / "prog.map").string(), true);
+                check("SRCDBG-LIS-04", "a stale main.c.lis is dropped alone: the sidecar attaches the rest and "
+                                       "warns naming it; a hand load carries the note",
+                      r.sources > 0 && r.sources < 230 && has(log, "main.c.lis") &&
+                          has(log, "and 3 listings") && hand.count > 0 && hand.listings == 3 &&
+                          has(hand.listing_note, "main.c.lis"),
+                      log);
+            }
+        }
+        {   // SRCDBG-LIS-05..07 (GH #348 stage 2 review): what the user is told when listings are dropped
+            auto edit = [](const fs::path& file, const std::string& from, const std::string& to) {
+                std::string text;
+                {
+                    std::ifstream in(file, std::ios::binary);
+                    text.assign(std::istreambuf_iterator<char>(in), {});
+                }
+                const size_t at = text.find(from);
+                if (at != std::string::npos) text.replace(at, from.size(), to);
+                write_text(file, text);
+            };
+            {   // LIS-05: the only listing is stale
+                const fs::path d = z / "lis-only-stale";
+                z88_copy("v2.4/sdcc-SO2", d);
+                fs::copy_file(kZ88Fixtures / "v2.4/sdcc-SO2/main.c.lis", d / "main.c.lis");
+                edit(d / "main.c.lis", "0023  af", "0023  b7");
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                });
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, d / "prog.nex");
+                const auto hand = n.dbg->load_source_map((d / "prog.map").string(), true);
+                check("SRCDBG-LIS-05", "with no usable listing left the sidecar still warns naming the dropped "
+                                       "one and why, and a refused hand load carries the same note",
+                      m.dbg->source_map().empty() && has(log, "z88dk listings for '" + (d / "prog.map").string()) &&
+                          has(log, "main.c.lis") && has(log, "$8C6B") &&
+                          hand.count == -1 && has(hand.error, "main.c.lis") && has(hand.error, "--list"),
+                      log + "\n" + hand.error);
+            }
+            {   // LIS-06: two dropped listings, the --source-map line and the joined note
+                const fs::path d = z / "lis-two-stale";
+                z88_copy_lis("v2.4/sdcc-SO2", d);
+                edit(d / "main.c.lis", "0023  af", "0023  b7");
+                edit(d / "asmfn.asm.lis", "0000  210000", "0000  310000");
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                const auto line = emulator_attach_cli_source_map(*m.dbg, (d / "prog.map").string());
+                const size_t a = line.line.find("asmfn.asm.lis");
+                const size_t b = line.line.find("main.c.lis");
+                check("SRCDBG-LIS-06", "--source-map's line carries the notes of two dropped listings, both named "
+                                       "and joined with '; ', beside the count of the two that were used",
+                      line.ok && has(line.line, "(2 z88dk listings)") && a != std::string::npos &&
+                          b != std::string::npos && a < b && line.line.find("; ", a) != std::string::npos,
+                      line.line);
+            }
+            {   // LIS-07: one listing is singular everywhere
+                const fs::path d = z / "lis-one";
+                z88_copy_lis("v2.4/sccz80-incmid", d);
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                z88_load(m, d / "prog.nex");
+                Debugger::SidecarLoad r;
+                const std::string log = debugger_log_of([&] {
+                    r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+                });
+                Machine n(false, MachineType::ZXN_ISSUE2);
+                z88_load(n, d / "prog.nex");
+                const auto line = emulator_attach_cli_source_map(*n.dbg, (d / "prog.map").string());
+                check("SRCDBG-LIS-07", "a single listing reads 'and 1 listing' in the log and '(1 z88dk listing)' "
+                                       "in --source-map's line",
+                      r.sources > 0 && has(log, " and 1 listing") && !has(log, "1 listings") &&
+                          has(line.line, "(1 z88dk listing)") && !has(line.line, "1 z88dk listings"),
+                      log + "\n" + line.line);
+            }
         }
         {   // Z88-21: sidecar identity mismatch
             const fs::path d = z / "d21";
@@ -6525,8 +6757,8 @@ int main() {
             const std::string main40 = lookup_at(m, 0x8C62);
             check("SRCDBG-SYM-18", "a banked z88dk label names its address only while its page is mapped, and a "
                                    "code symbol only in the RAM page the program loaded it in",
-                  r.symbols == 10 && p20 && at20 == "_banked_add" && at21 == "-" && at0 == "-" && p4 &&
-                      main4 == "_main" && main40 == "-",
+                  r.symbols == 10 && p20 && at20 == "banked_add" && at21 == "-" && at0 == "-" && p4 &&
+                      main4 == "main" && main40 == "-",
                   at20 + "/" + at21 + "/" + at0 + " " + main4 + "/" + main40);
         }
         {   // SRCDBG-SYM-19
@@ -6538,18 +6770,18 @@ int main() {
             Machine m(false, MachineType::ZXN_ISSUE2);
             nr(m, 0x54, 40);
             m.dbg->load_map((d / "prog.map").string(), jnext::dbg::MapFormat::Z88dk);
-            const bool in40 = lookup_at(m, 0x8C62) == "_main";
+            const bool in40 = lookup_at(m, 0x8C62) == "main";
             nr(m, 0x54, 4);
             const bool gone4 = lookup_at(m, 0x8C62) == "-";
             z88_load(m, alone / "game.nex");
             const bool premise = m.dbg->source_page(0x8C62) == MemSpace::page(4);
             const auto r = m.dbg->load_program_sidecars((alone / "game.nex").string());
-            const bool rebound = lookup_at(m, 0x8C62) == "_main" && in_space(m, "_main", 0x8C62, MemSpace::page(4)) &&
+            const bool rebound = lookup_at(m, 0x8C62) == "main" && in_space(m, "_main", 0x8C62, MemSpace::page(4)) &&
                                  key_of(m, "_main")->bind_at_load;
             nr(m, 0x54, 40);
             const bool gone40 = lookup_at(m, 0x8C62) == "-";
             nr(m, 0x56, 20);
-            const bool b20 = lookup_at(m, 0xC000) == "_banked_add";
+            const bool b20 = lookup_at(m, 0xC000) == "banked_add";
             nr(m, 0x56, 0);
             const bool b0 = lookup_at(m, 0xC000) == "-";
             check("SRCDBG-SYM-19", "a map loaded before its program is bound when loaded and again at the program load "
@@ -6562,7 +6794,7 @@ int main() {
             Machine m(false, MachineType::ZXN_ISSUE2);
             const bool premise = m.dbg->source_page(0x8CA1) == MemSpace::page(4);
             const auto r = m.dbg->load_program_sidecars(tap);
-            const bool live = lookup_at(m, 0x8CA1) == "_main" && in_space(m, "_main", 0x8CA1, MemSpace::page(4));
+            const bool live = lookup_at(m, 0x8CA1) == "main" && in_space(m, "_main", 0x8CA1, MemSpace::page(4));
             nr(m, 0x54, 40);
             const bool gone40 = lookup_at(m, 0x8CA1) == "-";
             const fs::path d2 = sdir / "s20b";
@@ -6586,7 +6818,7 @@ int main() {
             const bool in40 = in_space(m, "_main", 0x8CA1, MemSpace::page(40));
             nr(m, 0x54, 4);
             m.dbg->load_program_sidecars((alone / "game.tap").string());
-            const bool in4 = in_space(m, "_main", 0x8CA1, MemSpace::page(4)) && lookup_at(m, 0x8CA1) == "_main";
+            const bool in4 = in_space(m, "_main", 0x8CA1, MemSpace::page(4)) && lookup_at(m, 0x8CA1) == "main";
             nr(m, 0x54, 40);
             check("SRCDBG-SYM-21", "the user's map is rebound at a tape load",
                   in40 && in4 && lookup_at(m, 0x8CA1) == "-");
@@ -6610,17 +6842,708 @@ int main() {
             const bool s1 = run_to(0x8CAE);
             const MemSpace before = m.dbg->source_page(0xC000);
             const bool premise1 = !(before == MemSpace::page(20)) && m.dbg->source_page(0x8CAE) == MemSpace::page(4);
-            const bool main_named = lookup_at(m, 0x8CAE) == "_main" && lookup_at(m, 0xC000) == "-";
+            const bool main_named = lookup_at(m, 0x8CAE) == "main" && lookup_at(m, 0xC000) == "-";
             const bool s2 = run_to(0xC000);
             const bool in20 = m.dbg->source_page(0xC000) == MemSpace::page(20) &&
-                              lookup_at(m, 0xC000) == "_banked_add" && m.dbg->lookup_name("_banked_add") == 0xC000;
+                              lookup_at(m, 0xC000) == "banked_add" && m.dbg->lookup_name("_banked_add") == 0xC000;
             const bool s3 = run_to(0x8CBE);
             const bool out = m.dbg->source_page(0xC000) == before && lookup_at(m, 0xC000) == "-";
-            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: _banked_add (a 24-bit $14C000 "
-                                   "in the map) names $C000 only while banked_call has page 20 mapped",
+            check("SRCDBG-SYM-22", "the program pages its own banked symbol in and out: banked_add (_banked_add, a 24-bit "
+                                   "$14C000 in the map) names $C000 only while banked_call has page 20 mapped",
                   r.symbols == 9 && has(log, "(program identity verified)") && s1 && premise1 && main_named && s2 &&
                       in20 && s3 && out,
                   log);
+        }
+        {   // SRCDBG-CN-01: GH #424, a C symbol under its C name through the real attach
+            // Oracle: the fixture's own bytes (`32 59 8F` at $8C9A is ld (_counter),a, main.c.lis:624;
+            // `21 59 8F` at $8D65 is ld hl,_counter) and zcc's MODULE naming (main_c).
+            const fs::path d = sdir / "cn1";
+            z88_copy("v2.4/sccz80-debug", d);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const auto mnemonic = [&](uint16_t addr) {
+                return std::string(m.dbg->disassemble(addr, 1, &m.dbg->symbols())[0].mnemonic);
+            };
+            const auto k = m.dbg->symbols().resolve_key("counter");
+            check("SRCDBG-CN-01", "after the attach of a z88dk program, `counter` names `_counter`'s address and page, "
+                                  "lookup() shows counter, and disassemble() prints the C name",
+                  r.symbols == 19 && m.dbg->lookup_name("counter") == std::optional<uint16_t>(0x8F59) &&
+                      k && k->space && *k->space == MemSpace::page(4) && lookup_at(m, 0x8F59) == "counter" &&
+                      mnemonic(0x8C9A) == "LD (counter),A" && mnemonic(0x8D65) == "LD HL,counter",
+                  mnemonic(0x8C9A) + " | " + mnemonic(0x8D65));
+        }
+    }
+
+    // ── GH #351 (E23-21): z88dk dot commands, which NextZXOS runs from DivMMC RAM bank 2 ──
+    // Oracle: the committed dot / dotx fixtures (zcc +zxn -subtype=dot|dotx, v2.4 sccz80:
+    // `_main` $2D5F, dot.c:8 $2D4F four times, dot.c:14 $2D62, dot.c:15 $2D6A, dot.c:17 $2D82,
+    // add3's first line dot.c:7 $2D4C, dot.c:18 $2D95) and the measured NextZXOS behaviour
+    // (fixtures README): the file is copied into DivMMC bank 2, E3 <- $82, the CPU runs $2000.
+    // The machine is a Next with the fixture's CODE group placed in bank 2 the way NextZXOS
+    // does it, the stack holding a return address to a parked loop.
+    {
+        const MemSpace D2 = MemSpace::divmmc_ram(2);
+        const fs::path root = dir / "dot";
+        constexpr uint16_t kMain = 0x2D5F;
+        constexpr uint16_t kEntry = 0x2000;
+        z88_copy("v2.4/sccz80-dot", root / "a");
+        z88_copy("v2.4/sccz80-dotx", root / "x");
+        z88_copy("v2.4/sccz80-debug", root / "nex");
+        const std::string dot_map = (root / "a" / "prog.map").string();
+        const std::string dotx_map = (root / "x" / "prog.map").string();
+        const std::vector<uint8_t> dot_code = read_all(root / "a" / "prog_CODE.bin");
+        const std::vector<uint8_t> x_code = read_all(root / "x" / "prog_CODE.bin");
+        const std::vector<uint8_t> x_main = read_all(root / "x" / "prog_MAIN.bin");
+        const auto put_dot = [](Machine& m, const std::vector<uint8_t>& code, long flip = -1) {
+            uint8_t* bank2 = m.emu.divmmc().ram_data() + 2 * 0x2000;
+            std::copy(code.begin(), code.end(), bank2);
+            if (flip >= 0) bank2[flip] ^= 0xFF;
+        };
+        const auto enter_dot_bank = [](Machine& m) { m.dbg->port_out(m.a, 0xE3, 0x82); };
+        // PC at `pc`, with a return address to the parked loop at $6000 on the stack.
+        const auto start_at = [](Machine& m, uint16_t pc) {
+            park(m);
+            m.emu.mmu().write(0xFEFE, 0x00);
+            m.emu.mmu().write(0xFEFF, 0x60);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.SP = 0xFEFE;
+            m.emu.cpu().set_registers(r);
+            m.set_pc(pc);
+        };
+        // A Next machine running the dot command `code` from bank 2 with `map` attached.
+        const auto dot_machine = [&](const std::vector<uint8_t>& code, const std::string& map, Machine& m,
+                                     long flip = -1) {
+            put_dot(m, code, flip);
+            enter_dot_bank(m);
+            start_at(m, 0x6000);   // parked while the map is loaded: a hand load made inside the command judges like a landing there
+            const auto r = m.dbg->load_source_map(map, false);
+            m.set_pc(kMain);
+            return r;
+        };
+        // Run until the machine stops, at most `limit` times; the PCs it stopped at.
+        const auto stops_of = [](Machine& m, int limit = 10) {
+            std::vector<uint16_t> pcs;
+            for (int i = 0; i < limit; ++i) {
+                m.dbg->run(m.a);
+                for (int f = 0; f < 4 && !m.dbg->state().paused; ++f) m.emu.run_frame();
+                if (!m.dbg->state().paused) break;
+                pcs.push_back(m.pc());
+            }
+            return pcs;
+        };
+        const auto name_of = [&](Machine& m) {
+            const auto* l = m.dbg->source_location();
+            return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
+        };
+        const auto verified_line = [&](const std::string& map, const char* tail) {
+            return "Verified z88dk source map '" + map + "': " + tail;
+        };
+        const std::string not_the_one = "The dot command started in DivMMC RAM bank 2 is not the one source map '" +
+                                        dot_map + "' describes; it stays pending";
+        const std::string verified_all = verified_line(dot_map, "the dot command in DivMMC RAM bank 2 matches its binary identity");
+
+        {   // SRCDOT-01
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = dot_machine(dot_code, dot_map, m);
+            const bool premise = m.dbg->source_page(0x2D4F) == D2 && m.dbg->effective_page(0x2D4F) != 0xFF;
+            const auto g = m.dbg->subscribe_source_line(m.a, "dot.c:8", execute_stop(0));
+            const auto stops = stops_of(m);
+            bool at_line = true;
+            Machine n(false, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, n);
+            n.dbg->subscribe_source_line(n.a, "dot.c:8", execute_stop(0));
+            n.dbg->run(n.a);
+            for (int f = 0; f < 4 && !n.dbg->state().paused; ++f) n.emu.run_frame();
+            at_line = n.dbg->state().paused && n.pc() == 0x2D4F && name_of(n) == "dot.c:8" &&
+                      n.dbg->source_page(n.pc()) == D2;
+            check("SRCDOT-01", "a dot command's map attaches (pending) with the ROM at $2000 and a source breakpoint on dot.c:8 stops "
+                               "the command running from DivMMC bank 2 at $2D4F, four times in all, reporting dot.c:8",
+                  r.count > 0 && r.pending && premise && static_cast<bool>(g) && at_line &&
+                      stops == std::vector<uint16_t>(4, 0x2D4F),
+                  "count=" + std::to_string(r.count) + " stops=" + std::to_string(stops.size()) + " " + n.where());
+        }
+        {   // SRCDOT-02
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, m);
+            m.dbg->subscribe_source_line(m.a, "dot.c:14", execute_stop(0));
+            stops_of(m, 1);
+            const uint16_t at14 = m.pc();
+            const std::string l14 = name_of(m);
+            m.dbg->source_step(m.a, Step::Into);
+            const uint16_t at15 = m.pc();
+            const std::string l15 = name_of(m);
+            const bool in15 = m.dbg->source_page(at15) == D2;
+            m.dbg->subscribe_source_line(m.a, "dot.c:17", execute_stop(0));
+            stops_of(m, 1);
+            const uint16_t at17 = m.pc();
+            const std::string l17 = name_of(m);
+            m.dbg->source_step(m.a, Step::Into);
+            const uint16_t in_add3 = m.pc();
+            const std::string l7 = name_of(m);
+            m.dbg->source_step(m.a, Step::Out);
+            const std::string back = name_of(m);
+            m.dbg->source_step(m.a, Step::Over);
+            const uint16_t next = m.pc();
+            const std::string l18 = name_of(m);
+            check("SRCDOT-02", "source steps follow inside the dot command: Into dot.c:14 -> dot.c:15 ($2D6A); Into the add3() call line "
+                               "dot.c:17 ($2D82) -> add3's dot.c:7 ($2D4C); Out -> back on dot.c:17; Over (the loop returns to its test) -> dot.c:15 ($2D6A-$2D81); every landing in DivMMC RAM bank 2",
+                  at14 == 0x2D62 && l14 == "dot.c:14" && at15 == 0x2D6A && l15 == "dot.c:15" && in15 && at17 == 0x2D82 &&
+                      l17 == "dot.c:17" && in_add3 == 0x2D4C && l7 == "dot.c:7" && back == "dot.c:17" && l18 == "dot.c:15" &&
+                      next >= 0x2D6A && next < 0x2D82 && m.dbg->source_page(next) == D2,
+                  l14 + " " + l15 + " " + l17 + " " + l7 + " " + back + " " + l18);
+        }
+        {   // SRCDOT-03
+            // The same 8K in ordinary RAM (page 40 in MMU1, E3 off) and the control with E3 = $82.
+            const auto ram_machine = [&](Machine& m) {
+                m.dbg->poke(m.a, MemSpace::page(40), 0, dot_code.size(), dot_code.data());
+                m.dbg->nextreg_write(m.a, 0x51, 40);
+                m.dbg->port_out(m.a, 0xE3, 0x00);
+                start_at(m, kMain);
+                m.dbg->load_source_map(dot_map, false);
+            };
+            Machine r(false, MachineType::ZXN_ISSUE2);
+            ram_machine(r);
+            const bool premise = r.dbg->source_page(0x2D62) == MemSpace::page(40);
+            r.dbg->subscribe_source_line(r.a, "dot.c:8", execute_stop(0));
+            const auto stops = stops_of(r, 3);
+            r.dbg->pause(r.a);
+            const bool ran_through = stops.empty() && r.pc() == 0x6000;
+            // How often the code ran $2D4F: single steps over the same RAM.
+            Machine c(false, MachineType::ZXN_ISSUE2);
+            ram_machine(c);
+            int passes = 0;
+            for (int i = 0; i < 4000 && c.pc() != 0x6000; ++i) {
+                if (c.pc() == 0x2D4F) ++passes;
+                c.dbg->step_into(c.a);
+            }
+            const bool no_loc = !c.dbg->source_location(0x2D62) && !r.dbg->source_location(0x2D4F);
+            // Under the ROM.
+            Machine o(false, MachineType::ZXN_ISSUE2);
+            o.dbg->load_source_map(dot_map, false);
+            const bool rom_none = !o.dbg->source_location(0x2D62) && o.dbg->source_page(0x2D62).kind == MemSpace::Kind::Rom;
+            // The control: E3 = $82 stops.
+            Machine d(false, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, d);
+            d.dbg->subscribe_source_line(d.a, "dot.c:8", execute_stop(0));
+            const auto d_stops = stops_of(d, 2);
+            check("SRCDOT-03", "the same bytes in ordinary RAM (page 40 at $2000, E3 off) or ROM at $2D62 match nothing: a dot.c:8 breakpoint never stops "
+                               "while the code runs $2D4F four times; the control with DivMMC bank 2 stops",
+                  premise && ran_through && passes == 4 && no_loc && rom_none && !d_stops.empty() && d_stops[0] == 0x2D4F,
+                  "premise=" + std::to_string(premise) + " stops=" + std::to_string(stops.size()) + " passes=" + std::to_string(passes));
+        }
+        {   // SRCDOT-04
+            const auto at_entry = [&](Machine& m, std::string& log, Debugger::SourceMapStatus& st) {
+                enter_dot_bank(m);
+                m.set_pc(kEntry);
+                log = debugger_log_of([&] {
+                    m.dbg->step_into(m.a);
+                    st = m.dbg->source_map_status();
+                });
+            };
+            Machine good(false, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, good);
+            const bool was_pending = good.dbg->source_map_status().pending;
+            std::string log_good;
+            Debugger::SourceMapStatus st_good;
+            at_entry(good, log_good, st_good);
+            // One byte of dot.c:14's code changed: another dot command is in the bank.
+            Machine bad(false, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, bad, 0xD62);
+            std::string log1, log2, log3;
+            Debugger::SourceMapStatus st1, st2, st3;
+            at_entry(bad, log1, st1);
+            at_entry(bad, log2, st2);
+            bad.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] = dot_code[0xD62];   // the real command arrives
+            at_entry(bad, log3, st3);
+            check("SRCDOT-04", "judged at the entry: $2000 fetched from bank 2 with matching bytes verifies the map (and tells so); with one changed byte "
+                               "the map stays attached and pending, the 'not the one' line is told once, nothing is dropped; the right bytes at the next entry verify it",
+                  was_pending && !st_good.pending && has(log_good, verified_all) &&
+                      st1.state == Debugger::SourceMapStatus::State::Attached && st1.pending && has(log1, not_the_one) &&
+                      st2.pending && !has(log2, not_the_one) && !has(log1 + log2, "Rejected") && !has(log1 + log2, "Dropped") &&
+                      bad.dbg->source_map().size() > 0 && !st3.pending && has(log3, verified_all),
+                  log_good + "|" + log1 + "|" + log2 + "|" + log3);
+        }
+        {   // SRCDOT-05
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, m);
+            std::string log;
+            Debugger::SourceMapStatus st;
+            log = debugger_log_of([&] {
+                const auto stops = stops_of(m, 1);   // runs _main to the parked loop, never fetching $2000
+                (void)stops;
+                m.dbg->pause(m.a);
+                st = m.dbg->source_map_status();
+            });
+            check("SRCDOT-05", "the code runs from _main without ever fetching $2000: the map is still pending (the entry is the judgement point, not the first run of a span)",
+                  m.pc() == 0x6000 && st.state == Debugger::SourceMapStatus::State::Attached && st.pending &&
+                      !has(log, "Verified"),
+                  log);
+        }
+        {   // SRCDOT-06
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            put_dot(m, dot_code, 0xD62);   // not the command: hand loading does not compare
+            enter_dot_bank(m);
+            start_at(m, kMain);
+            const auto r = m.dbg->load_source_map(dot_map, /*accept_identity_mismatch=*/false, /*verify_at_first_execution=*/false);
+            const size_t size = m.dbg->source_map().size();
+            const auto nex = m.dbg->load_source_map((root / "nex" / "prog.map").string(), false, false, /*dot_only=*/true);
+            const auto dot_again = m.dbg->load_source_map(dot_map, false, false, /*dot_only=*/true);
+            check("SRCDOT-06", "a hand load of a dot command's map attaches pending even with different bytes in bank 2 (no mismatch, no refusal); with no program "
+                               "(dot_only) a NEX map is refused as not a dot command and the attached map is kept, while a dot map is accepted",
+                  r.count > 0 && r.pending && r.error.empty() && !r.identity.has_value() &&
+                      has(r.identity_note, "the dot command loads when it runs") && nex.count == -1 && nex.not_dot &&
+                      has(nex.error, "dot command") && m.dbg->source_map().size() == size && dot_again.count > 0 &&
+                      dot_again.pending && !dot_again.not_dot,
+                  r.error + " | " + nex.error);
+        }
+        {   // SRCDOT-07
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, m);
+            const auto verify_entry = [&] {
+                put_dot(m, dot_code);
+                enter_dot_bank(m);
+                m.set_pc(kEntry);
+                m.dbg->step_into(m.a);
+                return m.dbg->source_map_status();
+            };
+            m.dbg->reset(m.a, ResetKind::Soft);
+            const std::string log_a = debugger_log_of([&] { (void)m.dbg->source_map_status(); });
+            const auto after_first = m.dbg->source_map_status();
+            const auto v1 = verify_entry();
+            m.dbg->reset(m.a, ResetKind::Soft);
+            std::string log_b;
+            Debugger::SourceMapStatus after_second;
+            log_b = debugger_log_of([&] { after_second = m.dbg->source_map_status(); });
+            const auto v2 = verify_entry();
+            check("SRCDOT-07", "a soft reset neither drops nor stales a dot map: a pending one stays attached and pending (a tape's would be judged and dropped), "
+                               "a verified one goes back to pending, and the next matching entry verifies it again",
+                  after_first.state == Debugger::SourceMapStatus::State::Attached && after_first.pending && !has(log_a, "Dropped") &&
+                      !v1.pending && after_second.state == Debugger::SourceMapStatus::State::Attached && after_second.pending &&
+                      !has(log_b, "stale") && !has(log_b, "Dropped") && !v2.pending && m.dbg->source_map().size() > 0,
+                  log_a + "|" + log_b);
+        }
+        {   // SRCDOT-08
+            const auto x_machine = [&](Machine& m, long flip_main) {
+                dot_machine(x_code, dotx_map, m);
+                tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", flip_main, 0);
+            };
+            const std::string x_dot_line = "Verified z88dk source map '" + dotx_map + "' in DivMMC RAM bank 2; 1 memory space still to check";
+            const std::string x_all = verified_line(dotx_map, "the dot command in DivMMC RAM bank 2 matches its binary identity");
+            // a) the entry matches, then the main part runs
+            Machine a(false, MachineType::ZXN_ISSUE2);
+            x_machine(a, -1);
+            const bool premise = a.dbg->source_page(0x87EB) == MemSpace::page(4);
+            Debugger::SourceMapStatus s1, s2;
+            const std::string la = debugger_log_of([&] {
+                enter_dot_bank(a);
+                a.set_pc(kEntry);
+                a.dbg->step_into(a.a);
+                s1 = a.dbg->source_map_status();
+                a.set_pc(0x87EB);
+                a.dbg->step_into(a.a);
+                s2 = a.dbg->source_map_status();
+            });
+            // b) a changed byte of the main part, after the entry matched: dropped, as a tape
+            Machine b(false, MachineType::ZXN_ISSUE2);
+            x_machine(b, 0x7EB);
+            Debugger::SourceMapStatus s3;
+            const std::string lb = debugger_log_of([&] {
+                enter_dot_bank(b);
+                b.set_pc(kEntry);
+                b.dbg->step_into(b.a);
+                b.set_pc(0x87EB);
+                b.dbg->step_into(b.a);
+                s3 = b.dbg->source_map_status();
+            });
+            // c) the main part runs before any entry: nothing is judged
+            Machine c(false, MachineType::ZXN_ISSUE2);
+            x_machine(c, 0x7EB);
+            Debugger::SourceMapStatus s4;
+            const std::string lc = debugger_log_of([&] {
+                c.set_pc(0x87EB);
+                c.dbg->step_into(c.a);
+                s4 = c.dbg->source_map_status();
+            });
+            check("SRCDOT-08", "dotx: a matching entry verifies bank 2 and arms page 4 (still pending, one space to check); the main part's first run with matching "
+                               "bytes verifies the map; with one changed byte it is dropped as a tape's; before any entry the main part's run judges nothing",
+                  premise && s1.pending && has(la, x_dot_line) && !s2.pending && has(la, x_all) &&
+                      s3.state == Debugger::SourceMapStatus::State::None && has(lb, "Rejected z88dk source map") &&
+                      s4.state == Debugger::SourceMapStatus::State::Attached && s4.pending && !has(lc, "Rejected") && !has(lc, "Verified"),
+                  la + "|" + lb + "|" + lc);
+        }
+        {   // SRCDOT-09
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, m);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;   // a loop inside the dot's bank, past its code
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+            run_frames(m, 2);   // _main returns to the loop at $6000 in the first
+            const uint32_t before_entry = m.dbg->time().frame;
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);
+            m.set_pc(0x3F00);
+            run_frames(m, 2);
+            const uint32_t after_entry = m.dbg->time().frame;
+            const auto in_dot_now = m.dbg->source_map_status();
+            const Result back = m.dbg->rewind_to_frame(m.a, before_entry);
+            const auto s_back = m.dbg->source_map_status();
+            const Result fwd = m.dbg->rewind_to_frame(m.a, after_entry);
+            const auto s_fwd = m.dbg->source_map_status();
+            check("SRCDOT-09", "a rewind to before the entry puts the dot map back to pending, still attached; coming forward to a frame where the CPU is inside the "
+                               "command (bytes matching) verifies it again",
+                  !in_dot_now.pending && back == Result::Ok && s_back.state == Debugger::SourceMapStatus::State::Attached &&
+                      s_back.pending && fwd == Result::Ok && !s_fwd.pending && m.dbg->source_map().size() > 0,
+                  "back=" + std::to_string(int(back)) + " fwd=" + std::to_string(int(fwd)) + " pend=" +
+                      std::to_string(s_back.pending) + std::to_string(s_fwd.pending));
+        }
+        {   // SRCDOT-10 (review R1): verified, then another dot command, then the right one again
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            dot_machine(dot_code, dot_map, m);
+            const auto entry = [&](std::string& log) {
+                enter_dot_bank(m);
+                m.set_pc(kEntry);
+                Debugger::SourceMapStatus st;
+                log = debugger_log_of([&] { m.dbg->step_into(m.a); st = m.dbg->source_map_status(); });
+                return st;
+            };
+            std::string l1, l2, l3, l4;
+            const auto s1 = entry(l1);                                   // verified
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;       // another command
+            const auto s2 = entry(l2);
+            const auto s3 = entry(l3);                                   // told once
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;       // ours again
+            const auto s4 = entry(l4);
+            // dotx: after the foreign entry the main part is disarmed again.
+            Machine x(false, MachineType::ZXN_ISSUE2);
+            dot_machine(x_code, dotx_map, x);
+            tape_bytes(x, MemSpace::page(4), root / "x" / "prog_MAIN.bin", 0x7EB, 0);   // a wrong main part
+            const auto first_span = x.dbg->source_map().verify_spans();
+            size_t code_lo = 0x2000;
+            for (const auto& sp : first_span) if (sp.unit == D2) { code_lo = sp.lo; break; }
+            const auto x_entry = [&](std::string& log) {
+                enter_dot_bank(x);
+                x.set_pc(kEntry);
+                log = debugger_log_of([&] { x.dbg->step_into(x.a); (void)x.dbg->source_map_status(); });
+            };
+            const auto x_main = [&](std::string& log) {
+                x.set_pc(0x87EB);
+                Debugger::SourceMapStatus st;
+                log = debugger_log_of([&] { x.dbg->step_into(x.a); st = x.dbg->source_map_status(); });
+                return st;
+            };
+            std::string xa, xb, xc, xd;
+            x_entry(xa);                                                 // armed
+            x.emu.divmmc().ram_data()[2 * 0x2000 + (code_lo - 0x2000)] ^= 0xFF;
+            x_entry(xb);                                                 // foreign: disarmed
+            const auto xs = x_main(xc);                                  // wrong main part: judges nothing
+            x.emu.divmmc().ram_data()[2 * 0x2000 + (code_lo - 0x2000)] ^= 0xFF;
+            x_entry(xd);                                                 // ours: armed again
+            const auto xe = [&] { std::string l; const auto st = x_main(l); return std::make_pair(st, l); }();
+            check("SRCDOT-10", "a verified dot map meets another dot command's entry: it goes back to pending, the 'not the one' line is told once, nothing is "
+                               "dropped, and the right bytes at the next entry verify it again; a dotx's main part is disarmed by the foreign entry (a wrong "
+                               "main part run then drops nothing) and armed again by the right entry (it is then dropped)",
+                  !s1.pending && has(l1, verified_all) && s2.pending && s2.state == Debugger::SourceMapStatus::State::Attached &&
+                      has(l2, not_the_one) && s3.pending && !has(l3, not_the_one) && !has(l2 + l3, "Dropped") && !has(l2 + l3, "Rejected") &&
+                      m.dbg->source_map().size() > 0 && !s4.pending && has(l4, verified_all) &&
+                      xs.state == Debugger::SourceMapStatus::State::Attached && xs.pending && !has(xc, "Rejected") &&
+                      xe.first.state == Debugger::SourceMapStatus::State::None && has(xe.second, "Rejected z88dk source map"),
+                  l1 + "|" + l2 + "|" + l3 + "|" + l4);
+        }
+        {   // SRCDOT-11 (review R2): $2000 run from somewhere other than bank 2 judges nothing
+            const auto at_2000 = [&](uint8_t e3, long flip, std::string& log) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                dot_machine(dot_code, dot_map, m, flip);
+                m.dbg->port_out(m.a, 0xE3, e3);
+                m.set_pc(kEntry);
+                log = debugger_log_of([&] { m.dbg->step_into(m.a); });
+                const bool premise = e3 == 0 ? m.dbg->source_page(kEntry).kind == MemSpace::Kind::Rom
+                                             : m.dbg->source_page(kEntry) == MemSpace::divmmc_ram(0);
+                return std::make_pair(m.dbg->source_map_status(), premise);
+            };
+            std::string la, lb, lc, ld;
+            const auto rom   = at_2000(0x00, -1, la);    // ROM at $2000, bank 2 holds the command
+            const auto bank0 = at_2000(0x80, -1, lb);    // DivMMC bank 0 (NextZXOS's hook), same
+            const auto rom_x = at_2000(0x00, 0xD62, lc); // ROM, bank 2 holds another command
+            const auto bk0_x = at_2000(0x80, 0xD62, ld);
+            const std::string all = la + lb + lc + ld;
+            check("SRCDOT-11", "$2000 run from ROM (E3 = 0) or from DivMMC bank 0 (E3 = $80) with bank 2 holding the command judges nothing: the map stays pending, "
+                               "no Verified line, and no 'not the one' line even when bank 2 holds another command",
+                  rom.second && bank0.second && rom_x.second && bk0_x.second && rom.first.pending && bank0.first.pending &&
+                      rom_x.first.pending && bk0_x.first.pending && !has(all, "Verified") && !has(all, not_the_one) &&
+                      rom.first.state == Debugger::SourceMapStatus::State::Attached,
+                  all);
+        }
+        {   // SRCDOT-12 (review R5): after a ring landing the status is what the original run showed at that instant
+            struct Sample { uint64_t clock; bool pending; bool attached; };
+            const auto trial = [&](const std::vector<uint8_t>& code, const std::string& map, bool main_part,
+                                   int& compared, bool& saw_true, bool& saw_false, std::string& note) {
+                Machine m(true, MachineType::ZXN_ISSUE2);
+                dot_machine(code, map, m);
+                if (main_part) tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", -1, 0);
+                const uint8_t loop[2] = {0x18, 0xFE};
+                m.dbg->poke(m.a, MemSpace::page(4), 0x1F00, 2, loop);          // a loop at $9F00 in page 4
+                m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;        // and one at $3F00 in bank 2
+                m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+                std::vector<Sample> log;
+                std::vector<uint32_t> frames;
+                const auto sample = [&] {   // the status of the original run now
+                    const auto st = m.dbg->source_map_status();
+                    log.push_back({m.emu.clock().get(), st.pending, st.state == Debugger::SourceMapStatus::State::Attached});
+                };
+                const auto frame = [&] {
+                    sample();
+                    frames.push_back(m.dbg->time().frame);
+                    run_frames(m, 1);
+                };
+                m.set_pc(0x6000);
+                frame(); frame();                                              // parked: pending
+                m.set_pc(kEntry);
+                m.dbg->step_into(m.a);                                         // the entry
+                sample();
+                if (main_part) {
+                    m.set_pc(0x87EB);
+                    m.dbg->step_into(m.a);                                     // the main part's first run
+                    sample();
+                    m.set_pc(0x9F00);                                          // running in page 4
+                } else {
+                    m.set_pc(0x9F00);                                          // a plain dot calls out of its bank
+                }
+                frame(); frame();
+                if (!main_part) { m.set_pc(0x3F00); frame(); frame(); }       // and is back inside it
+                frame();
+                for (size_t i = 0; i < frames.size(); ++i) {
+                    if (m.dbg->rewind_to_frame(m.a, frames[i]) != Result::Ok) { note += " rewind-failed"; continue; }
+                    const auto st = m.dbg->source_map_status();
+                    const uint64_t t = m.emu.clock().get();
+                    const Sample* orig = nullptr;                              // the original run at cycle t
+                    for (const Sample& s2 : log) if (s2.clock <= t) orig = &s2;
+                    if (!orig) continue;
+                    ++compared;
+                    if (orig->pending != st.pending || orig->attached != (st.state == Debugger::SourceMapStatus::State::Attached))
+                        note += " frame " + std::to_string(frames[i]) + " orig-pending=" + std::to_string(orig->pending) +
+                                " landed-pending=" + std::to_string(st.pending);
+                    (orig->pending ? saw_true : saw_false) = true;
+                }
+            };
+            int c1 = 0, c2 = 0;
+            bool t1 = false, f1 = false, t2 = false, f2 = false;
+            std::string n1, n2;
+            trial(x_code, dotx_map, true, c1, t1, f1, n1);
+            trial(dot_code, dot_map, false, c2, t2, f2, n2);
+            check("SRCDOT-12", "a rewind into a dotx's main part (page 4) and into a plain dot's out-of-bank code reads the same status the original run showed at that "
+                               "instant (verified while running there, pending before the entry), for every frame of the history",
+                  c1 >= 5 && c2 >= 7 && t1 && f1 && t2 && f2 && n1.empty() && n2.empty(),
+                  "dotx compared=" + std::to_string(c1) + n1 + " dot compared=" + std::to_string(c2) + n2);
+        }
+        {   // SRCDOT-13 (review R5): a hand load paused inside the running command judges like a landing there
+            const auto loaded_at = [&](uint16_t pc, long flip) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                put_dot(m, dot_code, flip);
+                enter_dot_bank(m);
+                start_at(m, pc);
+                const auto r = m.dbg->load_source_map(dot_map, false);
+                return std::make_pair(r, m.dbg->source_map_status());
+            };
+            const auto inside  = loaded_at(kMain, -1);     // in bank 2, the bytes are the command's
+            const auto foreign = loaded_at(kMain, 0xD62);  // in bank 2, another command
+            const auto outside = loaded_at(0x6000, -1);    // not running it
+            check("SRCDOT-13", "a hand load made while the CPU runs inside the command (bank 2, matching bytes) is verified at once, as a landing there would be; "
+                               "with other bytes in the bank, or the CPU elsewhere, it attaches pending",
+                  inside.first.count > 0 && !inside.second.pending && inside.second.state == Debugger::SourceMapStatus::State::Attached &&
+                      foreign.second.pending && outside.second.pending && !inside.first.pending &&
+                      has(inside.first.identity_note, "program identity verified") && !has(inside.first.identity_note, "pending") &&
+                      has(foreign.first.identity_note, "the dot command loads when it runs") && foreign.first.pending &&
+                      has(outside.first.identity_note, "the dot command loads when it runs"));
+        }
+        // Shared by SRCDOT-14..18: a Machine with a rewind ring, the command in bank 2 and a loop at $3F00 in it.
+        struct Sample { uint64_t clock; bool pending; bool attached; };
+        const auto ring_machine = [&](Machine& m, const std::vector<uint8_t>& code, const std::string& map) {
+            dot_machine(code, map, m);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+            m.set_pc(0x6000);
+        };
+        // The status of the original run now, kept; `frames` the frame numbers a rewind can name.
+        const auto sample_of = [&](Machine& m, std::vector<Sample>& log) {
+            const auto st = m.dbg->source_map_status();
+            log.push_back({m.emu.clock().get(), st.pending, st.state == Debugger::SourceMapStatus::State::Attached});
+        };
+        const auto frame_of = [&](Machine& m, std::vector<Sample>& log, std::vector<uint32_t>& frames) {
+            sample_of(m, log);
+            run_frames(m, 1);
+            frames.push_back(m.dbg->time().frame);   // rewinding to it lands at the start of the frame just run
+        };
+        // Rewind to each of `frames`; compare the landed status with the last sample at or before the landed cycle.
+        const auto compare_rewinds = [&](Machine& m, const std::vector<Sample>& log, const std::vector<uint32_t>& frames,
+                                         int& compared, bool& saw_pending, bool& saw_verified, std::string& note) {
+            for (const uint32_t fr : frames) {
+                if (m.dbg->rewind_to_frame(m.a, fr) != Result::Ok) { note += " rewind-failed"; continue; }
+                const auto st = m.dbg->source_map_status();
+                const uint64_t t = m.emu.clock().get();
+                const Sample* orig = nullptr;
+                for (const Sample& q : log) if (q.clock <= t) orig = &q;
+                if (!orig) continue;
+                ++compared;
+                if (orig->pending != st.pending || orig->attached != (st.state == Debugger::SourceMapStatus::State::Attached))
+                    note += " frame " + std::to_string(fr) + " orig-pending=" + std::to_string(orig->pending) +
+                            " landed-pending=" + std::to_string(st.pending);
+                (orig->pending ? saw_pending : saw_verified) = true;
+            }
+        };
+        {   // SRCDOT-14 (review Q1): a rewind back across a reset into the running command
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            ring_machine(m, dot_code, dot_map);
+            std::vector<Sample> log;
+            std::vector<uint32_t> frames;
+            frame_of(m, log, frames); frame_of(m, log, frames);          // parked: pending
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);
+            m.set_pc(0x3F00);                                           // running inside bank 2
+            sample_of(m, log);
+            frame_of(m, log, frames); frame_of(m, log, frames);
+            const bool ran_verified = !m.dbg->source_map_status().pending;
+            const Result rst = m.dbg->reset(m.a, ResetKind::Soft);
+            const bool after_reset_pending = m.dbg->source_map_status().pending;
+            run_frames(m, 2);
+            sample_of(m, log);
+            int compared = 0;
+            bool sp = false, sv = false;
+            std::string note;
+            compare_rewinds(m, log, std::vector<uint32_t>(frames.begin(), frames.end()), compared, sp, sv, note);
+            check("SRCDOT-14", "a rewind back across a soft reset into the frames where the command was running reads what the original run showed (verified there, "
+                               "pending before the entry), although the reset itself leaves the map pending: the records of the earlier generation are kept",
+                  rst == Result::Ok && ran_verified && after_reset_pending && compared >= 3 && sp && sv && note.empty(),
+                  "compared=" + std::to_string(compared) + note);
+        }
+        {   // SRCDOT-15 (review Q2): a live re-run after a rewind replaces what the first run recorded
+            const auto diverge = [&](bool foreign, std::string& note, bool& ok) {
+                Machine m(true, MachineType::ZXN_ISSUE2);
+                ring_machine(m, dot_code, dot_map);
+                std::vector<Sample> log;
+                std::vector<uint32_t> frames;
+                frame_of(m, log, frames);
+                const uint32_t f_pre = frames.back();
+                frame_of(m, log, frames);                                // the first run enters one frame later
+                m.set_pc(kEntry);
+                m.dbg->step_into(m.a);
+                m.set_pc(0x3F00);
+                sample_of(m, log);
+                frame_of(m, log, frames); frame_of(m, log, frames);
+                const bool first_verified = !m.dbg->source_map_status().pending;
+                if (m.dbg->rewind_to_frame(m.a, f_pre) != Result::Ok) { ok = false; return; }
+                const bool back_pending = m.dbg->source_map_status().pending;
+                // the new run: its entry comes at an earlier cycle, with another command or the same one
+                if (foreign) m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+                std::vector<Sample> log2;
+                std::vector<uint32_t> frames2;
+                m.set_pc(kEntry);
+                m.dbg->step_into(m.a);
+                m.set_pc(0x3F00);
+                sample_of(m, log2);
+                frame_of(m, log2, frames2); frame_of(m, log2, frames2); frame_of(m, log2, frames2); frame_of(m, log2, frames2);
+                const bool new_pending = m.dbg->source_map_status().pending;
+                int compared = 0;
+                bool sp = false, sv = false;
+                compare_rewinds(m, log2, frames2, compared, sp, sv, note);
+                ok = first_verified && back_pending && new_pending == foreign && compared >= 3 && (foreign ? sp : sv) && note.empty();
+            };
+            std::string n1, n2;
+            bool ok1 = false, ok2 = false;
+            diverge(true, n1, ok1);
+            diverge(false, n2, ok2);
+            check("SRCDOT-15", "verified run, rewind to before the entry, a live re-run entering earlier with another command (and with the same command): a rewind into the "
+                               "new run reads the new run's status, the abandoned run's later verdict is gone",
+                  ok1 && ok2, n1 + "|" + n2);
+        }
+        {   // SRCDOT-16 (review Q3, N2): a landing between the matching entry and the main part's first run keeps the main part armed
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            ring_machine(m, x_code, dotx_map);
+            tape_bytes(m, MemSpace::page(4), root / "x" / "prog_MAIN.bin", 0x7EB, 0);   // a wrong main part
+            std::vector<Sample> log;
+            std::vector<uint32_t> frames;
+            frame_of(m, log, frames);
+            const uint32_t f_pre = frames.back();
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);                                       // armed
+            m.set_pc(0x3F00);
+            frame_of(m, log, frames); frame_of(m, log, frames); frame_of(m, log, frames);
+            const uint32_t f_mid = frames[2];                            // a frame boundary after the entry, before the main part runs
+            const Result r1 = m.dbg->rewind_to_frame(m.a, f_pre);
+            const auto s_pre = m.dbg->source_map_status();
+            const Result r2 = m.dbg->rewind_to_frame(m.a, f_mid);
+            const auto s_mid = m.dbg->source_map_status();
+            Debugger::SourceMapStatus s_end;
+            m.set_pc(0x87EB);
+            const std::string lg = debugger_log_of([&] { m.dbg->step_into(m.a); s_end = m.dbg->source_map_status(); });
+            check("SRCDOT-16", "dotx: after a rewind to before the entry and forward to a frame between the matching entry and the main part's first run, the main part is "
+                               "still armed: running it with a wrong byte drops the map, as in the original run",
+                  r1 == Result::Ok && r2 == Result::Ok && s_pre.pending && s_mid.pending &&
+                      s_end.state == Debugger::SourceMapStatus::State::None && has(lg, "Rejected z88dk source map"),
+                  lg);
+        }
+        {   // SRCDOT-17 (review Q3, N7): a history of several transitions is read back in every period
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            ring_machine(m, dot_code, dot_map);
+            std::vector<Sample> log;
+            std::vector<uint32_t> frames;
+            const auto enter = [&] { enter_dot_bank(m); m.set_pc(kEntry); m.dbg->step_into(m.a); m.set_pc(0x3F00); };
+            frame_of(m, log, frames);                                    // pending
+            enter(); sample_of(m, log);                                  // verified
+            frame_of(m, log, frames);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+            enter(); sample_of(m, log);                                  // another command: pending
+            frame_of(m, log, frames);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0xD62] ^= 0xFF;
+            enter(); sample_of(m, log);                                  // ours again: verified
+            frame_of(m, log, frames);
+            frame_of(m, log, frames);
+            int compared = 0;
+            bool sp = false, sv = false;
+            std::string note;
+            compare_rewinds(m, log, frames, compared, sp, sv, note);
+            check("SRCDOT-17", "a history of verified, foreign entry, verified again, with frames in each period: a rewind into every frame reads the status the original run "
+                               "showed there",
+                  compared >= 4 && sp && sv && note.empty(), "compared=" + std::to_string(compared) + note);
+        }
+        {   // SRCDOT-18 (review Q3, N9): a hand load inside the command is part of the history
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            put_dot(m, dot_code);
+            enter_dot_bank(m);
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F00] = 0x18;
+            m.emu.divmmc().ram_data()[2 * 0x2000 + 0x1F01] = 0xFE;
+            start_at(m, 0x3F00);                                         // running the command's loop
+            const auto r = m.dbg->load_source_map(dot_map, false);
+            run_frames(m, 2);
+            const uint32_t f_later = m.dbg->time().frame;   // the start of the second frame, after the load
+            run_frames(m, 2);
+            const bool before = !m.dbg->source_map_status().pending;
+            const Result rr = m.dbg->rewind_to_frame(m.a, f_later);
+            const auto st = m.dbg->source_map_status();
+            check("SRCDOT-18", "a map hand-loaded while the CPU runs the command is verified, and a rewind to a later frame of that run still reads verified",
+                  r.count > 0 && before && rr == Result::Ok && !st.pending && st.state == Debugger::SourceMapStatus::State::Attached);
+        }
+        {   // SRCDOT-19 (review S1): a state load restores an earlier clock; the old run's verdict is not the new run's
+            Machine m(true, MachineType::ZXN_ISSUE2);
+            ring_machine(m, dot_code, dot_map);
+            run_frames(m, 1);                                            // parked
+            const auto saved = m.dbg->save_state_bytes(m.a, jnext::dbg::SaveStateMode::RefuseMidFrame);
+            m.set_pc(kEntry);
+            m.dbg->step_into(m.a);                                       // verified, in the old generation
+            m.set_pc(0x3F00);
+            run_frames(m, 3);
+            const bool old_verified = !m.dbg->source_map_status().pending;
+            Result ld = Result::Unsupported;
+            if (saved) ld = m.dbg->load_state_bytes(m.a, saved.value.data(), saved.value.size());
+            m.set_pc(0x6000);
+            run_frames(m, 1);
+            run_frames(m, 1);                                            // never entered: pending
+            const bool new_pending = m.dbg->source_map_status().pending;
+            const uint32_t f2 = m.dbg->time().frame;
+            const Result rr = m.dbg->rewind_to_frame(m.a, f2);
+            const auto st = m.dbg->source_map_status();
+            check("SRCDOT-19", "after a state load back to an earlier clock, a rewind into the new run (never entered) reads pending, not the old generation's verdict at an overlapping cycle",
+                  saved && ld == Result::Ok && old_verified && new_pending && rr == Result::Ok && st.pending &&
+                      st.state == Debugger::SourceMapStatus::State::Attached);
         }
     }
 

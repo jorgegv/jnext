@@ -9,6 +9,7 @@
 #include "debug/disasm_text.h"
 #include "debug/symbol_table.h"
 #include "debugger/operand_menu.h"
+#include "debugger/source_highlighter.h"
 #include "debugger/watch_panel.h"
 
 #include <QAction>
@@ -142,7 +143,7 @@ public:
     void paint_gutter(QPaintEvent* ev)
     {
         QPainter p(gutter_);
-        const QPalette pal = palette();
+        const QPalette pal = panel_->palette();   // GH #422: the scheme sits on the editor's palette, not here
         p.fillRect(ev->rect(), palette_tint::surface(pal, QColor(255, 255, 255)));
         p.setPen(palette_tint::surface(pal, QColor(200, 200, 200)));
         p.drawLine(kBreakpointColumnWidth, ev->rect().top(), kBreakpointColumnWidth, ev->rect().bottom());
@@ -179,7 +180,7 @@ public:
     void paint_header()
     {
         QPainter p(header_);
-        const QPalette pal = palette();
+        const QPalette pal = panel_->palette();
         p.fillRect(header_->rect(), palette_tint::surface(pal, QColor(255, 255, 255)));
         p.setFont(header_font());
         p.setPen(palette_tint::ink(pal, QColor(80, 80, 80)));
@@ -357,6 +358,9 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     mono.setStyleHint(QFont::Monospace);
     editor_->setFont(mono);
     layout->addWidget(editor_, 1);
+    // GH #422 - colours the text by language; a child of the panel, so tests find it.
+    highlighter_ = new SourceHighlighter(this);
+    highlighter_->setDocument(editor_->document());
 
     // GH #423 - the clipboard commands are QActions on the editor, as the
     // Disassembly's are on its widget: the menu shows the chord, and the chord
@@ -437,6 +441,7 @@ void SourcePanel::show_message(const QString& message)
     location_label_->setToolTip(QString());
     shown_file_.clear();
     if (!loaded_source_.isEmpty()) {
+        highlighter_->set_language(SourceLanguage::Plain);
         editor_->clear();
         loaded_source_.clear();
         loaded_mtime_ = -1;
@@ -469,8 +474,46 @@ void SourcePanel::update_buttons(bool paused)
     reverse_btn_->setEnabled(backward);
 }
 
+SourceLanguage SourcePanel::source_language() const { return highlighter_->language(); }
+
+// GH #422 - THE way a text enters the editor: the language is chosen first, so the
+// text is highlighted once, with its own language.
+void SourcePanel::set_source_text(const QString& text, const std::string& file)
+{
+    highlighter_->set_language(source_language_for(file, text));
+    editor_->setPlainText(text);
+}
+
+// GH #422 stage 2 - the scheme in force: resolved against the PANEL's palette (the
+// application's; never the editor's, which carries the scheme), its class colours go to
+// the highlighter and its background, text and current-line bar to the editor's palette.
+// The gutter and its header read the panel's palette, so no scheme reaches them.
+void SourcePanel::apply_scheme_()
+{
+    highlighter_->apply_palette(palette());   // rehighlights only when a class colour changed
+    const SourceHighlighter::SchemeColours& c = highlighter_->colours_in_force();
+    QPalette p = editor_->palette();
+    if (p.color(QPalette::Base) == c.background && p.color(QPalette::Text) == c.text &&
+        p.color(QPalette::Highlight) == c.pc_background && p.color(QPalette::HighlightedText) == c.pc_text)
+        return;
+    for (auto g : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
+        p.setColor(g, QPalette::Base, c.background);
+        p.setColor(g, QPalette::Text, c.text);
+        p.setColor(g, QPalette::Highlight, c.pc_background);
+        p.setColor(g, QPalette::HighlightedText, c.pc_text);
+    }
+    editor_->setPalette(p);
+}
+
+void SourcePanel::set_colour_scheme(SourceScheme scheme)
+{
+    highlighter_->set_scheme(scheme);
+    apply_scheme_();   // at once: a Preferences Apply does not wait for a paused tick
+}
+
 void SourcePanel::refresh()
 {
+    apply_scheme_();
     refresh_();
     update_gutter();   // the marks follow the memory mapped now
 }
@@ -522,8 +565,10 @@ void SourcePanel::refresh_()
 
     // GH #344 stage 3 - a tape program's map is attached and works, but its identity is
     // judged where the program first runs its code: say so until it is.
+    // GH #351 - a dot command's is judged when the command starts.
     const QString note = status.pending
-        ? tr("\nSource map not verified yet: it is checked when the program first runs its code")
+        ? (status.dot ? tr("\nSource map not verified yet: it is checked when the dot command runs")
+                      : tr("\nSource map not verified yet: it is checked when the program first runs its code"))
         : QString();
 
     const uint16_t pc = dbg_->registers().PC;
@@ -539,40 +584,61 @@ void SourcePanel::refresh_()
         return;
     }
 
-    // GH #420 - a z88dk record in a `.m4` file (the CRT): the assembler numbered the
-    // lines of the m4 OUTPUT, which the build did not keep, so no file on disk has them.
-    if (dbg_->source_map().format() == "z88dk" &&
-        QString::fromStdString(location->file).endsWith(QLatin1String(".m4"), Qt::CaseInsensitive)) {
-        show_message(tr("%1:%2 - the line counts the m4 output of this file, which the build "
-                        "did not keep; use the disassembly")
-                         .arg(QString::fromStdString(location->file)).arg(location->line) + note);
-        return;
-    }
-    const QString source_path = resolve_source_file(location->file);
-    if (source_path.isEmpty()) {
-        show_message(tr("%1:%2 - source file not found")
-                         .arg(QString::fromStdString(location->file))
-                         .arg(location->line) + note);
-        set_unresolved(location->file);
-        return;
-    }
-    // Reloaded when the file changes on disk, so an edit-and-rebuild cycle
-    // never highlights a line of the old text.
-    const qint64 mtime = QFileInfo(source_path).lastModified().toMSecsSinceEpoch();
-    if (source_path != loaded_source_ || mtime != loaded_mtime_) {
-        QFile file(source_path);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            show_message(tr("Could not open %1").arg(source_path));
+    // GH #348 - the start-up code's m4 output, which the build did not keep, is in the
+    // listing (`prog.lis`) the map was loaded with: shown from there, labelled so.
+    const SourceText* embedded = dbg_->source_map().embedded_text(location->file);
+    QString source_path;
+    if (embedded) {
+        // A key no real path can equal, so switching back to a disk file reloads it.
+        source_path = QStringLiteral("\x01m4:") + QString::fromStdString(location->file) +
+                      QLatin1Char('\x01') + QString::fromStdString(embedded->origin) + QLatin1Char('\x01') +
+                      QString::number(reinterpret_cast<quintptr>(embedded), 16) + QLatin1Char(':') +
+                      QString::number(embedded->lines.size());
+        if (source_path != loaded_source_) {
+            QStringList lines;
+            lines.reserve(static_cast<int>(embedded->lines.size()));
+            for (const std::string& l : embedded->lines) lines << QString::fromUtf8(l.c_str());
+            set_source_text(lines.join(QLatin1Char('\n')), location->file);
+            loaded_source_ = source_path;
+            loaded_mtime_ = -1;
+            placed_ = false;
+        }
+    } else {
+        // GH #420 - a z88dk record in a `.m4` file (the CRT): the assembler numbered the
+        // lines of the m4 OUTPUT, which the build did not keep, so no file on disk has them.
+        if (dbg_->source_map().format() == "z88dk" &&
+            QString::fromStdString(location->file).endsWith(QLatin1String(".m4"), Qt::CaseInsensitive)) {
+            show_message(tr("%1:%2 - the line counts the m4 output of this file, which the build "
+                            "did not keep; use the disassembly")
+                             .arg(QString::fromStdString(location->file)).arg(location->line) + note);
             return;
         }
-        editor_->setPlainText(QString::fromUtf8(file.readAll()));
-        loaded_source_ = source_path;
-        loaded_mtime_ = mtime;
-        placed_ = false;   // a new text, or another file, starts at its top
+        source_path = resolve_source_file(location->file);
+        if (source_path.isEmpty()) {
+            show_message(tr("%1:%2 - source file not found")
+                             .arg(QString::fromStdString(location->file))
+                             .arg(location->line) + note);
+            set_unresolved(location->file);
+            return;
+        }
+        // Reloaded when the file changes on disk, so an edit-and-rebuild cycle
+        // never highlights a line of the old text.
+        const qint64 mtime = QFileInfo(source_path).lastModified().toMSecsSinceEpoch();
+        if (source_path != loaded_source_ || mtime != loaded_mtime_) {
+            QFile file(source_path);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                show_message(tr("Could not open %1").arg(source_path));
+                return;
+            }
+            set_source_text(QString::fromUtf8(file.readAll()), location->file);
+            loaded_source_ = source_path;
+            loaded_mtime_ = mtime;
+            placed_ = false;   // a new text, or another file, starts at its top
+        }
     }
     shown_file_ = location->file;
 
-    location_label_->setToolTip(source_path);
+    location_label_->setToolTip(embedded ? QString::fromStdString(embedded->origin) : source_path);
     // GH #420 - a line past the end of the file found: it is not the text the build used.
     const QTextDocument* doc = editor_->document();
     const int file_lines = file_line_count(doc);
@@ -584,16 +650,43 @@ void SourcePanel::refresh_()
         highlighted_line_ = 0;
         return;
     }
-    location_label_->setText(tr("%1:%2  $%3  %4")
-                                 .arg(QString::fromStdString(location->file))
-                                 .arg(location->line)
-                                 .arg(pc_text)
-                                 .arg(where) + also_text(pc) + note);
+    location_label_->setText(
+        (embedded ? tr("%1:%2  $%3  %4 (m4 output, from %5)")
+                        .arg(QString::fromStdString(location->file))
+                        .arg(location->line)
+                        .arg(pc_text)
+                        .arg(where)
+                        .arg(QFileInfo(QString::fromStdString(embedded->origin)).fileName())
+                  : tr("%1:%2  $%3  %4")
+                        .arg(QString::fromStdString(location->file))
+                        .arg(location->line)
+                        .arg(pc_text)
+                        .arg(where)) + also_text(pc) + note);
     const QTextBlock block = editor_->document()->findBlockByNumber(location->line - 1);
     if (!block.isValid()) {
         editor_->setExtraSelections({});
         highlighted_line_ = 0;
         return;
+    }
+
+    // GH #388 - memory coverage: with it on, every line of this file the program
+    // executed (an X byte in one of the line's ranges) has a pale full-width
+    // background. X only: the R and W of a line's bytes have no per-source-line
+    // meaning (a line's bytes are its code). The current-line selection is
+    // appended LAST so it wins on its own line.
+    QList<QTextEdit::ExtraSelection> selections;
+    if (dbg_->mem_coverage_enabled()) {
+        const QColor tint = highlighter_->colours_in_force().coverage_line;   // the scheme's (GH #422)
+        for (const uint32_t line : dbg_->executed_source_lines(location->file)) {
+            const QTextBlock b = doc->findBlockByNumber(static_cast<int>(line) - 1);
+            if (line == 0 || !b.isValid()) continue;
+            QTextEdit::ExtraSelection t;
+            t.cursor = QTextCursor(b);
+            t.cursor.clearSelection();
+            t.format.setBackground(tint);
+            t.format.setProperty(QTextFormat::FullWidthSelection, true);
+            selections.append(t);
+        }
     }
 
     QTextEdit::ExtraSelection selection;
@@ -602,7 +695,8 @@ void SourcePanel::refresh_()
     selection.format.setBackground(editor_->palette().highlight());
     selection.format.setForeground(editor_->palette().highlightedText());
     selection.format.setProperty(QTextFormat::FullWidthSelection, true);
-    editor_->setExtraSelections({selection});
+    selections.append(selection);
+    editor_->setExtraSelections(selections);
     // Placed only when something moved. This runs on every tick while paused,
     // and centring again each time would snap the view back to the line
     // whenever the user scrolled away from it.
@@ -974,7 +1068,9 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
                         used = run.mid(cs, ce - cs + 1);
                         if (!used.isEmpty()) key = symbol_for_word(used);
                     }
-                    if (key) word_symbol = std::make_pair(used.toStdString(), key->addr);
+                    // The shown name, as the Disassembly names it: a z88dk C symbol is `counter`, not `_counter`.
+                    if (key)
+                        word_symbol = std::make_pair(dbg_->symbols().shown_name(used.toStdString()), key->addr);
                 }
             }
         }

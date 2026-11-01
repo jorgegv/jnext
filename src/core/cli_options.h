@@ -141,6 +141,7 @@ enum class OptId {
     PokTrainers,
     RewindBufferSize,
     Trace,
+    Coverage,
     CompositorTrace,
     CompositorTraceFrame,
     Profile,
@@ -615,6 +616,10 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Enable the per-instruction trace log (10K-entry ring;\n"
       "implied by --rewind-buffer-size N with N>0)" },
+    { "--coverage", 0, Doc::Documented, OptId::Coverage,
+      "",
+      "Record memory coverage (executed, read and written bytes per\n"
+      "page) from the start; see Debug > Coverage" },
 
     // Headless and automation
     { "--headless", 0, Doc::Documented, OptId::Headless,
@@ -855,8 +860,11 @@ inline constexpr Option OPTIONS[] = {
       "Attach a source map, an sjasmplus SLD or a z88dk -debug .map\n"
       "(told by its contents), to the program --load loads, as if\n"
       "loaded by hand (Debug > Source > Load Source Map...). Refused\n"
-      "without --load, and when the program does not match the\n"
-      "map's binary identity (exit 1). With a tape program the map\n"
+      "without --load unless FILE is a z88dk dot command's map,\n"
+      "which attaches pending and is checked when the dot command\n"
+      "runs; the same with an RZX replay (--rzx-play, --load R.rzx).\n"
+      "Refused when the program does not match the map's\n"
+      "binary identity (exit 1). With a tape program the map\n"
       "attaches at once and is checked the first time the program\n"
       "runs its code; a mismatch then drops it (exit 1)." },
     // Repeatable: each occurrence appends one directory (GH #420).

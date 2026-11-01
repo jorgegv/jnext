@@ -2282,6 +2282,8 @@
       
         
       
+        
+      
     
     
     
@@ -2710,6 +2712,34 @@
     
   
     Source-level debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/15-memory-coverage.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory coverage
   
 
     
@@ -3666,7 +3696,34 @@ log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</s
 <code>ROM or overlay</code> when no RAM page supplies the address — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
-use the disassembly there.</p>
+use the disassembly there. The start-up code of a z88dk program built with <code>--list</code>
+shows its m4 text from the listing, the label ending <code>(m4 output, from prog.lis)</code>;
+<strong>Locate File...</strong> does not apply to it.</p>
+<p>The text is coloured by its language: C (<code>.c</code>, <code>.h</code>), Z80 and Z80N assembly (<code>.asm</code>, <code>.s</code>,
+<code>.z80</code>, <code>.inc</code>; the sjasmplus and z88dk z80asm directives are recognised) and Boriel ZX Basic
+(<code>.bas</code>). A file with another extension is recognised by its first lines, and shown plain when
+they do not decide. Assembly written inside C (<code>#asm</code>, <code>__asm</code>) or inside Boriel Basic (<code>asm</code> ...
+<code>end asm</code>) is coloured as assembly.</p>
+<p>Ten classes are coloured: <em>Text</em> (identifiers and everything else), <em>Keyword</em>, <em>Instruction</em>,
+<em>Preprocessor</em>, <em>Label</em>, <em>String</em>, <em>Char</em>, <em>Integer</em>, <em>Float</em> and <em>Comment</em>. In C, a keyword is a
+Keyword, a <code>#</code> line is Preprocessor and a character constant is Char; a number is Integer, or Float
+when it has a point or an exponent (<code>1.5</code>, <code>1e-3</code>, <code>0x1p-3</code>). In assembly, a directive (<code>defb</code>,
+<code>section</code>, <code>include</code>, ...) is a Keyword, a mnemonic or a register is an Instruction, a label at the
+start of the line is a Label and every number is an Integer. In Boriel ZX Basic, a Basic keyword is
+a Keyword, a <code>#</code> line is Preprocessor, a line number is a Label and a number is Integer or Float. The
+punctuation and operators (<code>: , ; ( ) [ ] { } + - * / = &lt; &gt; &amp; | ! ~ ^ % ? .</code>, a multi-character one
+such as <code>-&gt;</code> or <code>&lt;&lt;=</code> as a whole) are coloured as keywords; a comment, string, character or number
+keeps its own colour.</p>
+<p>The colours come from a scheme, chosen in <strong>Settings &gt; Preferences… &gt; Debugger</strong> or for one run with
+<code>--set source.colour_scheme=WORD</code>: <strong>Auto</strong> (the default) is Light or Dark after the application's
+theme, <strong>Light</strong> and <strong>Dark</strong> are the two fixed schemes, and <strong>Borland</strong> is Borland C++ 3.1, yellow
+text on a blue background. A scheme sets the Source tab's background, text colour and syntax colours
+and the colours of the current-line bar, and applies at once. The current line keeps its bar in every
+scheme, and the gutter (line numbers and breakpoint marks) is not affected.</p>
+<p>With <a href="../functions/15-memory-coverage.html">memory coverage</a> on, every line of the
+shown file that ran has a tinted background that follows the colour scheme (pale
+green in Light, a dark green in Dark, a dark teal in Borland; the current line keeps
+its highlight).</p>
 <p>A small amber arrow at the right edge of the gutter marks the line the CPU is on. The
 highlight alone can also mean a line you selected by right-clicking; the arrow is only ever
 on the CPU's line. When a toolchain
@@ -3705,9 +3762,10 @@ inside it, the selection stays (so a dragged range can be copied).</p>
   mapped now is disabled.</li>
 <li><strong>Watch</strong> and <strong>Break on Read / Write</strong> entries, as in the disassembly menu, for the labels at
   the line's address, and for what is under the pointer: a symbol (a label or a name of the
-  map, written as the map has it), a number (<code>$5800</code>, <code>0x5800</code>, <code>5800h</code>, <code>#5800</code> or decimal),
+  map; a z88dk C variable or function is offered under its C name, <code>counter</code>, whether the source
+  writes <code>counter</code> or <code>_counter</code>), a number (<code>$5800</code>, <code>0x5800</code>, <code>5800h</code>, <code>#5800</code> or decimal),
   or a register in parentheses (<code>(hl)</code>, <code>(ix+2)</code>). They are by CPU address, whatever is mapped
-  there. A C variable is found under its map name today (<code>_counter</code>), not as <code>counter</code>.</li>
+  there.</li>
 </ul>
 <p>On a line with no code Toggle Breakpoint, Run to Here and Show in Disassembly are disabled, and
 their tooltip says <em>no code at main.bas:3</em>.</p>

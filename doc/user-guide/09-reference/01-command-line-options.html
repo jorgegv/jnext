@@ -2220,6 +2220,8 @@
       
         
       
+        
+      
     
     
     
@@ -2648,6 +2650,34 @@
     
   
     Source-level debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-debugger/functions/15-memory-coverage.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory coverage
   
 
     
@@ -3803,8 +3833,12 @@ carries a binary identity attaches at once and each memory space it
 covers is checked the first time the program runs its code there; a
 space that does not match drops the map and the symbols that came
 with it, with the reason in the log. A map given with <strong>--map</strong> or
-loaded by hand is kept over them. A map built for another binary, or
-a file over 64 MiB, is refused, with the reason in the log.</p>
+loaded by hand is kept over them. z88dk’s <code>--list</code> listings beside
+the map (<em>NAME</em><code>.lis</code>, <em>FILE</em><code>.lis</code>) are read too when they match
+the map, and add assembly lines and sdcc’s lines on z88dk 2.4; a
+listing that does not match is skipped with a note in the log. A map
+built for another binary, or a file over 64 MiB, is refused, with
+the reason in the log.</p>
 </dd>
 <dt><strong>--nex-args</strong> <em>LINE</em></dt>
 <dd>Argument line for a NEX <strong>V1.3</strong> program. <em>LINE</em> is placed, verbatim
@@ -4431,6 +4465,16 @@ type, or F4 writes the file there, and nothing after it is recorded
 <dd>Enable the per-instruction trace log (a 10K-entry ring). Also
 enabled implicitly by <strong>--rewind-buffer-size</strong> <em>N</em> with <em>N</em> &gt; 0,
 and toggleable in the debugger.</dd>
+<dt><strong>--coverage</strong></dt>
+<dd>Record memory coverage from the start: for every byte of every
+memory (each RAM page, ROM image, DivMMC and Multiface window, Layer
+2 mapping, …) whether the program executed it (first opcode byte of
+an instruction), read it or wrote it. Toggleable in the debugger
+(Debug &gt; Coverage), where the Disassembly, Memory and Source views
+show it. With the SDL frontend or <strong>--headless</strong> it records but
+there is no viewer; it logs one summary line at exit. Costs a little
+speed while on (3-8% in release builds); no measurable cost while
+off.</dd>
 </dl>
 <h2 id="headless-and-automation">Headless and automation<a class="headerlink" href="#headless-and-automation" title="Permanent link">&para;</a></h2>
 <dl>
@@ -4671,11 +4715,19 @@ scripting</a>. Repeatable: the
 scripts load, and their rules run, in the order given. A script that
 cannot be read, or that has any error, is reported as
 <em>file</em>:<em>line</em>:<em>column</em>: <em>message</em> and jnext exits 1 before the
-machine runs - nothing of it runs partially. In <strong>--headless</strong> and
-the SDL-only build a script decides the exit status: <code>exit</code> <em>N</em>
-exits <em>N</em>, a <code>stop</code> or a failed <code>assert</code> exits 3, a run-time error
-exits 1. In the Qt GUI a script never ends the program: <code>stop</code> and
-<code>exit</code> pause the machine instead.</dd>
+machine runs - nothing of it runs partially. With <strong>--load</strong>, a
+script that names a source line (<code>on execute main.c:19</code>), an
+<code>@symbol</code> that <strong>--map</strong> does not know, or a z88dk <strong>--map</strong> symbol
+of a section that names no page waits, with the scripts after it,
+until the program is in (it is still read and parsed at once); an
+error then also exits 1. Its rules start at the load: an <code>on frame</code>
+<em>N</em> or a <strong>--script-key</strong> due before it never fires (a <code>.tzx</code> or
+<code>.wav</code> loads about 100 frames in), so give such rules in an earlier
+script that names neither. In <strong>--headless</strong> and the SDL-only build
+a script decides the exit status: <code>exit</code> <em>N</em> exits <em>N</em>, a <code>stop</code> or
+a failed <code>assert</code> exits 3, a run-time error exits 1. In the Qt GUI a
+script never ends the program: <code>stop</code> and <code>exit</code> pause the machine
+instead.</dd>
 <dt><strong>--script-key</strong> <em>FRAME</em> <em>N</em></dt>
 <dd>Deliver script host key <em>N</em> (<code>1</code> to <code>8</code>) at emulated frame <em>FRAME</em>
 (<strong>--headless</strong> only; repeatable): the script’s <code>on hostkey</code> <em>N</em>
@@ -4704,12 +4756,22 @@ is a startup error.</dd>
 <dd>Attach a source map, an sjasmplus SLD or a z88dk <code>-debug</code> <code>.map</code>
 (told apart by its contents), to the program <strong>--load</strong> loads, as if
 loaded by hand with <strong>Debug &gt; Source &gt; Load Source Map…</strong>. A z88dk
-map gives source lines only; its symbols stay with <strong>--map</strong>.
-Requires <strong>--load</strong>. A map whose binary identity does not match the
-program, or that cannot be loaded, is a startup error (exit status
-1). With a tape program (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) the map attaches at
-once and is checked the first time the program runs its code; a
-mismatch then drops it, and the run exits with status 1.</dd>
+map gives source lines only (and reads the <code>--list</code> listings beside
+it); its symbols stay with <strong>--map</strong>. Requires <strong>--load</strong>, unless
+<em>FILE</em> is the map of a z88dk dot command (<code>-subtype=dot</code>, <code>dotx</code>;
+built with <code>-debug</code>): that map is attached at once, before any
+script loads, and stays pending until the guest runs the command,
+when it is checked (the command is loaded into DivMMC RAM by
+NextZXOS, which jnext does not know until it runs; see the User
+Guide). Any other map without <strong>--load</strong> is refused (exit status 1).
+An RZX replay (<strong>--rzx-play</strong> <em>R</em>, or <strong>--load</strong> <em>R</em><code>.rzx</code>) is the
+same case: a dot command’s map attaches pending, any other map is
+refused at start-up naming RZX (exit status 1). A map whose binary
+identity does not match the program, or that cannot be loaded, is a
+startup error (exit status 1). With a tape program (<code>.tap</code>, <code>.tzx</code>,
+<code>.wav</code>) the map attaches at once and is checked the first time the
+program runs its code; a mismatch then drops it, and the run exits
+with status 1.</dd>
 <dt><strong>--source-dir</strong> <em>DIR</em></dt>
 <dd>Also search <em>DIR</em> for the source files a source map names, in the
 Source tab of the debugger (the Qt window with the debugger;
@@ -4841,6 +4903,11 @@ it. A combination that is not legal there, or that another action
 already holds (unless the same command line frees it), is refused
 with exit status 1 before the window opens. The Qt window with the
 debugger.</dd>
+<dt><code>source.colour_scheme</code> <em>auto|light|dark|borland</em></dt>
+<dd>The colour scheme of the debugger’s Source tab, like the
+<strong>Preferences</strong> Debugger tab: <code>auto</code> (the default) is light or dark
+after the application, <code>borland</code> is Borland C++ 3.1 (yellow on
+blue). The Qt window with the debugger.</dd>
 <dt><code>esp.enabled</code> <em>true|false</em></dt>
 <dd>The emulated ESP-01 WiFi module; <strong>--esp</strong> and <strong>--no-esp</strong>. All
 frontends.</dd>

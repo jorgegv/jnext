@@ -2224,6 +2224,8 @@
       
         
       
+        
+      
     
     
     
@@ -2662,6 +2664,34 @@
     
   
     Source-level debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="15-memory-coverage.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory coverage
   
 
     
@@ -3621,7 +3651,17 @@
   the program is loaded.
   A map built with <code>zcc -debug</code> is accepted: its per-line markers
   (<code>__C_LINE_…</code>, <code>__ASM_LINE_…</code>) and C debug records (<code>__CDBINFO__…</code>) are
-  not symbols and are ignored, so the function labels keep their addresses.</li>
+  not symbols and are ignored, so the function labels keep their addresses.
+  <strong>C names:</strong> a C global or function (<code>int counter;</code> is <code>_counter</code> in the
+  map, because the compiler prefixes every C name with <code>_</code>) also answers to its
+  C name wherever you type an address or symbol (<code>counter</code>, <code>@counter</code>), and
+  every view shows it as <code>counter</code>. Only the symbols of a C module count (the
+  map's module column ends in <code>_c</code>, as <code>main_c</code> for <code>main.c</code>): assembler labels
+  keep their names, <code>_asm_bump</code> of an <code>.asm</code> file included, and so do names
+  that start with two underscores. A real <code>counter</code> in the table wins: the C
+  one is then shown as <code>_counter</code>. If two C files each have a static <code>inc</code>, <code>inc</code> is the first one's and the
+  second is shown as <code>_inc</code>. The disassembly <em>copy</em> writes the assembler
+  name (<code>LD HL,_counter</code>), so the pasted text still assembles.</li>
 <li><strong>Simple Format (48K ROM)…</strong> — plain <code>NAME = $ADDR</code> lines, one per line,
   <code>;</code> for comments.</li>
 <li><strong>sjasmplus Format (--sym, --exp)…</strong> — the symbol file sjasmplus writes with

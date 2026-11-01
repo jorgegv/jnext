@@ -1699,6 +1699,37 @@ static void test_source_dirs(QTemporaryDir& dir) {
           raw + " | " + r.data().source_dirs.join('|').toStdString());
 }
 
+// AC-101 (GH #422 stage 2): the Source tab's colour scheme, `[source] colour_scheme`.
+// Oracle: the key row (auto|light|dark|borland, an unknown word keeps the default) and the
+// `--set source.colour_scheme=` spelling; read back from the real file.
+static void test_source_scheme(QTemporaryDir& dir) {
+    set_group("AC-SCHEME");
+    const bool def = AppConfigData().source_scheme == SourceScheme::Auto;
+    const QString pb = fresh_ini_path(dir, "scheme-borland");
+    { QSettings w(pb, QSettings::IniFormat); w.setValue("source/colour_scheme", "borland"); w.sync(); }
+    AppConfig b(pb);
+    b.load();
+    const QString pu = fresh_ini_path(dir, "scheme-unknown");
+    { QSettings w(pu, QSettings::IniFormat); w.setValue("source/colour_scheme", "solarized"); w.sync(); }
+    AppConfig u(pu);
+    u.load();
+    const QString pd = fresh_ini_path(dir, "scheme-dark");
+    { AppConfig w(pd); w.load(); w.data().source_scheme = SourceScheme::Dark; w.save(); }
+    const std::string saved_word = raw_text(pd, "source/colour_scheme");
+    AppConfigData merged;
+    merged.source_scheme = SourceScheme::Dark;
+    AppConfigData before = merged;
+    merge_cli_assignments(merged, {{ config_keys::KeyId::SourceColourScheme, {}, "light" }});
+    const bool only_scheme = merged.source_scheme == SourceScheme::Light &&
+                             merged.window_scale == before.window_scale && merged.silent == before.silent &&
+                             merged.source_dirs == before.source_dirs;
+    check("AC-101", "source_scheme defaults to Auto; a file with colour_scheme=borland loads Borland and =solarized "
+                    "loads Auto; save() writes colour_scheme=dark for Dark; merge_cli_assignments() changes only that field",
+          def && b.data().source_scheme == SourceScheme::Borland && u.data().source_scheme == SourceScheme::Auto &&
+              saved_word == "dark" && only_scheme,
+          saved_word);
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -1729,6 +1760,7 @@ int main() {
     test_config_keys(dir);
     test_merge_cli_assignments(dir);
     test_source_dirs(dir);
+    test_source_scheme(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

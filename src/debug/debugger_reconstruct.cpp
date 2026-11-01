@@ -237,6 +237,9 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     before the boot is kept, because "since clear" is not "since boot"
     //     (rows INS-20-10/11).
     publish_coverage();
+    //     GH #388 - memory coverage, the same: the set and the switch never left
+    //     `Impl`, only the pointer did, and the bits recorded before the boot stay.
+    publish_mem_coverage();
     //     GH #276 B4 — CAP-01. The queued screenshots are backend state and
     //     survive; what the machine held for them did not — the head's layer
     //     mask (the new `Renderer` starts at LAYER_ALL) and the force-render bit

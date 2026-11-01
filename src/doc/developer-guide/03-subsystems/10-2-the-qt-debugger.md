@@ -213,7 +213,9 @@ name an address in the memory that supplies it now (`Debugger::source_page()`),
 through `disasm_text::symbol_namer()` for the disassembly; a Breakpoints row uses
 its own page when it has one, a Call Stack frame the page its target was entered
 in, and a breakpoint dialog keeps the page of a name assembled for one
-(`resolve_key()`).
+(`resolve_key()`). A z88dk C symbol is shown by its C name (`lookup()`, design 10.6); the Disassembly copy
+asks `symbol_namer(..., true)` for the assembler name so the paste still assembles, and the watch dialog
+labels an auto-filled watch with `SymbolTable::shown_name()` (rows QCN-01..05, DCN-01/02, QMAP-08); the Source tab's word menu offers the shown name too.
 
 The three Map > Load MAP File items (Z88DK, Simple, sjasmplus) are three handlers
 in `DebuggerManager`, each calling `load_map()` and then `refresh_panels()`. The
@@ -240,6 +242,42 @@ map loads as source lines only. Its mismatch box and failure title do not name a
 `source_map_status().pending` is set (a tape program's map, waiting for its program) the panel
 appends a note line, *Source map not verified yet: it is checked when the program first runs its
 code*, to whatever it shows.
+The text is coloured by `SourceHighlighter` (`source_highlighter.*`, a `QSyntaxHighlighter` that exists only in
+`jnext_debugger`; GH #422). `source_language_for(file, text)` picks the language: the extension, case-insensitive,
+with a trailing `.m4` dropped (z88dk's `zxn_crt.asm.m4` is assembly), then the first 200 lines by content (a line is
+evidence for a language when its first word is in that language's set alone, a column-0 label skipped; the winner
+needs three lines and strictly more than the others), else Plain. The Z80/Z80N mnemonics and the register words are
+not listed anywhere: they are enumerated once from `disasm_one()` over the seven opcode pages, so a new Z80N opcode is
+coloured the day the disassembler names it. The directive, C and Boriel tables are committed with the upstream file
+and commit they were read from (z80asm `scan_def.h` and `keyword.def`, sjasmplus `directives.cpp`, ISO C11 6.4.1,
+Boriel `keywords.py`). The scanners are hand-written, linear per line, allocation-free per word, and carry multi-line
+comments and embedded assembly in the block state. The classes are the owner's ten (`Role`: Text, Keyword,
+Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment); Text is the editor palette's text colour
+and never a format. Punctuation, grouping and operators (the one literal `kKeywordPunct`) are Keyword, tested at each
+scanner's fall-through point after comment, string, char, number and word detection, so those win; Qt merges adjacent
+equal formats, so `->` or `<<=` is one Keyword range. A sign is part of a number only inside an exponent (`-5` is a
+Keyword and an Integer); C and Boriel numbers have their own scanners (Float = a point or an exponent, including
+the C hex-float `p` exponent; Boriel's `t_HEXA`/`t_OCTAL`/`t_BIN` before `t_NUMBER`, and a `$`/`%` suffix belongs to
+its identifier). Formats set the foreground colour and nothing else (the line geometry and the gutter alignment equal
+Plain's). `SourcePanel::set_source_text()` is the one way a text enters the editor: the language first, then the text,
+so a load is highlighted once with its own language.
+The colours are a scheme (`SourceScheme` in `platform/source_scheme.h`, the order of the words of the
+`source.colour_scheme` key: Auto, Light, Dark, Borland; `static_assert`ed in `app_config.cpp` and
+`source_highlighter.cpp`). `SourceHighlighter::scheme_colours()` holds one table per concrete scheme: background, text,
+the current-line bar's two colours, and a colour per class. Dark is not hand-kept: it is `palette_tint::ink()` of the
+Light colours over a fixed dark palette (Base `#242424`, Text `#F0F0F0`), so it does not depend on the application's own
+dark palette. Every scheme must meet one legibility rule, which `QSRC-195` checks for all of them: text and classes
+4.5:1 against the background (WCAG 1.4.3), bar text 4.5:1, bar against background 3:1, and any two colours at least
+CIE76 12 apart unless the scheme declares them shared (Borland's owner-given groups). `SourcePanel::apply_scheme_()`
+takes the PANEL's palette (the application's, never the editor's) in, resolves Auto against it, hands the classes to
+the highlighter (`apply_palette()` rehighlights only when a class colour changed, never on a paused tick or a repeat)
+and puts the background, text and the bar colours on the EDITOR's palette (`Base`, `Text`, `Highlight`,
+`HighlightedText`): the background is a palette role, not a format, so it fills the whole viewport. `set_colour_scheme()`
+applies at once (Preferences Apply while the machine runs). The current-line marker is the same `ExtraSelection` as
+before, reading the editor's `Highlight`, and Qt draws a selection's colours over the layout's formats, so no syntax
+colour shows on that line. The gutter and its header paint from the panel's palette, so a scheme never reaches
+them, and the breakpoint marks stay as they are. The setting is `DebuggerManager::set_source_scheme()` (held there
+and pushed by `ensure_window()`, because the window is created lazily), fed by `MainWindow::apply_startup_config()`.
 The editor is a private `QPlainTextEdit` subclass (`SourceEdit`) with a gutter widget in a left
 viewport margin and a header strip above it (`setViewportMargins`; objects `source_gutter` and
 `source_gutter_header`), because the visible blocks' geometry is protected. The gutter
@@ -276,7 +314,7 @@ change and again in `ensure_window()`, since the window is lazy. Locate derives 
 that holds the list separator, as Preferences and `--source-dir` do: it would load back as two). The manager
 announces each change (`source_dirs_changed`; `src/debugger/` names no logger) and MainWindow logs
 `Source search path: ...`. Two records get a message of their own: a z88dk record in a `.m4` file, decided before any file is
-read (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
+read (unless the map carries the text from `prog.lis`: `SourceMap::embedded_text()`, shown instead of a file and labelled `(m4 output, from prog.lis)`) (z88dk counts the m4 output, which the build does not keep), and a line past the end of the
 file found, decided after it is read (its line count ignores the final newline). The label's tooltip is the path found.
 Load MAP (`on_load_map_z88dk()`, `on_load_map_simple()`) appends the backend's reason to
 its failure box when the file was refused rather than unreadable. The Debug > Source actions
@@ -297,6 +335,24 @@ draws a location only while its `FetchSource` supplies the address
 (`pc_marked(addr, space)`), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 `FetchSource` (`CallFrame::caller_space`).
+
+## Memory coverage
+
+**Debug ▸ Coverage** (`Enable Coverage`, `Clear Coverage`) drives INS-21
+(`mem_coverage_enable/clear`, [3.9.1](09-1-the-backend-api.md)); the check mirrors
+the backend on every `refresh_panels()` and at construction, so a window built over
+a backend that `--coverage` already switched on shows it ticked. All colours come
+from `coverage_colors.h` (X green, R blue, W orange-red, the Source tint a pale
+green), each through `palette_tint`; the Source tab alone takes its tint from the scheme
+(`SchemeColours::coverage_line`: Light is `coverage_colors::exec_line()` of a light palette, Dark and
+Borland their own dark greens, so every class colour reads on it, QSRC-195 clause 5, QSRC-200). The Disassembly paints a 3 px bar right of the
+gutter separator on a line where `mem_coverage_fetch(addr)` has X, after the PC and
+selection fills; the Memory panel asks `mem_coverage()` for each row through the
+same `locate()` as the bytes and underlines each covered byte in thirds, X | R | W,
+with a legend label in its top bar; the Source tab adds a full-width
+`ExtraSelection`, in the scheme's tint, for each line in `executed_source_lines(file)` before the
+current-line selection, so that one wins on its own line. Nothing is drawn while
+coverage is off.
 
 ## Copying out of a custom-painted panel
 

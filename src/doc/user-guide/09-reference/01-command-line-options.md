@@ -96,8 +96,12 @@ with status 1.
     covers is checked the first time the program runs its code there; a
     space that does not match drops the map and the symbols that came
     with it, with the reason in the log. A map given with **--map** or
-    loaded by hand is kept over them. A map built for another binary, or
-    a file over 64 MiB, is refused, with the reason in the log.
+    loaded by hand is kept over them. z88dk’s `--list` listings beside
+    the map (*NAME*`.lis`, *FILE*`.lis`) are read too when they match
+    the map, and add assembly lines and sdcc’s lines on z88dk 2.4; a
+    listing that does not match is skipped with a note in the log. A map
+    built for another binary, or a file over 64 MiB, is refused, with
+    the reason in the log.
 
 **--nex-args** *LINE*
 :   Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim
@@ -805,6 +809,17 @@ with status 1.
     enabled implicitly by **--rewind-buffer-size** *N* with *N* \> 0,
     and toggleable in the debugger.
 
+**--coverage**
+:   Record memory coverage from the start: for every byte of every
+    memory (each RAM page, ROM image, DivMMC and Multiface window, Layer
+    2 mapping, …) whether the program executed it (first opcode byte of
+    an instruction), read it or wrote it. Toggleable in the debugger
+    (Debug \> Coverage), where the Disassembly, Memory and Source views
+    show it. With the SDL frontend or **--headless** it records but
+    there is no viewer; it logs one summary line at exit. Costs a little
+    speed while on (3-8% in release builds); no measurable cost while
+    off.
+
 ## Headless and automation
 
 **--headless**
@@ -1076,11 +1091,19 @@ with status 1.
     scripts load, and their rules run, in the order given. A script that
     cannot be read, or that has any error, is reported as
     *file*:*line*:*column*: *message* and jnext exits 1 before the
-    machine runs - nothing of it runs partially. In **--headless** and
-    the SDL-only build a script decides the exit status: `exit` *N*
-    exits *N*, a `stop` or a failed `assert` exits 3, a run-time error
-    exits 1. In the Qt GUI a script never ends the program: `stop` and
-    `exit` pause the machine instead.
+    machine runs - nothing of it runs partially. With **--load**, a
+    script that names a source line (`on execute main.c:19`), an
+    `@symbol` that **--map** does not know, or a z88dk **--map** symbol
+    of a section that names no page waits, with the scripts after it,
+    until the program is in (it is still read and parsed at once); an
+    error then also exits 1. Its rules start at the load: an `on frame`
+    *N* or a **--script-key** due before it never fires (a `.tzx` or
+    `.wav` loads about 100 frames in), so give such rules in an earlier
+    script that names neither. In **--headless** and the SDL-only build
+    a script decides the exit status: `exit` *N* exits *N*, a `stop` or
+    a failed `assert` exits 3, a run-time error exits 1. In the Qt GUI a
+    script never ends the program: `stop` and `exit` pause the machine
+    instead.
 
 **--script-key** *FRAME* *N*
 :   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
@@ -1113,12 +1136,22 @@ with status 1.
 :   Attach a source map, an sjasmplus SLD or a z88dk `-debug` `.map`
     (told apart by its contents), to the program **--load** loads, as if
     loaded by hand with **Debug \> Source \> Load Source Map…**. A z88dk
-    map gives source lines only; its symbols stay with **--map**.
-    Requires **--load**. A map whose binary identity does not match the
-    program, or that cannot be loaded, is a startup error (exit status
-    1). With a tape program (`.tap`, `.tzx`, `.wav`) the map attaches at
-    once and is checked the first time the program runs its code; a
-    mismatch then drops it, and the run exits with status 1.
+    map gives source lines only (and reads the `--list` listings beside
+    it); its symbols stay with **--map**. Requires **--load**, unless
+    *FILE* is the map of a z88dk dot command (`-subtype=dot`, `dotx`;
+    built with `-debug`): that map is attached at once, before any
+    script loads, and stays pending until the guest runs the command,
+    when it is checked (the command is loaded into DivMMC RAM by
+    NextZXOS, which jnext does not know until it runs; see the User
+    Guide). Any other map without **--load** is refused (exit status 1).
+    An RZX replay (**--rzx-play** *R*, or **--load** *R*`.rzx`) is the
+    same case: a dot command’s map attaches pending, any other map is
+    refused at start-up naming RZX (exit status 1). A map whose binary
+    identity does not match the program, or that cannot be loaded, is a
+    startup error (exit status 1). With a tape program (`.tap`, `.tzx`,
+    `.wav`) the map attaches at once and is checked the first time the
+    program runs its code; a mismatch then drops it, and the run exits
+    with status 1.
 
 **--source-dir** *DIR*
 :   Also search *DIR* for the source files a source map names, in the
@@ -1281,6 +1314,12 @@ use the key: the Qt window, the SDL-only build (both interactive) or
     already holds (unless the same command line frees it), is refused
     with exit status 1 before the window opens. The Qt window with the
     debugger.
+
+`source.colour_scheme` *auto\|light\|dark\|borland*
+:   The colour scheme of the debugger’s Source tab, like the
+    **Preferences** Debugger tab: `auto` (the default) is light or dark
+    after the application, `borland` is Borland C++ 3.1 (yellow on
+    blue). The Qt window with the debugger.
 
 `esp.enabled` *true\|false*
 :   The emulated ESP-01 WiFi module; **--esp** and **--no-esp**. All
