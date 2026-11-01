@@ -16,6 +16,7 @@
 #include "debug/z88dk_space.h"
 
 #include "core/log.h"
+#include "debug/long_address.h"
 #include "debug/ram_page.h"
 
 #include <algorithm>
@@ -114,7 +115,7 @@ constexpr uint16_t kDotEntry = 0x2000;
 // A memory space, for a progress line.
 std::string space_name(FetchSource s) {
     switch (s.kind) {
-        case MemSpace::Kind::Page: return "page " + std::to_string(s.index);
+        case MemSpace::Kind::Page: return space_tag(s);   // the views' spelling: P04, P14
         case MemSpace::Kind::Rom:  return "ROM " + std::to_string(s.index);
         case MemSpace::Kind::DivMmcRam: return "DivMMC RAM bank " + std::to_string(s.index);
         default:                   return "main memory";

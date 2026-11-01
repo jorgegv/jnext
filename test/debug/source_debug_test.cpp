@@ -33,6 +33,8 @@
 //   SRCDBG-OWN-*     store ownership is explicit and changes only on success
 //   SRCDBG-TAPE-*    a tape program's maps attach at once; one with an identity is judged
 //                    where the CPU first runs its code, space by space (GH #344 stage 3)
+//                    (GH #360: the verdict lines name a page as the views do, `P04`, not `page 4`;
+//                    TAPE-15 and TAPE-18 assert the new spelling)
 //   SRCDBG-HIST-*    sidecars are dropped when the machine goes back before
 //                    the load they came with
 //   SRCDBG-PATH-*    a relative map path is made absolute
@@ -6026,7 +6028,7 @@ int main() {
                       mid.pending && mid_hold && !m.dbg->source_map().empty() &&
                       lines1.size() == 1 &&
                       has(lines1[0], "Verified z88dk source map '" + map +
-                                         "' in page 4; 1 memory space still to check") &&
+                                         "' in P04; 1 memory space still to check") &&
                       lines_again == 1,
                   "state=" + std::to_string(int(mid.state)) + " empty=" + std::to_string(m.dbg->source_map().empty()) + " src_pending=" + std::to_string(r.sources_pending) + " mid.pending=" +
                       std::to_string(mid.pending) + " hold=" + std::to_string(mid_hold) + " lines1=" +
@@ -6102,7 +6104,7 @@ int main() {
             check("SRCDBG-TAPE-18", "the spaces are judged in the order they first run: page 20 first (page "
                                     "4 still empty and not judged), then page 4",
                   mid.state == Debugger::SourceMapStatus::State::Attached && mid.pending &&
-                      lines1.size() == 1 && has(lines1[0], "in page 20; 1 memory space still to check") &&
+                      lines1.size() == 1 && has(lines1[0], "in P14; 1 memory space still to check") &&
                       end.state == Debugger::SourceMapStatus::State::Attached && !end.pending &&
                       verified_lines(lc).size() == 2);
         }
