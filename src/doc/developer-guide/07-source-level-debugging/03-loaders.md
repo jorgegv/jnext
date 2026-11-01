@@ -76,12 +76,14 @@ first, by `skip_utf8_bom()` (`source_file.cpp`), in the router and again by
 the same file without the BOM (owner decision, 2026-11-01; rows `SRCDBG-Z88-30`
 and `-33`). Only the very first three bytes count: a second BOM, or a BOM after
 a leading blank line, is ordinary text, so such a file is not an SLD and goes to
-the z88dk adapter, which refuses it (`SRCDBG-Z88-34`). The z88dk adapter, the
-`--map` / Load MAP symbol loaders (z88dk map, sjasmplus EQU, and the
-choose-by-content one) skip the mark the same way, so the first line's symbol
-keeps its name (`SRCDBG-Z88-35`, `MAPBOM-01..03`); a `--list` listing needs no
-skip, since its first line is a file header that only its `.m4` suffix is read
-from (`Z88LIS-35`).
+the z88dk adapter, which refuses it (`SRCDBG-Z88-34`). Every
+text loader skips it the same way: the z88dk source adapter, the `--list` listing
+reader (whose first header names a source and carries rows, so a BOM left in
+it would break the anchors and the file names), and the five symbol loaders
+behind `--map` and Debug > Map (z88dk, sjasmplus EQU, Simple, NextBuild
+`Memory.txt`, and the choose-by-content one, which erases one leading BOM from
+the bytes it read, as a pipe cannot be rewound). Rows: `SRCDBG-Z88-35`,
+`MAPBOM-01..06`, `Z88LIS-44`.
 
 - **An SLD** goes to `load_sld(candidate, path, &labels)`.
 - **A z88dk map** goes to `load_z88dk_source_map(..., Z88dkListings::Beside)`; its

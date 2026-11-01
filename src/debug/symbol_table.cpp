@@ -112,6 +112,7 @@ int SymbolTable::load_simple_map(const std::string& path, std::string* why)
     if (!file.is_open())
         return -1;
 
+    skip_utf8_bom(file);
     clear();
 
     int count = 0;
@@ -319,6 +320,7 @@ int SymbolTable::load_nextbuild_memory(const std::string& path, std::string* why
         return -1;
     }
 
+    skip_utf8_bom(file);
     clear();
 
     int count = 0;

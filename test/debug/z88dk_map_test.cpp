@@ -1212,6 +1212,30 @@ int main() {
     }
 
 
+    {
+        // GH #427 stage 2b round 2: the --map loader skips one BOM, not several; the Simple and
+        // NextBuild formats skip the one.
+        const std::string bom = "\xEF\xBB\xBF";
+        const std::string first = "_first = $9000 ; addr, public, , m, code_compiler, x.c:1\n";
+        SymbolTable one, two, equ_one, equ_two;
+        const int n1 = one.load_z88dk_or_sjasmplus(synth("one.map", bom + first).string());
+        const int n2 = two.load_z88dk_or_sjasmplus(synth("two.map", bom + bom + first).string());
+        const int e1 = equ_one.load_z88dk_or_sjasmplus(synth("one.sym", bom + "first: EQU 0x00009000\n").string());
+        const int e2 = equ_two.load_z88dk_or_sjasmplus(synth("two.sym", bom + bom + "first: EQU 0x00009000\n").string());
+        check("MAPBOM-04", "load_z88dk_or_sjasmplus() skips only the very first BOM, for a z88dk map and for "
+                           "an EQU file: with one BOM the first symbol resolves, with two it does not",
+              n1 == 1 && one.lookup_name("_first") == 0x9000 && n2 >= 0 && !two.lookup_name("_first") &&
+                  e1 == 1 && equ_one.lookup_name("first") == 0x9000 && e2 <= 1 && !equ_two.lookup_name("first"));
+        SymbolTable simple;
+        const int ns = simple.load_simple_map(synth("bom.simple", bom + "alpha = $9000\nbeta = $9100\n").string());
+        check("MAPBOM-05", "load_simple_map() skips a UTF-8 BOM: the first line's symbol keeps its name",
+              ns == 2 && simple.lookup_name("alpha") == 0x9000 && simple.lookup_name("beta") == 0x9100);
+        SymbolTable nb;
+        const int nn = nb.load_nextbuild_memory(synth("bom.mem", bom + "ACB5: ._FillScreen\n7335: ._Other\n").string());
+        check("MAPBOM-06", "load_nextbuild_memory() skips a UTF-8 BOM: the first line's label is not dropped",
+              nn == 2 && nb.lookup(jnext::dbg::MemSpace::cpu(), 0xACB5) == std::optional<std::string>("FillScreen"));
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
