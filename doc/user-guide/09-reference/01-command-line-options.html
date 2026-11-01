@@ -4751,7 +4751,9 @@ map’s symbols take their pages as its source lines do: a banked one
 only while its page is mapped, the rest in the page mapped at their
 address when the program is loaded (a map read before <strong>--load</strong>
 takes them then). A file that cannot be loaded, or holds no symbols,
-is a startup error.</dd>
+is a startup error. More than 64 MiB (of a file, or of what a pipe
+such as <code>--map &lt;(cmd)</code> delivers) is refused, and the error names the
+limit.</dd>
 <dt><strong>--source-map</strong> <em>FILE</em></dt>
 <dd>Attach a source map, an sjasmplus SLD or a z88dk <code>-debug</code> <code>.map</code>
 (told apart by its contents), to the program <strong>--load</strong> loads, as if

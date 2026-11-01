@@ -2850,11 +2850,14 @@ user's (<code>User</code>) and is never touched by a sidecar.</em></p>
   reports it. <code>load_sld()</code>, <code>load_z88dk_source_map()</code> (and the section binaries
   and <code>.lis</code> files it reads), <code>load_z88dk_map()</code>, <code>load_simple_map()</code> and
   <code>load_nextbuild_memory()</code> call it. The two sjasmplus-capable symbol loaders
-  do not. <code>load_z88dk_or_sjasmplus()</code>, which serves <code>--map</code>, must open
-  <code>--map &lt;(cmd)</code>, a pipe and so not a regular file, and for that reason reads the
-  file exactly once into memory; that read has no size bound. <code>load_sjasmplus_equ()</code>
-  (<code>MapFormat::SjasmplusEqu</code>, the Qt Map menu's sjasmplus load) simply does not call
-  it. Both are as built today.</li>
+  differ from the others as follows. <code>load_z88dk_or_sjasmplus()</code>, which serves
+  <code>--map</code>, must open <code>--map &lt;(cmd)</code>, a pipe and so not a regular file, so it cannot ask
+  first: it reads the file exactly once into memory, in chunks, and refuses the load
+  when more than <code>SOURCE_FILE_MAX_BYTES</code> arrive (<code>"input is over the 67108864-byte
+  limit"</code>, table untouched), a pipe included. <code>load_sjasmplus_equ()</code>
+  (<code>MapFormat::SjasmplusEqu</code>, the Qt Map menu's sjasmplus load) is a path the user
+  picked, so it does call <code>source_file_problem()</code>, like the Map menu's other loaders;
+  the menu shows the reason in its "Load Failed" box.</li>
 <li><strong>Emit only qualified ranges.</strong> Every <code>SourceRange</code> carries a <code>FetchSource</code>
   (<a href="01-which-memory.html">7.1</a>); the adapter decides it, and <code>SourceMap</code> never
   invents one.</li>

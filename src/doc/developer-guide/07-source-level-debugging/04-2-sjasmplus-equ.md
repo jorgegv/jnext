@@ -69,12 +69,14 @@ Every entry is a label, whatever the source declared it with: a code label, an
 `EQU`, a `DEFL`, a struct's size or a field offset. The file has no type to tell
 them apart.
 
-`SymbolTable::load_sjasmplus_equ(path)` opens the file, returns `-1` if it
-cannot (the table untouched), then `clear()`s and reads. It does not call
-`source_file_problem()` ([7.3](03-loaders.md)).
+`SymbolTable::load_sjasmplus_equ(path, why)` first asks `source_file_problem()`
+([7.3](03-loaders.md)): a file that is not a regular file, or is over the size cap, is
+refused with that reason before it is opened. It then opens the file, returns `-1` if
+it cannot (the table untouched), `clear()`s and reads.
 
-`SymbolTable::load_z88dk_or_sjasmplus(path)` is what `--map` uses: it reads the
-file once into memory, asks `parse_equ_line()` of its *first line*, and passes
+`SymbolTable::load_z88dk_or_sjasmplus(path, why)` is what `--map` uses: it reads the
+file once into memory (at most `SOURCE_FILE_MAX_BYTES` of what arrives; more is refused,
+[7.3](03-loaders.md)), asks `parse_equ_line()` of its *first line*, and passes
 the whole text to `read_sjasmplus_equ()` or `read_z88dk_map()`. The first line is
 enough because a real `--sym` may open with a negative or oversized value, so
 the test is "is it an EQU line", whatever its value.

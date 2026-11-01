@@ -102,7 +102,9 @@ public:
     /// wins for an address and, apart, for a name; the count is the entries
     /// accepted, duplicates included. Returns it, or -1 if the file cannot be
     /// opened (then the table is untouched).
-    int load_sjasmplus_equ(const std::string& path);
+    /// A file that is not a regular file, or is over the size cap, is refused
+    /// before it is opened (the table untouched) and `why`, when given, says so.
+    int load_sjasmplus_equ(const std::string& path, std::string* why = nullptr);
 
     /// Load a z88dk `.map` or an sjasmplus `--sym` / `--exp` file, whichever it
     /// is, told by the file's FIRST line: an sjasmplus EQU line (whatever its
@@ -115,7 +117,9 @@ public:
     /// time, and a first look that read the first line would take what it
     /// buffered with it. The result is that of the loader it picks, -1
     /// included (the file cannot be opened; the table is then untouched).
-    int load_z88dk_or_sjasmplus(const std::string& path);
+    /// The read is bounded at `SOURCE_FILE_MAX_BYTES` of what actually arrives,
+    /// so a pipe is capped too: over it, -1 with `why` set, the table untouched.
+    int load_z88dk_or_sjasmplus(const std::string& path, std::string* why = nullptr);
 
     /// Resolve the text of an address field: a hexadecimal address first
     /// (`4000`, `$4000`, `0x4000`), else a loaded symbol name. A typed `FE`

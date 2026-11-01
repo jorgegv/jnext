@@ -2253,7 +2253,7 @@ static void test_map_load() {
 
     Fixture fx;
     if (!fx.ok) {
-        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07", "QMAP-08"})
+        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07", "QMAP-08", "QMAP-09"})
             check(id, "fixture", false);
         return;
     }
@@ -2392,6 +2392,30 @@ static void test_map_load() {
                                   .arg(QString::fromStdString(big_simple), why) &&
                   fx.backend->symbols().size() == before,
               fmt("z: %s simple: %s", z.describe().c_str(), sm.describe().c_str()));
+    }
+
+    {
+        // QMAP-09 (GH #427 stage 2a): the sjasmplus item of the same menu, on a file over the
+        // size cap, is refused with the reason before the file is opened; the table is untouched.
+        // (A FIFO is the same refusal, "not a regular file", and would block the GUI otherwise.)
+        const std::string big_equ = write_file("big_sjasmplus.sym", "X: EQU 0x00001234\n");
+        std::error_code ec;
+        std::filesystem::resize_file(big_equ, SOURCE_FILE_MAX_BYTES + 1, ec);    // sparse
+        const size_t before = fx.backend->symbols().size();
+        Modals e;
+        e.file_path = QString::fromStdString(big_equ);
+        if (QAction* a = item_named(load_menu, "sjasmplus Format (--sym, --exp)...")) a->trigger();
+        e.timer.stop();
+        const Modals::Seen* eb = e.first("box");
+        const QString why = QString::fromStdString(source_file_problem(big_equ));
+        check("QMAP-09",
+              "sjasmplus Format... with a file over the size cap: \"Load Failed\" / \"Could not load "
+              "MAP file:\\n<path>\\n\\n<why>\", the table untouched",
+              !why.isEmpty() && eb && eb->title == "Load Failed" &&
+                  eb->text == QStringLiteral("Could not load MAP file:\n%1\n\n%2")
+                                  .arg(QString::fromStdString(big_equ), why) &&
+                  fx.backend->symbols().size() == before,
+              fmt("e: %s", e.describe().c_str()));
     }
 
     {

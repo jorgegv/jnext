@@ -234,8 +234,14 @@ std::optional<EquLine> parse_equ_line(std::string_view line)
 
 }  // namespace
 
-int SymbolTable::load_sjasmplus_equ(const std::string& path)
+int SymbolTable::load_sjasmplus_equ(const std::string& path, std::string* why)
 {
+    // A file picked in a dialog: a FIFO would block the opening thread, and a huge
+    // file would be read whole (GH #427 stage 2a).
+    if (std::string problem = source_file_problem(path); !problem.empty()) {
+        if (why) *why = problem;
+        return -1;
+    }
     std::ifstream file(path);
     if (!file.is_open())
         return -1;
@@ -265,7 +271,7 @@ int SymbolTable::read_sjasmplus_equ(std::istream& file)
     return count;
 }
 
-int SymbolTable::load_z88dk_or_sjasmplus(const std::string& path)
+int SymbolTable::load_z88dk_or_sjasmplus(const std::string& path, std::string* why)
 {
     std::ifstream file(path);
     if (!file.is_open())
@@ -273,10 +279,21 @@ int SymbolTable::load_z88dk_or_sjasmplus(const std::string& path)
 
     // ONE read of the file, kept in memory: the first line picks the loader,
     // which then reads every line, that one included. A second open would find
-    // a pipe (`--map <(cmd)`) already drained by the first.
-    std::ostringstream all;
-    all << file.rdbuf();
-    const std::string content = all.str();
+    // a pipe (`--map <(cmd)`) already drained by the first. source_file_problem()
+    // cannot be asked (a pipe is not a regular file), so the cap is applied to the
+    // bytes actually read, with the same constant (GH #427 stage 2a).
+    std::string content;
+    char chunk[65536];
+    while (file.read(chunk, sizeof chunk) || file.gcount() > 0) {
+        const auto got = static_cast<std::uintmax_t>(file.gcount());
+        if (content.size() + got > SOURCE_FILE_MAX_BYTES) {
+            if (why)
+                *why = "input is over the " + std::to_string(SOURCE_FILE_MAX_BYTES) +
+                       "-byte limit";
+            return -1;
+        }
+        content.append(chunk, static_cast<size_t>(got));
+    }
     const bool sjasmplus =
         parse_equ_line(std::string_view(content).substr(0, content.find('\n'))).has_value();
     std::istringstream text(content);

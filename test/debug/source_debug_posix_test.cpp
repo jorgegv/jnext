@@ -11,6 +11,8 @@
 //   SRCDBG-SIDE-12   a FIFO loaded by hand is refused, not waited on
 //   SRCDBG-Z88-15    a FIFO named <stem>.map is no sidecar, and the load does not wait
 //   SRCDBG-Z88-16    a FIFO loaded by hand as a z88dk or simple MAP is refused, with why
+//   SRCDBG-MAP-01..03  GH #427 stage 2a: --map from a pipe is capped at the size limit and a
+//                    small pipe still loads; the Qt Map menu's sjasmplus load refuses a FIFO
 //   SRCDBG-Z88-17    a FIFO given to load_source_map() is refused before its content is read
 //
 // A real 48K machine and a real `Debugger`, as in source_debug_test.
@@ -21,9 +23,13 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 #include "debug/sld_loader.h"
+#include "debug/source_file.h"
 #include "debug/source_map.h"
 
+#include <algorithm>
 #include <atomic>
+#include <csignal>
+#include <optional>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -215,6 +221,76 @@ int main() {
         check("SRCDBG-Z88-17", "a FIFO given to load_source_map() is refused, not read to tell "
                                "its format",
               quick && r.count == -1 && r.error == "not a regular file", r.error);
+    }
+
+    // GH #427 stage 2a: `--map <(cmd)` reads a pipe (Z88dkOrSjasmplus); the Map menu's sjasmplus
+    // load is MapFormat::SjasmplusEqu on a path the user picked. A writer thread feeds the pipe.
+    ::signal(SIGPIPE, SIG_IGN);   // the reader closes the pipe once it has refused
+    const auto feed = [&](const fs::path& fifo, const std::string& head, std::uintmax_t total) {
+        return std::thread([fifo, head, total] {
+            const int fd = ::open(fifo.c_str(), O_WRONLY);
+            if (fd < 0) return;
+            const std::string zeros(65536, '\0');
+            std::uintmax_t sent = 0;
+            while (sent < total) {
+                const std::string& b = sent == 0 ? head : zeros;
+                const size_t n = static_cast<size_t>(std::min<std::uintmax_t>(b.size(), total - sent));
+                if (::write(fd, b.data(), n) <= 0) break;
+                sent += n;
+            }
+            ::close(fd);
+        });
+    };
+    {
+        Machine m;
+        const fs::path fifo = own / "big.pipe";
+        fs::remove(fifo);
+        ::mkfifo(fifo.c_str(), 0600);
+        write_text(own / "keep.sym", "keep: EQU 0x00004000\n");
+        m.dbg->load_map((own / "keep.sym").string(), jnext::dbg::MapFormat::Z88dkOrSjasmplus);
+        std::thread w = feed(fifo, "x: EQU 0x00001234\n", SOURCE_FILE_MAX_BYTES + (1u << 20));
+        std::string why;
+        const auto r = m.dbg->load_map(fifo.string(), jnext::dbg::MapFormat::Z88dkOrSjasmplus, &why);
+        w.join();
+        fs::remove(fifo);
+        check("SRCDBG-MAP-01", "--map from a pipe that delivers more than the size cap is refused, naming "
+                               "the limit, and the loaded table stays",
+              r.status == jnext::dbg::Result::RefusedUnavailable &&
+                  why == "input is over the " + std::to_string(SOURCE_FILE_MAX_BYTES) + "-byte limit" &&
+                  m.dbg->lookup_name("keep") == std::optional<uint16_t>(0x4000) &&
+                  !m.dbg->lookup_name("x"),
+              why);
+    }
+    {
+        Machine m;
+        const fs::path fifo = own / "small.pipe";
+        fs::remove(fifo);
+        ::mkfifo(fifo.c_str(), 0600);
+        const std::string text = "main: EQU 0x00008000\nloop: EQU 0x00008006\n";
+        std::thread w = feed(fifo, text, text.size());
+        std::string why;
+        const auto r = m.dbg->load_map(fifo.string(), jnext::dbg::MapFormat::Z88dkOrSjasmplus, &why);
+        w.join();
+        fs::remove(fifo);
+        check("SRCDBG-MAP-02", "--map from a small pipe still loads, read once",
+              r.status == jnext::dbg::Result::Ok && r.value == 2 && why.empty() &&
+                  m.dbg->lookup_name("loop") == std::optional<uint16_t>(0x8006));
+    }
+    {
+        Machine m;
+        write_text(own / "keep2.sym", "keep: EQU 0x00004000\n");
+        m.dbg->load_map((own / "keep2.sym").string(), jnext::dbg::MapFormat::SjasmplusEqu);
+        std::string why;
+        bool refused = false;
+        const bool quick = with_fifo(own / "menu.sym", [&] {
+            refused = !m.dbg->load_map((own / "menu.sym").string(),
+                                       jnext::dbg::MapFormat::SjasmplusEqu, &why);
+        });
+        check("SRCDBG-MAP-03", "the Map menu's sjasmplus load (MapFormat::SjasmplusEqu) of a FIFO is "
+                               "refused with the reason, not waited on, and the table stays",
+              quick && refused && why == "not a regular file" &&
+                  m.dbg->lookup_name("keep") == std::optional<uint16_t>(0x4000),
+              why);
     }
 
     fs::remove_all(own);

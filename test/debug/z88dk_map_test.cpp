@@ -567,6 +567,34 @@ int main() {
                   !program_loads_later("a.nex") && !program_loads_later("a.sna") && !program_loads_later("tap"));
     }
     {
+        // GH #427 stage 2a: the two sjasmplus-capable symbol loaders obey the same cap.
+        // Sparse, so it costs no disk. The reads stop at the cap, they do not need the file.
+        const fs::path huge = dir / "huge.sym";
+        write_text(huge, "X: EQU 0x00001234\n");
+        fs::resize_file(huge, SOURCE_FILE_MAX_BYTES + 1);
+        const std::string equ = (fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sym").string();
+        SymbolTable st;
+        st.load_sjasmplus_equ(equ);
+        const size_t before = st.symbols().size();
+        std::string why_equ;
+        const int re = st.load_sjasmplus_equ(huge.string(), &why_equ);
+        check("MAPCAP-01", "load_sjasmplus_equ() refuses a file over the size cap before opening it, "
+                           "with source_file_problem()'s reason, and the loaded table stays",
+              !source_file_problem(huge.string()).empty() && re == -1 &&
+                  why_equ == source_file_problem(huge.string()) && before > 0 &&
+                  st.symbols().size() == before && st.lookup_name("main") == 0x8000);
+        std::string why_both;
+        const int rb = st.load_z88dk_or_sjasmplus(huge.string(), &why_both);
+        std::string why_ok;
+        const int ok = st.load_z88dk_or_sjasmplus(equ, &why_ok);
+        check("MAPCAP-02", "load_z88dk_or_sjasmplus() refuses more than the size cap from its read, "
+                           "naming the limit, with the table kept; a normal file under it still loads",
+              rb == -1 && why_both == "input is over the " + std::to_string(SOURCE_FILE_MAX_BYTES) +
+                                          "-byte limit" &&
+                  ok == 16 && why_ok.empty() && st.lookup_name("main") == 0x8000);
+        fs::remove(huge);
+    }
+    {
         const auto with = [](uint16_t h) {
             return [h](int) -> std::optional<uint16_t> { return h; };
         };

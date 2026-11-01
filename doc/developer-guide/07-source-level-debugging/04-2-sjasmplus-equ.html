@@ -2916,11 +2916,13 @@ accepted, duplicates included.</p>
 <p>Every entry is a label, whatever the source declared it with: a code label, an
 <code>EQU</code>, a <code>DEFL</code>, a struct's size or a field offset. The file has no type to tell
 them apart.</p>
-<p><code>SymbolTable::load_sjasmplus_equ(path)</code> opens the file, returns <code>-1</code> if it
-cannot (the table untouched), then <code>clear()</code>s and reads. It does not call
-<code>source_file_problem()</code> (<a href="03-loaders.html">7.3</a>).</p>
-<p><code>SymbolTable::load_z88dk_or_sjasmplus(path)</code> is what <code>--map</code> uses: it reads the
-file once into memory, asks <code>parse_equ_line()</code> of its <em>first line</em>, and passes
+<p><code>SymbolTable::load_sjasmplus_equ(path, why)</code> first asks <code>source_file_problem()</code>
+(<a href="03-loaders.html">7.3</a>): a file that is not a regular file, or is over the size cap, is
+refused with that reason before it is opened. It then opens the file, returns <code>-1</code> if
+it cannot (the table untouched), <code>clear()</code>s and reads.</p>
+<p><code>SymbolTable::load_z88dk_or_sjasmplus(path, why)</code> is what <code>--map</code> uses: it reads the
+file once into memory (at most <code>SOURCE_FILE_MAX_BYTES</code> of what arrives; more is refused,
+<a href="03-loaders.html">7.3</a>), asks <code>parse_equ_line()</code> of its <em>first line</em>, and passes
 the whole text to <code>read_sjasmplus_equ()</code> or <code>read_z88dk_map()</code>. The first line is
 enough because a real <code>--sym</code> may open with a negative or oversized value, so
 the test is "is it an EQU line", whatever its value.</p>
