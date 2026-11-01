@@ -426,6 +426,34 @@ int main(int argc, char** argv) {
               (c & 0xFFFFFF) == 0x901030,
               "centre pixel " + QString::number(c & 0xFFFFFF, 16).toStdString());
     }
+    {
+        // GH #428: with the shader running, an unchanged generation is not
+        // submitted again; a new one is. Seen through the overlay's own copy
+        // of the newest frame.
+        EmulatorWidget w;
+        w.show();
+        settle();
+        w.set_crt_shader(true);
+        auto ov = w.findChildren<CrtGlOverlay*>();
+        const auto fa = make_fb(0xFF204060), fbb = make_fb(0xFF901030);
+        bool ok = ov.size() == 1;
+        uint32_t held_after_repeat = 0, held_after_new = 0;
+        if (ok) {
+            std::vector<uint32_t> held;
+            w.update_frame(fa.data(), FB_W, FB_H, true, 11);
+            w.update_frame(fbb.data(), FB_W, FB_H, false, 11);   // same generation: no submit
+            ov[0]->copy_frame_argb(held);
+            held_after_repeat = held.empty() ? 0 : held[0];
+            w.update_frame(fbb.data(), FB_W, FB_H, true, 12);    // new generation: submit
+            ov[0]->copy_frame_argb(held);
+            held_after_new = held.empty() ? 0 : held[0];
+        }
+        check("PC-IDLE-05", "with the shader running, an unchanged generation is not submitted again "
+                            "and a new one is",
+              ok && held_after_repeat == 0xFF204060u && held_after_new == 0xFF901030u,
+              "repeat=" + QString::number(held_after_repeat, 16).toStdString() +
+                  " new=" + QString::number(held_after_new, 16).toStdString());
+    }
 #else
     check("CRT-W-17", "a failure raised by the live overlay drops it, switches the setting off and tells the user once",
           !built_in, "this build has no overlay to fail");
@@ -437,6 +465,7 @@ int main(int argc, char** argv) {
     check("CRT-W-22", "changing the style under a running overlay rebuilds it with the new style", !built_in, "no overlay in this build");
     check("CRT-W-30", "while the overlay runs, a presented frame is counted once (the 'shown' rate)", !built_in, "no overlay in this build");
     check("CRT-W-31", "switching the effect off shows the newest frame, not the one from before it was switched on", !built_in, "no overlay in this build");
+    check("PC-IDLE-05", "with the shader running, an unchanged generation is not submitted again and a new one is", !built_in, "no overlay in this build");
 #endif
 
     // ── Scanlines is the software overlay, for everyone: no GL widget, ever ──

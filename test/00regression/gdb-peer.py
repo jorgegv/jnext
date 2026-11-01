@@ -10,6 +10,8 @@ shared could not pass.
 
     gdb-peer.py handshake <gdb-port>
     gdb-peer.py both <gdb-port> <dzrp-port>
+    gdb-peer.py hold <gdb-port>
+    gdb-peer.py idle-check qt|sdl <log-file>
 
 `both` also opens a DZRP session on the second port (through jnext's own DZRP
 client, tools/cspect_dzrp) while the GDB session is live: two servers on one
@@ -148,6 +150,59 @@ def both(gdb_port, dzrp_port):
     return g
 
 
+def hold(port):
+    """GH #428: interrupt a live machine, hold it paused for several seconds,
+    poke memory once in the middle, resume. The `idle-check` scenario then
+    reads what the frontend reported about its redraws over that time."""
+    import time
+    g = Rsp(port)
+    time.sleep(2.5)                      # running: the log gets windows with uploads
+    g.s.sendall(b"\x03")
+    time.sleep(0.5)
+    check(g.cmd("?") == "T05thread:1;", "? after the interrupt")
+    time.sleep(4.5)                      # held: whole idle one-second windows
+    g.send("M5800,1:ff")
+    reply = g.packet()
+    while reply.startswith("T05"):       # an asynchronous stop reply may precede it
+        reply = g.packet()
+    check(reply == "OK", "the poke was answered %r" % reply)
+    time.sleep(3.5)                      # the window with the poke, then idle again
+    g.send("c")                          # resume: no reply until the next stop
+    time.sleep(3.0)                      # running again: uploads resume
+    g.s.close()
+
+
+def idle_check(kind, path):
+    """GH #428: read the frontend's per-second redraw counters and prove a held
+    machine redraws nothing. Counting, not timing: the assertions hold on a
+    loaded host. A log without the counters is a FAIL, never a pass."""
+    import re
+    with open(path, "r", errors="replace") as f:
+        text = f.read()
+    if kind == "qt":
+        rx = re.compile(r"ticks: n=(\d+) .*\| uploads=(\d+) panel-refreshes=(\d+)")
+        win = [(int(a), int(b), int(c)) for a, b, c in rx.findall(text)]
+    else:
+        rx = re.compile(r"sdl present: ticks=(\d+) uploads=(\d+)")
+        win = [(int(a), int(b), 0) for a, b in rx.findall(text)]
+    check(win, "no %s counter lines in the log (the instrument is missing)" % kind)
+    idle = lambda w: w[0] > 0 and w[1] == 0 and w[2] == 0
+    i0 = next((i for i, w in enumerate(win) if w[1] > 0), None)
+    check(i0 is not None, "no window before the pause had uploads>0: %r" % win)
+    i = next((k for k in range(i0 + 1, len(win) - 1) if idle(win[k]) and idle(win[k + 1])), None)
+    check(i is not None, "no two consecutive idle windows (ticks>0, uploads=0, "
+          "panel-refreshes=0) while the machine was held: %r" % win)
+    start = i + 2
+    if kind == "qt":
+        j = next((k for k in range(start, len(win)) if win[k][0] > 0 and win[k][1] == 0
+                  and win[k][2] >= 1), None)
+        check(j is not None, "the window with the poke had no panel refresh: %r" % win)
+        start = j + 1
+    k = next((k for k in range(start, len(win)) if win[k][1] > 0), None)
+    check(k is not None, "no window after the resume had uploads>0: %r" % win)
+    return len(win)
+
+
 def main():
     try:
         if len(sys.argv) >= 3 and sys.argv[1] == "handshake":
@@ -156,8 +211,17 @@ def main():
         elif len(sys.argv) >= 4 and sys.argv[1] == "both":
             both(int(sys.argv[2]), int(sys.argv[3]))
             print("PASS a GDB and a DZRP session live at once, each served; D left DZRP up")
+        elif len(sys.argv) >= 3 and sys.argv[1] == "hold":
+            hold(int(sys.argv[2]))
+            print("PASS interrupted, held, poked, resumed")
+        elif len(sys.argv) >= 4 and sys.argv[1] == "idle-check":
+            n = idle_check(sys.argv[2], sys.argv[3])
+            extra = ", a poke refreshes the panels once" if sys.argv[2] == "qt" else ""
+            print("PASS %d one-second windows: running redraws, held machine redraws nothing%s, "
+                  "resume redraws" % (n, extra))
         else:
-            print("FAIL usage: gdb-peer.py handshake PORT | both GDBPORT DZRPPORT")
+            print("FAIL usage: gdb-peer.py handshake PORT | both GDBPORT DZRPPORT | hold PORT "
+                  "| idle-check qt|sdl LOG")
             return 1
     except (Fail, OSError, ValueError) as e:
         print("FAIL %s" % e)

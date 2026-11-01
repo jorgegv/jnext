@@ -232,6 +232,11 @@ private:
     // SDL_GetTicks() of the last present, for the >1x present throttle.
     // Uint64-wide because SDL3's SDL_GetTicks() is (SDL2's was Uint32).
     uint64_t    last_present_ms_ = 0;
+    /// GH #428 — framebuffer generation last uploaded to the display
+    /// (render_policy::NOTHING_UPLOADED until the first present), and the
+    /// once-per-second present instrument ("sdl present: ticks=N uploads=K").
+    uint64_t    last_uploaded_gen_ = ~uint64_t{0};
+    uint64_t    present_ticks_ = 0, present_uploads_ = 0, present_window_start_ms_ = 0;
 
     // Pending --rzx-play / --rzx-record, started at the top of run().
     std::string rzx_play_file_;

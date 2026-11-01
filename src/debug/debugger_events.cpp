@@ -133,6 +133,7 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
 
     const EventId id = impl_->events.add(by, fixed);
     impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
     return make_ok<EventId>(id);
 }
 
@@ -152,6 +153,7 @@ Expected<GroupId> Debugger::subscribe_source_line(ClientId by, const std::string
         impl_->events.add(by, m, group);
     }
     impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
     return make_ok<GroupId>(group);
 }
 
@@ -167,6 +169,7 @@ Result Debugger::unsubscribe_group(ClientId by, GroupId group) {
     if (ids.empty()) return Result::RefusedUnavailable;
     for (EventId id : ids) impl_->events.erase(id);
     impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -181,6 +184,7 @@ Result Debugger::set_group_enabled(ClientId by, GroupId group, bool enabled) {
     if (ids.empty()) return Result::RefusedUnavailable;
     for (EventId id : ids) impl_->events.set_enabled(id, enabled);
     impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -193,6 +197,7 @@ Result Debugger::unsubscribe(ClientId by, EventId id) {
     if (e->owner != by) return Result::RefusedUnavailable;
     impl_->events.erase(id);
     impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -202,6 +207,7 @@ Result Debugger::set_enabled(ClientId by, EventId id, bool enabled) {
     if (e->owner != by) return Result::RefusedUnavailable;
     impl_->events.set_enabled(id, enabled);
     impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -227,6 +233,7 @@ Result Debugger::set_master_enabled(bool enabled) {
     impl_->ds().breakpoints().set_master_enabled(enabled);
     impl_->events.set_master_enabled(enabled);
     impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -240,6 +247,7 @@ Result Debugger::set_client_enabled(ClientId cid, bool enabled) {
     if (impl_->client_gone(cid)) return Result::RefusedUnavailable;
     impl_->events.set_client_enabled(cid, enabled);
     impl_->gates_changed();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 

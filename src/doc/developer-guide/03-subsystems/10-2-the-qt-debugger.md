@@ -96,6 +96,21 @@ reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
+**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()`
+redraws the window on every 12th tick (~4 Hz). Paused, it redraws only when a
+*stamp* changed since the last redraw, and re-derives the actions on every tick
+(cheap, and their inputs have no verb). The stamp is: the CPU register file
+(a direct core write), the master clock (steps, run-to, rewinds), the backend's
+`state_revision()` (every MUTATE from any client, a cold boot, and the metadata
+verbs: symbols, source map, subscriptions, trace / coverage / rewind settings,
+attach / detach), a host-input epoch (key, mouse-button and wheel events
+anywhere in the app, counted by an event filter on `qApp` while the debugger is
+enabled; mouse movement is not counted), and the loaded source file's
+modification time. The map and SLD loads need no special call: they bump the
+revision, so the tick redraws; so do memory coverage on / clear and the
+subscription-group verbs. A change of the Source tab's own view that moves
+nothing in the machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the redraws; the `ticks:` line reports it as `panel-refreshes=`.
+
 **The breakpoint views follow the model.** The Breakpoints list and the
 disassembly gutter follow `BreakpointModel::changed(kinds)`, so a breakpoint
 appears the instant it is set. `kinds` is the set of event kinds whose *listed*
@@ -228,8 +243,9 @@ paused machine (rows QMAP-05 and QMAP-06).
 The Source tab (`source_panel.*`) shows the PC's line from the backend's source
 map and carries the source-step buttons; it holds no state of its own beyond
 the loaded file and its modification time, where the view was last put, and the
-sidecar reason `report_sidecars()` gave it. `refresh()` runs on every tick while
-the machine is paused, so it moves the cursor and centres only when the line or
+sidecar reason `report_sidecars()` gave it. `refresh()` runs while the machine
+is paused whenever the paused stamp changes (the loaded file's modification
+time is part of it, so an edit on disk still shows), so it moves the cursor and centres only when the line or
 the PC changed or the text was loaded since (a user who scrolled stays put).
 `follow_pc()` forces the next one: `DebuggerWindow::activate_follow_pc()` calls
 it, and `apply_pause_state(true)` runs that at every stop and every step, as it

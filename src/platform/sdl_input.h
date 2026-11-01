@@ -31,6 +31,12 @@ public:
         on_keyboard_lost = std::move(cb);
     }
 
+    // GH #428 — called when the window's CONTENTS are no longer what was
+    // last drawn (exposed, resized, pixel size / display scale changed,
+    // fullscreen entered or left, restored, shown). The display skips presents
+    // of an unchanged frame, so SdlApp answers by forcing the next one.
+    std::function<void()> on_window_invalidated;
+
     // Called on SDL_EVENT_QUIT
     std::function<void()> on_quit;
 

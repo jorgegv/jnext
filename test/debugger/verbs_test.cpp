@@ -54,6 +54,7 @@
 #include "debugger/nextreg_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/video_panel.h"
+#include "debugger/watch_panel.h"
 #include "memory/mmu.h"
 #include "platform/emulator_boot.h"
 #include "port/nextreg.h"
@@ -71,6 +72,10 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QMouseEvent>
+#include <QShortcutEvent>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSlider>
@@ -1211,16 +1216,287 @@ static void test_throttle() {
           nr && sync <= 12 && first_change == 12,
           fmt("sync after %d; values over 12 ticks: %s", sync, seq.c_str()));
 
+    // QTH-02 (rewritten, owner-approved 2026-11-01, GH #428). It used to pin
+    // "while paused, every manager tick refreshes the panels", which IS the
+    // reported defect (a paused machine redrew every panel fifty times a
+    // second), and it drove the change with a direct core write no production
+    // path makes. Production changes go through the backend (every client's
+    // write verbs) or follow user input. The claim now: a change made through
+    // the backend shows at the next paused tick. QIDLE-01 pins the idle half.
     fx.mgr->on_pause();
-    fx.emu.nextreg().write(0x7F, 0x33);
+    jnext::dbg::ClientInfo other_info;
+    other_info.name = "other";
+    other_info.kind = jnext::dbg::ClientKind::Test;
+    const jnext::dbg::ClientId other = fx.backend->attach(other_info).value;
+    fx.mgr->refresh_panels();
+    fx.backend->nextreg_write(other, 0x7F, 0x33);
     fx.mgr->refresh_panels();
     const QString once = shown();
-    fx.emu.nextreg().write(0x7F, 0x44);
+    fx.backend->nextreg_write(other, 0x7F, 0x44);
     fx.mgr->refresh_panels();
     check("QTH-02",
-          "while paused, every manager tick refreshes the panels",
+          "while paused, a NextREG change made through the backend shows at the next tick",
           once == "33" && shown() == "44",
           fmt("after 1st tick %s, 2nd %s", s(once).c_str(), s(shown()).c_str()));
+}
+
+// ===========================================================================
+// QIDLE (GH #428) -- a paused machine with nothing changing costs no panel
+// refresh. Oracle: the plan's contract (section 2.5): a paused window is
+// redrawn when the clock moved, the backend's state revision moved (any
+// client's write, metadata verb, cold boot), the user did something (key,
+// mouse button, wheel anywhere in the app), or the loaded source file changed
+// on disk -- once, at the next tick -- and at no other time. The count is
+// DebuggerManager::take_panel_refresh_count(); every row ticks like QtApp
+// (Fixture::tick() = check_breakpoint_hit() + refresh_panels()).
+// ===========================================================================
+static void test_idle_refresh() {
+    set_group("QIDLE");
+
+    Fixture fx(MachineType::ZXN_ISSUE2);
+    if (!fx.ok) {
+        for (const char* id : {"QIDLE-01", "QIDLE-02", "QIDLE-03", "QIDLE-04", "QIDLE-05",
+                               "QIDLE-07", "QIDLE-08", "QIDLE-09", "QIDLE-10", "QIDLE-11", "QIDLE-12", "QIDLE-13"})
+            check(id, "fixture", false);
+        return;
+    }
+    fx.load(PROG, {0x00, 0x00, 0x18, 0xFE});              // NOP NOP JR $
+    fx.regs(PROG);
+    fx.enable();
+    jnext::dbg::ClientInfo oi;
+    oi.name = "other";
+    oi.kind = jnext::dbg::ClientKind::Test;
+    const jnext::dbg::ClientId other = fx.backend->attach(oi).value;
+    // Past the pause edge and settled: the first ticks may refresh, the rest not.
+    fx.tick();
+    fx.tick();
+    fx.mgr->take_panel_refresh_count();
+    DebuggerWindow* win = fx.dbg();
+
+    // QIDLE-01: 50 idle ticks refresh nothing; one tick after a pause edge does.
+    for (int i = 0; i < 50; ++i) fx.tick();
+    const uint64_t idle = fx.mgr->take_panel_refresh_count();
+    fx.mgr->on_run();
+    fx.tick();
+    fx.mgr->take_panel_refresh_count();     // the running tick's own (throttled) refresh, if any
+    fx.mgr->on_pause();                      // the pause edge redraws the window (once) ...
+    fx.tick();                               // ... and the tick after it has nothing to add
+    const uint64_t after_edge = fx.mgr->take_panel_refresh_count();
+    fx.tick();
+    const uint64_t settled = fx.mgr->take_panel_refresh_count();
+    check("QIDLE-01",
+          "50 idle paused ticks refresh the panels 0 times; the tick after a pause edge, exactly once",
+          idle == 0 && after_edge == 1 && settled == 0,
+          fmt("idle=%llu after_edge=%llu then=%llu", (unsigned long long)idle,
+              (unsigned long long)after_edge, (unsigned long long)settled));
+
+    // QIDLE-02: another client's poke of a watched address shows at the next
+    // tick, once.
+    {
+        win->watch_panel()->add_watch(0x9000, "w", 0);
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        const uint8_t v = 0x5A;
+        fx.backend->poke(other, jnext::dbg::MemSpace::cpu(), 0x9000, 1, &v);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        QString row;
+        if (auto* t = win->watch_panel()->findChild<QTableWidget*>())
+            for (int c = 0; c < t->columnCount(); ++c)
+                if (t->item(0, c)) row += t->item(0, c)->text() + "|";
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-02",
+              "another client's poke of a watched address refreshes once at the next tick and the "
+              "Watches value shows the new byte; the tick after refreshes nothing",
+              n1 == 1 && n2 == 0 && row.contains("5A", Qt::CaseInsensitive),
+              fmt("n1=%llu n2=%llu row=%s", (unsigned long long)n1, (unsigned long long)n2,
+                  s(row).c_str()));
+    }
+
+    // QIDLE-03: another client's step moves the clock.
+    {
+        fx.mgr->take_panel_refresh_count();
+        fx.backend->step_into(other);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        const QString pc = cpu_value(win, "PC: ");
+        check("QIDLE-03",
+              "another client's step_into refreshes once at the next tick and the CPU panel shows "
+              "the new PC",
+              n1 == 1 && pc.toUpper() == QString::asprintf("%04X", fx.pc()),
+              fmt("n1=%llu panel=%s pc=%04X", (unsigned long long)n1, s(pc).c_str(), fx.pc()));
+    }
+
+    // QIDLE-04: another client's load_map shows in the Breakpoints Symbol cell.
+    {
+        fx.regs(PROG);
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8000);
+        fx.tick();
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        const std::string path = write_file("qidle4.map", "_qidle = $8000 ; addr, public\n");
+        fx.backend->load_map(path, jnext::dbg::MapFormat::Z88dk);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        QString cell = QStringLiteral("<no row>");
+        if (auto* t = win->breakpoint_panel()->findChild<QTableWidget*>())
+            for (int r = 0; r < t->rowCount(); ++r)
+                if (t->item(r, 2) && t->item(r, 2)->text() == "$8000" && t->item(r, 3))
+                    cell = t->item(r, 3)->text();
+        check("QIDLE-04",
+              "another client's load_map refreshes at the next tick and the Breakpoints Symbol cell "
+              "shows the new name",
+              n1 >= 1 && cell == "_qidle", fmt("n1=%llu cell=%s", (unsigned long long)n1, s(cell).c_str()));
+    }
+
+    // QIDLE-05: a host-side change with no backend call (NR 0x07 from the CPU
+    // speed menu is the known one) does not refresh by itself; the user input
+    // that causes it does, at the next tick, and the NextREG panel shows it.
+    {
+        NextRegPanel* nr = win->findChild<NextRegPanel*>();
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        fx.emu.nextreg().write(0x7F, 0x6B);
+        fx.tick();
+        const uint64_t quiet = fx.mgr->take_panel_refresh_count();
+        const QString before = table_cell(nr, 0x7F, 2);
+        // The click goes to a CHILD of the main window (its menu bar, where the
+        // CPU-speed menu lives), not to the main window object itself: the
+        // manager's older per-object filter sees only the latter, so only the
+        // qApp filter can make this row pass.
+        for (QEvent::Type t : {QEvent::MouseButtonPress, QEvent::MouseButtonRelease}) {
+            QMouseEvent ev(t, QPointF(2, 2), QPointF(2, 2), Qt::LeftButton,
+                           t == QEvent::MouseButtonPress ? Qt::LeftButton : Qt::NoButton,
+                           Qt::NoModifier);
+            QApplication::sendEvent(fx.win.menuBar(), &ev);
+        }
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        const QString after = table_cell(nr, 0x7F, 2);
+        check("QIDLE-05",
+              "a direct core NextREG write alone refreshes nothing; a mouse click on the main window "
+              "makes the next tick refresh and the NextREG panel shows the value",
+              quiet == 0 && n1 >= 1 && before != "6B" && after == "6B",
+              fmt("quiet=%llu n1=%llu before=%s after=%s", (unsigned long long)quiet,
+                  (unsigned long long)n1, s(before).c_str(), s(after).c_str()));
+    }
+
+    // QIDLE-09: a direct core write of the CPU registers (a host action or a
+    // test; no backend verb, no input) is seen: one refresh at the next tick,
+    // the CPU panel shows it, then nothing.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.BC = 0x1D2E;
+        fx.emu.cpu().set_registers(r);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        const QString bc = cpu_value(win, "BC: ");
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-09",
+              "a direct core register write alone refreshes once at the next tick (the CPU panel "
+              "shows it) and the tick after refreshes nothing",
+              n1 == 1 && n2 == 0 && bc.toUpper() == "1D2E",
+              fmt("n1=%llu n2=%llu BC=%s", (unsigned long long)n1, (unsigned long long)n2,
+                  s(bc).c_str()));
+    }
+
+    // QIDLE-10: the clock term on its own. Another client steps the machine
+    // (clock + registers move), then the registers are written back to exactly
+    // what the window last drew: only the master clock differs, and that alone
+    // is enough for one refresh at the next tick.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        const Z80Registers drawn = fx.emu.cpu().get_registers();
+        fx.backend->step_into(other);
+        fx.emu.cpu().set_registers(drawn);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-10",
+              "the master clock moving alone (registers back as drawn) refreshes once at the next "
+              "tick, then nothing",
+              n1 == 1 && n2 == 0,
+              fmt("n1=%llu n2=%llu", (unsigned long long)n1, (unsigned long long)n2));
+    }
+
+    // QIDLE-11: input to the OTHER top-level window (the debugger window), which
+    // no per-object filter of the manager covers: a direct NextREG write alone
+    // refreshes nothing; a click in the debugger window makes the next tick do.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        fx.emu.nextreg().write(0x7F, 0x7C);
+        fx.tick();
+        const uint64_t quiet = fx.mgr->take_panel_refresh_count();
+        for (QEvent::Type t : {QEvent::MouseButtonPress, QEvent::MouseButtonRelease}) {
+            QMouseEvent ev(t, QPointF(2, 2), QPointF(2, 2), Qt::LeftButton,
+                           t == QEvent::MouseButtonPress ? Qt::LeftButton : Qt::NoButton,
+                           Qt::NoModifier);
+            QApplication::sendEvent(win, &ev);
+        }
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-11",
+              "a click in the debugger window (another top-level) makes the next paused tick refresh",
+              quiet == 0 && n1 >= 1,
+              fmt("quiet=%llu n1=%llu", (unsigned long long)quiet, (unsigned long long)n1));
+    }
+
+    // QIDLE-12 / QIDLE-13: a matched shortcut consumes the KeyPress itself, so
+    // the input epoch must count the ShortcutOverride that precedes it and the
+    // Shortcut event; sent to a child widget (the menu bar), with nothing else
+    // having changed.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        QKeyEvent so(QEvent::ShortcutOverride, Qt::Key_F20, Qt::NoModifier);
+        QApplication::sendEvent(fx.win.menuBar(), &so);
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-12", "a ShortcutOverride event makes the next paused tick refresh",
+              n1 >= 1, fmt("n1=%llu", (unsigned long long)n1));
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        QShortcutEvent sc(QKeySequence(Qt::Key_F20), 1);
+        QApplication::sendEvent(fx.win.menuBar(), &sc);
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-13", "a Shortcut event makes the next paused tick refresh",
+              n2 >= 1, fmt("n2=%llu", (unsigned long long)n2));
+    }
+
+    // QIDLE-07: a guest cold boot reaches the backend as begin / done.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        fx.backend->on_cold_boot_begin();
+        fx.backend->on_cold_boot_done();
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-07", "a cold boot reported to the backend while paused refreshes at the next tick",
+              n1 >= 1, fmt("n1=%llu", (unsigned long long)n1));
+    }
+
+    // QIDLE-08: hover / mouse movement alone refreshes nothing.
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        for (int xy : {5, 9}) {
+            QMouseEvent ev(QEvent::MouseMove, QPointF(xy, xy), QPointF(xy, xy), Qt::NoButton,
+                           Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(&fx.win, &ev);
+        }
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        check("QIDLE-08", "mouse movement alone does not refresh a paused window",
+              n1 == 0, fmt("n1=%llu", (unsigned long long)n1));
+    }
 }
 
 // ===========================================================================
@@ -2899,6 +3175,7 @@ int main(int argc, char** argv) {
     test_step_into();
     test_pause_edge();
     test_throttle();
+    test_idle_refresh();
     test_enable_seeds();
     test_rewind_ui();
     test_rewind_refusal_ui();
