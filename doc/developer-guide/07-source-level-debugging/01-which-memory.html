@@ -2925,8 +2925,9 @@ routes, and a debugger that shows which one answered must not collapse them.
 <p>Three facts the table does not show:</p>
 <ul>
 <li><strong>The packing is bounded.</strong> Every value the arbiter produces fits 12 bits:
-  <code>kind &lt;= 15</code> and <code>index &lt;= 0xFF</code>. <code>static_assert</code>s in <code>debug_types_check.cpp</code>
-  pin it, and <code>MemCoverage</code> relies on it (below).</li>
+  <code>kind &lt;= 15</code> and <code>index &lt;= 0xFF</code>. A <code>static_assert</code> in
+  <code>debug_types_check.cpp</code> pins <code>kind &lt;= 15</code>, and row <code>FSRC-09</code> (<code>mmu_integration_test</code>)
+  pins <code>index &lt;= 0xFF</code>. <code>MemCoverage</code> relies on both (below).</li>
 <li><strong>Store size depends on the kind.</strong> <code>space_size()</code> is <code>0x4000</code> for <code>Rom</code>,
   <code>AltRom</code> and <code>Config</code> and <code>0x2000</code> for every other kind, and <code>space_offset(s,
   logical)</code> is <code>logical &amp; (size - 1)</code>. Every route the arbiter produces has

@@ -2834,7 +2834,7 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>step_out_test</code>, <code>rewind_call_stack_test</code></td>
-<td>The call stack's frame-ending rule</td>
+<td>Step Out's <code>RET</code> predicate, and the call-stack tracker restored across a rewind (the frame-ending rule itself is <code>SRCDBG-CS-08</code> to <code>-15</code> in <code>source_debug_test</code>)</td>
 </tr>
 <tr>
 <td><code>debugger_backend_test</code></td>
@@ -2946,8 +2946,8 @@ those excerpts synthetic.</p>
 <h2 id="adding-a-producer">Adding a producer<a class="headerlink" href="#adding-a-producer" title="Permanent link">&para;</a></h2>
 <p>A "producer" is a tool whose output could feed the stores: another assembler, a
 compiler, a linker. Support is a contract, and the contract is
-<code>doc/design/SOURCE-LEVEL-DEBUGGING.md</code> section 9.1: <em>a new format is therefore
-supported only once its section states its extent and space rules</em>. The checklist, with
+<code>doc/design/SOURCE-LEVEL-DEBUGGING.md</code> section 9.1: "A new format is
+therefore supported only once this section states its extent and space rules". The checklist, with
 the file each step touches:</p>
 <ol>
 <li><strong>Commit ground truth first.</strong> Real output from the real tool, with its version

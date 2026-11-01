@@ -2892,9 +2892,10 @@ attachment of that generation:</p>
 <li>The record comes from the <strong>attachment cache</strong>, <code>Impl::attach_cache</code>: one
   <code>Attachment</code> per generation, holding the sidecar <code>SourceMap</code> and <code>SymbolTable</code>
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>debugger_impl.h:156</code>); a
-  when a fifth is added the oldest record is evicted. <code>cache_push_current()</code> replaces a
-  generation's record in place.</li>
+  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>debugger_impl.h:156</code>); when
+  a fifth is added the oldest record is evicted. <code>cache_push_current()</code> erases a
+  generation's existing record and appends the new one, so a replaced record becomes
+  the newest and is the last to be evicted.</li>
 <li>A restored store is assigned into the existing objects, so the Qt panels'
   <code>&amp;symbols()</code> stays valid.</li>
 <li>With no record, the sidecar stores are cleared with "this point of the history is
@@ -2982,8 +2983,10 @@ where the loader puts the bytes.</p>
   at error level with <code>Rejected ... does not match its binary identity</code>. The window
   stays set for the units not run yet, and is cleared when none remains.</li>
 <li><strong>Landings meanwhile.</strong> A landing that is not a ring restore judges a pending map
-  <em>whole</em>, as it does any carried map (a match clears the check, a mismatch, or a
-  reset before the program arrived, drops it); a ring restore brings back the
+  <em>whole</em>, as it does any carried map: a match clears the check; a mismatch, or a
+  reset before the program arrived, drops a sidecar map, while a user's map goes
+  <strong>stale</strong> (<code>verify_user()</code>), unlike the verify-window verdict above, which takes it
+  to <code>None</code>; a ring restore brings back the
   generation's <code>Attachment::checks</code>, updated at every judged space, so a rewind keeps
   what was verified. A user's pending map is carried into the next program's load,
   and across rewinds, still pending.</li>

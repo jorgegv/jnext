@@ -20,12 +20,12 @@ README finding G18).
 ## 2. The producer's writer
 
 `z80asm` `src/z80asm/src/cpp/lstfile.cpp` (`list_open()`: 2.4 `:202`, master
-`:213`). The layout is `LstFile::out_line()` (`:131-177`) with the widths at
+`:213`). The layout is `LstFile::out_line()` (master `:131-177`, 2.4 `:126-168`) with the widths at
 `:26-29` (identical in both trees): a 6-wide line-number column, 2 blanks, a
 4-digit hex address (the section-relative or phased pc), 2 blanks, 16 characters
 for at most 8 bytes, 2 blanks, and the source text from column 32. Bytes beyond the
 eighth continue on rows that repeat only the bytes. `LstFile::out_filename()`
-(`:122-129`) writes `<name>:` on its own line whenever the file changes, which
+(master `:122-129`, 2.4 `:117-124`) writes `<name>:` on its own line whenever the file changes, which
 includes the files `z80asm` is reading through `INCLUDE`, a `C_LINE`'s file operand
 and a macro's source (the `.m4` text of the start-up code).
 

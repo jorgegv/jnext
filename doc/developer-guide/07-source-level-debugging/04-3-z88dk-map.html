@@ -2642,6 +2642,23 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-space-and-extent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Space and extent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Space and extent">
+      <ul class="md-nav__list">
+        
           <li class="md-nav__item">
   <a href="#space" class="md-nav__link">
     <span class="md-ellipsis">
@@ -2664,11 +2681,39 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#identity" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-identity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Identity
+        6. Identity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-what-is-skipped" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. What is skipped
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. What is skipped">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#__cdbinfo__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __CDBINFO__
       
     </span>
   </a>
@@ -2681,10 +2726,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-__cdbinfo__" class="md-nav__link">
+  <a href="#8-excerpts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. __CDBINFO__
+        8. Excerpts
       
     </span>
   </a>
@@ -2692,32 +2737,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-what-is-skipped" class="md-nav__link">
+  <a href="#9-the-rows" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. What is skipped
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#7-excerpts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. Excerpts
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#8-the-rows" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. The rows
+        9. The rows
       
     </span>
   </a>
@@ -2957,7 +2980,7 @@ classic <code>+zxn</code> banked <code>-debug</code> is not producible (<code>Un
   (<code>const, public, def, , ,</code>).</li>
 <li><strong><code>__C_LINE_&lt;n&gt;_&lt;enc&gt;</code>.</strong> <code>Preproc::do_c_line()</code>, <code>src/z80asm/src/cpp/preproc.cpp</code>
   (master <code>:1721-1755</code>, the symbol built at <code>:1746-1747</code>; 2.4 <code>:1309-1310</code>). Only
-  <code>if (g_options.debug)</code>. <code>&lt;n&gt;</code> is the line of the <code>C_LINE</code> directive and <code>&lt;enc&gt;</code>
+  <code>if (g_options.debug)</code>. <code>&lt;n&gt;</code> is the directive's line operand (<code>C_LINE 17,...</code> gives <code>__C_LINE_17_</code>) and <code>&lt;enc&gt;</code>
   is <code>url_encode()</code> of the <em>string operand</em> (<code>main.c::main::1::3</code>): master
   <code>preproc.cpp:1706</code>, 2.4 <code>:1272</code>. It keeps <code>isalnum()</code> characters and writes
   every other byte as <code>_</code> and two lower-case hex digits.</li>
@@ -3068,6 +3091,7 @@ refusal is the first bad line.</p>
    (<code>"address $... of section '...' is not in a RAM page"</code>).</li>
 <li>The records are grouped by <code>(space, address)</code> for ownership and extent, below.</li>
 </ol>
+<h2 id="5-space-and-extent">5. Space and extent<a class="headerlink" href="#5-space-and-extent" title="Permanent link">&para;</a></h2>
 <h3 id="space">Space<a class="headerlink" href="#space" title="Permanent link">&para;</a></h3>
 <p><code>z88dk_section_space(section, value, page_head)</code> (<code>debug/z88dk_space.cpp</code>) maps a
 section name and a (possibly 24-bit) value to a <code>Z88dkSpace</code>. Page numbers are
@@ -3123,7 +3147,7 @@ is dropped. Any other lower line has <strong>no code</strong>: <code>resolve()</
 (<a href="02-the-source-map.html">7.2</a>). In the fixture, <code>main.c:16</code> is the alias of
 <code>main.c:17</code> at <code>$8C95</code> and <code>main.c:14</code> (in <code>square</code>) has no code at the <code>$8C92</code>
 that <code>main.c:15</code> (in <code>main</code>) owns.</p>
-<h3 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h3>
+<h2 id="6-identity">6. Identity<a class="headerlink" href="#6-identity" title="Permanent link">&para;</a></h2>
 <p>The section binaries z88dk writes beside the map, <code>&lt;map stem&gt;_&lt;GROUP&gt;.bin</code>, are the
 identity. A group comes from a constant <code>__&lt;GROUP&gt;_head</code> and must have no
 lower-case letter (<code>__code_compiler_head</code> is a section, not a group; on a
@@ -3134,7 +3158,12 @@ the binary that holds both its first and last byte, with both ends in the range'
 memory, supplies a <code>SourceByteCheck { space, lo, bytes }</code>. A range no binary covers
 is counted in <code>SourceMapLoadResult::unchecked</code>, and no binary at all means no
 identity. This is the byte-check form of <a href="02-the-source-map.html">7.2</a>.</p>
-<h2 id="5-__cdbinfo__">5. <code>__CDBINFO__</code><a class="headerlink" href="#5-__cdbinfo__" title="Permanent link">&para;</a></h2>
+<h2 id="7-what-is-skipped">7. What is skipped<a class="headerlink" href="#7-what-is-skipped" title="Permanent link">&para;</a></h2>
+<p><code>__C_LINE_</code>, <code>__ASM_LINE_</code> and <code>__CDBINFO__</code> symbols in the symbol half; line
+records in an empty section and line-0 records in the source half; any symbol
+a space rule refuses or leaves unpaged beyond 16 bits; <code>const</code> values wider than 16
+bits as names; lines that do not parse as map lines.</p>
+<h3 id="__cdbinfo__"><code>__CDBINFO__</code><a class="headerlink" href="#__cdbinfo__" title="Permanent link">&para;</a></h3>
 <p>These records are z88dk's C debug information, in a different encoding from the
 line markers:</p>
 <ul>
@@ -3156,12 +3185,7 @@ line markers:</p>
   "__CDBINFO__")</code>). Nothing else in <code>src/</code> reads them. Only a test does: it decodes
   the names of the C identifiers to check the C names above (<code>Z88CN-01</code>).</li>
 </ul>
-<h2 id="6-what-is-skipped">6. What is skipped<a class="headerlink" href="#6-what-is-skipped" title="Permanent link">&para;</a></h2>
-<p><code>__C_LINE_</code>, <code>__ASM_LINE_</code> and <code>__CDBINFO__</code> symbols in the symbol half; line
-records in an empty section and line-0 records in the source half; any symbol
-a space rule refuses or leaves unpaged beyond 16 bits; <code>const</code> values wider than 16
-bits as names; lines that do not parse as map lines.</p>
-<h2 id="7-excerpts">7. Excerpts<a class="headerlink" href="#7-excerpts" title="Permanent link">&para;</a></h2>
+<h2 id="8-excerpts">8. Excerpts<a class="headerlink" href="#8-excerpts" title="Permanent link">&para;</a></h2>
 <p>From <code>test/fixtures/z88dk/v2.4/sccz80-debug/prog.map</code> (z88dk 2.4, built with <code>zcc
 +zxn -clib=new -debug</code>; the file is trimmed to the fixture's modules, lines kept
 verbatim; the number is the line in the file):</p>
@@ -3189,7 +3213,7 @@ __PAGE_20_head                  = $C000 ; const, public, def, , ,
 <p>The <code>PAGE_20</code> section with head <code>$C000</code> puts <code>$C000</code> in page 20. The <code>__CDBINFO__</code>
 line decodes to <code>S:Lbanked.c.banked_add$a$0_0$0({1}SC:U),B,1,6</code>; note the digits
 encoded as <code>_30</code>, <code>_31</code>, <code>_36</code>.</p>
-<h2 id="8-the-rows">8. The rows<a class="headerlink" href="#8-the-rows" title="Permanent link">&para;</a></h2>
+<h2 id="9-the-rows">9. The rows<a class="headerlink" href="#9-the-rows" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>z88dk_map_test</code>: <code>Z88MAP-*</code> (the source half, with the oracle values from the
   fixtures: owners, aliases, extents), <code>Z88SYM-*</code> (the symbol half and the

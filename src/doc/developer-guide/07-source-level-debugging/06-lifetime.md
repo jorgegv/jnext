@@ -67,9 +67,10 @@ attachment of that generation:
 - The record comes from the **attachment cache**, `Impl::attach_cache`: one
   `Attachment` per generation, holding the sidecar `SourceMap` and `SymbolTable`
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`debugger_impl.h:156`); a
-  when a fifth is added the oldest record is evicted. `cache_push_current()` replaces a
-  generation's record in place.
+  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`debugger_impl.h:156`); when
+  a fifth is added the oldest record is evicted. `cache_push_current()` erases a
+  generation's existing record and appends the new one, so a replaced record becomes
+  the newest and is the last to be evicted.
 - A restored store is assigned into the existing objects, so the Qt panels'
   `&symbols()` stays valid.
 - With no record, the sidecar stores are cleared with "this point of the history is
@@ -161,8 +162,10 @@ where the loader puts the bytes.
   at error level with `Rejected ... does not match its binary identity`. The window
   stays set for the units not run yet, and is cleared when none remains.
 - **Landings meanwhile.** A landing that is not a ring restore judges a pending map
-  *whole*, as it does any carried map (a match clears the check, a mismatch, or a
-  reset before the program arrived, drops it); a ring restore brings back the
+  *whole*, as it does any carried map: a match clears the check; a mismatch, or a
+  reset before the program arrived, drops a sidecar map, while a user's map goes
+  **stale** (`verify_user()`), unlike the verify-window verdict above, which takes it
+  to `None`; a ring restore brings back the
   generation's `Attachment::checks`, updated at every judged space, so a rewind keeps
   what was verified. A user's pending map is carried into the next program's load,
   and across rewinds, still pending.

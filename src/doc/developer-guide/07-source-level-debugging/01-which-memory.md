@@ -49,8 +49,9 @@ routes, and a debugger that shows which one answered must not collapse them.
 Three facts the table does not show:
 
 - **The packing is bounded.** Every value the arbiter produces fits 12 bits:
-  `kind <= 15` and `index <= 0xFF`. `static_assert`s in `debug_types_check.cpp`
-  pin it, and `MemCoverage` relies on it (below).
+  `kind <= 15` and `index <= 0xFF`. A `static_assert` in
+  `debug_types_check.cpp` pins `kind <= 15`, and row `FSRC-09` (`mmu_integration_test`)
+  pins `index <= 0xFF`. `MemCoverage` relies on both (below).
 - **Store size depends on the kind.** `space_size()` is `0x4000` for `Rom`,
   `AltRom` and `Config` and `0x2000` for every other kind, and `space_offset(s,
   logical)` is `logical & (size - 1)`. Every route the arbiter produces has

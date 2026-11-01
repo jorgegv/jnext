@@ -37,7 +37,7 @@ In z88dk:
   (`const, public, def, , ,`).
 - **`__C_LINE_<n>_<enc>`.** `Preproc::do_c_line()`, `src/z80asm/src/cpp/preproc.cpp`
   (master `:1721-1755`, the symbol built at `:1746-1747`; 2.4 `:1309-1310`). Only
-  `if (g_options.debug)`. `<n>` is the line of the `C_LINE` directive and `<enc>`
+  `if (g_options.debug)`. `<n>` is the directive's line operand (`C_LINE 17,...` gives `__C_LINE_17_`) and `<enc>`
   is `url_encode()` of the *string operand* (`main.c::main::1::3`): master
   `preproc.cpp:1706`, 2.4 `:1272`. It keeps `isalnum()` characters and writes
   every other byte as `_` and two lower-case hex digits.
@@ -131,6 +131,8 @@ refusal is the first bad line.
    (`"address $... of section '...' is not in a RAM page"`).
 6. The records are grouped by `(space, address)` for ownership and extent, below.
 
+## 5. Space and extent
+
 ### Space
 
 `z88dk_section_space(section, value, page_head)` (`debug/z88dk_space.cpp`) maps a
@@ -192,7 +194,7 @@ is dropped. Any other lower line has **no code**: `resolve()` says so
 `main.c:17` at `$8C95` and `main.c:14` (in `square`) has no code at the `$8C92`
 that `main.c:15` (in `main`) owns.
 
-### Identity
+## 6. Identity
 
 The section binaries z88dk writes beside the map, `<map stem>_<GROUP>.bin`, are the
 identity. A group comes from a constant `__<GROUP>_head` and must have no
@@ -205,7 +207,14 @@ memory, supplies a `SourceByteCheck { space, lo, bytes }`. A range no binary cov
 is counted in `SourceMapLoadResult::unchecked`, and no binary at all means no
 identity. This is the byte-check form of [7.2](02-the-source-map.md).
 
-## 5. `__CDBINFO__`
+## 7. What is skipped
+
+`__C_LINE_`, `__ASM_LINE_` and `__CDBINFO__` symbols in the symbol half; line
+records in an empty section and line-0 records in the source half; any symbol
+a space rule refuses or leaves unpaged beyond 16 bits; `const` values wider than 16
+bits as names; lines that do not parse as map lines.
+
+### `__CDBINFO__`
 
 These records are z88dk's C debug information, in a different encoding from the
 line markers:
@@ -228,14 +237,7 @@ line markers:
   "__CDBINFO__")`). Nothing else in `src/` reads them. Only a test does: it decodes
   the names of the C identifiers to check the C names above (`Z88CN-01`).
 
-## 6. What is skipped
-
-`__C_LINE_`, `__ASM_LINE_` and `__CDBINFO__` symbols in the symbol half; line
-records in an empty section and line-0 records in the source half; any symbol
-a space rule refuses or leaves unpaged beyond 16 bits; `const` values wider than 16
-bits as names; lines that do not parse as map lines.
-
-## 7. Excerpts
+## 8. Excerpts
 
 From `test/fixtures/z88dk/v2.4/sccz80-debug/prog.map` (z88dk 2.4, built with `zcc
 +zxn -clib=new -debug`; the file is trimmed to the fixture's modules, lines kept
@@ -275,7 +277,7 @@ The `PAGE_20` section with head `$C000` puts `$C000` in page 20. The `__CDBINFO_
 line decodes to `S:Lbanked.c.banked_add$a$0_0$0({1}SC:U),B,1,6`; note the digits
 encoded as `_30`, `_31`, `_36`.
 
-## 8. The rows
+## 9. The rows
 
 - `z88dk_map_test`: `Z88MAP-*` (the source half, with the oracle values from the
   fixtures: owners, aliases, extents), `Z88SYM-*` (the symbol half and the

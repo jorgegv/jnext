@@ -178,7 +178,10 @@ correctly, which `v2.4/sccz80-banked-run` and `master/sdcc-banked-run`
 - `source_debug_test`: `SRCBP-*` (line breakpoints and groups), `SRCRUN-*` (run to
   line), `SRCSTEP-*` and `SRCDBG-STEP-*` (the forward steps), `SRCDBG-BACK-*`,
   `SRCDBG-HIST-*` and `SRCDBG-GATE-*` (Back, Reverse Continue and the generation
-  filter), `SRCDBG-CS-*` (the call stack's frame identities).
-- `step_out_test` and `rewind_call_stack_test`: the frame-ending rule.
+  filter), `SRCDBG-CS-*` (the call stack's frame identities; `SRCDBG-CS-08` to `-15` pin the
+  frame-ending rule above: the esxDOS shim, a `RET` used as a jump, `__z88dk_callee`,
+  `RETI`/`RETN`, an `RST` frame, an `INT` that ended a `HALT`).
+- `step_out_test` (the Step Out `RET` predicate, `check_step_out()`) and
+  `rewind_call_stack_test` (the tracker restored across a rewind).
 - `script_events_test`: the DSL's `on execute FILE:LINE`.
 - `mmu_integration_test`: `FSRC-*` for the identities the steps and breakpoints use.

@@ -43,6 +43,7 @@ digraph srcdbg_lifetime {
     a1 -> land [label=" a reset, a state or\l snapshot load, an RZX start,\l a rewind\l"];
     a3 -> land;
     a2 -> r3;
+    a2 -> land [label=" a landing judges it whole\l"];
     land -> rc;
     rc -> r1;
     rc -> r2;

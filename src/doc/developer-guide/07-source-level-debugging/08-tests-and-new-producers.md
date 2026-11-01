@@ -22,7 +22,7 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 | `source_debug_test` | The backend on a real machine: identity of fetches (`SRCDBG-ID-*`), sidecars and ownership (`SRCDBG-SIDE-*`, `-OWN-*`), symbols (`SRCDBG-SYM-*`), z88dk (`SRCDBG-Z88-*`, `-LIS-*`), tapes (`SRCDBG-TAPE-*`), lifetime (`SRCLIFE-*`), breakpoints (`SRCBP-*`), run to line (`SRCRUN-*`), steps (`SRCSTEP-*`, `SRCDBG-STEP-*`, `-BACK-*`, `-HIST-*`), call stack (`SRCDBG-CS-*`), coverage (`SRCDBG-COV-*`) |
 | `source_debug_posix_test` | The rows whose fixtures are POSIX file types (a looping link, a FIFO); gated by OS |
 | `mmu_test`, `mmu_integration_test` | The arbiter against the VHDL's memory map (`FSRC-*`) |
-| `step_out_test`, `rewind_call_stack_test` | The call stack's frame-ending rule |
+| `step_out_test`, `rewind_call_stack_test` | Step Out's `RET` predicate, and the call-stack tracker restored across a rewind (the frame-ending rule itself is `SRCDBG-CS-08` to `-15` in `source_debug_test`) |
 | `debugger_backend_test` | Symbols across formats (`SYM-*`) |
 | `gdb_rsp_test` | `monitor src` and `monitor sym` (`GDB-MON-*`) |
 | `script_events_test` | The DSL's `on execute FILE:LINE` and `--map` |
@@ -93,8 +93,8 @@ those excerpts synthetic.
 
 A "producer" is a tool whose output could feed the stores: another assembler, a
 compiler, a linker. Support is a contract, and the contract is
-`doc/design/SOURCE-LEVEL-DEBUGGING.md` section 9.1: *a new format is therefore
-supported only once its section states its extent and space rules*. The checklist, with
+`doc/design/SOURCE-LEVEL-DEBUGGING.md` section 9.1: "A new format is
+therefore supported only once this section states its extent and space rules". The checklist, with
 the file each step touches:
 
 1. **Commit ground truth first.** Real output from the real tool, with its version

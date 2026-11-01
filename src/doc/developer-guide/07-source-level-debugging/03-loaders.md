@@ -45,10 +45,12 @@ Every adapter keeps the same promises, and a new one must too
   `SOURCE_FILE_MAX_BYTES`, 64 MiB; a missing file is left to the open, which
   reports it. `load_sld()`, `load_z88dk_source_map()` (and the section binaries
   and `.lis` files it reads), `load_z88dk_map()`, `load_simple_map()` and
-  `load_nextbuild_memory()` call it. The two sjasmplus-capable symbol loaders,
-  `load_sjasmplus_equ()` and `load_z88dk_or_sjasmplus()`, do not: `--map <(cmd)`
-  is a pipe, which is not a regular file and must open, and
-  `load_z88dk_or_sjasmplus()` reads it exactly once into memory for that reason.
+  `load_nextbuild_memory()` call it. The two sjasmplus-capable symbol loaders
+  do not. `load_z88dk_or_sjasmplus()`, which serves `--map`, must open
+  `--map <(cmd)`, a pipe and so not a regular file, and for that reason reads the
+  file exactly once into memory; that read has no size bound. `load_sjasmplus_equ()`
+  (`MapFormat::SjasmplusEqu`, the Qt Map menu's sjasmplus load) simply does not call
+  it. Both are as built today.
 - **Emit only qualified ranges.** Every `SourceRange` carries a `FetchSource`
   ([7.1](01-which-memory.md)); the adapter decides it, and `SourceMap` never
   invents one.
@@ -66,7 +68,10 @@ first line starts `|SLD.data.version|` (after skipping a UTF-8 byte-order mark),
 or when the file cannot be opened at all, so that the SLD loader's own error
 names it. Anything else is read as a z88dk map. `load_sld()` itself then
 requires the first line to be exactly `|SLD.data.version|1`, with only a
-trailing CR dropped.
+trailing CR dropped, so a file that starts with a BOM is routed to the SLD loader
+and refused by it with "missing SLD.data.version 1 header". That routing is
+deliberate (GH #344 review finding F5): the user gets the SLD loader's error, not
+the z88dk adapter's "no source lines" (row `SRCDBG-Z88-30`).
 
 - **An SLD** goes to `load_sld(candidate, path, &labels)`.
 - **A z88dk map** goes to `load_z88dk_source_map(..., Z88dkListings::Beside)`; its

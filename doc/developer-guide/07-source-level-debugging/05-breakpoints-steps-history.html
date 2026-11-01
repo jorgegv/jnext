@@ -3040,8 +3040,11 @@ correctly, which <code>v2.4/sccz80-banked-run</code> and <code>master/sdcc-banke
 <li><code>source_debug_test</code>: <code>SRCBP-*</code> (line breakpoints and groups), <code>SRCRUN-*</code> (run to
   line), <code>SRCSTEP-*</code> and <code>SRCDBG-STEP-*</code> (the forward steps), <code>SRCDBG-BACK-*</code>,
   <code>SRCDBG-HIST-*</code> and <code>SRCDBG-GATE-*</code> (Back, Reverse Continue and the generation
-  filter), <code>SRCDBG-CS-*</code> (the call stack's frame identities).</li>
-<li><code>step_out_test</code> and <code>rewind_call_stack_test</code>: the frame-ending rule.</li>
+  filter), <code>SRCDBG-CS-*</code> (the call stack's frame identities; <code>SRCDBG-CS-08</code> to <code>-15</code> pin the
+  frame-ending rule above: the esxDOS shim, a <code>RET</code> used as a jump, <code>__z88dk_callee</code>,
+  <code>RETI</code>/<code>RETN</code>, an <code>RST</code> frame, an <code>INT</code> that ended a <code>HALT</code>).</li>
+<li><code>step_out_test</code> (the Step Out <code>RET</code> predicate, <code>check_step_out()</code>) and
+  <code>rewind_call_stack_test</code> (the tracker restored across a rewind).</li>
 <li><code>script_events_test</code>: the DSL's <code>on execute FILE:LINE</code>.</li>
 <li><code>mmu_integration_test</code>: <code>FSRC-*</code> for the identities the steps and breakpoints use.</li>
 </ul>

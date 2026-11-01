@@ -2914,12 +2914,12 @@ map uses (<code>MODULE util_c</code> in <code>game/util.c.lis</code>, module <co
 README finding G18).</p>
 <h2 id="2-the-producers-writer">2. The producer's writer<a class="headerlink" href="#2-the-producers-writer" title="Permanent link">&para;</a></h2>
 <p><code>z80asm</code> <code>src/z80asm/src/cpp/lstfile.cpp</code> (<code>list_open()</code>: 2.4 <code>:202</code>, master
-<code>:213</code>). The layout is <code>LstFile::out_line()</code> (<code>:131-177</code>) with the widths at
+<code>:213</code>). The layout is <code>LstFile::out_line()</code> (master <code>:131-177</code>, 2.4 <code>:126-168</code>) with the widths at
 <code>:26-29</code> (identical in both trees): a 6-wide line-number column, 2 blanks, a
 4-digit hex address (the section-relative or phased pc), 2 blanks, 16 characters
 for at most 8 bytes, 2 blanks, and the source text from column 32. Bytes beyond the
 eighth continue on rows that repeat only the bytes. <code>LstFile::out_filename()</code>
-(<code>:122-129</code>) writes <code>&lt;name&gt;:</code> on its own line whenever the file changes, which
+(master <code>:122-129</code>, 2.4 <code>:117-124</code>) writes <code>&lt;name&gt;:</code> on its own line whenever the file changes, which
 includes the files <code>z80asm</code> is reading through <code>INCLUDE</code>, a <code>C_LINE</code>'s file operand
 and a macro's source (the <code>.m4</code> text of the start-up code).</p>
 <h2 id="3-the-grammar">3. The grammar<a class="headerlink" href="#3-the-grammar" title="Permanent link">&para;</a></h2>

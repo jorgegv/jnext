@@ -2849,10 +2849,12 @@ user's (<code>User</code>) and is never touched by a sidecar.</em></p>
   <code>SOURCE_FILE_MAX_BYTES</code>, 64 MiB; a missing file is left to the open, which
   reports it. <code>load_sld()</code>, <code>load_z88dk_source_map()</code> (and the section binaries
   and <code>.lis</code> files it reads), <code>load_z88dk_map()</code>, <code>load_simple_map()</code> and
-  <code>load_nextbuild_memory()</code> call it. The two sjasmplus-capable symbol loaders,
-  <code>load_sjasmplus_equ()</code> and <code>load_z88dk_or_sjasmplus()</code>, do not: <code>--map &lt;(cmd)</code>
-  is a pipe, which is not a regular file and must open, and
-  <code>load_z88dk_or_sjasmplus()</code> reads it exactly once into memory for that reason.</li>
+  <code>load_nextbuild_memory()</code> call it. The two sjasmplus-capable symbol loaders
+  do not. <code>load_z88dk_or_sjasmplus()</code>, which serves <code>--map</code>, must open
+  <code>--map &lt;(cmd)</code>, a pipe and so not a regular file, and for that reason reads the
+  file exactly once into memory; that read has no size bound. <code>load_sjasmplus_equ()</code>
+  (<code>MapFormat::SjasmplusEqu</code>, the Qt Map menu's sjasmplus load) simply does not call
+  it. Both are as built today.</li>
 <li><strong>Emit only qualified ranges.</strong> Every <code>SourceRange</code> carries a <code>FetchSource</code>
   (<a href="01-which-memory.html">7.1</a>); the adapter decides it, and <code>SourceMap</code> never
   invents one.</li>
@@ -2868,7 +2870,10 @@ first line starts <code>|SLD.data.version|</code> (after skipping a UTF-8 byte-o
 or when the file cannot be opened at all, so that the SLD loader's own error
 names it. Anything else is read as a z88dk map. <code>load_sld()</code> itself then
 requires the first line to be exactly <code>|SLD.data.version|1</code>, with only a
-trailing CR dropped.</p>
+trailing CR dropped, so a file that starts with a BOM is routed to the SLD loader
+and refused by it with "missing SLD.data.version 1 header". That routing is
+deliberate (GH #344 review finding F5): the user gets the SLD loader's error, not
+the z88dk adapter's "no source lines" (row <code>SRCDBG-Z88-30</code>).</p>
 <ul>
 <li><strong>An SLD</strong> goes to <code>load_sld(candidate, path, &amp;labels)</code>.</li>
 <li><strong>A z88dk map</strong> goes to <code>load_z88dk_source_map(..., Z88dkListings::Beside)</code>; its
