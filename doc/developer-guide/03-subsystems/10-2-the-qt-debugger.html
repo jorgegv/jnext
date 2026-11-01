@@ -1494,6 +1494,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Source">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#selection-sync-between-the-source-tab-and-the-disassembly-gh-347" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selection sync between the Source tab and the Disassembly (GH #347)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2717,7 +2734,7 @@ cache): this GUI's own Execute breakpoints (<code>BreakpointModel::pc_breakpoint
 Disassembly would draw (a logical one, or one tied to <code>source_page(addr)</code>) and that sit on a start
 the memory mapped now supplies (<code>source_map().resolve(file:line)</code>, so an alias line is marked) or on
 any instruction whose primary line (<code>lookup</code>) is the line. Every start of the line armed (by a breakpoint at its address, logical or tied to its memory, mapped now or not)
-is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. <code>breakpoint_glyph.h</code> paints the glyph for both panels. A click calls
+is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. <code>breakpoint_glyph.h</code> paints the glyph for both panels. It also holds <code>paint_pc_marker()</code> (GH #347), the amber wedge <code>SourceEdit::paint_gutter()</code> draws on <code>highlighted_line()</code> only, in the 5-px strip after the number cell (<code>x</code> in <code>[width-6, width-2]</code>), which no pinned pixel reading uses; the colour goes through <code>palette_tint::ink()</code>, and the text highlight stays the palette's own. The position label ends with <code>SourcePanel::also_text()</code>: <code>lookup_all()</code> for the PC, minus the primary and any entry with its <code>file:line</code> (or a repeat), as <code>also: f:l, ...</code>. A click calls
 <code>SourcePanel::toggle_breakpoint_at_line()</code>, the one toggle: it removes what the line shows plus a
 hidden group tied to an unmapped page, else <code>add_source_line()</code> (not idempotent, hence the check);
 the context menu of GH #423 calls the same function.
@@ -2765,6 +2782,50 @@ draws a location only while its <code>FetchSource</code> supplies the address
 (<code>pc_marked(addr, space)</code>), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 <code>FetchSource</code> (<code>CallFrame::caller_space</code>).</p>
+<h3 id="selection-sync-between-the-source-tab-and-the-disassembly-gh-347">Selection sync between the Source tab and the Disassembly (GH #347)<a class="headerlink" href="#selection-sync-between-the-source-tab-and-the-disassembly-gh-347" title="Permanent link">&para;</a></h3>
+<p><code>DebuggerWindow::create_panels()</code> wires the two panels with three connections, and nothing else
+couples them. Each carries only what the USER did in its sender, so no move echoes.</p>
+<ul>
+<li><strong>Source to Disassembly.</strong> <code>SourcePanel::source_lines_selected(file, first, last, reveal)</code> is
+  emitted by <code>emit_lines_()</code>, only when the file or the lines changed (<code>lines_file_</code>, <code>lines_first_</code>,
+  <code>lines_last_</code>; a message and Running emit an empty file, and <code>none = true</code> says the text stays but
+  nothing of it is selected). The lines are <code>selected_blocks_()</code>'s, the same rule as Copy with
+  Addresses (a selection ending at a block start does not take that block). The editor's
+  <code>cursorPositionChanged</code> / <code>selectionChanged</code> slot passes <code>reveal = true</code>; a move the panel makes
+  itself (the PC placement of <code>refresh_()</code>, a text load, <code>set_disasm_selection()</code>) runs under a
+  <code>SyncScope</code> (<code>syncing_</code>), so the slot stays silent, and ends with <code>emit_lines_(false, ...)</code>, so a stop
+  tints the PC statement's other instructions without scrolling. <code>DisasmPanel::set_source_lines()</code>
+  stores the range; a row is linked (<code>source_linked()</code>, <code>linked_at_()</code>) when <code>lookup_all()</code> in its own
+  space has a location on a selected line of that file, the primary or not. <code>paintEvent</code> fills a linked
+  row with <code>source_sync_colors::linked()</code> BEFORE the PC row, the selection and the coverage bar. With
+  <code>reveal</code> and no linked row in view, the view centres on the first start of <code>resolve(file:line)</code>
+  that is mapped now; otherwise it never moves.</li>
+<li><strong>Disassembly to Source.</strong> <code>DisasmPanel::selection_changed(lo, hi, caret)</code> comes from the user
+  paths only (<code>notify_selection_()</code>: a press, a drag, a navigation key, Select All, the menu's
+  collapse), when the triple differs from the last one sent. <code>show_address()</code> and a refresh do not
+  emit; <code>set_source_lines()</code> forgets the last triple, so the next click on the same lines is a
+  change again. <code>SourcePanel::set_disasm_selection()</code> is ignored while running or without a map,
+  stores the range (<code>disasm_range_</code>, dropped when the machine runs, so a stop shows no tint of it), and sets <code>browse_addr_</code> unless the caret's primary line is the
+  PC's own. <code>refresh_()</code> then describes <code>browse_addr_</code> instead of the PC: its file is loaded
+  through the same text paths, the label ends <code>(browsing; the PC is at f:l, $addr)</code> after <code>also:</code>
+  and before the pending note, the highlight and the wedge are on the PC's line only when the PC's
+  primary location is in the file shown, and the cursor is centred only when the line is out of
+  view. The lines of the instructions in the range (<code>linked_lines_()</code>, walking <code>instruction_length</code>
+  over <code>memory_reader()</code>; a full 64K range costs about 3.5 ms, and <code>refresh()</code> runs on every paused tick, about 50 times a second, so such a selection keeps about a fifth of a core busy; no cache yet) get an <code>ExtraSelection</code> in
+  the scheme's <code>linked_line</code> (<code>SchemeColours</code>), after #388's coverage tints and before the PC's.</li>
+<li><strong>Show in Source.</strong> <code>DisasmPanel::show_source_requested(addr)</code>, from a menu item present only
+  while a map is loaded and enabled only where <code>lookup()</code> finds a line. The window raises the
+  Source tab and calls <code>SourcePanel::show_address()</code>.</li>
+</ul>
+<p>Browsing ends at <code>follow_pc()</code> (every stop), <code>show_running()</code>, the map going away (the None and Stale branches of
+<code>refresh_()</code>), another loaded map (<code>browse_map_</code>), an address with no line now, and <strong>Go to PC Line</strong>. A message about the
+browsed line itself (file not found, a <code>.m4</code> line without a listing) does NOT end it, so the message and Locate File...
+stay usable, and Go to PC Line stays enabled. Every accepted Disassembly selection places the cursor on the caret's line
+(<code>place_now_</code>, cleared by the placement itself, so the next ticks leave the cursor and scroll alone); the view is centred only when that line is out of view. A Source move made while the machine runs
+announces nothing. The gutter, the menu, Copy with
+Addresses and Run to Cursor act on <code>shown_file_</code>, so they act on the file browsed. Rows
+QSRC-176..189 and QSRC-201..208 pin the behaviour; <code>source_sync_colors.h</code> is the one definition of the linked colour
+for both views (the Source tab keeps one per scheme, tested for legibility like the coverage tint).</p>
 <h2 id="memory-coverage">Memory coverage<a class="headerlink" href="#memory-coverage" title="Permanent link">&para;</a></h2>
 <p><strong>Debug ▸ Coverage</strong> (<code>Enable Coverage</code>, <code>Clear Coverage</code>) drives INS-21
 (<code>mem_coverage_enable/clear</code>, <a href="09-1-the-backend-api.html">3.9.1</a>); the check mirrors

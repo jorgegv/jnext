@@ -1439,6 +1439,19 @@ void DebuggerWindow::create_panels() {
     connect(source_panel_, &SourcePanel::show_address_requested, disasm_panel_,
             &DisasmPanel::show_address);
 
+    // GH #347 - selection sync, both ways, and the Disassembly menu's Show in Source. The
+    // Disassembly tells the Source tab only of selections the user made; the Source tab tells it
+    // only of cursor moves, and asks it to scroll only for a move the user made there.
+    connect(disasm_panel_, &DisasmPanel::selection_changed, source_panel_, &SourcePanel::set_disasm_selection);
+    connect(source_panel_, &SourcePanel::source_lines_selected, disasm_panel_,
+            [this](const QString& file, int first, int last, bool reveal) {
+                disasm_panel_->set_source_lines(file.toStdString(), first, last, reveal);
+            });
+    connect(disasm_panel_, &DisasmPanel::show_source_requested, this, [this](uint16_t addr) {
+        source_panel_->show_address(addr);
+        tab_widget_->setCurrentWidget(source_panel_);
+    });
+
     mmu_panel_ = new MmuPanel(&dbg_);
 
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);

@@ -308,7 +308,7 @@ cache): this GUI's own Execute breakpoints (`BreakpointModel::pc_breakpoints()`)
 Disassembly would draw (a logical one, or one tied to `source_page(addr)`) and that sit on a start
 the memory mapped now supplies (`source_map().resolve(file:line)`, so an alias line is marked) or on
 any instruction whose primary line (`lookup`) is the line. Every start of the line armed (by a breakpoint at its address, logical or tied to its memory, mapped now or not)
-is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. `breakpoint_glyph.h` paints the glyph for both panels. A click calls
+is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. `breakpoint_glyph.h` paints the glyph for both panels. It also holds `paint_pc_marker()` (GH #347), the amber wedge `SourceEdit::paint_gutter()` draws on `highlighted_line()` only, in the 5-px strip after the number cell (`x` in `[width-6, width-2]`), which no pinned pixel reading uses; the colour goes through `palette_tint::ink()`, and the text highlight stays the palette's own. The position label ends with `SourcePanel::also_text()`: `lookup_all()` for the PC, minus the primary and any entry with its `file:line` (or a repeat), as `  also: f:l, ...`. A click calls
 `SourcePanel::toggle_breakpoint_at_line()`, the one toggle: it removes what the line shows plus a
 hidden group tied to an unmapped page, else `add_source_line()` (not idempotent, hence the check);
 the context menu of GH #423 calls the same function.
@@ -356,6 +356,52 @@ draws a location only while its `FetchSource` supplies the address
 (`pc_marked(addr, space)`), and a click on its dot removes that location, not the group. The Call
 Stack's last column looks up each frame's caller with its recorded
 `FetchSource` (`CallFrame::caller_space`).
+
+### Selection sync between the Source tab and the Disassembly (GH #347)
+
+`DebuggerWindow::create_panels()` wires the two panels with three connections, and nothing else
+couples them. Each carries only what the USER did in its sender, so no move echoes.
+
+- **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is
+  emitted by `emit_lines_()`, only when the file or the lines changed (`lines_file_`, `lines_first_`,
+  `lines_last_`; a message and Running emit an empty file, and `none = true` says the text stays but
+  nothing of it is selected). The lines are `selected_blocks_()`'s, the same rule as Copy with
+  Addresses (a selection ending at a block start does not take that block). The editor's
+  `cursorPositionChanged` / `selectionChanged` slot passes `reveal = true`; a move the panel makes
+  itself (the PC placement of `refresh_()`, a text load, `set_disasm_selection()`) runs under a
+  `SyncScope` (`syncing_`), so the slot stays silent, and ends with `emit_lines_(false, ...)`, so a stop
+  tints the PC statement's other instructions without scrolling. `DisasmPanel::set_source_lines()`
+  stores the range; a row is linked (`source_linked()`, `linked_at_()`) when `lookup_all()` in its own
+  space has a location on a selected line of that file, the primary or not. `paintEvent` fills a linked
+  row with `source_sync_colors::linked()` BEFORE the PC row, the selection and the coverage bar. With
+  `reveal` and no linked row in view, the view centres on the first start of `resolve(file:line)`
+  that is mapped now; otherwise it never moves.
+- **Disassembly to Source.** `DisasmPanel::selection_changed(lo, hi, caret)` comes from the user
+  paths only (`notify_selection_()`: a press, a drag, a navigation key, Select All, the menu's
+  collapse), when the triple differs from the last one sent. `show_address()` and a refresh do not
+  emit; `set_source_lines()` forgets the last triple, so the next click on the same lines is a
+  change again. `SourcePanel::set_disasm_selection()` is ignored while running or without a map,
+  stores the range (`disasm_range_`, dropped when the machine runs, so a stop shows no tint of it), and sets `browse_addr_` unless the caret's primary line is the
+  PC's own. `refresh_()` then describes `browse_addr_` instead of the PC: its file is loaded
+  through the same text paths, the label ends `(browsing; the PC is at f:l, $addr)` after `also:`
+  and before the pending note, the highlight and the wedge are on the PC's line only when the PC's
+  primary location is in the file shown, and the cursor is centred only when the line is out of
+  view. The lines of the instructions in the range (`linked_lines_()`, walking `instruction_length`
+  over `memory_reader()`; a full 64K range costs about 3.5 ms, and `refresh()` runs on every paused tick, about 50 times a second, so such a selection keeps about a fifth of a core busy; no cache yet) get an `ExtraSelection` in
+  the scheme's `linked_line` (`SchemeColours`), after #388's coverage tints and before the PC's.
+- **Show in Source.** `DisasmPanel::show_source_requested(addr)`, from a menu item present only
+  while a map is loaded and enabled only where `lookup()` finds a line. The window raises the
+  Source tab and calls `SourcePanel::show_address()`.
+
+Browsing ends at `follow_pc()` (every stop), `show_running()`, the map going away (the None and Stale branches of
+`refresh_()`), another loaded map (`browse_map_`), an address with no line now, and **Go to PC Line**. A message about the
+browsed line itself (file not found, a `.m4` line without a listing) does NOT end it, so the message and Locate File...
+stay usable, and Go to PC Line stays enabled. Every accepted Disassembly selection places the cursor on the caret's line
+(`place_now_`, cleared by the placement itself, so the next ticks leave the cursor and scroll alone); the view is centred only when that line is out of view. A Source move made while the machine runs
+announces nothing. The gutter, the menu, Copy with
+Addresses and Run to Cursor act on `shown_file_`, so they act on the file browsed. Rows
+QSRC-176..189 and QSRC-201..208 pin the behaviour; `source_sync_colors.h` is the one definition of the linked colour
+for both views (the Source tab keeps one per scheme, tested for legibility like the coverage tint).
 
 ## Memory coverage
 

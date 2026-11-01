@@ -2214,6 +2214,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#following-the-disassembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Following the disassembly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#right-click-menu" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3725,6 +3736,11 @@ scheme, and the gutter (line numbers and breakpoint marks) is not affected.</p>
 shown file that ran has a tinted background that follows the colour scheme (pale
 green in Light, a dark green in Dark, a dark teal in Borland; the current line keeps
 its highlight).</p>
+<p>A small amber arrow at the right edge of the gutter marks the line the CPU is on. The
+highlight alone can also mean a line you selected by right-clicking; the arrow is only ever
+on the CPU's line. When a toolchain
+attributes the same address to more than one source line, the position line names the
+primary one and lists the others, <code>main.bas:11  $8002  page 2E  also: util.bas:7</code>.</p>
 <p>Left of the text is a gutter, like the disassembly's: a <strong>BP</strong> column and the file's
 own <strong>Line</strong> numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a
@@ -3742,6 +3758,33 @@ tooltip says <em>not mapped now</em>. The column shows and edits only the debugg
 disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints list only, and a click
 never removes them (<a href="08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">whose breakpoints the gutters show and change</a>). It works
 while the machine runs.</p>
+<h3 id="following-the-disassembly">Following the disassembly<a class="headerlink" href="#following-the-disassembly" title="Permanent link">&para;</a></h3>
+<p>The Source tab and the <a href="03-disassembly.html">Disassembly</a> follow each other's selection. They are
+two views of the same code, and a selection in one lights what it covers in the other:</p>
+<ul>
+<li>Click a source line, or select several, and every instruction compiled from it is tinted pale
+  violet in the Disassembly: all the places of a line that compiled to several (<code>main.c:18</code> of a
+  z88dk program has two). A line that is only in a page not mapped now tints nothing, and a line
+  without code tints nothing. The Disassembly scrolls to the first of those addresses only when none
+  of them is in view, and only for a click you made in the Source tab; a stop never scrolls it.
+  The PC row keeps its yellow.</li>
+<li>Click an instruction, or drag over several, in the Disassembly and the Source cursor goes to the
+  source line of the instruction you clicked, and the lines of every instruction in the range are
+  tinted the same violet. An address with no source line (the ROM, a library) leaves the Source tab
+  as it was.</li>
+</ul>
+<p>When the line you clicked is not the line the CPU is on, the tab is <strong>browsing</strong>: the label describes
+the address you clicked, not the PC, and ends <code>(browsing; the PC is at main.bas:10, $8000)</code> (or
+<code>the PC is in no source line</code>), and the Source tab shows that line's file, which may be another one
+than the PC's. The arrow stays on the CPU's own line, and the highlight too, when that line is in
+the file shown. The view stays where you put it through the refreshes while paused. If the clicked line's file cannot be found, the tab says so and <strong>Locate File...</strong> and <strong>Go to PC Line</strong> stay available. Browsing ends at
+the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when the source
+map is cleared or another is loaded, and when you press <strong>Go to PC Line</strong>, which is enabled only while browsing and shows
+the CPU's line again. A click on an instruction of the CPU's own line is not browsing.</p>
+<p>While the machine runs, neither tab follows the other.</p>
+<p>The tint is a pale violet in Light and a dark violet in Dark and Borland; it differs from the
+current-line bar and the coverage tint in every scheme. Nothing is configurable: the two views always
+follow each other.</p>
 <h3 id="right-click-menu">Right-click menu<a class="headerlink" href="#right-click-menu" title="Permanent link">&para;</a></h3>
 <p>Right-click in the text, or in the gutter, for the same actions the disassembly offers,
 on the line under the pointer. A right-click outside the selection first selects that line;
@@ -3755,7 +3798,8 @@ inside it, the selection stays (so a dragged range can be copied).</p>
   (see <a href="../functions/14-source-level-debugging.html#running-to-a-source-line">Running to a source line</a>).</li>
 <li><strong>Show in Disassembly</strong>: the disassembly moves to the line's address and selects it. A line
   that compiled to several places has a submenu, one item per place; a place whose page is not
-  mapped now is disabled.</li>
+  mapped now is disabled. (The disassembly's own right-click menu has the counterpart, <strong>Show in
+  Source</strong>, while a source map is loaded.)</li>
 <li><strong>Watch</strong> and <strong>Break on Read / Write</strong> entries, as in the disassembly menu, for the labels at
   the line's address, and for what is under the pointer: a symbol (a label or a name of the
   map; a z88dk C variable or function is offered under its C name, <code>counter</code>, whether the source

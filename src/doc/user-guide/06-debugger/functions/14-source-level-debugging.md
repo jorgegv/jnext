@@ -244,6 +244,14 @@ rewind, like **Step Back**
 ([Backward execution (rewind)](07-backward-execution-rewind.md)); they look for
 their target in the instructions the trace has kept.
 
+## Moving between the source and the disassembly
+
+The Source tab and the Disassembly follow each other's selection: click a source line and its
+instructions are tinted in the Disassembly; click an instruction and the Source cursor goes to its
+line, in its own file if that is not the CPU's, until the next stop or **Go to PC Line**. The
+disassembly's right-click menu has **Show in Source**, the counterpart of **Show in Disassembly**
+([Following the disassembly](../panels/15-source.md#following-the-disassembly)).
+
 ## Running to a source line
 
 **Run to Here** in the Source tab's right-click menu (or **Enter** on the line) runs the machine

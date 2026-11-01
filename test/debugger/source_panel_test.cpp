@@ -24,6 +24,7 @@
 //
 //   QSRC-120..139  language detection and syntax highlighting (GH #422)
 //   QSRC-190..199  owner classes, punctuation and operators, colour schemes (GH #422 stage 2)
+//   QSRC-170..189, 201..208  the current-line wedge, the also: list, selection sync, browse mode (GH #347)
 //
 // Qt is required; a display is not (offscreen QPA, as the other suites).
 // Run: ./build/test/debugger_source_panel_test
@@ -97,11 +98,13 @@
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <set>
 #include <string>
 #include "../row_id.h"
 #include "qt/palette_tint_qt.h"
 #include "dark_test_palette.h"
 #include "debugger/coverage_colors.h"   // GH #388
+#include "debugger/source_sync_colors.h"   // GH #347
 
 namespace {
 
@@ -6021,6 +6024,1018 @@ void test_long_address_views() {
     }
 }
 
+// ===========================================================================
+// GH #347 stage 1 - the current-line marker (an amber wedge in the gutter's
+// trailing strip) and the "also:" list of the other places of an address (OD-7).
+//
+// Oracle: the issue's text and the plan's decisions D1-D3; SourceMap::lookup_all()
+// order (SRCRNG-04/05). jnext-internal GUI, no VHDL counterpart. The wedge is
+// read from the gutter's PIXELS: the strip is x in [width-6, width-2], clear of
+// the number cell (QSRC-79) and of the BP column's samples (mark()).
+// ===========================================================================
+
+constexpr QRgb kAmber = 0xFFE09A00;   // #E09A00 (the plan's D1 colour), opaque
+
+/// The wedge's pixels at `line`'s row, strip x in [w-6, w-2]: the number of those
+/// pixels equal to `colour`, and whether any pixel of the strip there is not the
+/// gutter's background `bg`.
+struct StripRead { int coloured = 0; bool any = false; };
+StripRead strip_of(const SrcView& v, const QImage& img, int line, QRgb colour, QRgb bg) {
+    StripRead r;
+    const QRect c = v.cell(line);
+    const int w = v.gutter->width();
+    for (int y = c.top(); y <= c.bottom(); ++y)
+        for (int x = w - 6; x <= w - 2; ++x) {
+            if (img.pixel(x, y) == colour) ++r.coloured;
+            if (img.pixel(x, y) != bg) r.any = true;
+        }
+    return r;
+}
+
+void set_pc(Fixture& fx, uint16_t pc) {
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = pc;
+    fx.emu.cpu().set_registers(r);
+}
+
+void test_source_current_line() {
+    {   // QSRC-170, 171, 172
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        if (!v.ed || !v.gutter) { check("QSRC-170", "the Source tab has a gutter", false); return; }
+        const QRgb white = 0xFFFFFFFF;
+        QImage img = v.gutter_image();
+        const StripRead on10 = strip_of(v, img, 10, kAmber, white);
+        bool others_clear = true;
+        for (int line = 1; line <= 13; ++line)
+            if (line != 10 && strip_of(v, img, line, kAmber, white).any) others_clear = false;
+        // the wedge's tip is on the row's centre line, 5 px wide: the first two columns are filled
+        const int cy = v.row_y(10), w = v.gutter->width();
+        const bool shape = img.pixel(w - 6, cy) == kAmber && img.pixel(w - 2, cy) == kAmber &&
+                           img.pixel(w - 6, cy - 5) == kAmber && img.pixel(w - 6, cy + 5) == kAmber &&
+                           img.pixel(w - 2, cy - 2) != kAmber && img.pixel(w - 6, cy - 6) != kAmber;
+        check("QSRC-170", "at a stop on line 10 the gutter's trailing strip carries an amber wedge on "
+                          "line 10 and on no other line; the number cell and the BP column keep their "
+                          "pixels (the number reads 10, no mark)",
+              on10.coloured == 35 && shape && others_clear && v.number_is(img, 10, "10") &&
+                  v.mark(10) == "none",
+              "amber=" + std::to_string(on10.coloured) + " shape=" + std::to_string(shape) +
+                  " others_clear=" + std::to_string(others_clear));
+
+        set_pc(fx, 0x8002);   // what a source Step Into to line 11 leaves
+        v.sp->refresh();
+        QApplication::processEvents();
+        img = v.gutter_image();
+        const bool moved = strip_of(v, img, 11, kAmber, white).coloured == 35 &&
+                           !strip_of(v, img, 10, kAmber, white).any && v.sp->highlighted_line() == 11;
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        v.sp->refresh();
+        QApplication::processEvents();
+        img = v.gutter_image();
+        bool running_clear = true;
+        for (int line = 1; line <= 13; ++line)
+            if (strip_of(v, img, line, kAmber, white).any) running_clear = false;
+        fx.emu.debug_state().pause();
+        v.sp->refresh();
+        QApplication::processEvents();
+        img = v.gutter_image();
+        const bool back = strip_of(v, img, 11, kAmber, white).coloured == 35;
+        m.add_source_line(QStringLiteral("main.bas:11"));
+        QApplication::processEvents();
+        img = v.gutter_image();
+        const bool both = v.mark(11) == "disc" && strip_of(v, img, 11, kAmber, white).coloured == 35;
+        m.clear_all();
+        check("QSRC-171", "the wedge follows the PC (line 11 after a step: line 10's strip is clear), "
+                          "is gone while the machine runs, returns on the pause, and shares line 11 with "
+                          "a breakpoint's disc",
+              moved && running_clear && back && both,
+              "moved=" + std::to_string(moved) + " running_clear=" + std::to_string(running_clear) +
+                  " back=" + std::to_string(back) + " both=" + std::to_string(both));
+
+        const QPalette light = QApplication::palette();
+        QApplication::setPalette(dark_test_palette());
+        QApplication::processEvents();
+        const QImage dark = v.gutter_image();
+        const QRgb want = palette_tint::ink(dark_test_palette(), QColor(0xE0, 0x9A, 0x00)).rgb();
+        const QRgb dark_bg = dark.pixel(v.gutter->width() - 3, 1);
+        const int dark_on = strip_of(v, dark, 11, want, dark_bg).coloured;
+        QApplication::setPalette(light);
+        QApplication::processEvents();
+        set_pc(fx, 0x8002);
+        v.sp->refresh();   // a message instead of a line: the map is gone
+        fx.backend->clear_source_map();
+        v.sp->refresh();
+        QApplication::processEvents();
+        const QImage msg = v.gutter_image();
+        bool msg_clear = true;
+        for (int y = 0; y < msg.height(); ++y)
+            for (int x = msg.width() - 6; x <= msg.width() - 2; ++x)
+                if (msg.pixel(x, y) != white) msg_clear = false;
+        check("QSRC-172", "on the dark palette the wedge is the palette's mirror of the amber, distinct "
+                          "from the dark gutter; with the map cleared (a message shown) no wedge is drawn",
+              dark_on == 35 && want != 0xFFE09A00 && want != dark_bg && msg_clear,
+              "dark_on=" + std::to_string(dark_on) + " msg_clear=" + std::to_string(msg_clear));
+    }
+    {   // QSRC-173: the PC line is past the end of the text found: no highlight, no wedge
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        std::string short_main;
+        for (int i = 1; i <= 5; ++i) short_main += "REM line " + std::to_string(i) + "\n";
+        write_text(g_tmp->path().toStdString() + "/main.bas", short_main);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        const QImage img = v.gutter_image();
+        bool clear = true;
+        for (int line = 1; line <= 5; ++line)
+            if (strip_of(v, img, line, kAmber, 0xFFFFFFFF).any) clear = false;
+        check("QSRC-173", "a PC line past the end of the file found (line 10 of a 5-line text) has no "
+                          "highlight and no wedge on any line",
+              v.sp->highlighted_line() == 0 && clear && v.sp->location_text().contains(QStringLiteral("has only 5 lines")),
+              "hl=" + std::to_string(v.sp->highlighted_line()) + " clear=" + std::to_string(clear));
+        write_main({});
+    }
+    {   // QSRC-174, 175: the "also" list
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80);
+        fx.backend->load_source_map(write_sld("also-one.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "util.bas|7||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + a + "|32770|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        set_pc(fx, 0x8002);
+        v.sp->refresh();
+        const QString page = QString::asprintf("%02X", ram_page_of(fx.backend->source_page(0x8002)));
+        const QString at8002 = v.sp->location_text();
+        set_pc(fx, 0x8000);
+        v.sp->refresh();
+        const QString at8000 = v.sp->location_text();
+        // a map still pending verification: the note is its own line AFTER the position's
+        write_text(g_tmp->path().toStdString() + "/also-pending.sld",
+            std::string("|SLD.data.version|1\n||program.name:prog\n") +
+            "||program.sha256:04bb9c5fbc1b0517a33504a5fbb7b9de7dd72a1de84987241364d2674495a823\n" +
+            "||program.org:32768\n||program.size:4\n" + "main.bas|10||0" + kNextDevice +
+            "main.bas|10||0|" + a + "|32768|T|\n" + "util.bas|7||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + a + "|32770|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n");
+        fx.backend->load_source_map(g_tmp->path().toStdString() + "/also-pending.sld", false, true);
+        set_pc(fx, 0x8002);
+        v.sp->refresh();
+        const QStringList pend = v.sp->location_text().split(QLatin1Char('\n'));
+        const bool order = pend.size() == 2 &&
+                           pend[0] == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
+                           pend[1].startsWith(QStringLiteral("Source map not verified yet"));
+        check("QSRC-174", "two places at $8002 (util.bas:7 emitted first, main.bas:11 later and primary): "
+                          "the label names the primary and lists the other as 'also: util.bas:7'; "
+                          "a one-place address carries no 'also'; under a pending map 'also' ends the "
+                          "position line and the note follows on the next line",
+              at8002 == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
+                  !at8000.contains(QStringLiteral("also")) && order,
+              s(at8002) + " | " + s(at8000) + " | " + s(v.sp->location_text()));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80);
+        fx.backend->load_source_map(write_sld("also-many.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "c.bas|3||0|" + a + "|32770|T|\n" +
+            "b.bas|2||0|" + a + "|32770|T|\n" + "main.bas|11:5||0|" + a + "|32770|T|\n" +
+            "b.bas|2||0|" + a + "|32770|T|\n" + "main.bas|20||0|" + a + "|32770|T|\n" +
+            "util.bas|11||0|" + a + "|32770|T|\n" + "b.bas|5||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        set_pc(fx, 0x8002);
+        v.sp->refresh();
+        // the expectation is derived from lookup_all() itself: its order, minus the
+        // primary's file:line and repeats
+        const auto all = fx.backend->source_map().lookup_all(fx.backend->source_page(0x8002), 0x8002);
+        std::vector<std::string> want;
+        for (size_t i = 1; i < all.size(); ++i) {
+            const std::string k = all[i]->file + ":" + std::to_string(all[i]->line);
+            if (k == all[0]->file + ":" + std::to_string(all[0]->line)) continue;
+            if (std::find(want.begin(), want.end(), k) == want.end()) want.push_back(k);
+        }
+        std::string joined;
+        for (const auto& k : want) joined += (joined.empty() ? "" : ", ") + k;
+        const QString text = v.sp->location_text();
+        const int at = text.indexOf(QStringLiteral("also: "));
+        const QString listed = at < 0 ? QString() : text.mid(at + 6);
+        // the dedup key is the PAIR file:line: the same file on another line, another file on the
+        // primary's line number, and one other file on two lines are all listed
+        const bool pair_key = text.count(QStringLiteral("main.bas:20")) == 1 &&
+                              text.count(QStringLiteral("util.bas:11")) == 1 &&
+                              text.count(QStringLiteral("b.bas:5")) == 1;
+        check("QSRC-175", "eight records at $8002 (b.bas:2 twice, c.bas:3, main.bas:11 primary, with and "
+                          "without a column, main.bas:20, util.bas:11, b.bas:5): 'also' lists each other "
+                          "file:line once, in lookup_all order, without the primary's line, and the key is "
+                          "the pair (same file other line, other file same line, one file on two lines)",
+              all.size() == 8 && want.size() == 5 && listed.toStdString() == joined &&
+                  text.count(QStringLiteral("b.bas:2")) == 1 && text.count(QStringLiteral("c.bas:3")) == 1 &&
+                  pair_key &&
+                  !listed.contains(QStringLiteral("main.bas:11")),
+              "n=" + std::to_string(all.size()) + " want=" + joined + " text=" + s(text));
+    }
+}
+
+// ===========================================================================
+// GH #347 stage 2 - selection sync both ways, browse mode, Show in Source, Go to PC Line.
+//
+// Oracle: the issue's scope (QSRC-30/31), OD-7, the owner's parity rule (the Source tab and the
+// Disassembly offer the same actions), SourceMap::lookup_all/resolve semantics (SRCRNG-04/05) and the
+// plan's decisions D5-D10. jnext-internal GUI, no VHDL counterpart. The default fixture is main.bas
+// 10-13 at $8000/$8002/$8005/$8006 and sub.bas:1 at $9000, PC $8000; the code there is
+// NOP NOP CALL $9000 NOP JP $8000, so the Disassembly's rows are $8000 $8001 $8002 $8005 $8006.
+// ===========================================================================
+
+int disasm_row_y(int row) { return kPaintY + row * kLineH + kLineH / 2; }
+
+struct SyncWin {
+    Fixture& fx;
+    SourcePanel* sp;
+    DisasmPanel* dp;
+    QPlainTextEdit* ed;
+    QScrollBar* scroll;
+    explicit SyncWin(Fixture& f)
+        : fx(f), sp(window_source_panel(f)), dp(f.dbg()->disasm_panel()),
+          ed(sp->findChild<QPlainTextEdit*>()), scroll(dp->findChild<QScrollBar*>()) {
+        dp->set_paused(true);   // the fixture is paused; the panel's own flag follows the manager's notification
+        tick();
+        dp->activate_follow_pc();   // the PC on the centre row
+        QApplication::processEvents();
+    }
+    /// The row an address centred in the view is on (the view is as high as the window made it).
+    int centre() const { return std::max(4, (dp->height() - kPaintY) / kLineH) / 2; }
+    void tick() { fx.mgr->refresh_panels(); QApplication::processEvents(); }
+    /// A cursor move the user makes in the Source tab (the editor's signals do not tell it from a click).
+    void src_move(int line) { ed->setTextCursor(QTextCursor(ed->document()->findBlockByNumber(line - 1))); }
+    void src_select(int first, int last) {
+        QTextCursor c(ed->document()->findBlockByNumber(first - 1));
+        const QTextBlock b = ed->document()->findBlockByNumber(last - 1);
+        c.setPosition(b.position() + b.length() - 1, QTextCursor::KeepAnchor);
+        ed->setTextCursor(c);
+    }
+    void mouse(QEvent::Type type, int row) {
+        const QPoint pos(kGutterW + 60, disasm_row_y(row));
+        QMouseEvent ev(type, QPointF(pos), dp->mapToGlobal(pos), Qt::LeftButton,
+                       type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(dp, &ev);
+        QApplication::processEvents();
+    }
+    void press(int row) { mouse(QEvent::MouseButtonPress, row); mouse(QEvent::MouseButtonRelease, row); }
+    /// Centre `addr` (no signal) and click its row, as the user does.
+    void dis_click(uint16_t addr) { dp->show_address(addr); press(centre()); }
+    QImage dis_image() const {
+        QImage img(dp->size(), QImage::Format_ARGB32);
+        img.fill(Qt::magenta);
+        dp->render(&img);
+        return img;
+    }
+    /// The blocks the editor tints with the scheme's linked colour.
+    std::set<int> tinted() const {
+        std::set<int> out;
+        const QColor c = sp->findChild<SourceHighlighter*>()->colours_in_force().linked_line;
+        for (const auto& sel : ed->extraSelections())
+            if (sel.format.background().color() == c) out.insert(sel.cursor.blockNumber());
+        return out;
+    }
+    bool linked(std::initializer_list<uint16_t> yes, std::initializer_list<uint16_t> no) const {
+        for (uint16_t a : yes) if (!dp->source_linked(a)) return false;
+        for (uint16_t a : no) if (dp->source_linked(a)) return false;
+        return true;
+    }
+};
+
+/// The two-place map of QSRC-100 (line 11 at $8002 in the mapped page and at $9000 in the one mapping $9000).
+void load_two_place(Fixture& fx, const char* name) {
+    const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+    fx.backend->load_source_map(write_sld(name,
+        "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+        "main.bas|12||0|" + a + "|32773|T|\n" + "main.bas|11||0|" + b + "|36864|T|\n"), false);
+}
+
+struct MenuProbe { bool seen = false, present = false, enabled = false; QString tip; QStringList items; };
+
+/// Right-click the Disassembly row `row`; read "Show in Source" and, when `trigger`, trigger it.
+MenuProbe disasm_menu(DisasmPanel* dp, int row, bool trigger) {
+    MenuProbe out;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || out.seen) return;
+        out.seen = true;
+        for (QAction* a : menu->actions()) {
+            if (a->isSeparator()) continue;
+            out.items << a->text();
+            if (a->text() != QStringLiteral("Show in Source")) continue;
+            out.present = true;
+            out.enabled = a->isEnabled();
+            out.tip = a->toolTip();
+            if (trigger && a->isEnabled()) a->trigger();
+        }
+        menu->close();
+    });
+    timer.start(1);
+    const QPoint pos(kGutterW + 60, disasm_row_y(row));
+    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, dp->mapToGlobal(pos));
+    QApplication::sendEvent(dp, &ev);
+    timer.stop();
+    QApplication::processEvents();
+    return out;
+}
+
+void test_source_sync() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-176: the label names the address browsed, with its "also" list and where the PC is
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80);
+        fx.backend->load_source_map(write_sld("sync-also.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "util.bas|7||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + a + "|32770|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        write_main({});
+        SyncWin w(fx);
+        const QString page = QString::asprintf("%02X", ram_page_of(fx.backend->source_page(0x8002)));
+        w.dis_click(0x8002);
+        const QString browsing = w.sp->location_text();
+        const QString want = QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7  "
+                                            "(browsing; the PC is at main.bas:10, $8000)").arg(page);
+        const bool label = browsing == want && w.sp->browsing() && w.sp->highlighted_line() == 10;
+        // a map still pending verification: the note stays its own line AFTER the position's
+        write_text(tmp + "/sync-also-pending.sld",
+            std::string("|SLD.data.version|1\n||program.name:prog\n") +
+            "||program.sha256:04bb9c5fbc1b0517a33504a5fbb7b9de7dd72a1de84987241364d2674495a823\n" +
+            "||program.org:32768\n||program.size:4\n" + "main.bas|10||0" + kNextDevice +
+            "main.bas|10||0|" + a + "|32768|T|\n" + "util.bas|7||0|" + a + "|32770|T|\n" +
+            "main.bas|11||0|" + a + "|32770|T|\n" + "main.bas|12||0|" + a + "|32773|T|\n");
+        fx.backend->load_source_map(tmp + "/sync-also-pending.sld", false, true);
+        w.tick();
+        const bool ended = !w.sp->browsing();   // another map ends a browse
+        w.dis_click(0x8002);
+        const QStringList lines = w.sp->location_text().split(QLatin1Char('\n'));
+        const bool order = lines.size() == 2 && lines[0] == want && lines[1].startsWith(QStringLiteral("Source map not verified yet"));
+        // the PC statement's own instructions are not browsing
+        w.dis_click(0x8001);
+        check("QSRC-176", "clicking $8002 (util.bas:7 also, main.bas:11 primary) with the PC at $8000: the label "
+                          "names $8002, lists 'also: util.bas:7' and ends '(browsing; the PC is at main.bas:10, "
+                          "$8000)', the PC line stays highlighted; under a pending map the note is the next line, "
+                          "after both; loading a map ends the browse; a click inside the PC's own statement does not browse",
+              label && ended && order && !w.sp->browsing() && !w.sp->location_text().contains(QStringLiteral("browsing")),
+              s(browsing) + " | " + s(w.sp->location_text()));
+    }
+    {   // QSRC-177: a Source line lights every address of the line, in both places
+        Fixture fx;
+        fx.enable();
+        load_two_place(fx, "sync-two.sld");
+        write_main({});
+        SyncWin w(fx);
+        w.src_move(11);
+        const bool on11 = w.linked({0x8002, 0x9000}, {0x8000, 0x8005, 0x8006});
+        w.src_move(10);
+        const bool on10 = w.linked({0x8000, 0x8001}, {0x8002, 0x9000, 0x8005});
+        check("QSRC-177", "a click on Source line 11 (compiled to $8002 and to $9000) tints both addresses in the "
+                          "Disassembly and none of $8000/$8005/$8006; line 10 tints $8000-$8001 and no other",
+              on11 && on10, "on11=" + std::to_string(on11) + " on10=" + std::to_string(on10));
+    }
+    {   // QSRC-178: the tint as painted, under the PC's yellow and the selection
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.src_move(11);
+        QImage img = w.dis_image();
+        const auto px = [&](const QImage& i, int row) { return QColor::fromRgb(i.pixel(i.width() - 40, disasm_row_y(row))); };
+        const QColor lk = source_sync_colors::linked(w.dp->palette()), yellow(255, 255, 204), white(255, 255, 255);
+        const int c = w.centre();
+        const bool rows = px(img, c + 2) == lk && px(img, c) == yellow && px(img, c + 1) == white && px(img, c + 3) == white;
+        w.src_move(10);   // the PC's own line: its rows are linked, and the PC row keeps its yellow
+        img = w.dis_image();
+        const bool pc_wins = px(img, c) == yellow && px(img, c + 1) == lk && px(img, c + 2) == white;
+        w.src_move(11);
+        w.press(w.centre() + 2);      // select the linked row: the translucent blue over the tint
+        img = w.dis_image();
+        const QColor both = px(img, c + 2);
+        const bool over = both != lk && both != white && both != yellow && both != QColor(229, 238, 255);
+        // the colour is distinct from the PC yellow, the selection blue and #388's green, light and dark
+        bool distinct = true;
+        for (const QPalette& p : {QApplication::palette(), dark_test_palette()}) {
+            const QColor l = source_sync_colors::linked(p);
+            for (const QColor& o : {palette_tint::surface(p, yellow), palette_tint::surface(p, QColor(204, 221, 255)),
+                                    coverage_colors::exec_line(p)})
+                distinct = distinct && delta_e76(l, o) >= 10.0;
+        }
+        check("QSRC-178", "painted: with the Source cursor on line 11 the $8002 row has the shared tint, the PC row "
+                          "$8000 its yellow and the others the background; on the PC's own line 10 the PC row keeps "
+                          "the yellow over a linked row; a selected linked row is neither; the tint differs from "
+                          "the PC yellow, the selection blue and the coverage green on light and dark",
+              rows && pc_wins && over && distinct,
+              "rows=" + std::to_string(rows) + " pc_wins=" + std::to_string(pc_wins) + " over=" + std::to_string(over) +
+                  " distinct=" + std::to_string(distinct));
+    }
+    {   // QSRC-179: a multi-line selection, and a line any of whose locations is the address
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.src_select(10, 12);
+        const bool lines3 = w.linked({0x8000, 0x8001, 0x8002, 0x8005}, {0x8006, 0x9000});
+        const std::string a = std::to_string(fx.p80);
+        fx.backend->load_source_map(write_sld("sync-nonprimary.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32770|T|\n" + "main.bas|13||0|" + a + "|32773|T|\n"), false);
+        w.tick();
+        w.src_move(11);   // $8002 has two locations, line 12 later and primary
+        const bool secondary = w.linked({0x8002}, {0x8000, 0x8005});
+        w.src_move(13);
+        const bool next = w.linked({0x8005}, {0x8002, 0x8000});
+        check("QSRC-179", "selecting lines 10-12 tints $8000-$8002 and $8005 but not $8006; with $8002 compiled to "
+                          "lines 11 and 12 (12 primary) selecting 11 still tints $8002 and selecting 13 only $8005",
+              lines3 && secondary && next,
+              "lines3=" + std::to_string(lines3) + " secondary=" + std::to_string(secondary) + " next=" + std::to_string(next));
+    }
+    {   // QSRC-180: the Disassembly scrolls only for a move the user made in the Source tab
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dp->show_address(0xA000);
+        const int away = w.scroll->value();
+        w.src_move(11);
+        const int after = w.scroll->value();
+        const bool revealed = after <= 0x8002 && after + 100 > 0x8002;
+        w.src_move(12);   // $8005: in view
+        const bool still = w.scroll->value() == after;
+        w.dp->show_address(0xA000);
+        set_pc(fx, 0x8006);
+        w.sp->follow_pc();
+        w.sp->refresh();   // a stop onto line 13: the Disassembly is not moved by it
+        QApplication::processEvents();
+        const bool stop_quiet = w.scroll->value() == away && w.dp->source_linked(0x8006);
+        check("QSRC-180", "from a Disassembly at $A000 a user move to Source line 11 centres it on $8002; a second move "
+                          "to line 12 (in view) does not move it; a stop onto line 13 tints $8006 but never scrolls it",
+              revealed && still && stop_quiet,
+              "away=" + std::to_string(away) + " after=" + std::to_string(after) +
+                  " revealed=" + std::to_string(revealed) + " still=" + std::to_string(still) +
+                  " stop_quiet=" + std::to_string(stop_quiet));
+    }
+    {   // QSRC-181: pages, lines without code, a message, running
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), far = std::to_string(fx.p80 + 2);
+        fx.backend->load_source_map(write_sld("sync-pages.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + far + "|32770|T|\n" +
+            "main.bas|12||0|" + a + "|32773|T|\n"), false);
+        write_main({});
+        SyncWin w(fx);
+        w.dp->show_address(0xA000);
+        const int away = w.scroll->value();
+        w.src_move(11);   // its only place is in a page that is not mapped now
+        const bool unmapped = w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000}) && w.scroll->value() == away;
+        w.src_move(5);    // no code
+        const bool nocode = w.linked({}, {0x8000, 0x8002, 0x8005}) && w.scroll->value() == away;
+        w.src_move(12);
+        const bool lit = w.linked({0x8005}, {});
+        fx.backend->clear_source_map();
+        w.tick();
+        const bool cleared = w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000});
+        fx.load_map();
+        w.tick();
+        w.src_move(12);
+        const bool relit = w.linked({0x8005}, {});
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        w.sp->refresh();   // the manager's tick while running
+        const bool running = w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000});
+        w.dis_click(0x8002);   // a selection made while the machine runs is not followed
+        bool ignored = !w.sp->browsing() && w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000});
+        // ... and a move the user makes in the Source tab while it runs announces nothing: no signal, no tint,
+        // and the Disassembly (which does not refresh then) is not scrolled
+        w.dp->show_address(0xA000);
+        const int run_scroll = w.scroll->value();
+        QSignalSpy run_lines(w.sp, &SourcePanel::source_lines_selected);
+        w.src_move(11);
+        ignored = ignored && run_lines.count() == 0 && w.linked({}, {0x8000, 0x8002, 0x8005, 0x9000}) &&
+                  w.scroll->value() == run_scroll;
+        fx.emu.debug_state().pause();
+        check("QSRC-181", "a line whose only place is in an unmapped page links nothing and does not scroll; a line "
+                          "without code links nothing; clearing the map and running drop the tint, and a Disassembly click or a Source move while it runs is not followed",
+              unmapped && nocode && lit && cleared && relit && running && ignored,
+              "unmapped=" + std::to_string(unmapped) + " nocode=" + std::to_string(nocode) + " lit=" + std::to_string(lit) +
+                  " cleared=" + std::to_string(cleared) + " relit=" + std::to_string(relit) + " running=" + std::to_string(running) +
+                  " ignored=" + std::to_string(ignored));
+    }
+    {   // QSRC-182: a Disassembly click puts the Source cursor on the line and tints it
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        const int before = w.scroll->value();
+        w.dp->show_address(0x8005);
+        w.dp->show_address(0x8000);   // back to the view the click is made in
+        const int view = w.scroll->value();
+        w.press(w.centre() + 3);                   // the $8005 row
+        uint16_t lo = 0, hi = 0;
+        const bool sel = w.dp->selection_range(lo, hi);
+        const bool cursor = w.ed->textCursor().blockNumber() == 11 && !w.ed->textCursor().hasSelection();
+        const auto sels = w.ed->extraSelections();
+        const bool tinted = w.tinted() == std::set<int>{11} && !sels.isEmpty() &&
+                            sels.back().cursor.blockNumber() == 9;   // the PC line is still the last, on top
+        check("QSRC-182", "a user click on the $8005 row: the Source cursor is on line 12 (block 11) and that line is "
+                          "tinted, the PC line 10 is still highlighted, and the Disassembly keeps its view and takes "
+                          "the click as its selection",
+              cursor && tinted && w.sp->highlighted_line() == 10 && sel && lo == 0x8005 && hi == 0x8005 &&
+                  w.dp->selected_address() == 0x8005 && w.scroll->value() == view && before >= 0,
+              "cursor=" + std::to_string(cursor) + " tinted=" + std::to_string(tinted) + " sel=" + std::to_string(sel) +
+                  " scroll=" + std::to_string(w.scroll->value()) + "/" + std::to_string(view));
+    }
+    {   // QSRC-183: a dragged range tints its lines; an address with no line does nothing
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.mouse(QEvent::MouseButtonPress, w.centre());       // $8000
+        w.mouse(QEvent::MouseMove, w.centre() + 3);              // ... to $8005
+        w.mouse(QEvent::MouseButtonRelease, w.centre() + 3);
+        const bool range = w.tinted() == std::set<int>{9, 10, 11} && w.ed->textCursor().blockNumber() == 11;
+        Fixture fy;
+        fy.enable();
+        fy.load_map();
+        SyncWin v(fy);
+        const int cursor0 = v.ed->textCursor().blockNumber();
+        v.dp->show_address(0x0000);
+        v.press(0);   // ROM: no record
+        const bool rom = v.tinted().empty() && v.ed->textCursor().blockNumber() == cursor0 && !v.sp->browsing() &&
+                         v.sp->highlighted_line() == 10;
+        check("QSRC-183", "dragging the Disassembly from $8000 to $8005 tints Source lines 10, 11 and 12 (not 13) and "
+                          "puts the cursor on 12; a click on ROM $0000 (no record) tints nothing, moves nothing, browses nothing",
+              range && rom, "range=" + std::to_string(range) + " rom=" + std::to_string(rom));
+    }
+    {   // QSRC-184: another file is browsed, until a stop
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        const QString page = QString::asprintf("%02X", ram_page_of(fx.backend->source_page(0x9000)));
+        w.dis_click(0x9000);
+        const bool shown = w.sp->shown_file() == "sub.bas" && w.ed->textCursor().blockNumber() == 0 &&
+                           w.tinted() == std::set<int>{0} && w.sp->highlighted_line() == 0 && w.sp->browsing() &&
+                           w.sp->location_text() == QStringLiteral("sub.bas:1  $9000  page %1  "
+                                                  "(browsing; the PC is at main.bas:10, $8000)").arg(page);
+        const int top = w.ed->verticalScrollBar()->value();
+        for (int i = 0; i < 20; ++i) w.tick();
+        const bool kept = w.sp->shown_file() == "sub.bas" && w.sp->browsing() && w.ed->verticalScrollBar()->value() == top &&
+                          w.ed->textCursor().blockNumber() == 0;
+        w.fx.dbg()->activate_follow_pc();   // what a stop does
+        w.tick();
+        const bool back = w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 10 && !w.sp->browsing() &&
+                          w.ed->textCursor().blockNumber() == 9;
+        // the PC line number exists in the browsed file (util.bas has 12 lines): still no PC highlight
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("sync-util.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "util.bas|7||0|" + b + "|36864|T|\n"), false);
+        {
+            std::string util;
+            for (int i = 1; i <= 12; ++i) util += "REM util " + std::to_string(i) + "\n";
+            write_text(g_tmp->path().toStdString() + "/util.bas", util);
+        }
+        w.tick();
+        w.dis_click(0x9000);
+        const auto usels = w.ed->extraSelections();
+        const bool other_file = w.sp->shown_file() == "util.bas" && w.sp->highlighted_line() == 0 && w.tinted() == std::set<int>{6} &&
+                                usels.size() == 1 && w.ed->textCursor().blockNumber() == 6;
+        check("QSRC-184", "a click on $9000 shows sub.bas with the cursor on line 1 tinted, no PC highlight and the "
+                          "'browsing' label; 20 ticks keep it; a stop returns to main.bas with line 10 highlighted; in a 12-line "
+                          "util.bas the PC's own line number 10 is not highlighted either",
+              shown && kept && back && other_file,
+              "other_file=" + std::to_string(other_file) + " shown=" + std::to_string(shown) + " kept=" + std::to_string(kept) + " back=" + std::to_string(back) +
+                  " " + s(w.sp->location_text()));
+    }
+    {   // QSRC-185: Go to PC Line
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        QPushButton* b = button(w.sp, QStringLiteral("Go to PC Line"));
+        bool no_clash = true;   // the Disassembly's caption is not repeated in the Source tab
+        for (QPushButton* x : w.sp->findChildren<QPushButton*>()) no_clash = no_clash && x->text() != QStringLiteral("Go to PC");
+        const bool off = b && !b->isEnabled();
+        w.dis_click(0x9000);
+        const bool on = b && b->isEnabled();
+        if (b) b->click();
+        QApplication::processEvents();
+        const bool pressed = w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 10 && !w.sp->browsing() &&
+                             b && !b->isEnabled();
+        w.dis_click(0x9000);
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        w.sp->refresh();   // the manager's tick while running
+        const bool running = b && !b->isEnabled() && !w.sp->browsing();
+        fx.emu.debug_state().pause();
+        // the gutter acts on the file browsed: a click on sub.bas line 1 arms $9000 in its page
+        Fixture fg;
+        fg.enable();
+        fg.load_map();
+        BreakpointModel& m = fg.mgr->breakpoints();
+        SrcView v(fg, m);
+        v.sp->set_disasm_selection(0x9000, 0x9000, 0x9000);
+        QApplication::processEvents();
+        v.click(1);
+        const bool armed = v.sp->shown_file() == "sub.bas" && m.exists(BreakpointModel::Execute, 0x9000, pg(fg.p90));
+        m.clear_all();
+        check("QSRC-185", "'Go to PC Line' (not the Disassembly's 'Go to PC') is disabled when not browsing, enabled "
+                          "while browsing sub.bas, back to main.bas:10 highlighted when pressed, disabled again; "
+                          "disabled while running; a gutter click on sub.bas line 1 arms $9000 in its page",
+              b && no_clash && off && on && pressed && running && armed,
+              "off=" + std::to_string(off) + " on=" + std::to_string(on) + " pressed=" + std::to_string(pressed) +
+                  " running=" + std::to_string(running) + " armed=" + std::to_string(armed));
+    }
+    {   // QSRC-186: Show in Source
+        Fixture fx;
+        fx.enable();
+        SyncWin w(fx);
+        const MenuProbe none = disasm_menu(w.dp, w.centre(), false);   // no source map yet
+        fx.load_map();
+        write_main({});
+        w.tick();
+        w.dp->show_address(0x9000);
+        QTabWidget* tabs = nullptr;
+        for (auto* tw : fx.dbg()->findChildren<QTabWidget*>())
+            if (tw->indexOf(w.sp) >= 0) tabs = tw;
+        if (tabs) tabs->setCurrentIndex(tabs->indexOf(w.sp) == 0 ? 1 : 0);
+        const MenuProbe on = disasm_menu(w.dp, w.centre(), true);
+        const bool raised = tabs && tabs->currentWidget() == w.sp && w.sp->shown_file() == "sub.bas" &&
+                            w.ed->textCursor().blockNumber() == 0 && w.sp->browsing();
+        w.dp->show_address(0xA000);
+        const MenuProbe off = disasm_menu(w.dp, w.centre(), false);
+        check("QSRC-186", "the Disassembly menu has no 'Show in Source' without a map; with one, on $9000 it is "
+                          "enabled and raises the Source tab on sub.bas:1; on $A000 it is disabled, tooltip "
+                          "'no source line at $A000'",
+              none.seen && !none.present && on.present && on.enabled && raised && off.present && !off.enabled &&
+                  off.tip == QStringLiteral("no source line at $A000"),
+              "none=" + std::to_string(none.present) + " on=" + std::to_string(on.enabled) + " raised=" + std::to_string(raised) +
+                  " tip=" + s(off.tip) + " items=" + s(off.items.join("|")));
+    }
+    {   // QSRC-187: no feedback loop
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        QSignalSpy sel(w.dp, &DisasmPanel::selection_changed);
+        w.dp->show_address(0x8005);   // the Source tab's own request: no selection_changed
+        w.dp->show_address(0x8000);
+        const bool quiet_show = sel.count() == 0;
+        QSignalSpy lines(w.sp, &SourcePanel::source_lines_selected);
+        QSignalSpy cur(w.ed, &QPlainTextEdit::cursorPositionChanged);
+        QSignalSpy scr(w.scroll, &QScrollBar::valueChanged);
+        w.press(w.centre() + 3);   // a click on the $8005 row
+        const std::string d187 = "sel=" + std::to_string(sel.count()) + " scr=" + std::to_string(scr.count()) +
+                                 " cur=" + std::to_string(cur.count()) + " lines=" + std::to_string(lines.count());
+        const bool dis_click = quiet_show && sel.count() == 1 && scr.count() == 0 && cur.count() == 1 && lines.count() == 1 &&
+                               lines.at(0).at(3).toBool() == false && lines.at(0).at(1).toInt() == 12;
+        w.press(w.centre() + 3);   // the same row again: the same selection, nothing to announce
+        const bool same_row = sel.count() == 1;
+        sel.clear(); lines.clear(); cur.clear(); scr.clear();
+        w.src_move(11);   // a move in the Source tab
+        const bool src_click = lines.count() == 1 && lines.at(0).at(3).toBool() == true && lines.at(0).at(1).toInt() == 11 &&
+                               sel.count() == 0;
+        w.press(w.centre() + 3);   // the Source tab has moved since: the same row is a change again
+        const bool again = sel.count() == 1;
+        sel.clear(); lines.clear(); cur.clear(); scr.clear();
+        for (int i = 0; i < 10; ++i) w.tick();
+        const bool ticks = sel.count() == 0 && lines.count() == 0 && scr.count() == 0;
+        check("QSRC-187", "show_address() never emits selection_changed; one Disassembly click: one selection_changed, no scroll of the Disassembly, one Source cursor "
+                          "move, one source_lines_selected without reveal; one Source move: one source_lines_selected "
+                          "with reveal and no selection_changed; the same row twice announces once, and again after the Source tab moved; ten ticks: neither signal",
+              dis_click && same_row && src_click && again && ticks,
+              "dis=" + std::to_string(dis_click) + " (" + d187 + ") same_row=" + std::to_string(same_row) +
+                  " src=" + std::to_string(src_click) + " again=" + std::to_string(again) + " ticks=" + std::to_string(ticks));
+    }
+    {   // QSRC-188: the real z88dk map; main.c:18 has two starts
+        Fixture fx;
+        fx.enable();
+        const std::string root = tmp + "/q188";
+        copy_z88dk("master/sdcc-debug", "prog.map", root + "/build/prog.map");
+        std::filesystem::create_directories(root + "/src");
+        std::filesystem::copy_file(std::filesystem::path(JNEXT_Z88DK_FIXTURE_DIR) / "src/main.c",
+                                   root + "/src/main.c", std::filesystem::copy_options::overwrite_existing);
+        fx.backend->load_source_map(root + "/build/prog.map", true);
+        set_cpu(fx, 0x8C6B);
+        SourcePanel* sp = window_source_panel(fx);
+        sp->set_search_dirs({root + "/src"});
+        SyncWin w(fx);
+        w.src_move(18);
+        const bool both = w.linked({0x8C6F, 0x8C70, 0x8C89}, {0x8C71, 0x8C6B});
+        w.dis_click(0x8C89);
+        const bool back = w.sp->shown_file().size() > 0 && w.ed->textCursor().blockNumber() == 17 &&
+                          w.linked({0x8C6F, 0x8C89}, {0x8C71});
+        check("QSRC-188", "z88dk sdcc map: a Source click on main.c:18 tints both its starts $8C6F and $8C89 and not "
+                          "main.c:19's $8C71; a Disassembly click on $8C89 puts the cursor on line 18 (block 17) and "
+                          "tints the other start too",
+              both && back, "both=" + std::to_string(both) + " back=" + std::to_string(back) + " " + s(w.sp->location_text()));
+    }
+    {   // QSRC-189: the browse tint and the PC bar in every scheme, on a light and a dark application palette
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        using SC = SourceHighlighter::SchemeColours;
+        std::string bad;
+        const SC& light = SourceHighlighter::scheme_colours(SourceScheme::Light);
+        const SC& dark = SourceHighlighter::scheme_colours(SourceScheme::Dark);
+        const SC& bor = SourceHighlighter::scheme_colours(SourceScheme::Borland);
+        for (const auto& e : {std::make_pair("light", &light), std::make_pair("dark", &dark), std::make_pair("borland", &bor)}) {
+            const SC& c = *e.second;
+            for (int r = 0; r < SourceHighlighter::kRoles; ++r)
+                if (contrast(c.role[r], c.linked_line) < 4.5) bad += std::string(e.first) + ":R5(" + std::to_string(r) + ") ";
+            if (delta_e76(c.linked_line, c.background) < 10.0) bad += std::string(e.first) + ":bg ";
+            if (delta_e76(c.linked_line, c.coverage_line) < 10.0) bad += std::string(e.first) + ":cov ";
+            if (delta_e76(c.linked_line, c.pc_background) < 10.0) bad += std::string(e.first) + ":bar ";
+        }
+        if (light.linked_line != source_sync_colors::linked(QApplication::palette())) bad += "light-not-shared ";
+        const QPalette app0 = QApplication::palette();
+        for (bool dark_app : {false, true}) {
+            if (dark_app) QApplication::setPalette(dark_test_palette());
+            QApplication::processEvents();
+            for (SourceScheme sch : {SourceScheme::Auto, SourceScheme::Light, SourceScheme::Dark, SourceScheme::Borland}) {
+                const std::string tag = std::string(dark_app ? "dark-app/" : "light-app/") + std::to_string(static_cast<int>(sch)) + " ";
+                v.sp->set_colour_scheme(sch);
+                v.sp->set_disasm_selection(0x8005, 0x8005, 0x8005);   // browse line 12; the PC stays on 10
+                QApplication::processEvents();
+                const SC& c = v.sp->findChild<SourceHighlighter*>()->colours_in_force();
+                const auto sels = v.ed->extraSelections();
+                const bool order = sels.size() == 2 && sels[0].format.background().color() == c.linked_line &&
+                                   sels[0].cursor.blockNumber() == 11 && sels[1].format.background().color() == c.pc_background &&
+                                   sels[1].cursor.blockNumber() == 9;
+                if (!order) bad += tag + "selections ";
+                QImage img(v.ed->viewport()->size(), QImage::Format_ARGB32);
+                img.fill(Qt::magenta);
+                v.ed->viewport()->render(&img);
+                const auto at = [&](int line) { return QColor::fromRgb(img.pixel(img.width() - 4, v.row_y(line))); };
+                if (at(12) != c.linked_line) bad += tag + "pixel-linked ";
+                if (at(10) != c.pc_background) bad += tag + "pixel-bar ";
+                if (at(13) != c.background) bad += tag + "pixel-bg ";
+                const QImage g = v.gutter_image();
+                const QRgb amber = palette_tint::ink(QApplication::palette(), QColor(0xE0, 0x9A, 0x00)).rgb();
+                const QRgb gbg = g.pixel(v.gutter->width() - 3, 1);
+                if (strip_of(v, g, 10, amber, gbg).coloured != 35 || strip_of(v, g, 12, amber, gbg).any) bad += tag + "wedge ";
+            }
+            if (dark_app) {
+                QApplication::setPalette(app0);
+                QApplication::processEvents();
+            }
+        }
+        check("QSRC-189", "in Auto, Light, Dark and Borland, on a light and on a dark application palette: the browsed "
+                          "line has the scheme's linked tint (selection and pixel), the PC line keeps the scheme's bar on "
+                          "top and the wedge stays on it alone; every scheme's tint is legible under all ten class "
+                          "colours and differs from its background, coverage tint and bar",
+              bad.empty(), bad);
+    }
+}
+
+
+// ── GH #347 stage 2, review round 1: messages about the browsed line, placement, user paths, two files ──
+
+void test_source_sync_review() {
+    const std::string tmp = g_tmp->path().toStdString();
+    {   // QSRC-201: a message about the browsed line stays; only the map going away ends the browse
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("sync-missing.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "missing.bas|3||0|" + b + "|36864|T|\n"), false);
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x9000);
+        for (int i = 0; i < 5; ++i) w.tick();
+        QPushButton* goto_pc = button(w.sp, QStringLiteral("Go to PC Line"));
+        QPushButton* locate = button(w.sp, QStringLiteral("Locate File..."));
+        const bool stays = w.sp->location_text() == QStringLiteral("missing.bas:3 - source file not found") &&
+                           w.sp->browsing() && locate->isEnabled() && goto_pc->isEnabled();
+        goto_pc->click();
+        QApplication::processEvents();
+        const bool back = w.sp->location_text().startsWith(QStringLiteral("main.bas:10")) && !w.sp->browsing() &&
+                          !locate->isEnabled() && !goto_pc->isEnabled() && w.ed->textCursor().blockNumber() == 9;
+        // the map cleared, then loaded again: the browse is over
+        fx.load_map();
+        w.tick();
+        w.dis_click(0x9000);
+        const bool before = w.sp->browsing() && w.sp->shown_file() == "sub.bas";
+        fx.backend->clear_source_map();
+        w.tick();
+        fx.load_map();
+        w.tick();
+        const bool cleared = before && !w.sp->browsing() && w.sp->shown_file() == "main.bas" && w.sp->highlighted_line() == 10;
+        // a map gone stale (a soft reset) ends it too, so loading the same map again does not bring it back
+        fx.load_map();
+        set_cpu(fx, 0x8000);
+        w.tick();
+        w.dis_click(0x9000);
+        const bool again = w.sp->browsing();
+        fx.backend->reset(jnext::dbg::CLIENT_NONE, jnext::dbg::ResetKind::Soft);
+        w.tick();
+        const bool stale = !w.sp->browsing() && w.sp->location_text().contains(QStringLiteral("does not match"));
+        fx.load_map();
+        set_cpu(fx, 0x8000);
+        w.tick();
+        const bool gone = again && stale && !w.sp->browsing();
+        check("QSRC-201", "browsing a line whose file is not found keeps the message through five ticks, Locate File... and "
+                          "Go to PC Line enabled, and Go to PC Line returns to main.bas:10; a map cleared and loaded again "
+                          "ends a browse, and so does a map gone stale",
+              stays && back && cleared && gone,
+              "stays=" + std::to_string(stays) + " back=" + std::to_string(back) + " cleared=" + std::to_string(cleared) + " gone=" + std::to_string(gone) +
+                  " " + s(w.sp->location_text()));
+    }
+    {   // QSRC-202: every accepted Disassembly selection places the cursor on the caret's line
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x8002);
+        const bool first = w.ed->textCursor().blockNumber() == 10;
+        w.src_move(13);
+        w.dis_click(0x8002);
+        const bool again = w.ed->textCursor().blockNumber() == 10 && w.tinted() == std::set<int>{10} &&
+                           w.dp->source_linked(0x8002) && !w.dp->source_linked(0x8006);
+        w.src_move(12);
+        w.dis_click(0x8001);   // the PC's own statement: the cursor goes back to line 10
+        const bool pc_stmt = w.ed->textCursor().blockNumber() == 9 && !w.sp->browsing();
+        check("QSRC-202", "clicking $8002 puts the cursor on line 11; after a Source move to line 13, clicking $8002 again "
+                          "puts it back on 11 and the Disassembly tints $8002, not $8006; after a move to 12 a click in the "
+                          "PC's own statement ($8001) returns it to line 10",
+              first && again && pc_stmt,
+              "first=" + std::to_string(first) + " again=" + std::to_string(again) + " pc_stmt=" + std::to_string(pc_stmt));
+    }
+    {   // QSRC-203: a browsed line in view is not scrolled to; one out of view is
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80);
+        fx.backend->load_source_map(write_sld("sync-long.sld",
+            "main.bas|100||0|" + a + "|32768|T|\n" + "main.bas|102||0|" + a + "|32770|T|\n" +
+            "main.bas|200||0|" + a + "|32773|T|\n"), false);
+        std::string text;
+        for (int i = 1; i <= 300; ++i) text += "REM line " + std::to_string(i) + "\n";
+        write_text(tmp + "/main.bas", text);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        SrcView v(fx, m);
+        const int top = v.ed->verticalScrollBar()->value();
+        v.sp->set_disasm_selection(0x8002, 0x8002, 0x8002);   // line 102, two below the PC's, in view
+        QApplication::processEvents();
+        const bool kept = v.ed->verticalScrollBar()->value() == top && v.ed->textCursor().blockNumber() == 101;
+        v.sp->set_disasm_selection(0x8005, 0x8005, 0x8005);   // line 200: far out of view
+        QApplication::processEvents();
+        const QRect r = v.ed->cursorRect();
+        const bool shown = v.ed->verticalScrollBar()->value() != top && v.ed->viewport()->rect().contains(r) &&
+                           std::abs(r.center().y() - v.ed->viewport()->rect().center().y()) <= 2 * r.height() &&
+                           v.ed->textCursor().blockNumber() == 199;
+        write_main({});
+        check("QSRC-203", "in a 300-line file with the PC on line 100, browsing line 102 keeps the scroll position and puts the "
+                          "cursor there; browsing line 200 centres it",
+              kept && shown, "kept=" + std::to_string(kept) + " shown=" + std::to_string(shown));
+    }
+    {   // QSRC-204: a browsed address that has no line any more ends the browse
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x9000);
+        const bool on = w.sp->browsing();
+        const uint8_t old_page = static_cast<uint8_t>(fx.p80);
+        fx.emu.mmu().set_page(4, static_cast<uint8_t>(old_page + 2));   // the page the record names is gone from $8000-$9FFF
+        w.tick();
+        const bool ended = !w.sp->browsing();
+        fx.emu.mmu().set_page(4, old_page);
+        w.tick();
+        check("QSRC-204", "browsing $9000 and then unmapping its page while paused ends the browse",
+              on && ended && !w.sp->browsing(), "on=" + std::to_string(on) + " ended=" + std::to_string(ended));
+    }
+    {   // QSRC-205: the Disassembly's keys, Select All and the menu's collapse are user selections too
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x8002);
+        w.dp->setFocus();
+        QTest::keyClick(w.dp, Qt::Key_Down);   // the caret moves to $8005 (line 12)
+        const bool keys = w.ed->textCursor().blockNumber() == 11 && w.tinted() == std::set<int>{11};
+        w.dis_click(0x8002);
+        w.dp->select_all_visible();            // the whole view: lines 10-13 are in it
+        const bool all = w.tinted().count(9) && w.tinted().count(10) && w.tinted().count(11) && w.tinted().count(12);
+        w.dis_click(0x8002);
+        w.ed->setFocus();
+        disasm_menu(w.dp, w.centre() + 1, false);   // right-click $8005, outside the selection: it collapses onto it
+        const bool menu = w.ed->textCursor().blockNumber() == 11;
+        check("QSRC-205", "an arrow key in the Disassembly moves the Source cursor to the new row's line; Select All tints "
+                          "the lines of the view; a right click outside the selection moves the Source cursor to that row's line",
+              keys && all && menu,
+              "keys=" + std::to_string(keys) + " all=" + std::to_string(all) + " menu=" + std::to_string(menu));
+    }
+    {   // QSRC-207: after a Disassembly click the Source cursor and scroll stay where the user puts them
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        bool cursor = true;
+        for (uint16_t addr : {uint16_t(0x8001), uint16_t(0x8002)}) {   // the PC's own statement, then a browse
+            w.dis_click(addr);
+            w.src_move(13);
+            for (int i = 0; i < 4; ++i) w.tick();
+            cursor = cursor && w.ed->textCursor().blockNumber() == 12;
+        }
+        // the scroll too: a 300-line file, the PC on line 100, a click on line 102's address and a click on the PC's statement
+        Fixture fy;
+        fy.enable();
+        const std::string a = std::to_string(fy.p80);
+        fy.backend->load_source_map(write_sld("sync-keep.sld",
+            "main.bas|100||0|" + a + "|32768|T|\n" + "main.bas|102||0|" + a + "|32770|T|\n"), false);
+        std::string text;
+        for (int i = 1; i <= 300; ++i) text += "REM line " + std::to_string(i) + "\n";
+        write_text(tmp + "/main.bas", text);
+        BreakpointModel& m = fy.mgr->breakpoints();
+        SrcView v(fy, m);
+        bool scroll = true;
+        for (uint16_t addr : {uint16_t(0x8001), uint16_t(0x8002)}) {
+            v.sp->set_disasm_selection(addr, addr, addr);
+            QApplication::processEvents();
+            v.ed->verticalScrollBar()->setValue(200);
+            for (int i = 0; i < 4; ++i) { v.sp->refresh(); QApplication::processEvents(); }
+            scroll = scroll && v.ed->verticalScrollBar()->value() == 200;
+        }
+        write_main({});
+        check("QSRC-207", "after a Disassembly click on the PC's statement and on another line, a Source move to line 13 and "
+                          "a scroll to line 200 both survive four paused ticks",
+              cursor && scroll, "cursor=" + std::to_string(cursor) + " scroll=" + std::to_string(scroll));
+    }
+    {   // QSRC-208: a run ends the Source tab's tint of the Disassembly's range
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dis_click(0x8002);
+        const bool lit = w.tinted() == std::set<int>{10};
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        w.sp->refresh();
+        fx.emu.debug_state().pause();
+        w.fx.dbg()->activate_follow_pc();   // the stop
+        w.tick();
+        check("QSRC-208", "a Disassembly selection tints Source line 11; after a run and a stop no line of the Source tab is "
+                          "tinted by it and the PC line is shown",
+              lit && w.tinted().empty() && !w.sp->browsing() && w.sp->highlighted_line() == 10,
+              "lit=" + std::to_string(lit) + " tinted=" + std::to_string(w.tinted().size()));
+    }
+    {   // QSRC-206: two files whose lines share a number
+        Fixture fx;
+        fx.enable();
+        const std::string a = std::to_string(fx.p80), b = std::to_string(fx.p90);
+        fx.backend->load_source_map(write_sld("sync-twofiles.sld",
+            "main.bas|10||0|" + a + "|32768|T|\n" + "main.bas|11||0|" + a + "|32770|T|\n" +
+            "util.bas|10||0|" + b + "|36864|T|\n"), false);
+        write_main({});
+        {
+            std::string util;
+            for (int i = 1; i <= 12; ++i) util += "REM util " + std::to_string(i) + "\n";
+            write_text(tmp + "/util.bas", util);
+        }
+        SyncWin w(fx);
+        QSignalSpy lines(w.sp, &SourcePanel::source_lines_selected);
+        w.dis_click(0x9000);   // util.bas:10 against the PC on main.bas:10: another line, browsed
+        bool quiet = true;     // loading the file is no user move
+        for (int i = 0; i < lines.count(); ++i) quiet = quiet && lines.at(i).at(3).toBool() == false;
+        const bool browse = w.sp->browsing() && w.sp->shown_file() == "util.bas" && w.ed->textCursor().blockNumber() == 9;
+        // a range over both files tints only the lines of the file shown
+        w.sp->set_disasm_selection(0x8000, 0x9000, 0x9000);
+        const bool only = w.tinted() == std::set<int>{9};
+        // Source line 10 of main.bas lights $8000 and not util.bas's line 10 at $9000
+        w.sp->go_to_pc_line();
+        w.src_move(10);
+        const bool other = w.linked({0x8000}, {0x9000});
+        check("QSRC-206", "util.bas:10 against the PC on main.bas:10 is browsed, and loading it announces no user move; a range "
+                          "over both files tints only util.bas's line 10; Source line 10 of main.bas lights $8000 and not "
+                          "util.bas's line 10 at $9000",
+              quiet && browse && only && other,
+              "quiet=" + std::to_string(quiet) + " browse=" + std::to_string(browse) + " only=" + std::to_string(only) +
+                  " other=" + std::to_string(other));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -6082,6 +7097,9 @@ int main(int argc, char** argv) {
     test_source_highlight_classes();   // GH #422 stage 2
     test_source_highlight_schemes();
     test_z88dk_c_names_source();
+    test_source_current_line();   // GH #347 stage 1
+    test_source_sync();           // GH #347 stage 2
+    test_source_sync_review();    // GH #347 stage 2, review 1
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

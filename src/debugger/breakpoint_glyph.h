@@ -36,3 +36,18 @@ inline void paint_breakpoint_glyph(QPainter& painter, QPoint centre, bool live, 
             painter.drawEllipse(centre, 4, 4);
     }
 }
+
+/// GH #347 -- the current-line marker of the Source tab's gutter: a right-pointing
+/// wedge (5 px wide, 11 tall, tip toward the text) in `strip` (the 5-px column after
+/// the line numbers), vertically centred on `strip`. Amber, never BP red, so the
+/// BP column's pixel reading is unaffected; pass it through palette_tint::ink().
+inline QColor pc_marker_light() { return QColor(0xE0, 0x9A, 0x00); }
+
+inline void paint_pc_marker(QPainter& painter, QRect strip, QColor colour)
+{
+    // Five columns, each two pixels shorter than the one before: 35 pixels, the same on
+    // every raster (a filled polygon drops its edge rows).
+    const int cy = strip.center().y();
+    for (int i = 0; i < 5; ++i)
+        painter.fillRect(QRect(strip.left() + i, cy - 5 + i, 1, 11 - 2 * i), colour);
+}

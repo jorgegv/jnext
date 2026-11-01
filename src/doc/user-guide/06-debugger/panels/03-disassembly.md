@@ -29,6 +29,12 @@ so breakpoint dots stay visible.
   symbol and press Enter to centre the view there. A number wins over a symbol
   spelled like one; write `@name` to mean the symbol.
 - **Go to PC** re-centres on the current instruction.
+- With a source map loaded, a selection here moves the [Source](15-source.md) tab (the cursor goes
+  to the line of the instruction you clicked, and the lines of the whole range are tinted), and the
+  instructions of the Source tab's selected lines are tinted pale violet here. The right-click menu
+  adds **Show in Source**, which raises the Source tab on the line of that instruction; it is
+  disabled, with the tooltip *no source line at $A000*, where no line covers the address, and not
+  offered without a source map.
 - The scrollbar spans the whole `$0000`–`$FFFF` address space. **↑ ↓**,
   **Page Up/Down**, **Home** and **End** navigate; **Enter** runs to the
   selected line.

@@ -48,6 +48,12 @@ shown file that ran has a tinted background that follows the colour scheme (pale
 green in Light, a dark green in Dark, a dark teal in Borland; the current line keeps
 its highlight).
 
+A small amber arrow at the right edge of the gutter marks the line the CPU is on. The
+highlight alone can also mean a line you selected by right-clicking; the arrow is only ever
+on the CPU's line. When a toolchain
+attributes the same address to more than one source line, the position line names the
+primary one and lists the others, `main.bas:11  $8002  page 2E  also: util.bas:7`.
+
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a
@@ -66,6 +72,37 @@ disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints l
 never removes them ([whose breakpoints the gutters show and change](08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change)). It works
 while the machine runs.
 
+### Following the disassembly
+
+The Source tab and the [Disassembly](03-disassembly.md) follow each other's selection. They are
+two views of the same code, and a selection in one lights what it covers in the other:
+
+- Click a source line, or select several, and every instruction compiled from it is tinted pale
+  violet in the Disassembly: all the places of a line that compiled to several (`main.c:18` of a
+  z88dk program has two). A line that is only in a page not mapped now tints nothing, and a line
+  without code tints nothing. The Disassembly scrolls to the first of those addresses only when none
+  of them is in view, and only for a click you made in the Source tab; a stop never scrolls it.
+  The PC row keeps its yellow.
+- Click an instruction, or drag over several, in the Disassembly and the Source cursor goes to the
+  source line of the instruction you clicked, and the lines of every instruction in the range are
+  tinted the same violet. An address with no source line (the ROM, a library) leaves the Source tab
+  as it was.
+
+When the line you clicked is not the line the CPU is on, the tab is **browsing**: the label describes
+the address you clicked, not the PC, and ends `(browsing; the PC is at main.bas:10, $8000)` (or
+`the PC is in no source line`), and the Source tab shows that line's file, which may be another one
+than the PC's. The arrow stays on the CPU's own line, and the highlight too, when that line is in
+the file shown. The view stays where you put it through the refreshes while paused. If the clicked line's file cannot be found, the tab says so and **Locate File...** and **Go to PC Line** stay available. Browsing ends at
+the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when the source
+map is cleared or another is loaded, and when you press **Go to PC Line**, which is enabled only while browsing and shows
+the CPU's line again. A click on an instruction of the CPU's own line is not browsing.
+
+While the machine runs, neither tab follows the other.
+
+The tint is a pale violet in Light and a dark violet in Dark and Borland; it differs from the
+current-line bar and the coverage tint in every scheme. Nothing is configurable: the two views always
+follow each other.
+
 ### Right-click menu
 
 Right-click in the text, or in the gutter, for the same actions the disassembly offers,
@@ -80,7 +117,8 @@ inside it, the selection stays (so a dragged range can be copied).
   (see [Running to a source line](../functions/14-source-level-debugging.md#running-to-a-source-line)).
 - **Show in Disassembly**: the disassembly moves to the line's address and selects it. A line
   that compiled to several places has a submenu, one item per place; a place whose page is not
-  mapped now is disabled.
+  mapped now is disabled. (The disassembly's own right-click menu has the counterpart, **Show in
+  Source**, while a source map is loaded.)
 - **Watch** and **Break on Read / Write** entries, as in the disassembly menu, for the labels at
   the line's address, and for what is under the pointer: a symbol (a label or a name of the
   map; a z88dk C variable or function is offered under its C name, `counter`, whether the source
