@@ -869,7 +869,7 @@ dg_tree() {     # $1 = the page body; src/a.cpp holds `alpha` on line 3 and `bet
     printf '// row QSRC-195\nint gamma;\nvoid delta() {}\n' > "$DG/src/core/t.cpp"
     printf 'int alphabet;\nvoid alpha() {}\n' > "$DG/src/core/w.cpp"
     printf 'int bar;\n' > "$DG/src/core/support.cpp"
-    printf 'say("hello world");\nsay("Version 2");\nsay("-----");\n' > "$DG/src/core/s.cpp"
+    printf 'say("hello world");\nsay("Version 2");\nsay("-----");\nsay("abc abcd");\n' > "$DG/src/core/s.cpp"
     mkdir -p "$DG/test/fixtures/z88dk" "$DG/packaging" "$DG/src/doc/developer-guide/diagrams"
     printf 'int x;\n' > "$DG/test/fixtures/main.c"
     printf 'int q;\n' > "$DG/test/fixtures/z88dk/s.c"
@@ -1165,10 +1165,10 @@ dg_tree 'The `alpha()` flag (set early) is read at `src/core/a.cpp:3`.'
 out=$(dg_lint); rc=$?
 check "HS-152" "a closed parenthesis earlier in the sentence does not turn a later cite into a parenthesised one: the nearest symbol still anchors it" 0 $rc "$out" \
     "checked 1 cites, 0 failed"
-dg_tree 'Here is the (`" "`, `src/core/s.cpp:1`) and the (`"y"`, `src/core/s.cpp:1`) and the (`"ab"`, `src/core/s.cpp:1`) and the (`"----"`, `src/core/s.cpp:3`).'
+dg_tree 'Here is the (`" "`, `src/core/s.cpp:1`) and the (`"y"`, `src/core/s.cpp:1`) and the (`"ab"`, `src/core/s.cpp:1`) and the (`"----"`, `src/core/s.cpp:3`) and the (`"abc"`, `src/core/s.cpp:4`) and the (`"abcd"`, `src/core/s.cpp:4`).'
 out=$(dg_lint); rc=$?
-check "HS-153" "a quoted text of fewer than 4 characters, or with no letter or digit, does not anchor a cite: all four fail as unanchored (the last is 4 characters with no letter or digit)" 1 $rc "$out" \
-    "unanchored" "checked 4 cites, 4 failed"
+check "HS-153" "a quoted text of fewer than 4 characters, or with no letter or digit, does not anchor a cite: five fail as unanchored ("----" is 4 characters with no letter or digit; "abc" is one character short) and "abcd", exactly 4 characters, anchors" 1 $rc "$out" \
+    "unanchored" "checked 6 cites, 5 failed"
 dg_tree 'The `main()` (`"Version 2"`, `src/core/s.cpp:1-2`) and `main()` (`"hello world"`, `src/core/s.cpp:1-2`).'
 out=$(dg_lint); rc=$?
 check "HS-154" "a quoted text on the LAST line of a range anchors it (the range rule holds for literals), as on its first line" 0 $rc "$out" \
