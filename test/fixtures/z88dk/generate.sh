@@ -22,7 +22,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|dot_c|dutil_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" '
@@ -58,6 +58,9 @@ BAD=0
 #          tape   : main.c util.c asmfn.asm for +zx (a .tap, GH #344 stage 3)
 #          dot:<subtype> : dot.c dutil.c as a NextZXOS dot command (-subtype=dot|dotx|dotn, GH #351)
 #          banked:<SEG>[:kw] : banked.c -c --codeseg<SEG>, then bmain.c bankin.asm banked.o
+#          cvars  : vars.c other.c (GH #431: C variables of every type, -debug records)
+#          cbanked: bk.c -c with code, const and data in PAGE_20, then bkmain.c bk.o (GH #431)
+#          (GH #431: the fc builds use single:fc.c, a __z88dk_fastcall and a __z88dk_callee function)
 build() {
     local Z=$1 inst=$2 name=$3 kind=$4; shift 4
     local b=$WORK/$inst/$name out=$DEST/$inst/$name
@@ -71,6 +74,10 @@ build() {
         single:*) files=("${kind#single:}") ;;
         dot:*)  files=(dot.c dutil.c); link=(-m --list "-subtype=${kind#dot:}" -o prog -create-app) ;;
         subdir) mkdir -p "$b/game"; mv "$b/util.c" "$b/game/util.c"; files=(main.c game/util.c asmfn.asm); set -- "$@" -I. ;;
+        cvars)  files=(vars.c other.c) ;;
+        cbanked) echo "+ zcc +zxn $* --codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20 --list -c bk.c -o bk.o"
+                 (cd "$b" && "${zcc[@]}" "$@" --codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20 --list -c bk.c -o bk.o) || rc=$?
+                 files=(bkmain.c bk.o) ;;
         banked:*) local seg=${kind#banked:} kw=; [[ $seg == *:kw ]] && { kw=-DUSE_BANKED_KW; seg=${seg%:kw}; }
                   echo "+ zcc +zxn $* $kw --codeseg$seg --list -c banked.c -o banked.o"
                   (cd "$b" && "${zcc[@]}" "$@" $kw "--codeseg$seg" --list -c banked.c -o banked.o) || rc=$?
@@ -150,6 +157,12 @@ build "$Z24" v2.4 sdcc-dot      dot:dot        -clib=sdcc_iy -SO2 --c-code-in-as
 # The dotn build lives beside, not under, v2.4/: its C symbols are refused (main bank unplaceable), and
 # Z88CN-10 walks every map under v2.4/ and master/ expecting each to show a C name.
 build "$Z24" v2.4-dotn sccz80 dot:dotn -clib=new -debug
+# GH #431: C variable records (__CDBINFO__) of every type, per compiler; see README "C variables"
+RUN="-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000"
+build "$Z24" v2.4 sccz80-cvars        cvars   -clib=new -debug
+EXPECT_FAIL=1 build "$Z24" v2.4 sdcc-cvars cvars -clib=sdcc_iy -debug
+build "$Z24" v2.4 sccz80-cvars-banked cbanked -clib=new -debug $RUN
+build "$Z24" v2.4 sccz80-fc           single:fc.c -clib=new -debug
 
 provenance "$ZM" master
 build "$ZM" master sccz80-debug plain          -clib=new -debug
@@ -166,6 +179,15 @@ build "$ZM" master sdcc-banked-run banked:PAGE_20:kw -clib=sdcc_iy -debug -pragm
 KEEP_CRT=1 build "$ZM" master sccz80-banked-crt banked:PAGE_20:kw -clib=new -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000
 KEEP_CRT=1 build "$ZM" master classic-bank10 banked:BANK_10 -clib=classic
 EXPECT_FAIL=1 build "$ZM" master classic-debug  banked:BANK_10 -clib=classic -debug
+build "$ZM" master sccz80-cvars        cvars   -clib=new -debug
+build "$ZM" master sdcc-cvars          cvars   -clib=sdcc_iy -debug
+build "$ZM" master 80cc-cvars          cvars   -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-cvars-banked cbanked -clib=new -debug $RUN
+build "$ZM" master sdcc-cvars-banked   cbanked -clib=sdcc_iy -debug $RUN
+build "$ZM" master 80cc-cvars-banked   cbanked -clib=new -compiler=80cc -debug $RUN
+build "$ZM" master sccz80-fc           single:fc.c -clib=new -debug
+build "$ZM" master sdcc-fc             single:fc.c -clib=sdcc_iy -debug
+build "$ZM" master 80cc-fc             single:fc.c -clib=new -compiler=80cc -debug
 
 # every file the rows hash: sources, this script, the outputs (README.md and the manifest itself excluded)
 (cd "$DEST" && find src generate.sh v2.4 v2.4-dotn master -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
