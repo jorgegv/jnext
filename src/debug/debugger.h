@@ -1145,6 +1145,13 @@ public:
     };
     SourceMapStatus source_map_status() const;
 
+    /// CAP-SRC (GH #433, epic #353) - the C variable store of the live source map: the
+    /// __CDBINFO__ records of a z88dk -debug map, joined to its symbols by module. Null when
+    /// there is no live source map or the live one carries none (an SLD); a z88dk map carries
+    /// one, empty when it has no record. Part of the source map (`SourceMap::variables()`), so
+    /// it is attached, dropped, made stale and restored with it, by the same rules.
+    std::shared_ptr<const jnext::dbg::VariableStore> variables() const;
+
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
     /// `source_page(addr)` says supplies it), or of the current PC. Null when
     /// unmapped. A pointer into the store, valid until the store changes: copy

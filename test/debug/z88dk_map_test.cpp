@@ -14,13 +14,16 @@
 // counterpart. Pure: no machine; the NEX files are read by the test itself.
 // Run: ./build/test/z88dk_map_test
 
+#include "debug/cdb_record.h"
 #include "debug/disasm_text.h"
 #include "debug/source_file.h"
 #include "debug/source_map.h"
 #include "debug/symbol_table.h"
+#include "debug/variable_store.h"
 #include "debug/z88dk_source_map.h"
 #include "debug/z88dk_space.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -130,6 +133,135 @@ static bool starts_are(const SourceResolution& r, std::vector<SourceAddress> wan
     for (size_t i = 0; i < want.size(); ++i)
         if (!(r.starts[i].space == want[i].space) || r.starts[i].address != want[i].address) return false;
     return true;
+}
+
+// ── GH #433: the C variable store ───────────────────────────────────────────
+using jnext::dbg::CdbHidden;
+using jnext::dbg::CdbScope;
+using jnext::dbg::CFunction;
+using jnext::dbg::CStorage;
+using jnext::dbg::CVariable;
+using jnext::dbg::VariableStore;
+
+static std::vector<std::string> map_lines(const fs::path& p) {
+    std::ifstream in(p);
+    std::vector<std::string> lines;
+    for (std::string l; std::getline(in, l);) lines.push_back(l);
+    return lines;
+}
+
+static std::string join_lines(const std::vector<std::string>& lines) {
+    std::string out;
+    for (const auto& l : lines) out += l + "\n";
+    return out;
+}
+
+static bool is_cdb_line(const std::string& l) { return l.compare(0, 11, "__CDBINFO__") == 0; }
+
+static size_t cdb_line_count(const fs::path& p) {
+    size_t n = 0;
+    for (const auto& l : map_lines(p)) n += is_cdb_line(l);
+    return n;
+}
+
+// z80asm's name encoding of a record (cdb_record.h): a letter stands for itself, every other byte is `_hh`.
+static std::string cdb_escape(const std::string& text) {
+    std::string out;
+    for (const unsigned char c : text) {
+        if (std::isalpha(c)) {
+            out += static_cast<char>(c);
+        } else {
+            char buf[8];
+            std::snprintf(buf, sizeof buf, "_%02x", c);
+            out += buf;
+        }
+    }
+    return out;
+}
+
+static const VariableStore* store_of(const SourceMap& m) { return m.variables().get(); }
+
+// The only function of that name (and module); null when none or several.
+static const CFunction* fn_named(const VariableStore& s, const char* name, const char* module = nullptr) {
+    const CFunction* found = nullptr;
+    for (const CFunction& f : s.functions()) {
+        if (f.name != name || (module && f.module != module)) continue;
+        if (found) return nullptr;
+        found = &f;
+    }
+    return found;
+}
+
+// The only variable record of that name in that CDB module (and function); null when none or several.
+static const CVariable* var_named(const VariableStore& s, const char* name, const char* module,
+                                  const char* function = nullptr) {
+    const CVariable* found = nullptr;
+    for (const CVariable& v : s.variables()) {
+        if (v.record.var.name != name || v.module != module) continue;
+        if (function && (v.function < 0 || s.functions()[static_cast<size_t>(v.function)].name != function))
+            continue;
+        if (found) return nullptr;
+        found = &v;
+    }
+    return found;
+}
+
+static bool stored_at(const CStorage& st, MemSpace space, uint16_t address) {
+    return st.resolved && st.at.space == space && st.at.address == address;
+}
+
+static std::string storage_text(const CStorage& st) {
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%d/%u:%04X", int(st.at.space.kind), unsigned(st.at.space.index),
+                  unsigned(st.at.address));
+    return std::string(st.resolved ? "R " : "U ") + buf + " " + st.symbol + " [" + st.why + "]";
+}
+
+// Every field of the store, in the store's own order: two stores are the same exactly when the texts are.
+static std::string store_dump(const VariableStore& s) {
+    std::string out;
+    for (const CFunction& f : s.functions()) {
+        out += "F " + f.text + " | " + f.name + " | " + f.module + " | " + storage_text(f.entry) + "\n";
+        for (const auto& c : f.scopes) {
+            char buf[96];
+            std::snprintf(buf, sizeof buf, "  S %d/%u:%04X line=%d known=%d %d/%d/%d\n", int(c.at.space.kind),
+                          unsigned(c.at.space.index), unsigned(c.at.address), c.line, int(c.known), c.level,
+                          c.sub, c.block);
+            out += buf;
+        }
+    }
+    for (const CVariable& v : s.variables())
+        out += "V " + v.text + " | " + v.module + " | " + v.c_name + " | "
+            + (v.function < 0 ? std::string("-") : s.functions()[static_cast<size_t>(v.function)].text) + " | "
+            + storage_text(v.storage) + "\n";
+    for (const auto& t : s.types()) out += "T " + t.text + " | " + t.module + "\n";
+    for (const auto& m : s.modules()) out += "M " + m.text + " | " + m.module + "\n";
+    for (const auto& r : s.refused()) out += "X " + r + "\n";
+    return out;
+}
+
+struct Sc {
+    uint16_t address;
+    int level, sub, block;
+};
+
+// The function's scope table is exactly `want`, every entry known, all in `space`.
+static bool scopes_are(const CFunction* f, const std::vector<Sc>& want, MemSpace space) {
+    if (!f || f->scopes.size() != want.size()) return false;
+    for (size_t i = 0; i < want.size(); ++i) {
+        const auto& c = f->scopes[i];
+        if (!c.known || !(c.at.space == space) || c.at.address != want[i].address ||
+            c.level != want[i].level || c.sub != want[i].sub || c.block != want[i].block)
+            return false;
+    }
+    return true;
+}
+
+static size_t locals_of(const VariableStore& s, const CFunction* f) {
+    size_t n = 0;
+    for (const CVariable& v : s.variables())
+        if (f && v.function >= 0 && &s.functions()[static_cast<size_t>(v.function)] == f) ++n;
+    return n;
 }
 
 int main() {
@@ -1442,6 +1574,431 @@ int main() {
         const int nn = nb.load_nextbuild_memory(synth("bom.mem", bom + "ACB5: ._FillScreen\n7335: ._Other\n").string());
         check("MAPBOM-06", "load_nextbuild_memory() skips a UTF-8 BOM: the first line's label is not dropped",
               nn == 2 && nb.lookup(jnext::dbg::MemSpace::cpu(), 0xACB5) == std::optional<std::string>("FillScreen"));
+    }
+
+    // ── Z88CDB-01..26 (GH #433, E353-03): the C variable store the adapter fills from the
+    // __CDBINFO__ records. Oracle: the committed fixtures (their README "C variables" section and
+    // the maps themselves), the writers cited in doc/developer-guide 7.9, and the decoder's own
+    // refusals (cdb_record.h). ──
+    const fs::path sc_cvars = master / "sccz80-cvars" / "prog.map";
+    const fs::path sd_cvars = master / "sdcc-cvars" / "prog.map";
+    const fs::path cc_cvars = master / "80cc-cvars" / "prog.map";
+    SourceMap m_sc, m_sd, m_cc;
+    const auto r_sc = load(m_sc, sc_cvars);
+    const auto r_sd = load(m_sd, sd_cvars);
+    const auto r_cc = load(m_cc, cc_cvars);
+    const VariableStore* v_sc = store_of(m_sc);
+    const VariableStore* v_sd = store_of(m_sd);
+    const VariableStore* v_cc = store_of(m_cc);
+    {
+        // every committed map whose source half loads, and so has a store
+        int maps = 0, with_records = 0;
+        bool all = true;
+        for (const char* root : {"v2.4", "master"})
+            for (const auto& e : fs::directory_iterator(kFixtures / root)) {
+                const fs::path map_file = e.path() / "prog.map";
+                if (!fs::exists(map_file)) continue;
+                SourceMap m;
+                const auto r = load(m, map_file);
+                if (!r || r.count == 0) continue;
+                const VariableStore* s = store_of(m);
+                const size_t lines = cdb_line_count(map_file);
+                ++maps;
+                with_records += lines > 0;
+                if (!s || !s->refused().empty() ||
+                    s->functions().size() + s->variables().size() + s->types().size() + s->modules().size() +
+                            s->refused().size() != lines) {
+                    all = false;
+                    std::printf("  Z88CDB-01: %s\n", map_file.string().c_str());
+                }
+            }
+        check("Z88CDB-01", "every committed map whose source half loads has a store that accounts for each of its "
+                           "__CDBINFO__ lines exactly once (functions + variables + types + modules + refused), "
+                           "none refused; master/sccz80-cvars 53",
+              all && maps >= 20 && with_records >= 10 && v_sc &&
+                  v_sc->functions().size() + v_sc->variables().size() + v_sc->types().size() +
+                          v_sc->modules().size() == 53 &&
+                  cdb_line_count(sc_cvars) == 53);
+    }
+    {
+        SourceMap m24;
+        load(m24, v24 / "sccz80-cvars" / "prog.map");
+        const VariableStore* s24 = store_of(m24);
+        const auto kinds = [](const VariableStore* s, size_t f, size_t mo, size_t v, size_t t) {
+            return s && s->functions().size() == f && s->modules().size() == mo && s->variables().size() == v &&
+                   s->types().size() == t;
+        };
+        check("Z88CDB-02", "record kinds per build (fixture README): sccz80 v2.4 and master 3 F / 0 M / 45 S / 5 T, "
+                           "master/sdcc-cvars 3/2/48/10, master/80cc-cvars 3/2/45/5",
+              kinds(s24, 3, 0, 45, 5) && kinds(v_sc, 3, 0, 45, 5) && kinds(v_sd, 3, 2, 48, 10) &&
+                  kinds(v_cc, 3, 2, 45, 5));
+    }
+    {
+        const CVariable* a = v_sc ? var_named(*v_sc, "s_dup", "vars_c") : nullptr;
+        const CVariable* b = v_sc ? var_named(*v_sc, "s_dup", "other_c") : nullptr;
+        const CVariable* c = v_sd ? var_named(*v_sd, "s_dup", "vars_c") : nullptr;
+        const CVariable* d = v_sd ? var_named(*v_sd, "s_dup", "other_c") : nullptr;
+        const CVariable* e = v_cc ? var_named(*v_cc, "s_dup", "vars_c") : nullptr;
+        const CVariable* f = v_cc ? var_named(*v_cc, "s_dup", "other_c") : nullptr;
+        check("Z88CDB-03", "the two file statics named s_dup are told apart by module: sccz80 vars_c P4:$909F / "
+                           "other_c P4:$9069, zsdcc $8F96 / $8F62, 80cc $902A / $8FF4",
+              a && b && c && d && e && f && stored_at(a->storage, P4, 0x909F) && stored_at(b->storage, P4, 0x9069) &&
+                  stored_at(c->storage, P4, 0x8F96) && stored_at(d->storage, P4, 0x8F62) &&
+                  stored_at(e->storage, P4, 0x902A) && stored_at(f->storage, P4, 0x8FF4));
+    }
+    {
+        std::vector<std::string> lines = map_lines(sc_cvars);
+        const size_t before = lines.size();
+        lines.erase(std::remove_if(lines.begin(), lines.end(),
+                                   [](const std::string& l) {
+                                       return l.compare(0, 8, "_s_dup  ") == 0 && l.find(", other_c,") != std::string::npos;
+                                   }),
+                    lines.end());
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb04.map", join_lines(lines)));
+        const VariableStore* s = store_of(m);
+        const CVariable* o = s ? var_named(*s, "s_dup", "other_c") : nullptr;
+        const CVariable* w = s ? var_named(*s, "s_dup", "vars_c") : nullptr;
+        check("Z88CDB-04", "other_c's _s_dup removed from the map: its S:F record is unresolved with a reason naming "
+                           "other_c and is NOT vars_c's address; vars_c's own stays P4:$909F",
+              r && before == lines.size() + 1 && o && !o->storage.resolved &&
+                  o->storage.why.find("other_c") != std::string::npos && !stored_at(o->storage, P4, 0x909F) &&
+                  w && stored_at(w->storage, P4, 0x909F));
+    }
+    {
+        const CVariable* a = v_sc ? var_named(*v_sc, "st_sum_calls", "vars_c") : nullptr;
+        const CVariable* b = v_cc ? var_named(*v_cc, "st_sum_calls", "vars_c") : nullptr;
+        const auto good = [&](const CVariable* v, const VariableStore* s, uint16_t addr) {
+            return v && v->function >= 0 && s->functions()[static_cast<size_t>(v->function)].name == "sum" &&
+                   v->c_name == "calls" && v->storage.symbol == "_st_sum_calls" && stored_at(v->storage, P4, addr);
+        };
+        check("Z88CDB-05", "sccz80 and 80cc static local st_sum_calls: attributed to sum, C name calls, symbol "
+                           "_st_sum_calls at P4:$90A0 (sccz80) / P4:$902B (80cc)",
+              good(a, v_sc, 0x90A0) && good(b, v_cc, 0x902B));
+    }
+    {
+        const CVariable* v = v_sd ? var_named(*v_sd, "calls", "vars_c", "sum") : nullptr;
+        check("Z88CDB-06", "zsdcc static local S:Lvars.sum$calls$1_0$10: symbol _sum_calls_10000_10 (level * 10000 + "
+                           "sub, _block) at P4:$8F97, function sum, C name calls",
+              v && v->record.scope == CdbScope::Local && v->c_name == "calls" &&
+                  v->storage.symbol == "_sum_calls_10000_10" && stored_at(v->storage, P4, 0x8F97));
+    }
+    {
+        bool ok = true;
+        for (const fs::path& f : {v24 / "sccz80-cvars-banked" / "prog.map", master / "sccz80-cvars-banked" / "prog.map",
+                                  master / "80cc-cvars-banked" / "prog.map"}) {
+            SourceMap m;
+            load(m, f);
+            const VariableStore* s = store_of(m);
+            const CVariable* t = s ? var_named(*s, "btable", "bk_c") : nullptr;
+            const CVariable* d = s ? var_named(*s, "bdata", "bk_c") : nullptr;
+            ok = ok && t && d && stored_at(t->storage, P20, 0xC000) && stored_at(d->storage, P20, 0xC004);
+        }
+        check("Z88CDB-07", "banked data (PAGE_20, 24-bit $14C000): btable is P20:$C000 and bdata P20:$C004, the page "
+                           "kept, on v2.4 sccz80 and master sccz80 / 80cc",
+              ok);
+    }
+    {
+        SourceMap m;
+        load(m, master / "sdcc-cvars-banked" / "prog.map");
+        const VariableStore* s = store_of(m);
+        const CVariable* d = s ? var_named(*s, "bdata", "bk_c") : nullptr;
+        bool in_map = false;
+        for (const auto& l : map_lines(master / "sdcc-cvars-banked" / "prog.map"))
+            in_map = in_map || l.compare(0, 8, "_btable ") == 0;
+        check("Z88CDB-08", "zsdcc banked: it writes no record for btable (a const), so there is no variable although "
+                           "_btable is in the map; bdata is P20:$C028",
+              in_map && s && !var_named(*s, "btable", "bk_c") && d && stored_at(d->storage, P20, 0xC028));
+    }
+    {
+        const CFunction* sum = v_sc ? fn_named(*v_sc, "sum") : nullptr;
+        const CFunction* mn = v_sc ? fn_named(*v_sc, "main") : nullptr;
+        const CFunction* ot = v_sc ? fn_named(*v_sc, "other") : nullptr;
+        check("Z88CDB-09", "master sccz80 functions: sum (vars_c, P4:$8CB9), main (vars_c, P4:$8D54), other in other_c "
+                           "P4:$8E38 though F:G$other's own line says vars_c",
+              sum && mn && ot && sum->module == "vars_c" && stored_at(sum->entry, P4, 0x8CB9) &&
+                  mn->module == "vars_c" && stored_at(mn->entry, P4, 0x8D54) && ot->module == "other_c" &&
+                  stored_at(ot->entry, P4, 0x8E38));
+    }
+    {
+        SourceMap m;
+        load(m, v24 / "sccz80-debug" / "prog.map");
+        const VariableStore* s = store_of(m);
+        const CFunction* f = s ? fn_named(*s, "util_twice") : nullptr;
+        bool line_says_main = false;
+        for (const auto& l : map_lines(v24 / "sccz80-debug" / "prog.map"))
+            line_says_main = line_says_main || (is_cdb_line(l) && l.find("F_3aG_24util_5ftwice") != std::string::npos &&
+                                                l.find(", main_c,") != std::string::npos);
+        const CVariable* r = s ? var_named(*s, "r", "util_c", "util_twice") : nullptr;
+        const CVariable* v = s ? var_named(*s, "v", "util_c", "util_twice") : nullptr;
+        check("Z88CDB-10", "v2.4/sccz80-debug: F:G$util_twice (its line says main_c) is the function of util_c at "
+                           "P4:$8D35, and r and v of util_c are its locals",
+              f && line_says_main && f->module == "util_c" && stored_at(f->entry, P4, 0x8D35) && r && v &&
+                  locals_of(*s, f) == 2);
+    }
+    {
+        SourceMap m;
+        load(m, master / "sdcc-debug" / "prog.map");
+        const VariableStore* s = store_of(m);
+        const CFunction* a = s ? fn_named(*s, "util_inc", "main_c") : nullptr;
+        const CFunction* b = s ? fn_named(*s, "util_inc", "util_c") : nullptr;
+        const CVariable* va = s ? var_named(*s, "v", "main_c", "util_inc") : nullptr;
+        const CVariable* vb = s ? var_named(*s, "v", "util_c", "util_inc") : nullptr;
+        check("Z88CDB-11", "master/sdcc-debug: a static inline function in a header is two functions, main_c P4:$8C48 "
+                           "and util_c P4:$8CAC, each with the one local v of its own module",
+              a && b && va && vb && stored_at(a->entry, P4, 0x8C48) && stored_at(b->entry, P4, 0x8CAC) &&
+                  &s->functions()[static_cast<size_t>(va->function)] == a &&
+                  &s->functions()[static_cast<size_t>(vb->function)] == b && locals_of(*s, a) == 1 &&
+                  locals_of(*s, b) == 1);
+    }
+    {
+        const auto locals = [](const VariableStore* s, const char* fn) {
+            return s ? locals_of(*s, fn_named(*s, fn)) : size_t(999);
+        };
+        check("Z88CDB-12", "locals attach to their function: sum has 8 (a b p k t acc inner calls) on sccz80 and 80cc "
+                           "and 10 on zsdcc (+ sloc0 sloc1); main 6 (lp arr big c i pp), zsdcc 7 (+ sloc0); other 2 (q res)",
+              locals(v_sc, "sum") == 8 && locals(v_cc, "sum") == 8 && locals(v_sd, "sum") == 10 &&
+                  locals(v_sc, "main") == 6 && locals(v_cc, "main") == 6 && locals(v_sd, "main") == 7 &&
+                  locals(v_sc, "other") == 2 && locals(v_cc, "other") == 2 && locals(v_sd, "other") == 2 &&
+                  v_sd && var_named(*v_sd, "sloc0", "vars_c", "sum") &&
+                  var_named(*v_sd, "sloc0", "vars_c", "sum")->record.hidden == CdbHidden::Temporary);
+    }
+    check("Z88CDB-13", "scope table of sum, master sccz80 (address level/block): $8CB9 0/0, $8CBC 1/1, $8CC7 1/1, "
+                       "$8CE8 1/1, $8D05 1/1, $8D11 2/2, $8D2B 2/2, $8D3D 2/2, $8D3E 1/2 (the level is the "
+                       "compiler's, the block the last one opened)",
+          v_sc && scopes_are(fn_named(*v_sc, "sum"),
+                             {{0x8CB9, 0, 0, 0}, {0x8CBC, 1, 0, 1}, {0x8CC7, 1, 0, 1}, {0x8CE8, 1, 0, 1},
+                              {0x8D05, 1, 0, 1}, {0x8D11, 2, 0, 2}, {0x8D2B, 2, 0, 2}, {0x8D3D, 2, 0, 2},
+                              {0x8D3E, 1, 0, 2}},
+                             P4));
+    check("Z88CDB-14", "scope table of sum, zsdcc, level 10000 * L + S decomposed (level/sub/block): $8C48 0/0/10, "
+                       "$8C52 1/0/10, $8C56 1/0/10, $8C6A 1/0/10, $8C6F 2/0/11, $8C77 3/0/12, $8C94 3/0/12, "
+                       "$8C97 1/0/10, $8C9A 1/0/10",
+          v_sd && scopes_are(fn_named(*v_sd, "sum"),
+                             {{0x8C48, 0, 0, 10}, {0x8C52, 1, 0, 10}, {0x8C56, 1, 0, 10}, {0x8C6A, 1, 0, 10},
+                              {0x8C6F, 2, 0, 11}, {0x8C77, 3, 0, 12}, {0x8C94, 3, 0, 12}, {0x8C97, 1, 0, 10},
+                              {0x8C9A, 1, 0, 10}},
+                             P4));
+    check("Z88CDB-15", "scope table of sum, 80cc: $8C62 0/0, then $8C6F $8C76 $8C8A $8CA9 $8CB3 $8CB7 $8CC9 all 0/2 "
+                       "(no level, no block structure)",
+          v_cc && scopes_are(fn_named(*v_cc, "sum"),
+                             {{0x8C62, 0, 0, 0}, {0x8C6F, 0, 0, 2}, {0x8C76, 0, 0, 2}, {0x8C8A, 0, 0, 2},
+                              {0x8CA9, 0, 0, 2}, {0x8CB3, 0, 0, 2}, {0x8CB7, 0, 0, 2}, {0x8CC9, 0, 0, 2}},
+                             P4));
+    {
+        const auto first = [](const VariableStore* s) -> const jnext::dbg::CScope* {
+            const CFunction* f = s ? fn_named(*s, "main") : nullptr;
+            return f && !f->scopes.empty() ? &f->scopes.front() : nullptr;
+        };
+        const auto* a = first(v_sc);
+        const auto* b = first(v_cc);
+        const auto* c = first(v_sd);
+        const auto has_at = [](const VariableStore* s, uint16_t addr) {
+            for (const auto& sc : fn_named(*s, "sum")->scopes)
+                if (sc.at.address == addr) return true;
+            return false;
+        };
+        check("Z88CDB-16", "main's first entry is its own line 45 (0/3) on sccz80 P4:$8D54 and 80cc P4:$8CD8, not "
+                           "line 44's sum::0::2 that shares the address, and sum's table has no entry there; zsdcc "
+                           "P4:$8C9F is 1/0/14",
+              a && b && c && a->known && a->at.address == 0x8D54 && a->line == 45 && a->level == 0 && a->block == 3 &&
+                  b->known && b->at.address == 0x8CD8 && b->line == 45 && b->level == 0 && b->block == 3 &&
+                  c->known && c->at.address == 0x8C9F && c->level == 1 && c->sub == 0 && c->block == 14 &&
+                  !has_at(v_sc, 0x8D54) && !has_at(v_cc, 0x8CD8));
+    }
+    {
+        std::vector<std::string> lines = map_lines(sc_cvars);
+        const size_t before = lines.size();
+        lines.erase(std::remove_if(lines.begin(), lines.end(),
+                                   [](const std::string& l) { return l.compare(0, 12, "__C_LINE_45_") == 0; }),
+                    lines.end());
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb17.map", join_lines(lines)));
+        const VariableStore* s = store_of(m);
+        const CFunction* f = s ? fn_named(*s, "main") : nullptr;
+        check("Z88CDB-17", "without line 45's record, main's entry at $8D54 is line 44 whose scope names sum: it is "
+                           "not known (not main's 0/2), the function at the address being main",
+              r && before == lines.size() + 1 && f && !f->scopes.empty() && f->scopes.front().at.address == 0x8D54 &&
+                  f->scopes.front().line == 44 && !f->scopes.front().known && f->scopes.front().level == 0 &&
+                  f->scopes.front().block == 0);
+    }
+    {
+        std::vector<std::string> lines = map_lines(sd_cvars);
+        for (std::string& l : lines)
+            l.erase(std::remove(l.begin(), l.end(), '\t'), l.end());
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb18.map", join_lines(lines)));
+        const VariableStore* s = store_of(m);
+        bool same = s && v_sd && s->functions().size() == v_sd->functions().size();
+        for (size_t i = 0; same && i < s->functions().size(); ++i) {
+            const auto& a = s->functions()[i].scopes;
+            const auto& b = v_sd->functions()[i].scopes;
+            same = a.size() == b.size();
+            for (size_t k = 0; same && k < a.size(); ++k)
+                same = a[k].at.address == b[k].at.address && a[k].known == b[k].known && a[k].level == b[k].level &&
+                       a[k].sub == b[k].sub && a[k].block == b[k].block;
+        }
+        check("Z88CDB-18", "zsdcc's location field without its TAB (the proposed z88dk #3222 A fix): the function "
+                           "field x still marks it, and every scope table is the one of Z88CDB-14",
+              r && same && scopes_are(fn_named(*s, "sum"),
+                                      {{0x8C48, 0, 0, 10}, {0x8C52, 1, 0, 10}, {0x8C56, 1, 0, 10}, {0x8C6A, 1, 0, 10},
+                                       {0x8C6F, 2, 0, 11}, {0x8C77, 3, 0, 12}, {0x8C94, 3, 0, 12}, {0x8C97, 1, 0, 10},
+                                       {0x8C9A, 1, 0, 10}},
+                                      P4));
+    }
+    {
+        // zsdcc names the scope of a record after the temp file it compiled when TMPDIR is set (measured:
+        // the name below); no committed map has one, so the rescoped copy is built here.
+        const std::string temp = "_home_jorgegv_tmp_plan_gh353_scratch_out_m_sdcc_iy_tmp_tmpXXz0nVuH";
+        std::vector<std::string> lines = map_lines(sd_cvars);
+        int rescoped = 0;
+        for (std::string& l : lines) {
+            if (!is_cdb_line(l)) continue;
+            const size_t eq = l.find(' ');
+            const auto un = jnext::dbg::cdb_unescape(l.substr(11, eq - 11));
+            if (!un.ok()) continue;
+            std::string t = un.text;
+            for (const char* from : {"S:Lvars.", "S:Fvars$", "T:Fvars$"}) {
+                if (t.compare(0, std::string(from).size(), from) != 0) continue;
+                t = std::string(from).substr(0, 3) + temp + std::string(from).substr(std::string(from).size() - 1) +
+                    t.substr(std::string(from).size());
+                ++rescoped;
+                break;
+            }
+            l = "__CDBINFO__" + cdb_escape(t) + l.substr(eq);
+        }
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb19.map", join_lines(lines)));
+        const VariableStore* s = store_of(m);
+        bool same = s && v_sd && s->variables().size() == v_sd->variables().size();
+        int differ = 0;
+        for (const CVariable& v : same ? v_sd->variables() : std::vector<CVariable>{}) {
+            const CVariable* w = nullptr;
+            for (const CVariable& c : s->variables())
+                if (c.record.var.name == v.record.var.name && c.module == v.module && c.record.function == v.record.function &&
+                    c.record.var.level == v.record.var.level && c.record.var.block == v.record.var.block &&
+                    c.record.scope == v.record.scope && c.record.var.space == v.record.var.space &&
+                    c.record.var.nums == v.record.var.nums && c.record.var.regs == v.record.var.regs &&
+                    c.record.hidden == v.record.hidden)
+                    w = &c;
+            if (!w || w->storage.resolved != v.storage.resolved || w->storage.symbol != v.storage.symbol ||
+                !(w->storage.at.space == v.storage.at.space) || w->storage.at.address != v.storage.at.address ||
+                (w->function < 0) != (v.function < 0)) {
+                same = false;
+                break;
+            }
+            if (w->function >= 0 && s->functions()[static_cast<size_t>(w->function)].name !=
+                                        v_sd->functions()[static_cast<size_t>(v.function)].name)
+                same = false;
+            differ += w->record.scope_name != v.record.scope_name;
+        }
+        check("Z88CDB-19", "zsdcc records rescoped to a temp-file name (S:Lvars. / S:Fvars$ / T:Fvars$): every variable "
+                           "keeps its storage and its function, only scope_name differs (the join is by module)",
+              r && rescoped > 20 && same && differ > 20 && s->types().size() == v_sd->types().size());
+    }
+    {
+        std::vector<std::string> sc_lines = map_lines(sc_cvars);
+        std::vector<std::string> sd_lines = map_lines(sd_cvars);
+        const auto reversed = [](std::vector<std::string> l) {
+            std::reverse(l.begin(), l.end());
+            return l;
+        };
+        const auto rotated = [](std::vector<std::string> l) {
+            std::rotate(l.begin(), l.begin() + static_cast<std::ptrdiff_t>(l.size() / 2), l.end());
+            return l;
+        };
+        SourceMap a, b, c, d, e, f;
+        load(a, synth("z88cdb20a.map", join_lines(reversed(sc_lines))));
+        load(b, synth("z88cdb20b.map", join_lines(rotated(sc_lines))));
+        load(c, synth("z88cdb20c.map", join_lines(reversed(sd_lines))));
+        load(d, synth("z88cdb20d.map", join_lines(rotated(sd_lines))));
+        const std::string ref_sc = v_sc ? store_dump(*v_sc) : "";
+        const std::string ref_sd = v_sd ? store_dump(*v_sd) : "";
+        check("Z88CDB-20", "the store does not depend on the order of the map's lines: master sccz80-cvars and "
+                           "sdcc-cvars with their lines reversed, and rotated by half, dump identically",
+              !ref_sc.empty() && !ref_sd.empty() && store_of(a) && store_of(b) && store_of(c) && store_of(d) &&
+                  store_dump(*store_of(a)) == ref_sc && store_dump(*store_of(b)) == ref_sc &&
+                  store_dump(*store_of(c)) == ref_sd && store_dump(*store_of(d)) == ref_sd);
+    }
+    {
+        SourceMap sd, sc;
+        load(sd, master / "sdcc-extern" / "prog.map");
+        load(sc, master / "sccz80-extern" / "prog.map");
+        const VariableStore* a = store_of(sd);
+        const VariableStore* b = store_of(sc);
+        const CVariable* ga = a ? var_named(*a, "g", "ext_use_c") : nullptr;
+        const CVariable* gb = b ? var_named(*b, "g", "ext_def_c") : nullptr;
+        check("Z88CDB-21", "S:G$g joins the PUBLIC _g of ext_def_c, whatever module its record's line names: zsdcc's "
+                           "line says ext_use_c (the declarer), sccz80's ext_def_c; P4:$8E46 / P4:$8E63",
+              ga && gb && ga->storage.symbol == "_g" && gb->storage.symbol == "_g" &&
+                  stored_at(ga->storage, P4, 0x8E46) && stored_at(gb->storage, P4, 0x8E63));
+    }
+    {
+        std::vector<std::string> lines = map_lines(sc_cvars);
+        const std::string bad = "__CDBINFO__S_3aG_24bad_zzq = $0001 ; const, public, , vars_c, code_compiler, vars.c:1";
+        lines.push_back(bad);
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb22.map", join_lines(lines)));
+        const VariableStore* s = store_of(m);
+        check("Z88CDB-22", "a __CDBINFO__ line with a bad escape is kept in refused() with the decoder's reason, "
+                           "never dropped, and the source half loads the same ranges as without it",
+              r && r.count == r_sc.count && s && s->refused().size() == 1 &&
+                  s->refused()[0].compare(0, 27, "__CDBINFO__S_3aG_24bad_zzq:") == 0 &&
+                  s->refused()[0].size() > 30 && s->variables().size() == 45);
+    }
+    {
+        SourceMap dot, dotx;
+        load(dot, master / "sccz80-dot" / "prog.map");
+        load(dotx, master / "sccz80-dotx" / "prog.map");
+        const VariableStore* a = store_of(dot);
+        const VariableStore* b = store_of(dotx);
+        const CVariable* ta = a ? var_named(*a, "total", "dot_c") : nullptr;
+        const CVariable* tb = b ? var_named(*b, "total", "dot_c") : nullptr;
+        check("Z88CDB-23", "dot commands: total is DivMmcRam{2}:$3251 (rule 5) in master/sccz80-dot and P4:$8C38 "
+                           "(rule 4, main RAM) in master/sccz80-dotx",
+              ta && tb && stored_at(ta->storage, MemSpace::divmmc_ram(2), 0x3251) && stored_at(tb->storage, P4, 0x8C38));
+    }
+    {
+        SourceMap none, beside;
+        load(none, master / "sccz80-cvars" / "prog.map");
+        const auto rb = load_z88dk_source_map(beside, sc_cvars.string(), nex_space, Z88dkListings::Beside);
+        check("Z88CDB-24", "with the listings read (listings > 0) the store is the same, scope tables included: "
+                           "a listing's C_LINE keeps only its file, so the scope comes from the map's records",
+              rb && rb.listings > 0 && store_of(none) && store_of(beside) &&
+                  store_dump(*store_of(beside)) == store_dump(*store_of(none)));
+    }
+    {
+        SourceMap m;
+        const auto r = load_z88dk_source_map(m, (v24 / "sdcc-SO2" / "prog.map").string(), nex_space, Z88dkListings::Beside);
+        const VariableStore* s = store_of(m);
+        const fs::path sld = synth("z88cdb25.sld", "|SLD.data.version|1\nmain.bas|10||0|-1|-1|Z|pages.size:8192,pages.count:224,"
+                                                  "slots.count:8,slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n"
+                                                  "main.bas|10||0|4|32768|T|\n");
+        SourceMap sm;
+        const auto rs = load_sld(sm, sld.string());
+        check("Z88CDB-25", "v2.4/sdcc-SO2 (no record; lines from the listings only) gets an EMPTY store, so \"no "
+                           "records\" is told from \"no z88dk map\"; an SLD's source map has none",
+              r && r.listings > 0 && s && s->functions().empty() && s->variables().empty() && s->types().empty() &&
+                  s->modules().empty() && s->refused().empty() && rs && sm.size() > 0 && !sm.variables() &&
+                  !SourceMap().variables());
+    }
+    {
+        size_t enumerators = 0;
+        bool untouched = v_sc != nullptr;
+        for (const CVariable& v : v_sc ? v_sc->variables() : std::vector<CVariable>{})
+            if (v.record.hidden == CdbHidden::EmptyType) {
+                ++enumerators;
+                untouched = untouched && !v.storage.resolved && v.storage.symbol.empty() && v.storage.why.empty();
+            }
+        bool twin = false;
+        for (const CVariable& v : v_sc ? v_sc->variables() : std::vector<CVariable>{})
+            twin = twin || (v.record.var.name == "g_str" && v.record.hidden == CdbHidden::IncompleteArray);
+        const CVariable* zmain = v_sd ? var_named(*v_sd, "main", "vars_c") : nullptr;
+        check("Z88CDB-26", "hidden records are kept (views hide, the store keeps) and never read as memory: the sccz80 "
+                           "enumerators ({0}, storage untouched), the {-1} twin of g_str (hidden IncompleteArray), "
+                           "zsdcc's C-space S:G$main (hidden Function)",
+              enumerators > 0 && untouched && twin && zmain && zmain->record.hidden == CdbHidden::Function &&
+                  !zmain->storage.resolved && zmain->storage.symbol.empty());
     }
 
     fs::remove_all(dir);

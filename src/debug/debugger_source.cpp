@@ -569,6 +569,12 @@ const SourceMap& Debugger::source_map() const {
     return m ? *m : none;
 }
 
+std::shared_ptr<const jnext::dbg::VariableStore> Debugger::variables() const {
+    impl_->recheck();   // a reader never sees a stale map or its store
+    const SourceMap* m = impl_->live_sources();
+    return m ? m->variables() : nullptr;
+}
+
 Debugger::SourceMapStatus Debugger::source_map_status() const {
     impl_->recheck();
     SourceMapStatus st;
