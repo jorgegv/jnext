@@ -1122,6 +1122,45 @@ static void g_pi_audio() {
                   fmt("skips at 14333=%d (want 0); at 14334=%d (want 1) first=%d (want 500)",
                       in_band, out_band, first_out));
         }
+        // MX-61 — the adjust timer restarts with each playback: a stream that
+        // played out (600 pops in the band, then the repeats down to dry, so the
+        // timer is left part-way) and refilled to 14833 frames (one over the
+        // band's upper edge at pop 500) gets its first skip at pop 500 of the
+        // NEW playback, not sooner.
+        {
+            const std::string fifo = (dir / "mx61.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            a.set_tape_mode(true);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool w1 = put(w, header() + frames_bytes(11025, 0));
+            wait_available(a, 11025);
+            int16_t l = 0, r = 0;
+            int played = 0;
+            while (played < 600 && a.pop(l, r)) ++played;           // in the band: timer fills to 500
+            int guard = 0;
+            while (a.pop(l, r) && ++guard < 20000) {}               // run dry (repeats included)
+            const bool dry = a.underruns() == 1 && a.available() == 0;
+            const bool w2 = put(w, frames_bytes(14833, 0));
+            wait_available(a, 14833);
+            const unsigned long long skipped_before = a.frames_skipped();
+            int16_t prev = -1;
+            int first = -1, twos = 0;
+            for (int pops = 0; pops < 1000 && a.pop(l, r); ++pops) {
+                if (l - prev == 2 && twos++ == 0) first = pops;
+                prev = l;
+            }
+            if (w >= 0) ::close(w);
+            check("MX-61", "in tape mode the drift-correction timer restarts with each playback: "
+                  "after a refill to 14833 frames (one above the band's upper edge at pop 500) the "
+                  "first skip is seen at pop 500, even when the previous playback ended with the "
+                  "timer part-way (jnext-only buffering)",
+                  opened && w1 && w2 && played == 600 && dry && skipped_before == 0 && twos == 1 &&
+                      first == 500,
+                  fmt("opened=%d played=%d dry=%d skips=%d (want 1) first=%d (want 500)",
+                      opened ? 1 : 0, played, dry ? 1 : 0, twos, first));
+        }
         fs::remove_all(dir, ec);
     }
 }
