@@ -54,6 +54,9 @@ without a word (it does that to any label that is not at the start of a line).
 A page you labelled in two windows (for example `$4000` and `$C000`) gets a file for each; the
 labels of one window do not appear in the other's.
 
+A label that belongs to no particular memory is repeated in every exported window that covers its address. At an address that no exported window covers (a page with no labels and no
+coverage there) it has no file to land in, and `sna2skool -c DIR` leaves it out.
+
 ## Ghidra
 
 Ghidra's `ImportSymbolsScript.py` reads lines of `NAME ADDRESS l`. Since Ghidra 12.1 the script is

@@ -1661,8 +1661,7 @@ int main() {
                 const std::string base = "--headless --machine 48k" + sd_arg + " --coverage --map \"" + symf +
                                          "\" --delayed-automatic-exit-frames 20";
                 const std::string both = base + " --export-skoolkit \"" + dsk + "\" --export-ghidra \"" + dgh + "\"";
-                const int rc = run(both);
-                run_split(both);
+                const int rc = run_split(both);
                 const std::string all = slurp(out_path) + slurp(err_path);
                 const bool logs = all.find("--export-skoolkit " + dsk + ": ") != std::string::npos &&
                                   all.find("--export-ghidra " + dgh + ": 2 files, 1 labels, 0 comments") != std::string::npos;
@@ -1671,13 +1670,11 @@ int main() {
                                    slurp(dsk + "/0000-ROM0.ctl").find("# jnext space ROM0\n") == 0 &&
                                    slurp(dgh + "/CPU.ghidra.txt") == "rexlabel 0x0010 l\n";
                 const std::string refuse = base + " --export-skoolkit \"" + bad_dir + "\"";
-                const int rc_bad = run(refuse);
-                run_split(refuse);
+                const int rc_bad = run_split(refuse);
                 const bool names_it = slurp(err_path).find(bad_dir) != std::string::npos ||
                                       slurp(out_path).find(bad_dir) != std::string::npos;
                 const std::string refuse_g = base + " --export-ghidra \"" + bad_dir + "\"";
-                const int rc_bad_g = run(refuse_g);
-                run_split(refuse_g);
+                const int rc_bad_g = run_split(refuse_g);
                 const bool names_g = slurp(err_path).find(bad_dir) != std::string::npos ||
                                      slurp(out_path).find(bad_dir) != std::string::npos;
                 const bool arity = cli::find("--export-skoolkit") && cli::find("--export-skoolkit")->arity == 1 &&
@@ -1742,20 +1739,17 @@ int main() {
                 const std::string base = "--headless --machine 48k" + sd_arg + " --delayed-automatic-exit-frames 1";
                 const std::string good = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fb +
                                          "\" --import-ghidra \"" + fg + "\"";
-                const int rc = run(good);
-                run_split(good);
+                const int rc = run_split(good);
                 const std::string all = slurp(out_path) + slurp(err_path);
                 const bool logged = all.find("--import-skoolkit: 2 files, 2 labels, 1 comment") != std::string::npos &&
                                     all.find("--import-ghidra: 1 file, 1 label, 0 comments") != std::string::npos;
                 const std::string badcmd = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fbad + "\"";
-                const int rc_bad = run(badcmd);
-                run_split(badcmd);
+                const int rc_bad = run_split(badcmd);
                 const std::string bad_all = slurp(out_path) + slurp(err_path);
                 const bool names = bad_all.find("--import-skoolkit") != std::string::npos &&
                                    bad_all.find("bad.ctl: line 2:") != std::string::npos;
                 const std::string badg = base + " --import-ghidra \"" + fbadg + "\"";
-                const int rc_bad_g = run(badg);
-                run_split(badg);
+                const int rc_bad_g = run_split(badg);
                 const std::string badg_all = slurp(out_path) + slurp(err_path);
                 const bool names_g = badg_all.find("--import-ghidra") != std::string::npos &&
                                      badg_all.find("bad.txt: line 1:") != std::string::npos;

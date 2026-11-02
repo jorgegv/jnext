@@ -352,6 +352,7 @@ struct Modals {
     QString                    file_path;            // for a QFileDialog
     QStringList                file_paths;           // GH #389: the files of a multi-select dialog (ExistingFiles)
     QString                    dir_path;             // GH #389: the directory of a directory dialog
+    bool                       cancel_files = false; // GH #389: cancel the file/directory dialog instead of answering it
     std::function<void()>      after_file_accept;    // e.g. make the file vanish
     int                        spin_value = -1;      // for a dialog with a QSpinBox
     int                        spin_seen  = -1;      // ... and what it opened showing
@@ -395,6 +396,7 @@ struct Modals {
         if (seen.size() >= kMaxModals) { dlg->reject(); return; }
         if (auto* fd = qobject_cast<QFileDialog*>(w)) {
             seen.push_back({"file", fd->windowTitle(), {}, fd->nameFilters().join(QStringLiteral(";;"))});
+            if (cancel_files) { dlg->reject(); return; }
             if (fd->fileMode() == QFileDialog::ExistingFiles || fd->fileMode() == QFileDialog::Directory) {
                 // The widget dialog takes the typed names: a quoted list for several files, the path for a directory.
                 QString typed = dir_path;
@@ -3613,6 +3615,74 @@ static void test_reexport_ui() {
                          "revision as they were",
               box && box->title == "Import Failed" && box->icon == QMessageBox::Warning && box->text.contains("qrex-bad.ctl: line 2:") &&
                   fx.backend->annotations() == before && fx.backend->annotations_revision() == rev,
+              m.describe());
+    }
+    {   // QREX-05: a failed export
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-05", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.backend->set_user_label(P10, 0xC000, "banked");
+        fx.enable();
+        const QString dir = g_tmp->filePath(QStringLiteral("qrex-foreign"));
+        QDir().mkpath(dir);
+        const std::string foreign = (dir + "/C000-P10.ctl").toStdString();
+        { std::ofstream f(foreign); f << "not a jnext file\n"; }
+        QMenu* exp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Export");
+        Modals m;
+        m.dir_path = dir;
+        if (QAction* a = item_named(exp, "skoolkit Control Files...")) a->trigger();
+        m.timer.stop();
+        const Modals::Seen* box = m.first("box");
+        check("QREX-05", "a failed Export shows an 'Export Failed' warning naming the directory and the reason (a foreign file of the "
+                         "same name), and leaves that file as it was",
+              box && box->title == "Export Failed" && box->icon == QMessageBox::Warning && box->text.contains("qrex-foreign") &&
+                  box->text.contains("C000-P10.ctl exists and is not a jnext control file") && slurp_file(foreign) == "not a jnext file\n" &&
+                  m.boxes() == 1,
+              m.describe());
+    }
+    {   // QREX-06: a report box carries the notes, not only the counts
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-06", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.backend->set_user_label(P10, 0xC000, "banked");
+        fx.enable();
+        const QString d = g_tmp->filePath(QStringLiteral("qrex-notes"));
+        QDir().mkpath(d);
+        const std::string f1 = write_file("qrex-n.ctl", "# jnext space P10\nc $C000 a title\n@ $C000 label=ln\n");
+        QMenu* map = menu_named(fx.dbg()->menuBar(), "Map");
+        Modals me;
+        me.dir_path = d;
+        if (QAction* a = item_named(submenu_named(map, "Export"), "skoolkit Control Files...")) a->trigger();
+        me.timer.stop();
+        Modals mi;
+        mi.file_paths = {QString::fromStdString(f1)};
+        if (QAction* a = item_named(submenu_named(map, "Import"), "skoolkit Control Files...")) a->trigger();
+        mi.timer.stop();
+        const Modals::Seen* be = me.first("box");
+        const Modals::Seen* bi = mi.first("box");
+        check("QREX-06", "the report boxes list the notes after the counts: an Export with coverage off says 'memory coverage is off', "
+                         "an Import of a block title says '1 block title(s) not imported'",
+              be && be->title == "Export Done" && be->text.contains("\n- memory coverage is off") && bi && bi->title == "Import Done" &&
+                  bi->text.contains("\n- 1 block title(s) not imported"),
+              fmt("%s | %s", me.describe().c_str(), mi.describe().c_str()));
+    }
+    {   // QREX-07: a cancelled Import dialog does nothing
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-07", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.enable();
+        fx.backend->set_user_label(P10, 0xC100, "keep");
+        const auto before = fx.backend->annotations();
+        const uint64_t rev = fx.backend->annotations_revision();
+        QMenu* imp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Import");
+        Modals m;
+        m.cancel_files = true;
+        if (QAction* a = item_named(imp, "skoolkit Control Files...")) a->trigger();
+        if (QAction* a = item_named(imp, "Ghidra Symbols...")) a->trigger();
+        m.timer.stop();
+        check("QREX-07", "cancelling either Import dialog shows no box and leaves the store and its revision as they were",
+              m.first("file") && m.boxes() == 0 && fx.backend->annotations() == before && fx.backend->annotations_revision() == rev,
               m.describe());
     }
 }

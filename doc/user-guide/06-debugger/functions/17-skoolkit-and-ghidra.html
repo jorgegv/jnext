@@ -4226,6 +4226,8 @@ that falls inside an instruction or a data run gets a split of its own, so skool
 without a word (it does that to any label that is not at the start of a line).</p>
 <p>A page you labelled in two windows (for example <code>$4000</code> and <code>$C000</code>) gets a file for each; the
 labels of one window do not appear in the other's.</p>
+<p>A label that belongs to no particular memory is repeated in every exported window that covers its address. At an address that no exported window covers (a page with no labels and no
+coverage there) it has no file to land in, and <code>sna2skool -c DIR</code> leaves it out.</p>
 <h2 id="ghidra">Ghidra<a class="headerlink" href="#ghidra" title="Permanent link">&para;</a></h2>
 <p>Ghidra's <code>ImportSymbolsScript.py</code> reads lines of <code>NAME ADDRESS l</code>. Since Ghidra 12.1 the script is
 part of the <strong>Jython extension, which is not installed by default</strong>: install it first (<strong>File ▸ Install
