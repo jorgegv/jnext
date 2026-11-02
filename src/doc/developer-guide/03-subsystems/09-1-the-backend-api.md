@@ -288,7 +288,7 @@ incident is reported on its own.
 
 ### Symbols — CAP-SYM
 
-There is one symbol table, and the backend owns it. `load_map(path, format)`
+There is one symbol table, and the backend owns it (the toolchain layer; `symbols()` returns its composition with the user's labels, see CAP-ANN below). `load_map(path, format)`
 reads a z88dk map (`MapFormat::Z88dk`), a plain `SYMBOL = $ADDR` list
 (`MapFormat::Simple`) or an sjasmplus `--sym` / `--exp` file
 (`MapFormat::SjasmplusEqu`); `clear_symbols`, `lookup(addr)`, `lookup_name(name)` and
@@ -367,6 +367,67 @@ sjasmplus names its files freely and z88dk's assembler writes a `.sym` of its
 own, in the map format; and in one read, because `--map <(cmd)` is a pipe, which
 a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
 the functional row `script-map-pipe-func`).
+
+### User labels and comments — CAP-ANN
+
+The user's own labels and comments are a second layer beside the toolchain's
+symbols (GH #387; design 10.2, 10.3, 10.5, 6.8). `Impl::toolchain_symbols` is the
+table above, filled only by a sidecar, `load_map()` and a hand SLD (and emptied by
+their lifetime drops); `Impl::annotations` is a `UserAnnotations`
+(`debug/user_annotations.h`: std and `mem_space.h` only), keyed by (`MemSpace`,
+16-bit address) with at most one label and one comment per key, a label name used
+at one key only, and `MemSpace::cpu()` refused (a user entry names a memory). A
+label name is `[A-Za-z_][A-Za-z0-9_]*` parts joined by single dots, the grammar the
+DSL's `@name` lexes (`UserAnnotations::valid_label_name()`, public for #389's
+import); a comment is UTF-8 text with CRLF and lone CR turned into LF, and empty
+text removes it.
+
+**One reader.** `Impl::names` is the composition every reader goes through:
+`recompose_names()` adds the user labels first and then `merge()`s
+`toolchain_symbols`, so by address the user label wins over the toolchain's paged
+label, which wins over its unpaged one, and by name the user layer comes first.
+`symbols()`, `lookup()` and `lookup_name()` return `names`, so the Qt panels,
+the DSL's `@name`, GDB `monitor sym` and the disassembler's operands see user
+labels with no code of their own; no consumer merges the layers. `names` is
+assigned in place, so a panel's `&symbols()` stays valid. `recompose_names()` runs
+after every change of either layer: every toolchain writer (`load_map()`,
+`clear_symbols()`, `attach_hand_labels()`, the program-load attach and its `bind()`,
+`drop_sidecars()`, the deferred-check drop, both `recheck()` landing paths) and
+every annotation verb. The attachment cache (`cache_push_current()`) copies
+`toolchain_symbols`, never `names`, so a ring landing cannot resurrect a user
+label that was removed or drop one that was added. The loaded layer alone is
+`toolchain_symbols()`; the Load MAP messages count that.
+
+**Verbs** (a section of the frozen `debugger.h`, added by the #378 decision):
+`set_user_label()` (a rename when the key has a label), `remove_user_label()`,
+`set_user_comment()`, `annotations()`, `annotations_revision()` (+1 per
+successful change, for an unsaved-changes test), `load_annotations(path)`,
+`save_annotations(path)`, `replace_annotations()` (what an import builds
+offline), `toolchain_symbols()`. A refused argument (the Cpu space, a bad name, a
+name in use, text that is not UTF-8, a project file that does not parse) is
+`Unsupported`; nothing to remove, or a file that cannot be read or written,
+`RefusedUnavailable`; `why` carries the reason. `set_user_label()` also refuses a
+name the toolchain layer gives another address, or another paged memory (pinning
+an unpaged toolchain name to its page at the same address is allowed); a project
+file and a toolchain loaded later are not refused, and the user layer then wins
+by name. The verbs touch no machine state: allowed while running, no load
+generation, nothing in `.jns`, the rewind ring or the attachment cache, and no
+reset, state load, rewind or sidecar changes the store (rows SRCDBG-UANN-05..11).
+Each success bumps `state_revision()`, because a paused panel must redraw (GH
+#428; SRCDBG-UANN-17).
+
+**The project file** (`.jdp`, `debug/annotations_file.h`): `jnext-annotations 1`,
+then `label SPACE $ADDR NAME` and `comment SPACE $ADDR TEXT` records, SPACE being
+`space_tag()` of `long_address.h` (`P0E`, `ROM1`, `DIVRAM2`...), `$ADDR` four upper-case hex digits, TEXT with `\\`
+and `\n` escapes. The writer is canonical (LF, sorted by memory kind, index, address,
+the label before the comment of a key, no `#` lines: a Save does not keep a user's
+`#` lines). The reader is strict and transactional: a BOM, CRLF, `#` lines, blank lines,
+lower-case tags and hex are accepted; an unknown version, record kind, memory,
+`CPU`, a doubled space, a bad name, a second label or comment for a key, one name at two keys, an unknown escape
+or invalid UTF-8 refuses the whole file with `line N: reason` and leaves the store as it was
+(rows JDP-01..07, SRCDBG-UANN-12..14). `save_annotations()` writes `PATH.part` and renames it
+over `PATH`. `--annotations FILE` loads one in `ScriptHost::start()` right after `--map`, before the
+scripts, in every frontend (rows SCRIPT-ANN-01, CLI-ANN-01, `annotations-func`).
 
 ### Source maps — CAP-SRC
 

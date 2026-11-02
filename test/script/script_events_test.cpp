@@ -31,6 +31,7 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 #include "debug/event_table.h"
+#include "debug/long_address.h"
 #include "platform/emulator_boot.h"
 #include "peripheral/dma.h"
 
@@ -2402,6 +2403,36 @@ static void host_rows() {
                   g.dbg->lookup_name("_main_loop") == std::optional<uint16_t>(0x8000) && ok2 &&
                   h.sink.count("--map " + p.map_file + ": 13 symbols") == 1,
               g.sink.tail(2) + h.sink.tail(2));
+    }
+    {
+        // GH #387 -- --annotations FILE loads the user's labels BEFORE the scripts, so `@banked` of
+        // a script resolves; the label is keyed by the memory that supplies PROG now.
+        HostRig g;
+        const std::string tag = jnext::dbg::space_tag(g.dbg->source_page(PROG));
+        ScriptHostOptions o;
+        o.annotations_file = tmp_file("ann.jdp", "jnext-annotations 1\nlabel " + tag + " $8000 banked\n"
+                                                 "comment " + tag + " $8000 note\n");
+        o.scripts = {tmp_file("ann.jds", "on execute @banked once do log \"B ${@banked}\" end\n")};
+        const bool ok = g.start(o);
+        g.run(1);
+        HostRig h;
+        ScriptHostOptions p;
+        p.annotations_file = tmp_file("bad.jdp", "jnext-annotations 1\nlabel P04 $8000 x\nlabel P04 $8001 !\n");
+        p.scripts = {tmp_file("ann2.jds", "on execute @x once do log \"X\" end\n")};
+        const bool bad = h.start(p);
+        HostRig k;
+        ScriptHostOptions q;
+        q.annotations_file = "/nonexistent/x.jdp";
+        const bool none = k.start(q);
+        check("SCRIPT-ANN-01", "--annotations loads before the scripts: `@banked` resolves ($8000) and the load "
+                               "is logged with its counts; a file that does not parse is a failed start naming "
+                               "the flag, the file and the line; a missing file is one too",
+              ok && g.sink.count("--annotations " + o.annotations_file + ": 1 label, 1 comment") == 1 &&
+                  g.sink.count("B 32768") == 1 && !bad &&
+                  h.sink.count("--annotations " + p.annotations_file + ": line 3: '!' is not a label name") == 1 &&
+                  h.dbg->annotations().empty() && !none &&
+                  k.sink.count("--annotations /nonexistent/x.jdp: cannot open the file") == 1,
+              g.sink.tail(3) + h.sink.tail(2) + k.sink.tail(1));
     }
     {
         // sjasmplus writes a 0-byte --exp when nothing is EXPORTed.

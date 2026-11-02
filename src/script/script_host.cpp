@@ -196,6 +196,21 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
         dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
                 "--map " + opt.map_file + ": " + std::to_string(n.value) + " symbols");
     }
+    if (!opt.annotations_file.empty()) {
+        // Before the scripts, so an `@name` of the file resolves when they load (GH #387).
+        std::string why;
+        const dbg::Result r = dbg.load_annotations(opt.annotations_file, &why);
+        if (r != dbg::Result::Ok) {
+            error("--annotations " + opt.annotations_file + ": " +
+                  (why.empty() ? std::string(dbg::result_name(r)) : why));
+            return false;
+        }
+        const auto& a = dbg.annotations();
+        dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
+                "--annotations " + opt.annotations_file + ": " + std::to_string(a.label_count()) +
+                    (a.label_count() == 1 ? " label, " : " labels, ") + std::to_string(a.comment_count()) +
+                    (a.comment_count() == 1 ? " comment" : " comments"));
+    }
     // `--script-key` reaches the recorder too (key 8 is its capture), so with
     // `--record-script` a key needs no script to be delivered to.
     if (opt.scripts.empty() && !opt.keys.empty() && opt.record_file.empty()) {
