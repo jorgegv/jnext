@@ -145,9 +145,9 @@ where the loader puts the bytes.
   checks (`set_verify_window()`). While it is set the machine is armed (`verify_hold_`
   is an `armed()` contributor of its own, with `magic_hold_`, in `refresh_gates_()` and
   `SuspendScope`). The emulator asks `verify_window_hit(pc)`, two compares, first in
-  `run_frame()`'s armed block (`emulator.cpp:10041`), before `consume_step_off()`, the
+  `run_frame()`'s armed block (`emulator.cpp:10058`), before `consume_step_off()`, the
   legacy breakpoint test and the execute gate, and in `step_frame_slot()` for a debugger
-  Step (`:11464`).
+  Step (`:11481`).
 - **The verdict is recorded, not applied.** On a hit, `Impl::verify_hook(pc)` takes
   `predict_fetch(pc)`, finds the spans of each check that contain `pc` in *that exact
   memory*, judges each unit now with `verify_identity_unit()` (through
@@ -221,7 +221,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 - **RZX.** An RZX playback start is a landing like any other ([above](#tier-2-any-other-landing)), and
   `--source-map` with a replay accepts only a dot map ([7.3](03-loaders.md)): the map attaches pending
   at start-up and the verify hook does not distinguish a replayed session from a live one
-  (`replay_mode()` is the rewind replay's flag, `emulator.cpp:14110`, not RZX's). What the row
+  (`replay_mode()` is the rewind replay's flag, `emulator.cpp:14127`, not RZX's). What the row
   `z88dk-dot-source-rzx-func` pins is the attach and the refusal, not a verdict reached during playback.
 - **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1143`, set at `debugger_source.cpp:591`) tells the Source tab to word its pending note
   *...when the dot command runs* ([7.7](07-frontends.md)).

@@ -367,6 +367,16 @@ under QEMU is one, so:
   longer than the ring (about 3 s) overflows it; the producer then drops new
   frames and flags it, and the consumer's next pop flushes the stale ring and
   prebuffers fresh audio, rather than replaying a moment from inside the pause.
+- **Tape mode.** While NR 0xA2 sends the Pi's audio to EAR (`I2s::ear_routed`:
+  I2S enabled and bit 0 set), `feed_pi_audio` puts `PiAudio` in tape mode. A
+  tape loader times every edge, and QEMU delivers in bursts of about 50 ms, so
+  the 50 ms cushion ran dry on long loads and the refill's gap broke them. Tape
+  mode prebuffers 250 ms and holds the level there: while it is more than 75 ms
+  off (1.5 bursts, so the bursts' own swing is left alone), one frame (22.7 us)
+  is skipped or repeated every 500th pop (0.2%), which no loader notices; only a
+  backlog past 1 s is trimmed. Leaving tape mode trims back to 100 ms once. An
+  underrun in tape mode is logged as a warning: harmless once a tape has ended,
+  as every stream ends that way, but a load in progress will likely fail.
 - **Replay.** RZX playback does not consume the stream (the Pi's output belongs
   to the live session) and holds the input silent; a rewind's replay never
   advances audio at all. What the GUEST can read of the sample, NR 0x2C/0x2E
@@ -515,13 +525,17 @@ NextPi image is needed.
 | PIT-01..25 | `nextpi_test` (every OS): `md5_file`, the socket command line, the host audio back-end per OS, what an empty audio setting means (the mixer, PIT-16/17/18), the Pi audio pipe (writers coming and going, a full ring, a prompt `close()`, no spinning, an uncreatable pipe: PIT-19..23), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale, the stop grace and the startup window are elapsed time, not a count of sleeps (PIT-24/25, GH #355) |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
-`test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 and MX-42..47 and MX-50..52 for `PiAudio`
+`test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40, MX-42..47, MX-50..57 and MX-59..61 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
 writes), the 10-bit mapping, a frame's level in the mix and the received count;
 prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
 100 ms) and its edge (13230 frames, 300 ms, kept; 13231 trimmed); the ring full
 (131072 frames); a pause longer than the ring, flushed on resume, with the prebuffer
-again; a writer reconnecting with a fresh header, also one split at any read
+again; tape mode (MX-54..57, MX-59..61: the 11025-frame prebuffer,
+single-frame skips and repeats every 500th pop and the band's edges at 14333 and
+7717 frames, entering and leaving it, the tape trim at 44100 frames and the adjust timer restarting with each playback; MX-58 in
+`audio_test` and PI-65 and PI-66 in `uart_posix_test` cover `I2s::ear_routed`, the
+emulator switching the mode and its one-warning-per-underrun log in tape mode); a writer reconnecting with a fresh header, also one split at any read
 boundary; audio that spells `RIFF` without `WAVE`; the open errors and
 the FIFO's 0600 mode; the reader pausing, not spinning, while there is no
 writer; the latency of a write, of `close()` and of a reconnect, and an idle
@@ -552,10 +566,12 @@ preference: a GUI session with `[nextpi] audio=none` must start the stand-in
 QEMU with `-audiodev none`, not the mixer's wav FIFO, which is the one test of
 `main()` copying that preference into the start (`spec.audio =
 saved.nextpi_audio`); dropping that line fails the row. Its third is NR 0xA2
-bit 0 end to end: on a 48K machine an injected program sets NR 0xA2 = 0xC3 and
-counts changes of port 0xFE bit 6 over 60000 reads, reporting the count on the
-magic port; with the stand-in looping a square wave in both channels it must
-see at least 20, and with the EAR path off it sees 0.
+bit 0 end to end: on a 48K machine an injected program sets NR 0xA2 = 0xC3,
+waits for port 0xFE bit 6 to change once (tape mode plays nothing until it holds
+250 ms, and the headless run is uncapped), then counts its changes over 60000
+reads, reporting the count on the magic port; with the stand-in looping a square
+wave in both channels it must see at least 20, and with the EAR path off it
+never reports.
 
 Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
