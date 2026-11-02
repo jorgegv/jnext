@@ -1199,15 +1199,17 @@ int main() {
         {
             UserAnnotations u;
             const bool none = !u.remove_label(P04, 0x8000);
+            u.set_label(P04, 0x9000, "solo");
+            const bool solo = u.remove_label(P04, 0x9000) && u.entries().empty();   // no comment: no entry left
             u.set_label(P04, 0x8000, "x");
             u.set_comment(P04, 0x8000, "c");
             const bool removed = u.remove_label(P04, 0x8000);
             const bool kept = u.find(P04, 0x8000) && u.find(P04, 0x8000)->label.empty() &&
                               u.find(P04, 0x8000)->comment == "c" && !u.find_name("x");
             u.set_comment(P04, 0x8000, "");
-            check("UANN-07", "remove_label is false where there is none; with a comment present the entry "
-                             "keeps the comment; clearing the comment then leaves no entry",
-                  none && removed && kept && u.entries().empty());
+            check("UANN-07", "remove_label is false where there is none; removing a lone label leaves no entry; "
+                             "with a comment present the entry keeps the comment, and clearing it then leaves none",
+                  none && solo && removed && kept && u.entries().empty());
         }
         {
             UserAnnotations u;
@@ -1391,6 +1393,13 @@ int main() {
                             "name at two keys",
                   all && dup);
             if (!all) std::printf("    first bad: %s\n", first_bad.c_str());
+        }
+        {
+            UserAnnotations u;
+            u.set_label(MemSpace::page(0x1E), 0xABCD, "hi");
+            u.set_comment(MemSpace::page(0x1E), 0xABCD, "c");
+            check("JDP-08", "the writer spells the address in upper-case hex: $ABCD, in the memory's tag P1E",
+                  bytes(u) == "jnext-annotations 1\nlabel P1E $ABCD hi\ncomment P1E $ABCD c\n");
         }
         {
             UserAnnotations out;
