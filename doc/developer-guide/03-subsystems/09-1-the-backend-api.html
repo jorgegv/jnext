@@ -2583,6 +2583,8 @@
       
         
       
+        
+      
     
     
     
@@ -2778,6 +2780,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -3576,70 +3606,12 @@ from (<code>fetch_kind</code>, <code>fetch_index</code>). <code>trace_export()</
 mask is the <code>ROM=</code> column after the pages and the identity the <code>FETCH=&lt;tag&gt;</code>
 column after it (<code>space_tag()</code> of <code>fetch_space()</code>, never the GUI's address style).</p>
 <h3 id="reverse-engineering-exports-cap-rex">Reverse-engineering exports — CAP-REX<a class="headerlink" href="#reverse-engineering-exports-cap-rex" title="Permanent link">&para;</a></h3>
-<p><code>export_skoolkit(dir, report, why)</code> and <code>export_ghidra(dir, report, why)</code> (GH #389)
-write what the disassembly shows into a directory the verb creates: every key
-(memory, address) of <code>symbols()</code> under the name <code>lookup()</code> gives (so a z88dk C symbol
-is its C name), and for skoolkit the code/data map <code>mem_coverage()</code> recorded. They are
-reads: <code>peek()</code>, the coverage and the symbol table are side-effect free, so an export
-changes no machine state and moves no generation (SRCDBG-REX-03 and its control 04),
-and it is allowed while the machine runs. The formats are the pure writers' —
-<code>skoolkit_ctl.{h,cpp}</code> and <code>ghidra_symbols.{h,cpp}</code>, which take plain structs
-(<code>reexport.h</code>) and need no machine or Qt — and <code>debugger_reinterop.cpp</code> gathers their
-inputs and writes the files. <code>ReReport</code> carries the counts and the notes (a name
-skipped, coverage of a memory whose bytes cannot be read, coverage off).</p>
-<p><strong>skoolkit.</strong> One control file and one <code>.bin</code> image per (memory, window):
-<code>&lt;WWWW&gt;-&lt;TAG&gt;.ctl</code>, WWWW the base of an aligned window of the store (8 KB; 16 KB for
-<code>Rom</code>, <code>AltRom</code>, <code>Config</code>), TAG <code>space_tag()</code> (<code>long_address.h</code>, above); unpaged labels
-are in <code>0000-CPU.ctl</code>. A control file describes one 64 KB view and skoolkit's only bank
-notion is <code>@bank</code>, so the identity cannot be written into the format: it is the file
-name and a first line <code># jnext space &lt;TAG&gt;</code>, a comment skoolkit ignores. The names sort
-in address order, which <code>sna2skool.py -c DIR</code> needs (two files that disagree at a shared
-boundary address are applied in command-line order; the unpaged file sorts first, so a
-paged label wins, as in the disassembly), and <code>sna2skool.py -o 0xWWWW &lt;WWWW&gt;-&lt;TAG&gt;.bin</code>
-picks the one file by default pickup (which happens only when no <code>-c</code> is given). The
-<code>.bin</code> holds the window's bytes as <code>peek()</code> reads them now: skoolkit reads no NEX, so a
-Next page's control file is useless without them. A window is one of the space's keys'
-windows; a space with none goes to the window that maps it now (<code>source_page()</code>), else to
-its home (<code>home_window()</code>: the 128K bank positions for a RAM page, <code>$0000</code> for ROM,
-<code>$2000</code> for a DivMMC bank), because coverage is keyed by (memory, offset) and does not
-record the logical address a page ran at.</p>
-<p><em>The classifier</em> (<code>skoolkit::classify()</code>): an X byte starts an instruction whose extent is
-<code>instruction_length()</code> over the store, clipped at the store's end and at the next X start;
-a byte is code inside an extent, else data (R or W), else unknown. A memory with no mark is
-one code run, as sna2skool's own default. Runs become <code>c</code>, <code>b</code> and <code>u</code> blocks, closed by
-<code>i $EEEE</code> at the window end. The Z80N extensions (<code>is_z80n_extension()</code>; the opcode table
-is one in <code>disasm.cpp</code>, read by <code>instruction_length()</code> and the predicate) and clipped
-instructions are written as <code>B</code> sub-blocks, because skoolkit is Z80-only and would
-misalign the code after a 4-byte <code>NEXTREG</code>; a label or comment inside an instruction splits
-it into <code>B</code> sub-blocks at the key, because sna2skool silently drops a label that is not
-at a line start. For the same reason each unpaged label, which is written as an <code>@</code> line in
-<code>0000-CPU.ctl</code> only, is also a label-less key in every window file written that covers its
-address, so the same splits (<code>B</code> inside an instruction or a data or unknown run, <code>C</code> in an
-unmarked window) keep it alive under <code>sna2skool.py -c DIR</code> (SKCTL-08d; <code>skoolkit-foreign-func</code>
-A1 uses labels inside an executed instruction, inside a data run and in unexecuted ROM).
-The identity-only memories (boot ROM, Multiface, DivMMC ROM, alternate ROM, Layer 2,
-config, floating: <code>peek()</code> refuses them) get no code/data map and the report names them.</p>
-<p><strong>Ghidra.</strong> One file per memory, <code>&lt;TAG&gt;.ghidra.txt</code>, lines <code>NAME &lt;TAG&gt;:0xHHHH l</code>;
-<code>CPU.ghidra.txt</code> for the unpaged labels (<code>NAME 0xHHHH l</code>); <code>view.ghidra.txt</code>, the labels
-the disassembly shows now, unprefixed. The script splits a line on whitespace, has no
-comment and no blank line, and stops at the first line whose address space the program lacks
-(a NullPointerException; Ghidra still exits 0 — measured, <code>ghidra-foreign-func</code> pins it as its
-control), hence a file per space: a memory the user has not created as an overlay costs only
-its own file. On a 48K or 128K machine every RAM label is paged, so the view file is what
-flat memory takes without any overlay. Since Ghidra 12.1 <code>ImportSymbolsScript.py</code> is shipped
-only in the Jython extension, which is not installed by default.</p>
-<p><strong>Writing the directory.</strong> Each file is written to <code>&lt;name&gt;.part</code> and renamed. A previous
-export's files that this one does not write are removed: a <code>*.ctl</code> whose first line is
-<code># jnext space</code> and the <code>.bin</code> of its <code>WWWW-TAG</code> stem, and <code>CPU.ghidra.txt</code>, <code>view.ghidra.txt</code>
-and <code>TAG.ghidra.txt</code> for a TAG that names a space; any other file is never touched,
-and a <code>.ctl</code> or <code>.bin</code> the export would write that is not jnext's refuses it before anything is
-written (<code>Unsupported</code>). A directory that cannot be created, or a path that is a regular file,
-is <code>RefusedUnavailable</code>. <code>--export-skoolkit DIR</code> and <code>--export-ghidra DIR</code> call the verbs at exit
-from the three loop owners through <code>write_re_exports_at_exit()</code> (<code>platform/re_export_at_exit.h</code>,
-the <code>--coverage</code> pattern); a failure logs and exits 1. The suite is <code>reexport_test</code> (SKCTL, GHSYM
-and SRCDBG-REX rows) and the functional rows <code>skoolkit-foreign-func</code> and <code>ghidra-foreign-func</code>
-run the foreign readers (provisioned by <code>make skoolkit</code> and <code>make ghidra</code>, see
-<a href="../04-testing/03-the-regression-suite.html">4.3</a>).</p>
+<p><code>export_skoolkit(dir, report, why)</code> and <code>export_ghidra(dir, report, why)</code> (GH #389) write the
+labels the disassembly shows, and for skoolkit the <code>mem_coverage()</code> code/data map, into a
+directory, as skoolkit control files and Ghidra symbol files. They are reads (<code>peek()</code>, coverage
+and the symbol table are side-effect free): no machine state changes, and they are allowed while
+the machine runs. <code>ReReport</code> carries the counts and notes. The formats, the writers, the directory
+rules and the foreign-reader tests are in <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>.</p>
 <h3 id="session-cap-ses">Session — CAP-SES<a class="headerlink" href="#session-cap-ses" title="Permanent link">&para;</a></h3>
 <p><code>attach</code>, <code>detach</code>, <code>set_listener</code>, <code>add_service</code>, <code>remove_service</code>, <code>pump</code>,
 <code>stop_policy</code>, <code>set_stop_policy</code>, <code>set_live_raster</code>, <code>live_raster</code>, <code>attached</code>,
@@ -3698,7 +3670,7 @@ internals directly, through the pointers the constructor publishes into
 </tr>
 <tr>
 <td><code>debugger_reinterop.cpp</code></td>
-<td>CAP-REX: <code>export_skoolkit()</code> and <code>export_ghidra()</code> (the writers are <code>skoolkit_ctl.*</code> and <code>ghidra_symbols.*</code>)</td>
+<td>CAP-REX: <code>export_skoolkit()</code> and <code>export_ghidra()</code>; the writers are <code>skoolkit_ctl.*</code> and <code>ghidra_symbols.*</code> (<a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>)</td>
 </tr>
 <tr>
 <td><code>debugger_render.cpp</code></td>

@@ -12,6 +12,9 @@ knows what to write.
 | [7.4.4 z88dk listings](04-4-z88dk-listings.md) | `<file>.lis` | z88dk (`z80asm --list`) | source map (replaces a module's map records), embedded texts |
 | [7.4.5 NextBuild `Memory.txt`](04-5-nextbuild-memory-txt.md) | `8000: ._Main` lines | Boriel ZX Basic `zxbc -M`, via NextBuild | labels |
 
+The reverse direction, the skoolkit control files and Ghidra symbol files jnext writes, is
+[7.4.7](04-7-skoolkit-and-ghidra-exports.md).
+
 Boriel ZX Basic writes **no** SLD. Its only output jnext reads is `Memory.txt`
 (7.4.5), a list of labels with no source positions, so a BASIC program built
 with NextBuild has symbols and no source lines unless an SLD is produced by some

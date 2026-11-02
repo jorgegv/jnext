@@ -2564,6 +2564,8 @@
       
         
       
+        
+      
     
     
     
@@ -2759,6 +2761,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -3088,14 +3118,9 @@ itself exits 1 on a SKIP in every mode (full, named rows, <code>confirm</code>, 
 a standalone row's <code>standalone_summary</code> too), naming the rows. A tool a row needs
 is provisioned rather than assumed: <code>make regression</code> first runs <code>make z88dk-gdb</code>
 (<code>test/provision-z88dk-gdb.sh</code>), which builds z88dk v2.4's client, sha256-pinned,
-into <code>~/.cache/jnext/tools</code> when none resolves. The same goes for the two foreign
-readers of the reverse-engineering exports (GH #389): <code>make skoolkit</code>
-(<code>test/provision-skoolkit.sh</code>, SkoolKit 10.1's PyPI sdist, 1.3 MB) and <code>make ghidra</code>
-(<code>test/provision-ghidra.sh</code>, Ghidra 12.2's release zip with its Jython extension, 570 MB
-and 954 MB on disk, which needs a JDK 25: <code>java-25-openjdk-devel</code> is in the CI dnf
-list), both sha256-pinned and checked before unpacking, both prerequisites of
-<code>regression</code>, <code>regression-rows</code> and <code>regression-confirm</code> and used by the <code>os=linux</code> rows
-<code>skoolkit-foreign-func</code> and <code>ghidra-foreign-func</code> only. A run whose
+into <code>~/.cache/jnext/tools</code> when none resolves. The two foreign readers of the reverse-engineering exports (GH #389) are provisioned
+the same way by <code>make skoolkit</code> and <code>make ghidra</code>; see
+<a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>. A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and <code>make regression-confirm</code> re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through

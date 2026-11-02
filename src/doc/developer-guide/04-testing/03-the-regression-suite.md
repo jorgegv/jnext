@@ -170,14 +170,9 @@ itself exits 1 on a SKIP in every mode (full, named rows, `confirm`, `--update`;
 a standalone row's `standalone_summary` too), naming the rows. A tool a row needs
 is provisioned rather than assumed: `make regression` first runs `make z88dk-gdb`
 (`test/provision-z88dk-gdb.sh`), which builds z88dk v2.4's client, sha256-pinned,
-into `~/.cache/jnext/tools` when none resolves. The same goes for the two foreign
-readers of the reverse-engineering exports (GH #389): `make skoolkit`
-(`test/provision-skoolkit.sh`, SkoolKit 10.1's PyPI sdist, 1.3 MB) and `make ghidra`
-(`test/provision-ghidra.sh`, Ghidra 12.2's release zip with its Jython extension, 570 MB
-and 954 MB on disk, which needs a JDK 25: `java-25-openjdk-devel` is in the CI dnf
-list), both sha256-pinned and checked before unpacking, both prerequisites of
-`regression`, `regression-rows` and `regression-confirm` and used by the `os=linux` rows
-`skoolkit-foreign-func` and `ghidra-foreign-func` only. A run whose
+into `~/.cache/jnext/tools` when none resolves. The two foreign readers of the reverse-engineering exports (GH #389) are provisioned
+the same way by `make skoolkit` and `make ghidra`; see
+[7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md). A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and `make regression-confirm` re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through

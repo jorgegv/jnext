@@ -121,6 +121,7 @@ nav:
           - 7.4.3 The z88dk map: 07-source-level-debugging/04-3-z88dk-map.md
           - 7.4.4 z88dk listings: 07-source-level-debugging/04-4-z88dk-listings.md
           - 7.4.5 NextBuild Memory.txt: 07-source-level-debugging/04-5-nextbuild-memory-txt.md
+          - 7.4.7 skoolkit and Ghidra exports: 07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md
       - 7.5 Breakpoints, steps, history and call frames: 07-source-level-debugging/05-breakpoints-steps-history.md
       - 7.6 Lifetime: 07-source-level-debugging/06-lifetime.md
       - 7.7 The frontends: 07-source-level-debugging/07-frontends.md
