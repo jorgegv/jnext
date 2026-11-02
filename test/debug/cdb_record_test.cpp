@@ -94,9 +94,10 @@ int main() {
             "S_3aLvars_2ec_2esum_24a_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cB_2c_31_2c_31_30");
         check("CDB-01", "a verbatim sccz80 symbol un-escapes: letters stand for themselves, digits and punctuation are _hh, _5f is '_'",
               u.ok() && u.text == "S:Lvars.c.sum$a$0_0$0({2}SI:S),B,1,10");
-        check("CDB-02", "a bare digit, a lone or short or non-hex '_', and an escaped NUL are refused with a reason",
+        check("CDB-02", "a bare digit, a lone or short or non-hex (either digit) '_', and an escaped NUL are refused with a reason",
               !cdb_unescape("S3").ok() && !cdb_unescape("S_").ok() && !cdb_unescape("S_3").ok() &&
-              !cdb_unescape("S_zz").ok() && !cdb_unescape("S_00").ok() &&
+              !cdb_unescape("S_zz").ok() && !cdb_unescape("S_3z").ok() && !cdb_unescape("S_3g").ok() &&
+              cdb_unescape("S_3z").error.find("bad escape") != std::string::npos && !cdb_unescape("S_00").ok() &&
               cdb_unescape("S_3").error.find("offset 1") != std::string::npos &&
               cdb_unescape("S_3a").ok() && cdb_unescape("S_3A").text == "S:");
     }
@@ -503,9 +504,10 @@ int main() {
         check("CDB-51", "ñ.c (_ffffffc3_ffffffb1: a digit in a hex pair) decodes too, and _ffffff7f (a value below 0x80 in the long form) is refused",
               n.ok() && n.record.scope_name == "\xC3\xB1.c" && n.record.var.name == "s_v" &&
               cdb_unescape("_ffffff7f").error.find("bad escape") != std::string::npos);
-        check("CDB-52", "a bare two-digit escape >= 0x80 (_ff, _c3), a short or non-hex _ffffffhh, and an _ffffff7f (< 0x80) are refused with a bad-escape reason",
+        check("CDB-52", "a bare two-digit escape >= 0x80 (_ff, _c3), a short or non-hex (either digit) _ffffffhh, and an _ffffff7f (< 0x80) are refused with a bad-escape reason",
               !cdb_unescape("_ff").ok() && !cdb_unescape("_c3").ok() && !cdb_unescape("_ffffff").ok() &&
-              !cdb_unescape("_ffffffc").ok() && !cdb_unescape("_ffffffzz").ok() && !cdb_unescape("_ffffff7f").ok() &&
+              !cdb_unescape("_ffffffc").ok() && !cdb_unescape("_ffffffzz").ok() && !cdb_unescape("_ffffffcz").ok() &&
+              cdb_unescape("_ffffffcz").error.find("bad escape") != std::string::npos && !cdb_unescape("_ffffff7f").ok() &&
               !cdb_unescape("_ffffff00").ok() && cdb_unescape("_ffffffce").text == "\xCE" &&
               cdb_unescape("_ff").error.find("bad escape") != std::string::npos);
     }
