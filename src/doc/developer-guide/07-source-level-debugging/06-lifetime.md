@@ -204,7 +204,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   never finished (`checks.push_back` at `debugger_source.cpp:430`), so a later entry that does not match puts the map back
   to pending.
 - **A landing does not judge it.** `recheck()` (`debugger_source.cpp:958`): for a user's map that is a dot map,
-  `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:961-970`); the checks are
+  `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:967-976`); the checks are
   re-derived by `dot_landing(fresh)` (`debugger_source.cpp:233`). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (`dot_landing()` skips the others) to `dot_reset()`: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.

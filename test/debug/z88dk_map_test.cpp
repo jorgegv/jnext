@@ -2001,6 +2001,488 @@ int main() {
                   !zmain->storage.resolved && zmain->storage.symbol.empty());
     }
 
+    // ── Z88CDB-27..40 (GH #433 review 1): the branches the first 26 rows left one-sided. Every
+    // synthetic map is a committed one with lines added or edited in memory (never a fixture edit).
+    const auto sym_line = [](const char* name, const char* value, const char* scope, const char* module,
+                             const char* section, const char* loc = "vars.c:1") {
+        return std::string(name) + " = $" + value + " ; addr, " + scope + ", , " + module + ", " + section + ", " + loc;
+    };
+    const auto cdb_line = [](const std::string& text, const char* module) {
+        return "__CDBINFO__" + cdb_escape(text) + " = $0001 ; const, public, , " + module + ", code_compiler, x.c:1";
+    };
+    const auto plus = [](std::vector<std::string> lines, std::initializer_list<std::string> extra) {
+        for (const auto& e : extra) lines.push_back(e);
+        return lines;
+    };
+    {
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb27.map", join_lines(plus(map_lines(sc_cvars),
+            {sym_line("_s_dup", "90B0", "local", "vars_c", "bss_compiler")}))));
+        const VariableStore* s = store_of(m);
+        const CVariable* a = s ? var_named(*s, "s_dup", "vars_c") : nullptr;
+        const CVariable* b = s ? var_named(*s, "s_dup", "other_c") : nullptr;
+        check("Z88CDB-27", "an S:F symbol defined twice in its module is ambiguous, never first-wins: unresolved, "
+                           "the reason says \"more than once\", neither $909F nor $90B0 is taken; other_c's is untouched",
+              r && a && b && !a->storage.resolved && a->storage.symbol.empty() &&
+                  a->storage.why.find("more than once") != std::string::npos && stored_at(b->storage, P4, 0x9069));
+    }
+    {
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb28.map", join_lines(plus(map_lines(master / "sccz80-extern" / "prog.map"),
+            {sym_line("_g", "8E70", "public", "ext_use_c", "bss_compiler", "ext_use.c:1")}))));
+        const VariableStore* s = store_of(m);
+        const CVariable* g = s ? var_named(*s, "g", "ext_def_c") : nullptr;
+        check("Z88CDB-28", "two PUBLIC _g in two modules: S:G$g is ambiguous (\"more than once\"), unresolved, neither address taken",
+              r && g && !g->storage.resolved && g->storage.symbol.empty() &&
+                  g->storage.why.find("more than once") != std::string::npos);
+    }
+    {
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb29.map", join_lines(plus(map_lines(master / "sccz80-extern" / "prog.map"),
+            {sym_line("_g", "8E70", "local", "ext_use_c", "bss_compiler", "ext_use.c:1")}))));
+        const VariableStore* s = store_of(m);
+        const CVariable* g = s ? var_named(*s, "g", "ext_def_c") : nullptr;
+        check("Z88CDB-29", "a LOCAL _g in another module does not count for S:G$g: the PUBLIC one is joined, P4:$8E63",
+              r && g && g->storage.symbol == "_g" && stored_at(g->storage, P4, 0x8E63));
+    }
+    {
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb30.map", join_lines(plus(map_lines(sc_cvars),
+            {cdb_line("F:Fvars.c$sum$0_0$0({0}DF,SC:U),C,0,0", "vars_c")}))));
+        const VariableStore* s = store_of(m);
+        const CVariable* a = s ? var_named(*s, "a", "vars_c") : nullptr;
+        const CVariable* lp = s ? var_named(*s, "lp", "vars_c") : nullptr;
+        check("Z88CDB-30", "two F records named sum in one module: the function of a local of sum is ambiguous, so "
+                           "function == -1 (not the first); main's locals still attach; each F record joins _sum",
+              r && s && s->functions().size() == 4 && !fn_named(*s, "sum") && a && a->function == -1 && lp &&
+                  lp->function >= 0 && s->functions()[static_cast<size_t>(lp->function)].name == "main");
+    }
+    const auto a_ab = synth("z88cdb31.map", join_lines(plus(map_lines(sc_cvars), {
+        cdb_line("F:Fvars.c$a$0_0$0({0}DF,SI:S),C,0,0", "vars_c"),
+        cdb_line("F:Fvars.c$a_b$0_0$0({0}DF,SI:S),C,0,0", "vars_c"),
+        cdb_line("S:Fvars.c$st_a_b_x$1_0$1({2}SI:S),E,0,0", "vars_c"),
+        cdb_line("S:Fvars.c$st_a_y$0_0$0({2}SI:S),E,0,0", "vars_c"),
+        cdb_line("S:Fvars.c$st_a_z$1_0$1({2}SI:S),E,0,0", "vars_c"),
+        sym_line("_a", "9120", "local", "vars_c", "code_compiler"),
+        sym_line("_a_b", "9130", "local", "vars_c", "code_compiler"),
+        sym_line("_st_a_b_x", "9140", "local", "vars_c", "bss_compiler")})));
+    SourceMap m_ab;
+    const auto r_ab = load(m_ab, a_ab);
+    const VariableStore* v_ab = store_of(m_ab);
+    {
+        const CVariable* v = v_ab ? var_named(*v_ab, "st_a_b_x", "vars_c") : nullptr;
+        check("Z88CDB-31", "functions a and a_b in one module: st_a_b_x has two candidate functions, so it is "
+                           "unattributed (function -1, the raw C name st_a_b_x) and still resolves to P4:$9140",
+              r_ab && v && v->function == -1 && v->c_name == "st_a_b_x" && v->storage.symbol == "_st_a_b_x" &&
+                  stored_at(v->storage, P4, 0x9140));
+    }
+    {
+        const CVariable* y = v_ab ? var_named(*v_ab, "st_a_y", "vars_c") : nullptr;
+        const CVariable* z = v_ab ? var_named(*v_ab, "st_a_z", "vars_c") : nullptr;
+        check("Z88CDB-32", "the sccz80 st_<fn>_ attribution needs level > 0: a level-0 file static st_a_y is NOT a "
+                           "static local of a (function -1, raw name); the level-1 st_a_z is (function a, C name z)",
+              y && z && y->function == -1 && y->c_name == "st_a_y" && z->function >= 0 &&
+                  v_ab->functions()[static_cast<size_t>(z->function)].name == "a" && z->c_name == "z");
+    }
+    {
+        std::vector<std::string> lines = map_lines(master / "sccz80-extern" / "prog.map");
+        int edited = 0;
+        for (auto& l : lines)
+            if (l.compare(0, 3, "_g ") == 0) {
+                const size_t at = l.find("$8E63");
+                if (at != std::string::npos) { l.replace(at, 5, "$1000"); ++edited; }
+            }
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb33.map", join_lines(lines)));
+        const VariableStore* s = store_of(m);
+        const CVariable* g = s ? var_named(*s, "g", "ext_def_c") : nullptr;
+        check("Z88CDB-33", "a rule-4 variable whose address nex_space() maps to ROM ($1000) is unresolved, the reason "
+                           "says \"not in a RAM page\", and the symbol is still named",
+              r && edited == 1 && g && !g->storage.resolved && g->storage.symbol == "_g" &&
+                  g->storage.why.find("not in a RAM page") != std::string::npos);
+    }
+    {
+        const std::string text = "S:G$x";
+        const jnext::dbg::CdbDecoded want = jnext::dbg::cdb_decode(text);
+        const std::string line = cdb_line(text, "vars_c");
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb34.map", join_lines(plus(map_lines(sc_cvars), {line}))));
+        const VariableStore* s = store_of(m);
+        const std::string symbol = line.substr(0, line.find(' '));
+        check("Z88CDB-34", "a record that unescapes cleanly but that cdb_decode() refuses is kept in refused() as "
+                           "\"<symbol>: <the decoder's reason>\", and every CDB line is still in exactly one vector",
+              r && !want.ok() && s && s->refused().size() == 1 && s->refused()[0] == symbol + ": " + want.error &&
+                  s->functions().size() + s->variables().size() + s->types().size() + s->modules().size() +
+                          s->refused().size() == cdb_line_count(sc_cvars) + 1);
+    }
+    {
+        const std::string bad_unescape = "__CDBINFO__S_3aG_24bad_zzq = $0001 ; const, public, , vars_c, code_compiler, vars.c:1";
+        const std::string bad_decode = cdb_line("S:G$x", "vars_c");
+        const std::vector<std::string> base = plus(map_lines(sc_cvars), {bad_unescape, bad_decode});
+        std::vector<std::string> rev = base;
+        std::reverse(rev.begin(), rev.end());
+        std::vector<std::string> rot = base;
+        std::rotate(rot.begin(), rot.begin() + static_cast<std::ptrdiff_t>(rot.size() / 2), rot.end());
+        SourceMap a, b, c;
+        load(a, synth("z88cdb35a.map", join_lines(base)));
+        load(b, synth("z88cdb35b.map", join_lines(rev)));
+        load(c, synth("z88cdb35c.map", join_lines(rot)));
+        check("Z88CDB-35", "two refused records: refused() is sorted, so the store is the same for the map's lines "
+                           "in file order, reversed and rotated",
+              store_of(a) && store_of(b) && store_of(c) && store_of(a)->refused().size() == 2 &&
+                  std::is_sorted(store_of(b)->refused().begin(), store_of(b)->refused().end()) &&
+                  store_dump(*store_of(a)) == store_dump(*store_of(b)) &&
+                  store_dump(*store_of(a)) == store_dump(*store_of(c)));
+    }
+    const auto x_map = synth("z88cdb36.map", join_lines(plus(map_lines(sc_cvars), {
+        cdb_line("F:Fvars.c$x$0_0$0({0}DF,SI:S),C,0,0", "vars_c"),
+        sym_line("_x", "9100", "local", "vars_c", "code_compiler", "vars.c::x::0::0:70"),
+        "__C_LINE_70_vars_2ec_3a_3ax_3a_3a1_3a_3a2 = $9100 ; addr, local, , vars_c, code_compiler, vars.c::x::1::2:70",
+        "__C_LINE_71_vars_2ec_3a_3ax_3a_3aa_3a_3ab = $9110 ; addr, local, , vars_c, code_compiler, vars.c::x::a::b:71"})));
+    SourceMap m_x;
+    const auto r_x = load(m_x, x_map);
+    const CFunction* f_x = store_of(m_x) ? fn_named(*store_of(m_x), "x") : nullptr;
+    check("Z88CDB-36", "an sccz80 function literally named x with scope x::1::2 and no TAB is NOT zsdcc's form: "
+                       "level 1, sub 0, block 2 (not 0/1/2), known",
+          r_x && f_x && f_x->scopes.size() == 2 && f_x->scopes[0].known && f_x->scopes[0].at.address == 0x9100 &&
+              f_x->scopes[0].level == 1 && f_x->scopes[0].sub == 0 && f_x->scopes[0].block == 2);
+    check("Z88CDB-37", "a location whose level and block are not numbers (vars.c::x::a::b:71) has no scope: the "
+                       "entry is unknown, 0/0/0",
+          f_x && f_x->scopes.size() == 2 && f_x->scopes[1].at.address == 0x9110 && f_x->scopes[1].line == 71 &&
+              !f_x->scopes[1].known && f_x->scopes[1].level == 0 && f_x->scopes[1].block == 0);
+    {
+        std::vector<std::string> lines = map_lines(sd_cvars);
+        int cdb = 0, sym = 0;
+        for (auto& l : lines) {
+            if (is_cdb_line(l)) {
+                const size_t eq = l.find(' ');
+                const auto un = jnext::dbg::cdb_unescape(l.substr(11, eq - 11));
+                if (un.ok() && un.text.compare(0, 24, "S:Lvars.sum$calls$1_0$10") == 0) {
+                    std::string t = un.text;
+                    t.replace(t.find("$1_0$10"), 7, "$1_2$10");   // level 1, sub 0 -> sub 2
+                    l = "__CDBINFO__" + cdb_escape(t) + l.substr(eq);
+                    ++cdb;
+                }
+            } else if (l.compare(0, 20, "_sum_calls_10000_10 ") == 0) {
+                l.replace(0, 19, "_sum_calls_10002_10");
+                ++sym;
+            }
+        }
+        SourceMap m;
+        const auto r = load(m, synth("z88cdb38.map", join_lines(lines)));
+        const VariableStore* s = store_of(m);
+        const CVariable* v = s ? var_named(*s, "calls", "vars_c", "sum") : nullptr;
+        check("Z88CDB-38", "a zsdcc static local with sub != 0 (S:L...$calls$1_2$10): its symbol is _sum_calls_10002_10 "
+                           "(level * 10000 + sub, as SDCC allocLocal() writes it), P4:$8F97",
+              r && cdb == 1 && sym == 1 && v && v->record.var.sub == 2 && v->storage.symbol == "_sum_calls_10002_10" &&
+                  stored_at(v->storage, P4, 0x8F97));
+    }
+    {
+        int checked = 0;
+        bool all = true;
+        for (const char* map : {"v2.4/sccz80-fc", "master/sccz80-fc", "master/80cc-fc"}) {
+            SourceMap m;
+            load(m, kFixtures / map / "prog.map");
+            const VariableStore* s = store_of(m);
+            const CFunction* f = s ? fn_named(*s, "fcallee") : nullptr;
+            bool found = false;
+            for (const auto& c : f ? f->scopes : std::vector<jnext::dbg::CScope>{})
+                if (c.at.address == f->entry.at.address) {
+                    found = true;
+                    all = all && c.line == 4 && !c.known;
+                }
+            checked += found;
+        }
+        check("Z88CDB-39", "one-line functions: at fcallee's entry two line-4 records (fcallee's and the previous "
+                           "function's) disagree, so the entry is unknown, on all three fc maps",
+              checked == 3 && all);
+    }
+    {
+        // The golden is derived by a script that reads only the RAW map lines (highest line per address,
+        // the scope fields, the function of the same module with the greatest entry at or below, equal-line
+        // disagreement unknown, sccz80/80cc cross-check, zsdcc's 10000 split; data/bss/smc records left out),
+        // never from the store. The sum tables of Z88CDB-13..15 are the hand-checked subset of it.
+    static const struct { const char* map; const char* golden; } kScopeGolden[] = {
+        {"master/sccz80-cvars", R"GOLD(main vars_c 8D54
+  8D54 L45 K 0/0/3
+  8D57 L49 K 1/0/4
+  8D61 L52 K 1/0/4
+  8D7F L53 K 1/0/4
+  8D85 L54 K 1/0/4
+  8D94 L55 K 1/0/4
+  8DAC L56 K 3/0/5
+  8DE1 L57 K 3/0/5
+  8DE4 L58 K 1/0/5
+  8DEA L59 K 1/0/5
+  8DF9 L60 K 1/0/5
+  8E0B L61 K 1/0/5
+  8E19 L62 K 1/0/5
+  8E1F L64 K 2/0/6
+  8E27 L65 K 2/0/6
+  8E2A L66 K 1/0/6
+other other_c 8E38
+  8E38 L6 K 0/0/0
+  8E3B L8 K 1/0/1
+  8E49 L9 K 1/0/1
+sum vars_c 8CB9
+  8CB9 L29 K 0/0/0
+  8CBC L33 K 1/0/1
+  8CC7 L34 K 1/0/1
+  8CE8 L35 K 1/0/1
+  8D05 L36 K 1/0/1
+  8D11 L38 K 2/0/2
+  8D2B L39 K 2/0/2
+  8D3D L40 K 2/0/2
+  8D3E L41 K 1/0/2
+)GOLD"},
+        {"master/sdcc-cvars", R"GOLD(main vars_c 8C9F
+  8C9F L44 K 1/0/14
+  8CAC L52 K 1/0/14
+  8CC0 L55 K 3/0/16
+  8CC4 L56 K 3/0/16
+  8CF0 L55 K 2/0/15
+  8CFA L58 K 1/0/14
+  8D00 L59 K 1/0/14
+  8D0C L60 K 1/0/14
+  8D18 L61 K 1/0/14
+  8D24 L62 K 1/0/14
+  8D2A L64 K 2/0/17
+  8D31 L67 K 1/0/14
+other other_c 8D33
+  8D33 L5 K 0/0/8
+  8D3B L8 K 1/0/8
+  8D49 L10 K 1/0/8
+sum vars_c 8C48
+  8C48 L28 K 0/0/10
+  8C52 L33 K 1/0/10
+  8C56 L34 K 1/0/10
+  8C6A L35 K 1/0/10
+  8C6F L36 K 2/0/11
+  8C77 L38 K 3/0/12
+  8C94 L39 K 3/0/12
+  8C97 L41 K 1/0/10
+  8C9A L42 K 1/0/10
+)GOLD"},
+        {"master/80cc-cvars", R"GOLD(main vars_c 8CD8
+  8CD8 L45 K 0/0/3
+  8CE5 L49 K 0/0/6
+  8CEA L52 K 0/0/6
+  8D02 L53 K 0/0/6
+  8D0C L54 K 0/0/6
+  8D1E L55 K 0/0/6
+  8D22 L56 K 0/0/6
+  8D7A L57 K 0/0/6
+  8D7D L58 K 0/0/6
+  8D83 L59 K 0/0/6
+  8D96 L60 K 0/0/6
+  8DA7 L61 K 0/0/6
+  8DB0 L62 K 0/0/6
+  8DB6 L64 K 0/0/6
+  8DBD L65 K 0/0/6
+other other_c 8DC0
+  8DC0 L6 K 0/0/0
+  8DC4 L8 K 0/0/1
+  8DD6 L9 K 0/0/1
+sum vars_c 8C62
+  8C62 L29 K 0/0/0
+  8C6F L33 K 0/0/2
+  8C76 L34 K 0/0/2
+  8C8A L35 K 0/0/2
+  8CA9 L36 K 0/0/2
+  8CB3 L38 K 0/0/2
+  8CB7 L39 K 0/0/2
+  8CC9 L41 K 0/0/2
+)GOLD"},
+        {"v2.4/sccz80-cvars", R"GOLD(main vars_c 8D54
+  8D54 L45 K 0/0/3
+  8D57 L49 K 1/0/4
+  8D61 L52 K 1/0/4
+  8D7F L53 K 1/0/4
+  8D85 L54 K 1/0/4
+  8D94 L55 K 1/0/4
+  8DAC L56 K 3/0/5
+  8DBC L57 K 3/0/5
+  8DE2 L58 K 1/0/5
+  8DE8 L59 K 1/0/5
+  8DF7 L60 K 1/0/5
+  8E09 L62 K 1/0/5
+  8E1D L64 K 2/0/6
+  8E25 L65 K 2/0/6
+  8E28 L66 K 1/0/6
+other other_c 8E36
+  8E36 L6 K 0/0/0
+  8E39 L8 K 1/0/1
+  8E47 L9 K 1/0/1
+sum vars_c 8CB9
+  8CB9 L29 K 0/0/0
+  8CBC L33 K 1/0/1
+  8CC7 L34 K 1/0/1
+  8CE8 L35 K 1/0/1
+  8D05 L36 K 1/0/1
+  8D11 L38 K 2/0/2
+  8D2B L39 K 2/0/2
+  8D3D L40 K 2/0/2
+  8D3E L41 K 1/0/2
+)GOLD"},
+        {"v2.4/sccz80-debug", R"GOLD(main main_c 8C92
+  8C92 L15 K 0/0/2
+  8C95 L17 K 1/0/3
+  8C9D L18 K 1/0/3
+  8CB5 L19 K 3/0/4
+  8CBE L20 K 3/0/4
+  8CE9 L21 K 3/0/4
+  8CEC L22 K 1/0/4
+  8D0F L23 K 1/0/4
+  8D12 L25 K 1/0/4
+  8D22 L26 K 2/0/5
+  8D2A L27 K 2/0/5
+  8D2D L28 K 1/0/5
+square main_c 8C78
+  8C78 L10 K 0/0/0
+  8C7B L11 K 1/0/1
+util_twice util_c 8D35
+  8D35 L4 K 0/0/0
+  8D38 L6 K 1/0/1
+  8D50 L7 K 1/0/1
+  8D5C L8 K 1/0/1
+)GOLD"},
+        {"master/sdcc-debug", R"GOLD(main main_c 8C6B
+  8C6B L17 K 1/0/13
+  8C6F L18 K 3/0/15
+  8C71 L19 K 3/0/15
+  8C84 L20 K 3/0/15
+  8C89 L18 K 2/0/14
+  8C8F L22 K 2/0/16
+  8C96 L23 K 1/0/13
+  8C99 L24 K 1/0/13
+  8CA6 L26 K 2/0/17
+  8CAA L29 K 1/0/13
+square main_c 8C57
+  8C57 L9 K 1/0/11
+  8C5F L11 K 1/0/11
+  8C68 L12 K 1/0/11
+util_inc main_c 8C48
+  8C48 L7 K 0/0/8
+  8C56 L7 K 1/0/8
+util_inc util_c 8CAC
+  8CAC L9 K 0/0/8
+  8CBA L9 K 1/0/8
+util_twice util_c 8CBB
+  8CBB L3 K 1/0/10
+  8CC3 L6 K 1/0/10
+  8CC8 L8 K 1/0/10
+  8CC9 L9 K 1/0/10
+)GOLD"},
+        {"master/sccz80-debug", R"GOLD(main main_c 8C92
+  8C92 L15 K 0/0/2
+  8C95 L17 K 1/0/3
+  8C9D L18 K 1/0/3
+  8CB5 L19 K 3/0/4
+  8CCD L20 K 3/0/4
+  8CE9 L21 K 3/0/4
+  8CEC L22 K 1/0/4
+  8D0F L23 K 1/0/4
+  8D12 L24 K 1/0/4
+  8D22 L26 K 2/0/5
+  8D2A L27 K 2/0/5
+  8D2D L28 K 1/0/5
+square main_c 8C78
+  8C78 L10 K 0/0/0
+  8C7B L11 K 1/0/1
+util_twice util_c 8D35
+  8D35 L4 K 0/0/0
+  8D38 L6 K 1/0/1
+  8D50 L7 K 1/0/1
+  8D5C L8 K 1/0/1
+)GOLD"},
+        {"master/80cc-debug", R"GOLD(main main_c 8C76
+  8C76 L15 K 0/0/2
+  8C7F L17 K 0/0/5
+  8C84 L18 K 0/0/5
+  8C88 L20 K 0/0/5
+  8CBE L21 K 0/0/5
+  8CC1 L22 K 0/0/5
+  8CD4 L23 K 0/0/5
+  8CD7 L24 K 0/0/5
+  8CE6 L27 K 0/0/5
+square main_c 8C62
+  8C62 L10 K 0/0/0
+  8C65 L11 K 0/0/1
+util_twice util_c 8CF6
+  8CF6 L4 K 0/0/0
+  8CFA L6 K 0/0/1
+  8D00 L7 K 0/0/1
+  8D01 L8 K 0/0/1
+)GOLD"},
+        {"v2.4/sccz80-fc", R"GOLD(fcallee fc_c 8C74
+  8C74 L4 U 0/0/0
+ffast fc_c 8C62
+  8C62 L3 K 0/0/0
+main fc_c 8C92
+  8C92 L5 U 0/0/0
+  8C95 L6 K 1/0/4
+)GOLD"},
+        {"master/sccz80-fc", R"GOLD(fcallee fc_c 8C74
+  8C74 L4 U 0/0/0
+ffast fc_c 8C62
+  8C62 L3 K 0/0/0
+main fc_c 8C92
+  8C92 L5 U 0/0/0
+)GOLD"},
+        {"master/sdcc-fc", R"GOLD(fcallee fc_c 8C4A
+  8C4A L4 K 1/0/9
+ffast fc_c 8C48
+  8C48 L3 K 0/0/7
+  8C49 L3 K 1/0/7
+main fc_c 8C65
+  8C65 L5 K 1/0/11
+)GOLD"},
+        {"master/80cc-fc", R"GOLD(fcallee fc_c 8C74
+  8C74 L4 U 0/0/0
+  8C78 L4 K 0/0/2
+ffast fc_c 8C62
+  8C62 L3 K 0/0/0
+  8C6C L3 K 0/0/1
+main fc_c 8C97
+  8C97 L5 U 0/0/0
+  8CA0 L5 K 0/0/4
+)GOLD"},
+    };
+        std::string bad;
+        int n = 0;
+        for (const auto& g : kScopeGolden) {
+            SourceMap m;
+            load(m, kFixtures / g.map / "prog.map");
+            const VariableStore* s = store_of(m);
+            std::vector<const CFunction*> fns;
+            if (s)
+                for (const CFunction& f : s->functions())
+                    if (!f.scopes.empty()) fns.push_back(&f);
+            std::sort(fns.begin(), fns.end(), [](const CFunction* a, const CFunction* b) {
+                return a->name != b->name ? a->name < b->name : a->module < b->module;
+            });
+            std::string got;
+            for (const CFunction* f : fns) {
+                char buf[96];
+                std::snprintf(buf, sizeof buf, "%s %s %04X\n", f->name.c_str(), f->module.c_str(),
+                              unsigned(f->entry.at.address));
+                got += buf;
+                for (const auto& c : f->scopes) {
+                    std::snprintf(buf, sizeof buf, "  %04X L%d %c %d/%d/%d\n", unsigned(c.at.address), c.line,
+                                  c.known ? 'K' : 'U', c.level, c.sub, c.block);
+                    got += buf;
+                }
+            }
+            ++n;
+            if (got != g.golden) { bad += std::string(" ") + g.map; }
+        }
+        check("Z88CDB-40", "every function's whole scope table on 12 committed maps (cvars, debug and fc builds of "
+                           "the three compilers) equals the golden derived from the raw map lines: the other-module, "
+                           "data-section and equal-line-disagreement rules",
+              n == 12 && bad.empty());
+        if (!bad.empty()) std::printf("  Z88CDB-40 differs:%s\n", bad.c_str());
+    }
+
     fs::remove_all(dir);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
