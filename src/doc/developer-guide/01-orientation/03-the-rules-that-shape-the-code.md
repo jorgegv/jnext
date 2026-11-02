@@ -127,6 +127,15 @@ had gone stale the same way the debugger images had — `gui-main-window.png`
 predated the Soft Reset toolbar button by four days and showed three icons
 where the product builds four.
 
+Since GH #426 it also covers the five `debugger-source*.png` of the user guide's
+Source Debugger section. They are Group 4, last: it loads a committed z88dk
+fixture (`test/fixtures/z88dk`, from the working directory or `--fixtures DIR`)
+through the production load and sidecar path (`emulator_apply_load`, then
+`Debugger::load_program_sidecars`), sets a `file:line` breakpoint through
+`BreakpointModel::add_source_line`, continues until the machine stops, and fails
+loudly if the Source tab does not read the expected position. The other
+images come out byte-identical with the group present or absent.
+
 It has nothing to do with the images that are emulator *output* —
 `boot-splash`, `machine-*`, `layers-*` and the rest — which jnext already
 renders itself with `--delayed-screenshot`.
