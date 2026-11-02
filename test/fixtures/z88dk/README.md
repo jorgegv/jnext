@@ -83,6 +83,7 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
 
 - `v2.4/sdcc-debug` (G12): `defc Gcounter0_00==.` syntax errors in 2.4's sdcc `-debug`
   (z88dk issue 3172; fixed on master).
+- `v2.4/sdcc-cvars` (GH #431): the same z88dk issue 3172 failure as `v2.4/sdcc-debug`, on `vars.c other.c`.
 - `v2.4/classic-debug`, `master/classic-debug` (Z1): `Unknown option2 --hardware-keyboard`.
   "Classic +zxn banked -debug: not producible."
 
@@ -171,7 +172,7 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
 
 The `*-cvars`, `*-cvars-banked` and `*-fc` builds exist to give the C variable records
 (`__CDBINFO__`) a ground truth. Everything below was read from the committed maps with a
-small decoder (undo z80asm's `_hh` escaping of the name; the module is the 4th `;` field),
+small decoder (undo z80asm's `_hh` escaping of the name; the module is the 4th comma-separated field after the line's ` ; `),
 and the `.lis` files; all builds are `-debug`, `TMPDIR=/tmp`.
 **Which install produced what:** `v2.4/` = 4d530b6eb, `master/` = 39421a01cd (the installed
 latest, kept as the fixture base; it predates upstream PR #3221). 80cc exists only in `master/`.
@@ -200,7 +201,7 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
 - `g_float = 1.5` in the data: `00 00 00 00 40 81` (6-byte z88dk format, sccz80 and 80cc, `_g_float`
   $904A on 2.4 / $904C on master sccz80 / $8FD7 80cc) and `00 00 c0 3f` (IEEE single, zsdcc, $8F44).
   Read from `prog_CODE.bin` at (address - `__CODE_head` $8000).
-- sccz80 writes a second, incomplete-array record for `g_str`: `({-1}DA-1x,SC:S)` beside `({3}DA3x,SC:S)`.
+- sccz80 and 80cc write a second, incomplete-array record for `g_str` (zsdcc one record): `({-1}DA-1x,SC:S)` beside `({3}DA3x,SC:S)`.
 - sccz80/80cc enumerators are records with an empty type (`S:G$RED$0_0$0({0}),E,0,0`); zsdcc has none.
 - Bitfields: zsdcc `T:Fvars$flags[...({1}SB0$3:U)({1}SB3$5:U)...]` carries start and width; sccz80/80cc
   write `({2}SI:U)` members at offsets 0, 0, 1 with no bit layout.
@@ -227,8 +228,18 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
   `push ix` in every function; 80cc mixes the two per function (`vars.c`: `sum` and `main` `push ix`,
   `other.c`: `other` calls `l_debug_push_frame`). Whether `fp = SP at entry - 2` for all three was
   measured by the planner of #353 with z88dk-ticks and is not re-run by this fixture.
+- `C_LINE` block scope, `sum()` in `vars.c` (the scope string of the `__C_LINE_<n>_vars_c`
+  map lines): sccz80 `vars.c::sum::<level>::<block>`: lines 30-36 `sum::1::1`, 37-40 `sum::2::2`,
+  41 `sum::1::2` (the level is right, the block is the last one opened, not the current one);
+  80cc `vars.c::sum::0::2` for every body line, 33-44 (no level, no block structure); zsdcc
+  `vars.c::x::<level*10000>::<block><TAB>`: 33-35 and 41 `10000::10`, 36 `20000::11`, 38-39
+  `30000::12` (function field `x`, the block is the current one, a TAB ends the field).
 - `fc.c`: sccz80 (both installs) records the `__z88dk_fastcall` parameter `x` at `B,1,4`, its
-  nominal slot; 80cc records `B,1,-2`; zsdcc records `R,0,0,[l,h]`. `__z88dk_callee`: sccz80/80cc
+  nominal slot, and that record is WRONG: a fastcall caller pushes nothing, and the listing
+  (`master/sccz80-fc/fc.c.lis`: `parameter 'unsigned int x' at sp+4`, then `call l_debug_push_frame`
+  / `push hl`) stores `x` at fp-2 (its sibling `y` is correctly `B,1,-4`). The decoder must not
+  trust it (plan #353 U1, OD-14: show "location unknown"). 80cc's `B,1,-2` is right
+  (`master/80cc-fc/fc.c.lis`: `push ix; ld ix,0; add ix,sp; push hl`); zsdcc records `R,0,0,[l,h]`. `__z88dk_callee`: sccz80/80cc
   `a`=+6, `b`=+4; zsdcc `a`=+4, `b`=+6.
 - Banked (`bk.c` in PAGE_20, code, const and data): `_btable` $14C000, `_bdata` $14C004, `_bk_sum`
   $14C005 on sccz80 / 80cc (24-bit values, page 20); zsdcc orders them `_bk_sum` $14C000, `_btable`
