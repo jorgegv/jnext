@@ -219,7 +219,7 @@ verdict on the real tree is trusted at all:
 
 The developer-guide cite check, `test/lint-devguide-cites.pl` (GH #430, see
 [4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking
-like those: the harness self-test runs it against throwaway trees (HS-102 to HS-155), and each
+like those: the harness self-test runs it against throwaway trees (HS-102 to HS-156), and each
 row was shown to go red when the behaviour it pins is mutated out of the script. HS-102 pins
 the *command* in the `unit-test` and `regression` dry runs, not the target name. The rows cover:
 an exact cite and a declared external one passing; a cite one line off, an unanchored one (also
@@ -242,7 +242,7 @@ parenthesis being the scope, a closed parenthesis ending its scope, a cite span 
 parenthesis not counting as its symbol, a test ID there counting as one, a closed parenthesis not affecting a later cite) and a
 quoted string literal anchoring a cite only when it is on the line (case-sensitive, at least 4
 characters with a letter or digit, also on the last line of a range), and `JNEXT_CITES_DUMP`
-writing the checked cites and the `.dot` comment-block grouping.
+writing the checked cites, and the pinned foreign tools being declared external and the `.dot` comment-block grouping.
 
 Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.

@@ -87,8 +87,10 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
   the sentence for the anchor search.
 - **Out of scope by declaration**, listed in the script's header and nowhere
   else: the VHDL (a different repository), and the z88dk, sjasmplus, Boriel,
-  NextBuild and NextZXOS sources the format chapters cite, when the repository
-  has no such file. Fenced code blocks are sample data and are not read for
+  NextBuild and NextZXOS sources the format chapters cite, the sjasmplus manual,
+  and the pinned foreign tools the export chapter cites (the skoolkit files
+  `__init__.py`, `ctlparser.py` and `sna2skool.py`, and the Ghidra script
+  `ImportSymbolsScript.py`), when the repository has no such file. Fenced code blocks are sample data and are not read for
   cites (only as the excerpt above), but a fence that is never closed fails, and
   a closing fence must be the opening character, at least as long.
 - **Quoted text anchors too.** A backticked double-quoted string, such as
@@ -122,7 +124,7 @@ side's corrected numbers.
 
 When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are `HS-102`..`HS-155` of `make harness-selftest`.
+rows are `HS-102`..`HS-156` of `make harness-selftest`.
 
 ## The renderer fingerprint
 

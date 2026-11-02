@@ -3008,8 +3008,10 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:</p>
   the sentence for the anchor search.</li>
 <li><strong>Out of scope by declaration</strong>, listed in the script's header and nowhere
   else: the VHDL (a different repository), and the z88dk, sjasmplus, Boriel,
-  NextBuild and NextZXOS sources the format chapters cite, when the repository
-  has no such file. Fenced code blocks are sample data and are not read for
+  NextBuild and NextZXOS sources the format chapters cite, the sjasmplus manual,
+  and the pinned foreign tools the export chapter cites (the skoolkit files
+  <code>__init__.py</code>, <code>ctlparser.py</code> and <code>sna2skool.py</code>, and the Ghidra script
+  <code>ImportSymbolsScript.py</code>), when the repository has no such file. Fenced code blocks are sample data and are not read for
   cites (only as the excerpt above), but a fence that is never closed fails, and
   a closing fence must be the opening character, at least as long.</li>
 <li><strong>Quoted text anchors too.</strong> A backticked double-quoted string, such as
@@ -3042,7 +3044,7 @@ lines moved:</p>
 side's corrected numbers.</p>
 <p>When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are <code>HS-102</code>..<code>HS-155</code> of <code>make harness-selftest</code>.</p>
+rows are <code>HS-102</code>..<code>HS-156</code> of <code>make harness-selftest</code>.</p>
 <h2 id="the-renderer-fingerprint">The renderer fingerprint<a class="headerlink" href="#the-renderer-fingerprint" title="Permanent link">&para;</a></h2>
 <p>pandoc, mkdocs-material and graphviz all emit byte-different output across
 their own versions for identical input. A byte-diff against outputs that were

@@ -46,7 +46,9 @@
 # ticks,80cc,sccz80,z80asm}/...); sjasmplus (sjasm/..., sjio.cpp tables.cpp
 # directives.cpp devices.cpp support.cpp preproc.cpp); Boriel (src/{zxbc,zxbasm}/...,
 # keywords.py); NextBuild (nextbuild.py); NextZXOS (nexload.asm nexload2.asm
-# readdir.asm esxapi.def).
+# readdir.asm esxapi.def); the sjasmplus manual (docs/documentation.xml); the pinned
+# foreign tools the tests cache, cited by the export chapter: skoolkit (skoolkit/
+# __init__.py, ctlparser.py, sna2skool.py) and the Ghidra script ImportSymbolsScript.py.
 #
 # ANCHOR. The nearest backticked identifier BEFORE the cite in the same sentence,
 # or, when the cite sits inside a parenthesis, the symbol in THAT parenthesis, or
@@ -128,6 +130,7 @@ my @EXTERNAL = (
     qr/^(?:.*\/)?nextbuild\.py$/,
     qr/^(?:nexload2?\.asm|readdir\.asm|esxapi\.def)$/,
     qr/^docs\/documentation\.xml$/,
+    qr/^skoolkit\/(?:__init__|ctlparser|sna2skool)\.py$/, qr/^(?:.*\/)?ImportSymbolsScript\.py$/,
 );
 my %EXAMPLE = map { $_ => 1 } qw(main.c util.c util.h asmfn.asm main.bas equlabels.asm);
 sub is_external { my $t = shift; for (@EXTERNAL) { return 1 if $t =~ $_ } 0 }
