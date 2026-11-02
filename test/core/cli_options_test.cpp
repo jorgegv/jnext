@@ -164,6 +164,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
@@ -1057,6 +1058,10 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
                  "jnext binary not built at " + bin);
+            skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
+                 "jnext binary not built at " + bin);
+            skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -1101,6 +1106,10 @@ int main() {
             skip("CLI-COV-01", "--coverage reaches the loop owner",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -1638,6 +1647,49 @@ int main() {
                           " without=" + (without ? "1" : "0"));
             }
 
+            // CLI-REX-01: --export-skoolkit DIR and --export-ghidra DIR (GH #389) write their files
+            // when jnext exits and log what they wrote; with a file where DIR should be, the run
+            // fails (non-zero: run_bounded reports only that) naming it. The label comes from an sjasmplus --sym (an unpaged label).
+            {
+                const std::string rex = bin + tag + ".rex";
+                const std::string symf = rex + ".sym", dsk = rex + ".sk", dgh = rex + ".gh", bad_dir = rex + ".file";
+                std::error_code ec;
+                std::filesystem::remove_all(dsk, ec);
+                std::filesystem::remove_all(dgh, ec);
+                { std::ofstream f(symf); f << "rexlabel: EQU 0x00000010\n"; }
+                { std::ofstream f(bad_dir); f << "x"; }
+                const std::string base = "--headless --machine 48k" + sd_arg + " --coverage --map \"" + symf +
+                                         "\" --delayed-automatic-exit-frames 20";
+                const std::string both = base + " --export-skoolkit \"" + dsk + "\" --export-ghidra \"" + dgh + "\"";
+                const int rc = run_split(both);
+                const std::string all = slurp(out_path) + slurp(err_path);
+                const bool logs = all.find("--export-skoolkit " + dsk + ": ") != std::string::npos &&
+                                  all.find("--export-ghidra " + dgh + ": 2 files, 1 labels, 0 comments") != std::string::npos;
+                const std::string cpu_ctl = slurp(dsk + "/0000-0CPU.ctl");
+                const bool files = cpu_ctl.find("@ $0010 label=rexlabel\n") != std::string::npos &&
+                                   slurp(dsk + "/0000-ROM0.ctl").find("# jnext space ROM0\n") == 0 &&
+                                   slurp(dgh + "/CPU.ghidra.txt") == "rexlabel 0x0010 l\n";
+                const std::string refuse = base + " --export-skoolkit \"" + bad_dir + "\"";
+                const int rc_bad = run_split(refuse);
+                const bool names_it = slurp(err_path).find(bad_dir) != std::string::npos ||
+                                      slurp(out_path).find(bad_dir) != std::string::npos;
+                const std::string refuse_g = base + " --export-ghidra \"" + bad_dir + "\"";
+                const int rc_bad_g = run_split(refuse_g);
+                const bool names_g = slurp(err_path).find(bad_dir) != std::string::npos ||
+                                     slurp(out_path).find(bad_dir) != std::string::npos;
+                const bool arity = cli::find("--export-skoolkit") && cli::find("--export-skoolkit")->arity == 1 &&
+                                   cli::find("--export-ghidra") && cli::find("--export-ghidra")->arity == 1;
+                std::filesystem::remove_all(dsk, ec);
+                std::filesystem::remove_all(dgh, ec);
+                std::remove(symf.c_str());
+                std::remove(bad_dir.c_str());
+                check("CLI-REX-01", "--export-skoolkit DIR and --export-ghidra DIR write their files when jnext "
+                                    "exits and log the counts; a file where DIR should be fails the run, naming it, for either option",
+                      arity && rc == 0 && logs && files && rc_bad != 0 && names_it && rc_bad_g != 0 && names_g,
+                      std::string("rc=") + std::to_string(rc) + " logs=" + (logs ? "1" : "0") + " files=" +
+                          (files ? "1" : "0") + " rc_bad=" + std::to_string(rc_bad) + " names=" + (names_it ? "1" : "0") + " rc_bad_g=" + std::to_string(rc_bad_g) + " names_g=" + (names_g ? "1" : "0"));
+            }
+
             // CLI-ANN-01: --annotations FILE loads a project file before the first frame (GH #387):
             // it logs its counts; a file that does not parse exits 1 naming the line; absent, nothing.
             {
@@ -1670,6 +1722,45 @@ int main() {
                           " bad: " + bad.second.substr(0, 300));
                 std::remove(good.c_str());
                 std::remove(bad_file.c_str());
+            }
+
+            // CLI-REX-02: --import-skoolkit FILE (repeatable) and --import-ghidra FILE read files into the
+            // debugger's labels and comments at start (GH #389 stage B), logging their counts; a bad file exits
+            // non-zero naming the option and the line.
+            {
+                const std::string rx = bin + tag + ".imp";
+                const std::string fa = rx + ".a.ctl", fb = rx + ".b.ctl", fg = rx + ".g.txt", fbad = rx + ".bad.ctl";
+                { std::ofstream f(fa); f << "# jnext space P04\nc $8000\n@ $8000 label=la\nB $8000 note\n"; }
+                { std::ofstream f(fb); f << "# jnext space P04\nc $8010\n@ $8010 label=lb\n"; }
+                { std::ofstream f(fg); f << "lg P04:0x8020 l\n"; }
+                { std::ofstream f(fbad); f << "# jnext space P04\nc $ZZZZ\n"; }
+                const std::string fbadg = rx + ".bad.txt";
+                { std::ofstream f(fbadg); f << "x ram:0x8000 l\n"; }
+                const std::string base = "--headless --machine 48k" + sd_arg + " --delayed-automatic-exit-frames 1";
+                const std::string good = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fb +
+                                         "\" --import-ghidra \"" + fg + "\"";
+                const int rc = run_split(good);
+                const std::string all = slurp(out_path) + slurp(err_path);
+                const bool logged = all.find("--import-skoolkit: 2 files, 2 labels, 1 comment") != std::string::npos &&
+                                    all.find("--import-ghidra: 1 file, 1 label, 0 comments") != std::string::npos;
+                const std::string badcmd = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fbad + "\"";
+                const int rc_bad = run_split(badcmd);
+                const std::string bad_all = slurp(out_path) + slurp(err_path);
+                const bool names = bad_all.find("--import-skoolkit") != std::string::npos &&
+                                   bad_all.find("bad.ctl: line 2:") != std::string::npos;
+                const std::string badg = base + " --import-ghidra \"" + fbadg + "\"";
+                const int rc_bad_g = run_split(badg);
+                const std::string badg_all = slurp(out_path) + slurp(err_path);
+                const bool names_g = badg_all.find("--import-ghidra") != std::string::npos &&
+                                     badg_all.find("bad.txt: line 1:") != std::string::npos;
+                const bool arity = cli::find("--import-skoolkit") && cli::find("--import-skoolkit")->arity == 1 &&
+                                   cli::find("--import-ghidra") && cli::find("--import-ghidra")->arity == 1;
+                for (const std::string& f : {fa, fb, fg, fbad, fbadg}) std::remove(f.c_str());
+                check("CLI-REX-02", "two --import-skoolkit and one --import-ghidra read their files at start and log the "
+                                    "counts; a bad control file and a bad Ghidra file each fail the run, naming the option, the file and the line",
+                      arity && rc == 0 && logged && rc_bad != 0 && names && rc_bad_g != 0 && names_g,
+                      std::string("rc=") + std::to_string(rc) + " logged=" + (logged ? "1" : "0") + " rc_bad=" +
+                          std::to_string(rc_bad) + " names=" + (names ? "1" : "0") + " " + all.substr(0, 300));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

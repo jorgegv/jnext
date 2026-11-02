@@ -14,7 +14,7 @@
         <link rel="prev" href="04-5-nextbuild-memory-txt.html">
       
       
-        <link rel="next" href="05-breakpoints-steps-history.html">
+        <link rel="next" href="04-7-skoolkit-and-ghidra-exports.html">
       
       
         
@@ -2389,6 +2389,8 @@
       
         
       
+        
+      
     
     
     
@@ -2793,6 +2795,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2948,8 +2978,8 @@ fills a third store, <code>UserAnnotations</code>, which sits beside the toolcha
 <code>SymbolTable</code> and wins over it when the two disagree.</p>
 <h2 id="1-the-producer">1. The producer<a class="headerlink" href="#1-the-producer" title="Permanent link">&para;</a></h2>
 <p>JNEXT. The Qt Map menu opens and saves it (section 10); <code>--annotations FILE</code>
-loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:877</code> and copies
-it to the configuration at <code>src/main.cpp:2178</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
+loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:881</code> and copies
+it to the configuration at <code>src/main.cpp:2194</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
 <code>src/script/script_host.cpp:201-215</code>), after <code>--map</code> and before the scripts, so a
 script's <code>@name</code> of the file resolves). <code>replace_annotations()</code> is the
 primitive an import builds on.</p>
@@ -3111,7 +3141,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   through <code>close()</code>, which then returns false). An unattended close (<code>unattended_</code>, the delayed automatic exit and
   SIGINT/SIGTERM, tested at <code>src/gui/main_window.cpp:3827</code>) asks nothing: it logs that the unsaved changes were
   discarded and quits (<code>QG-ANN-05</code>). With nothing changed there is no dialog. <code>set_annotations_file()</code>
-  (<code>debugger_manager.cpp:725</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:391</code>), makes that file
+  (<code>debugger_manager.cpp:725</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:394</code>), makes that file
   the Save target and the starting point of "unsaved".</li>
 <li><strong>Settings.</strong> None: the store has no Preferences field, so <code>config_keys.cpp</code> has no row; the CLI is
   <code>--annotations FILE</code>.</li>

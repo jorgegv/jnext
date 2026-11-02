@@ -2226,6 +2226,8 @@
       
         
       
+        
+      
     
     
     
@@ -2710,6 +2712,34 @@
     
   
     Your own labels and comments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-debugger/functions/17-skoolkit-and-ghidra.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disassemblies in skoolkit and Ghidra
   
 
     
@@ -5210,6 +5240,67 @@ Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Anno
 read and write the file (Save writes back to <em>FILE</em>). A file that
 cannot be read, or does not parse (the message names the line), is a
 startup error (exit status 1).</dd>
+<dt><strong>--import-skoolkit</strong> <em>FILE</em></dt>
+<dd>At start, after <strong>--annotations</strong>, read <em>FILE</em>, a skoolkit control
+file (your own, or one made by <code>skool2ctl.py -k -h</code> from a
+disassembly), into the debugger’s labels and comments. Taken: the
+<code>@ ADDR label=NAME</code> lines (a leading <code>*</code> is dropped) and the text of
+the <code>B</code>, <code>C</code>, <code>S</code>, <code>T</code> and <code>W</code> sub-blocks, with their <code>.</code> and <code>:</code>
+continuation lines, as the instruction comment at that address.
+Counted in the log, not imported: block titles (sna2skool writes its
+own), <code>D</code> descriptions and the other directives. The memory of a
+file is its <code># jnext space TAG</code> first line, else its name (<code>TAG.ctl</code>
+or <code>WWWW-TAG.ctl</code>, as <strong>--export-skoolkit</strong> writes them), else the
+memory that supplies the address when the file is read, which is
+before <strong>--load</strong> runs (the page mapped at start, the ROM at
+<code>$0000</code>). An imported label or comment replaces the one at the same
+address; all the files of the option are read first, so a failure
+changes nothing. Repeatable. A file that cannot be read, or that
+skoolkit would only warn about (an address that is not decimal,
+<code>$hex</code> or <code>%binary</code>, or above 65535; an unknown directive; a label
+name that is not a name; one name at two addresses), is a startup
+error (exit status 1) naming the line.</dd>
+<dt><strong>--import-ghidra</strong> <em>FILE</em></dt>
+<dd>As <strong>--import-skoolkit</strong> for a Ghidra symbol file: lines
+<code>NAME ADDRESS l</code> (<code>l</code> or <code>f</code> or anything else, ignored), the address
+<code>0xHHHH</code> or <code>TAG:0xHHHH</code> with a jnext memory tag, as
+<strong>--export-ghidra</strong> writes them. A blank line is skipped. A <code>#</code>
+line, an address prefix that is not a jnext memory tag
+(<code>ram:0x8000</code>), an expression, or a name that is not a name is a
+startup error (exit status 1). Repeatable. There are no comments in
+the format.</dd>
+<dt><strong>--export-skoolkit</strong> <em>DIR</em></dt>
+<dd>When jnext exits, write the debugger’s labels and the code/data map
+that <strong>--coverage</strong> recorded into <em>DIR</em> as skoolkit control files
+(<em>DIR</em> is created). One <code>WWWW-TAG.ctl</code> and <code>WWWW-TAG.bin</code> pair per
+memory and window: <em>TAG</em> names the memory as the debugger does
+(<code>P0A</code>, <code>ROM0</code>, <code>DIVRAM3</code>), <em>WWWW</em> is the hex base of the 8 KB
+window (16 KB for ROM) the labels sit in, and the <code>.bin</code> holds that
+window’s bytes, so <code>sna2skool.py -o 0xWWWW WWWW-TAG.bin</code> picks its
+control file by itself and <code>sna2skool.py -c DIR</code> combines them.
+Unpaged labels are in <code>0000-0CPU.ctl</code>. Executed bytes become <code>c</code>
+blocks, read or written ones <code>b</code>, the rest <code>u</code>; without
+<strong>--coverage</strong> each window is one <code>c</code> block. skoolkit has no Z80N
+support, so Z80N instructions are written as <code>DEFB</code> sub-blocks.
+sna2skool drops without a word a label that is not at the start of a
+line it writes, so every window file also splits (<code>B</code>/<code>C</code>
+sub-blocks) at each unpaged label that falls in it, and the labels
+survive <code>sna2skool.py -c DIR</code>. A previous export’s files in <em>DIR</em>
+are replaced; any other file there is never touched, and a <code>.ctl</code> or
+<code>.bin</code> of the same name that is not jnext’s makes the export fail. A
+failed export is logged and jnext exits with status 1.</dd>
+<dt><strong>--export-ghidra</strong> <em>DIR</em></dt>
+<dd>When jnext exits, write the debugger’s labels into <em>DIR</em> (created)
+as symbol files for Ghidra’s <code>ImportSymbolsScript.py</code>, one line
+<code>NAME ADDRESS l</code> per label: <code>TAG.ghidra.txt</code> for each memory
+(<code>P0A:0x8000</code>, the address in the overlay address space <em>TAG</em> that
+you create for that page), <code>CPU.ghidra.txt</code> for the unpaged labels
+(<code>0x8000</code>) and <code>view.ghidra.txt</code> for the memory as mapped when jnext
+exits (<code>0x8000</code>, no overlay needed). A previous export’s
+<code>CPU.ghidra.txt</code>, <code>view.ghidra.txt</code> and <code>TAG.ghidra.txt</code> files in
+<em>DIR</em> are replaced or removed; any other file there, any other
+<code>*.ghidra.txt</code> included, is never touched. A failed export is logged
+and jnext exits with status 1.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
 for example <code>0x00FF</code>).</dd>

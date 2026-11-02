@@ -1312,6 +1312,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#reverse-engineering-exports-cap-rex" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reverse-engineering exports — CAP-REX
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#session-cap-ses" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2585,6 +2596,8 @@
       
         
       
+        
+      
     
     
     
@@ -2808,6 +2821,34 @@
     
   
     7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -3651,6 +3692,13 @@ slot that held ROM, and the identity of the memory its instruction was fetched
 from (<code>fetch_kind</code>, <code>fetch_index</code>). <code>trace_export()</code> writes all of them; the ROM
 mask is the <code>ROM=</code> column after the pages and the identity the <code>FETCH=&lt;tag&gt;</code>
 column after it (<code>space_tag()</code> of <code>fetch_space()</code>, never the GUI's address style).</p>
+<h3 id="reverse-engineering-exports-cap-rex">Reverse-engineering exports — CAP-REX<a class="headerlink" href="#reverse-engineering-exports-cap-rex" title="Permanent link">&para;</a></h3>
+<p><code>export_skoolkit(dir, report, why)</code> and <code>export_ghidra(dir, report, why)</code> (GH #389) write the
+labels the disassembly shows, and for skoolkit the <code>mem_coverage()</code> code/data map, into a
+directory, as skoolkit control files and Ghidra symbol files. They are reads (<code>peek()</code>, coverage
+and the symbol table are side-effect free): no machine state changes, and they are allowed while
+the machine runs. <code>ReReport</code> carries the counts and notes. The formats, the writers, the directory
+rules and the foreign-reader tests are in <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>.</p>
 <h3 id="session-cap-ses">Session — CAP-SES<a class="headerlink" href="#session-cap-ses" title="Permanent link">&para;</a></h3>
 <p><code>attach</code>, <code>detach</code>, <code>set_listener</code>, <code>add_service</code>, <code>remove_service</code>, <code>pump</code>,
 <code>stop_policy</code>, <code>set_stop_policy</code>, <code>set_live_raster</code>, <code>live_raster</code>, <code>attached</code>,
@@ -3706,6 +3754,10 @@ internals directly, through the pointers the constructor publishes into
 <tr>
 <td><code>debugger_source.cpp</code></td>
 <td>CAP-SRC: the source map, program sidecars, <code>source_step()</code></td>
+</tr>
+<tr>
+<td><code>debugger_reinterop.cpp</code></td>
+<td>CAP-REX: <code>export_skoolkit()</code> and <code>export_ghidra()</code>; the writers are <code>skoolkit_ctl.*</code> and <code>ghidra_symbols.*</code> (<a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>)</td>
 </tr>
 <tr>
 <td><code>debugger_render.cpp</code></td>

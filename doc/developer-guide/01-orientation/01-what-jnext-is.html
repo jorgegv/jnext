@@ -2478,6 +2478,8 @@
       
         
       
+        
+      
     
     
     
@@ -2714,6 +2716,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2892,7 +2922,7 @@ them; no CTC, no 0xEFF7), NR 0x84 bit 0 clear on the 48K (AY) and bit 2 on the
 Pentagon. The rule: a bit <code>boot.c</code> writes the same whatever <code>config.ini</code> says
 takes the firmware's value; a config-dependent bit stays on, except the 48K AY.
 The Next itself is untouched.</p>
-<p>Per-machine geometry lives in <code>MachineTiming</code> (<code>src/core/emulator_config.h:555</code>)
+<p>Per-machine geometry lives in <code>MachineTiming</code> (<code>src/core/emulator_config.h:565</code>)
 and is derived from <code>zxula_timing.vhd</code>: a 48K frame is 448 pixels × 312 lines,
 while 128K, +3 and Next frames are 456 × 311. Underneath all of it, everything
 is counted in 28 MHz master cycles (<code>MASTER_CLOCK_HZ</code>) — the same master clock

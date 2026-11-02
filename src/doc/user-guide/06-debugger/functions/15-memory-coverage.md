@@ -51,5 +51,8 @@ are different bytes with different marks.
   background, pale green in the light scheme and a dark green or teal in the dark and
   Borland schemes; the current line keeps its own highlight.
 
+The recorded map can be exported as skoolkit control files, to disassemble the program with
+`sna2skool.py`: see [Disassemblies in skoolkit and Ghidra](17-skoolkit-and-ghidra.md).
+
 Colours adapt to a dark desktop theme. Marks are visible only while the machine
 is paused, like everything else in the debugger.

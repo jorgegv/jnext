@@ -2566,6 +2566,8 @@
       
         
       
+        
+      
     
     
     
@@ -2789,6 +2791,34 @@
     
   
     7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -3118,7 +3148,9 @@ itself exits 1 on a SKIP in every mode (full, named rows, <code>confirm</code>, 
 a standalone row's <code>standalone_summary</code> too), naming the rows. A tool a row needs
 is provisioned rather than assumed: <code>make regression</code> first runs <code>make z88dk-gdb</code>
 (<code>test/provision-z88dk-gdb.sh</code>), which builds z88dk v2.4's client, sha256-pinned,
-into <code>~/.cache/jnext/tools</code> when none resolves. A run whose
+into <code>~/.cache/jnext/tools</code> when none resolves. The two foreign readers of the reverse-engineering exports (GH #389) are provisioned
+the same way by <code>make skoolkit</code> and <code>make ghidra</code>; see
+<a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>. A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and <code>make regression-confirm</code> re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through

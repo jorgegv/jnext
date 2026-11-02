@@ -386,6 +386,15 @@ from (`fetch_kind`, `fetch_index`). `trace_export()` writes all of them; the ROM
 mask is the `ROM=` column after the pages and the identity the `FETCH=<tag>`
 column after it (`space_tag()` of `fetch_space()`, never the GUI's address style).
 
+### Reverse-engineering exports — CAP-REX
+
+`export_skoolkit(dir, report, why)` and `export_ghidra(dir, report, why)` (GH #389) write the
+labels the disassembly shows, and for skoolkit the `mem_coverage()` code/data map, into a
+directory, as skoolkit control files and Ghidra symbol files. They are reads (`peek()`, coverage
+and the symbol table are side-effect free): no machine state changes, and they are allowed while
+the machine runs. `ReReport` carries the counts and notes. The formats, the writers, the directory
+rules and the foreign-reader tests are in [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
+
 ### Session — CAP-SES
 
 `attach`, `detach`, `set_listener`, `add_service`, `remove_service`, `pump`,
@@ -413,6 +422,7 @@ internals directly, through the pointers the constructor publishes into
 | `debugger_reconstruct.cpp` | the loop driver, `reset(Hard)`, `load()`, the cold-boot notifications and the reconstruct contract |
 | `debugger_capture.cpp` | screenshots, bookmarks, `save_snapshot` |
 | `debugger_source.cpp` | CAP-SRC: the source map, program sidecars, `source_step()` |
+| `debugger_reinterop.cpp` | CAP-REX: `export_skoolkit()` and `export_ghidra()`; the writers are `skoolkit_ctl.*` and `ghidra_symbols.*` ([7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md)) |
 | `debugger_render.cpp` | `render_layer()` |
 | `event_table.*` | `EventTable`: subscriptions, cheap filters, the latch ring, the delivery history |
 | `inspect.cpp`, `result.cpp` | the free functions of `inspect.h` (`key_name_to_matrix()`, `rrrgggbb_to_argb()`, `rgb333_to_argb()`) and `result_name()` |
