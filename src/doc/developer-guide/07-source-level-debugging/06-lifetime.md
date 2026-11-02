@@ -67,7 +67,7 @@ attachment of that generation:
 - The record comes from the **attachment cache**, `Impl::attach_cache`: one
   `Attachment` per generation, holding the sidecar `SourceMap` and `SymbolTable`
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`debugger_impl.h:156`); when
+  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`debugger_impl.h:188`); when
   a fifth is added the oldest record is evicted. `cache_push_current()` erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.
@@ -143,9 +143,9 @@ where the loader puts the bytes.
   checks (`set_verify_window()`). While it is set the machine is armed (`verify_hold_`
   is an `armed()` contributor of its own, with `magic_hold_`, in `refresh_gates_()` and
   `SuspendScope`). The emulator asks `verify_window_hit(pc)`, two compares, first in
-  `run_frame()`'s armed block (`emulator.cpp:10032`), before `consume_step_off()`, the
+  `run_frame()`'s armed block (`emulator.cpp:10041`), before `consume_step_off()`, the
   legacy breakpoint test and the execute gate, and in `step_frame_slot()` for a debugger
-  Step (`:11456`).
+  Step (`:11464`).
 - **The verdict is recorded, not applied.** On a hit, `Impl::verify_hook(pc)` takes
   `predict_fetch(pc)`, finds the spans of each check that contain `pc` in *that exact
   memory*, judges each unit now with `verify_identity_unit()` (through
@@ -185,9 +185,9 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   one of its units is the DivMMC bank, `dot_entry_unit()` = `DivmmcRam{kNextZxosDotBank}` (bank 2,
   `z88dk_space.h:46`); a dot map with no byte check of the DivMMC part has no entry to judge and takes the
   tape rule (`add_check()`, `:161-176`).
-- **The state.** `dot_reset()` (`:183`) puts the check back to "waiting for the entry": the DivMMC unit
-  is the only unit to judge, and the spans of every other unit (a dotx's main part, in main RAM) are held
-  back in `held`, not armed. `dot_match()` (`:200`) is the entry matching: the DivMMC unit is done,
+- **The state.** `dot_reset()` (`:183`) puts the check back to "waiting for the entry": every unit
+  is to judge again, but only the entry (the DivMMC unit) is armed: the spans of every other unit (a dotx's
+  main part, in main RAM) are moved to `held`, not armed. `dot_match()` (`:200`) is the entry matching: the DivMMC unit is done,
   `entry_ok` is set and the held spans are armed, which from then on follow the tape rule (judged where
   the CPU first runs them).
 - **The trigger.** `sync_verify_window()` always includes `kDotEntry` (`$2000`, `:114`) in the window of a
@@ -202,7 +202,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 - **A landing does not judge it.** `recheck()` (`:947`): for a user's map that is a dot map,
   `verify_user()` returns at once, keeping the map live and not stale (`:957-965`); the checks are
   re-derived by `dot_landing(fresh)` (`:233`). A fresh landing (reset, state load, program load, cold
-  boot) sends every dot check to `dot_reset()`: pending until the next entry. A ring restore reads back what the
+  boot) sends the user's dot checks (`dot_landing()` skips the others) to `dot_reset()`: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.
 - **The history.** `dot_record()` (`:213`) appends a snapshot `{generation, cycle, entry_ok, units,
   spans, held}` to `DeferredCheck::history` at every judgement and every change of the check, replacing

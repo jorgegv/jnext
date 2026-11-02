@@ -94,10 +94,10 @@ the pause ownership and stop evidence exactly as `step_into()` sets them.
   `HALT` with interrupts disabled (`Warn`: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  `SOURCE_STEP_FRAME_LIMIT` frames (100, `debugger.h:1193`) since the start
+  `SOURCE_STEP_FRAME_LIMIT` frames (100, `debugger.h:1210`) since the start
   (`Warn`); then the delivery below.
 - **The limit.** After `SOURCE_STEP_LIMIT` instructions (1,000,000,
-  `debugger.h:1189`) the step ends with a `Warn`.
+  `debugger.h:1206`) the step ends with a `Warn`.
 - **The delivery.** `debugger_step()` delivers no `Execute` event, because `run_frame()`
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC `run_frame()`'s treatment itself, in its

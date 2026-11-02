@@ -3072,7 +3072,7 @@ memory go through it (<a href="07-frontends.html">7.7</a>).</p>
   memory: <code>$</code> and six hex digits of the SRAM address (<code>Page{n}</code> and <code>Layer2{n}</code> are
   <code>(n + 0x20) &lt;&lt; 13 | offset</code>, <code>zxnext.vhd:2964,2971</code>; <code>Rom{i}</code> <code>i &lt;&lt; 14 | offset</code>, <code>:3052-3057</code>;
   alt ROM <code>0x018000 + 0x4000 * i</code>, <code>:2924-2925</code>; Multiface <code>0x014000</code> / <code>0x016000</code>; DivMMC ROM
-  <code>0x010000</code>; DivMMC RAM <code>0x020000 + 0x2000 * b</code>, <code>divmmc.vhd:94-96</code>), or <code>BRAM5+$XXXX</code>
+  <code>0x010000</code> (SRAM page 8) and DivMMC RAM <code>0x020000 + 0x2000 * b</code> (page <code>0x10 + b</code>), <code>zxnext.vhd:2921,2926,3085,3093</code>), or <code>BRAM5+$XXXX</code>
   (pages <code>0x0A</code>, <code>0x0B</code>), <code>BRAM7+$XXXX</code> (page <code>0x0E</code>), <code>BOOT+$XXXX</code>, <code>FLOAT</code>. Banks 5 and 7 are
   block RAM, not SRAM, apart from page <code>0x0F</code>; Layer 2 always sees the SRAM copy.</li>
 <li><strong>The style.</strong> <code>space_text()</code> and <code>long_address()</code> (<code>$C000 P0E</code>) choose by <code>AddressStyle</code>:
@@ -3098,7 +3098,7 @@ page applied to the bytes instead of the identity.</p>
   an overlay that carries that page number. DZRP's <code>bank+1</code>
   (<code>dzrp_server.cpp</code>, <code>sub.filter.page = page</code>) and the DSL's <code>page</code> filter
   (<code>script_engine.cpp</code>) use it, because those protocols know pages and nothing
-  else.</li>
+  else. <code>dzrp-frontend.md</code> stays a frozen design record of that meaning.</li>
 </ul>
 <p><code>EventFilter::matches(ev)</code> (<code>event_table.cpp</code>) applies both, after the kind and
 the range, and it is the only copy of the predicate. <code>EventTable::filter_matches()</code>

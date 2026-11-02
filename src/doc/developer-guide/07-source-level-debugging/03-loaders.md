@@ -56,8 +56,9 @@ Every adapter keeps the same promises, and a new one must too
   (`MapFormat::SjasmplusEqu`, the Qt Map menu's sjasmplus load) is a path the user
   picked, so it does call `source_file_problem()`, like the Map menu's other loaders;
   the menu shows the reason in its "Load Failed" box. `load_z88dk_map()` and `load_simple_map()` refuse
-  such a file with the table untouched and say why through their optional `why` argument; a file that
-  merely fails to open leaves the table empty (row `Z88MAP-27`).
+  such a file with the table untouched and say why through their optional `why` argument; the cap refusal is row
+  `Z88MAP-27`. A file that merely fails to open returns `-1` with `why` left empty, and the table is
+  untouched there too (`if (!file.is_open()) return -1;` comes before `clear()`).
 - **Emit only qualified ranges.** Every `SourceRange` carries a `FetchSource`
   ([7.1](01-which-memory.md)); the adapter decides it, and `SourceMap` never
   invents one.
@@ -182,6 +183,9 @@ one block, in this order, first wins on every key (`SymbolTable::merge()`):
    is not a symbol source);
 3. the z88dk map's symbols, last, and only when **no** `Memory.txt` exists and its
    identity does not mismatch.
+
+The log says what was attached: `Loaded N SLD labels from '<file>'` (`debugger_source.cpp:753`) and
+`Loaded N z88dk symbols from '<file>'` (`:759`).
 
 If nothing attached, a previous program's Sidecar symbols are cleared, also when
 the new `Memory.txt` cannot be read (`SidecarLoad::symbols_unreadable`): a

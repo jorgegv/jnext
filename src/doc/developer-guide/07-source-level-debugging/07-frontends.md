@@ -36,7 +36,7 @@ browsed (`browse_addr_`) and the reason `report_sidecars()` gave it.
 `SourcePanel::refresh_()` (`source_panel.cpp:589`) runs while the machine is paused,
 whenever the window's paused stamp changed ([3.10.2](../03-subsystems/10-2-the-qt-debugger.md):
 the stamp carries a flag for "the loaded file changed on disk",
-`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:819`; the flag is
+`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:820`; the flag is
 `SourcePanel::file_changed_on_disk()`, `source_panel.cpp:550`). In order:
 
 1. `update_buttons(paused)` (`:493`): the forward steps need a paused machine and a
@@ -93,7 +93,10 @@ list (configured, then located, duplicates dropped) is pushed to the panel by
 `push_source_dirs()` (`:296`) on every change and again in `ensure_window()`, since the window is
 created lazily. Locate derives the directory with `source_search::root_for()`, refuses a file of
 another name, and asks whether to save it; `source_dir_save_requested` is MainWindow's, which
-appends to `[paths] source_dirs` and refuses a directory that holds the list separator. The
+appends to `[paths] source_dirs` and refuses a directory that holds the list separator, as
+Preferences and `--source-dir` do: it would load back as two (it stays searched for the session). The
+session-only list is kept when the configured list changes (`set_source_dirs()` touches only the
+configured one). The
 manager announces each change (`source_dirs_changed`, because `src/debugger/` names no logger)
 and MainWindow logs `Source search path: ...`.
 
@@ -140,14 +143,16 @@ the log, and the main window's status bar for ten seconds.
 - **Schemes.** `SourceScheme` (`platform/source_scheme.h`) is the order of the words of the
   `source.colour_scheme` key: Auto, Light, Dark, Borland (`static_assert`s in `app_config.cpp`
   and `source_highlighter.cpp:470`). `scheme_colours()` (`:587`) holds one table per concrete
-  scheme. Dark is derived, not kept: `palette_tint::ink()` of each Light colour over a fixed dark
-  palette (`#242424` and `#F0F0F0`, `make_dark()`, `:531`). Every scheme meets one legibility rule,
+  scheme: background, text, the current-line bar's two colours, the coverage and linked-line tints, and a
+  colour per class. Dark is derived, not kept: `palette_tint::ink()` of each Light colour over a fixed dark
+  palette (`#242424` and `#F0F0F0`, `make_dark()`, `:531`), so it does not depend on the application's own
+  dark palette. Every scheme meets one legibility rule,
   which row `QSRC-195` checks: text and classes 4.5:1 against the background (WCAG 1.4.3), bar
   text 4.5:1, bar against background 3:1, and any two colours at least CIE76 12 apart unless the
   scheme declares them shared (Borland's owner-given groups).
 - **Applying one.** `SourcePanel::apply_scheme_()` (`:524`) takes the *panel's* palette (the
   application's, never the editor's) in, resolves Auto against it (`resolve_scheme()`), hands the
-  classes to the highlighter (`apply_palette()` rehighlights only when a class colour changed) and
+  classes to the highlighter (`apply_palette()` rehighlights only when a class colour changed, never on a paused tick or a repeat) and
   puts the background, text and bar colours on the *editor's* palette (`Base`, `Text`, `Highlight`,
   `HighlightedText`). The background is a palette role, not a format, so it fills the whole
   viewport. `set_colour_scheme()` (`:541`) applies at once (Preferences Apply while the machine
@@ -251,12 +256,13 @@ did in its sender, so no move echoes.
 Browsing ends at `follow_pc()` (every stop), `show_running()`, the map going away (the None and Stale
 branches of `refresh_()`), another loaded map (`browse_map_`), an address with no line now, and **Go to
 PC Line** (`go_to_pc_line()`, `:841`). A message about the browsed line itself (file not found, a `.m4`
-line without a listing) does not end it, so the message and Locate File... stay usable. Every accepted
+line without a listing) does not end it, so the message and Locate File... stay usable, and Go to PC Line stays enabled. Every accepted
 Disassembly selection places the cursor on the caret's line (`place_now_`, cleared by the placement
 itself, so the next ticks leave the cursor and scroll alone). A Source move made while the machine runs
 announces nothing. The gutter, the menu, Copy with Addresses and Run to Cursor act on `shown_file_`, so
 they act on the file browsed. Rows `QSRC-176` to `QSRC-189` and `QSRC-201` to `QSRC-208` pin the
-behaviour; `source_sync_colors.h` is the one definition of the linked colour for both views.
+behaviour; `source_sync_colors.h` is the one definition of the linked colour for both views; the Source tab keeps one
+per scheme (`SchemeColours::linked_line`), tested for legibility like the coverage tint (row `QSRC-189`).
 
 ## Which memory a view names (GH #360)
 
@@ -305,7 +311,7 @@ described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
 **ZRCP.** `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2625`) calls
 `Debugger::load()`, which calls `load_program_sidecars()` after a successful load
-(`debugger_reconstruct.cpp:463`, `:527-531`), so a program loaded over ZRCP gets its symbols and
+(`debugger_reconstruct.cpp:464`, `:527-531`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
 `get-memory-pages` (`memory_pages()`, `zrcp_format.cpp`) names the eight slots of a Next from what each
 reads now (`SlotInfo::now`): `RO` the boot ROM, `O<n>` the 8 KB ROM page `2*image + half`, `A<n>` RAM,
@@ -321,7 +327,7 @@ or the map itself. What DZRP shares with this chapter is the legacy `bank+1` qua
 **Scripts.** `on execute FILE:LINE` resolves through `source_map().resolve()` at load time and
 subscribes one `Execute` per start, each with the `space` its place was compiled for
 (`script_engine.cpp:330`); an unknown line is a diagnostic that names the reason. `--map` loads symbols
-with `MapFormat::Z88dkOrSjasmplus` (`script_host.cpp:186`, [7.3](03-loaders.md)). Held scripts and the
+with `MapFormat::Z88dkOrSjasmplus` (`script_host.cpp:187`, [7.3](03-loaders.md)). Held scripts and the
 rest of the language are in [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md).
 
 **Headless, SDL, Qt loops.** `--source-map` is attached by `emulator_attach_cli_source_map()` after the

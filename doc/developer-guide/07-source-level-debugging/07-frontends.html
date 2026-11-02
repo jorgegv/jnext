@@ -2973,7 +2973,7 @@ browsed (<code>browse_addr_</code>) and the reason <code>report_sidecars()</code
 <p><code>SourcePanel::refresh_()</code> (<code>source_panel.cpp:589</code>) runs while the machine is paused,
 whenever the window's paused stamp changed (<a href="../03-subsystems/10-2-the-qt-debugger.html">3.10.2</a>:
 the stamp carries a flag for "the loaded file changed on disk",
-<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:819</code>; the flag is
+<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:820</code>; the flag is
 <code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:550</code>). In order:</p>
 <ol>
 <li><code>update_buttons(paused)</code> (<code>:493</code>): the forward steps need a paused machine and a
@@ -3028,7 +3028,10 @@ list (configured, then located, duplicates dropped) is pushed to the panel by
 <code>push_source_dirs()</code> (<code>:296</code>) on every change and again in <code>ensure_window()</code>, since the window is
 created lazily. Locate derives the directory with <code>source_search::root_for()</code>, refuses a file of
 another name, and asks whether to save it; <code>source_dir_save_requested</code> is MainWindow's, which
-appends to <code>[paths] source_dirs</code> and refuses a directory that holds the list separator. The
+appends to <code>[paths] source_dirs</code> and refuses a directory that holds the list separator, as
+Preferences and <code>--source-dir</code> do: it would load back as two (it stays searched for the session). The
+session-only list is kept when the configured list changes (<code>set_source_dirs()</code> touches only the
+configured one). The
 manager announces each change (<code>source_dirs_changed</code>, because <code>src/debugger/</code> names no logger)
 and MainWindow logs <code>Source search path: ...</code>.</p>
 <h3 id="loading-a-map-by-hand">Loading a map by hand<a class="headerlink" href="#loading-a-map-by-hand" title="Permanent link">&para;</a></h3>
@@ -3071,14 +3074,16 @@ the log, and the main window's status bar for ten seconds.</p>
 <li><strong>Schemes.</strong> <code>SourceScheme</code> (<code>platform/source_scheme.h</code>) is the order of the words of the
   <code>source.colour_scheme</code> key: Auto, Light, Dark, Borland (<code>static_assert</code>s in <code>app_config.cpp</code>
   and <code>source_highlighter.cpp:470</code>). <code>scheme_colours()</code> (<code>:587</code>) holds one table per concrete
-  scheme. Dark is derived, not kept: <code>palette_tint::ink()</code> of each Light colour over a fixed dark
-  palette (<code>#242424</code> and <code>#F0F0F0</code>, <code>make_dark()</code>, <code>:531</code>). Every scheme meets one legibility rule,
+  scheme: background, text, the current-line bar's two colours, the coverage and linked-line tints, and a
+  colour per class. Dark is derived, not kept: <code>palette_tint::ink()</code> of each Light colour over a fixed dark
+  palette (<code>#242424</code> and <code>#F0F0F0</code>, <code>make_dark()</code>, <code>:531</code>), so it does not depend on the application's own
+  dark palette. Every scheme meets one legibility rule,
   which row <code>QSRC-195</code> checks: text and classes 4.5:1 against the background (WCAG 1.4.3), bar
   text 4.5:1, bar against background 3:1, and any two colours at least CIE76 12 apart unless the
   scheme declares them shared (Borland's owner-given groups).</li>
 <li><strong>Applying one.</strong> <code>SourcePanel::apply_scheme_()</code> (<code>:524</code>) takes the <em>panel's</em> palette (the
   application's, never the editor's) in, resolves Auto against it (<code>resolve_scheme()</code>), hands the
-  classes to the highlighter (<code>apply_palette()</code> rehighlights only when a class colour changed) and
+  classes to the highlighter (<code>apply_palette()</code> rehighlights only when a class colour changed, never on a paused tick or a repeat) and
   puts the background, text and bar colours on the <em>editor's</em> palette (<code>Base</code>, <code>Text</code>, <code>Highlight</code>,
   <code>HighlightedText</code>). The background is a palette role, not a format, so it fills the whole
   viewport. <code>set_colour_scheme()</code> (<code>:541</code>) applies at once (Preferences Apply while the machine
@@ -3178,12 +3183,13 @@ did in its sender, so no move echoes.</p>
 <p>Browsing ends at <code>follow_pc()</code> (every stop), <code>show_running()</code>, the map going away (the None and Stale
 branches of <code>refresh_()</code>), another loaded map (<code>browse_map_</code>), an address with no line now, and <strong>Go to
 PC Line</strong> (<code>go_to_pc_line()</code>, <code>:841</code>). A message about the browsed line itself (file not found, a <code>.m4</code>
-line without a listing) does not end it, so the message and Locate File... stay usable. Every accepted
+line without a listing) does not end it, so the message and Locate File... stay usable, and Go to PC Line stays enabled. Every accepted
 Disassembly selection places the cursor on the caret's line (<code>place_now_</code>, cleared by the placement
 itself, so the next ticks leave the cursor and scroll alone). A Source move made while the machine runs
 announces nothing. The gutter, the menu, Copy with Addresses and Run to Cursor act on <code>shown_file_</code>, so
 they act on the file browsed. Rows <code>QSRC-176</code> to <code>QSRC-189</code> and <code>QSRC-201</code> to <code>QSRC-208</code> pin the
-behaviour; <code>source_sync_colors.h</code> is the one definition of the linked colour for both views.</p>
+behaviour; <code>source_sync_colors.h</code> is the one definition of the linked colour for both views; the Source tab keeps one
+per scheme (<code>SchemeColours::linked_line</code>), tested for legibility like the coverage tint (row <code>QSRC-189</code>).</p>
 <h2 id="which-memory-a-view-names-gh-360">Which memory a view names (GH #360)<a class="headerlink" href="#which-memory-a-view-names-gh-360" title="Permanent link">&para;</a></h2>
 <p>Every Qt view names the memory behind an address through <code>debug/long_address.h</code>
 (<a href="01-which-memory.html">7.1</a>) and nowhere else. The Qt-side wrapper is <code>src/debugger/memory_text.h</code>:
@@ -3225,7 +3231,7 @@ on the Next, the physical text of the slot's first byte. The server's own symbol
 described in <a href="../03-subsystems/11-the-gdb-rsp-server.html">3.10.4</a>.</p>
 <p><strong>ZRCP.</strong> <code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2625</code>) calls
 <code>Debugger::load()</code>, which calls <code>load_program_sidecars()</code> after a successful load
-(<code>debugger_reconstruct.cpp:463</code>, <code>:527-531</code>), so a program loaded over ZRCP gets its symbols and
+(<code>debugger_reconstruct.cpp:464</code>, <code>:527-531</code>), so a program loaded over ZRCP gets its symbols and
 source map like <code>--load</code>, and a refused sidecar is logged to every client as a Warn line.
 <code>get-memory-pages</code> (<code>memory_pages()</code>, <code>zrcp_format.cpp</code>) names the eight slots of a Next from what each
 reads now (<code>SlotInfo::now</code>): <code>RO</code> the boot ROM, <code>O&lt;n&gt;</code> the 8 KB ROM page <code>2*image + half</code>, <code>A&lt;n&gt;</code> RAM,
@@ -3239,7 +3245,7 @@ or the map itself. What DZRP shares with this chapter is the legacy <code>bank+1
 <p><strong>Scripts.</strong> <code>on execute FILE:LINE</code> resolves through <code>source_map().resolve()</code> at load time and
 subscribes one <code>Execute</code> per start, each with the <code>space</code> its place was compiled for
 (<code>script_engine.cpp:330</code>); an unknown line is a diagnostic that names the reason. <code>--map</code> loads symbols
-with <code>MapFormat::Z88dkOrSjasmplus</code> (<code>script_host.cpp:186</code>, <a href="03-loaders.html">7.3</a>). Held scripts and the
+with <code>MapFormat::Z88dkOrSjasmplus</code> (<code>script_host.cpp:187</code>, <a href="03-loaders.html">7.3</a>). Held scripts and the
 rest of the language are in <a href="../03-subsystems/13-the-debugger-scripting-language.html">3.10.6</a>.</p>
 <p><strong>Headless, SDL, Qt loops.</strong> <code>--source-map</code> is attached by <code>emulator_attach_cli_source_map()</code> after the
 first successful <code>--load</code> (or at start-up for a dot command or an RZX replay, <a href="03-loaders.html">7.3</a>) and

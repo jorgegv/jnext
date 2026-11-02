@@ -163,7 +163,7 @@ memory go through it ([7.7](07-frontends.md)).
   memory: `$` and six hex digits of the SRAM address (`Page{n}` and `Layer2{n}` are
   `(n + 0x20) << 13 | offset`, `zxnext.vhd:2964,2971`; `Rom{i}` `i << 14 | offset`, `:3052-3057`;
   alt ROM `0x018000 + 0x4000 * i`, `:2924-2925`; Multiface `0x014000` / `0x016000`; DivMMC ROM
-  `0x010000`; DivMMC RAM `0x020000 + 0x2000 * b`, `divmmc.vhd:94-96`), or `BRAM5+$XXXX`
+  `0x010000` (SRAM page 8) and DivMMC RAM `0x020000 + 0x2000 * b` (page `0x10 + b`), `zxnext.vhd:2921,2926,3085,3093`), or `BRAM5+$XXXX`
   (pages `0x0A`, `0x0B`), `BRAM7+$XXXX` (page `0x0E`), `BOOT+$XXXX`, `FLOAT`. Banks 5 and 7 are
   block RAM, not SRAM, apart from page `0x0F`; Layer 2 always sees the SRAM copy.
 - **The style.** `space_text()` and `long_address()` (`$C000 P0E`) choose by `AddressStyle`:
@@ -191,7 +191,7 @@ An `Execute` subscription has two memory qualifiers (`EventFilter` in
   an overlay that carries that page number. DZRP's `bank+1`
   (`dzrp_server.cpp`, `sub.filter.page = page`) and the DSL's `page` filter
   (`script_engine.cpp`) use it, because those protocols know pages and nothing
-  else.
+  else. `dzrp-frontend.md` stays a frozen design record of that meaning.
 
 `EventFilter::matches(ev)` (`event_table.cpp`) applies both, after the kind and
 the range, and it is the only copy of the predicate. `EventTable::filter_matches()`

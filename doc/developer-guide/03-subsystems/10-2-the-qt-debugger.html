@@ -3042,8 +3042,8 @@ at real cost. Everything else refreshes on <code>DebuggerManager</code>'s timer,
 the two views of the breakpoints.</p>
 <p><strong>Refresh cadence (GH #428).</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:831</code>)
 redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>debugger_manager.h:344</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>:819</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:220</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>:820</code>; <code>PausedStamp</code>,
+<code>debugger_manager.h:219</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:</p>
 <ul>

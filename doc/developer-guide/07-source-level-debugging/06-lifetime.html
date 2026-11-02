@@ -2933,7 +2933,7 @@ attachment of that generation:</p>
 <li>The record comes from the <strong>attachment cache</strong>, <code>Impl::attach_cache</code>: one
   <code>Attachment</code> per generation, holding the sidecar <code>SourceMap</code> and <code>SymbolTable</code>
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>debugger_impl.h:156</code>); when
+  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>debugger_impl.h:188</code>); when
   a fifth is added the oldest record is evicted. <code>cache_push_current()</code> erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.</li>
@@ -3005,9 +3005,9 @@ where the loader puts the bytes.</p>
   checks (<code>set_verify_window()</code>). While it is set the machine is armed (<code>verify_hold_</code>
   is an <code>armed()</code> contributor of its own, with <code>magic_hold_</code>, in <code>refresh_gates_()</code> and
   <code>SuspendScope</code>). The emulator asks <code>verify_window_hit(pc)</code>, two compares, first in
-  <code>run_frame()</code>'s armed block (<code>emulator.cpp:10032</code>), before <code>consume_step_off()</code>, the
+  <code>run_frame()</code>'s armed block (<code>emulator.cpp:10041</code>), before <code>consume_step_off()</code>, the
   legacy breakpoint test and the execute gate, and in <code>step_frame_slot()</code> for a debugger
-  Step (<code>:11456</code>).</li>
+  Step (<code>:11464</code>).</li>
 <li><strong>The verdict is recorded, not applied.</strong> On a hit, <code>Impl::verify_hook(pc)</code> takes
   <code>predict_fetch(pc)</code>, finds the spans of each check that contain <code>pc</code> in <em>that exact
   memory</em>, judges each unit now with <code>verify_identity_unit()</code> (through
@@ -3046,9 +3046,9 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   one of its units is the DivMMC bank, <code>dot_entry_unit()</code> = <code>DivmmcRam{kNextZxosDotBank}</code> (bank 2,
   <code>z88dk_space.h:46</code>); a dot map with no byte check of the DivMMC part has no entry to judge and takes the
   tape rule (<code>add_check()</code>, <code>:161-176</code>).</li>
-<li><strong>The state.</strong> <code>dot_reset()</code> (<code>:183</code>) puts the check back to "waiting for the entry": the DivMMC unit
-  is the only unit to judge, and the spans of every other unit (a dotx's main part, in main RAM) are held
-  back in <code>held</code>, not armed. <code>dot_match()</code> (<code>:200</code>) is the entry matching: the DivMMC unit is done,
+<li><strong>The state.</strong> <code>dot_reset()</code> (<code>:183</code>) puts the check back to "waiting for the entry": every unit
+  is to judge again, but only the entry (the DivMMC unit) is armed: the spans of every other unit (a dotx's
+  main part, in main RAM) are moved to <code>held</code>, not armed. <code>dot_match()</code> (<code>:200</code>) is the entry matching: the DivMMC unit is done,
   <code>entry_ok</code> is set and the held spans are armed, which from then on follow the tape rule (judged where
   the CPU first runs them).</li>
 <li><strong>The trigger.</strong> <code>sync_verify_window()</code> always includes <code>kDotEntry</code> (<code>$2000</code>, <code>:114</code>) in the window of a
@@ -3063,7 +3063,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>:947</code>): for a user's map that is a dot map,
   <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>:957-965</code>); the checks are
   re-derived by <code>dot_landing(fresh)</code> (<code>:233</code>). A fresh landing (reset, state load, program load, cold
-  boot) sends every dot check to <code>dot_reset()</code>: pending until the next entry. A ring restore reads back what the
+  boot) sends the user's dot checks (<code>dot_landing()</code> skips the others) to <code>dot_reset()</code>: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.</li>
 <li><strong>The history.</strong> <code>dot_record()</code> (<code>:213</code>) appends a snapshot <code>{generation, cycle, entry_ok, units,
   spans, held}</code> to <code>DeferredCheck::history</code> at every judgement and every change of the check, replacing

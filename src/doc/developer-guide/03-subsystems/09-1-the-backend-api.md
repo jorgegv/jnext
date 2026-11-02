@@ -279,7 +279,7 @@ server's `monitor sym` and `--map` all read it, so a symbol loaded by one client
 
 | Verb | Does |
 |---|---|
-| `load_map(path, format, why)` | loads a symbol file into the table: `MapFormat::Z88dk`, `Simple` (`SYMBOL = $ADDR`), `NextBuild` (`Memory.txt`), `SjasmplusEqu` (`--sym` / `--exp`), or `Z88dkOrSjasmplus` (`--map`: the first line decides, one read, a pipe works). Returns the symbol count, `-1` with the table untouched when refused; `why` says why a file was refused |
+| `load_map(path, format, why)` | loads a symbol file into the table: `MapFormat::Z88dk`, `Simple` (`SYMBOL = $ADDR`), `NextBuild` (`Memory.txt`), `SjasmplusEqu` (`--sym` / `--exp`), or `Z88dkOrSjasmplus` (`--map`: the first line decides, one read, a pipe works). Returns the symbol count, or `RefusedUnavailable` (value 0) with the table and its owner untouched when refused; `why` says why a file was refused, and stays empty for a file that cannot be opened |
 | `clear_symbols()` | forgets them all |
 | `lookup(addr)` | the name of `addr` in the memory mapped there now (`source_page(addr)`); a label is paged or unpaged |
 | `lookup_name(name)` | the address of a name; a name-only value (a size, a section bound) resolves here and never names an address |
@@ -306,7 +306,7 @@ supplies the code, filled by a format adapter and replaced only by a complete, s
 | `effective_page(addr)` | the physical 8K page the MMU maps behind a logical address |
 | `load_program_sidecars(path)` | attaches `<stem>.Memory.txt`, `<stem>.sld` and `<stem>.map` of a program just loaded; returns a `SidecarLoad` (`symbols`, `sources`, `symbols_unreadable`, `sources_pending`, `problem`) |
 | `subscribe_source_line(by, "file:line", like)` | a source breakpoint: a group of `Execute` subscriptions, one per start of the line, each with the `space` it was compiled for (CAP-EVT, above) |
-| `run_to_source_line(by, "file:line")` | resume until the first start of the line is reached (CAP-CTL, above) |
+| `run_to_source_line(by, "file:line")` | resume until any start of the line is reached (every start is armed; the first one reached stops the machine) (CAP-CTL, above) |
 | `source_step(by, kind)` | steps by statement: `Into`, `Over`, `Out`, `Back`, `ReverseContinue`; limits `SOURCE_STEP_LIMIT` and `SOURCE_STEP_FRAME_LIMIT` |
 | `executed_source_lines(file)` | the lines of a file any of whose ranges the guest executed (the coverage section, below) |
 

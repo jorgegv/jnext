@@ -3401,7 +3401,7 @@ server's <code>monitor sym</code> and <code>--map</code> all read it, so a symbo
 <tbody>
 <tr>
 <td><code>load_map(path, format, why)</code></td>
-<td>loads a symbol file into the table: <code>MapFormat::Z88dk</code>, <code>Simple</code> (<code>SYMBOL = $ADDR</code>), <code>NextBuild</code> (<code>Memory.txt</code>), <code>SjasmplusEqu</code> (<code>--sym</code> / <code>--exp</code>), or <code>Z88dkOrSjasmplus</code> (<code>--map</code>: the first line decides, one read, a pipe works). Returns the symbol count, <code>-1</code> with the table untouched when refused; <code>why</code> says why a file was refused</td>
+<td>loads a symbol file into the table: <code>MapFormat::Z88dk</code>, <code>Simple</code> (<code>SYMBOL = $ADDR</code>), <code>NextBuild</code> (<code>Memory.txt</code>), <code>SjasmplusEqu</code> (<code>--sym</code> / <code>--exp</code>), or <code>Z88dkOrSjasmplus</code> (<code>--map</code>: the first line decides, one read, a pipe works). Returns the symbol count, or <code>RefusedUnavailable</code> (value 0) with the table and its owner untouched when refused; <code>why</code> says why a file was refused, and stays empty for a file that cannot be opened</td>
 </tr>
 <tr>
 <td><code>clear_symbols()</code></td>
@@ -3474,7 +3474,7 @@ supplies the code, filled by a format adapter and replaced only by a complete, s
 </tr>
 <tr>
 <td><code>run_to_source_line(by, "file:line")</code></td>
-<td>resume until the first start of the line is reached (CAP-CTL, above)</td>
+<td>resume until any start of the line is reached (every start is armed; the first one reached stops the machine) (CAP-CTL, above)</td>
 </tr>
 <tr>
 <td><code>source_step(by, kind)</code></td>

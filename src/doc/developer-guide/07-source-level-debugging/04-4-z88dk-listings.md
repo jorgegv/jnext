@@ -113,7 +113,7 @@ binaries' bytes). In order:
    patches an opcode, so a listing of this build is never excluded at its true start. The byte at
    `c + row address` comes from `view.byte_at(value, space)`, where `place()` gave the space; it is
    *unknown* (`nullopt`) when no section binary covers the byte, **when two or more do** (overlay
-   sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:288`, and the `byte_at` lambda, `:357-363`), and when `place()` fails (a ROM area: the memory is not a RAM
+   sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:288`, and the `byte_at` lambda, `:358-363`), and when `place()` fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:
    - **no start survives:** the listing is dropped, with "section '<s>': its label-less lines match no
      place in the section binary; this is not the listing of this build" (row `Z88LIS-42`);
