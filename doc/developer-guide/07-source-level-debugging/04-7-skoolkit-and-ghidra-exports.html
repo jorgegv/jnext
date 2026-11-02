@@ -2924,11 +2924,42 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   header, <code>@ start</code> / <code>@ org</code>, the block directives (<code>block_letter()</code>, <code>:136</code>), the labels, the
   <code>B</code>/<code>C</code> sub-blocks and the closing <code>i</code>. A Z80N instruction or a clipped one is a <code>B</code> sub-block,
   and so is each piece of an instruction a key falls in.</li>
+<li><strong>Window sizes and homes.</strong> <code>window_size()</code> (<code>skoolkit_ctl.cpp:16</code>) is the size of the space's
+  store: 8 KB, or 16 KB for <code>Rom</code>, <code>AltRom</code> and <code>Config</code>. A space with neither keys nor a current
+  mapping goes to <code>home_window()</code> (<code>skoolkit_ctl.cpp:18</code>): the 128K bank positions for a RAM page
+  (<code>$4000</code>/<code>$6000</code> for pages <code>0x0A</code>/<code>0x0B</code>, <code>$8000</code>/<code>$A000</code> for <code>0x04</code>/<code>0x05</code>, <code>$C000</code> plus
+  <code>(n &amp; 1) * $2000</code> for any other), <code>$0000</code> for ROM, <code>$2000</code> for a DivMMC bank. The home exists
+  because coverage is keyed by (memory, offset) and records no logical address: nothing says where a
+  page was mapped when it ran.</li>
+<li><strong>Where the identity lives.</strong> A control file describes one 64 KB view and skoolkit's only bank
+  notion is the <code>@bank</code> directive, which names neither the Next's 224 8 KB pages nor ROM and the
+  overlays. So the identity is the file name and the first line, <code>"# jnext space " + tag</code>
+  (<code>skoolkit_ctl.cpp:185</code>), a control-file comment skoolkit ignores. The same
+  prefix is how a later export recognises its own files (<code>kCtlHeader</code>, <code>debugger_reinterop.cpp:31</code>).</li>
+<li><strong>File order.</strong> <code>build()</code> puts <code>0000-CPU.ctl</code> first (<code>skoolkit_ctl.cpp:285</code>) and sorts all files by
+  name with <code>stable_sort()</code> (<code>skoolkit_ctl.cpp:287</code>), which is address order. Two files that disagree at a shared boundary address are
+  applied in command-line order, and <code>sna2skool.py -c DIR</code> reads <code>sorted(glob(DIR/*.ctl))</code>, so a
+  paged label wins over an unpaged one at the same address, as in the disassembly.</li>
+<li><strong>The <code>.bin</code>.</strong> <code>build()</code> writes it beside each control file (<code>skoolkit_ctl.cpp:265</code>) from the
+  bytes <code>export_skoolkit()</code> read with <code>peek()</code> now (<code>debugger_reinterop.cpp:193</code>). skoolkit reads no
+  NEX, so a Next page's control file is useless without them, and <code>sna2skool.py -o 0xWWWW
+  WWWW-TAG.bin</code> finds exactly that <code>.ctl</code> by default pickup, which happens only when no <code>-c</code> is given.</li>
+<li><strong>No map for what cannot be read.</strong> The identity-only memories (boot ROM, Multiface, DivMMC ROM,
+  alternate ROM, Layer 2, config, floating) are refused by <code>peek()</code>, so they have no instruction
+  lengths and get no code/data map; <code>export_skoolkit()</code> says so in the report (<code>"coverage of ... is
+  not mapped"</code>, <code>debugger_reinterop.cpp:201</code>; SRCDBG-REX-07). With coverage off the report says that
+  too (<code>debugger_reinterop.cpp:180</code>).</li>
 <li><strong>Unpaged labels</strong> are also label-less keys of every window written that covers their address
   (<code>skoolkit_ctl.cpp:246-254</code>), so the same splits keep them from being dropped by sna2skool
   (SKCTL-08d).</li>
 <li><strong>Ghidra</strong>, <code>ghidra::build()</code> (<code>ghidra_symbols.cpp:37</code>): one file per space; the <code>&lt;TAG&gt;:</code> prefix
-  is set at <code>:52</code>; <code>CPU.ghidra.txt</code> and <code>view.ghidra.txt</code> (the labels the disassembly shows now).</li>
+  is set in <code>prefix_of</code> (<code>ghidra_symbols.cpp:52</code>); <code>CPU.ghidra.txt</code> and <code>view.ghidra.txt</code> (the labels the disassembly shows now).</li>
+<li><strong>The line formats.</strong> <code>render()</code> (<code>ghidra_symbols.cpp:27</code>) writes <code>NAME &lt;TAG&gt;:0xHHHH l</code> for a
+  space's file and <code>NAME 0xHHHH l</code> for <code>CPU.ghidra.txt</code> and <code>view.ghidra.txt</code> (the format string is
+  at <code>ghidra_symbols.cpp:31</code>), sorted by address then name, with no header, comment or blank line, and
+  only when the file has a line (<code>ghidra_symbols.cpp:62</code>). <code>view.ghidra.txt</code> exists because on a 48K
+  or 128K machine every RAM label is paged, so the per-space files alone would need one overlay per
+  page to import a 48K program into flat memory.</li>
 <li><strong>The Z80N table</strong>, <code>kZ80nEd</code> (<code>disasm.cpp:362</code>) read by <code>z80n_ed_length()</code> (<code>:371</code>), by
   <code>instruction_length()</code> and by <code>is_z80n_extension()</code> (<code>:813</code>).</li>
 </ul>
@@ -2937,10 +2968,16 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
 <code>lookup()</code>; <code>Debugger::export_skoolkit()</code> (<code>:174</code>) adds the stores (<code>peek()</code> and <code>mem_coverage()</code>,
 a note for coverage it cannot read) and <code>export_ghidra()</code> (<code>:218</code>) the view. <code>write_directory()</code>
 (<code>:91</code>) checks every file in the way before writing (<code>Unsupported</code>), writes <code>&lt;name&gt;.part</code>
-(<code>:125</code>) and renames it (<code>:135</code>), then removes a previous export's files that this one did not
-write: a <code>*.ctl</code> whose first line is <code># jnext space</code> (<code>:149</code>) and the <code>.bin</code> of its <code>WWWW-TAG</code> stem
-(<code>is_ctl_stem()</code>, <code>:57</code>; <code>:156</code>), or the Ghidra names (<code>is_ghidra_export_name()</code>, <code>:47</code>). Anything
-else in the directory is never touched.</p>
+(<code>debugger_reinterop.cpp:125</code>) and renames it with <code>fs::rename</code> (<code>:135</code>), then removes a previous export's files that this one did not
+write: a <code>*.ctl</code> whose first line is <code># jnext space</code> (<code>has_jnext_header()</code>, <code>:149</code>) and the <code>.bin</code> of its <code>WWWW-TAG</code> stem
+(<code>is_ctl_stem()</code>, defined at <code>:57</code> and applied at <code>:156</code>), or the Ghidra names (<code>is_ghidra_export_name()</code>, <code>:47</code>). Anything
+else in the directory is never touched. A path that is a regular file (<code>refuse()</code> at <code>:96</code>) or a directory that
+cannot be created (<code>refuse()</code> at <code>:98</code>) is <code>RefusedUnavailable</code>; a <code>.ctl</code> or <code>.bin</code> in the way that is not jnext's
+is <code>Unsupported</code> and nothing is written (<code>refuse()</code> at <code>:111</code>).</p>
+<p>Names are exported as <code>lookup()</code> shows them (<code>gather_labels()</code>, <code>debugger_reinterop.cpp:82</code>), so a
+z88dk C symbol goes out under its C name. The verbs are reads: they call only <code>peek()</code>,
+<code>mem_coverage()</code>, <code>symbols()</code>, <code>lookup()</code> and <code>source_page()</code>, so no machine state changes and no
+generation moves (SRCDBG-REX-03, with REX-04 as its control).</p>
 <h2 id="4-the-frontends">4. The frontends<a class="headerlink" href="#4-the-frontends" title="Permanent link">&para;</a></h2>
 <p><code>write_re_exports_at_exit()</code> (<code>src/platform/re_export_at_exit.h:39</code>) is called from the three loop
 owners' <code>shutdown()</code>: <code>headless_app.cpp:1072</code>, <code>sdl_app.cpp:819</code>, <code>qt_app.cpp:513</code>. A failure logs

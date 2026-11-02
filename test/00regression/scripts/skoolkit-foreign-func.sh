@@ -79,7 +79,8 @@ if want skoolkit-foreign-func; then
         # ---- A1: a 48K snapshot with several control files combined by -c DIR
         # Three labels at instruction starts the run executes, and four that sna2skool would
         # silently drop unless the export splits at them (GH #389 review 1): inside an executed
-        # instruction ($0004, inside LD DE,$FFFF at $0002), inside a data run off a DEFB line start
+        # instruction ($0004, inside LD DE,$FFFF at $0002 in jnext's ROM; a .sna holds no ROM, so
+        # sna2skool sees zero bytes there: A1 proves the directive lands, SKCTL-08d the split), inside a data run off a DEFB line start
         # ($5C3A, the system variable ERR_NR), and in ROM the run did not execute ($0205 key_table
         # and $04C2 sa_bytes).
         printf '%s\n' "rom_start: EQU 0x00000000" "rst38: EQU 0x00000038" "key_scan: EQU 0x0000028E" \

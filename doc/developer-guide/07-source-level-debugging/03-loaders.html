@@ -2979,8 +2979,8 @@ page <code>predict_fetch</code> says is mapped (<code>SymbolTable::bind()</code>
 on failure (<code>-1</code>) the table and its owner are as they were.</p>
 <h3 id="-source-map"><code>--source-map</code><a class="headerlink" href="#-source-map" title="Permanent link">&para;</a></h3>
 <p><code>EmulatorConfig::source_map_file</code> is set from <code>--source-map FILE</code>
-(<code>main.cpp:880</code>, <code>:2171</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:286</code>),
-set at <code>main.cpp:2182</code>, says which of three cases it is: <code>0</code> a program loads and the map
+(<code>source_map_file = v[0]</code> at <code>main.cpp:882</code>, <code>cfg.source_map_file</code> at <code>main.cpp:2179</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:292</code>),
+set by <code>cfg.source_map_no_program</code> at <code>main.cpp:2190</code>, says which of three cases it is: <code>0</code> a program loads and the map
 follows it; <code>1</code> there is no <code>--load</code>; <code>2</code> an RZX replay is the program (<code>--rzx-play</code>, or
 <code>--load R.rzx</code>, told by the extension).</p>
 <p><strong>With a program</strong> (<code>0</code>). Each loop owner (<code>headless_app.cpp</code>, <code>sdl_app.cpp</code>,
@@ -2994,7 +2994,7 @@ attaches pending, and the loop owner watches it once per tick with
 <p><strong>Without one</strong> (<code>1</code> and <code>2</code>). There is no program to judge a map by, so only the map of a z88dk
 dot command is accepted. Each loop owner makes the load once, at start-up, before
 <code>ScriptHost::start()</code>, so a <code>file:line</code> rule in a script resolves
-(<code>headless_app.cpp:76-90</code>, <code>sdl_app.cpp:251</code>, <code>gui/qt_app.cpp:351</code>). The call is
+(the <code>source_map_no_program != 0</code> block at <code>headless_app.cpp:77-88</code>, <code>sdl_app.cpp:252</code>, <code>gui/qt_app.cpp:352</code>). The call is
 <code>emulator_attach_cli_source_map(dbg, file, deferred = false, dot_only = true, rzx = (case 2))</code>,
 which passes <code>dot_only</code> to <code>load_source_map()</code>. After the adapter has parsed the file,
 <code>dot_only &amp;&amp; !candidate.dot()</code> returns <code>SourceMapLoad::not_dot</code> with the error "it is not the map
