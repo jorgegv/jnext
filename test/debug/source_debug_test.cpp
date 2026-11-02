@@ -7806,6 +7806,7 @@ int main() {
             const jnext::dbg::UserAnnotations original = m.dbg->annotations();
             std::ifstream in(f, std::ios::binary);
             const std::string text(std::istreambuf_iterator<char>(in), {});
+            in.close();   // Windows cannot replace a file that is open
             m.dbg->replace_annotations(jnext::dbg::UserAnnotations{});
             const bool emptied = m.dbg->annotations().empty();
             const Result ld = m.dbg->load_annotations(f.string(), &why);

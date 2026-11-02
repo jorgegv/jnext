@@ -146,13 +146,6 @@ Result Debugger::save_annotations(const std::string& path, std::string* why) con
     std::error_code ec;
     std::filesystem::rename(part, path, ec);
     if (ec) {
-        // Windows (MinGW libstdc++) does not replace an existing destination: remove it, retry.
-        std::error_code rm;
-        std::filesystem::remove(path, rm);
-        ec.clear();
-        std::filesystem::rename(part, path, ec);
-    }
-    if (ec) {
         std::filesystem::remove(part, ec);
         say(why, "cannot write '" + path + "'");
         return Result::RefusedUnavailable;
