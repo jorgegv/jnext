@@ -82,12 +82,14 @@ void SdlDisplay::toggle_fullscreen() {
     // fullscreen now needs an explicit SDL_SetWindowFullscreenMode, which
     // jnext has never wanted.
     SDL_SetWindowFullscreen(window_, fullscreen_);
+    request_redraw();
 }
 
 void SdlDisplay::set_scale(int scale) {
     if (scale < 2) scale = 2;
     if (scale > 4) scale = 4;
     scale_ = scale;
+    request_redraw();
     // Only resize if not in fullscreen; fullscreen ignores scale. Window is
     // sized at NATIVE_W × DISPLAY_H × scale (square pixels, G104 Phase 7).
     if (!fullscreen_) {

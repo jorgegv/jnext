@@ -363,6 +363,7 @@ Result Debugger::on_cold_boot_done() {
     }
     impl_->pending_boot.reset();
     impl_->reapply_after_machine_rebuild(pre);
+    impl_->bump_revision();   // GH #428: a new machine is on show
 
     // RULE 5 defers to rules 2-4, and rule 4 is the `Reset{Hard}` event and
     // push. The LATCH (the §4.3 `Reset` event a subscription can see) must come

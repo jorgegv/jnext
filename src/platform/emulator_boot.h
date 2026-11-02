@@ -229,6 +229,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // carried across, so the exit status still reports it.
     emu.end_rzx_at_reset("the power-on reset");
     auto saved_rzx_failed      = emu.rzx_failed_outputs();
+    const uint64_t saved_fb_generation = emu.framebuffer_generation();   // GH #428
 
     const uint8_t saved_mute   = emu.audio_mute_mask();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
@@ -327,6 +328,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // restore here would now be a second owner, so it is gone (qt-frontend.md
     // §7, B3 obligation 1).
     // ────────────────────────────────────────────────────────────────────────
+    emu.carry_framebuffer_generation(saved_fb_generation);
     emu.set_audio_mute_mask(saved_mute);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
     emu.restore_rzx_failed_outputs(std::move(saved_rzx_failed));

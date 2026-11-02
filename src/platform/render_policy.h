@@ -19,6 +19,8 @@
 /// inside Emulator::run_frame() and never see the hint. A tick with a due
 /// --delayed-screenshot composites in full (`force_all`): the captured frame
 /// must have gone through the compositor with the layer mask armed.
+#include <cstdint>
+
 namespace render_policy {
 
 /// Should frame `frame_index` (0-based) of a presenting tick that runs
@@ -31,6 +33,23 @@ constexpr bool composite_frame_in_tick(int frame_index, int frames_in_tick,
                                        bool force_all)
 {
     return force_all || frame_index >= frames_in_tick - 1;
+}
+
+/// GH #428 — `last_uploaded` value meaning "nothing uploaded yet".
+constexpr uint64_t NOTHING_UPLOADED = ~uint64_t{0};
+
+/// Does the display need the framebuffer pushed again? A paused machine
+/// re-presented an unchanged 640x256 frame fifty times a second (copy,
+/// software prescale, repaint / GPU upload). The frame only needs to go out
+/// when the emulator wrote it (`generation` differs from the generation last
+/// uploaded), when the target it is drawn into changed (size, scale,
+/// fullscreen, pixel ratio, an exposed window: `target_changed`), or when
+/// nothing has been uploaded yet. Used by EmulatorWidget (Qt) and SdlApp::run.
+constexpr bool upload_needed(uint64_t generation, uint64_t last_uploaded,
+                             bool target_changed)
+{
+    return last_uploaded == NOTHING_UPLOADED || generation != last_uploaded ||
+           target_changed;
 }
 
 }  // namespace render_policy

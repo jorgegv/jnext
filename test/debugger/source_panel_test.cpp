@@ -376,6 +376,43 @@ void test_source_tab() {
           sp->highlighted_line() == 0 && sp->location_text() == QStringLiteral("No source map loaded"));
 }
 
+// QIDLE-06 (GH #428): the paused-window refresh gate must still see the loaded
+// source file change on disk -- QSRC-08's production path, with nothing else
+// (clock, backend state, input) having changed. Oracle: the plan's contract
+// (section 2.5): the file's mtime is one of the redraw sources.
+void test_idle_source_reload() {
+    Fixture fx;
+    fx.enable();
+    fx.load_map();
+    SourcePanel* sp = fx.dbg() ? fx.dbg()->source_panel() : nullptr;
+    if (!sp) { check("QIDLE-06", "Source panel", false); return; }
+    auto tick = [&]() { fx.mgr->check_breakpoint_hit(); fx.mgr->refresh_panels(); };
+    tick();
+    tick();
+    fx.mgr->take_panel_refresh_count();
+    tick();
+    const uint64_t idle = fx.mgr->take_panel_refresh_count();
+
+    const std::string path = g_tmp->path().toStdString() + "/main.bas";
+    std::string edited;
+    for (int i = 1; i <= 13; ++i) edited += "QIDLE " + std::to_string(i) + "\n";
+    write_text(path, edited);
+    namespace fs = std::filesystem;
+    fs::last_write_time(path, fs::last_write_time(path) + std::chrono::seconds(5));
+    tick();
+    const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+    auto* editor = sp->findChild<QPlainTextEdit*>();
+    const bool shown = editor && editor->toPlainText().startsWith(QStringLiteral("QIDLE 1"));
+    tick();
+    const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+    check("QIDLE-06",
+          "a loaded source file rewritten on disk (nothing else changed) is reloaded by the next "
+          "paused tick, once; the ticks before and after refresh nothing",
+          idle == 0 && n1 == 1 && shown && n2 == 0,
+          "idle=" + std::to_string(idle) + " n1=" + std::to_string(n1) +
+              " shown=" + std::to_string(shown) + " n2=" + std::to_string(n2));
+}
+
 void test_source_tab_rewind() {
     Fixture fx(/*rewind_frames=*/8);
     fx.enable();
@@ -1539,6 +1576,7 @@ int main(int argc, char** argv) {
 
     test_source_tab();
     test_source_tab_rewind();
+    test_idle_source_reload();
     test_relative_map();
     test_load_refused();
     test_breakpoints();

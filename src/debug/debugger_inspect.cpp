@@ -815,6 +815,7 @@ Result Debugger::set_call_stack_enabled(bool enabled) {
     // GH #276 B3 — client intent, re-applied across a reconstruct
     // (`Impl::want_call_stack`).
     impl_->want_call_stack = enabled;
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -825,17 +826,20 @@ Result Debugger::set_trace_enabled(bool enabled) {
     // GH #276 B3 — client intent, re-applied across a reconstruct
     // (`Impl::want_trace`).
     impl_->want_trace = enabled;
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 Result Debugger::trace_clear() {
     impl_->emu.trace_log().clear();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 Result Debugger::trace_resize(size_t entries) {
     if (entries == 0) return Result::RefusedUnavailable;
     impl_->emu.trace_log().resize(entries);
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -879,6 +883,7 @@ Result Debugger::coverage_enable(bool enabled) {
     impl_->coverage_on = enabled;
     if (!enabled) impl_->coverage.reset();
     impl_->publish_coverage();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -886,6 +891,7 @@ bool Debugger::coverage_enabled() const { return impl_->coverage_on; }
 
 Result Debugger::coverage_clear() {
     impl_->coverage.reset();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
