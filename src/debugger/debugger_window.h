@@ -205,9 +205,7 @@ private:
     // (or anything else) resized it meanwhile, and leaves it alone.
     QSize  fit_set_size_;        // what the last fit pass ASKED for
     QSize  fit_prev_size_;       // the size before that request
-    bool   fit_over_ = false;   // the user resized the window: the fit never resumes
-    // A window manager can answer the map of a window with the size it had BEFORE the fit's first
-    // (pre-map) request. The fit then starts again from that size, a bounded number of times.
+    bool   fit_over_ = false;   // the fit is over (the user resized the window, or its grace window ended)
     // A window manager can answer the fit's requests late and out of order (the map answers the first,
     // pre-map request with the size from before it; openbox applies the first request after later ones).
     // For the fit's own lifetime, every size it asked for, or started a pass from, is its own: a resize
@@ -222,7 +220,6 @@ private:
     unsigned fit_generation_ = 0;
     void end_fit_();
     bool   fit_known_size_(const QSize& s) const;
-    static constexpr int kMaxFitReverts = 3;
     int    initial_fit_width_passes_ = 0;
     int    fit_last_add_ = 0;       // window width added by the previous width pass
     int    fit_last_lacking_ = 0;   // what the left column still lacked before it
