@@ -40,6 +40,15 @@ struct ViewLabel {
 reexport::Output build(const std::vector<reexport::Label>& labels,
                        const std::vector<ViewLabel>& view);
 
+/// Read one symbol file the way `ImportSymbolsScript.py` does (GH #389 stage B): whitespace-split,
+/// field 1 the name, field 2 the address, field 3 `f` or anything else (ignored); blank lines are
+/// skipped. The address is `<TAG>:0xHHHH` or plain hex, with or without `0x`, at most 0xFFFF; `<TAG>`
+/// is a jnext memory tag (`CPU` is none, untagged). Refused with `line N: reason`: a `#` line, no
+/// address, any other prefix (`ram:0x8000`), an expression or symbol, a name outside the label
+/// grammar, one name at two addresses. A second label at an address keeps the first (Ghidra's
+/// primary is the first created). `out` is untouched on failure.
+bool parse_symbols(const std::string& text, reexport::Imported& out, std::string& why);
+
 }  // namespace ghidra
 }  // namespace dbg
 }  // namespace jnext

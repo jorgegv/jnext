@@ -95,6 +95,18 @@ uint16_t home_window(MemSpace s);
 
 reexport::Output build(const Input& in);
 
+/// Read one control file (GH #389 stage B). Strict where skoolkit only warns: an address that is
+/// not decimal, `$hex` or `%bin` (`0x` is refused too) or is above 65535, a directive skoolkit would
+/// ignore, extra parameters, a blank directive before any block, a label name outside the grammar of
+/// `UserAnnotations::valid_label_name()`, one name at two addresses, text that is not UTF-8. Takes
+/// `@ $A label=NAME` (a leading `*` entry-point marker dropped; a second label at an address keeps the
+/// last, as skoolkit applies it) and the text of `B C S T W` and blank-lead sub-blocks plus their
+/// `.` / `:` lines as comments; counts the rest in `out`. `stem` is the file name without `.ctl`:
+/// the memory is the `# jnext space <TAG>` line before the first directive, else `<TAG>` or
+/// `<WWWW>-<TAG>`, else none (untagged; `CPU` is none). On failure `why` is `line N: reason` and
+/// `out` is untouched.
+bool parse_ctl(const std::string& text, const std::string& stem, reexport::Imported& out, std::string& why);
+
 }  // namespace skoolkit
 }  // namespace dbg
 }  // namespace jnext

@@ -267,6 +267,8 @@ bool SdlApp::init(int argc, char* argv[]) {
         jnext::script::ScriptHostOptions so;
         so.map_file = config_.map_file;
         so.annotations_file = config_.annotations_file;
+        so.import_skoolkit_files = config_.import_skoolkit_files;
+        so.import_ghidra_files = config_.import_ghidra_files;
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6

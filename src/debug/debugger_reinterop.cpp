@@ -11,12 +11,14 @@
 
 #include "debug/ghidra_symbols.h"
 #include "debug/long_address.h"
+#include "debug/source_file.h"
 #include "debug/skoolkit_ctl.h"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <system_error>
 #include <tuple>
@@ -175,6 +177,9 @@ Result Debugger::export_skoolkit(const std::string& dir, ReReport* report, std::
     if (report) *report = ReReport{};
     skoolkit::Input in;
     in.labels = gather_labels(symbols());
+    for (const auto& kv : annotations().entries())
+        if (!kv.second.comment.empty())
+            in.comments.push_back({kv.first.space, kv.first.addr, kv.second.comment});
     std::vector<std::string> notes;
     if (!mem_coverage_enabled())
         notes.push_back("memory coverage is off (--coverage, Debug > Coverage): there is no code/data "
@@ -185,6 +190,8 @@ Result Debugger::export_skoolkit(const std::string& dir, ReReport* report, std::
     for (const reexport::Label& l : in.labels)
         if (l.space && std::find(spaces.begin(), spaces.end(), *l.space) == spaces.end())
             spaces.push_back(*l.space);
+    for (const reexport::Comment& c : in.comments)
+        if (std::find(spaces.begin(), spaces.end(), c.space) == spaces.end()) spaces.push_back(c.space);
     for (const MemSpace sp : spaces) {
         const size_t n = space_size(sp.kind);
         skoolkit::Store st;
@@ -228,6 +235,99 @@ Result Debugger::export_ghidra(const std::string& dir, ReReport* report, std::st
     const Result r = write_directory(dir, out.files, false, report, why);
     if (r == Result::Ok) fill_report(report, out, {});
     return r;
+}
+
+namespace {
+
+/// "<file>: <what>" for an import refusal.
+Result refuse_file(Result r, std::string* why, const std::string& file, const std::string& what) {
+    return refuse(r, why, file + ": " + what);
+}
+
+/// The name of a file without directory and `.ctl`.
+std::string ctl_stem(const std::string& path) {
+    return fs::path(path).stem().string();
+}
+
+}  // namespace
+
+Result Debugger::import_skoolkit(const std::vector<std::string>& files, ReReport* report, std::string* why) {
+    if (report) *report = ReReport{};
+    UserAnnotations scratch = annotations();
+    size_t labels = 0, comments = 0, titles = 0, descriptions = 0, other = 0, continued = 0;
+    std::vector<std::string> notes;
+    for (const std::string& f : files) {
+        const std::string problem = source_file_problem(f);
+        if (!problem.empty()) return refuse_file(Result::RefusedUnavailable, why, f, problem);
+        std::ifstream in(f, std::ios::binary);
+        if (!in) return refuse_file(Result::RefusedUnavailable, why, f, "cannot open the file");
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        reexport::Imported imp;
+        std::string e;
+        if (!skoolkit::parse_ctl(text, ctl_stem(f), imp, e)) return refuse_file(Result::Unsupported, why, f, e);
+        for (const reexport::ImportLabel& l : imp.labels) {
+            const MemSpace sp = imp.space ? *imp.space : source_page(l.addr);
+            const std::string bad = scratch.set_label(sp, l.addr, l.name);
+            if (!bad.empty())
+                return refuse_file(Result::Unsupported, why, f, "line " + std::to_string(l.line) + ": " + bad);
+            ++labels;
+        }
+        for (const reexport::ImportComment& c : imp.comments) {
+            const MemSpace sp = imp.space ? *imp.space : source_page(c.addr);
+            const std::string bad = scratch.set_comment(sp, c.addr, c.text);
+            if (!bad.empty())
+                return refuse_file(Result::Unsupported, why, f, "line " + std::to_string(c.line) + ": " + bad);
+            ++comments;
+        }
+        titles += imp.titles; descriptions += imp.descriptions; other += imp.other; continued += imp.continued;
+        for (const std::string& n : imp.notes) notes.push_back(f + ": " + n);
+    }
+    const Result r = replace_annotations(std::move(scratch));
+    if (r != Result::Ok) return refuse(r, why, "the store was not replaced");
+    if (report) {
+        report->files = files.size();
+        report->labels = labels;
+        report->comments = comments;
+        report->notes = notes;
+        if (titles) report->notes.push_back(std::to_string(titles) + " block title(s) not imported");
+        if (descriptions) report->notes.push_back(std::to_string(descriptions) + " description(s) not imported");
+        if (other) report->notes.push_back(std::to_string(other) + " other directive(s) not imported");
+        if (continued) report->notes.push_back(std::to_string(continued) + " continuation line(s) of those not imported");
+    }
+    return Result::Ok;
+}
+
+Result Debugger::import_ghidra(const std::vector<std::string>& files, ReReport* report, std::string* why) {
+    if (report) *report = ReReport{};
+    UserAnnotations scratch = annotations();
+    size_t labels = 0;
+    std::vector<std::string> notes;
+    for (const std::string& f : files) {
+        const std::string problem = source_file_problem(f);
+        if (!problem.empty()) return refuse_file(Result::RefusedUnavailable, why, f, problem);
+        std::ifstream in(f, std::ios::binary);
+        if (!in) return refuse_file(Result::RefusedUnavailable, why, f, "cannot open the file");
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        reexport::Imported imp;
+        std::string e;
+        if (!ghidra::parse_symbols(text, imp, e)) return refuse_file(Result::Unsupported, why, f, e);
+        for (const reexport::ImportLabel& l : imp.labels) {
+            const MemSpace sp = l.space ? *l.space : source_page(l.addr);
+            const std::string bad = scratch.set_label(sp, l.addr, l.name);
+            if (!bad.empty())
+                return refuse_file(Result::Unsupported, why, f, "line " + std::to_string(l.line) + ": " + bad);
+            ++labels;
+        }
+        for (const std::string& n : imp.notes) notes.push_back(f + ": " + n);
+    }
+    const Result r = replace_annotations(std::move(scratch));
+    if (r != Result::Ok) return refuse(r, why, "the store was not replaced");
+    if (report) {
+        report->files = files.size();
+        report->labels = labels;
+        report->notes = notes;
+    }
+    return Result::Ok;
 }
 
 }  // namespace dbg

@@ -51,6 +51,34 @@ struct Output {
     size_t comments = 0;
 };
 
+/// A label read from an import file. `space` unset: the file does not say which memory (an
+/// UNTAGGED entry); the importer then places it by `source_page(addr)`.
+struct ImportLabel {
+    std::optional<MemSpace> space;
+    uint16_t addr = 0;
+    std::string name;
+    int line = 0;
+};
+
+struct ImportComment {
+    uint16_t addr = 0;
+    std::string text;   ///< lines joined with LF
+    int line = 0;
+};
+
+/// What a reader found in one file (skoolkit_ctl.h `parse_ctl()`, ghidra_symbols.h
+/// `parse_symbols()`), and what it did not take in.
+struct Imported {
+    std::optional<MemSpace> space;       ///< a control file's memory (header, else file name); unset: untagged
+    std::vector<ImportLabel> labels;
+    std::vector<ImportComment> comments;
+    size_t titles = 0;                   ///< block titles (sna2skool writes them itself): not imported
+    size_t descriptions = 0;             ///< `D` descriptions: not imported
+    size_t other = 0;                    ///< R N E M L > and `@` directives other than label=: not imported
+    size_t continued = 0;                ///< `.` / `:` lines that continued one of those
+    std::vector<std::string> notes;
+};
+
 /// Whether `name` can stand in a control-file or symbol-file line: non-empty, and
 /// neither whitespace nor a control character (both formats split on whitespace).
 bool name_exportable(const std::string& name);

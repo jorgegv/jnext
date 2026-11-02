@@ -351,6 +351,8 @@ int main(int argc, char* argv[]) {
     std::string                           map_file;
     std::string                           source_map_file;
     std::string                           annotations_file;
+    std::vector<std::string>              import_skoolkit_files;   // GH #389
+    std::vector<std::string>              import_ghidra_files;
     std::string                           record_script_file;   // GH #26 WP6
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
@@ -884,6 +886,12 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::Annotations:
                 annotations_file = v[0];
+                break;
+            case cli::OptId::ImportSkoolkit:
+                import_skoolkit_files.push_back(v[0]);
+                break;
+            case cli::OptId::ImportGhidra:
+                import_ghidra_files.push_back(v[0]);
                 break;
             case cli::OptId::SourceDir: {
                 // ONE directory per occurrence, appended to the list --set may have
@@ -2182,6 +2190,8 @@ int main(int argc, char* argv[]) {
         cfg.map_file     = map_file;
         cfg.source_map_file = source_map_file;
         cfg.annotations_file = annotations_file;
+        cfg.import_skoolkit_files = import_skoolkit_files;
+        cfg.import_ghidra_files = import_ghidra_files;
         // GH #351: with no program to load (no --load, or an RZX replay: --rzx-play R or
         // --load R.rzx) only a z88dk dot command's map is accepted; the frontend attaches it
         // at start-up, pending, and refuses any other map.

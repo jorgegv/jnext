@@ -3,6 +3,7 @@
 #include "debug/disasm.h"
 #include "debug/long_address.h"
 #include "debug/mem_coverage.h"
+#include "debug/user_annotations.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -290,6 +291,220 @@ reexport::Output build(const Input& in) {
         out.notes.push_back("trailing whitespace dropped from " + std::to_string(stripped) +
                             " comment line(s): skoolkit drops it anyway");
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// The reader (stage B)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string rstrip(std::string s) {
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n'))
+        s.pop_back();
+    return s;
+}
+
+std::string lstrip(const std::string& s) {
+    size_t i = 0;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+    return s.substr(i);
+}
+
+/// skoolkit's get_int_param without the 0x form (skoolkit/__init__.py get_int_param): decimal,
+/// $hex or %bin. nullopt when it is none of them or does not fit 32 bits.
+std::optional<uint32_t> skool_int(const std::string& s) {
+    if (s.empty()) return std::nullopt;
+    uint64_t v = 0;
+    size_t i = 0;
+    unsigned base = 10;
+    if (s[0] == '$') { base = 16; i = 1; }
+    else if (s[0] == '%') { base = 2; i = 1; }
+    if (i >= s.size()) return std::nullopt;
+    for (; i < s.size(); ++i) {
+        const char c = s[i];
+        int d;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (base == 16 && c >= 'a' && c <= 'f') d = 10 + c - 'a';
+        else if (base == 16 && c >= 'A' && c <= 'F') d = 10 + c - 'A';
+        else return std::nullopt;
+        if (static_cast<unsigned>(d) >= base) return std::nullopt;
+        v = v * base + static_cast<unsigned>(d);
+        if (v > 0xFFFFFFFFull) return std::nullopt;
+    }
+    return static_cast<uint32_t>(v);
+}
+
+}  // namespace
+
+bool parse_ctl(const std::string& text, const std::string& stem, reexport::Imported& out, std::string& why) {
+    reexport::Imported res;
+    std::vector<std::string> lines;
+    {
+        size_t pos = 0;
+        while (pos <= text.size()) {
+            const size_t nl = text.find('\n', pos);
+            lines.push_back(text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos));
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+    }
+    const auto fail = [&](size_t n, const std::string& reason) {
+        why = "line " + std::to_string(n) + ": " + reason;
+        return false;
+    };
+    // The addresses at which a block starts (skoolkit pre-scans for them: a blank directive takes
+    // the block that contains it).
+    std::set<uint32_t> blocks;
+    for (const std::string& raw : lines) {
+        const std::string s = rstrip(raw);
+        if (!s.empty() && std::string("bcgistuw").find(s[0]) != std::string::npos) {
+            const std::string f = lstrip(s.substr(1));
+            const std::string a = f.substr(0, f.find(' '));
+            if (const auto v = skool_int(a.substr(0, a.find(',')))) blocks.insert(*v);
+        }
+    }
+
+    enum class Cur { None, Comment, Other };
+    Cur cur = Cur::None;
+    size_t cur_comment = 0;                     // index into pending
+    struct Pending { uint16_t addr; std::string text; size_t line; bool started; };
+    std::vector<Pending> pending;
+    std::map<uint16_t, size_t> label_at;        // address -> index into res.labels
+    bool seen_directive = false;
+    bool title_open = false;                    // a block directive without text: its title is the next `.` line
+    std::optional<MemSpace> header;
+    bool has_header = false;
+
+    for (size_t i = 0; i < lines.size(); ++i) {
+        const size_t n = i + 1;
+        const std::string s = rstrip(lines[i]);
+        if (s.empty()) continue;
+        const char first = s[0];
+        const std::string content = lstrip(s.substr(1));
+        if (first == '.' || first == ':') {
+            if (cur == Cur::Comment) {
+                Pending& pc = pending[cur_comment];
+                const std::string piece = s.size() > 2 ? rstrip(s.substr(2)) : std::string();
+                if (pc.started) pc.text += "\n" + piece;
+                else { pc.text = piece; pc.started = true; }   // the directive had no text: the first line is the first line
+            }
+            else if (cur == Cur::Other) {
+                if (title_open) { ++res.titles; title_open = false; }
+                else ++res.continued;
+            }
+            continue;
+        }
+        if (content.empty()) continue;
+        title_open = false;
+        if (std::string(" >bBcCDEgiLMNRsStTuwW").find(first) != std::string::npos) {
+            seen_directive = true;
+            const size_t sp = content.find(' ');
+            const std::string params_s = content.substr(0, sp);
+            const std::string rest = sp == std::string::npos ? std::string() : content.substr(sp + 1);
+            std::vector<std::string> params;
+            {
+                size_t p = 0;
+                for (;;) {
+                    const size_t c = params_s.find(',', p);
+                    params.push_back(params_s.substr(p, c == std::string::npos ? std::string::npos : c - p));
+                    if (c == std::string::npos) break;
+                    p = c + 1;
+                }
+            }
+            const auto addr = skool_int(params[0]);
+            if (!addr) return fail(n, "invalid address '" + params[0] + "' (decimal, $hex or %binary)");
+            if (*addr > 0xFFFF) return fail(n, "address " + params[0] + " is above 65535");
+            char ctl = first;
+            if (ctl == ' ') {
+                if (blocks.empty() || *blocks.begin() > *addr)
+                    return fail(n, "blank directive with no containing block");
+                ctl = 'B';
+            }
+            if (params.size() > 1 && std::string(">BCLMSTW").find(ctl) == std::string::npos)
+                return fail(n, "extra parameters after the address");
+            for (size_t k = 1; k < params.size(); ++k)
+                if (params[k].empty()) return fail(n, "empty parameter");
+            if (std::string("bcgistuw").find(ctl) != std::string::npos) {
+                if (!rest.empty()) ++res.titles;
+                else title_open = true;
+                cur = Cur::Other;
+            } else if (ctl == 'D') {
+                ++res.descriptions;
+                cur = Cur::Other;
+            } else if (std::string("BCSTW").find(ctl) != std::string::npos) {
+                pending.push_back({static_cast<uint16_t>(*addr), rest, n, !rest.empty()});
+                cur_comment = pending.size() - 1;
+                cur = Cur::Comment;
+            } else {
+                ++res.other;
+                cur = Cur::Other;
+            }
+        } else if (first == '@') {
+            seen_directive = true;
+            const size_t sp = content.find(' ');
+            if (sp == std::string::npos) return fail(n, "invalid ASM directive declaration");
+            const auto addr = skool_int(content.substr(0, sp));
+            if (!addr) return fail(n, "invalid ASM directive address");
+            if (*addr > 0xFFFF) return fail(n, "address " + content.substr(0, sp) + " is above 65535");
+            const std::string directive = lstrip(content.substr(sp + 1));
+            if (directive.rfind("label=", 0) == 0) {
+                std::string name = directive.substr(6);
+                if (!name.empty() && name[0] == '*') name.erase(0, 1);
+                if (!name.empty()) {
+                    if (!UserAnnotations::valid_label_name(name))
+                        return fail(n, "label name '" + name + "' is not a valid name ([A-Za-z_][A-Za-z0-9_]* joined by dots)");
+                    const uint16_t a = static_cast<uint16_t>(*addr);
+                    const auto it = label_at.find(a);
+                    if (it != label_at.end()) {
+                        res.notes.push_back("line " + std::to_string(n) + ": a second label at " + hex4(a) +
+                                            ": kept '" + name + "' (skoolkit applies the last)");
+                        res.labels[it->second].name = name;
+                        res.labels[it->second].line = static_cast<int>(n);
+                    } else {
+                        label_at[a] = res.labels.size();
+                        res.labels.push_back({std::nullopt, a, name, static_cast<int>(n)});
+                    }
+                }
+            } else {
+                ++res.other;
+            }
+            cur = Cur::None;
+        } else if (first == '#' || first == '%' || first == ';') {
+            if (!seen_directive && !has_header && s.rfind("# jnext space ", 0) == 0) {
+                const std::string tag = rstrip(s.substr(14));
+                const auto sp = parse_space_tag(tag);
+                if (!sp) return fail(n, "'" + tag + "' is not a memory tag");
+                has_header = true;
+                if (sp->kind != MemSpace::Kind::Cpu) header = sp;
+            }
+        } else {
+            return fail(n, "invalid directive");
+        }
+    }
+    for (const Pending& p : pending) {
+        if (p.text.empty()) continue;
+        if (!UserAnnotations::valid_utf8(p.text)) return fail(p.line, "comment text is not valid UTF-8");
+        res.comments.push_back({p.addr, p.text, static_cast<int>(p.line)});
+    }
+    // Two labels' names at two addresses: one name, one key.
+    std::map<std::string, uint16_t> seen_names;
+    for (const reexport::ImportLabel& l : res.labels) {
+        const auto ins = seen_names.emplace(l.name, l.addr);
+        if (!ins.second && ins.first->second != l.addr)
+            return fail(static_cast<size_t>(l.line), "name '" + l.name + "' is already used at " + hex4(ins.first->second));
+    }
+    // The memory: the header, else the file name (<TAG> or <WWWW>-<TAG>), else none.
+    if (has_header) {
+        res.space = header;
+    } else if (const auto sp = parse_space_tag(stem)) {
+        if (sp->kind != MemSpace::Kind::Cpu) res.space = sp;
+    } else if (stem.size() > 5 && stem[4] == '-') {
+        if (const auto sp2 = parse_space_tag(stem.substr(5)))
+            if (sp2->kind != MemSpace::Kind::Cpu) res.space = sp2;
+    }
+    out = std::move(res);
+    return true;
 }
 
 }  // namespace skoolkit

@@ -1021,17 +1021,6 @@ public:
     const SymbolTable& symbols() const;
 
     // =======================================================================
-
-    /// CAP-REX - one control file and one `.bin` per (space, window), plus
-    /// `0000-0CPU.ctl` for the unpaged labels (skoolkit_ctl.h).
-    Result export_skoolkit(const std::string& dir, ReReport* report = nullptr,
-                           std::string* why = nullptr) const;
-
-    /// CAP-REX - one `<TAG>.ghidra.txt` per space, `CPU.ghidra.txt` and `view.ghidra.txt`
-    /// (ghidra_symbols.h).
-    Result export_ghidra(const std::string& dir, ReReport* report = nullptr,
-                         std::string* why = nullptr) const;
-=======
     // CAP-ANN -- the user's labels and comments (GH #387, E23-24; design 10.2,
     // 10.3, 10.5, 6.8; added to this frozen header under the #378 decision, 5.2)
     //
@@ -1069,7 +1058,7 @@ public:
     /// The loaded layer alone: what a sidecar, Load MAP or `--map` put there.
     const SymbolTable& toolchain_symbols() const;
 
-
+    // =======================================================================
     // CAP-REX - skoolkit and Ghidra exports (GH #389, E23-26;
     // doc/design/SOURCE-LEVEL-DEBUGGING.md section 11.2)
     //
@@ -1089,7 +1078,37 @@ public:
     //
     // `Unsupported`: such a file in the way. `RefusedUnavailable`: DIR is not a
     // directory or cannot be created, or a file cannot be written. `why` says which.
-    // ================================================================
+    // =======================================================================
+
+    /// CAP-REX - one control file and one `.bin` per (space, window), plus
+    /// `0000-0CPU.ctl` for the unpaged labels (skoolkit_ctl.h).
+    Result export_skoolkit(const std::string& dir, ReReport* report = nullptr,
+                           std::string* why = nullptr) const;
+
+    /// CAP-REX - one `<TAG>.ghidra.txt` per space, `CPU.ghidra.txt` and `view.ghidra.txt`
+    /// (ghidra_symbols.h).
+    Result export_ghidra(const std::string& dir, ReReport* report = nullptr,
+                         std::string* why = nullptr) const;
+
+    /// CAP-REX - read skoolkit control files into the user's store (GH #389 stage B): the labels
+    /// (`@ $A label=NAME`) and the instruction comments (`B C S T W` sub-blocks and their `.` / `:`
+    /// lines); titles, descriptions and the other directives are counted in the report, not imported.
+    /// A file's memory is its `# jnext space <TAG>` line, else its name (`<TAG>.ctl`,
+    /// `<WWWW>-<TAG>.ctl`); with neither, each entry takes the memory that supplies its address NOW
+    /// (`source_page()`). ALL the files are read and checked into a scratch copy of `annotations()`
+    /// first: an imported label replaces the label at its key, a comment the comment; any refusal
+    /// (a file that cannot be read: `RefusedUnavailable`; a line skoolkit would warn about, a name
+    /// outside the label grammar or used at another key: `Unsupported`) leaves the store and its
+    /// revision untouched and `why` is `<file>: line N: reason`. A success is ONE
+    /// `replace_annotations()`: one revision bump.
+    Result import_skoolkit(const std::vector<std::string>& files, ReReport* report = nullptr,
+                           std::string* why = nullptr);
+
+    /// CAP-REX - the same for Ghidra symbol files (`NAME [TAG:]0xHHHH l`); no comments.
+    Result import_ghidra(const std::vector<std::string>& files, ReReport* report = nullptr,
+                         std::string* why = nullptr);
+
+
     // =======================================================================
     // CAP-SRC — source-level debugging (doc/design/SOURCE-LEVEL-DEBUGGING.md)
     //

@@ -52,6 +52,8 @@ namespace script {
 struct ScriptHostOptions {
     std::string                           map_file;  ///< `--map`, empty = none
     std::string                           annotations_file;   ///< `--annotations`, empty = none (GH #387)
+    std::vector<std::string>              import_skoolkit_files;   ///< `--import-skoolkit`, in order (GH #389)
+    std::vector<std::string>              import_ghidra_files;     ///< `--import-ghidra`, in order (GH #389)
     std::vector<std::string>              scripts;   ///< `--script`, in order
     std::vector<std::pair<uint32_t, int>> keys;      ///< `--script-key FRAME N`
     /// True for headless and SDL (a script may end the process); false for

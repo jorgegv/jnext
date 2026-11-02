@@ -45,6 +45,7 @@ namespace fs = std::filesystem;
 using jnext::dbg::Debugger;
 using jnext::dbg::MemSpace;
 using jnext::dbg::ReReport;
+using jnext::dbg::UserAnnotations;
 using jnext::dbg::Result;
 using jnext::dbg::COVERAGE_EXEC;
 using jnext::dbg::COVERAGE_READ;
@@ -558,6 +559,248 @@ static bool load_labels(Debugger& dbg, const fs::path& file, const std::vector<S
     return r.count >= 0;
 }
 
+// ---------------------------------------------------------------------------
+// Stage B: the readers. skool2ctl.py 10.1's own output for F1's skool file, as `-h` and as `-k -h`
+// (first 23 / 36 lines; the rest is `B $C02D,8,8` filler), checked in as strings.
+// ---------------------------------------------------------------------------
+static const char* const kSkool2ctlH = R"CTL(@ $C000 start
+@ $C000 org
+c $C000 Routine at C000
+@ $C000 label=banked
+b $C003 Data block at C003
+@ $C003 label=table
+B $C003,1,1 two lines
+u $C004 Unused
+B $C004,12,8,4
+c $C010 Routine at C010
+D $C010 Used by the routine at #R$C000.
+B $C010,1,1 Load the first byte
+@ $C011 label=smc
+B $C011,2,2
+b $C014 Data block at C014
+B $C014,1,1
+u $C015 Unused
+B $C015,11,8,3
+c $C020 Routine at C020
+B $C020,4,4
+u $C025 Unused
+B $C025,8155,8*1019,3
+i $E000
+)CTL";
+static const char* const kSkool2ctlK = R"CTL(@ $C000 start
+@ $C000 org
+c $C000
+. Routine at C000
+@ $C000 label=banked
+b $C003
+. Data block at C003
+@ $C003 label=table
+B $C003,1,1
+. two
+. lines
+u $C004
+. Unused
+B $C004,8,8
+B $C00C,4,4
+c $C010
+. Routine at C010
+D $C010
+. Used by the routine at #R$C000.
+B $C010,1,1
+. Load the first byte
+@ $C011 label=smc
+B $C011,2,2
+b $C014
+. Data block at C014
+B $C014,1,1
+u $C015
+. Unused
+B $C015,8,8
+B $C01D,3,3
+c $C020
+. Routine at C020
+B $C020,4,4
+u $C025
+. Unused
+B $C025,8,8
+)CTL";
+
+static bool parse_fails_at(const std::string& text, const std::string& stem, const std::string& want_line_prefix,
+                           std::string& got_why) {
+    reexport::Imported out;
+    out.labels.push_back({std::nullopt, 0x1234, "sentinel", 0});
+    const bool ok = sk::parse_ctl(text, stem, out, got_why);
+    return !ok && got_why.rfind(want_line_prefix, 0) == 0 && out.labels.size() == 1 && out.labels[0].name == "sentinel";
+}
+
+static const reexport::ImportComment* comment_at(const reexport::Imported& i, uint16_t a) {
+    for (const reexport::ImportComment& c : i.comments) if (c.addr == a) return &c;
+    return nullptr;
+}
+
+static std::string labels_of(const reexport::Imported& i) {
+    std::string s;
+    for (const reexport::ImportLabel& l : i.labels) {
+        char b[16];
+        std::snprintf(b, sizeof(b), "$%04X ", l.addr);
+        s += b + l.name + ";";
+    }
+    return s;
+}
+
+static void reader_rows() {
+    const std::string f1text = text_of(sk::build(f1_input()), "C000-P10.ctl");
+    // SKCTL-09: the reader on the writer's F1 text.
+    {
+        reexport::Imported i;
+        std::string why;
+        const bool ok = sk::parse_ctl(f1text, "C000-P10", i, why);
+        const auto* c3 = comment_at(i, 0xC003);
+        const auto* c10 = comment_at(i, 0xC010);
+        check("SKCTL-09", "the reader on SKCTL-03's text: memory P10 (the header), labels C000 banked, C003 table, "
+                          "C011 smc, comments C003 'two\\nlines' and C010 'Load the first byte'; only the two "
+                          "@ start / @ org directives are left unimported",
+              ok && i.space && *i.space == MemSpace::page(0x10) && labels_of(i) == "$C000 banked;$C003 table;$C011 smc;" &&
+                  i.comments.size() == 2 && c3 && c3->text == "two\nlines" && c10 && c10->text == "Load the first byte" &&
+                  i.titles == 0 && i.descriptions == 0 && i.other == 2 && i.continued == 0,
+              why + " " + labels_of(i) + " c=" + std::to_string(i.comments.size()) + " t=" + std::to_string(i.titles) +
+                  " d=" + std::to_string(i.descriptions) + " o=" + std::to_string(i.other) + " k=" + std::to_string(i.continued) +
+                  " c3=" + (c3 ? c3->text : "-") + " c10=" + (c10 ? c10->text : "-"));
+    }
+    // SKCTL-10: skoolkit's own writer's output (a foreign file, with its titles and descriptions).
+    {
+        reexport::Imported h, k;
+        std::string wh, wk;
+        const bool oh = sk::parse_ctl(kSkool2ctlH, "C000-P10", h, wh);
+        const bool ok_ = sk::parse_ctl(kSkool2ctlK, "C000-P10", k, wk);
+        const auto* h3 = comment_at(h, 0xC003);
+        const auto* k3 = comment_at(k, 0xC003);
+        check("SKCTL-10", "the reader on skool2ctl.py's own output (-h and -k -h): the same three labels, the "
+                          "comment at C003 'two lines' (-h) and 'two\\nlines' (-k), the comment at C010; 8 titles "
+                          "and 1 description reported unimported; the memory P10 from the file name",
+              oh && ok_ && labels_of(h) == "$C000 banked;$C003 table;$C011 smc;" && labels_of(k) == labels_of(h) &&
+                  h3 && h3->text == "two lines" && k3 && k3->text == "two\nlines" &&
+                  comment_at(h, 0xC010) && comment_at(k, 0xC010) && comment_at(k, 0xC010)->text == "Load the first byte" &&
+                  h.titles == 8 && k.titles == 8 && h.descriptions == 1 && k.descriptions == 1 &&
+                  h.space && *h.space == MemSpace::page(0x10) && k.space && *k.space == MemSpace::page(0x10),
+              wh + wk + " h.titles=" + std::to_string(h.titles) + " k.titles=" + std::to_string(k.titles));
+    }
+    // SKCTL-11: where a file's memory comes from.
+    {
+        const auto sp = [](const std::string& text, const std::string& stem) -> std::string {
+            reexport::Imported i;
+            std::string why;
+            if (!sk::parse_ctl(text, stem, i, why)) return "refused: " + why;
+            return i.space ? jnext::dbg::space_tag(*i.space) : std::string("none");
+        };
+        std::string why;
+        const std::string hdr11 = "# jnext space P11\nc $C000\n";
+        check("SKCTL-11", "the memory of a control file: the header beats the file name (P11 in C000-P10.ctl); "
+                          "P10.ctl and C000-P10.ctl are P10; game.ctl with no header is untagged; header CPU is "
+                          "untagged; header PE0 is refused at line 1",
+              sp(hdr11, "C000-P10") == "P11" && sp("c $C000\n", "P10") == "P10" && sp("c $C000\n", "C000-P10") == "P10" &&
+                  sp("c $C000\n", "game") == "none" && sp("# jnext space CPU\nc $C000\n", "P10") == "none" &&
+                  parse_fails_at("# jnext space PE0\nc $C000\n", "x", "line 1:", why),
+              sp(hdr11, "C000-P10") + " " + sp("c $C000\n", "game") + " " + why);
+    }
+    // SKCTL-12: refusals, each "line N: ..." and the output untouched; what is accepted.
+    {
+        struct Bad { const char* text; const char* line; };
+        const Bad bad[] = {
+            {"c $C000\nc $ZZZZ\n", "line 2:"}, {"c 0xC000\n", "line 1:"}, {"c 65536\n", "line 1:"},
+            {"D $C000,3 x\n", "line 1:"}, {"X $C000\n", "line 1:"}, {" $C000 x\n", "line 1:"},
+            {"c $C000\n@ $C000 label=1abc\n", "line 2:"}, {"c $C000\n@ $C000 label=a\n@ $C010 label=a\n", "line 3:"},
+        };
+        std::string bads;
+        for (const Bad& b : bad) {
+            std::string why;
+            if (!parse_fails_at(b.text, "x", b.line, why)) bads += std::string(" [") + b.text + " -> " + why + "]";
+        }
+        reexport::Imported d1, d2, d3;
+        std::string w1, w2, w3;
+        const bool a1 = sk::parse_ctl("c 49152\n@ 49152 label=dec\n", "x", d1, w1);
+        const bool a2 = sk::parse_ctl("c %1100000000000000\n@ %1100000000000000 label=bin\n", "x", d2, w2);
+        const bool a3 = sk::parse_ctl("c $C000\n@ $C000 label=first\n@ $C000 label=second\n", "x", d3, w3);
+        check("SKCTL-12", "the reader refuses, naming the line and leaving the output alone: a non-hex address, "
+                          "0x, 65536, D with extra parameters, an unknown directive, a blank directive before any block, "
+                          "a bad label name, one name at two addresses; it accepts decimal and %binary addresses and "
+                          "keeps the last of two labels at one address",
+              bads.empty() && a1 && labels_of(d1) == "$C000 dec;" && a2 && labels_of(d2) == "$C000 bin;" &&
+                  a3 && labels_of(d3) == "$C000 second;" && !d3.notes.empty(),
+              bads + " " + labels_of(d1) + labels_of(d2) + labels_of(d3));
+    }
+    // SKCTL-13: an error anywhere leaves the result as it was.
+    {
+        reexport::Imported out;
+        std::string why;
+        const bool good = sk::parse_ctl(f1text, "C000-P10", out, why);
+        const std::string before = labels_of(out);
+        const size_t nc = out.comments.size();
+        const bool bad = sk::parse_ctl(f1text + "c $ZZZZ\n", "C000-P10", out, why);
+        check("SKCTL-13", "a file whose LAST line is bad leaves a filled result unchanged",
+              good && !bad && labels_of(out) == before && out.comments.size() == nc && why.rfind("line ", 0) == 0, why);
+    }
+    // SKCTL-14: continuation lines and the entry marker.
+    {
+        reexport::Imported a, b;
+        std::string wa, wb;
+        const bool oa = sk::parse_ctl("c $C000\n. A title\nB $C003,1\n. one\n: two\n. three\n@ $C000 label=*entry\n"
+                                      "@ $C010 label=*\n@ $C020 label=\n", "x", a, wa);
+        const bool ob = sk::parse_ctl("b $C000 Title\nB $C000 x\n", "x", b, wb);
+        const auto* c = comment_at(a, 0xC003);
+        check("SKCTL-14", "':' continues a comment like '.'; a '.' after a block directive is its title (skipped and "
+                          "counted); label=*entry is 'entry'; label=* and label= name nothing",
+              oa && ob && c && c->text == "one\ntwo\nthree" && a.titles == 1 && labels_of(a) == "$C000 entry;" &&
+                  b.titles == 1 && comment_at(b, 0xC000) && comment_at(b, 0xC000)->text == "x",
+              wa + wb + " a.titles=" + std::to_string(a.titles) + " " + labels_of(a) + " b.titles=" + std::to_string(b.titles) +
+                  " c=" + (c ? c->text : "-"));
+    }
+    // GHSYM-03: the Ghidra reader, the script's grammar.
+    {
+        reexport::Imported i;
+        std::string why;
+        const bool ok = gh::parse_symbols("n1 0x8000 l\nn2 8000\nn3 P10:0xC000 f\nn4 p10:c003\nn5 0x8001 l extra\n\n\n", i, why);
+        const auto find = [&](const char* n) -> const reexport::ImportLabel* {
+            for (const reexport::ImportLabel& l : i.labels) if (l.name == n) return &l;
+            return nullptr;
+        };
+        check("GHSYM-03", "the Ghidra reader: 'n1 0x8000 l', 'n2 8000' (a second label at that key: the first wins, "
+                          "reported), 'n3 P10:0xC000 f', 'n4 p10:c003', 'n5 0x8001 l extra' and blank lines",
+              ok && i.labels.size() == 4 && find("n1") && !find("n1")->space && find("n1")->addr == 0x8000 && !find("n2") &&
+                  find("n3") && find("n3")->space && *find("n3")->space == MemSpace::page(0x10) && find("n3")->addr == 0xC000 &&
+                  find("n4") && find("n4")->space && find("n4")->addr == 0xC003 &&
+                  find("n5") && !find("n5")->space && find("n5")->addr == 0x8001 && i.notes.size() == 1, why);
+    }
+    // GHSYM-04: refusals.
+    {
+        const char* bad[] = {"x ram:0x8000 l", "x 0x10000 l", "x 0x8000+4", "x", "# comment", "1x 0x8000", "a 0x8001\na 0x8002"};
+        std::string bads;
+        for (const char* b : bad) {
+            reexport::Imported out;
+            out.labels.push_back({std::nullopt, 1, "sentinel", 0});
+            std::string why;
+            if (gh::parse_symbols(std::string("ok 0x8000 l\n") + b + "\n", out, why) || why.rfind("line ", 0) != 0 ||
+                out.labels.size() != 1) bads += std::string(" [") + b + " -> " + why + "]";
+        }
+        std::string w1;
+        reexport::Imported o1;
+        const bool named = !gh::parse_symbols("x ram:0x8000 l\n", o1, w1) && w1.find("ram") != std::string::npos;
+        check("GHSYM-04", "the Ghidra reader refuses, 'line N:' and the result untouched: a prefix that is not a jnext "
+                          "memory (naming 'ram'), an address above 0xFFFF, an expression, no address, a '#' line, a bad "
+                          "name, one name at two addresses",
+              bads.empty() && named, bads);
+    }
+    // GHSYM-05: transactional.
+    {
+        reexport::Imported out;
+        std::string why;
+        const bool good = gh::parse_symbols("a 0x8000 l\nb 0x8001 l\n", out, why);
+        const bool bad = gh::parse_symbols("c 0x8002 l\nd ram:1\n", out, why);
+        check("GHSYM-05", "a Ghidra file whose last line is bad leaves a filled result unchanged",
+              good && !bad && out.labels.size() == 2 && out.labels[0].name == "a", why);
+    }
+}
+
 static void backend_rows() {
     // SRCDBG-REX-01: the issue's row 3: a banked label exports with its page, in both formats.
     {
@@ -823,6 +1066,188 @@ static void backend_rows() {
               std::string("map=") + std::to_string(int(n.status)) + "/" + std::to_string(n.value) + " why=" + why + " " +
                   join(ls(d / "sk")) + "|" + join(ls(d / "gh")));
     }
+
+    // ---- Stage B: the importers --------------------------------------------------------------
+
+    // SRCDBG-REX-10: import then export round-trips the user's entries, byte for byte.
+    {
+        const fs::path d = g_dir / "r10";
+        Emulator emu; build_next(emu);
+        Debugger dbg(emu);
+        dbg.mem_coverage_enable(true);
+        std::string why;
+        const MemSpace p10 = MemSpace::page(0x10), p04 = MemSpace::page(4), rom0 = MemSpace::rom(0);
+        bool set = true;
+        set = set && dbg.set_user_label(p10, 0xC000, "banked", &why) == Result::Ok;
+        set = set && dbg.set_user_comment(p10, 0xC003, "two\nlines", &why) == Result::Ok;
+        set = set && dbg.set_user_label(p04, 0x8010, "main.loop", &why) == Result::Ok;
+        set = set && dbg.set_user_comment(p04, 0x8010, "Loop head", &why) == Result::Ok;
+        set = set && dbg.set_user_label(rom0, 0x0038, "isr", &why) == Result::Ok;
+        set = set && dbg.set_user_comment(rom0, 0x0038, "Frame interrupt", &why) == Result::Ok;
+        const UserAnnotations original = dbg.annotations();
+        const Result e1 = dbg.export_skoolkit((d / "D1").string(), nullptr, &why);
+        const Result g1 = dbg.export_ghidra((d / "G1").string(), nullptr, &why);
+        std::vector<std::string> ctl, gh_files;
+        for (const std::string& n : ls(d / "D1")) if (n.size() > 4 && n.compare(n.size() - 4, 4, ".ctl") == 0) ctl.push_back((d / "D1" / n).string());
+        for (const std::string& n : ls(d / "G1")) if (n != "view.ghidra.txt") gh_files.push_back((d / "G1" / n).string());
+        dbg.replace_annotations(UserAnnotations{});
+        ReReport rep;
+        const Result i1 = dbg.import_skoolkit(ctl, &rep, &why);
+        const bool same = dbg.annotations() == original;
+        const Result e2 = dbg.export_skoolkit((d / "D2").string(), nullptr, &why);
+        bool bytes = ls(d / "D1") == ls(d / "D2");
+        for (const std::string& n : ls(d / "D1")) bytes = bytes && slurp(d / "D1" / n) == slurp(d / "D2" / n);
+        UserAnnotations labels_only = original;
+        for (const auto& kv : original.entries()) labels_only.set_comment(kv.first.space, kv.first.addr, "");
+        dbg.replace_annotations(UserAnnotations{});
+        const Result i2 = dbg.import_ghidra(gh_files, nullptr, &why);
+        const Result g2 = dbg.export_ghidra((d / "G2").string(), nullptr, &why);
+        bool gbytes = ls(d / "G1") == ls(d / "G2");
+        for (const std::string& n : ls(d / "G1")) gbytes = gbytes && slurp(d / "G1" / n) == slurp(d / "G2" / n);
+        check("SRCDBG-REX-10", "user labels and comments in P10, P04 and ROM0 survive export -> clear -> import -> "
+                               "export: the store equals the original and every .ctl and .bin of the second export "
+                               "equals the first; the same for the labels through the Ghidra files",
+              set && e1 == Result::Ok && g1 == Result::Ok && i1 == Result::Ok && same && e2 == Result::Ok && bytes &&
+                  rep.labels == 3 && rep.comments == 3 && i2 == Result::Ok && dbg.annotations() == labels_only &&
+                  g2 == Result::Ok && gbytes,
+              why + " files=" + join(ls(d / "D1")) + " bytes=" + std::to_string(bytes) + " same=" + std::to_string(same));
+    }
+
+    // SRCDBG-REX-11: an untagged file takes the memory that supplies the address at import.
+    {
+        const fs::path d = g_dir / "r11";
+        fs::create_directories(d);
+        write_text(d / "game.ctl", "c $C000\n@ $C000 label=u1\nB $C000 note\n");
+        write_text(d / "cpu.ctl", "# jnext space CPU\nc $C000\n@ $C000 label=u3\n");
+        write_text(d / "u.txt", "u2 0xC000 l\n");
+        std::string why;
+        std::string got;
+        for (uint16_t pg : {uint16_t(0x10), uint16_t(0x11)}) {
+            Emulator emu; build_next(emu);
+            emu.mmu().set_page(6, static_cast<uint8_t>(pg));
+            Debugger dbg(emu);
+            const Result a = dbg.import_skoolkit({(d / "game.ctl").string()}, nullptr, &why);
+            const auto* x = dbg.annotations().find(MemSpace::page(pg), 0xC000);
+            got += std::string(a == Result::Ok && x && x->label == "u1" && x->comment == "note" ? "A" : "a");
+            Emulator emu2; build_next(emu2);
+            emu2.mmu().set_page(6, static_cast<uint8_t>(pg));
+            Debugger dbg2(emu2);
+            const Result b = dbg2.import_ghidra({(d / "u.txt").string()}, nullptr, &why);
+            const auto* y = dbg2.annotations().find(MemSpace::page(pg), 0xC000);
+            got += std::string(b == Result::Ok && y && y->label == "u2" ? "B" : "b");
+            Emulator emu3; build_next(emu3);
+            emu3.mmu().set_page(6, static_cast<uint8_t>(pg));
+            Debugger dbg3(emu3);
+            const Result c = dbg3.import_skoolkit({(d / "cpu.ctl").string()}, nullptr, &why);
+            const auto* z = dbg3.annotations().find(MemSpace::page(pg), 0xC000);
+            got += std::string(c == Result::Ok && z && z->label == "u3" ? "C" : "c");
+        }
+        check("SRCDBG-REX-11", "a header-less game.ctl, an unprefixed Ghidra file and a 'CPU'-tagged control file key "
+                               "on (P10,$C000) with MMU6=0x10 and on (P11,$C000) with MMU6=0x11",
+              got == "ABCABC", got + " " + why);
+    }
+
+    // SRCDBG-REX-12: merge into the existing store; one revision per import.
+    {
+        const fs::path d = g_dir / "r12";
+        fs::create_directories(d);
+        Emulator emu; build_next(emu);
+        Debugger dbg(emu);
+        std::string why;
+        const MemSpace p10 = MemSpace::page(0x10);
+        dbg.set_user_label(p10, 0xC000, "old", &why);
+        dbg.set_user_comment(p10, 0xC000, "old note", &why);
+        dbg.set_user_label(p10, 0xC100, "dup", &why);
+        write_text(d / "P10.ctl", "c $C000\n@ $C000 label=new\nB $C000 new note\n");
+        write_text(d / "clash.ctl", "# jnext space P10\nc $C000\n@ $C000 label=dup\n");
+        write_text(d / "a.ctl", "# jnext space P10\nc $C200\n@ $C200 label=a1\n");
+        write_text(d / "b.ctl", "# jnext space P10\nc $C300\n@ $C300 label=b1\n");
+        write_text(d / "c.txt", "c1 P10:0xC400 l\n");
+        const uint64_t rev0 = dbg.annotations_revision();
+        const Result ok1 = dbg.import_skoolkit({(d / "P10.ctl").string()}, nullptr, &why);
+        const auto* x = dbg.annotations().find(p10, 0xC000);
+        const bool merged = ok1 == Result::Ok && x && x->label == "new" && x->comment == "new note" &&
+                            dbg.annotations().find(p10, 0xC100) && dbg.annotations_revision() == rev0 + 1;
+        const UserAnnotations before = dbg.annotations();
+        const uint64_t rev1 = dbg.annotations_revision();
+        const Result bad = dbg.import_skoolkit({(d / "clash.ctl").string()}, nullptr, &why);
+        const bool refused = bad == Result::Unsupported && dbg.annotations() == before && dbg.annotations_revision() == rev1 &&
+                             why.find("clash.ctl") != std::string::npos && why.find("line 3") != std::string::npos;
+        const Result three = dbg.import_skoolkit({(d / "a.ctl").string(), (d / "b.ctl").string()}, nullptr, &why);
+        const bool once = three == Result::Ok && dbg.annotations_revision() == rev1 + 1 && dbg.annotations().find(p10, 0xC200) &&
+                          dbg.annotations().find(p10, 0xC300);
+        const Result gh3 = dbg.import_ghidra({(d / "c.txt").string()}, nullptr, &why);
+        check("SRCDBG-REX-12", "an import replaces the label and comment at a key and keeps the other keys, raising the "
+                               "revision once; a name already at another user key refuses the set (Unsupported, the file "
+                               "and line named) with store and revision untouched; two files raise it once",
+              merged && refused && once && gh3 == Result::Ok, why);
+    }
+
+    // SRCDBG-REX-13: a set whose second file is bad changes nothing.
+    {
+        const fs::path d = g_dir / "r13";
+        fs::create_directories(d);
+        Emulator emu; build_next(emu);
+        Debugger dbg(emu);
+        std::string why;
+        write_text(d / "good.ctl", "# jnext space P10\nc $C000\n@ $C000 label=ok\n");
+        write_text(d / "bad.ctl", "# jnext space P10\nc $C000\n@ $C010 label=fine\nc $ZZZZ\n");
+        const uint64_t rev = dbg.annotations_revision();
+        const Result r = dbg.import_skoolkit({(d / "good.ctl").string(), (d / "bad.ctl").string()}, nullptr, &why);
+        const Result m = dbg.import_skoolkit({(d / "good.ctl").string(), (d / "missing.ctl").string()}, nullptr, &why);
+        check("SRCDBG-REX-13", "a bad second file refuses the whole set: the store and revision are unchanged and why "
+                               "is '<file>: line N: ...'; a file that does not exist is RefusedUnavailable",
+              r == Result::Unsupported && dbg.annotations().empty() && dbg.annotations_revision() == rev &&
+                  m == Result::RefusedUnavailable && dbg.annotations().empty(),
+              why);
+        std::string w2;
+        dbg.import_skoolkit({(d / "good.ctl").string(), (d / "bad.ctl").string()}, nullptr, &w2);
+        check("SRCDBG-REX-13a", "the refusal names the file and the line: '.../bad.ctl: line 4: ...'",
+              w2.find("bad.ctl: line 4:") != std::string::npos, w2);
+    }
+
+    // SRCDBG-REX-14: after #387 the export writes what the disassembly shows: a user label over a toolchain label.
+    {
+        const fs::path d = g_dir / "r14";
+        fs::create_directories(d);
+        Emulator emu; build_next(emu);
+        Debugger dbg(emu);
+        const MemSpace p10 = MemSpace::page(0x10);
+        load_labels(dbg, d / "l.sld", {{"banked", 0x10, 0xC000}, {"other", 0x10, 0xC010}});
+        std::string why;
+        dbg.set_user_label(p10, 0xC000, "mine", &why);
+        dbg.set_user_comment(p10, 0xC010, "a note", &why);
+        const Result a = dbg.export_skoolkit((d / "sk").string(), nullptr, &why);
+        const Result b = dbg.export_ghidra((d / "gh").string(), nullptr, &why);
+        const std::string ctl = slurp(d / "sk" / "C000-P10.ctl");
+        const std::string gp = slurp(d / "gh" / "P10.ghidra.txt");
+        check("SRCDBG-REX-14", "a user label shadows the toolchain label at its key in both exports (mine, not banked), "
+                               "the toolchain label of another key stays, and a user comment is written; "
+                               "toolchain_symbols() still holds 'banked' (the export reads the composed table)",
+              a == Result::Ok && b == Result::Ok && has(ctl, "label=mine\n") && !has(ctl, "label=banked") &&
+                  has(ctl, "label=other\n") && has(ctl, " a note") && has(gp, "mine P10:0xC000 l\n") && !has(gp, "banked") &&
+                  dbg.toolchain_symbols().lookup(p10, 0xC000) == std::optional<std::string>("banked"),
+              why + ctl);
+    }
+
+    // SRCDBG-REX-15: the report counts what was not imported.
+    {
+        const fs::path d = g_dir / "r15";
+        fs::create_directories(d);
+        write_text(d / "C000-P10.ctl", kSkool2ctlH);
+        Emulator emu; build_next(emu);
+        Debugger dbg(emu);
+        ReReport rep;
+        std::string why;
+        const Result r = dbg.import_skoolkit({(d / "C000-P10.ctl").string()}, &rep, &why);
+        std::string notes;
+        for (const std::string& n : rep.notes) notes += n + "|";
+        check("SRCDBG-REX-15", "importing skool2ctl's output reports 3 labels, 2 comments and the unimported kinds: 8 "
+                               "block titles, 1 description, 2 other directives",
+              r == Result::Ok && rep.files == 1 && rep.labels == 3 && rep.comments == 2 &&
+                  has(notes, "8 block title(s)") && has(notes, "1 description(s)") && has(notes, "2 other directive(s)"),
+              why + notes);
+    }
 }
 
 int main() {
@@ -831,6 +1256,7 @@ int main() {
     fs::create_directories(g_dir);
 
     pure_rows();
+    reader_rows();
     backend_rows();
 
     fs::remove_all(g_dir);

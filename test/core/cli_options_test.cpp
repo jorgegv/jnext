@@ -1016,6 +1016,7 @@ int main() {
             skip("CLI-COV-01", "--coverage reaches the loop owner",
                  "jnext binary not built at " + bin);
             skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
+                 "jnext binary not built at " + bin);
             skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
                  "jnext binary not built at " + bin);
         } else if (!have_timeout) {
@@ -1062,6 +1063,7 @@ int main() {
             skip("CLI-COV-01", "--coverage reaches the loop owner",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
+                 "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {

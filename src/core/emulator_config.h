@@ -287,6 +287,10 @@ struct EmulatorConfig {
     std::string                                map_file;
     /// `--annotations`: a debugger annotations file (.jdp), loaded before the scripts (GH #387).
     std::string                                annotations_file;
+    // GH #389 stage B (--import-skoolkit, --import-ghidra): files read into the user's labels and
+    // comments at start, after annotations_file (script_host.cpp). Not Preferences fields.
+    std::vector<std::string>                   import_skoolkit_files;
+    std::vector<std::string>                   import_ghidra_files;
     /// `--source-map`: a source map to attach after the first `--load` (empty = none).
     std::string                                source_map_file;
     /// GH #351: 0 a program loads (--source-map follows it); 1 no --load; 2 an RZX replay.

@@ -98,6 +98,8 @@ enum class OptId {
     SourceMap,
     SourceDir,
     Annotations,
+    ImportSkoolkit,
+    ImportGhidra,
     ExportSkoolkit,
     ExportGhidra,
     EsxdosStub,
@@ -886,7 +888,23 @@ inline constexpr Option OPTIONS[] = {
       "toolchain's symbols. Loaded before the scripts. In the Qt\n"
       "debugger, Map > Save Annotations writes back to it. A file that\n"
       "cannot be read or does not parse is a startup error (exit 1)." },
-    // GH #389 (E23-26): the reverse-engineering exports, written when jnext exits.
+    // GH #389 (E23-26): the reverse-engineering imports (at start, repeatable) and exports (at exit).
+    { "--import-skoolkit", 1, Doc::Documented, OptId::ImportSkoolkit,
+      "FILE",
+      "At start, after --annotations, read FILE, a skoolkit control\n"
+      "file, into the debugger's labels and comments (the\n"
+      "`@ ADDR label=NAME` lines and the instruction comments of\n"
+      "B/C/S/T/W sub-blocks; titles and the rest are counted, not\n"
+      "imported). Repeatable. The memory is the file's `# jnext\n"
+      "space TAG` line, else its name (TAG.ctl, WWWW-TAG.ctl), else\n"
+      "the memory mapped at that address when the file is read,\n"
+      "which is before --load runs. A file that does not parse or\n"
+      "cannot be read is a startup error (exit 1) naming the line" },
+    { "--import-ghidra", 1, Doc::Documented, OptId::ImportGhidra,
+      "FILE",
+      "As --import-skoolkit for a Ghidra symbol file (lines `NAME\n"
+      "[TAG:]0xADDR l`, as --export-ghidra writes). Repeatable" },
+    // GH #389 (E23-26): the exports, written when jnext exits.
     { "--export-skoolkit", 1, Doc::Documented, OptId::ExportSkoolkit,
       "DIR",
       "At exit, write the debugger's labels and the code/data map of\n"
