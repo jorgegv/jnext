@@ -1223,11 +1223,14 @@ int main() {
         {
             UserAnnotations u;
             const UserAnnotations before = u;
-            check("UANN-09", "a comment that is not valid UTF-8 (a lone lead byte, 0xFF, an overlong form, a "
-                             "surrogate) is refused and the store is unchanged",
+            check("UANN-09", "a comment that is not valid UTF-8 (a lone or truncated lead byte, 0xFF, overlong forms, a "
+                             "surrogate, past U+10FFFF) is refused and the store is unchanged",
                   !u.set_comment(P04, 0x8000, "\xC3").empty() && !u.set_comment(P04, 0x8000, "\xFF").empty() &&
                       !u.set_comment(P04, 0x8000, "\xC0\x80").empty() &&
-                      !u.set_comment(P04, 0x8000, "\xED\xA0\x80").empty() && u == before &&
+                      !u.set_comment(P04, 0x8000, "\xED\xA0\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xE0\x80\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xF4\x90\x80\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "ab\xC3").empty() && u == before &&
                       u.set_comment(P04, 0x8000, "\xF0\x9F\x98\x80").empty());
         }
         {

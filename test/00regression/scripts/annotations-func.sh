@@ -32,10 +32,10 @@ if want annotations-func; then
     if gdb_launch_cmd "$log" "$JNEXT" --headless --machine next "${SD_CARD_ARGS[@]}" \
             --silent --load "$nex" --annotations "$jdp" --gdb-port 0; then
         for _ in $(seq 1 100); do
-            grep -Eq "$want_line" "$log" && break
+            grep -Eq -e "$want_line" "$log" && break
             sleep 0.1
         done
-        grep -Eq "$want_line" "$log" || fails+=("no '--annotations ...: 2 labels, 1 comment' line in the log")
+        grep -Eq -e "$want_line" "$log" || fails+=("no '--annotations ...: 2 labels, 1 comment' line in the log")
         client="$TMP_DIR/annotations-gdb.py"
         cat >"$client" <<'PY'
 import socket, sys
