@@ -5,9 +5,15 @@
 // with SIGKILL escalation, because a bare SIGTERM bound is decorative (see the
 // comment in cli_options_test.cpp and test/lint-timeouts.sh).
 //
-//   POSIX    the shell line the suite always used: `timeout --kill-after=5s
-//            20s EXE ARGS >OUT 2>ERR </dev/null` (the caller has checked that
-//            timeout(1) exists).
+//   POSIX    `timeout --kill-after=5s 20s env <child environment> EXE ARGS
+//            >OUT 2>ERR </dev/null` (the caller has checked that timeout(1)
+//            exists).
+//
+// The child's environment is fixed here, the one place every child starts: no
+// DISPLAY / WAYLAND_DISPLAY (a mutated or mis-parsing jnext must never open a
+// window or a dialog on the developer's desktop), QT_QPA_PLATFORM=offscreen,
+// SDL_VIDEODRIVER=dummy, and LC_ALL=C LANG=C so its text is the same on every
+// host. Windows builds the same environment block for CreateProcess.
 //   Windows  CreateProcess with the child's stdin on NUL and stdout / stderr on
 //            the given files (NUL when empty), killed after the same 20 s.
 //
@@ -17,6 +23,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
 #ifdef _WIN32
@@ -24,6 +31,28 @@
 #endif
 
 namespace jtp {
+
+#ifdef _WIN32
+// The parent's environment minus the display variables, plus the fixed ones.
+inline std::string child_environment_block() {
+    static const char* const drop[] = {"DISPLAY=", "WAYLAND_DISPLAY=", "QT_QPA_PLATFORM=",
+                                       "SDL_VIDEODRIVER=", "LC_ALL=", "LANG="};
+    std::string block;
+    if (char* env = ::GetEnvironmentStringsA()) {
+        for (const char* e = env; *e; e += std::strlen(e) + 1) {
+            bool skip = false;
+            for (const char* d : drop)
+                if (::_strnicmp(e, d, std::strlen(d)) == 0) skip = true;
+            if (!skip) block.append(e, std::strlen(e) + 1);
+        }
+        ::FreeEnvironmentStringsA(env);
+    }
+    for (const char* v : {"QT_QPA_PLATFORM=offscreen", "SDL_VIDEODRIVER=dummy", "LC_ALL=C", "LANG=C"})
+        block.append(v, std::strlen(v) + 1);
+    block.push_back('\0');
+    return block;
+}
+#endif
 
 inline int run_bounded(const std::string& exe, const std::string& args,
                        const std::string& out_path = {}, const std::string& err_path = {}) {
@@ -47,8 +76,9 @@ inline int run_bounded(const std::string& exe, const std::string& args,
         si.hStdError  = err;
         PROCESS_INFORMATION pi{};
         std::string cmd = "\"" + exe + "\" " + args;   // CreateProcess may edit it
+        std::string envblock = child_environment_block();
         if (::CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-                             nullptr, nullptr, &si, &pi)) {
+                             envblock.data(), nullptr, &si, &pi)) {
             if (::WaitForSingleObject(pi.hProcess, 20000) == WAIT_TIMEOUT) {
                 ::TerminateProcess(pi.hProcess, 124);
                 ::WaitForSingleObject(pi.hProcess, 5000);
@@ -68,7 +98,8 @@ inline int run_bounded(const std::string& exe, const std::string& args,
 #else
     const std::string o = out_path.empty() ? "/dev/null" : "'" + out_path + "'";
     const std::string e = err_path.empty() ? "/dev/null" : "'" + err_path + "'";
-    return std::system(("timeout --kill-after=5s 20s '" + exe + "' " + args +
+    return std::system(("timeout --kill-after=5s 20s env -u DISPLAY -u WAYLAND_DISPLAY "
+                        "QT_QPA_PLATFORM=offscreen SDL_VIDEODRIVER=dummy LC_ALL=C LANG=C '" + exe + "' " + args +
                         " >" + o + " 2>" + e + " </dev/null").c_str());
 #endif
 }
