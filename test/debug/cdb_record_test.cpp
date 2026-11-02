@@ -46,11 +46,21 @@ static void check(const char* id, const char* desc, bool cond) {
 
 static const fs::path kFixtures = JNEXT_Z88DK_FIXTURE_DIR;
 
-// Decode, or an empty record when refused (the row then fails on its own checks).
+// Decode. A refused record comes back as sentinels (four chain elements and four
+// members named REFUSED) that no row expects, so a row indexes safely and fails.
 static CdbRecord dec(const char* text) {
     const CdbDecoded d = cdb_decode(text);
-    if (!d.ok()) std::printf("  note: refused '%s': %s\n", text, d.error.c_str());
-    return d.record;
+    if (d.ok()) return d.record;
+    std::printf("  note: refused '%s': %s\n", text, d.error.c_str());
+    CdbRecord r;
+    CdbTypeElem e;
+    e.kind = CdbTypeKind::Void;
+    e.count = -99;
+    e.tag = "REFUSED";
+    r.var.name = "REFUSED";
+    r.var.type.chain.assign(4, e);
+    r.members.assign(4, CdbMember{});
+    return r;
 }
 
 static bool refused(const char* text, const char* reason_part) {
