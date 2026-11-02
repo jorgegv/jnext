@@ -93,7 +93,9 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
   a closing fence must be the opening character, at least as long.
 - **Quoted text anchors too.** A backticked double-quoted string, such as
   `"unknown memory '"`, anchors a cite when its text between the quotes appears
-  verbatim on a cited line: a parser message identifies its own line.
+  verbatim (case-sensitive) on a cited line: a parser message identifies its own
+  line. The text must be at least 4 characters with a letter or digit among them,
+  so `" "` or `"y"` cannot anchor almost any line.
 - **The output** is one line per failure, `page:line: cite | anchor | what the
   cited line holds`, then a count; the exit status is non-zero on any failure.
 
@@ -120,7 +122,7 @@ side's corrected numbers.
 
 When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are `HS-102`..`HS-152` of `make harness-selftest`.
+rows are `HS-102`..`HS-155` of `make harness-selftest`.
 
 ## The renderer fingerprint
 

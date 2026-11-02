@@ -60,7 +60,8 @@
 # `name`, `Class::name`, `obj.member`, `name()` or `name(args)` (the last
 # component is the anchor), a test ID like `QSRC-195`, or a double-quoted string
 # literal such as `"unknown memory '"`, which anchors a cite when its text (between
-# the quotes) appears verbatim, as a substring, on a cited line (an addition to the
+# the quotes, at least 4 characters with a letter or digit among them) appears
+# verbatim, as a case-sensitive substring, on a cited line (an addition to the
 # owner's four rules: it identifies a parser message by its own text). The anchor must appear
 # as a whole word on the cited line; for a range N-M, on some line in N..M. There
 # is NO +-1 tolerance. No identifier in the sentence: FAIL "unanchored".
@@ -242,11 +243,20 @@ sub excerpt_numbered {
     }
 }
 
+# a quoted-text anchor: a double-quoted span whose text is at least 4 characters
+# long and holds a letter or a digit (so " " and "y" cannot anchor almost any line)
+sub is_literal {
+    my $c = shift;
+    return 0 unless $c =~ /^"(.*)"$/s;
+    my $t = $1;
+    return length($t) >= 4 && $t =~ /[A-Za-z0-9]/ ? 1 : 0;
+}
+
 # a code span that can anchor a cite: an identifier or a test ID, not a file or a cite
 sub is_ident_span {
     my $c = shift;
     return 0 if $c =~ /:\d/ || ($c =~ /^$FT$/ && looks_like_file($c) && (classify($c))[0] ne 'none');
-    return 1 if $c =~ /^[A-Z][A-Z0-9]*-\d+[a-z]?$/ || $c =~ /^".+"$/s;
+    return 1 if $c =~ /^[A-Z][A-Z0-9]*-\d+[a-z]?$/ || is_literal($c);
     (my $id = $c) =~ s/\(.*\)\s*$//s;
     return $id =~ /^[A-Za-z_]\w*(?:(?:::|\.|->)[A-Za-z_]\w*)*$/ ? 1 : 0;
 }
@@ -383,7 +393,7 @@ sub paragraph {
             my $c2 = $sp->[2];
             next if $c2 =~ /:\d/ || ($c2 =~ /^$FT$/ && looks_like_file($c2) && (classify($c2))[0] ne 'none');
             if ($c2 =~ /^[A-Z][A-Z0-9]*-\d+[a-z]?$/) { $anchor = $c2; last }
-            if ($c2 =~ /^"(.+)"$/s) { $anchor = $1; $lit = 1; last }
+            if (is_literal($c2)) { ($anchor) = $c2 =~ /^"(.*)"$/s; $lit = 1; last }
             (my $id = $c2) =~ s/\(.*\)\s*$//s;
             if ($id =~ /^[A-Za-z_]\w*(?:(?:::|\.|->)[A-Za-z_]\w*)*$/) { ($anchor) = $id =~ /([A-Za-z_]\w*)$/; last }
         }

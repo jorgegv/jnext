@@ -3014,7 +3014,9 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:</p>
   a closing fence must be the opening character, at least as long.</li>
 <li><strong>Quoted text anchors too.</strong> A backticked double-quoted string, such as
   <code>"unknown memory '"</code>, anchors a cite when its text between the quotes appears
-  verbatim on a cited line: a parser message identifies its own line.</li>
+  verbatim (case-sensitive) on a cited line: a parser message identifies its own
+  line. The text must be at least 4 characters with a letter or digit among them,
+  so <code>" "</code> or <code>"y"</code> cannot anchor almost any line.</li>
 <li><strong>The output</strong> is one line per failure, <code>page:line: cite | anchor | what the
   cited line holds</code>, then a count; the exit status is non-zero on any failure.</li>
 </ul>
@@ -3040,7 +3042,7 @@ lines moved:</p>
 side's corrected numbers.</p>
 <p>When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are <code>HS-102</code>..<code>HS-152</code> of <code>make harness-selftest</code>.</p>
+rows are <code>HS-102</code>..<code>HS-155</code> of <code>make harness-selftest</code>.</p>
 <h2 id="the-renderer-fingerprint">The renderer fingerprint<a class="headerlink" href="#the-renderer-fingerprint" title="Permanent link">&para;</a></h2>
 <p>pandoc, mkdocs-material and graphviz all emit byte-different output across
 their own versions for identical input. A byte-diff against outputs that were

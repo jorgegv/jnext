@@ -3073,7 +3073,7 @@ verdict on the real tree is trusted at all:</p>
 </ul>
 <p>The developer-guide cite check, <code>test/lint-devguide-cites.pl</code> (GH #430, see
 <a href="05-documentation-and-cli-gates.html#the-developer-guide-cite-rule">4.5</a>), is not self-checking
-like those: the harness self-test runs it against throwaway trees (HS-102 to HS-152), and each
+like those: the harness self-test runs it against throwaway trees (HS-102 to HS-155), and each
 row was shown to go red when the behaviour it pins is mutated out of the script. HS-102 pins
 the <em>command</em> in the <code>unit-test</code> and <code>regression</code> dry runs, not the target name. The rows cover:
 an exact cite and a declared external one passing; a cite one line off, an unanchored one (also
@@ -3094,7 +3094,9 @@ a bare <code>:N</code> continuation without a symbol, a coincidental match elsew
 symbol right before the parenthesis, a symbol inside the parenthesis winning over it, the innermost
 parenthesis being the scope, a closed parenthesis ending its scope, a cite span in the
 parenthesis not counting as its symbol, a test ID there counting as one, a closed parenthesis not affecting a later cite) and a
-quoted string literal anchoring a cite only when it is on the line and the <code>.dot</code> comment-block grouping.</p>
+quoted string literal anchoring a cite only when it is on the line (case-sensitive, at least 4
+characters with a letter or digit, also on the last line of a range), and <code>JNEXT_CITES_DUMP</code>
+writing the checked cites and the <code>.dot</code> comment-block grouping.</p>
 <p>Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.</p>
 
