@@ -2595,7 +2595,7 @@ static void test_map_load() {
 
     Fixture fx;
     if (!fx.ok) {
-        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07", "QMAP-08", "QMAP-09"})
+        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07", "QMAP-08", "QMAP-09", "QMAP-10"})
             check(id, "fixture", false);
         return;
     }

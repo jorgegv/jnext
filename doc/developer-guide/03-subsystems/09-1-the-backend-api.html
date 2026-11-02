@@ -3489,7 +3489,7 @@ it is not in <code>.jns</code>.</p>
 </tr>
 <tr>
 <td><code>set_user_comment(space, addr, text, why)</code></td>
-<td>sets the comment; empty text removes it; CRLF and CR become LF; <code>Unsupported</code> for text that is not UTF-8</td>
+<td>sets the comment; empty text removes it; CRLF and CR become LF; <code>Unsupported</code> for the Cpu space, a memory the file cannot name, or text that is not UTF-8</td>
 </tr>
 <tr>
 <td><code>annotations()</code>, <code>annotations_revision()</code></td>
@@ -3497,7 +3497,7 @@ it is not in <code>.jns</code>.</p>
 </tr>
 <tr>
 <td><code>load_annotations(path, why)</code>, <code>save_annotations(path, why)</code></td>
-<td>the <code>.jdp</code> file: a load replaces the whole store or leaves it as it was (<code>Unsupported</code>, <code>line N: ...</code>; <code>RefusedUnavailable</code> for a file that cannot be read); a save writes <code>PATH.part</code> and renames it</td>
+<td>the <code>.jdp</code> file: a load replaces the whole store or leaves it as it was (<code>Unsupported</code>, <code>line N: ...</code>; <code>RefusedUnavailable</code> for a file that cannot be read); a save writes <code>PATH.part</code> and renames it, and is <code>RefusedUnavailable</code> when it cannot write</td>
 </tr>
 <tr>
 <td><code>replace_annotations(a)</code></td>

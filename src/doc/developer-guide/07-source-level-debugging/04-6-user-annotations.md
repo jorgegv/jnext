@@ -12,8 +12,8 @@ JNEXT. The Qt Map menu opens and saves it (stage 2 of #387); `--annotations FILE
 loads one at start-up (`src/main.cpp:884` parses it, `src/main.cpp:2176` puts it
 in the configuration, and `ScriptHost::start()` loads it at
 `src/script/script_host.cpp:201-215`, after `--map` and before the scripts, so a
-script's `@name` of the file resolves). No other tool writes it yet; #389's
-skoolkit and Ghidra export will read and write it through `replace_annotations()`.
+script's `@name` of the file resolves). `replace_annotations()` is the
+primitive an import builds on.
 
 ## 2. The producer's writer
 
@@ -122,13 +122,15 @@ adds the user labels first and then `merge()`s the toolchain table, so by addres
 and by name the user wins, and the C-name rule of [7.4.3](04-3-z88dk-map.md) holds
 inside the one table. `symbols()`, `lookup()` and `lookup_name()` return `names`,
 so every consumer reads both layers with no code of its own.
+`names` is assigned in place, so the `const SymbolTable*` the Disassembly, Call Stack
+and Breakpoints panels hold (`set_symbol_table(&dbg_.symbols())`) stays valid.
 
 It is called after every change of either layer: the toolchain writers
 (`src/debug/debugger.cpp:270` `load_map()`, `:284` `clear_symbols()`;
 `src/debug/debugger_source.cpp:409` the deferred-check drop, `:542` and `:549` the
 hand SLD's labels, `:773` the program-load attach and its `bind()`, `:937`
-`drop_sidecars()`, `:1035` and `:1041` the ring landing) and every annotation verb
-(`src/debug/debugger_annotations.cpp:68`, `:77`, `:108`). The attachment cache
+`drop_sidecars()`, `:1035` and `:1041` the ring landing) and every verb that changes a label
+(`src/debug/debugger_annotations.cpp:68`, `:77`, `:108`; `set_user_comment()` changes no name and does not). The attachment cache
 copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:888`),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.

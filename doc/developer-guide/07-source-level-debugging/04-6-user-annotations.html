@@ -2940,8 +2940,8 @@ fills a third store, <code>UserAnnotations</code>, which sits beside the toolcha
 loads one at start-up (<code>src/main.cpp:884</code> parses it, <code>src/main.cpp:2176</code> puts it
 in the configuration, and <code>ScriptHost::start()</code> loads it at
 <code>src/script/script_host.cpp:201-215</code>, after <code>--map</code> and before the scripts, so a
-script's <code>@name</code> of the file resolves). No other tool writes it yet; #389's
-skoolkit and Ghidra export will read and write it through <code>replace_annotations()</code>.</p>
+script's <code>@name</code> of the file resolves). <code>replace_annotations()</code> is the
+primitive an import builds on.</p>
 <h2 id="2-the-producers-writer">2. The producer's writer<a class="headerlink" href="#2-the-producers-writer" title="Permanent link">&para;</a></h2>
 <p><code>write_annotations()</code>, <code>src/debug/annotations_file.cpp:69-77</code>: the header line
 <code>jnext-annotations 1</code>, then, for each entry in <code>UserAnnotations::entries()</code> order,
@@ -3028,13 +3028,15 @@ their composition. <code>recompose_names()</code> (<code>src/debug/debugger_anno
 adds the user labels first and then <code>merge()</code>s the toolchain table, so by address
 and by name the user wins, and the C-name rule of <a href="04-3-z88dk-map.html">7.4.3</a> holds
 inside the one table. <code>symbols()</code>, <code>lookup()</code> and <code>lookup_name()</code> return <code>names</code>,
-so every consumer reads both layers with no code of its own.</p>
+so every consumer reads both layers with no code of its own.
+<code>names</code> is assigned in place, so the <code>const SymbolTable*</code> the Disassembly, Call Stack
+and Breakpoints panels hold (<code>set_symbol_table(&amp;dbg_.symbols())</code>) stays valid.</p>
 <p>It is called after every change of either layer: the toolchain writers
 (<code>src/debug/debugger.cpp:270</code> <code>load_map()</code>, <code>:284</code> <code>clear_symbols()</code>;
 <code>src/debug/debugger_source.cpp:409</code> the deferred-check drop, <code>:542</code> and <code>:549</code> the
 hand SLD's labels, <code>:773</code> the program-load attach and its <code>bind()</code>, <code>:937</code>
-<code>drop_sidecars()</code>, <code>:1035</code> and <code>:1041</code> the ring landing) and every annotation verb
-(<code>src/debug/debugger_annotations.cpp:68</code>, <code>:77</code>, <code>:108</code>). The attachment cache
+<code>drop_sidecars()</code>, <code>:1035</code> and <code>:1041</code> the ring landing) and every verb that changes a label
+(<code>src/debug/debugger_annotations.cpp:68</code>, <code>:77</code>, <code>:108</code>; <code>set_user_comment()</code> changes no name and does not). The attachment cache
 copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:888</code>),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.</p>

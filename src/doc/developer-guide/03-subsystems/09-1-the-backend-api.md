@@ -301,9 +301,9 @@ it is not in `.jns`.
 |---|---|
 | `set_user_label(space, addr, name, why)` | names `addr` in `space` (a rename when the key has a label); `Unsupported` with `why` for the Cpu space, a memory the file cannot name, a bad name, a name in use, or a name the loaded symbols give another address or memory |
 | `remove_user_label(space, addr)` | removes the user's label; `RefusedUnavailable` when there is none (the toolchain's is untouched) |
-| `set_user_comment(space, addr, text, why)` | sets the comment; empty text removes it; CRLF and CR become LF; `Unsupported` for text that is not UTF-8 |
+| `set_user_comment(space, addr, text, why)` | sets the comment; empty text removes it; CRLF and CR become LF; `Unsupported` for the Cpu space, a memory the file cannot name, or text that is not UTF-8 |
 | `annotations()`, `annotations_revision()` | the store, and a counter that rises with each successful change |
-| `load_annotations(path, why)`, `save_annotations(path, why)` | the `.jdp` file: a load replaces the whole store or leaves it as it was (`Unsupported`, `line N: ...`; `RefusedUnavailable` for a file that cannot be read); a save writes `PATH.part` and renames it |
+| `load_annotations(path, why)`, `save_annotations(path, why)` | the `.jdp` file: a load replaces the whole store or leaves it as it was (`Unsupported`, `line N: ...`; `RefusedUnavailable` for a file that cannot be read); a save writes `PATH.part` and renames it, and is `RefusedUnavailable` when it cannot write |
 | `replace_annotations(a)` | replaces the whole store (what an import builds offline) |
 | `toolchain_symbols()` | the loaded layer alone (the Load MAP messages count this) |
 
