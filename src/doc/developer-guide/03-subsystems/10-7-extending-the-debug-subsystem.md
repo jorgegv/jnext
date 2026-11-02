@@ -162,3 +162,12 @@ the engine's subscription and the `SCRIPT-EV` rows — are in
 [3.10.6](13-the-debugger-scripting-language.md#adding-an-event-kind). The Qt
 breakpoint list needs a name for the kind in `breakpoint_model.cpp`, and the
 GDB server's `monitor` listing one in `rsp_server.cpp`.
+
+## Adding a source format
+
+A new assembler, compiler or linker output that should feed the symbol table or the source map is a
+producer, not a verb or an event: it is an adapter behind the loaders. The contract, the checklist (ground
+truth first, the extent and space rules before code, qualified ranges only, look before opening, dispatch by
+content, the sidecar search, identity, rows, docs) and the fixtures are in
+[7.8](../07-source-level-debugging/08-tests-and-new-producers.md); the page each format gets is laid out in
+[7.4](../07-source-level-debugging/04-formats.md).

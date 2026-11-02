@@ -128,8 +128,8 @@ std::string physical_text(MemSpace s, uint16_t addr) {
         case Kind::Config:      return sram((s.index << 14) | off);             // :3044-3050
         case Kind::MultifaceRom: return sram(0x014000u | off);                  // :2923
         case Kind::MultifaceRam: return sram(0x016000u | off);
-        case Kind::DivMmcRom:   return sram(0x010000u | off);                   // divmmc.vhd:94
-        case Kind::DivMmcRam:   return sram(0x020000u + s.index * 0x2000u + off);   // :95-96
+        case Kind::DivMmcRom:   return sram(0x010000u | off);                   // zxnext.vhd:2921,3085
+        case Kind::DivMmcRam:   return sram(0x020000u + s.index * 0x2000u + off);   // zxnext.vhd:2926,3093
     }
     return "";
 }

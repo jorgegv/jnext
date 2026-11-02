@@ -183,9 +183,11 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
         // its files freely (`--sym=<filename>`), and z88dk's assembler writes
         // a `.sym` of its own, in the map format (GH #390). One backend call
         // reads the file once, so `--map <(cmd)` (a pipe) works.
-        const auto n = dbg.load_map(opt.map_file, dbg::MapFormat::Z88dkOrSjasmplus);
+        std::string why;
+        const auto n = dbg.load_map(opt.map_file, dbg::MapFormat::Z88dkOrSjasmplus, &why);
         if (!n) {
-            error("--map " + opt.map_file + ": cannot be loaded (" + dbg::result_name(n.status) + ")");
+            error("--map " + opt.map_file + ": cannot be loaded (" + dbg::result_name(n.status) + ")" +
+                  (why.empty() ? std::string() : ": " + why));
             return false;
         }
         if (n.value == 0) {

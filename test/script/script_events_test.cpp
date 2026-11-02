@@ -30,6 +30,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
+#include "debug/source_file.h"
 #include "debug/event_table.h"
 #include "platform/emulator_boot.h"
 #include "peripheral/dma.h"
@@ -2402,6 +2403,24 @@ static void host_rows() {
                   g.dbg->lookup_name("_main_loop") == std::optional<uint16_t>(0x8000) && ok2 &&
                   h.sink.count("--map " + p.map_file + ": 13 symbols") == 1,
               g.sink.tail(2) + h.sink.tail(2));
+    }
+    {
+        // GH #427 stage 2a: a --map over the size cap is refused, and the one error line gives the reason.
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = tmp_file("big.map", "X: EQU 0x00001234\n");
+        std::error_code ec;
+        std::filesystem::resize_file(o.map_file, SOURCE_FILE_MAX_BYTES + 1, ec);   // sparse
+        const bool ok = g.start(o);
+        const std::string want = "--map " + o.map_file +
+                                 ": cannot be loaded (refused_unavailable): input is over the " +
+                                 std::to_string(SOURCE_FILE_MAX_BYTES) + "-byte limit";
+        check("SCRIPT-HOST-MAP-CAP", "--map on a file over the size cap is a failed start with exactly one "
+                                     "line: the path, \"cannot be loaded (refused_unavailable)\" and the "
+                                     "reason naming the limit",
+              !ok && !g.host->active() && g.sink.count(want) == 1 && g.sink.lines.size() == 1,
+              g.sink.tail(2));
+        std::filesystem::remove(o.map_file);
     }
     {
         // sjasmplus writes a 0-byte --exp when nothing is EXPORTed.

@@ -1,0 +1,52 @@
+// The life of an attachment: chapter 7.6.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/srcdbg-lifetime.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// A state graph of what happens to the stores when the machine is replaced.
+// Top: how a map is attached (verified, pending for a tape, or unverified).
+// Middle: a landing marks the generation; recheck() judges it, run first by
+// every reader and writer. Bottom: the three outcomes, and the tape verify
+// window.
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph srcdbg_lifetime {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    ranksep=0.5;
+    nodesep=0.3;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    subgraph cluster_attach {
+        label="attach";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        a0 [label="load_program_sidecars() / load_source_map()\lbegin_generation() (sidecars)\l"];
+        a1 [label="verified\lidentity matched memory now\l"];
+        a2 [label="pending\ltape: identity waits for the program\l(DeferredCheck + verify window)\l"];
+        a3 [label="unverified\lthe map carries no identity\l"];
+        a0 -> a1; a0 -> a2; a0 -> a3;
+    }
+
+    land [label="machine replaced\lImpl::machine_replaced()\lring restore: ring_pending\lany other landing: begin_generation(), landing_pending\l", shape=box3d, style="filled", fillcolor="#e9d3d6"];
+
+    rc [label="Impl::recheck()\lrun first by every reader and writer, and by pump()\lapply_deferred() first\l", fillcolor="#f5dfe2"];
+
+    r1 [label="ring restore\lthe attachment cache holds the landing's generation?\lyes: its stores come back (cache of 4)\lno: dropped, 'before the program was loaded'\l"];
+    r2 [label="any other landing\lidentity vs memory now (verify_program())\lmatch: kept; recorded for a second look at the next pause\lmismatch, or none: sidecars dropped,\l the user's map goes Stale\l"];
+    r3 [label="tape verify window\lverify_window_hit(pc) -> verify_hook()\lpredict_fetch(pc) picks the span; the unit is judged\lthe verdict is only RECORDED here\lapplied by the next recheck(): keep or drop\l"];
+
+    a1 -> land [label=" a reset, a state or\l snapshot load, an RZX start,\l a rewind\l"];
+    a3 -> land;
+    a2 -> r3;
+    a2 -> land [label=" a landing judges it whole\l"];
+    land -> rc;
+    rc -> r1;
+    rc -> r2;
+    r3 -> rc [style=dashed, label=" verify_due\l"];
+    r2 -> a1 [style=dashed, label=" kept"];
+}

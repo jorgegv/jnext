@@ -1,0 +1,87 @@
+// The source-level debugger's data flow: chapter 7.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/srcdbg-overview.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Left to right: the files a toolchain writes, the format adapters that read
+// them, the two stores they fill, the backend that owns the stores, and the
+// readers. The machine enters at the stores' key: every lookup asks which
+// memory supplies an address NOW (a FetchSource), not only the address.
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph srcdbg_overview {
+    bgcolor="transparent";
+    rankdir=LR;
+    fontname="Helvetica";
+    ranksep=0.55;
+    nodesep=0.22;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    subgraph cluster_files {
+        label="files (7.4)";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        sld   [label="sjasmplus --sld\l<stem>.sld\l"];
+        equ   [label="sjasmplus --sym / --exp\lNAME: EQU 0x...\l"];
+        map   [label="z88dk -m (-debug)\l<stem>.map\l"];
+        lis   [label="z88dk --list\l*.lis, <stem>_<GROUP>.bin\l"];
+        mem   [label="zxbc -M\lMemory.txt\l"];
+    }
+
+    subgraph cluster_adapters {
+        label="adapters (7.3)";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        a_sld [label="load_sld()\lsld_loader.cpp\l"];
+        a_z   [label="load_z88dk_source_map()\lz88dk_source_map.cpp\lz88dk_lis.cpp\l"];
+        a_sym [label="SymbolTable::load_*()\lsymbol_table.cpp\l"];
+    }
+
+    subgraph cluster_stores {
+        label="stores, owned by Debugger::Impl";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        sm  [label="SourceMap (7.2)\lranges {FetchSource, lo, hi, file:line}\laliases, embedded texts\lprogram identity\l", shape=box3d, style="filled", fillcolor="#e9d3d6"];
+        st  [label="SymbolTable\llabels keyed by (FetchSource, address)\lnames, name-only values\l", shape=box3d, style="filled", fillcolor="#e9d3d6"];
+        own [label="owner of each store\lNone / Sidecar / User\l"];
+    }
+
+    machine [label="Emulator::predict_fetch()\lwhich memory supplies the opcode at PC\l(7.1)\l", fillcolor="#f5dfe2"];
+
+    life [label="lifetime (7.6)\lload generation, recheck()\lring cache, tape verify window\l", fillcolor="#f5dfe2"];
+
+    subgraph cluster_readers {
+        label="readers";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        r_loc [label="source_location(addr)\lexecuted_source_lines(file)\lsymbols(), lookup()\l"];
+        r_run [label="source-line breakpoints,\lrun_to_source_line(),\lsource_step() (7.5)\l"];
+        r_fe  [label="frontends: Source tab, gutter,\lDisassembly, Call Stack,\lGDB monitor, scripts\l"];
+    }
+
+    sld -> a_sld;
+    equ -> a_sym;
+    map -> a_z;
+    map -> a_sym;
+    lis -> a_z;
+    mem -> a_sym;
+
+    a_sld -> sm;
+    a_sld -> st [label=" L records"];
+    a_z   -> sm;
+    a_sym -> st;
+
+    sm -> own [arrowhead=none];
+    st -> own [arrowhead=none];
+    life -> own [style=dashed, label=" keeps, drops,\l marks stale\l"];
+
+    machine -> r_loc [label=" FetchSource\l of the address\l"];
+    sm -> r_loc;
+    st -> r_loc;
+    sm -> r_run;
+    r_loc -> r_fe;
+    r_run -> r_fe;
+}
