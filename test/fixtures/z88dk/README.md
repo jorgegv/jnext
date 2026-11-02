@@ -32,7 +32,7 @@ build. `README.md` is not hashed; everything else (sources, script, outputs) is.
 
 ## Builds
 
-All `zcc +zxn`, `LANG=C`. Plain builds compile `main.c util.c asmfn.asm`; `subdir`
+All `zcc +zxn`, `LANG=C`. Plain builds compile `main.c util.c asmfn.asm` (the `*-cvars` builds `vars.c other.c`, `*-fc` `fc.c`; the new banked sources are `bk.c` and `bkmain.c`, since `bmain.c` is the older banked fixture's); `subdir`
 moves `util.c` to `game/util.c`; banked builds compile `banked.c` with `--codeseg<SEG>`,
 then link `bmain.c bankin.asm banked.o`. Link flags: `-m --list -subtype=nex -o prog -create-app`.
 The exact commands are the `+ zcc ...` lines of each `build.log`.
@@ -60,6 +60,10 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | master/sccz80-dot, sccz80-dotx, sdcc-dot, 80cc-dot | `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #351 |
 | master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix; keeps the classic CRT listing (G19-G21) |
 | master/classic-debug | `-clib=classic -debug`, `BANK_10` | **fails rc=1** | Z1 |
+| v2.4/sccz80-cvars, master/sccz80-cvars, master/sdcc-cvars, master/80cc-cvars | `vars.c other.c` (+ `types.h`): `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #431: C variable records of every type (section "C variables") |
+| v2.4/sdcc-cvars | `-clib=sdcc_iy -debug`, `vars.c other.c` | **fails rc=1** | z88dk#3172, as `v2.4/sdcc-debug` |
+| v2.4/sccz80-cvars-banked, master/{sccz80,sdcc,80cc}-cvars-banked | `bk.c` compiled with `--codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20`, then `bkmain.c bk.o`, the compiler flags of the line above + `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` | ok | GH #431: banked code AND data (runnable, as the `-run` builds) |
+| v2.4/sccz80-fc, master/{sccz80,sdcc,80cc}-fc | `fc.c` only, as the `incmid` builds | ok | GH #431: `__z88dk_fastcall` and `__z88dk_callee` |
 
 The dot builds (`dot:<subtype>` in `generate.sh`) compile `dot.c dutil.c` with `-subtype=dot|dotx|dotn`
 instead of `-subtype=nex`. Classic dot is not built: `-debug` fails (Z1) and without it there are no lines.
@@ -162,6 +166,78 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
   fails with `Unknown option2 --vt100`, on both installs.
 - Z2 (known upstream TODO): master sdcc labels header code compiled into a second module
   with the wrong line (`util_inc` in `util_c` shows as `util.h:9`, really line 7).
+
+## C variables (GH #431, epic #353)
+
+The `*-cvars`, `*-cvars-banked` and `*-fc` builds exist to give the C variable records
+(`__CDBINFO__`) a ground truth. Everything below was read from the committed maps with a
+small decoder (undo z80asm's `_hh` escaping of the name; the module is the 4th `;` field),
+and the `.lis` files; all builds are `-debug`, `TMPDIR=/tmp`.
+**Which install produced what:** `v2.4/` = 4d530b6eb, `master/` = 39421a01cd (the installed
+latest, kept as the fixture base; it predates upstream PR #3221). 80cc exists only in `master/`.
+
+Records kept per build (F functions, M modules, S variables, T types; total in the map):
+
+| build | total | F / M / S / T |
+|-------|-------|---------------|
+| v2.4/sccz80-cvars, master/sccz80-cvars | 53 | 3 / 0 / 45 / 5 (the two record sets are identical) |
+| master/sdcc-cvars | 63 | 3 / 2 / 48 / 10 |
+| master/80cc-cvars | 55 | 3 / 2 / 45 / 5 |
+| v2.4/sdcc-cvars | none | does not build (z88dk#3172, `build.log`) |
+| banked: v2.4 sccz80, master sccz80 / sdcc / 80cc | 10 / 10 / 13 / 11 | |
+| fc: 2.4 sccz80, master sccz80 / sdcc / 80cc | 9 / 9 / 13 / 10 | |
+
+Facts the decoder and the frame rows rely on (each checked in the files named):
+
+- The kind is the first letter: `F:` function, `M:` module (zsdcc and 80cc only), `S:` variable,
+  `T:` struct/union type. `S:G$` global, `S:F<scope>$` file static, `S:L<scope>.<func>$` local or
+  parameter. The address space follows the type: `E` (data symbol), `B,1,<offset>` (stack),
+  `R,0,0,[regs]` (registers; `[]` = optimised out), `C` function, `D` literal (zsdcc `__str_2`).
+- The type chain is `({size}...)`: sccz80/80cc `DA3x`, zsdcc `DA3d` for an array of 3; `DG` pointer
+  (zsdcc function pointers `DC,DF`); `STpoint:S` struct; `SC/SI/SL/SF:{S,U}`. `char` is signed in
+  sccz80/80cc (`g_char` `SC:S`) and unsigned in zsdcc (`SC:U`); `float` is `{6}SF` (sccz80, 80cc) and
+  `{4}SF` (zsdcc); an enum variable is `SI:S` (sccz80/80cc, 2 bytes) or `SC:U` (zsdcc, 1 byte).
+- `g_float = 1.5` in the data: `00 00 00 00 40 81` (6-byte z88dk format, sccz80 and 80cc, `_g_float`
+  $904A on 2.4 / $904C on master sccz80 / $8FD7 80cc) and `00 00 c0 3f` (IEEE single, zsdcc, $8F44).
+  Read from `prog_CODE.bin` at (address - `__CODE_head` $8000).
+- sccz80 writes a second, incomplete-array record for `g_str`: `({-1}DA-1x,SC:S)` beside `({3}DA3x,SC:S)`.
+- sccz80/80cc enumerators are records with an empty type (`S:G$RED$0_0$0({0}),E,0,0`); zsdcc has none.
+- Bitfields: zsdcc `T:Fvars$flags[...({1}SB0$3:U)({1}SB3$5:U)...]` carries start and width; sccz80/80cc
+  write `({2}SI:U)` members at offsets 0, 0, 1 with no bit layout.
+- Types are scoped by the declaring header in sccz80/80cc (`T:Ftypes.h$point`, one copy), by module in
+  zsdcc (`T:Fvars$point` and `T:Fother$point`).
+- A global function's `F:G$` record is emitted by each declaring module and collapses to one map line
+  whose module column is the first declarer's: `F:G$other` has `mod=vars_c` in the sccz80/80cc maps
+  (`types.h` declares it) and `mod=other_c` in zsdcc's. Take a function's address from `_<name>`.
+- File statics with one name in two files: `_s_dup` is `other_c` $9069 and `vars_c` $909F
+  (master sccz80), $8F62 / $8F96 (master sdcc), $8FF4 / $902A (80cc); records
+  `S:Fvars.c$s_dup` / `S:Fother.c$s_dup` (zsdcc `S:Fvars$s_dup` / `S:Fother$s_dup`).
+- Static local `calls` in `sum`: sccz80/80cc `S:Fvars.c$st_sum_calls$1_0$1`, symbol `_st_sum_calls`
+  ($90A0 master sccz80, $902B 80cc); zsdcc `S:Lvars.sum$calls$1_0$10`, symbol `_sum_calls_10000_10`
+  ($8F97).
+- Stack offsets (`B,1,n`) in `sum(a, b, p, k)`: sccz80 and 80cc `a`=+10, `b`=+8, `p`=+6, `k`=+4 (first
+  argument pushed first); zsdcc `a`=+4, `b`=+6, `p`=+8, `k`=+10. Locals are negative. The frame
+  layout differs between sccz80 and 80cc: `t` is -2 / -8, `inner` -8 / -2, `main`'s `lp` -5 / -25,
+  `arr` -13 / -20.
+- zsdcc keeps `t` in `[c,b]` and `inner` in `[l,h]`, `acc`, `big`, `c`, `pp` as `[]` (optimised out)
+  and adds compiler temporaries `sum$sloc0`, `sum$sloc1`, `main$sloc0` (`B`, level/sub `0_1`); zsdcc
+  also writes `S:G$main`/`S:G$other` and `S:Fvars$sum` as `C`-space function records, and its `F:G$main`
+  has frame size 13 in field 4.
+- Frame keeping, from the listings: sccz80 `call l_debug_push_frame` in every function; zsdcc
+  `push ix` in every function; 80cc mixes the two per function (`vars.c`: `sum` and `main` `push ix`,
+  `other.c`: `other` calls `l_debug_push_frame`). Whether `fp = SP at entry - 2` for all three was
+  measured by the planner of #353 with z88dk-ticks and is not re-run by this fixture.
+- `fc.c`: sccz80 (both installs) records the `__z88dk_fastcall` parameter `x` at `B,1,4`, its
+  nominal slot; 80cc records `B,1,-2`; zsdcc records `R,0,0,[l,h]`. `__z88dk_callee`: sccz80/80cc
+  `a`=+6, `b`=+4; zsdcc `a`=+4, `b`=+6.
+- Banked (`bk.c` in PAGE_20, code, const and data): `_btable` $14C000, `_bdata` $14C004, `_bk_sum`
+  $14C005 on sccz80 / 80cc (24-bit values, page 20); zsdcc orders them `_bk_sum` $14C000, `_btable`
+  $14C024, `_bdata` $14C028. Records are the same shape as unbanked. zsdcc writes no `S:G$btable`
+  (a `const` global), and 80cc writes no record for `main`'s `loc` (sccz80 does:
+  `S:Lbkmain.c.main$loc$1_0$2({1}SC:U),B,1,-1`; zsdcc `R,0,0,[]`).
+
+Not producible: `v2.4/sdcc-cvars` (z88dk#3172). Not built here: zsdcc `-O0` (no records), `+zxn`
+classic `-debug` (Z1), sdcc_ix (the planner measured records identical to sdcc_iy; not re-run here).
 
 ## Normalisation and trimming (in `generate.sh`)
 

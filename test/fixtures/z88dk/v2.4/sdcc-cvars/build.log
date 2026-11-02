@@ -1,0 +1,82 @@
+# z88dk 4d530b6eb779ad0f2a1d13c0bb670cf717477501 (v2.4)
++ zcc +zxn -clib=sdcc_iy -debug -m --list -subtype=nex -o prog -create-app vars.c other.c
+vars.c:66: warning 126: unreachable code
+vars.c:244: error: syntax error
+  ^---- defc Gg_bptr0_00==.
+      ^---- defc Gg_bptr0_00=.
+vars.c:247: error: syntax error
+  ^---- defc Gg_pts0_00==.
+      ^---- defc Gg_pts0_00=.
+vars.c:250: error: syntax error
+  ^---- defc Gg_rect0_00==.
+      ^---- defc Gg_rect0_00=.
+vars.c:253: error: syntax error
+  ^---- defc Gg_word0_00==.
+      ^---- defc Gg_word0_00=.
+vars.c:256: error: syntax error
+  ^---- defc Gg_node0_00==.
+      ^---- defc Gg_node0_00=.
+vars.c:259: error: syntax error
+  ^---- defc Gg_head0_00==.
+      ^---- defc Gg_head0_00=.
+vars.c:262: error: syntax error
+  ^---- defc Gg_flags0_00==.
+      ^---- defc Gg_flags0_00=.
+vars.c:265: error: syntax error
+  ^---- defc Gg_fnptr0_00==.
+      ^---- defc Gg_fnptr0_00=.
+vars.c:268: error: syntax error
+  ^---- defc Gg_fnptr20_00==.
+      ^---- defc Gg_fnptr20_00=.
+vars.c:271: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXXs_dup0_00==.
+      ^---- defc F_tmp_tmpXXXXXXXXs_dup0_00=.
+vars.c:274: error: syntax error
+  ^---- L_tmp_tmpXXXXXXXX.sumcalls1_05==.
+      ^---- L_tmp_tmpXXXXXXXX.sumcalls1_05=.
+vars.c:479: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__str_20_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__str_20_00=.
+vars.c:485: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_int0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_int0_00=.
+vars.c:488: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_uint0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_uint0_00=.
+vars.c:491: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_schar0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_schar0_00=.
+vars.c:494: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_char0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_char0_00=.
+vars.c:497: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_long0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_long0_00=.
+vars.c:500: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_ulong0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_ulong0_00=.
+vars.c:503: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_float0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_float0_00=.
+vars.c:506: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_str0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_str0_00=.
+vars.c:510: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_cptr0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_cptr0_00=.
+vars.c:513: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_matrix0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_matrix0_00=.
+vars.c:521: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_pt0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_pt0_00=.
+vars.c:526: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_colour0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_colour0_00=.
+vars.c:529: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_byte0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_g_byte0_00=.
+vars.c:532: error: syntax error
+  ^---- defc F_tmp_tmpXXXXXXXX__xinit_s_file0_00 == .
+      ^---- defc F_tmp_tmpXXXXXXXX__xinit_s_file0_00=.
+rc=1
