@@ -9,7 +9,10 @@
 - Every Preferences setting can be set from the command line: --set section.key=value, plus --cpu-speed, --scale and --crt
 
 ### Developer Features
-- Source-level debugging: C (z88dk) and asm/Boriel (SLD) source tab, line steps, file:line breakpoints, banked code
+- Source-level debugging of z88dk C programs, banked code and dot commands; Source tab gutter, syntax colours, context menu
+- Debugger views name the memory behind every address (P0E, ROM0, DIVROM); optional physical addresses
+- Your own labels and comments, saved in a .jdp project file; z88dk C names (counter for _counter)
+- Memory coverage by execute, read and write; skoolkit and Ghidra export and import of labels, comments and code/data map
 - Debugger Watches panel shows every integer watch in hex and decimal, e.g. $D0 (208d)
 
 ### Bug Fixes
@@ -21,7 +24,7 @@
 - NextPi enabled in Preferences no longer starts QEMU when jnext starts a non-Next machine
 
 ### Contributors in this release
-- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj, @jattree, @jon263
+- @clebin, @suborb, @vmorilla, @beef-pl, @shadowphiar, @janko-jj, @jattree
 
 ## v1.1.87 (2026-10-24)
 
