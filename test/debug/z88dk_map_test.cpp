@@ -569,6 +569,45 @@ int main() {
                   !program_loads_later("a.nex") && !program_loads_later("a.sna") && !program_loads_later("tap"));
     }
     {
+        // GH #427 stage 2a: the two sjasmplus-capable symbol loaders obey the same cap.
+        // Sparse, so it costs no disk. The reads stop at the cap, they do not need the file.
+        const fs::path huge = dir / "huge.sym";
+        write_text(huge, "X: EQU 0x00001234\n");
+        fs::resize_file(huge, SOURCE_FILE_MAX_BYTES + 1);
+        const std::string equ = (fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sym").string();
+        SymbolTable st;
+        st.load_sjasmplus_equ(equ);
+        const size_t before = st.symbols().size();
+        std::string why_equ;
+        const int re = st.load_sjasmplus_equ(huge.string(), &why_equ);
+        check("MAPCAP-01", "load_sjasmplus_equ() refuses a file over the size cap before opening it, "
+                           "with source_file_problem()'s reason, and the loaded table stays",
+              !source_file_problem(huge.string()).empty() && re == -1 &&
+                  why_equ == source_file_problem(huge.string()) && before > 0 &&
+                  st.symbols().size() == before && st.lookup_name("main") == 0x8000);
+        std::string why_both;
+        const int rb = st.load_z88dk_or_sjasmplus(huge.string(), &why_both);
+        std::string why_ok;
+        const int ok = st.load_z88dk_or_sjasmplus(equ, &why_ok);
+        check("MAPCAP-02", "load_z88dk_or_sjasmplus() refuses more than the size cap from its read, "
+                           "naming the limit, with the table kept; a normal file under it still loads",
+              rb == -1 && why_both == "input is over the " + std::to_string(SOURCE_FILE_MAX_BYTES) +
+                                          "-byte limit" &&
+                  ok == 16 && why_ok.empty() && st.lookup_name("main") == 0x8000);
+        fs::remove(huge);
+        // The boundary, the other side: exactly the cap is NOT over it.
+        const fs::path exact = dir / "exact.sym";
+        write_text(exact, "edge: EQU 0x00004321\n");
+        fs::resize_file(exact, SOURCE_FILE_MAX_BYTES);
+        SymbolTable edge;
+        std::string why_edge;
+        const int re2 = edge.load_z88dk_or_sjasmplus(exact.string(), &why_edge);
+        check("MAPCAP-03", "load_z88dk_or_sjasmplus() accepts a file of exactly the size cap (the bound is "
+                           "\"more than\"): it loads, says nothing, and the name resolves",
+              re2 >= 0 && why_edge.empty() && edge.lookup_name("edge") == 0x4321);
+        fs::remove(exact);
+    }
+    {
         const auto with = [](uint16_t h) {
             return [h](int) -> std::optional<uint16_t> { return h; };
         };
@@ -1331,6 +1370,79 @@ int main() {
     }
 
 
+
+    {
+        // The BOM (owner decision 2026-11-01, GH #427): the symbol loaders skip one at the very
+        // start of the file, as the SLD loader does, so the first symbol is not renamed by it.
+        const std::string bom = "\xEF\xBB\xBF";
+        const auto slurp = [](const fs::path& f) {
+            std::ifstream in(f, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        const fs::path equ = fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sym";
+        const std::string equ_body = slurp(equ);
+        const std::string head = "first: EQU 0x00009000\n";
+        const fs::path equ_bom = synth("bom.sym", bom + head + equ_body);
+        const fs::path equ_head = synth("head.sym", head + equ_body);
+        SymbolTable plain_equ, a, b;
+        const int pe = plain_equ.load_sjasmplus_equ(equ_head.string());
+        const int ea = a.load_sjasmplus_equ(equ_bom.string());
+        const int eb = b.load_z88dk_or_sjasmplus(equ_bom.string());
+        check("MAPBOM-01", "a BOM before a sjasmplus EQU file is skipped by load_sjasmplus_equ() and "
+                           "load_z88dk_or_sjasmplus(): same count, and the first line's symbol keeps its name",
+              pe > 0 && ea == pe && eb == pe && plain_equ.lookup_name("first") == 0x9000 &&
+                  a.lookup_name("first") == 0x9000 && b.lookup_name("first") == 0x9000 &&
+                  a.lookup_name("main") == 0x8000 && b.lookup_name("main") == 0x8000);
+        const fs::path prog = v24 / "sccz80-debug" / "prog.map";
+        const std::string first = "_first = $9000 ; addr, public, , m, code_compiler, x.c:1\n";
+        const fs::path map_bom = synth("bom.map", bom + first + slurp(prog));
+        SymbolTable c, d;
+        const int ca = c.load_z88dk_map(map_bom.string());
+        const int cb = d.load_z88dk_or_sjasmplus(map_bom.string());
+        // The source adapter: the BOM sits on a line record, which it would otherwise not recognise.
+        const std::string recs = rec("__C_LINE_3_a_2ec", 0x9000, "a_c", "code_compiler", "a.c::f::0::1:3") +
+                                 rec("__C_LINE_4_a_2ec", 0x9004, "a_c", "code_compiler", "a.c::f::0::1:4");
+        SourceMap sm, smp;
+        const auto rb = load(sm, synth("bomrec.map", bom + recs));
+        const auto rp = load(smp, synth("plainrec.map", recs));
+        check("MAPBOM-02", "a BOM before a z88dk map is skipped by load_z88dk_map(), "
+                           "load_z88dk_or_sjasmplus() and the source adapter: the first line's symbol keeps "
+                           "its name, and the source half loads what the plain map does",
+              ca == 20 && cb == 20 && c.lookup_name("_first") == 0x9000 && d.lookup_name("_first") == 0x9000 &&
+                  c.lookup_name("_main") == 0x8C92 && rb && rp && rp.count == 2 && rb.count == rp.count && sm.size() == smp.size() &&
+                  is_at(sm.lookup(P4, 0x9000), "a.c", 3));
+        SymbolTable two;
+        const fs::path map_two = synth("bom2.map", bom + bom + first + slurp(prog));
+        const int n2 = two.load_z88dk_map(map_two.string());
+        check("MAPBOM-03", "only the very first BOM is skipped: with two, the second stays in the first "
+                           "line's symbol name, so \"_first\" is not found",
+              n2 >= 19 && !two.lookup_name("_first") && two.lookup_name("_main") == 0x8C92);
+    }
+
+
+    {
+        // GH #427 stage 2b round 2: the --map loader skips one BOM, not several; the Simple and
+        // NextBuild formats skip the one.
+        const std::string bom = "\xEF\xBB\xBF";
+        const std::string first = "_first = $9000 ; addr, public, , m, code_compiler, x.c:1\n";
+        SymbolTable one, two, equ_one, equ_two;
+        const int n1 = one.load_z88dk_or_sjasmplus(synth("one.map", bom + first).string());
+        const int n2 = two.load_z88dk_or_sjasmplus(synth("two.map", bom + bom + first).string());
+        const int e1 = equ_one.load_z88dk_or_sjasmplus(synth("one.sym", bom + "first: EQU 0x00009000\n").string());
+        const int e2 = equ_two.load_z88dk_or_sjasmplus(synth("two.sym", bom + bom + "first: EQU 0x00009000\n").string());
+        check("MAPBOM-04", "load_z88dk_or_sjasmplus() skips only the very first BOM, for a z88dk map and for "
+                           "an EQU file: with one BOM the first symbol resolves, with two it does not",
+              n1 == 1 && one.lookup_name("_first") == 0x9000 && n2 >= 0 && !two.lookup_name("_first") &&
+                  e1 == 1 && equ_one.lookup_name("first") == 0x9000 && e2 <= 1 && !equ_two.lookup_name("first"));
+        SymbolTable simple;
+        const int ns = simple.load_simple_map(synth("bom.simple", bom + "alpha = $9000\nbeta = $9100\n").string());
+        check("MAPBOM-05", "load_simple_map() skips a UTF-8 BOM: the first line's symbol keeps its name",
+              ns == 2 && simple.lookup_name("alpha") == 0x9000 && simple.lookup_name("beta") == 0x9100);
+        SymbolTable nb;
+        const int nn = nb.load_nextbuild_memory(synth("bom.mem", bom + "ACB5: ._FillScreen\n7335: ._Other\n").string());
+        check("MAPBOM-06", "load_nextbuild_memory() skips a UTF-8 BOM: the first line's label is not dropped",
+              nn == 2 && nb.lookup(jnext::dbg::MemSpace::cpu(), 0xACB5) == std::optional<std::string>("FillScreen"));
+    }
 
     fs::remove_all(dir);
 

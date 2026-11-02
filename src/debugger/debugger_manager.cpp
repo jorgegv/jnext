@@ -677,7 +677,8 @@ void DebuggerManager::on_load_map_sjasmplus() {
     if (path.isEmpty())
         return;
 
-    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::SjasmplusEqu)) {
+    std::string why;
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::SjasmplusEqu, &why)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.toolchain_symbols().size())
@@ -685,7 +686,7 @@ void DebuggerManager::on_load_map_sjasmplus() {
         refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load MAP file:\n%1").arg(path));
+            QObject::tr("Could not load MAP file:\n%1").arg(path) + load_failure_reason(why));
     }
 }
 

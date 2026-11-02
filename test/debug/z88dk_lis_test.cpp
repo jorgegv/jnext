@@ -844,6 +844,51 @@ int main() {
                   any_note_has(r4, "p2.asm.lis"));
     }
 
+
+    // ── Z88LIS-35: a BOM at the start of a listing changes nothing (owner decision 2026-11-01, GH #427).
+    // zcc's fixtures head their listing with a throwaway temp name no row is placed under, so this
+    // shape alone cannot go red; Z88LIS-44 is the one whose first header carries rows. ──
+    {
+        const fs::path d = dir / "z35";
+        fs::create_directories(d);
+        for (const auto& e : fs::directory_iterator(v24 / "sccz80-debug")) {
+            const std::string text = read_text(e.path());
+            write_text(d / e.path().filename(),
+                       e.path().extension() == ".lis" ? std::string("\xEF\xBB\xBF") + text : text);
+        }
+        SourceMap m;
+        const auto r = load(m, d / "prog.map");
+        check("Z88LIS-35", "sccz80: listings that start with a UTF-8 BOM load as without it: the same "
+                           "listing count and line count, asmfn.asm:7 at $8D68, and no note (zcc's throwaway first header)",
+              r && r.listings == sc_r.listings && r.count == sc_r.count && r.listing_notes.empty() &&
+                  is_at(m.lookup(P4, 0x8D68), "asmfn.asm", 7));
+    }
+
+
+    // ── Z88LIS-44 (GH #427 stage 2b round 2): a BOM before a listing's FIRST header, which carries the rows ──
+    {
+        const std::vector<LisRow> rows = {
+            {1, nullptr, nullptr, " SECTION code_user"}, {2, nullptr, nullptr, " ORG $8000"},
+            {3, nullptr, nullptr, " PUBLIC _q"}, {4, nullptr, nullptr, "_q:"}, {5, "0000", "00", " nop"},
+            {6, "0001", "c9", " ret"}, {7, nullptr, nullptr, ""}};
+        const std::string map =
+            "__code_user_head                = $8000 ; const, public, def, , ,\n"
+            "__code_user_size                = $0002 ; const, public, def, , ,\n"
+            "__code_user_tail                = $8002 ; const, public, def, , ,\n"
+            "_q                              = $8000 ; addr, public, , q, code_user, q.asm:4\n";
+        write_case(dir / "z44a", "q", rows, map);
+        write_case(dir / "z44b", "q", rows, map);
+        write_text(dir / "z44b" / "q.asm.lis", "\xEF\xBB\xBF" + read_text(dir / "z44b" / "q.asm.lis"));
+        SourceMap plain, bom;
+        const auto rp = load(plain, dir / "z44a" / "q.map");
+        const auto rb = load(bom, dir / "z44b" / "q.map");
+        check("Z88LIS-44", "a UTF-8 BOM before the listing's first header (the one holding the rows and the "
+                           "anchor) is skipped: the nop and ret are q.asm:5 and :6 exactly as without it",
+              rp && rb && rp.listings == 1 && rb.listings == 1 && rb.count == rp.count &&
+                  is_at(plain.lookup(P4, 0x8000), "q.asm", 5) && is_at(bom.lookup(P4, 0x8000), "q.asm", 5) &&
+                  is_at(bom.lookup(P4, 0x8001), "q.asm", 6) && rb.listing_notes.empty());
+    }
+
     // ── Z88LIS-36, 37: a CRT piece that shares code_crt_init with the banking driver is placed by its bytes (GH #426 F4) ──
     {
         struct Banked { const char* name; const fs::path& root; const char* crt; const char* vars; } cases[] = {

@@ -19,6 +19,15 @@ std::string source_file_problem(const std::string& path)
     return {};
 }
 
+void skip_utf8_bom(std::istream& in)
+{
+    char b[3] = {};
+    in.read(b, 3);
+    if (in.gcount() == 3 && b[0] == '\xEF' && b[1] == '\xBB' && b[2] == '\xBF') return;
+    in.clear();
+    in.seekg(0);
+}
+
 namespace {
 
 // The one table of program formats the debug sidecars care about: by extension (case

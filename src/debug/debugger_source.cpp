@@ -36,8 +36,9 @@ namespace {
 bool looks_like_sld(const std::string& path) {
     std::ifstream in(path);
     std::string first;
-    if (!in.is_open() || !std::getline(in, first)) return true;
-    if (first.compare(0, 3, "\xEF\xBB\xBF") == 0) first.erase(0, 3);
+    if (!in.is_open()) return true;
+    skip_utf8_bom(in);
+    if (!std::getline(in, first)) return true;
     return first.rfind("|SLD.data.version|", 0) == 0;
 }
 

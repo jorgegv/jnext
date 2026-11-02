@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <istream>
 #include <string>
 
 /// The largest SLD or Memory.txt file loaded. Real builds write a few MB at
@@ -11,6 +12,11 @@ constexpr std::uintmax_t SOURCE_FILE_MAX_BYTES = 64u * 1024 * 1024;
 /// is opened (not a regular file, or over the cap), or an empty string when
 /// it may be.
 std::string source_file_problem(const std::string& path);
+
+/// Skips a UTF-8 byte-order mark (EF BB BF) at the very start of a freshly opened
+/// regular-file stream, so a text loader reads the file as if the mark were not
+/// there. A mark anywhere else is ordinary text. Without one the stream is left at 0.
+void skip_utf8_bom(std::istream& in);
 
 /// Whether the program at `path` is one whose bytes are not in memory when its
 /// load call returns: the tape formats (.tap, .tzx, .wav, by extension, case

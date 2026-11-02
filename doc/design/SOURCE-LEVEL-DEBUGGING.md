@@ -25,7 +25,7 @@ z88dk's own debugger, `z88dk-gdb`, already debugs C on jnext's GDB server: again
 therefore the in-emulator experience: the Source tab, statement steps, `file:line`
 breakpoints, banked code, rewind.
 
-**First usable cut ("cut 1").** SLD (sjasmplus, Boriel) and z88dk `-debug` maps (sccz80 on 2.4
+**First usable cut ("cut 1").** SLD (sjasmplus; Boriel / NextBuild gives `Memory.txt` symbols only, section 2.2) and z88dk `-debug` maps (sccz80 on 2.4
 and on master; sdcc and 80cc on master); a Source tab with a menu and keys, click-to-break
 and Run to Line; Into / Over / Out / Back / Reverse Continue; `file:line` breakpoints with
 several locations; banked code; correct behaviour across rewind, state loads and resets;
@@ -70,7 +70,10 @@ after the header `|SLD.data.version|1` (sjasmplus 1.23.1, "Source Level Debuggin
 ### 2.2 NextBuild `Memory.txt`
 
 `8000: ._Main` lines (hex address, label), written by the NextBuild / Boriel ZX Basic
-toolchain beside a program. Symbols only, with no page (section 10.4).
+toolchain beside a program. Symbols only, with no page (section 10.4). The compiler writes them
+(`zxbc -M`, `src/zxbc/args_parser.py` `-M/--mmap`: "Generate label memory map") and NextBuild's
+`Scripts/nextbuild.py` passes `-M Memory.txt`; Boriel's compiler has no SLD option, so no SLD comes
+from that toolchain (the references are in [`../REFERENCES.md`](../REFERENCES.md)).
 
 ### 2.3 z88dk ground truth
 
@@ -1354,7 +1357,8 @@ line; all must agree. A label-less piece that is its section's whole content sta
 placed by its bytes, as follows. A start from `__<s>_head` to `__<s>_tail` minus its size is excluded when a section
 binary holds a byte other than the listing's at a row 9.7 checks (the first byte of a mnemonic row outside PHASE, not
 in a data section). One start left, with every such byte held by exactly one section binary (a byte two binaries over the same addresses both claim, overlay
-sections at one ORG, is unknown, here and in the 9.7 check): the piece starts there. None left: the
+sections at one ORG, is unknown, here and in the 9.7 check; so is a byte of a section that is not in RAM,
+where the space rule places nothing to read): the piece starts there. None left: the
 listing is dropped. Otherwise its lines are not placed. z80asm never patches an opcode byte, so a listing of this
 build is never excluded at its true start (GH #426 F4). Every
 byte row is a range of its length, capped at its 8K page. The line source is `C_LINE` when the listing has it, the
@@ -1403,7 +1407,8 @@ dir; on master only a temporary one in `$TMPDIR` that zcc deletes):
 - The `.lis` bytes are a check on the listing, not an identity of the program. References to
   other modules are unrelocated in a listing (`cd0000`), so only the FIRST byte of an
   instruction whose first token is a Z80 or Z80N mnemonic is compared with the section binary
-  covering its address (operands are not). A mismatch drops that listing (9.1, 9.5), with a
+  covering its address (operands are not); a byte that two section binaries both cover (overlay
+  sections at one ORG) is not compared. A mismatch drops that listing (9.1, 9.5), with a
   note naming the line, the address and both bytes; the listing marks no byte as final. The
   ranges a used listing supplies then get the same byte checks as the map's own (the binary's
   bytes, above).
@@ -1722,7 +1727,7 @@ label grammar, the name rule, the file's bytes and every refusal), SRCDBG-UANN-0
 (`source_debug_test`: the two layers and the one reader by page, the name rule against the toolchain,
 the file through the backend, no lifetime across sidecars, hand loads, resets, state loads and ring
 landings, purity with its control, the state revision), GDB-ANN-01 (`gdb_rsp_test`), SCRIPT-ANN-01
-(`script_events_test`), CLI-ANN-01 (`cli_options_test`), QMAP-09 (`debugger_verbs_test`: the four Load MAP boxes count the loaded file only) and the functional row `annotations-func` (headless, Qt and SDL).
+(`script_events_test`), CLI-ANN-01 (`cli_options_test`), QMAP-10 (`debugger_verbs_test`: the four Load MAP boxes count the loaded file only) and the functional row `annotations-func` (headless, Qt and SDL).
 
 E23-23 (#375) stage 3 added SYMPG-13 (`source_map_test`: `bind()`), Z88SYM-01 to Z88SYM-09
 (`z88dk_map_test`: the symbol loader's pages, the rule-4 bind, the Unpaged and Refused table, two

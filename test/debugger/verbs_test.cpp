@@ -2737,6 +2737,30 @@ static void test_map_load() {
     }
 
     {
+        // QMAP-09 (GH #427 stage 2a): the sjasmplus item of the same menu, on a file over the
+        // size cap, is refused with the reason before the file is opened; the table is untouched.
+        // (A FIFO is the same refusal, "not a regular file", and would block the GUI otherwise.)
+        const std::string big_equ = write_file("big_sjasmplus.sym", "X: EQU 0x00001234\n");
+        std::error_code ec;
+        std::filesystem::resize_file(big_equ, SOURCE_FILE_MAX_BYTES + 1, ec);    // sparse
+        const size_t before = fx.backend->symbols().size();
+        Modals e;
+        e.file_path = QString::fromStdString(big_equ);
+        if (QAction* a = item_named(load_menu, "sjasmplus Format (--sym, --exp)...")) a->trigger();
+        e.timer.stop();
+        const Modals::Seen* eb = e.first("box");
+        const QString why = QString::fromStdString(source_file_problem(big_equ));
+        check("QMAP-09",
+              "sjasmplus Format... with a file over the size cap: \"Load Failed\" / \"Could not load "
+              "MAP file:\\n<path>\\n\\n<why>\", the table untouched",
+              !why.isEmpty() && eb && eb->title == "Load Failed" &&
+                  eb->text == QStringLiteral("Could not load MAP file:\n%1\n\n%2")
+                                  .arg(QString::fromStdString(big_equ), why) &&
+                  fx.backend->symbols().size() == before,
+              fmt("e: %s", e.describe().c_str()));
+    }
+
+    {
         // Reload the Z88DK map and look at the three panels that read the table.
         const std::string path = write_file("prog2.map",
             "_main   = $8000 ; addr, public\n_sub    = $9000 ; addr, public\n"
@@ -2878,7 +2902,7 @@ static void test_map_load() {
     }
 
     {
-        // QMAP-09 (GH #387): the box of each of the four symbol loads counts the file it loaded, not the
+        // QMAP-10 (GH #387): the box of each of the four symbol loads counts the file it loaded, not the
         // user's labels that share the table the panels read: with one user label in the store,
         // symbols() is one more than the box says. Z88DK (3 `; addr` symbols), Simple (2), sjasmplus
         // (the fixture's 14 addresses, QMAP-05) and NextBuild Memory.txt (2 labels).
@@ -2910,7 +2934,7 @@ static void test_map_load() {
                 bad += std::string(" ") + c.what + "(" + (box ? s(box->text) : std::string("no box")) + " table=" +
                        std::to_string(fx.backend->symbols().size()) + ")";
         }
-        check("QMAP-09",
+        check("QMAP-10",
               "with one user label in the store, each of the four symbol loads (Z88DK, Simple, sjasmplus, "
               "NextBuild Memory.txt) reports the file's own count in its box, and the table the panels read is "
               "one label bigger",

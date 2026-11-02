@@ -340,6 +340,7 @@ std::optional<Z88dkListing> parse_z88dk_listing(const std::string& path, std::st
         why = "could not open it";
         return std::nullopt;
     }
+    skip_utf8_bom(in);
     Z88dkListing out;
     std::string line;
     int phys = 0;

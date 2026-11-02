@@ -1,0 +1,3384 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ZX Spectrum Next emulator — developer guide">
+      
+      
+      
+      
+        <link rel="prev" href="04-2-sjasmplus-equ.html">
+      
+      
+        <link rel="next" href="04-4-z88dk-listings.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>7.4.3 The z88dk map - JNEXT Developer Guide</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/theme.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#743-the-z88dk-map" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-header__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            JNEXT Developer Guide
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              7.4.3 The z88dk map
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-nav__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    JNEXT Developer Guide
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../01-orientation/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Orientation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    1. Orientation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/01-what-jnext-is.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.1 What JNEXT is, in one page
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/02-repository-layout.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.2 Repository layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/03-the-rules-that-shape-the-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.3 The rules that shape the code
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../02-architecture/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Architecture
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    2. Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/01-startup-and-the-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.1 Startup and the frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/02-the-emulator-core.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.2 The emulator core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/03-a-frame-end-to-end.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.3 A frame, end to end
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/04-the-video-pipeline.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.4 The video pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/05-save-state-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.5 Save state, rewind and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../03-subsystems/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Subsystems
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3. Subsystems
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/01-cpu.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.1 CPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/02-memory.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.2 Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/03-video.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.3 Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/04-audio.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.4 Audio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/05-ports-and-nextreg.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.5 Ports and NextREG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/06-peripherals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.6 Peripherals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/07-input.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.7 Input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/08-media-and-loaders.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8 Media and loaders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_10" id="__nav_4_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 The debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.9 The debug subsystem
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/09-debug-and-the-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/09-1-the-backend-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.1 The backend API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/09-2-event-delivery-and-mutation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.2 Event delivery and mutation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/09-3-sessions-the-pump-and-reconstruct.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.3 Sessions, the pump and the reconstruct contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/09-4-execution-control-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.4 Execution control and rewind
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 The debugger frontends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.10 The debugger frontends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/10-0-the-debugger-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 Overview and capability matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/10-1-the-socket-transport.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.1 The shared socket transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/10-2-the-qt-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.2 The Qt debugger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/10-the-dzrp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.3 The DZRP server (DeZog)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/11-the-gdb-rsp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.4 The GDB RSP server (z88dk-gdb)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/12-the-zrcp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.5 The ZRCP server (ZEsarUX's protocol)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/13-the-debugger-scripting-language.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.6 The debugger scripting language
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/10-7-extending-the-debug-subsystem.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.7 Extending the debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../04-testing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Testing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    4. Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/01-the-test-triplet.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.1 The test triplet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/02-declared-suites-and-pinned-counts.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.2 Declared suites and pinned counts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/03-the-regression-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.3 The regression suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/04-traceability.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.4 Traceability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/05-documentation-and-cli-gates.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.5 The documentation and CLI gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/06-the-harness-selftest.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.6 The harness self-test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/07-writing-a-new-test.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.7 Writing a new test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../05-building/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Building and packaging
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    5. Building and packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/01-make-targets.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.1 Make targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/02-build-configurations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.2 Build configurations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/03-packaging-and-release.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.3 Packaging and release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/04-continuous-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.4 Continuous integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/05-performance-and-optimisation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../06-contributing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    6. Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/01-issues-and-pull-requests.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.1 Issues and pull requests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/02-branches-worktrees-and-review.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.2 Branches, worktrees and review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/03-house-style.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.3 House style
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Source-level debugging
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    7. Source-level debugging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="01-which-memory.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.1 Which memory supplied the instruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="02-the-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.2 The source map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="03-loaders.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.3 Loading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4 File formats and records
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    7.4 File formats and records
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-formats.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4 Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-1-sld.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.1 sjasmplus SLD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-2-sjasmplus-equ.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.2 sjasmplus --sym and --exp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.3 The z88dk map
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="04-3-z88dk-map.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.3 The z88dk map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-the-producer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The producer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-the-producers-writer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The producer's writer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-the-grammar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The grammar
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-the-parsers-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. The parser's rules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. The parser&#39;s rules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-symbol-half" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The symbol half
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-source-half" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The source half
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-space-and-extent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Space and extent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Space and extent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#space" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Space
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extent-and-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extent and ownership
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Identity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-what-is-skipped" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. What is skipped
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. What is skipped">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#__cdbinfo__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __CDBINFO__
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-excerpts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Excerpts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-the-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. The rows
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-4-z88dk-listings.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.4 z88dk listings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-5-nextbuild-memory-txt.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-breakpoints-steps-history.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.5 Breakpoints, steps, history and call frames
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-lifetime.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.6 Lifetime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="08-tests-and-new-producers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.8 Tests, fixtures and adding a producer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="743-the-z88dk-map">7.4.3 The z88dk map<a class="headerlink" href="#743-the-z88dk-map" title="Permanent link">&para;</a></h1>
+<p>The z88dk linker map is the one file that feeds both stores, by two separate
+loads. Its <code>addr</code> lines are the symbols. A build with <code>-debug</code> adds two kinds of
+marker symbol, <code>__C_LINE_</code> and <code>__ASM_LINE_</code>, whose names and addresses are the
+source lines, and a third kind, <code>__CDBINFO__</code>, which JNEXT does not interpret.
+The map carries no length for a line and no page for an address: both have to be
+derived from the section a symbol lives in.</p>
+<h2 id="1-the-producer">1. The producer<a class="headerlink" href="#1-the-producer" title="Permanent link">&para;</a></h2>
+<p>z88dk's assembler, <code>z80asm</code>, writes the map when <code>zcc</code> is given <code>-m</code>; the line
+markers appear only with <code>-debug</code>. The fixtures were made with two installs, built
+for the Next with <code>zcc +zxn ... -m --list -subtype=nex -o prog -create-app</code> (the
+exact commands are the <code>+ zcc ...</code> lines of each <code>build.log</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Fixtures</th>
+<th>Tree</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test/fixtures/z88dk/v2.4/</code></td>
+<td><code>z88dk 2.4</code>, <code>~/src/spectrum/z88dk-original-2.4</code></td>
+<td><code>4d530b6eb779ad0f2a1d13c0bb670cf717477501</code> (v2.4)</td>
+</tr>
+<tr>
+<td><code>test/fixtures/z88dk/master/</code></td>
+<td><code>z88dk master</code>, <code>~/src/spectrum/z88dk-original-latest</code></td>
+<td><code>39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7</code> (v2.4-2695-g39421a01cd)</td>
+</tr>
+</tbody>
+</table>
+<p>A map built without <code>-debug</code> has symbols and no source lines. Several
+<code>-debug</code> builds do not exist: 2.4's sdcc <code>-debug</code> fails to assemble
+(<code>defc Gcounter0_00==.</code> syntax errors, z88dk issue 3172, fixed on master) and the
+classic <code>+zxn</code> banked <code>-debug</code> is not producible (<code>Unknown option2
+--hardware-keyboard</code>). <code>test/fixtures/z88dk/README.md</code> records both.</p>
+<h2 id="2-the-producers-writer">2. The producer's writer<a class="headerlink" href="#2-the-producers-writer" title="Permanent link">&para;</a></h2>
+<p>In z88dk:</p>
+<ul>
+<li><strong>The map line.</strong> <code>z80asm</code> <code>src/z80asm/src/c/symtab1.c:598-616</code> (master; the
+  same line is <code>:641</code> in 2.4): <code>name</code> padded, then <code>= $%04lX</code>, then
+  <code>; type, scope, def, module, section, file:line</code>, then <code>strstrip()</code>. The <code>def</code>
+  field is the word <code>def</code> or empty. An empty section shows as <code>, ,</code>, and a symbol
+  with no file ends after the section: the trailing blanks are stripped
+  (<code>const, public, def, , ,</code>).</li>
+<li><strong><code>__C_LINE_&lt;n&gt;_&lt;enc&gt;</code>.</strong> <code>Preproc::do_c_line()</code>, <code>src/z80asm/src/cpp/preproc.cpp</code>
+  (master <code>:1721-1755</code>, the symbol built at <code>:1746-1747</code>; 2.4 <code>:1309-1310</code>). Only
+  <code>if (g_options.debug)</code>. <code>&lt;n&gt;</code> is the directive's line operand (<code>C_LINE 17,...</code> gives <code>__C_LINE_17_</code>) and <code>&lt;enc&gt;</code>
+  is <code>url_encode()</code> of the <em>string operand</em> (<code>main.c::main::1::3</code>): master
+  <code>preproc.cpp:1706</code>, 2.4 <code>:1272</code>. It keeps <code>isalnum()</code> characters and writes
+  every other byte as <code>_</code> and two lower-case hex digits.</li>
+<li><strong>One symbol per (line, scope).</strong> <code>if (!find_local_symbol(...))</code>
+  (master <code>preproc.cpp:1748</code>, 2.4 <code>:1311</code>): only the first occurrence of an
+  identical name is defined. That is why sccz80 emits one <code>__C_LINE_18_</code> where
+  <code>main.c.lis</code> has four <code>C_LINE 18,</code> (README finding G1).</li>
+<li><strong><code>__ASM_LINE_&lt;n&gt;_&lt;enc&gt;</code>.</strong> <code>asm_cond_LABEL()</code>, <code>src/z80asm/src/c/directives.c</code>
+  (master <code>:76-95</code>; the encoder <code>url_encode()</code> is at <code>:35-53</code>; 2.4 <code>:88</code> and
+  <code>:35</code>). Defined at a label, <code>if (option_debug() &amp;&amp; !sfile_is_c_source())</code>, so a
+  label in assembler that came from C gets no <code>ASM_LINE</code>. In sdcc builds these
+  numbers are lines of the generated assembly, not of <code>main.c</code> (README G14).</li>
+</ul>
+<h2 id="3-the-grammar">3. The grammar<a class="headerlink" href="#3-the-grammar" title="Permanent link">&para;</a></h2>
+<pre><code>NAME = $HEX ; type, scope, def, module, section, location
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code></td>
+<td><code>addr</code> (a place in memory) or <code>const</code> (a number: a size, a section bound, a <code>defc</code>); the parser recognises only these two</td>
+</tr>
+<tr>
+<td><code>scope</code></td>
+<td><code>local</code> or <code>public</code> in the fixtures; not interpreted</td>
+</tr>
+<tr>
+<td><code>def</code></td>
+<td><code>def</code> or empty</td>
+</tr>
+<tr>
+<td><code>module</code></td>
+<td>The module name; for a <code>.c</code> file <code>&lt;file&gt;_c</code> (zcc heads each file with <code>MODULE &lt;file, non-alphanumerics to _&gt;</code>)</td>
+</tr>
+<tr>
+<td><code>section</code></td>
+<td>The section the symbol lives in, empty for a symbol in none</td>
+</tr>
+<tr>
+<td><code>location</code></td>
+<td><code>file:line</code>, the rest of the line (it can hold commas and a TAB)</td>
+</tr>
+</tbody>
+</table>
+<p>The location in a <code>-debug</code> line record takes one of three forms: <code>file:line</code>
+(assembler), <code>file::func::level::block:line</code> (sccz80, 80cc), and sdcc's
+<code>file::x::&lt;level&gt;&lt;TAB&gt;:line</code>, where the TAB marks a function it did not give.</p>
+<h2 id="4-the-parsers-rules">4. The parser's rules<a class="headerlink" href="#4-the-parsers-rules" title="Permanent link">&para;</a></h2>
+<p><code>parse_z88dk_map_line()</code> (<code>debug/z88dk_space.cpp</code>) is the one tokenizer. A line
+needs an <code>=</code>, then a <code>;</code> after it; the value is <code>$</code> and hex digits up to 64 bits
+(<code>__clib_malloc_heap_size = $FFFFFFFFFFFFFFFF</code> exists); the fields after the <code>;</code>
+are split at the first five commas and the sixth is taken whole. A line that
+does not parse is not a symbol record; the caller decides if that is fatal.</p>
+<h3 id="the-symbol-half">The symbol half<a class="headerlink" href="#the-symbol-half" title="Permanent link">&para;</a></h3>
+<p><code>SymbolTable::read_z88dk_map()</code> (<code>debug/symbol_table.cpp</code>) reads the whole file
+first, because the map is sorted by name and a section's head may come after its
+symbols.</p>
+<ol>
+<li>Names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or <code>__CDBINFO__</code> are skipped: they
+   are not symbols, and sorted by name they would otherwise win the address of the
+   function label (GH #352).</li>
+<li>A <code>const</code> line goes to a table of constants (first wins, 64-bit; the page heads
+   come from it) and, when the value fits 16 bits, becomes a <strong>name-only value</strong>
+   (<code>add_value()</code>): <code>lookup_name()</code> and <code>@name</code> resolve it, but it never names an
+   address, so a size or a section bound is never shown in a disassembly.</li>
+<li>An <code>addr</code> line is placed in the second pass, in file order, first occurrence
+   wins. A value above <code>0xFFFFFF</code> is skipped. Otherwise <code>z88dk_section_space()</code>
+   (below) decides: a <em>paged</em> label; a label bound at load; an <em>unpaged</em> label
+   (only if the value fits 16 bits); or nothing.</li>
+<li><strong>C symbols (GH #424).</strong> An <code>addr</code> symbol whose name starts with <code>_</code> and a
+   second character other than <code>_</code>, and whose module ends in <code>_c</code>, is a C
+   symbol: zcc's compilers write every C identifier with a leading <code>_</code>, and
+   <code>__x</code> names are runtime internals. <code>add_label(..., c_symbol=true)</code> records its
+   key under the C name (the name without the first <code>_</code>, <code>c_name_to_key_</code>) with the
+   first C symbol winning. <code>find_name()</code> tries that after every exact name and
+   constant, so a real <code>counter</code> always wins; <code>lookup()</code> and <code>nearest()</code> show the
+   C name only when nothing else holds it and the label's own key is the one it
+   resolves to (otherwise the assembler name, which is the case of a second C
+   module's local <code>_util_inc</code>); <code>lookup_assembler()</code> keeps the assembler name for
+   text that must assemble.</li>
+</ol>
+<h3 id="the-source-half">The source half<a class="headerlink" href="#the-source-half" title="Permanent link">&para;</a></h3>
+<p><code>load_z88dk_source_map()</code> (<code>debug/z88dk_source_map.cpp</code>) is strict and reads the
+file twice over: pass 1 collects line records, symbols, and the <code>__&lt;group&gt;_head</code>
+and <code>_tail</code> constants; pass 2 places the line records in file order, so the first
+refusal is the first bad line.</p>
+<ol>
+<li>A line record whose section is empty is dropped: <code>= $0000 ; addr, local, ,
+   main_c, ,</code> is "no code" (README G2; the 2.4 sccz80 <code>-debug</code> map has 80 of
+   them).</li>
+<li>A record whose location is line <code>0</code> is dropped (<code>is_line_zero()</code>): sccz80 and
+   80cc write <code>C_LINE 0,"&lt;file&gt;::&lt;func&gt;::0::1"</code> on entering a file, and "no source
+   line is numbered 0" (G22).</li>
+<li>A value above <code>0xFFFFFF</code> refuses the half (<code>"address $... does not fit 24 bits"</code>).</li>
+<li>The location is parsed (<code>parse_location()</code>: the text after the last <code>:</code> is the
+   line, at least 1; a TAB before it marks an unknown function); an unparsable one
+   refuses the half.</li>
+<li>The space is decided by <code>z88dk_section_space()</code> (with the dot verdict, rule 5 of the space rules
+   below); <code>Unpaged</code> and <code>Refused</code>
+   refuse the half with a reason naming the map line; a <em>bind-at-load</em> record
+   asks the <code>space_of</code> function the caller supplies (<code>Emulator::predict_fetch</code>),
+   and an address that is not in a RAM page refuses it too
+   (<code>"address $... of section '...' is not in a RAM page"</code>).</li>
+<li>The records are grouped by <code>(space, address)</code> for ownership and extent, below.</li>
+</ol>
+<h2 id="5-space-and-extent">5. Space and extent<a class="headerlink" href="#5-space-and-extent" title="Permanent link">&para;</a></h2>
+<h3 id="space">Space<a class="headerlink" href="#space" title="Permanent link">&para;</a></h3>
+<p><code>z88dk_section_space(section, value, page_head, dot)</code> (<code>debug/z88dk_space.cpp</code>) maps a
+section name and a (possibly 24-bit) value to a <code>Z88dkSpace</code>. Page numbers are
+0..223, banks 0..111; the numbers in a section name are 1 to 3 decimal digits.
+The rules, in order of the section name:</p>
+<ol>
+<li><strong><code>PAGE_&lt;n&gt;</code></strong> and <code>&lt;KIND&gt;_PAGE_&lt;n&gt;</code> (KIND is <code>CODE</code>, <code>RODATA</code>, <code>DATA</code> or
+   <code>BSS</code>): a section that starts in page <code>n</code> and may run into the next ones. The
+   head is <code>z88dk_page_head()</code>: the <em>low 16 bits</em> of the constant <code>__PAGE_&lt;n&gt;_head</code>
+   (newlib puts the page in bits 16-23, which are not read; GH #345). The page is
+   <code>n + (((head &amp; 0x1FFF) + (addr16 - head)) &gt;&gt; 13)</code>. With no such constant, an
+   address below the head, or a result past page 223, the value is <em>unpaged</em>.</li>
+<li><strong><code>BANK_&lt;n&gt;</code></strong> and <code>&lt;KIND&gt;_&lt;n&gt;</code>, with <code>_L</code> or <code>_H</code>, and for <code>RODATA</code>/<code>DATA</code> also
+   <code>&lt;n&gt;_align_&lt;m&gt;</code>: a 16 KB bank, which is the two pages <code>2n</code> and <code>2n + 1</code>. <code>_L</code> is
+   page <code>2n</code>, <code>_H</code> is <code>2n + 1</code>, and a plain or aligned name uses bit 13 of the low
+   16 bits of the address.</li>
+<li><strong>An unnumbered section with a value above <code>0xFFFF</code></strong> is <em>refused</em>: nothing
+   says which bank it is in.</li>
+<li><strong>Any other section</strong>, and a value of 16 bits: <em>bind at load</em>. The memory is the
+   RAM page the MMU maps at that address with the program in memory, found with the
+   same <code>predict_fetch</code> the source lookups use. In the symbol half this is the
+   lenient form: <code>SymbolTable::bind(space_of)</code> gives the page only when
+   <code>space_of(addr)</code> is a RAM <code>Page</code>; ROM, DivMMC and the other overlays leave the
+   symbol unpaged; an empty function unbinds all. It runs at <code>load_map()</code>, at the
+   sidecar <code>&lt;stem&gt;.map</code> (a tape's too, at the attach) and for the user's store at
+   every program load.</li>
+</ol>
+<p>A number above the limit of its family (223 for a page, 111 for a bank, 15 for
+DivMMC) makes the value unpaged when it fits 16 bits and refused otherwise.</p>
+<p>A <code>DIV_&lt;n&gt;</code> or <code>&lt;KIND&gt;_DIV_&lt;n&gt;</code> section (DivMMC memory) is unpaged with the reason "a DIV_n
+bank is the one the program, or a dotn command's allocator, chooses when it runs": the bank is
+the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
+as an unpaged label, and the source half refuses a line record in it.</p>
+<ol>
+<li><strong>A dot command (GH #351).</strong> NextZXOS copies a dot command's file into a DivMMC RAM bank and
+   runs it from <code>$2000</code> there; the map names no bank. <code>z88dk_dot_command(consts, &amp;why)</code>
+   (<code>z88dk_space.cpp:136</code>) says whether a map is one: the constant <code>startupoffset</code> is <code>$0100</code> (dot),
+   <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another
+   value, is not a dot and has no reason; a dot whose <code>__CODE_head</code> is not <code>$2000</code> is not a dot
+   and its reason ("a dot command's CODE must start at $2000") refuses the source half
+   (<code>z88dk_source_map.cpp:201-203</code>), while the symbol half places the map as any other
+   (<code>symbol_table.cpp:82</code>, no reason asked). Both halves read <code>startupoffset</code> and the
+   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants (<code>z88dk_source_map.cpp:187</code>; the symbol half keeps every constant). For a dot,
+   <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
+   an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</li>
+<li>an unnumbered section at <code>$2000</code>-<code>$3FFF</code> is <code>DivMmcRam{kNextZxosDotBank}</code>, bank 2
+     (<code>z88dk_space.cpp:176-181</code>), whatever the MMU maps there when the map is loaded;</li>
+<li>a dotx's other unnumbered sections are rule 4: its main part (<code>PROG.X</code>, <code>prog_MAIN.bin</code>
+     at <code>CRT_ORG_MAIN</code> <code>$8000</code>) is main RAM;</li>
+<li>in a dotn those sections, and every <code>PAGE_&lt;n&gt;</code> / <code>DIV_&lt;n&gt;</code> section, are <em>refused</em>
+     (<code>refused_dotn()</code>: NextZXOS allocates those pages when the command runs, <code>__z_page_table</code>; the
+     reason says to build it as a dotx to debug it);</li>
+<li>a dot's or dotx's <code>PAGE</code>/<code>DIV</code> sections follow the rules above, and <code>DIV_&lt;n&gt;</code> stays unpaged.</li>
+</ol>
+<p>The bank is measured, not documented: booting NextZXOS in JNEXT and typing a dot, a dotx and a dotn,
+   the file lands in bank 2, <code>E3</code> becomes <code>$82</code> (conmem and bank 2) and the CPU executes <code>$2000</code>
+   (fixtures README, G24; <code>kNextZxosDotBank</code>, <code>z88dk_space.h:46</code>). <code>SourceMap::replace(..., dot)</code>
+   remembers the verdict (<code>SourceMap::dot()</code>), which <a href="06-lifetime.html">7.6</a> uses for the identity.</p>
+<p>In a numbered section the bits of <code>value</code> above 15 are not read.</p>
+<h3 id="extent-and-ownership">Extent and ownership<a class="headerlink" href="#extent-and-ownership" title="Permanent link">&para;</a></h3>
+<p>A line record has a start and no end. <code>extent()</code> in <code>load_z88dk_source_map()</code>
+gives a record the <strong>first</strong> of:</p>
+<ul>
+<li>the next line start in the same memory (any placed record, owners and aliases);</li>
+<li>the next <code>addr</code> symbol of <strong>another module</strong> in that memory;</li>
+<li>the section's <code>__&lt;section&gt;_tail</code> (the distance <code>tail - value</code>, when the tail is
+  above the value and under <code>0x10000</code>);</li>
+<li>the start plus <code>0x400</code> (<code>kMaxLineSize</code>, DeZog's <code>MAX_C_LINE_SIZE</code>);</li>
+<li>the end of the 8 KB window, <code>(lo &amp; 0xE000) + 0x2000</code>.</li>
+</ul>
+<p>Records at the same <code>(memory, address)</code> are a group: the <strong>highest line owns</strong>
+the range. A lower line of the group is an <strong>alias</strong> (it resolves through the
+owner's range) if it is in the same module <em>and</em> the same function: both
+functions are known and equal (the <code>::func::</code> part of the location), or, when
+either is unknown (sdcc), when no <code>_</code>-prefixed symbol of that module at that
+address is located at a later line of the same file (<code>later_function_entry()</code>: a
+function whose entry is at that address and whose line is after the lower line's). A duplicate <code>(file, line)</code> in a group
+is dropped. Any other lower line has <strong>no code</strong>: <code>resolve()</code> says so
+(<a href="02-the-source-map.html">7.2</a>). In the fixture, <code>main.c:16</code> is the alias of
+<code>main.c:17</code> at <code>$8C95</code> and <code>main.c:14</code> (in <code>square</code>) has no code at the <code>$8C92</code>
+that <code>main.c:15</code> (in <code>main</code>) owns.</p>
+<h2 id="6-identity">6. Identity<a class="headerlink" href="#6-identity" title="Permanent link">&para;</a></h2>
+<p>The section binaries z88dk writes beside the map, <code>&lt;map stem&gt;_&lt;GROUP&gt;.bin</code>, are the
+identity. A group comes from a constant <code>__&lt;GROUP&gt;_head</code> and must have no
+lower-case letter (<code>__code_compiler_head</code> is a section, not a group; on a
+case-insensitive file system it would name the same file). The file must be a
+regular file under the size cap, and unreadable ones refuse the half. For each
+range of a section that is not data (<code>data*</code>, <code>bss*</code>, <code>smc*</code>, case-insensitive),
+the binary that holds both its first and last byte, with both ends in the range's
+memory, supplies a <code>SourceByteCheck { space, lo, bytes }</code>. A range no binary covers
+is counted in <code>SourceMapLoadResult::unchecked</code>, and no binary at all means no
+identity. This is the byte-check form of <a href="02-the-source-map.html">7.2</a>.</p>
+<h2 id="7-what-is-skipped">7. What is skipped<a class="headerlink" href="#7-what-is-skipped" title="Permanent link">&para;</a></h2>
+<p><code>__C_LINE_</code>, <code>__ASM_LINE_</code> and <code>__CDBINFO__</code> symbols in the symbol half; line
+records in an empty section and line-0 records in the source half; any symbol
+a space rule refuses or leaves unpaged beyond 16 bits; <code>const</code> values wider than 16
+bits as names; lines that do not parse as map lines.</p>
+<h3 id="__cdbinfo__"><code>__CDBINFO__</code><a class="headerlink" href="#__cdbinfo__" title="Permanent link">&para;</a></h3>
+<p>These records are z88dk's C debug information, in a different encoding from the
+line markers:</p>
+<ul>
+<li><strong>Encoding.</strong> Only <code>isalpha()</code> characters are kept; every other character,
+  digits included, is <code>_</code> and two lower-case hex digits. Writers: sccz80
+  <code>src/sccz80/cdbfile.c:13-24</code> (both trees, <code>defc __CDBINFO__&lt;enc&gt; = 1</code> at
+  <code>:85-87</code>), 80cc <code>src/80cc/cdbfile.c:7-18</code> (master only). For sdcc, zcc folds the
+  temporary <code>.adb</code> file into the assembly (<code>zsdcc_embed_adb()</code>, master
+  <code>src/zcc/zcc.c:2041-2072</code>, called when <code>peepholeopt</code> is non-zero: zcc's <code>-O</code>,
+  <code>:588</code>, <code>:1551</code>), with a variant encoder that
+  also keeps whitespace (<code>zcc.c:2026-2038</code>). The value is always <code>1</code>, so the line
+  is <code>const</code>.</li>
+<li><strong>Content.</strong> After decoding <code>_hh</code>, a record starts <code>M:</code> (module), <code>F:</code>
+  (function), <code>S:</code> (symbol) or <code>T:</code> (type). The reference decoder is z88dk's own
+  <code>debug_add_info_encoded()</code> (<code>src/ticks/debug.c:656</code>), called from <code>src/ticks/syms.c:173</code>.</li>
+<li><strong>Duplicates.</strong> <code>z80asm</code> ignores a second definition (<code>symtab1.c:117</code>).</li>
+<li><strong>In JNEXT.</strong> The symbol loader skips them (<code>symbol_table.cpp</code>, rule 1 above) and
+  so does the source half (<code>z88dk_source_map.cpp</code>, pass 1, <code>!starts_with(name,
+  "__CDBINFO__")</code>). Nothing else in <code>src/</code> reads them. Only a test does: it decodes
+  the names of the C identifiers to check the C names above (<code>Z88CN-01</code>).</li>
+</ul>
+<h2 id="8-excerpts">8. Excerpts<a class="headerlink" href="#8-excerpts" title="Permanent link">&para;</a></h2>
+<p>From <code>test/fixtures/z88dk/v2.4/sccz80-debug/prog.map</code> (z88dk 2.4, built with <code>zcc
++zxn -clib=new -debug</code>; the file is trimmed to the fixture's modules, lines kept
+verbatim; the number is the line in the file):</p>
+<pre><code>6:__ASM_LINE_10_asmfn_2easm       = $8D6C ; addr, local, , asmfn_asm, code_user, asmfn.asm:10
+51:__C_LINE_0_main_2ec             = $0000 ; addr, local, , main_c, , main.c:0
+71:__C_LINE_16_main_2ec_3a_3amain_3a_3a1_3a_3a3 = $8C95 ; addr, local, , main_c, code_compiler, main.c::main::1::3:16
+74:__C_LINE_17_main_2ec_3a_3amain_3a_3a1_3a_3a3 = $8C95 ; addr, local, , main_c, code_compiler, main.c::main::1::3:17
+77:__C_LINE_18_main_2ec_3a_3amain_3a_3a1_3a_3a3 = $8C9D ; addr, local, , main_c, code_compiler, main.c::main::1::3:18
+269:_main                           = $8C92 ; addr, public, , main_c, code_compiler, main.c::main::0::2:15
+</code></pre>
+<p>Line 51 has an empty section (dropped); lines 71 and 74 share <code>$8C95</code>, so 17 owns the
+range <code>[$8C95, $8C9D)</code> (the next line start is line 18 at <code>$8C9D</code>) and 16 is its
+alias; <code>_main</code> is a C symbol (<code>main</code>) in module <code>main_c</code>.</p>
+<p>From <code>test/fixtures/z88dk/master/sdcc-debug/prog.map</code> (z88dk master, <code>-clib=sdcc_iy
+-debug</code>; line 68), the sdcc form, where <code>&lt;TAB&gt;</code> is a literal TAB:</p>
+<pre><code>__C_LINE_11_main_2ec_3a_3ax_3a_3a10000_3a_3a11_09 = $8C5F ; addr, local, , main_c, code_compiler, main.c::x::10000::11&lt;TAB&gt;:11
+</code></pre>
+<p>From <code>test/fixtures/z88dk/v2.4/sccz80-page20/prog.map</code> (a <code>PAGE_20</code> build; lines 4,
+39, 113 and 134):</p>
+<pre><code>CRT_ORG_PAGE_20                 = $C000 ; const, local, , zxn_crt_asm_m4, , z88dk/lib/config/../..//libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4:2210
+__CDBINFO__S_3aLbanked_2ec_2ebanked_5fadd_24a_24_30_5f_30_24_30_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_36 = $0001 ; const, public, , banked_c, PAGE_20, banked.c::banked_add::1::1:9
+__C_LINE_6_banked_2ec_3a_3abanked_5fadd_3a_3a0_3a_3a0 = $C000 ; addr, local, , banked_c, PAGE_20, banked.c::banked_add::0::0:6
+__PAGE_20_head                  = $C000 ; const, public, def, , ,
+</code></pre>
+<p>The <code>PAGE_20</code> section with head <code>$C000</code> puts <code>$C000</code> in page 20. The <code>__CDBINFO__</code>
+line decodes to <code>S:Lbanked.c.banked_add$a$0_0$0({1}SC:U),B,1,6</code>; note the digits
+encoded as <code>_30</code>, <code>_31</code>, <code>_36</code>.</p>
+<p>From <code>test/fixtures/z88dk/v2.4/sccz80-dot/prog.map</code> (a plain dot command, built with
+<code>-subtype=dot</code>; lines 49, 63 and 262): <code>startupoffset</code> is the dot's signature, <code>__CODE_head</code> is
+<code>$2000</code>, and the line record at <code>$2D5F</code>, in <code>code_compiler</code>, is in <code>$2000</code>-<code>$3FFF</code>: rule 5 puts it
+in <code>DivMmcRam{2}</code>.</p>
+<pre><code>__CODE_head                     = $2000 ; const, public, def, , ,
+__C_LINE_12_dot_2ec_3a_3amain_3a_3a0_3a_3a2 = $2D5F ; addr, local, , dot_c, code_compiler, dot.c::main::0::2:12
+startupoffset                   = $0100 ; const, local, , zxn_crt_asm_m4, , z88dk/lib/config/../..//libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4:9
+</code></pre>
+<h2 id="9-the-rows">9. The rows<a class="headerlink" href="#9-the-rows" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>z88dk_map_test</code>: <code>Z88MAP-*</code> (the source half, with the oracle values from the
+  fixtures: owners, aliases, extents), <code>Z88SYM-*</code> (the symbol half and the
+  binding), <code>Z88CN-*</code> (C names), <code>Z88DOT-*</code> (dot commands: the <code>dot</code>, <code>dotx</code>, <code>dotn</code>
+  and master fixtures in DivMMC bank 2, detection by the map, the symbol half, the identity
+  units, the <code>.lis</code> route, the dotn refusal, the extent bound of another module's symbol in
+  bank 2), <code>MAPCAP-*</code> and <code>MAPBOM-*</code> (the size cap and the UTF-8 BOM of the symbol loaders).</li>
+<li><code>z88dk_lis_test</code>: <code>Z88LIS-*</code> (<a href="04-4-z88dk-listings.html">7.4.4</a>).</li>
+<li><code>source_map_test</code>: <code>Z88FIX-01</code>/<code>02</code> (the fixture manifest).</li>
+<li><code>source_debug_test</code>: <code>SRCDBG-Z88-*</code>, <code>SRCDBG-SYM-*</code>, <code>SRCDBG-TAPE-*</code>, <code>SRCDOT-*</code> (a dot command through
+  the backend: breakpoint and steps in bank 2, judged at the entry, landings).</li>
+<li><code>debugger_backend_test</code>: <code>SYM-14</code> to <code>SYM-18</code> (the <code>-debug</code> markers, on
+  <code>test/fixtures/zdebugmap/</code>).</li>
+<li>Functional: <code>z88dk-source-map-func</code>, <code>z88dk-source-func</code>, <code>z88dk-tape-source-func</code>,
+  <code>gdb-z88dk-func</code>, <code>z88dk-dot-source-func</code>, <code>z88dk-dot-source-rzx-func</code>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

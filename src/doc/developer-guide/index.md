@@ -100,6 +100,7 @@ made it stale.
 | 4 | [Testing](04-testing/index.md) | The triplet, declared suites, regression, traceability, the gates |
 | 5 | [Building and packaging](05-building/index.md) | Make targets, build configurations, packaging, CI, performance and optimisation |
 | 6 | [Contributing](06-contributing/index.md) | Issues, pull requests, branches and worktrees, house style |
+| 7 | [Source-level debugging](07-source-level-debugging/index.md) | The source map, the file-format adapters, which memory supplied a fetch, line breakpoints and steps, lifetime, fixtures |
 
 If you are about to make a change and have time for only one page, read
 [1.3 The rules that shape the code](01-orientation/03-the-rules-that-shape-the-code.md).
