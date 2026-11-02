@@ -51,7 +51,11 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
   must appear as a whole word on the cited line, or, for a range, on a line of
   the range. There is **no +-1 tolerance**: a cite one line off fails.
   A sentence break (a full stop followed by a capital) ends the sentence, so the
-  symbol of the previous sentence does not anchor this one. A cite with no
+  symbol of the previous sentence does not anchor this one. A cite inside a
+  parenthesis is attached to the symbol in **that parenthesis**, or to the one
+  that ends right where it opens (``` `sym()` (`file:N`) ```, also through `**`
+  markup); a symbol elsewhere in the sentence never anchors it, however well it
+  happens to match the line. A cite with no
   such symbol fails as *unanchored*: add the symbol, in backticks, before it.
 - **The forms** are a file token (any path whose last component has an
   extension, or `Makefile`; a bare name when it is unique in the repository,
@@ -92,7 +96,7 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
 
 When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are `HS-102`..`HS-139` of `make harness-selftest`.
+rows are `HS-102`..`HS-144` of `make harness-selftest`.
 
 ## The renderer fingerprint
 

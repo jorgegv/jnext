@@ -48,7 +48,12 @@
 # keywords.py); NextBuild (nextbuild.py); NextZXOS (nexload.asm nexload2.asm
 # readdir.asm esxapi.def).
 #
-# ANCHOR. The nearest backticked identifier BEFORE the cite in the same sentence
+# ANCHOR. The nearest backticked identifier BEFORE the cite in the same sentence,
+# or, when the cite sits inside a parenthesis, the symbol in THAT parenthesis, or
+# (a parenthesis with none of its own) the span ending right where it opens:
+# `sym()` (file.cpp:12). No falling back to the sentence: a symbol elsewhere in it
+# is not what the cite is about. (The prose forms "line N of `file`", "`file` (line N)"
+# keep the sentence rule: their parenthesis holds the file, not a symbol.)
 # (sentence = back to the previous ". " + capital/backtick/bracket/star, or the
 # paragraph start: a blank line, a list bullet, a table, a heading, a fence; in
 # .dot, consecutive // comment lines or one line). An identifier is a span like
@@ -184,7 +189,7 @@ sub file_lines {
 my ($checked, $failed, $oos) = (0, 0, 0);
 sub fail {
     my ($page, $ln, $cite, $anchor, $held) = @_;
-    $held = substr($held, 0, 70) . '...' if defined $held && length($held) > 73;
+    $held = substr($held, 0, 70) . "..." if defined $held && length($held) > 73 && !$ENV{JNEXT_CITES_FULL};
     printf "%s:%d: %s | %s | %s\n", $page, $ln, $cite, $anchor // '-', $held // '-';
     $failed++;
 }
@@ -342,9 +347,25 @@ sub paragraph {
         my $pre = substr($mask, 0, $s);
         while ($pre =~ /(?<!e\.g)(?<!i\.e)(?<!\bvs)[.!?]\s+(?=[A-Z`*(\[])/g) { $sent = $+[0] }
         for my $ra (@rowat) { $sent = $ra if $ra <= $s && $ra > $sent }
-        my $anchor;
+        # a cite inside a parenthesis is attached to the symbol INSIDE that parenthesis
+        my @open;
+        for my $i ($kind eq 'prose' ? () : ($sent .. $s - 1)) {
+            my $ch = substr($mask, $i, 1);
+            if ($ch eq '(') { push @open, $i } elsif ($ch eq ')') { pop @open }
+        }
+        my $lo = @open ? $open[-1] : $sent;
+        my $adj;      # a parenthesis holding no symbol of its own belongs to the span just before it
+        if (@open && !grep { $_->[0] >= $open[-1] && $_->[1] <= $s } @spans) {
+            for my $sp (reverse @spans) {
+                next if $sp->[1] > $open[-1];
+                $adj = $sp if substr($mask, $sp->[1], $open[-1] - $sp->[1]) =~ /^[\s*_]*$/;
+                last;
+            }
+        }
+        my ($anchor, $loose);
         for my $sp (reverse @spans) {
-            next if $sp->[1] > $s || $sp->[0] < $sent;
+            next if $adj && $sp != $adj;
+            next if !$adj && ($sp->[1] > $s || $sp->[0] < $lo);
             my $c2 = $sp->[2];
             next if $c2 =~ /:\d/ || ($c2 =~ /^$FT$/ && looks_like_file($c2) && (classify($c2))[0] ne 'none');
             if ($c2 =~ /^[A-Z][A-Z0-9]*-\d+[a-z]?$/) { $anchor = $c2; last }
@@ -357,7 +378,14 @@ sub paragraph {
         my $rel = $r[0];
         my $fl = file_lines($rel);
         if ($m < $n || $n < 1 || $m > @$fl) { fail($page, $ln, $show, $anchor, "$rel has " . scalar(@$fl) . " lines"); next }
-        if (!defined $anchor) { fail($page, $ln, $show, undef, "unanchored: no backticked identifier before the cite in its sentence ($rel line $n: " . $fl->[$n-1] . ")"); next }
+        if (!defined $anchor && @open) {      # for the message: what the loose rule would have used
+            for my $sp (reverse @spans) {
+                next if $sp->[1] > $s || $sp->[0] < $sent;
+                (my $id = $sp->[2]) =~ s/\(.*\)\s*$//s;
+                if ($id =~ /^[A-Za-z_]\w*(?:(?:::|\.|->)[A-Za-z_]\w*)*$/ && $sp->[2] !~ /:\d/) { $loose = $sp->[2]; last }
+            }
+        }
+        if (!defined $anchor) { fail($page, $ln, $show, undef, "unanchored: no backticked identifier " . (@open ? "in the cite's parenthesis or right before it" : "before the cite in its sentence") . " ($rel line $n: " . $fl->[$n-1] . ")" . (defined $loose ? " [sentence symbol: `$loose`]" : "")); next }
         my $ok = 0;
         for my $i ($n .. $m) { if ($fl->[$i-1] =~ /(?<![A-Za-z0-9_])\Q$anchor\E(?![A-Za-z0-9_])/) { $ok = 1; last } }
         next if $ok;

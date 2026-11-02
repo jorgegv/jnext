@@ -219,7 +219,7 @@ verdict on the real tree is trusted at all:
 
 The developer-guide cite check, `test/lint-devguide-cites.pl` (GH #430, see
 [4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking
-like those: the harness self-test runs it against throwaway trees (HS-102 to HS-139), and each
+like those: the harness self-test runs it against throwaway trees (HS-102 to HS-144), and each
 row was shown to go red when the behaviour it pins is mutated out of the script. HS-102 pins
 the *command* in the `unit-test` and `regression` dry runs, not the target name. The rows cover:
 an exact cite and a declared external one passing; a cite one line off, an unanchored one (also
@@ -235,7 +235,9 @@ outside the span; excerpts (a match across blocks, a changed row, a wrong row co
 numbered row, ambiguous or missing file, the `<TAB>` convention); a lines phrase, bare `:N` or excerpt
 pointer after a file that does not exist; a table row ending the sentence; a bare comma list; the
 sjasmplus manual as a declared external file; and fences: unclosed, closed by the other character,
-shorter than its opening, and `~~~`.
+shorter than its opening, and `~~~`; and the parenthesis binding (a parenthesised cite after text that is not its symbol,
+a bare `:N` continuation without a symbol, a coincidental match elsewhere in the sentence, a
+symbol right before the parenthesis).
 
 Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.

@@ -2942,7 +2942,11 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:</p>
   must appear as a whole word on the cited line, or, for a range, on a line of
   the range. There is <strong>no +-1 tolerance</strong>: a cite one line off fails.
   A sentence break (a full stop followed by a capital) ends the sentence, so the
-  symbol of the previous sentence does not anchor this one. A cite with no
+  symbol of the previous sentence does not anchor this one. A cite inside a
+  parenthesis is attached to the symbol in <strong>that parenthesis</strong>, or to the one
+  that ends right where it opens (<code>`sym()` (`file:N`)</code>, also through <code>**</code>
+  markup); a symbol elsewhere in the sentence never anchors it, however well it
+  happens to match the line. A cite with no
   such symbol fails as <em>unanchored</em>: add the symbol, in backticks, before it.</li>
 <li><strong>The forms</strong> are a file token (any path whose last component has an
   extension, or <code>Makefile</code>; a bare name when it is unique in the repository,
@@ -2983,7 +2987,7 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:</p>
 </ul>
 <p>When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are <code>HS-102</code>..<code>HS-139</code> of <code>make harness-selftest</code>.</p>
+rows are <code>HS-102</code>..<code>HS-144</code> of <code>make harness-selftest</code>.</p>
 <h2 id="the-renderer-fingerprint">The renderer fingerprint<a class="headerlink" href="#the-renderer-fingerprint" title="Permanent link">&para;</a></h2>
 <p>pandoc, mkdocs-material and graphviz all emit byte-different output across
 their own versions for identical input. A byte-diff against outputs that were

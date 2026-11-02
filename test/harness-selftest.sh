@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=281  # 243 -> 281: HS-102..139 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=286  # 243 -> 286: HS-102..144 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -926,7 +926,7 @@ out=$(dg_lint); rc=$?
 check "HS-112" "the anchor is a WHOLE word: alph does not match a line holding only alphabet, alpha matches alpha()" 1 $rc "$out" \
     "src/core/w.cpp:1 | alph | int alphabet;" "checked 2 cites, 1 failed"
 dg_tree 'x'
-printf 'digraph g {\n    // `alpha()` is here, and it spans\n    // two lines (src/core/a.cpp:3).\n    n [label="x"];\n    // `beta` sits at src/core/a.cpp:3.\n}\n' > "$DG/src/doc/developer-guide/diagrams/d.dot"
+printf 'digraph g {\n    // `alpha()` is here, and it spans\n    // two lines, at `alpha()` (src/core/a.cpp:3).\n    n [label="x"];\n    // `beta` sits at src/core/a.cpp:3.\n}\n' > "$DG/src/doc/developer-guide/diagrams/d.dot"
 out=$(dg_lint); rc=$?
 check "HS-113" "a .dot page is read: a // comment block anchors over its lines, and a shifted cite there fails naming the .dot page" 1 $rc "$out" \
     "diagrams/d.dot:5: src/core/a.cpp:3 | beta" "checked 2 cites, 1 failed"
@@ -1105,6 +1105,29 @@ dg_tree 'From `test/fixtures/e.lis` (the number is the line in the file):
 out=$(dg_lint); rc=$?
 check "HS-139" "a numbered excerpt uses the <TAB> convention too" 0 $rc "$out" \
     "checked 1 cites, 0 failed"
+# Round 3 (the 17-line shift of emulator.cpp that the gate missed): a cite is attached to the
+# symbol in ITS parenthesis, or the one right before the parenthesis; never to a symbol that
+# merely appears elsewhere in the sentence.
+dg_tree 'The emulator asks `beta`, two compares, first in `alpha()`'"'"'s armed block (`src/core/a.cpp:3`).'
+out=$(dg_lint); rc=$?
+check "HS-140" "a parenthesised cite after text that is not its symbol FAILS even though the sentence's nearest symbol (alpha) is on the line" 1 $rc "$out" \
+    "unanchored" "in the cite's parenthesis" "1 failed"
+dg_tree 'It is in `alpha()` (`src/core/a.cpp:3`) and in `beta` for a Step (`:4`).'
+out=$(dg_lint); rc=$?
+check "HS-141" "a bare :N continuation in a second parenthesis with no symbol of its own FAILS; the first parenthesis (symbol right before it) passes" 1 $rc "$out" \
+    "p.md:1: :4 | - | unanchored" "checked 2 cites, 1 failed"
+dg_tree 'The `alpha()` and `beta` differ, see `gamma` at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-142" "a symbol elsewhere in the sentence that happens to be on the cited line does not anchor a cite attached to another symbol" 1 $rc "$out" \
+    "src/core/a.cpp:3 | gamma" "1 failed"
+dg_tree 'The `alpha()` (`src/core/a.cpp:3`), and **Then `beta`** (`src/core/a.cpp:4`), and the flag (`gamma`, `src/core/a.cpp:3`).'
+out=$(dg_lint); rc=$?
+check "HS-143" "a symbol right before the parenthesis (also through ** markup) anchors it; a symbol inside the parenthesis anchors it and nothing else does" 1 $rc "$out" \
+    "src/core/a.cpp:3 | gamma" "checked 3 cites, 1 failed"
+dg_tree 'It is (`alpha()`, `src/core/a.cpp:3` and `:3`).'
+out=$(dg_lint); rc=$?
+check "HS-144" "a bare :N continuation inside a parenthesis that has its symbol passes" 0 $rc "$out" \
+    "checked 2 cites, 0 failed"
 rm -rf "$DG"
 
 # ------------- worktree-bootstrap must not call an unprovisioned tree "ready" (GH #149)

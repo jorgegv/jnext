@@ -69,7 +69,7 @@ the stamp carries a flag for "the loaded file changed on disk",
    (`linked_lines_()`, tint `linked_line`), the PC's line (the editor's `Highlight`, only
    when the file shown is the PC's file).
 8. Placement. The cursor moves and the view centres only when something moved: the line,
-   the address, `placed_` cleared or `place_now_` set (`source_panel.cpp:795-810`). A browse centres only a
+   the address, `placed_` cleared or `place_now_` set (`place_now_`, `source_panel.cpp:795-810`). A browse centres only a
    line that is out of view. A user who scrolled away on a paused tick stays put.
 
 `follow_pc()` (`source_panel.cpp:556`) clears `placed_` and the browse and refreshes at once. It changes what
@@ -219,7 +219,7 @@ the single seam for the C names (`resolve_key("@" + word)`; `@` forces a symbol)
 ### Selection sync with the Disassembly (GH #347)
 
 `DebuggerWindow::create_panels()` wires the two panels with four `connect()` calls
-(`debugger_window.cpp:1458-1475`), and nothing else couples them. Each carries only what the *user*
+(`connect()`, `debugger_window.cpp:1458-1475`), and nothing else couples them. Each carries only what the *user*
 did in its sender, so no move echoes.
 
 - **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is
@@ -227,7 +227,7 @@ did in its sender, so no move echoes.
   `lines_first_`, `lines_last_`; a message and Running emit an empty file, and `none = true` says the
   text stays but nothing of it is selected). The lines are `selected_blocks_()`'s, the same rule as
   Copy with Addresses (a selection ending at a block start does not take that block). The editor's
-  `cursorPositionChanged` / `selectionChanged` slot passes `reveal = true` (`source_panel.cpp:403-408`); a move the
+  `cursorPositionChanged` / `selectionChanged` slot passes `reveal = true` (`selectionChanged`, `source_panel.cpp:403-408`); a move the
   panel makes itself (the PC placement of `refresh_()`, a text load, `set_disasm_selection()`) runs
   under a `SyncScope` (`syncing_`), so that slot stays silent, and ends with `emit_lines_(false, ...)`,
   so a stop tints the PC statement's other instructions without scrolling.
@@ -311,7 +311,7 @@ described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
 **ZRCP.** `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2625`) calls
 `Debugger::load()` (`debugger_reconstruct.cpp:464`), which calls `load_program_sidecars()` after a successful load
-(`debugger_reconstruct.cpp:527-531`), so a program loaded over ZRCP gets its symbols and
+(`load_program_sidecars()`, `debugger_reconstruct.cpp:527-531`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
 `get-memory-pages` (`memory_pages()`, `zrcp_format.cpp`) names the eight slots of a Next from what each
 reads now (`SlotInfo::now`): `RO` the boot ROM, `O<n>` the 8 KB ROM page `2*image + half`, `A<n>` RAM,
@@ -324,7 +324,7 @@ or the map itself. What DZRP shares with this chapter is the legacy `bank+1` qua
 (`is_rom`, `dzrp_server.cpp:549-553`), because DeZog has no bank for the ROM values
 `0xE0`-`0xFE`.
 
-**Scripts.** `on execute FILE:LINE` resolves through `source_map().resolve()` at load time (`script_engine.cpp:330`) and
+**Scripts.** `on execute FILE:LINE` resolves through `source_map().resolve()` at load time (`source_map().resolve()`, `script_engine.cpp:330`) and
 subscribes one `Execute` per start, each with the `space` its place was compiled for
 (`space`, `script_engine.cpp:346`); an unknown line is a diagnostic that names the reason. `--map` loads symbols
 with `MapFormat::Z88dkOrSjasmplus` (`script_host.cpp:187`, [7.3](03-loaders.md)). Held scripts and the

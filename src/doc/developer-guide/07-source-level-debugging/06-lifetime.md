@@ -67,7 +67,7 @@ attachment of that generation:
 - The record comes from the **attachment cache**, `Impl::attach_cache`: one
   `Attachment` per generation, holding the sidecar `SourceMap` and `SymbolTable`
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`debugger_impl.h:188`); when
+  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`ATTACH_CACHE_MAX`, `debugger_impl.h:188`); when
   a fifth is added the oldest record is evicted. `cache_push_current()` erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.
@@ -181,7 +181,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 (`source_map.h:179`) is set by the z88dk adapter ([7.4.3](04-3-z88dk-map.md), rule 5).
 
 - **Always deferred.** `load_source_map()` defers a dot map whatever `verify_at_first_execution` says
-  (`debugger_source.cpp:496`), when it has any byte check. `add_check()` marks the check `dot` only if
+  (`verify_at_first_execution`, `debugger_source.cpp:496`), when it has any byte check. `add_check()` marks the check `dot` only if
   one of its units is the DivMMC bank, `dot_entry_unit()` = `DivmmcRam{kNextZxosDotBank}` (bank 2,
   `kNextZxosDotBank`, `z88dk_space.h:46`); a dot map with no byte check of the DivMMC part has no entry to judge and takes the
   tape rule (`add_check()`, `debugger_source.cpp:161-176`).
@@ -190,7 +190,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   main part, in main RAM) are moved to `held`, not armed. `dot_match()` (`debugger_source.cpp:200`) is the entry matching: the DivMMC unit is done,
   `entry_ok` is set and the held spans are armed, which from then on follow the tape rule (judged where
   the CPU first runs them).
-- **The trigger.** `sync_verify_window()` always includes `kDotEntry` (`$2000`, `debugger_source.cpp:114`) in the window of a
+- **The trigger.** `sync_verify_window()` always includes `kDotEntry` (`$2000`, `kDotEntry`, `debugger_source.cpp:114`) in the window of a
   dot check (`kDotEntry`, `debugger_source.cpp:299-302`). `verify_hook(pc)` (`debugger_source.cpp:315`) judges when `pc == kDotEntry` and
   `predict_fetch(pc)` is the entry unit: a match records the verdict `Verified` and calls `dot_match()`
   once; a mismatch is *another dot command*: if the entry had matched it goes back to `dot_reset()`, the
@@ -207,7 +207,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 - **The history.** `dot_record()` (`debugger_source.cpp:213`) appends a snapshot `{generation, cycle, entry_ok, units,
   spans, held}` to `DeferredCheck::history` at every judgement and every change of the check, replacing
   the records of the same generation from that cycle on (a re-run replaces what the first run recorded
-  from there), and keeping at most `kDotHistoryMax` = 256 (`debugger_impl.h:151`; the oldest go, and
+  from there), and keeping at most `kDotHistoryMax` = 256 (`kDotHistoryMax`, `debugger_impl.h:151`; the oldest go, and
   a landing older than the oldest reads pending). `dot_landing(false)` picks the last record of the
   landed generation strictly *before* the landed cycle (a verdict at cycle C applies to the instruction
   about to run at C, which a landing at C has not run); none means pending. Records of earlier generations
@@ -221,7 +221,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (`replay_mode()` is the rewind replay's flag, `emulator.h:1180`, not RZX's). What the row
   `z88dk-dot-source-rzx-func` pins is the attach and the refusal, not a verdict reached during playback.
-- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1104`, set at `debugger_source.cpp:588`) tells the Source tab to word its pending note
+- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1104`, set at `SourceMapStatus::dot`, `debugger_source.cpp:588`) tells the Source tab to word its pending note
   *...when the dot command runs* ([7.7](07-frontends.md)).
 
 ## What the backend cannot see

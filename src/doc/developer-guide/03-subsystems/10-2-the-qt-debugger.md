@@ -97,7 +97,7 @@ at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
 **Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:831`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `debugger_manager.h:344`: ~4 Hz). Paused, it
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:344`: ~4 Hz). Paused, it
 redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:820`; `PausedStamp`,
 `debugger_manager.h:219`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
@@ -134,7 +134,7 @@ nothing scrolls, if the screen has room (`DebuggerWindow::grow_default_size_to_n
 alone. The size is *measured*: the scroll ranges are the amount of panel area out of view, and the left column
 of tabs is widened by what its pages' `sizeHint()` lack, using the share of a widening the splitter really gave
 it on the previous pass (`fit_last_add_`, `fit_last_lacking_`; bounded by `kMaxInitialFitPasses` = 4
-(`debugger_window.h:201`) and `kMaxWidthFitPasses` = 8 (`debugger_window.h:226`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:201`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:226`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
