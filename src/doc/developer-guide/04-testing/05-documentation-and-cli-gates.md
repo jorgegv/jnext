@@ -96,7 +96,7 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
 
 When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are `HS-102`..`HS-144` of `make harness-selftest`.
+rows are `HS-102`..`HS-148` of `make harness-selftest`.
 
 ## The renderer fingerprint
 

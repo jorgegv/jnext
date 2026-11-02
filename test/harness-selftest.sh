@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=286  # 243 -> 286: HS-102..144 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=290  # 243 -> 290: HS-102..148 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1127,6 +1127,24 @@ check "HS-143" "a symbol right before the parenthesis (also through ** markup) a
 dg_tree 'It is (`alpha()`, `src/core/a.cpp:3` and `:3`).'
 out=$(dg_lint); rc=$?
 check "HS-144" "a bare :N continuation inside a parenthesis that has its symbol passes" 0 $rc "$out" \
+    "checked 2 cites, 0 failed"
+# Round 4 (review 4): the narrowing behaviours of the parenthesis rule, and the .dot grouping.
+dg_tree 'The `alpha()` (`beta`, `src/core/a.cpp:3`).'
+out=$(dg_lint); rc=$?
+check "HS-145" "a symbol INSIDE the parenthesis wins over the span before it: beta is not on the line, so the cite fails although alpha() is" 1 $rc "$out" \
+    "src/core/a.cpp:3 | beta" "1 failed"
+dg_tree 'The `beta` (the `alpha` flag, read (`src/core/a.cpp:3`)).'
+out=$(dg_lint); rc=$?
+check "HS-146" "the INNERMOST parenthesis is the scope: an outer parenthesis's symbol does not anchor a cite in a nested one" 1 $rc "$out" \
+    "unanchored" "1 failed"
+dg_tree 'x'
+printf 'digraph g {\n    // `alpha()` is here, and it is at\n    // src/core/a.cpp:3.\n    n [label="x"];\n    // `beta` is here, and it is at\n    // src/core/a.cpp:3.\n}\n' > "$DG/src/doc/developer-guide/diagrams/d.dot"
+out=$(dg_lint); rc=$?
+check "HS-147" "consecutive // comment lines are one sentence block in a .dot page: a bare cite on the second line takes its symbol from the first (pass), a wrong one fails" 1 $rc "$out" \
+    "diagrams/d.dot:6: src/core/a.cpp:3 | beta" "checked 2 cites, 1 failed"
+dg_tree 'The `alpha()` (`src/core/a.cpp:3`), set at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-148" "a closed parenthesis ends its scope: a later cite in the same sentence is anchored by the sentence's nearest symbol again" 0 $rc "$out" \
     "checked 2 cites, 0 failed"
 rm -rf "$DG"
 
