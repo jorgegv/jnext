@@ -775,7 +775,10 @@ int main() {
                 prog.push_back(0x28); prog.push_back(uint8_t(int(loop) - int(prog.size() + 2)));   // JR Z,loop
                 prog.push_back(0x18); prog.push_back(0xFE);                // JR $
                 auto [emu, ok] = mk(hdr_two, false, true, prog);
-                for (int f = 0; f < 900; ++f) emu->run_frame();
+                // The program ends in `JR $` with HL final: stop at the first frame boundary that finds it
+                // there (frame 487 for every pad), not after the full 900-frame bound it keeps.
+                const uint16_t parked = uint16_t(0x8000 + prog.size() - 2);
+                for (int f = 0; f < 900 && emu->cpu().pc() != parked; ++f) emu->run_frame();
                 const int k = emu->cpu().get_registers().HL;
                 got_s += std::to_string(k) + " ";
                 all = all && ok && k == want[pad];

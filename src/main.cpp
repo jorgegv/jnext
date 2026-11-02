@@ -273,13 +273,6 @@ int main(int argc, char* argv[]) {
     Log::init();
     Log::emulator()->info("jnext {}", JNEXT_VERSION_STRING);
 
-    // Packaging Task 67 follow-up: warn once, in every mode (headless
-    // included), when ffmpeg is not on PATH — --record / File > Record
-    // MPEG4 Video will not work without it.
-    if (!VideoRecorder::ffmpeg_available()) {
-        Log::emulator()->warn("ffmpeg not found in PATH; MPEG4 video recording will be unavailable.");
-    }
-
     std::string inject_file;
     uint16_t inject_org = 0x8000;
     bool     inject_pc_set = false;
@@ -1421,6 +1414,15 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Unknown option: %s\nRun '%s --help' for a list of available options.\n", arg.c_str(), argv[0]);
             return 1;
         }
+    }
+
+    // Packaging Task 67 follow-up: warn once, in every mode (headless
+    // included), when ffmpeg is not on PATH — --record / File > Record
+    // MPEG4 Video will not work without it. Probed once the command line has
+    // parsed: the probe starts an ffmpeg process (~0.1 s), which a run that
+    // exits on --help, --version or a usage error has no use for.
+    if (!VideoRecorder::ffmpeg_available()) {
+        Log::emulator()->warn("ffmpeg not found in PATH; MPEG4 video recording will be unavailable.");
     }
 
     // A bare filename is shorthand for --load. Giving both is ambiguous — say so

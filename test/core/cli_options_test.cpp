@@ -79,6 +79,8 @@
 //               Reported against GH #246: three flags in the table, the man
 //               page, USAGE.md and the user guide, absent from `--help`, every
 //               gate green.
+//   CLI-ENV-01  The jnext children these rows start have no DISPLAY / WAYLAND_DISPLAY and a fixed
+//               environment (offscreen Qt, dummy SDL video, LC_ALL=C), test/test_spawn.h (GH #440).
 //   CLI-TBL-06  Every row carries help text, and its metavar count equals its
 //               arity (a quoted run counts once — --rtc takes one argument
 //               spelled "YYYY-MM-DD HH:MM:SS"). An empty help is a flag the
@@ -952,6 +954,45 @@ int main() {
         }
     }
 
+    // CLI-ENV-01: every child jnext test process starts with no display and a fixed
+    // environment (test/test_spawn.h). A mutated or mis-parsing jnext once opened
+    // SD-download dialogs on the developer's desktop through an inherited DISPLAY.
+    // The parent is given a display here so the strip is actually exercised, and
+    // the child is the platform's own environment dump.
+    {
+        const std::string out_path = std::string(JNEXT_BINARY) + ".env." + jtp::process_id_string();
+#ifdef _WIN32
+        ::SetEnvironmentVariableA("DISPLAY", ":99");
+        ::SetEnvironmentVariableA("WAYLAND_DISPLAY", "wayland-99");
+        const int rc = jtp::run_bounded("cmd.exe", "/c set", out_path, "");
+        ::SetEnvironmentVariableA("DISPLAY", nullptr);
+        ::SetEnvironmentVariableA("WAYLAND_DISPLAY", nullptr);
+#else
+        ::setenv("DISPLAY", ":99", 1);
+        ::setenv("WAYLAND_DISPLAY", "wayland-99", 1);
+        const int rc = jtp::run_bounded("env", "", out_path, "");
+        ::unsetenv("DISPLAY");
+        ::unsetenv("WAYLAND_DISPLAY");
+#endif
+        std::ifstream in(out_path, std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        const std::string env = "\n" + ss.str();
+        std::remove(out_path.c_str());
+        auto has_var = [&](const char* line) {
+            return env.find(std::string("\n") + line) != std::string::npos;
+        };
+        std::vector<std::string> bad;
+        if (rc != 0 || env.size() < 8) bad.push_back("environment dump failed");
+        if (has_var("DISPLAY=")) bad.push_back("DISPLAY inherited");
+        if (has_var("WAYLAND_DISPLAY=")) bad.push_back("WAYLAND_DISPLAY inherited");
+        if (!has_var("QT_QPA_PLATFORM=offscreen")) bad.push_back("QT_QPA_PLATFORM not offscreen");
+        if (!has_var("SDL_VIDEODRIVER=dummy")) bad.push_back("SDL_VIDEODRIVER not dummy");
+        if (!has_var("LC_ALL=C")) bad.push_back("LC_ALL not C");
+        check("CLI-ENV-01", "jnext test children start with no DISPLAY/WAYLAND_DISPLAY, offscreen Qt, dummy SDL video and LC_ALL=C",
+              bad.empty(), join(bad));
+    }
+
     {
         const std::string bin = JNEXT_BINARY;
         std::ifstream probe(bin);
@@ -1103,10 +1144,12 @@ int main() {
             const std::string tag = ".gh216." + jtp::process_id_string();
             const std::string out_path = bin + tag + ".out";
             const std::string err_path = bin + tag + ".err";
+            // Returns the exit status too (zero / non-zero, as run() does), so a row
+            // that needs both the status and the streams starts the process once.
             auto run_split = [&](const std::string& args) {
                 std::remove(out_path.c_str());
                 std::remove(err_path.c_str());
-                jtp::run_bounded(bin, args, out_path, err_path);
+                return jtp::run_bounded(bin, args, out_path, err_path);
             };
             auto slurp = [](const std::string& path) {
                 std::ifstream in(path, std::ios::binary);
@@ -1396,12 +1439,11 @@ int main() {
                 if (std::strcmp(o.name, "--log-file") == 0) continue;
                 std::string args = o.name;
                 for (int i = 0; i < o.arity; ++i) args += " x";
-                run_split(args + " --version");
+                const int rc = run_split(args + " --version");
                 const std::string e = slurp(err_path);
                 if (crashed(e)) nobreak.push_back(std::string("crash on ") + args);
                 // The numeric options must also refuse `x` BY NAME AND VALUE.
                 if (numeric_names.count(o.name)) {
-                    const int rc = run(args + " --version");
                     if (rc == 0) nobreak.push_back(std::string("accepted ") + args);
                     if (e.find(o.name) == std::string::npos || e.find("\"x\"") == std::string::npos)
                         nobreak.push_back(std::string("refusal of `") + args + "` omits option or value");
@@ -1428,8 +1470,7 @@ int main() {
             for (const auto& c : num_cases) {
                 for (const char* v : c.bad) {
                     const std::string args = std::string(c.name) + " " + c.head + v + c.tail + " --version";
-                    const int rc = run(args);
-                    run_split(args);
+                    const int rc = run_split(args);
                     const std::string e = slurp(err_path);
                     if (rc == 0) num.push_back("accepted: " + args);
                     if (crashed(e)) num.push_back("crash: " + args);
@@ -1473,8 +1514,7 @@ int main() {
             // "requires --headless", reachable ONLY if it was queued.
             std::vector<std::string> ek;
             for (const char* a : { "--delayed-keypress-frames 5 \"\"", "--delayed-keypress 1 \"\"" }) {
-                const int rc = run(a);
-                run_split(a);
+                const int rc = run_split(a);
                 const std::string e = slurp(err_path);
                 if (rc == 0) ek.push_back(std::string("exit 0: ") + a);
                 if (e.find("--delayed-keypress requires --headless") == std::string::npos)
@@ -1550,8 +1590,7 @@ int main() {
                 std::vector<std::string> bad;
                 for (const Refuse& c : cases) {
                     const std::string args = std::string(c.args) + (c.version ? " --version" : "");
-                    const int rc = run(args);
-                    run_split(args);
+                    const int rc = run_split(args);
                     const std::string o = slurp(out_path), e = slurp(err_path);
                     if (rc == 0) bad.push_back(std::string("accepted: ") + c.args);
                     if (crashed(e)) bad.push_back(std::string("crash: ") + c.args);
@@ -1667,9 +1706,9 @@ int main() {
                     if (run("--cpu-speed " + v + " --version") != 0) bad.push_back("rejected " + v);
                 for (const char* v : { "3", "5", "x", "" , "3.50", "07", " 7" }) {
                     const std::string args = std::string("--cpu-speed \"") + v + "\" --version";
-                    run_split(args);
+                    const int rc = run_split(args);
                     const std::string e = slurp(err_path);
-                    if (run(args) == 0) bad.push_back(std::string("accepted `") + v + "`");
+                    if (rc == 0) bad.push_back(std::string("accepted `") + v + "`");
                     if (e.find("--cpu-speed") == std::string::npos ||
                         e.find(std::string("\"") + v + "\"") == std::string::npos)
                         bad.push_back(std::string("refusal of `") + v + "` omits option or value");
@@ -1697,8 +1736,7 @@ int main() {
                 for (const Warn& c : cases) {
                     const std::string args = std::string("--headless --machine 48k") + sd_arg + " " + c.args +
                                              " --delayed-automatic-exit-frames 1";
-                    const int rc = run(args);
-                    run_split(args);
+                    const int rc = run_split(args);
                     const std::string e = slurp(err_path);
                     const std::string want = std::string("warning: ") + c.spelling + " has no effect with --headless";
                     if (rc != 0) bad.push_back(std::string("exit non-zero: ") + c.args);
@@ -1744,9 +1782,9 @@ int main() {
                     if (run(std::string("--scale ") + v + " --version") != 0) bad.push_back(std::string("--scale rejected ") + v);
                 for (const char* v : { "0", "4", "x", "2x" }) {
                     const std::string args = std::string("--scale ") + v + " --version";
-                    run_split(args);
+                    const int rc = run_split(args);
                     const std::string e = slurp(err_path);
-                    if (run(args) == 0) bad.push_back(std::string("--scale accepted ") + v);
+                    if (rc == 0) bad.push_back(std::string("--scale accepted ") + v);
                     if (e.find("--scale") == std::string::npos || e.find(std::string("\"") + v + "\"") == std::string::npos)
                         bad.push_back(std::string("--scale refusal omits option or value: ") + v);
                 }
@@ -1756,15 +1794,14 @@ int main() {
                 // saying so (a build with it, and every other build, takes them).
                 for (const char* v : { "soft", "tv", "pc" }) {
                     const std::string args = std::string("--crt ") + v + " --version";
-                    run_split(args);
-                    if (run(args) != 0 && slurp(err_path).find("GPU shader") == std::string::npos)
+                    if (run_split(args) != 0 && slurp(err_path).find("GPU shader") == std::string::npos)
                         bad.push_back(std::string("--crt ") + v + " refused without saying why");
                 }
                 for (const char* v : { "crt", "", "TV", "scanline" }) {
                     const std::string args = std::string("--crt \"") + v + "\" --version";
-                    run_split(args);
+                    const int rc = run_split(args);
                     const std::string e = slurp(err_path);
-                    if (run(args) == 0) bad.push_back(std::string("--crt accepted `") + v + "`");
+                    if (rc == 0) bad.push_back(std::string("--crt accepted `") + v + "`");
                     if (e.find("--crt") == std::string::npos || e.find(std::string("\"") + v + "\"") == std::string::npos)
                         bad.push_back(std::string("--crt refusal omits option or value: `") + v + "`");
                 }
@@ -1860,14 +1897,14 @@ int main() {
                 // restricts nothing, claims nothing, and is accepted.
                 {
                     const std::string base = base_esp_off();
-                    run_split(base + " --set esp.allowed_hosts=a.example --delayed-automatic-exit-frames 1");
+                    const int rc1 = run_split(base + " --set esp.allowed_hosts=a.example --delayed-automatic-exit-frames 1");
                     const std::string e1 = slurp(err_path);
-                    run_split(base + " --esp-allow a.example --delayed-automatic-exit-frames 1");
+                    const int rc2 = run_split(base + " --esp-allow a.example --delayed-automatic-exit-frames 1");
                     const std::string e2 = slurp(err_path);
-                    if (run(base + " --set esp.allowed_hosts=a.example --delayed-automatic-exit-frames 1") == 0 ||
+                    if (rc1 == 0 ||
                         e1.find("--set esp.allowed_hosts requires the ESP to be enabled") == std::string::npos)
                         bad.push_back("--set esp.allowed_hosts=a.example without the ESP: " + e1);
-                    if (run(base + " --esp-allow a.example --delayed-automatic-exit-frames 1") == 0 ||
+                    if (rc2 == 0 ||
                         e2.find("--esp-allow requires the ESP to be enabled") == std::string::npos)
                         bad.push_back("--esp-allow without the ESP: " + e2);
                     if (run(base + " --set esp.allowed_hosts= --delayed-automatic-exit-frames 1") != 0)
