@@ -3283,6 +3283,150 @@ static void test_rewind_refusal_ui() {
     }
 }
 
+// ===========================================================================
+// QANN -- GH #387 (E23-24): the user's labels in the other views, and the Map menu's annotation items.
+//
+// Oracle: design 10.3 (every consumer reads the one reader, by the memory that supplies the address),
+// 10.5 (the file: Open replaces the store whole or not at all; Save writes the canonical bytes) and
+// D11 (unsaved changes are asked about before an Open over them). NR 0x56 picks the page in slot 6.
+// ===========================================================================
+static std::string slurp_file(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+static void test_annotations_ui() {
+    set_group("QANN");
+    const jnext::dbg::MemSpace P10 = jnext::dbg::MemSpace::page(0x10);
+    {   // QANN-05: the Call Stack target and the Breakpoints Symbol column
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QANN-05", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.load(0x8000, {0xCD, 0x00, 0xC0, 0x18, 0xFE});   // CALL $C000 / JR $
+        fx.load(0xC000, {0x00, 0x18, 0xFE});
+        fx.regs(0x8000);
+        fx.backend->set_user_label(P10, 0xC000, "banked");
+        fx.enable();
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0xC000);
+        fx.mgr->on_step_into();
+        DebuggerWindow* dbg = fx.dbg();
+        const QString target = table_cell(dbg->callstack_panel(), 0, 3);
+        auto bp_symbol = [&]() {
+            QString out = QStringLiteral("<no row>");
+            if (auto* t = dbg->breakpoint_panel()->findChild<QTableWidget*>())
+                for (int r = 0; r < t->rowCount(); ++r)
+                    if (t->item(r, 2) && t->item(r, 2)->text() == "$C000" && t->item(r, 3)) out = t->item(r, 3)->text();
+            return out;
+        };
+        const QString sym10 = bp_symbol();
+        fx.emu.nextreg().write(0x56, 0x11);   // behind the backend's back: the stamp is unchanged, so redraw by hand
+        dbg->refresh_panels();
+        const QString sym11 = bp_symbol();
+        check("QANN-05", "the Call Stack target of a CALL $C000 and the Breakpoints Symbol cell of a breakpoint there "
+                         "show the user label 'banked' (page 0x10 mapped) and the breakpoint's cell is empty with 0x11",
+              target == "banked" && sym10 == "banked" && sym11.isEmpty(),
+              fmt("target='%s' bp10='%s' bp11='%s'", s(target).c_str(), s(sym10).c_str(), s(sym11).c_str()));
+    }
+    // The Map menu
+    const std::string good = write_file("ann-good.jdp", "jnext-annotations 1\nlabel P10 $C000 banked\ncomment P10 $C000 hi\n");
+    const std::string bad = write_file("ann-bad.jdp", "jnext-annotations 1\nlabel P10 $C000 ok\nlabel P10 $C001 !\n");
+    {   // QANN-12
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QANN-12", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.enable();
+        QMenu* map = menu_named(fx.dbg()->menuBar(), "Map");
+        // three items, mnemonics unique across the whole popup
+        QStringList letters;
+        for (QAction* a : map->actions()) {
+            const int at = a->text().indexOf(QLatin1Char('&'));
+            if (at >= 0 && at + 1 < a->text().size()) letters << a->text().at(at + 1).toUpper();
+        }
+        QStringList uniq = letters; uniq.removeDuplicates();
+        QAction* open = item_named(map, "Open Annotations...");
+        QAction* save = item_named(map, "Save Annotations");
+        QAction* save_as = item_named(map, "Save Annotations As...");
+        const bool items = open && save && save_as && uniq.size() == letters.size();
+        // Open loads the file and the Disassembly shows it
+        Modals mo;
+        mo.file_path = QString::fromStdString(good);
+        if (open) open->trigger();
+        mo.timer.stop();
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        if (auto* sb = dp->findChild<QScrollBar*>()) sb->setValue(0xC000);
+        QApplication::processEvents();
+        const bool opened = fx.backend->annotations().find(P10, 0xC000) &&
+                            fx.backend->annotations().find(P10, 0xC000)->label == "banked" &&
+                            dp->line_label(0) == "banked" && dp->line_comment(0) == "; hi" && !fx.mgr->annotations_unsaved() &&
+                            mo.first("file");
+        // Save with a current file writes the canonical bytes, with no dialog
+        fx.backend->set_user_label(P10, 0xC010, "second");
+        const bool dirty = fx.mgr->annotations_unsaved();
+        Modals ms;
+        if (save) save->trigger();
+        ms.timer.stop();
+        const std::string written = slurp_file(good);
+        const bool saved = ms.seen.empty() && !fx.mgr->annotations_unsaved() &&
+                           written == "jnext-annotations 1\nlabel P10 $C000 banked\ncomment P10 $C000 hi\nlabel P10 $C010 second\n";
+        // a failed Open: the box names the line, the store is as it was
+        const auto before = fx.backend->annotations();
+        Modals mb;
+        mb.file_path = QString::fromStdString(bad);
+        if (open) open->trigger();
+        mb.timer.stop();
+        const Modals::Seen* box = mb.first("box");
+        const bool failed = box && box->title == "Open Failed" && box->text.contains("line 3:") &&
+                            fx.backend->annotations() == before;
+        // Save with no current file asks where (Save As), and appends .jdp
+        Fixture f2(MachineType::ZXN_ISSUE2);
+        f2.regs(0x8000);
+        f2.enable();
+        f2.backend->set_user_label(P10, 0xC000, "x");
+        Modals mn;
+        mn.file_path = g_tmp->filePath(QStringLiteral("ann-new"));
+        if (QAction* sv = item_named(menu_named(f2.dbg()->menuBar(), "Map"), "Save Annotations")) sv->trigger();
+        mn.timer.stop();
+        const std::string created = slurp_file(g_tmp->filePath(QStringLiteral("ann-new.jdp")).toStdString());
+        const bool asked = mn.first("file") && created == "jnext-annotations 1\nlabel P10 $C000 x\n" &&
+                           !f2.mgr->annotations_unsaved() &&
+                           f2.mgr->annotations_file().endsWith(QStringLiteral("ann-new.jdp"));
+        check("QANN-12", "Map menu: Open, Save and Save As with unique mnemonics; Open loads the file and the Disassembly "
+                         "shows its label and comment; Save with a current file writes the canonical bytes without a "
+                         "dialog; a file that does not parse gives an 'Open Failed' box naming the line and keeps the "
+                         "store; Save with no file asks where and adds .jdp",
+              items && opened && dirty && saved && failed && asked,
+              fmt("items=%d opened=%d dirty=%d saved=%d failed=%d asked=%d", items, opened, dirty, saved, failed, asked));
+    }
+    {   // QANN-13
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QANN-13", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.enable();
+        QAction* open = item_named(menu_named(fx.dbg()->menuBar(), "Map"), "Open Annotations...");
+        fx.backend->set_user_label(P10, 0xC020, "mine");
+        const auto before = fx.backend->annotations();
+        Modals cancel;
+        cancel.box_answer = QMessageBox::Cancel;
+        cancel.file_path = QString::fromStdString(good);
+        if (open) open->trigger();
+        cancel.timer.stop();
+        const Modals::Seen* ask = cancel.first("box");
+        const bool cancelled = ask && ask->title == "Unsaved Annotations" && !cancel.first("file") &&
+                               fx.backend->annotations() == before;
+        Modals discard;
+        discard.box_answer = QMessageBox::Discard;
+        discard.file_path = QString::fromStdString(good);
+        if (open) open->trigger();
+        discard.timer.stop();
+        const bool discarded = discard.first("box") && discard.first("file") && !fx.backend->annotations().find(P10, 0xC020) &&
+                               fx.backend->annotations().find(P10, 0xC000);
+        check("QANN-13", "Open over unsaved changes asks Save / Discard / Cancel first: Cancel opens no file dialog "
+                         "and keeps the store; Discard goes on to open and replaces it",
+              cancelled && discarded, fmt("cancelled=%d discarded=%d", cancelled, discarded));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -3314,6 +3458,7 @@ int main(int argc, char** argv) {
     test_rewind_refusal_ui();
     test_trace_ui();
     test_map_load();
+    test_annotations_ui();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

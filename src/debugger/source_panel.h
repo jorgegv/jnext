@@ -82,6 +82,9 @@ public:
     /// GH #423 - the Watches panel, which the menu's "Watch ..." entries add to
     /// (the Disassembly's menu offers them with one set, and without it not at all).
     void set_watch_panel(WatchPanel* watches);
+    /// GH #387 - the backend the annotation entries of the context menu write to (the panel reads
+    /// through its const pointer). Without one the menu offers no annotation entries.
+    void set_annotation_backend(jnext::dbg::Debugger* dbg) { annot_ = dbg; }
 
     /// GH #423 - the right-click menu of source line `line` (one-based) with the
     /// Disassembly's actions: Copy, Copy with Addresses, Select All, Toggle
@@ -155,6 +158,8 @@ signals:
     void run_to_line_requested(const QString& file_line);
     /// GH #423 - Show in Disassembly: put the Disassembly on `addr`.
     void show_address_requested(uint16_t addr);
+    /// GH #387 - a menu entry changed a label or a comment: the manager refreshes the panels.
+    void annotations_changed();
     /// GH #347 - the lines the Source cursor or selection covers, `first..last` of `file`
     /// (an empty file: none, a message or Running is shown). `reveal`: the user made the
     /// move in this tab, so the Disassembly may scroll to the addresses; a placement the
@@ -196,6 +201,7 @@ private:
     void show_running();
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
+    jnext::dbg::Debugger* annot_ = nullptr;   // GH #387
     jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QLabel* location_label_ = nullptr;
     QPlainTextEdit* editor_ = nullptr;

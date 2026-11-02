@@ -24,6 +24,7 @@
 #include <QEvent>
 #include <QCoreApplication>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QStatusBar>
 
@@ -379,6 +380,16 @@ void DebuggerManager::ensure_window() {
     }
     if (auto* dp = debugger_window_->disasm_panel())
         dp->set_breakpoint_model(bp_model_);
+    // GH #387 - the annotation entries of the Disassembly and Source menus write to the backend and
+    // ask for a refresh.
+    if (auto* dp = debugger_window_->disasm_panel()) {
+        dp->set_annotation_backend(&dbg_);
+        connect(dp, &DisasmPanel::annotations_changed, this, [this]() { refresh_panels(); });
+    }
+    if (auto* sp = debugger_window_->source_panel()) {
+        sp->set_annotation_backend(&dbg_);
+        connect(sp, &SourcePanel::annotations_changed, this, [this]() { refresh_panels(); });
+    }
     if (auto* sp = debugger_window_->source_panel()) {   // GH #421: the BP column
         sp->set_breakpoint_model(bp_model_);
         // GH #423 - the menu's Watch entries, and Run to Here on a source line.
@@ -709,6 +720,77 @@ void DebuggerManager::on_load_nextbuild_memory() {
             QObject::tr("Could not load NextBuild symbols from:\n%1\n\n%2")
                 .arg(path, QString::fromStdString(why)));
     }
+}
+
+void DebuggerManager::set_annotations_file(const QString& path)
+{
+    annotations_file_ = path;
+    saved_revision_ = dbg_.annotations_revision();
+}
+
+bool DebuggerManager::save_annotations_to(const QString& path)
+{
+    std::string why;
+    if (dbg_.save_annotations(path.toStdString(), &why) != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(main_window_, QObject::tr("Save Failed"),
+            QObject::tr("Could not save the annotations to:\n%1\n\n%2").arg(path, QString::fromStdString(why)));
+        return false;
+    }
+    annotations_file_ = path;
+    saved_revision_ = dbg_.annotations_revision();
+    return true;
+}
+
+void DebuggerManager::on_save_annotations_as()
+{
+    QString path = QFileDialog::getSaveFileName(
+        main_window_, QObject::tr("Save Annotations"), annotations_file_,
+        QObject::tr("jnext annotations (*.jdp);;All Files (*)"));
+    if (path.isEmpty()) return;
+    if (QFileInfo(path).suffix().isEmpty()) path += QStringLiteral(".jdp");
+    save_annotations_to(path);
+}
+
+void DebuggerManager::on_save_annotations()
+{
+    if (annotations_file_.isEmpty()) on_save_annotations_as();
+    else save_annotations_to(annotations_file_);
+}
+
+bool DebuggerManager::confirm_discard_annotations()
+{
+    if (!annotations_unsaved()) return true;
+    QMessageBox box(QMessageBox::Warning, QObject::tr("Unsaved Annotations"),
+                    QObject::tr("The labels and comments have changed since they were last saved."),
+                    QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, main_window_);
+    box.setDefaultButton(QMessageBox::Save);
+    switch (box.exec()) {
+    case QMessageBox::Save:
+        on_save_annotations();
+        return !annotations_unsaved();
+    case QMessageBox::Discard:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void DebuggerManager::on_open_annotations()
+{
+    if (!confirm_discard_annotations()) return;
+    const QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Open Annotations"), annotations_file_,
+        QObject::tr("jnext annotations (*.jdp);;All Files (*)"));
+    if (path.isEmpty()) return;
+    std::string why;
+    if (dbg_.load_annotations(path.toStdString(), &why) != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(main_window_, QObject::tr("Open Failed"),
+            QObject::tr("Could not open the annotations:\n%1\n\n%2").arg(path, QString::fromStdString(why)));
+        return;
+    }
+    annotations_file_ = path;
+    saved_revision_ = dbg_.annotations_revision();
+    refresh_panels();
 }
 
 void DebuggerManager::on_load_sld() {

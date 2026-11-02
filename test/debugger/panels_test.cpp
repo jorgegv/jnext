@@ -3792,6 +3792,117 @@ static void test_long_address() {
     }
 }
 
+// ===========================================================================
+// QANN -- GH #387 (E23-24): the user's labels and comments in the Disassembly.
+//
+// Oracle: the owner's plan (doc/design/SOURCE-LEVEL-DEBUGGING.md 10.1-10.3, 10.5, the issue): a user
+// label names its address only in its own memory; the Label column is present while the symbol table
+// holds a label and the layout is today's without one; the first line of a comment follows the
+// mnemonic; the copy formats are unchanged. Which page supplies $C000 is NR 0x56 (Mmu::route(),
+// design 4.1, 4.2).
+// ===========================================================================
+static void test_annotations() {
+    set_group("QANN");
+    using jnext::dbg::MemSpace;
+    const MemSpace P10 = MemSpace::page(0x10);
+    // x of the first painted text that starts with `what` after `label`'s own text on the same row.
+    const auto x_of = [](const std::vector<PaintedText>& items, const QString& what) {
+        for (const PaintedText& t : items) if (t.text == what) return t.pos.x();
+        return -1.0;
+    };
+    {   // QANN-01 and QANN-02
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x10);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.set_annotation_backend(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0xC000);
+        dis.refresh();
+        const bool bare_cols = !dis.label_column_shown() && dis.mnemonic_x() == 20 + 4 + 48 + 96 + 100;
+        const auto bare = painted(&dis);
+        const double bare_mn = x_of(bare, QStringLiteral("NOP"));
+        dbg.set_user_label(P10, 0xC000, "banked");
+        dis.refresh();
+        const auto lab = painted(&dis);
+        const bool shown = dis.label_column_shown() && dis.line_label(0) == "banked" &&
+                           x_of(lab, QStringLiteral("banked")) == 20 + 4 + 48 + 96 + 100 &&
+                           x_of(lab, QStringLiteral("Label")) == 20 + 4 + 48 + 96 + 100 &&
+                           x_of(lab, QStringLiteral("NOP")) == dis.mnemonic_x() && dis.mnemonic_x() > 20 + 4 + 48 + 96 + 100;
+        check("QANN-01", "no label in the table: no Label column and the mnemonic at the old x (268); one label: the "
+                         "column (header and 'banked' at the old mnemonic x) is there and the mnemonic moved right",
+              built && bare_cols && bare_mn == 20 + 4 + 48 + 96 + 100 && shown,
+              fmt("bare %d mn %.0f; shown %d mn_x %d", bare_cols, bare_mn, shown, dis.mnemonic_x()));
+        const std::string at10 = s(dis.line_label(0));
+        emu.nextreg().write(0x56, 0x11);
+        dis.refresh();
+        const std::string at11 = s(dis.line_label(0));
+        emu.nextreg().write(0x56, 0x10);
+        dis.refresh();
+        check("QANN-02", "the Label column shows 'banked' at $C000 with page 0x10 mapped in slot 6 and nothing with 0x11",
+              built && at10 == "banked" && at11.empty() && s(dis.line_label(0)) == "banked", at10 + "|" + at11);
+
+        // QANN-03: the comment after the mnemonic
+        dbg.set_user_comment(P10, 0xC000, "two\nlines");
+        dis.refresh();
+        const std::string c10 = s(dis.line_comment(0));
+        bool painted_c = false;
+        for (const PaintedText& t : painted(&dis)) if (t.text == QStringLiteral("; two ...")) painted_c = true;
+        emu.nextreg().write(0x56, 0x11);
+        dis.refresh();
+        const std::string c11 = s(dis.line_comment(0));
+        emu.nextreg().write(0x56, 0x10);
+        dbg.set_user_comment(P10, 0xC000, "one");
+        dis.refresh();
+        const std::string one = s(dis.line_comment(0));
+        check("QANN-03", "the comment 'two\\nlines' at (P10, $C000) shows as '; two ...' after the mnemonic (painted), "
+                         "'; one' for a single line, and not at all with page 0x11 mapped",
+              c10 == "; two ..." && painted_c && c11.empty() && one == "; one", c10 + "|" + c11 + "|" + one);
+    }
+    {   // QANN-04 and QANN-06: operands, the copy, the address field
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x10);
+        poke(emu, 0x8000, {0xC3, 0x00, 0xC0});   // JP $C000
+        jnext::dbg::Debugger dbg(emu);
+        dbg.set_user_label(P10, 0xC000, "banked");
+        dbg.set_user_comment(P10, 0xC000, "note");
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        bool jp = false;
+        for (const PaintedText& t : painted(&dis)) if (t.text == QStringLiteral("JP banked")) jp = true;
+        dis.select_all_visible();
+        const QString asm_text = dis.selection_text(disasm_text::CopyFormat::AsmOnly);
+        const QString addr_text = dis.selection_text(disasm_text::CopyFormat::WithAddresses);
+        dis.clear_selection();
+        check("QANN-04", "a JP $C000 paints and copies as 'JP banked' (page 0x10 mapped); the copies carry no label "
+                         "or comment line (formats unchanged)",
+              built && jp && asm_text.contains("JP banked") && !asm_text.contains("note") && !asm_text.contains("banked:") &&
+                  addr_text.contains("JP banked") && !addr_text.contains("note"),
+              s(asm_text));
+        // the address field takes the name
+        auto* edit = dis.findChild<QLineEdit*>();
+        if (edit) {
+            edit->setText("banked");
+            QMetaObject::invokeMethod(edit, "returnPressed");
+        }
+        QApplication::processEvents();
+        bool at_c000 = false;
+        for (const PaintedText& t : painted(&dis)) if (t.text == QStringLiteral("$C000")) at_c000 = true;
+        check("QANN-06", "the Disassembly address field takes the user's label ('banked' goes to $C000), as the backend "
+                         "resolves it for every other address field",
+              edit && at_c000 && dbg.symbols().resolve("banked") == std::optional<uint16_t>(0xC000) &&
+                  dbg.lookup_name("banked") == std::optional<uint16_t>(0xC000));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -3821,6 +3932,7 @@ int main(int argc, char** argv) {
     test_coverage_panels();
     test_script_panel();
     test_long_address();
+    test_annotations();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

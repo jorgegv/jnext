@@ -3815,6 +3815,14 @@ void MainWindow::wheelEvent(QWheelEvent* event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+#ifdef ENABLE_DEBUGGER
+    // GH #387 (D11): unsaved labels and comments are asked about first; Cancel keeps the app open
+    // (File > Quit goes through close(), which returns false when the event is ignored).
+    if (debugger_mgr_ && !debugger_mgr_->confirm_discard_annotations()) {
+        event->ignore();
+        return;
+    }
+#endif
     // Stop any active recording before closing. The result is not lost:
     // a failed stop is latched per output path (GH #86 — see
     // VideoRecorder::output_failed(), read by main.cpp after run()).
