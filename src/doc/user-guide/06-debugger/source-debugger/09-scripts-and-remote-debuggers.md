@@ -66,10 +66,11 @@ starts as soon as it loads and which is usually past `main` when you connect. Th
 Two limits of `z88dk-gdb` itself. With a map built by the 2026-10-16 master's sdcc
 (`+zxn -clib=sdcc_iy -debug -m --list`), both clients answer `break main.c:19` with `Cannot
 break on 'main.c:19'`: use an address or a symbol there, or build with sccz80. And with banked
-programs the client's `next` is known to hang in banked code and to crash on a 24-bit line symbol
-(the fixtures' README, Z4, and the design notes). z88dk PR #3218, merged 2026-10-31, fixes these
-according to its description; it is newer than both installs used here, and no case was run with
-it. The `next` hang and the crash were not re-run for this page.
+programs the master client crashed (segmentation fault) loading the map of the `-run` banked
+example built with both installs, which has a 24-bit line symbol; the client's `next` is also
+reported to hang in banked code, which was not re-run for this page. z88dk PR #3218, merged
+2026-10-31, fixes these according to its description; it is newer than both installs used here,
+and no case was run with it.
 
 ## DeZog
 

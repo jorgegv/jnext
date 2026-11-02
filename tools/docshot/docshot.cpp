@@ -748,7 +748,7 @@ void usage() {
         "Images: debugger-window debugger-cpu-mmu debugger-disassembly\n"
         "        debugger-video debugger-nextreg debugger-memory debugger-stack\n"
         "        debugger-watches debugger-breakpoints\n"
-        "        debugger-sprites debugger-copper debugger-audio\n"
+        "        debugger-sprites debugger-copper debugger-audio debugger-script\n"
         "        gui-main-window preferences-startup\n"
         "        debugger-source debugger-source-breakpoints debugger-source-coverage\n"
         "        debugger-source-borland debugger-source-banked\n");

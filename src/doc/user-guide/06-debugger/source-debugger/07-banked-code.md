@@ -52,7 +52,7 @@ example `monitor sym banked_add` answers `banked_add = $C000 P14`.
 
 **Debug ▸ Physical Addresses** replaces the tag by the place the byte sits in the Next's memory
 (`--set debugger.physical_addresses=true` does it for one run). RAM page *n* is at `(n + 0x20) × 8 KB`
-in the SRAM, so page `0x04` is `$048000` (the GDB server's `monitor mmu` prints it so for the slot at
+in the SRAM (except pages `0x0A`, `0x0B` and `0x0E`, the block RAMs, which read `BRAM5+$0000`, `BRAM5+$2000` and `BRAM7+$0000`, as in `monitor mmu`), so page `0x04` is `$048000` (the GDB server's `monitor mmu` prints it so for the slot at
 `$8000` of a NEX program) and page `0x14` is `$068000`. The setting changes nothing on a machine that
 is not a Next.
 

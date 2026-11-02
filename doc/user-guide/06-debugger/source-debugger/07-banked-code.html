@@ -4120,7 +4120,7 @@ The same tags are in the trace log and in <code>monitor src</code> over the GDB 
 example <code>monitor sym banked_add</code> answers <code>banked_add = $C000 P14</code>.</p>
 <p><strong>Debug ▸ Physical Addresses</strong> replaces the tag by the place the byte sits in the Next's memory
 (<code>--set debugger.physical_addresses=true</code> does it for one run). RAM page <em>n</em> is at <code>(n + 0x20) × 8 KB</code>
-in the SRAM, so page <code>0x04</code> is <code>$048000</code> (the GDB server's <code>monitor mmu</code> prints it so for the slot at
+in the SRAM (except pages <code>0x0A</code>, <code>0x0B</code> and <code>0x0E</code>, the block RAMs, which read <code>BRAM5+$0000</code>, <code>BRAM5+$2000</code> and <code>BRAM7+$0000</code>, as in <code>monitor mmu</code>), so page <code>0x04</code> is <code>$048000</code> (the GDB server's <code>monitor mmu</code> prints it so for the slot at
 <code>$8000</code> of a NEX program) and page <code>0x14</code> is <code>$068000</code>. The setting changes nothing on a machine that
 is not a Next.</p>
 <h2 id="what-z88dks-__banked-needs">What z88dk's <code>__banked</code> needs<a class="headerlink" href="#what-z88dks-__banked-needs" title="Permanent link">&para;</a></h2>

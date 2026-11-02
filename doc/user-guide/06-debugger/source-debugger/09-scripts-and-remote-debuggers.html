@@ -4138,10 +4138,11 @@ starts as soon as it loads and which is usually past <code>main</code> when you 
 <p>Two limits of <code>z88dk-gdb</code> itself. With a map built by the 2026-10-16 master's sdcc
 (<code>+zxn -clib=sdcc_iy -debug -m --list</code>), both clients answer <code>break main.c:19</code> with <code>Cannot
 break on 'main.c:19'</code>: use an address or a symbol there, or build with sccz80. And with banked
-programs the client's <code>next</code> is known to hang in banked code and to crash on a 24-bit line symbol
-(the fixtures' README, Z4, and the design notes). z88dk PR #3218, merged 2026-10-31, fixes these
-according to its description; it is newer than both installs used here, and no case was run with
-it. The <code>next</code> hang and the crash were not re-run for this page.</p>
+programs the master client crashed (segmentation fault) loading the map of the <code>-run</code> banked
+example built with both installs, which has a 24-bit line symbol; the client's <code>next</code> is also
+reported to hang in banked code, which was not re-run for this page. z88dk PR #3218, merged
+2026-10-31, fixes these according to its description; it is newer than both installs used here,
+and no case was run with it.</p>
 <h2 id="dezog">DeZog<a class="headerlink" href="#dezog" title="Permanent link">&para;</a></h2>
 <p>DeZog reads the source map itself, from its own launch configuration (<code>"sjasmplus": [ { "path":
 "mygame.sld" } ]</code>, see <a href="../functions/10-remote-debugging-with-dezog.html">Remote debugging with DeZog</a>):
