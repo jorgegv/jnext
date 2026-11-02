@@ -883,6 +883,15 @@ void DebuggerWindow::create_menus() {
     QAction* sjasmplus_action = load_map_menu->addAction(tr("s&jasmplus Format (--sym, --exp)..."));
     connect(sjasmplus_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_sjasmplus);
 
+    // GH #387: the user's labels and comments (the .jdp project file). O, S and A are free in this popup.
+    map_menu->addSeparator();
+    QAction* open_ann = map_menu->addAction(tr("&Open Annotations..."));
+    connect(open_ann, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_open_annotations);
+    QAction* save_ann = map_menu->addAction(tr("&Save Annotations"));
+    connect(save_ann, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_annotations);
+    QAction* save_ann_as = map_menu->addAction(tr("Save Annotations &As..."));
+    connect(save_ann_as, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_annotations_as);
+
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
 

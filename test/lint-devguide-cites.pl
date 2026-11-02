@@ -237,6 +237,15 @@ sub excerpt_numbered {
     }
 }
 
+# a code span that can anchor a cite: an identifier or a test ID, not a file or a cite
+sub is_ident_span {
+    my $c = shift;
+    return 0 if $c =~ /:\d/ || ($c =~ /^$FT$/ && looks_like_file($c) && (classify($c))[0] ne 'none');
+    return 1 if $c =~ /^[A-Z][A-Z0-9]*-\d+[a-z]?$/;
+    (my $id = $c) =~ s/\(.*\)\s*$//s;
+    return $id =~ /^[A-Za-z_]\w*(?:(?:::|\.|->)[A-Za-z_]\w*)*$/ ? 1 : 0;
+}
+
 # ---- one paragraph: ($page, [ [lineno, text], ... ], [following fence blocks], $state)
 sub paragraph {
     my ($page, $para, $fences, $state) = @_;
@@ -355,7 +364,7 @@ sub paragraph {
         }
         my $lo = @open ? $open[-1] : $sent;
         my $adj;      # a parenthesis holding no symbol of its own belongs to the span just before it
-        if (@open && !grep { $_->[0] >= $open[-1] && $_->[1] <= $s } @spans) {
+        if (@open && !grep { $_->[0] >= $open[-1] && $_->[1] <= $s && is_ident_span($_->[2]) } @spans) {
             for my $sp (reverse @spans) {
                 next if $sp->[1] > $open[-1];
                 $adj = $sp if substr($mask, $sp->[1], $open[-1] - $sp->[1]) =~ /^[\s*_]*$/;

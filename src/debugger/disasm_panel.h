@@ -73,6 +73,20 @@ public:
     /// Set symbol table for address resolution in disassembly display.
     void set_symbol_table(const SymbolTable* st) { symbol_table_ = st; }
 
+    /// GH #387 - the backend the annotation menu entries write to (the panel reads through its
+    /// const pointer). Without one the menu offers no annotation entries.
+    void set_annotation_backend(jnext::dbg::Debugger* dbg) { annot_ = dbg; }
+
+    /// GH #387 - what a line shows in the Label column (the name the one reader gives its
+    /// address in its memory, elided to LABEL_CHARS) and after its mnemonic (`; first line`,
+    /// ` ...` when the comment has more); "" for none or a line out of range.
+    QString line_label(int line) const;
+    QString line_comment(int line) const;
+    /// GH #387 - whether the Label column is shown: while the symbol table holds any label.
+    bool label_column_shown() const;
+    /// GH #387 - x of the mnemonic text of every line (for the layout rows).
+    int mnemonic_x() const;
+
     /// Set watch panel for "Add Watch" context menu actions.
     void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
 
@@ -143,6 +157,8 @@ signals:
     void selection_changed(uint16_t lo, uint16_t hi, uint16_t caret);
     /// GH #347 - the menu's Show in Source on `addr`.
     void show_source_requested(uint16_t addr);
+    /// GH #387 - a menu entry changed a label or a comment: the manager refreshes the panels.
+    void annotations_changed();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -241,6 +257,9 @@ private:
     static constexpr int ADDR_WIDTH = 48;     // address column width
     static constexpr int MEM_WIDTH = 96;      // GH #360: memory column; holds "BRAM7+$1FFF"
     static constexpr int BYTES_WIDTH = 100;   // hex bytes column width
+    static constexpr int LABEL_CHARS = 16;    // GH #387: the Label column holds this many characters
+    int label_width() const;
+    jnext::dbg::Debugger* annot_ = nullptr;
 
     QFont mono_font_;
 

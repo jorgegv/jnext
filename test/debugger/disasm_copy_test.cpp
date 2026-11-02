@@ -698,8 +698,8 @@ constexpr int MNEMONIC_X = GUTTER_W + 4 + 48 + 96 + 100;
 constexpr int MNEMONIC_W = 260;
 
 /// The painted mnemonic column of line `line`, as an image.
-QImage mnemonic_cell(const QImage& img, int line) {
-    return img.copy(MNEMONIC_X, PAINT_Y + line * LINE_H, MNEMONIC_W, LINE_H);
+QImage mnemonic_cell(const QImage& img, int line, int x = MNEMONIC_X) {
+    return img.copy(x, PAINT_Y + line * LINE_H, MNEMONIC_W, LINE_H);
 }
 
 /// `text` drawn the way DisasmPanel::paintEvent draws a mnemonic: the same
@@ -845,7 +845,8 @@ void test_painter_symbols() {
     // gone. Hence the clear, and hence rendering only once, here.
     fx.panel->clear_selection();
     QApplication::processEvents();
-    const QImage painted_plain = mnemonic_cell(render_panel(fx.panel), 0);
+    // GH #387: with a label known the Label column sits before the mnemonic; the panel says where it starts.
+    const QImage painted_plain = mnemonic_cell(render_panel(fx.panel), 0, fx.panel->mnemonic_x());
 
     check("GH21-29", "the painted mnemonic is exactly the text the clipboard gives",
           painted_plain == expected,
@@ -886,7 +887,7 @@ void test_paged_symbols() {
         seen.copied = fx.panel->selection_text(disasm_text::CopyFormat::AsmOnly).trimmed();
         fx.panel->clear_selection();
         QApplication::processEvents();
-        seen.painted = mnemonic_cell(render_panel(fx.panel), 5);
+        seen.painted = mnemonic_cell(render_panel(fx.panel), 5, fx.panel->mnemonic_x());   // GH #387: after the Label column, if shown
         return seen;
     };
     const Seen a = with_slot6(20), b = with_slot6(30), c = with_slot6(21);

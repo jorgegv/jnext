@@ -49,6 +49,8 @@
 //   SRCDOT-*         a z88dk dot command's map, which NextZXOS runs from DivMMC RAM bank 2: a source
 //                    breakpoint and the steps inside it, the same bytes in RAM or ROM, the judgement
 //                    at the entry, the hand load, landings, dotx and a rewind (GH #351)
+//   SRCDBG-UANN-*    the user's labels and comments: the two layers and the one reader, the name rule, the
+//                    project file through the backend, no lifetime, no side effect (GH #387)
 //   SRCLIFE-*        the source map's lifetime: load generations, the attachment
 //                    cache, stale user maps, Back stops at a landing (GH #342)
 //
@@ -7758,6 +7760,450 @@ int main() {
             check("SRCDOT-19", "after a state load back to an earlier clock, a rewind into the new run (never entered) reads pending, not the old generation's verdict at an overlapping cycle",
                   saved && ld == Result::Ok && old_verified && new_pending && rr == Result::Ok && st.pending &&
                       st.state == Debugger::SourceMapStatus::State::Attached);
+        }
+    }
+
+    // ── GH #387 (E23-24): the user's labels and comments through the backend ────────
+    // Oracle: design 10.2/10.3 (two layers, one reader: user label, else toolchain paged, else toolchain
+    // unpaged; by name the user layer first), 6.8 (kept across loads, resets, state loads, rewinds; not in
+    // `.jns`), 10.5 (the file), and Mmu::route() / NR 0x56 for which page supplies $C000 (design 4.1, 4.2).
+    {
+        const fs::path udir = dir / "uann";
+        fs::create_directories(udir);
+        const MemSpace P10 = MemSpace::page(0x10), P11 = MemSpace::page(0x11);
+        const auto nr = [](Machine& m, uint8_t reg, uint8_t v) { m.dbg->nextreg_write(m.a, reg, v); };
+        const auto name_at = [&](Machine& m, unsigned page, uint16_t addr = 0xC000) {
+            nr(m, 0x56, static_cast<uint8_t>(page));
+            return m.dbg->lookup(addr).value_or("-");
+        };
+        const std::string equ = [] {
+            std::ifstream in(fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sld", std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), {});
+        }();
+        // equlabels.sld (sjasmplus's own output): banked P20 $C000, other_bank P30 $C000, SCREEN unpaged $4000,
+        // main P4 $8000, 12 labels.
+        const auto with_equ = [&](Machine& m, const char* stem) {
+            write_text(udir / (std::string(stem) + ".sld"), equ);
+            return m.dbg->load_program_sidecars((udir / (std::string(stem) + ".nex")).string());
+        };
+        const fs::path tcmap = udir / "tc.map";
+        write_text(tcmap, "tc = $C000\n");
+        {   // SRCDBG-UANN-01 (issue row 1)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const Result s = m.dbg->set_user_label(P10, 0xC000, "banked");
+            const bool premise = (nr(m, 0x56, 0x10), m.dbg->source_page(0xC000) == P10);
+            const std::string at10 = name_at(m, 0x10), at11 = name_at(m, 0x11);
+            m.dbg->load_map(tcmap.string(), jnext::dbg::MapFormat::Simple);
+            const std::string tc11 = name_at(m, 0x11), tc10 = name_at(m, 0x10);
+            check("SRCDBG-UANN-01", "a user label at (P10, $C000) names $C000 only while page 0x10 is mapped in slot 6, "
+                                    "and over an unpaged toolchain label of the same address (which names it in the other pages)",
+                  s == Result::Ok && premise && at10 == "banked" && at11 == "-" && tc11 == "tc" && tc10 == "banked",
+                  at10 + "/" + at11 + "/" + tc11 + "/" + tc10);
+        }
+        {   // SRCDBG-UANN-02
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->set_user_label(P10, 0xC000, "banked");
+            nr(m, 0x56, 0x10);
+            const auto k = m.dbg->symbols().find_name("banked");
+            const auto near = m.dbg->symbols().nearest(0xC005, [&](uint16_t a) { return m.dbg->source_page(a); });
+            const uint8_t prog[] = {0xCD, 0x00, 0xC0};   // CALL $C000
+            for (size_t i = 0; i < sizeof prog; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            const std::string in10 = m.dbg->disassemble(0x8000, 1, &m.dbg->symbols())[0].mnemonic;
+            nr(m, 0x56, 0x11);
+            const std::string in11 = m.dbg->disassemble(0x8000, 1, &m.dbg->symbols())[0].mnemonic;
+            check("SRCDBG-UANN-02", "every backend reader sees the user label through the one table: lookup_name(), "
+                                    "symbols().find_name() (with its page), nearest(), and the disassembler's operand "
+                                    "(CALL banked in page 0x10, CALL $C000 in 0x11)",
+                  m.dbg->lookup_name("banked") == std::optional<uint16_t>(0xC000) && k && k->addr == 0xC000 &&
+                      k->space && *k->space == P10 && near && near->first == 0xC000 && near->second == "banked" &&
+                      in10.find("banked") != std::string::npos &&
+                      in11.find("banked") == std::string::npos && in11.find("C000") != std::string::npos,
+                  in10 + " / " + in11);
+        }
+        {   // SRCDBG-UANN-03
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            with_equ(m, "u3");
+            const std::string tc_shown = name_at(m, 20);
+            m.dbg->set_user_label(MemSpace::page(20), 0xC000, "mine");
+            const std::string user_shown = name_at(m, 20);
+            const bool by_name = m.dbg->lookup_name("banked") == std::optional<uint16_t>(0xC000) &&
+                                 m.dbg->lookup_name("mine") == std::optional<uint16_t>(0xC000);
+            m.dbg->remove_user_label(MemSpace::page(20), 0xC000);
+            check("SRCDBG-UANN-03", "a user label shadows the toolchain's paged label at its key (both names still "
+                                    "resolve), and removing it shows the toolchain's again",
+                  tc_shown == "banked" && user_shown == "mine" && by_name && name_at(m, 20) == "banked" &&
+                      !m.dbg->lookup_name("mine"));
+        }
+        {   // SRCDBG-UANN-04
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            with_equ(m, "u4");
+            std::string w1, w3;
+            const Result other_addr = m.dbg->set_user_label(MemSpace::page(5), 0x8000, "SCREEN", &w1);
+            const Result pin = m.dbg->set_user_label(MemSpace::page(5), 0x4000, "SCREEN");
+            const Result other_page = m.dbg->set_user_label(MemSpace::page(21), 0xC000, "banked", &w3);
+            write_text(udir / "u4.jdp", "jnext-annotations 1\nlabel P05 $8000 SCREEN\n");
+            const Result file = m.dbg->load_annotations((udir / "u4.jdp").string());
+            check("SRCDBG-UANN-04", "the name rule: a name the toolchain gives another address, or another paged "
+                                    "memory, is refused naming it; the same address (pinning an unpaged name to a page) "
+                                    "is accepted; a project file is not refused and then wins by name",
+                  other_addr == Result::Unsupported && w1.find("$4000") != std::string::npos &&
+                      pin == Result::Ok && other_page == Result::Unsupported && w3.find("$C000") != std::string::npos &&
+                      file == Result::Ok && m.dbg->lookup_name("SCREEN") == std::optional<uint16_t>(0x8000));
+        }
+        {   // SRCDBG-UANN-12 (issue row 3), -13, -14
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const uint64_t r0 = m.dbg->annotations_revision();
+            m.dbg->set_user_label(P10, 0xC000, "banked");
+            m.dbg->set_user_comment(P10, 0xC000, "hi\nthere");
+            const uint64_t r2 = m.dbg->annotations_revision();
+            const fs::path f = udir / "u12.jdp";
+            std::string why;
+            const Result sv = m.dbg->save_annotations(f.string(), &why);
+            const jnext::dbg::UserAnnotations original = m.dbg->annotations();
+            std::ifstream in(f, std::ios::binary);
+            const std::string text(std::istreambuf_iterator<char>(in), {});
+            in.close();   // Windows cannot replace a file that is open
+            m.dbg->replace_annotations(jnext::dbg::UserAnnotations{});
+            const bool emptied = m.dbg->annotations().empty();
+            const Result ld = m.dbg->load_annotations(f.string(), &why);
+            const uint64_t r4 = m.dbg->annotations_revision();
+            const Result refused = m.dbg->set_user_label(P11, 0xC000, "banked");
+            const Result refused2 = m.dbg->remove_user_label(P11, 0xC000);
+            check("SRCDBG-UANN-12", "save, replace by an empty store, load: the store is as it was and the file is "
+                                    "design 10.5's canonical text; annotations_revision() rises by one per successful verb "
+                                    "and is untouched by a refused one",
+                  sv == Result::Ok && ld == Result::Ok && emptied && m.dbg->annotations() == original &&
+                      text == "jnext-annotations 1\nlabel P10 $C000 banked\ncomment P10 $C000 hi\\nthere\n" &&
+                      r2 == r0 + 2 && r4 == r2 + 2 && refused == Result::Unsupported &&
+                      refused2 == Result::RefusedUnavailable && m.dbg->annotations_revision() == r4);
+
+            // -13: a refused load keeps the store and the revision
+            const jnext::dbg::UserAnnotations keep = m.dbg->annotations();
+            const uint64_t rk = m.dbg->annotations_revision();
+            write_text(udir / "u13.jdp", "jnext-annotations 1\nlabel P10 $C000 a\nlabel P10 $C001 !\n");
+            std::string w_bad, w_dir, w_big, w_none;
+            const Result bad = m.dbg->load_annotations((udir / "u13.jdp").string(), &w_bad);
+            fs::create_directories(udir / "u13dir");
+            const Result dr = m.dbg->load_annotations((udir / "u13dir").string(), &w_dir);
+            {
+                std::ofstream big(udir / "u13big.jdp", std::ios::binary);
+                big << "jnext-annotations 1\n";
+            }
+            fs::resize_file(udir / "u13big.jdp", SOURCE_FILE_MAX_BYTES + 1);
+            const Result bg = m.dbg->load_annotations((udir / "u13big.jdp").string(), &w_big);
+            fs::remove(udir / "u13big.jdp");
+            const Result none = m.dbg->load_annotations((udir / "nonexistent.jdp").string(), &w_none);
+            check("SRCDBG-UANN-13", "a load that is refused keeps the store and the revision: a bad line 3 "
+                                    "(Unsupported, 'line 3: ...'), a directory, a file over the size cap, a missing file "
+                                    "(RefusedUnavailable, each with a reason)",
+                  bad == Result::Unsupported && w_bad == "line 3: '!' is not a label name" &&
+                      dr == Result::RefusedUnavailable && w_dir == source_file_problem((udir / "u13dir").string()) &&
+                      !w_dir.empty() && bg == Result::RefusedUnavailable &&
+                      w_big.find("-byte limit") != std::string::npos &&
+                      none == Result::RefusedUnavailable && !w_none.empty() && m.dbg->annotations() == keep &&
+                      m.dbg->annotations_revision() == rk,
+                  w_bad + " | " + w_dir + " | " + w_big + " | " + w_none);
+
+            // -14: save
+            m.dbg->set_user_comment(P11, 0x0000, "second");
+            std::string w_save;
+            const Result again = m.dbg->save_annotations(f.string(), &w_save);   // over the existing file
+            std::ifstream in2(f, std::ios::binary);
+            const std::string text2(std::istreambuf_iterator<char>(in2), {});
+            const Result nodir = m.dbg->save_annotations((udir / "no" / "such" / "x.jdp").string(), &w_save);
+            check("SRCDBG-UANN-14", "save over an existing file replaces it, leaves no .part behind, and a path "
+                                    "that cannot be written is refused with a reason",
+                  again == Result::Ok && text2.find("comment P11 $0000 second\n") != std::string::npos &&
+                      !fs::exists(f.string() + ".part") && nodir == Result::RefusedUnavailable && !w_save.empty());
+        }
+        {   // SRCDBG-UANN-15 and -16
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            with_equ(m, "u15");
+            const size_t tool = m.dbg->toolchain_symbols().size();
+            m.dbg->set_user_label(P10, 0xC000, "banked10");
+            m.dbg->set_user_comment(P10, 0xC000, "note");
+            nr(m, 0x56, 0x10);
+            const auto* c10 = m.dbg->annotations().find(m.dbg->source_page(0xC000), 0xC000);
+            nr(m, 0x56, 0x11);
+            const auto* c11 = m.dbg->annotations().find(m.dbg->source_page(0xC000), 0xC000);
+            check("SRCDBG-UANN-15", "a comment is page-aware: the entry keyed by the memory that supplies $C000 is "
+                                    "found with page 0x10 mapped and not with 0x11",
+                  c10 && c10->comment == "note" && !c11);
+            check("SRCDBG-UANN-16", "toolchain_symbols() holds the loaded labels only (the Load MAP message's "
+                                    "count), symbols() the composition including the user's",
+                  tool == m.dbg->toolchain_symbols().size() && tool > 0 &&
+                      m.dbg->symbols().size() == tool + 1,
+                  std::to_string(tool) + "/" + std::to_string(m.dbg->symbols().size()));
+        }
+        {   // SRCDBG-UANN-17: the state revision (GH #428) and -18: allowed while running
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const uint64_t v0 = m.dbg->state_revision();
+            m.dbg->set_user_label(P10, 0xC000, "banked");
+            const uint64_t v1 = m.dbg->state_revision();
+            m.dbg->set_user_comment(P10, 0xC000, "c");
+            const uint64_t v2 = m.dbg->state_revision();
+            m.dbg->set_user_label(P10, 0xC000, "bank2");
+            const uint64_t v3 = m.dbg->state_revision();
+            m.dbg->remove_user_label(P10, 0xC000);
+            const uint64_t v4 = m.dbg->state_revision();
+            write_text(udir / "u17.jdp", "jnext-annotations 1\nlabel P10 $C000 z\n");
+            m.dbg->load_annotations((udir / "u17.jdp").string());
+            const uint64_t v5 = m.dbg->state_revision();
+            m.dbg->replace_annotations(jnext::dbg::UserAnnotations{});
+            const uint64_t v6 = m.dbg->state_revision();
+            m.dbg->set_user_label(P10, 0xC000, "1bad");                          // refused
+            m.dbg->remove_user_label(P10, 0xC000);                               // refused
+            m.dbg->load_annotations((udir / "nonexistent.jdp").string());        // refused
+            m.dbg->save_annotations((udir / "u17save.jdp").string());            // reads only
+            const uint64_t v7 = m.dbg->state_revision();
+            check("SRCDBG-UANN-17", "every verb that changes what a panel shows bumps state_revision() (set, rename, "
+                                    "comment, remove, load, replace); a refused verb and a save do not (GH #428)",
+                  v1 > v0 && v2 > v1 && v3 > v2 && v4 > v3 && v5 > v4 && v6 > v5 && v7 == v6);
+            Machine r(false, MachineType::ZXN_ISSUE2);
+            r.dbg->run(r.a);
+            const Result run_set = r.dbg->set_user_label(P10, 0xC000, "banked");
+            const bool running = !r.dbg->state().paused;
+            r.dbg->pause(r.a);
+            check("SRCDBG-UANN-18", "the verbs touch no machine state, so they are allowed while the machine runs",
+                  run_set == Result::Ok && running && r.dbg->lookup_name("banked") == std::optional<uint16_t>(0xC000));
+        }
+    }
+
+    // ── GH #387: the store has no lifetime (design 6.8) ──────────────────────────────
+    {
+        const MemSpace P = MemSpace::page(p80);   // what supplies $8000 on the 48K fixture machine
+        const fs::path tdir = dir / "uann-life";
+        fs::create_directories(tdir);
+        const fs::path uann_map = tdir / "user.map";
+        write_text(uann_map, "UserSym = $8005 ; addr, local\n");
+        const auto add_users = [&](Machine& m) {
+            m.dbg->set_user_label(m.dbg->source_page(0x8000), 0x8000, "mine");
+            m.dbg->set_user_label(m.dbg->source_page(0x8010), 0x8010, "other");
+        };
+        {   // SRCDBG-UANN-05 (issue row 2): sidecar reloads
+            Machine m;
+            const auto r = attach(m, "uann5");
+            add_users(m);
+            const jnext::dbg::UserAnnotations before = m.dbg->annotations();
+            const bool side_below = r.symbols == 1 && m.dbg->lookup_name("Main") == std::optional<uint16_t>(0x8000);
+            attach(m, "uann5");   // the same program again
+            const bool again = m.dbg->lookup(0x8000) == std::optional<std::string>("mine") &&
+                               m.dbg->lookup(0x8010) == std::optional<std::string>("other") &&
+                               m.dbg->lookup_name("Main");
+            m.dbg->load_program_sidecars((tdir / "plain5.nex").string());   // a program with no sidecars
+            check("SRCDBG-UANN-05", "a sidecar reload, and then a program with no sidecars, leave the user labels "
+                                    "shown (the sidecar's Main is gone after the second)",
+                  side_below && again && !m.dbg->lookup_name("Main") &&
+                      m.dbg->lookup(0x8000) == std::optional<std::string>("mine") &&
+                      m.dbg->lookup(0x8010) == std::optional<std::string>("other") && m.dbg->annotations() == before);
+        }
+        {   // SRCDBG-UANN-06: the hand loads
+            Machine m;
+            add_users(m);
+            const jnext::dbg::UserAnnotations before = m.dbg->annotations();
+            m.dbg->load_map(uann_map.string(), jnext::dbg::MapFormat::Z88dk);
+            const bool a = m.dbg->lookup(0x8000) == std::optional<std::string>("mine") && m.dbg->lookup_name("UserSym");
+            m.dbg->clear_symbols();
+            const bool b = m.dbg->lookup(0x8010) == std::optional<std::string>("other") && !m.dbg->lookup_name("UserSym");
+            m.dbg->load_source_map((fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sld").string(), false);
+            const bool c = m.dbg->lookup(0x8000) == std::optional<std::string>("mine") && m.dbg->lookup_name("SCREEN");
+            check("SRCDBG-UANN-06", "after Load MAP, clear_symbols() and a hand-loaded SLD with labels the user "
+                                    "labels are shown and the store is as it was",
+                  a && b && c && m.dbg->annotations() == before);
+        }
+        {   // SRCDBG-UANN-19: a hand SLD with no labels clears an earlier hand SLD's labels, not the user's
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->set_user_label(m.dbg->source_page(0x8000), 0x8000, "mine");
+            m.dbg->load_source_map((fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sld").string(), false);
+            const bool loaded = m.dbg->lookup_name("SCREEN") && m.dbg->lookup_name("mine");
+            const fs::path plain = tdir / "u19-plain.sld";
+            write_text(plain, program_sld(p80, p90));
+            const auto none = m.dbg->load_source_map(plain.string(), false);
+            check("SRCDBG-UANN-19", "loading a hand SLD with no labels removes the earlier hand SLD's labels from "
+                                    "every reader (symbols(), lookup_name()) and leaves the user's",
+                  loaded && none.labels == 0 && !m.dbg->lookup_name("SCREEN") && !m.dbg->lookup_name("banked") &&
+                      m.dbg->toolchain_symbols().empty() && m.dbg->lookup_name("mine") == std::optional<uint16_t>(0x8000) &&
+                      m.dbg->symbols().size() == 1);
+        }
+        {   // SRCDBG-UANN-20: a memory the project file cannot name is refused through the verbs
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string w1, w2;
+            const uint64_t r0 = m.dbg->annotations_revision(), v0 = m.dbg->state_revision();
+            const Result a = m.dbg->set_user_label(MemSpace::page(0xE0), 0x8000, "x", &w1);
+            const Result b = m.dbg->set_user_comment(MemSpace::rom(4), 0x0000, "c", &w2);
+            const bool refused = a == Result::Unsupported && b == Result::Unsupported &&
+                                 w1.find("PE0") != std::string::npos && w2.find("ROM4") != std::string::npos &&
+                                 m.dbg->annotations().empty() && m.dbg->annotations_revision() == r0 &&
+                                 m.dbg->state_revision() == v0;
+            const Result c = m.dbg->set_user_label(MemSpace::page(0xDF), 0x8000, "ok");
+            const fs::path f = tdir / "u20.jdp";
+            const Result sv = m.dbg->save_annotations(f.string());
+            m.dbg->replace_annotations(jnext::dbg::UserAnnotations{});
+            const Result ld = m.dbg->load_annotations(f.string());
+            check("SRCDBG-UANN-20", "set_user_label / set_user_comment refuse a memory the file cannot name (PE0, ROM4) "
+                                    "with Unsupported, a reason, and no change of the store or the revisions; the last "
+                                    "in-range page is accepted and survives a save and a load",
+                  refused && c == Result::Ok && sv == Result::Ok && ld == Result::Ok &&
+                      m.dbg->lookup_name("ok") == std::optional<uint16_t>(0x8000));
+        }
+        {   // SRCDBG-UANN-21: a verb that changes nothing bumps neither revision (GH #387 N1, decided by the coordinator)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const MemSpace sp = MemSpace::page(0x10);
+            const auto rev = [&] { return std::make_pair(m.dbg->annotations_revision(), m.dbg->state_revision()); };
+            m.dbg->set_user_label(sp, 0xC000, "banked");
+            m.dbg->set_user_comment(sp, 0xC000, "note");
+            const auto r0 = rev();
+            const Result a1 = m.dbg->set_user_label(sp, 0xC000, "banked");           // rename to its own name
+            const bool k1 = rev() == r0;
+            const Result a2 = m.dbg->set_user_comment(sp, 0xC000, "note");           // the identical comment
+            const bool k2 = rev() == r0;
+            const Result a3 = m.dbg->set_user_comment(sp, 0xC100, "");               // clearing one that is not there
+            const bool k3 = rev() == r0;
+            const Result a4 = m.dbg->set_user_comment(sp, 0xC000, "no\r\nte");       // CRLF normalised: a change
+            const bool c4 = rev().first == r0.first + 1 && rev().second > r0.second;
+            m.dbg->set_user_comment(sp, 0xC000, "no\nte");                           // already stored so: nothing
+            const auto r5 = rev();
+            const Result a5 = m.dbg->set_user_comment(sp, 0xC000, "no\r\nte");      // normalises to the stored text
+            const bool k5 = rev() == r5;
+            const Result a6 = m.dbg->replace_annotations(m.dbg->annotations());     // the same store
+            const bool k6 = rev() == r5;
+            const fs::path f = tdir / "u21.jdp";
+            m.dbg->save_annotations(f.string());
+            const Result a7 = m.dbg->load_annotations(f.string());                  // a file of the same store
+            const bool k7 = rev() == r5;
+            // control: a real change after each still bumps both
+            const Result b1 = m.dbg->set_user_label(sp, 0xC000, "renamed");
+            const bool real1 = rev().first == r5.first + 1 && rev().second > r5.second;
+            check("SRCDBG-UANN-21", "a verb that changes nothing (a label renamed to its own name, an identical or "
+                                    "normalised-identical comment, clearing a comment that is not there, replacing or "
+                                    "loading the same store) returns Ok and bumps neither annotations_revision() nor "
+                                    "state_revision(); a real change still bumps both",
+                  a1 == Result::Ok && a2 == Result::Ok && a3 == Result::Ok && a4 == Result::Ok && a5 == Result::Ok &&
+                      a6 == Result::Ok && a7 == Result::Ok && b1 == Result::Ok && k1 && k2 && k3 && c4 && k5 && k6 && k7 &&
+                      real1);
+        }
+        {   // SRCDBG-UANN-07 (issue row 2): resets
+            bool ok[2] = {false, false};
+            for (int hard = 0; hard < 2; ++hard) {
+                Machine m;
+                if (hard) with_cold_boot(m);
+                attach(m, hard ? "uann7h" : "uann7s");
+                add_users(m);
+                const jnext::dbg::UserAnnotations before = m.dbg->annotations();
+                const Result rr = m.dbg->reset(m.a, hard ? ResetKind::Hard : ResetKind::Soft);
+                const bool dropped = !m.dbg->lookup_name("Main");   // the landing dropped the sidecar's symbols
+                ok[hard] = rr == Result::Ok && dropped && m.dbg->lookup(0x8000) == std::optional<std::string>("mine") &&
+                           m.dbg->lookup(0x8010) == std::optional<std::string>("other") && m.dbg->annotations() == before;
+            }
+            check("SRCDBG-UANN-07", "after a soft and after a hard reset (whose landing drops the sidecar's symbols) "
+                                    "the user labels are shown at the next reader and the store is unchanged",
+                  ok[0] && ok[1], std::string(ok[0] ? "soft ok " : "soft BAD ") + (ok[1] ? "hard ok" : "hard BAD"));
+        }
+        {   // SRCDBG-UANN-08 (issue row 2): state loads, a .sna
+            Machine m;
+            StateWriter measure;
+            m.emu.save_state(measure);
+            std::vector<uint8_t> earlier(measure.position(), 0);
+            StateWriter w(earlier.data(), earlier.size());
+            m.emu.save_state(w);
+            attach(m, "uann8");
+            add_users(m);   // added AFTER the state was saved
+            const Result ld = m.dbg->load_state_bytes(m.a, earlier.data(), earlier.size());
+            const bool st = m.dbg->lookup(0x8000) == std::optional<std::string>("mine") && !m.dbg->lookup_name("Main");
+            Machine other;
+            other.emu.mmu().write(0x8000, 0xFF);
+            const std::string sna = (tdir / "u8.sna").string();
+            other.dbg->save_snapshot(other.a, sna);
+            jnext::dbg::LoopDriver d;
+            d.load = [&m](const std::string& p) { return emulator_apply_load(m.emu, p, false); };
+            m.dbg->set_loop_driver(d);
+            const Result sl = m.dbg->load(m.a, sna);
+            check("SRCDBG-UANN-08", "a user label added after a state was saved is still there, and shown, after "
+                                    "load_state_bytes() of that state and after a .sna load",
+                  ld == Result::Ok && st && sl == Result::Ok &&
+                      m.dbg->lookup(0x8000) == std::optional<std::string>("mine") &&
+                      m.dbg->lookup(0x8010) == std::optional<std::string>("other"));
+        }
+        {   // SRCDBG-UANN-09: a ring landing
+            Machine m(/*rewind=*/true);
+            m.dbg->run(m.a);
+            for (int i = 0; i < 3; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+            m.dbg->set_user_label(m.dbg->source_page(0x8000), 0x8000, "gone");   // removed after A's attach
+            attach(m, "uann9a");                                              // generation A: Main (and "gone" shown)
+            const uint32_t fa = m.dbg->time().frame;
+            m.dbg->run(m.a);
+            for (int i = 0; i < 3; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+            m.dbg->load_program_sidecars((tdir / "plain9.nex").string());     // B: no sidecars
+            m.dbg->remove_user_label(m.dbg->source_page(0x8000), 0x8000);
+            m.dbg->set_user_label(m.dbg->source_page(0x8010), 0x8010, "kept");
+            m.dbg->run(m.a);
+            for (int i = 0; i < 3; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+            const bool b_clean = !m.dbg->lookup_name("Main");
+            const Result rr = m.dbg->rewind_to_frame(m.a, fa + 1);
+            check("SRCDBG-UANN-09", "a ring landing back into A re-attaches A's cached sidecar symbols (Main) and "
+                                    "not a user label: one added after is shown, one removed after A's attach does "
+                                    "not come back",
+                  b_clean && rr == Result::Ok && m.dbg->lookup_name("Main") == std::optional<uint16_t>(0x8000) &&
+                      m.dbg->lookup(0x8000) == std::optional<std::string>("Main") &&
+                      m.dbg->lookup(0x8010) == std::optional<std::string>("kept") &&
+                      !m.dbg->annotations().find_name("gone"));
+        }
+        {   // SRCDBG-UANN-10 / -11: purity, and its control
+            Machine m(/*rewind=*/true);
+            m.dbg->run(m.a);
+            for (int i = 0; i < 3; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+            attach(m, "uann10");
+            const auto fingerprint = [&](Machine& x) {
+                StateWriter ms;
+                x.emu.save_state(ms);
+                std::vector<uint8_t> bytes(ms.position(), 0);
+                StateWriter w(bytes.data(), bytes.size());
+                x.emu.save_state(w);
+                std::string f(bytes.begin(), bytes.end());
+                f += "|gen=" + std::to_string(x.emu.debug_state().load_generation());
+                for (const auto& l : x.dbg->toolchain_symbols().symbols())
+                    f += "|" + hex(l.first) + l.second.name + (l.second.space ? std::to_string(unsigned(l.second.space->index)) : "u");
+                f += "|size=" + std::to_string(x.dbg->toolchain_symbols().size());
+                const auto st = x.dbg->source_map_status();
+                f += "|map=" + std::to_string(unsigned(st.state)) + st.file + st.reason + (st.pending ? "p" : "") +
+                     std::to_string(x.dbg->source_map().size());
+                f += "|subs=" + std::to_string(x.dbg->subscriptions(true).size());
+                f += "|events=" + std::to_string(x.dbg->events_fired_since(0).size());
+                const auto rg = x.dbg->rewind_range();
+                f += "|ring=" + std::to_string(rg.oldest_frame) + "-" + std::to_string(rg.newest_frame) + "@" +
+                     std::to_string(rg.newest_cycle);
+                return f;
+            };
+            const std::string before = fingerprint(m);
+            const fs::path pf = tdir / "u10.jdp";
+            write_text(pf, "jnext-annotations 1\nlabel P04 $8000 viafile\n");
+            std::string why;
+            m.dbg->set_user_label(MemSpace::page(4), 0x8100, "a1");
+            m.dbg->set_user_label(MemSpace::page(4), 0x8100, "a2");
+            m.dbg->set_user_comment(MemSpace::page(4), 0x8100, "c");
+            m.dbg->remove_user_label(MemSpace::page(4), 0x8100);
+            m.dbg->save_annotations((tdir / "u10save.jdp").string());
+            m.dbg->load_annotations(pf.string());
+            m.dbg->replace_annotations(jnext::dbg::UserAnnotations{});
+            const bool same = fingerprint(m) == before;
+            check("SRCDBG-UANN-10", "every CAP-ANN verb (set, rename, comment, remove, save, load, replace) leaves "
+                                    "the machine's save stream, load_generation(), toolchain_symbols(), "
+                                    "source_map_status(), the subscriptions, the events fired and the rewind ring "
+                                    "exactly as they were",
+                  same);
+            // control: the observer sees a poke and a Load MAP
+            const uint8_t five_a = 0x5A;
+            m.dbg->poke(m.a, MemSpace::cpu(), 0x9000, 1, &five_a);
+            const bool poke_seen = fingerprint(m) != before;
+            const std::string mid = fingerprint(m);
+            m.dbg->load_map(uann_map.string(), jnext::dbg::MapFormat::Z88dk);
+            check("SRCDBG-UANN-11", "control for -10: the same fingerprint changes with a poke and with a Load MAP, "
+                                    "so -10 is not passing on a dead observer",
+                  poke_seen && fingerprint(m) != mid);
         }
     }
 

@@ -10,6 +10,8 @@
 //              labels, name-only values, nearest(), resolve_key() (GH #375)
 //   SLDL-*     the SLD `L` records into a SymbolTable (GH #375)
 //   Z88FIX-*   the committed z88dk ground-truth fixtures match their manifest
+//   UANN-*     the user's labels and comments store (GH #387)
+//   JDP-*      the .jdp annotations project file: the bytes of design 10.5 (GH #387)
 //   SRCPATH-*  where the Source tab finds the file a record names: the map's
 //              directory first, then the search path (GH #420)
 //
@@ -23,6 +25,8 @@
 #include "debug/z88dk_source_map.h"
 #include "core/sha256.h"
 #include "debug/symbol_table.h"
+#include "debug/annotations_file.h"
+#include "debug/user_annotations.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -1126,6 +1130,350 @@ int main() {
         check("SRCTXT-01", "replace() keeps the embedded texts under their normalised names, embedded_text() "
                            "matches the exact name only, and clear() and a later replace() without texts drop them",
               kept && exact && replaced && !cleared.embedded_text("x/y.m4"));
+    }
+
+    // ── GH #387 (E23-24): the user's labels and comments, and the .jdp project file ──
+    // Oracle: design 10.1-10.5 and 6.8 (the stores have no VHDL counterpart, design 13); the
+    // project file has no foreign reader, so its rows assert the bytes of 10.5, literally.
+    {
+        using jnext::dbg::AnnotationKey;
+        using jnext::dbg::UserAnnotations;
+        const MemSpace P04 = MemSpace::page(4), P10 = MemSpace::page(0x10), P11 = MemSpace::page(0x11);
+        {
+            UserAnnotations u;
+            const std::string e = u.set_label(P10, 0xC000, "banked");
+            const auto k = u.find_name("banked");
+            check("UANN-01", "a label is set at (P10, $C000): find() gives it, find_name() resolves it to that key, "
+                             "one entry",
+                  e.empty() && u.find(P10, 0xC000) && u.find(P10, 0xC000)->label == "banked" && k &&
+                      k->space == P10 && k->addr == 0xC000 && u.entries().size() == 1);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P10, 0xC000, "banked");
+            const std::string e = u.set_label(P10, 0xC000, "bank2");
+            check("UANN-02", "a rename at the same key: the old name stops resolving, the new one resolves, "
+                             "one label",
+                  e.empty() && !u.find_name("banked") && u.find_name("bank2") && u.label_count() == 1);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P10, 0xC000, "banked");
+            const UserAnnotations before = u;
+            const std::string e = u.set_label(P11, 0xC000, "banked");
+            check("UANN-03", "a name already used at another key is refused, naming that key, and the store is "
+                             "unchanged",
+                  e == "'banked' already names $C000 P10" && u == before);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P10, 0xC000, "banked");
+            const UserAnnotations before = u;
+            check("UANN-04", "the same name again at the same key is accepted and changes nothing",
+                  u.set_label(P10, 0xC000, "banked").empty() && u == before);
+        }
+        {
+            UserAnnotations u;
+            bool ok = true;
+            for (const char* n : {"a", "_x", "main.loop", "L1_2", "gfx.draw.loop"})
+                ok = ok && UserAnnotations::valid_label_name(n) && u.set_label(P04, 0x8000, n).empty();
+            const UserAnnotations before = u;
+            bool refused = true;
+            for (const char* n : {"", "1abc", "a b", "a..b", "a.", ".a", "a-b", "a$", "\xC3\xA9", "a.1"}) {
+                refused = refused && !UserAnnotations::valid_label_name(n) &&
+                          !u.set_label(P04, 0x8001, n).empty() && u == before;
+            }
+            check("UANN-05", "the label grammar (the DSL's @name): a, _x, main.loop, L1_2 accepted; empty, 1abc, "
+                             "'a b', a..b, 'a.', .a, a-b, a$, a non-ASCII letter and a.1 refused, each leaving "
+                             "the store unchanged",
+                  ok && refused);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P04, 0x8000, "x");
+            const UserAnnotations before = u;
+            check("UANN-06", "the CPU view names no memory: a label or a comment there is refused",
+                  !u.set_label(MemSpace::cpu(), 0x8000, "y").empty() &&
+                      !u.set_comment(MemSpace::cpu(), 0x8000, "c").empty() && u == before);
+        }
+        {
+            UserAnnotations u;
+            const bool none = !u.remove_label(P04, 0x8000);
+            u.set_label(P04, 0x9000, "solo");
+            const bool solo = u.remove_label(P04, 0x9000) && u.entries().empty();   // no comment: no entry left
+            u.set_label(P04, 0x8000, "x");
+            u.set_comment(P04, 0x8000, "c");
+            const bool removed = u.remove_label(P04, 0x8000);
+            const bool kept = u.find(P04, 0x8000) && u.find(P04, 0x8000)->label.empty() &&
+                              u.find(P04, 0x8000)->comment == "c" && !u.find_name("x");
+            u.set_comment(P04, 0x8000, "");
+            check("UANN-07", "remove_label is false where there is none; removing a lone label leaves no entry; "
+                             "with a comment present the entry keeps the comment, and clearing it then leaves none",
+                  none && solo && removed && kept && u.entries().empty());
+        }
+        {
+            UserAnnotations u;
+            u.set_comment(P04, 0x8000, "a\r\nb\rc");
+            const bool crlf = u.find(P04, 0x8000) && u.find(P04, 0x8000)->comment == "a\nb\nc";
+            u.set_comment(P04, 0x8001, "\t  x  \xC3\xA9");
+            const bool exact = u.find(P04, 0x8001) && u.find(P04, 0x8001)->comment == "\t  x  \xC3\xA9";
+            u.set_comment(P04, 0x8000, "");
+            check("UANN-08", "a comment's CRLF and lone CR become LF, anything else is kept byte for byte, and "
+                             "empty text removes it (no entry with an empty comment is left)",
+                  crlf && exact && !u.find(P04, 0x8000) && u.comment_count() == 1);
+        }
+        {
+            UserAnnotations u;
+            const UserAnnotations before = u;
+            check("UANN-09", "a comment that is not valid UTF-8 (a lone or truncated lead byte, 0xFF, overlong forms, a "
+                             "surrogate, past U+10FFFF) is refused and the store is unchanged",
+                  !u.set_comment(P04, 0x8000, "\xC3").empty() && !u.set_comment(P04, 0x8000, "\xFF").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xC0\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xED\xA0\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xE0\x80\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "\xF4\x90\x80\x80").empty() &&
+                      !u.set_comment(P04, 0x8000, "ab\xC3").empty() && u == before &&
+                      u.set_comment(P04, 0x8000, "\xF0\x9F\x98\x80").empty());
+        }
+        {
+            UserAnnotations u;
+            u.set_label(MemSpace::divmmc_ram(3), 0x2000, "d");
+            u.set_label(MemSpace::rom(0), 0x0010, "r");
+            u.set_label(P10, 0x0000, "c");
+            u.set_label(P04, 0xC000, "b");
+            u.set_label(P04, 0x8000, "a");
+            std::string order;
+            for (const auto& e : u.entries()) order += e.second.label;
+            check("UANN-10", "entries() come in file order: kind, then index, then address (Page < Rom < "
+                             "DivMmcRam)",
+                  order == "abcrd");
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P04, 0x8000, "keep");
+            u.set_comment(P04, 0x8000, "note");
+            const bool both = u.label_count() == 1 && u.comment_count() == 1;
+            u.set_comment(P04, 0x8000, "");
+            check("UANN-12", "clearing the comment of a key that has a label keeps the label (find, find_name, one "
+                             "label, no comment)",
+                  both && u.find(P04, 0x8000) && u.find(P04, 0x8000)->label == "keep" &&
+                      u.find(P04, 0x8000)->comment.empty() && u.find_name("keep") && u.label_count() == 1 &&
+                      u.comment_count() == 0);
+        }
+        {
+            struct Edge { MemSpace last_ok; MemSpace first_bad; };
+            const Edge edges[] = {
+                {MemSpace::page(0xDF), MemSpace::page(0xE0)},     {MemSpace::page(0xDF), MemSpace::page(0x100)},
+                {MemSpace::rom(3), MemSpace::rom(4)},             {MemSpace::alt_rom(1), MemSpace::alt_rom(2)},
+                {MemSpace::divmmc_ram(15), MemSpace::divmmc_ram(16)},
+                {MemSpace::layer2(0xDF), MemSpace::layer2(0xE0)}, {MemSpace::config(0xFF), MemSpace::config(0x100)},
+                {MemSpace::boot_rom(), MemSpace{MemSpace::Kind::BootRom, 1}},
+                {MemSpace::floating(), MemSpace{MemSpace::Kind::Floating, 2}},
+            };
+            std::string bad;
+            for (const Edge& e : edges) {
+                UserAnnotations u;
+                u.set_label(P04, 0x1000, "keep");
+                const UserAnnotations before = u;
+                if (u.set_label(e.first_bad, 0x8000, "x").empty()) bad += " label-accepted";
+                if (u.set_comment(e.first_bad, 0x8000, "c").empty()) bad += " comment-accepted";
+                if (u != before) bad += " changed";
+                if (!u.set_label(e.last_ok, 0x8000, "ok").empty()) bad += " last-refused";
+                if (!u.set_comment(e.last_ok, 0x8001, "c").empty()) bad += " last-comment-refused";
+            }
+            check("UANN-13", "the store refuses a memory the project file cannot name (the first out-of-range index "
+                             "of a page, ROM, alt ROM, DivMMC RAM bank, Layer 2 page and config bank, an index on a "
+                             "single-image memory), unchanged, and accepts the last in-range one",
+                  bad.empty());
+            if (!bad.empty()) std::printf("    UANN-13:%s\n", bad.c_str());
+        }
+        {
+            UserAnnotations u;
+            u.set_label(P10, 0xC000, "x");
+            u.set_label(P11, 0xC000, "y");
+            check("UANN-11", "two memories at one address are two entries",
+                  u.entries().size() == 2 && u.find(P11, 0xC000) && u.find(P11, 0xC000)->label == "y" &&
+                      u.find(P10, 0xC000)->label == "x");
+        }
+    }
+    {
+        using jnext::dbg::UserAnnotations;
+        using jnext::dbg::read_annotations;
+        using jnext::dbg::write_annotations;
+        const MemSpace P04 = MemSpace::page(4);
+        const auto bytes = [](const UserAnnotations& u) {
+            std::ostringstream o;
+            write_annotations(o, u);
+            return o.str();
+        };
+        // false and the reason, or true; `out` is what read_annotations left.
+        const auto parse = [](const std::string& text, UserAnnotations& out, std::string& why) {
+            std::istringstream in(text);
+            return read_annotations(in, out, why);
+        };
+        UserAnnotations t;   // JDP-01's store, inserted in a shuffled order
+        t.set_comment(MemSpace::divmmc_ram(3), 0x2000, "x");
+        t.set_label(MemSpace::rom(0), 0x0010, "rst_print");
+        t.set_comment(P04, 0x8000, "Entry\npoint \\ here");
+        t.set_label(P04, 0x8000, "Start");
+        const std::string canon =
+            "jnext-annotations 1\n"
+            "label P04 $8000 Start\n"
+            "comment P04 $8000 Entry\\npoint \\\\ here\n"
+            "label ROM0 $0010 rst_print\n"
+            "comment DIVRAM3 $2000 x\n";
+        check("JDP-01", "the writer's bytes are design 10.5's: header, the label record before the comment "
+                        "record of a key, sorted by memory kind then index then address, $ + four upper-case "
+                        "hex digits, \\\\ and \\n escapes",
+              bytes(t) == canon);
+        check("JDP-02", "an empty store writes exactly the header line", bytes(UserAnnotations{}) == "jnext-annotations 1\n");
+        {
+            UserAnnotations all;
+            const MemSpace spaces[] = {MemSpace::page(0x10), MemSpace::rom(1), MemSpace::boot_rom(),
+                                       MemSpace::multiface_rom(), MemSpace::multiface_ram(),
+                                       MemSpace::divmmc_rom(), MemSpace::divmmc_ram(3), MemSpace::alt_rom(1),
+                                       MemSpace::layer2(0x20), MemSpace::config(2), MemSpace::floating()};
+            int i = 0;
+            for (const MemSpace& s : spaces) {
+                all.set_label(s, static_cast<uint16_t>(0x100 * i), "n" + std::to_string(i));
+                if (i % 2 == 0) all.set_comment(s, static_cast<uint16_t>(0x100 * i), "l1\nl2 \\ \xC3\xA9");
+                ++i;
+            }
+            UserAnnotations back, back2;
+            std::string why;
+            const bool r1 = parse(bytes(all), back, why);
+            const bool r2 = parse(canon, back2, why);
+            check("JDP-03", "write then read gives the same store for one entry of every memory kind but Cpu "
+                            "(multi-line, backslash and UTF-8 comments); read then write reproduces JDP-01's file",
+                  r1 && back == all && back.entries().size() == 11 && r2 && back2 == t && bytes(back2) == canon);
+        }
+        {
+            UserAnnotations want;
+            want.set_label(P04, 0xC0AF, "Start");
+            want.set_comment(P04, 0xC0AF, "Entry\npoint");
+            UserAnnotations got;
+            std::string why;
+            const bool ok = parse("\xEF\xBB\xBF# lead\r\n\r\n \t \r\njnext-annotations 1\r\n# mid\r\n"
+                                  "label p04 $c0aF Start\r\ncomment p04 $c0aF Entry\\npoint\r\n# end",
+                                  got, why);
+            check("JDP-04", "the reader accepts what the writer does not write: a BOM, # lines before and "
+                            "after the header, blank and tab-only lines, CRLF, a lower-case memory tag and hex",
+                  ok && got == want);
+        }
+        {
+            const auto why_of = [&](const std::string& text) {
+                UserAnnotations u;
+                std::string why;
+                return parse(text, u, why) ? std::string("accepted") : why;
+            };
+            check("JDP-05", "a file without the exact header is refused naming line N: no header, version 2, a "
+                            "bare name, a leading-zero version, an empty file, a header after a record",
+                  why_of("label P04 $8000 x\n") == "line 1: not a jnext annotations file" &&
+                      why_of("jnext-annotations 2\n") == "line 1: version 2: this jnext reads version 1" &&
+                      why_of("jnext-annotations\n") == "line 1: not a jnext annotations file" &&
+                      why_of("jnext-annotations 01\n") == "line 1: not a jnext annotations file" &&
+                      why_of("") == "line 1: not a jnext annotations file" &&
+                      why_of("# c\n\njnext-annotations 1\nlabel P04 $8000 a\njnext-annotations 1\n") ==
+                          "line 5: unknown record 'jnext-annotations'");
+        }
+        {
+            struct Bad { const char* line; const char* why; };
+            const Bad bad[] = {
+                {"note P04 $8000 x", "unknown record 'note'"},
+                {"label P04X $8000 x", "unknown memory 'P04X'"},
+                {"label PE0 $8000 x", "unknown memory 'PE0'"},
+                {"label Q1 $8000 x", "unknown memory 'Q1'"},
+                {"label CPU $8000 x", "memory CPU: a user entry names a memory"},
+                {"label P04 $800 x", "bad address '$800' (want $ and 4 hex digits)"},
+                {"label P04 $80000 x", "bad address '$80000' (want $ and 4 hex digits)"},
+                {"label P04 8000 x", "bad address '8000' (want $ and 4 hex digits)"},
+                {"label P04 $80G0 x", "bad address '$80G0' (want $ and 4 hex digits)"},
+                {"label  P04 $8000 x", "unknown memory ''"},
+                {"label P04  $8000 x", "bad address '' (want $ and 4 hex digits)"},
+                {"label P04 $8000  x", "a label record has exactly <SPACE> $<ADDR> <NAME>"},
+                {"label P04 $8000 1abc", "'1abc' is not a label name"},
+                {"label P04 $8000 a b", "a label record has exactly <SPACE> $<ADDR> <NAME>"},
+                {"label P04 $8000", "a record is label <SPACE> $<ADDR> <NAME>"},
+                {"comment P04 $8000", "a record is comment <SPACE> $<ADDR> <TEXT>"},
+                {"comment P04 $8000 ", "a comment record needs its text"},
+                {"comment P04 $8000 a\\tb", "unknown escape '\\t' in the text"},
+                {"comment P04 $8000 abc\\", "the text ends in a lone backslash"},
+                {"comment P04 $8000 a\rb", "a carriage return inside the text"},
+                {"comment P04 $8000 \xC3", "the comment is not valid UTF-8"},
+                {"\xEF\xBB\xBF" "label P04 $8000 x", "unknown record '\xEF\xBB\xBF" "label'"},
+            };
+            bool all = true;
+            std::string first_bad;
+            for (const Bad& b : bad) {
+                UserAnnotations u;
+                u.set_label(P04, 0x1234, "keep");
+                const UserAnnotations before = u;
+                std::string why;
+                const bool ok = parse(std::string("jnext-annotations 1\n") + b.line + "\n", u, why);
+                if (ok || why != std::string("line 2: ") + b.why || u != before) {
+                    all = false;
+                    if (first_bad.empty()) first_bad = std::string(b.line) + " -> " + why;
+                }
+            }
+            const auto why_of = [&](const std::string& body) {
+                UserAnnotations u;
+                std::string why;
+                return parse("jnext-annotations 1\n" + body, u, why) ? std::string("accepted") : why;
+            };
+            const bool dup =
+                why_of("label P04 $8000 a\nlabel P04 $8000 b\n") ==
+                    "line 3: a second label for the same address and memory" &&
+                why_of("comment P04 $8000 a\ncomment P04 $8000 b\n") ==
+                    "line 3: a second comment for the same address and memory" &&
+                why_of("label P04 $8000 a\nlabel P04 $8001 a\n") == "line 3: 'a' already names $8000 P04";
+            check("JDP-06", "each malformed record is refused naming line N and the reason, the store untouched: "
+                            "unknown kind, tags P04X PE0 Q1 CPU, addresses $800 $80000 8000 $80G0, doubled "
+                            "spaces, a bad name, a fifth field, a missing or empty text, a \\t escape, a final "
+                            "backslash, a CR inside, invalid UTF-8, a second label or comment for a key, one "
+                            "name at two keys",
+                  all && dup);
+            if (!all) std::printf("    first bad: %s\n", first_bad.c_str());
+        }
+        {
+            // every key the store accepts, at both ends of its range, survives write then read
+            UserAnnotations all;
+            const MemSpace ends[] = {MemSpace::page(0), MemSpace::page(0xDF), MemSpace::rom(0), MemSpace::rom(3),
+                                     MemSpace::alt_rom(0), MemSpace::alt_rom(1), MemSpace::divmmc_ram(0),
+                                     MemSpace::divmmc_ram(15), MemSpace::layer2(0), MemSpace::layer2(0xDF),
+                                     MemSpace::config(0), MemSpace::config(0xFF)};
+            int i = 0;
+            bool accepted = true;
+            for (const MemSpace& s : ends) {
+                accepted = accepted && all.set_label(s, 0x4000, "e" + std::to_string(i)).empty() &&
+                           all.set_comment(s, 0x4000, "c").empty();
+                ++i;
+            }
+            UserAnnotations back;
+            std::string why;
+            const bool ok = parse(bytes(all), back, why);
+            check("JDP-09", "every key the store accepts, at both ends of each memory's range, is written and read "
+                            "back identically (Save never writes a file Load refuses)",
+                  accepted && ok && back == all && back.entries().size() == 12);
+        }
+        {
+            UserAnnotations u;
+            u.set_label(MemSpace::page(0x1E), 0xABCD, "hi");
+            u.set_comment(MemSpace::page(0x1E), 0xABCD, "c");
+            check("JDP-08", "the writer spells the address in upper-case hex: $ABCD, in the memory's tag P1E",
+                  bytes(u) == "jnext-annotations 1\nlabel P1E $ABCD hi\ncomment P1E $ABCD c\n");
+        }
+        {
+            UserAnnotations out;
+            out.set_label(P04, 0x1234, "keep");
+            out.set_comment(P04, 0x1234, "kept");
+            const UserAnnotations before = out;
+            std::string why;
+            const bool ok = parse("jnext-annotations 1\nlabel P04 $8000 a\ncomment P04 $8000 b\nlabel P04 $8001 !\n",
+                                  out, why);
+            check("JDP-07", "the read is transactional: a file valid up to a bad last line leaves a non-empty "
+                            "store as it was",
+                  !ok && why == "line 4: '!' is not a label name" && out == before);
+        }
     }
 
     fs::remove_all(dir);

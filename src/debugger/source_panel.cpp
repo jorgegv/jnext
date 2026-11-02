@@ -10,6 +10,7 @@
 #include "debug/disasm_text.h"
 #include "debug/symbol_table.h"
 #include "debugger/operand_menu.h"
+#include "debugger/annotation_menu.h"
 #include "debugger/source_highlighter.h"
 #include "debugger/watch_panel.h"
 
@@ -1197,6 +1198,14 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
         }
         const uint16_t addr = st.starts.empty() ? 0 : st.starts[0].address;
         connect(a, &QAction::triggered, this, [this, addr]() { emit show_address_requested(addr); });
+    }
+
+    // GH #387 - the user's labels and comments, once per place the line compiled to (a place that is not
+    // mapped now is still editable: the key does not depend on the mapping).
+    if (annot_) {
+        std::vector<AnnotationPlace> places;
+        for (const SourceAddress& s : st.starts) places.push_back({s.address, s.space, place_text(s)});
+        add_annotation_actions(menu, this, *annot_, places, [this]() { emit annotations_changed(); }, nocode);
     }
 
     // The operand entries: the line's own labels, and the word under the pointer.
