@@ -163,12 +163,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | GUI light/dark scheme (GH #363) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI scheme: private bus dies with the suite (GH #414) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD-card/NextPi download dialog (GH #358) |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Quit runs closeEvent cleanup |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Quit runs closeEvent cleanup |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |       96 |       96 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Quit Gate    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Quit Gate    |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Sizing |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -177,9 +177,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |      109 |      109 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Verbs (GH #278) |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Source panel |      265 |      265 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15075**| **15075**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Panels (GH #278) |      110 |      110 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Verbs (GH #278) |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Source panel |      267 |      267 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **15081**| **15081**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
