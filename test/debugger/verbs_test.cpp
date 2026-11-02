@@ -347,7 +347,7 @@ QRgb ball_colour(QPushButton* b) {
 // it rejects whatever else appears, so a dialog that keeps re-opening (a file
 // dialog refusing its answer) ends the row instead of the suite.
 struct Modals {
-    struct Seen { QString kind, title, text, filters; };
+    struct Seen { QString kind, title, text, filters; int icon = 0; };   // icon: a QMessageBox's (GH #389)
 
     QString                    file_path;            // for a QFileDialog
     QStringList                file_paths;           // GH #389: the files of a multi-select dialog (ExistingFiles)
@@ -411,7 +411,7 @@ struct Modals {
             return;
         }
         if (auto* mb = qobject_cast<QMessageBox*>(w)) {
-            seen.push_back({"box", mb->windowTitle(), mb->text()});
+            seen.push_back({"box", mb->windowTitle(), mb->text(), {}, static_cast<int>(mb->icon())});
             if (QAbstractButton* b = mb->button(box_answer)) b->click();
             else mb->done(box_answer);
             return;
@@ -3567,19 +3567,30 @@ static void test_reexport_ui() {
         const std::string f2 = write_file("qrex-b.ctl", "# jnext space P10\nc $C010\n@ $C010 label=imp_b\n");
         QMenu* imp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Import");
         const bool clean_before = !fx.mgr->annotations_unsaved();
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0xC000);
+        auto bp_symbol = [&]() {
+            QString out = QStringLiteral("<no row>");
+            if (auto* t = fx.dbg()->breakpoint_panel()->findChild<QTableWidget*>())
+                for (int r = 0; r < t->rowCount(); ++r)
+                    if (t->item(r, 2) && t->item(r, 2)->text() == "$C000" && t->item(r, 3)) out = t->item(r, 3)->text();
+            return out;
+        };
+        const QString sym_before = bp_symbol();
         Modals m;
         m.file_paths = {QString::fromStdString(f1), QString::fromStdString(f2)};
         if (QAction* a = item_named(imp, "skoolkit Control Files...")) a->trigger();
         m.timer.stop();
+        const QString sym_after = bp_symbol();   // no tick, no other refresh: the import refreshed the panels itself
         DisasmPanel* dp = fx.dbg()->disasm_panel();
         if (auto* sb = dp->findChild<QScrollBar*>()) sb->setValue(0xC000);
         QApplication::processEvents();
         const Modals::Seen* box = m.first("box");
         check("QREX-03", "Import > skoolkit Control Files with two files selected imports both (the Disassembly shows imp_a), the box "
-                         "reports '2 files, 2 labels, 1 comment', and the labels count as unsaved annotations (the quit question)",
+                         "reports '2 files, 2 labels, 1 comment', the panels are refreshed at once (a Breakpoints symbol cell, no tick), and the labels count as unsaved annotations (the quit question)",
               clean_before && fx.backend->annotations().find(P10, 0xC000) && fx.backend->annotations().find(P10, 0xC010) &&
                   dp->line_label(0) == "imp_a" && fx.mgr->annotations_unsaved() && box && box->title == "Import Done" &&
-                  box->text.startsWith(QStringLiteral("2 files, 2 labels, 1 comment\n")),
+                  box->text.startsWith(QStringLiteral("2 files, 2 labels, 1 comment\n")) && box->icon == QMessageBox::Information &&
+                  sym_before.isEmpty() && sym_after == "imp_a",
               fmt("m=%s label0='%s'", m.describe().c_str(), s(dp->line_label(0)).c_str()));
     }
     {   // QREX-04: a failed import
@@ -3600,7 +3611,7 @@ static void test_reexport_ui() {
         const Modals::Seen* box = m.first("box");
         check("QREX-04", "a failed Import shows an 'Import Failed' warning naming the file and the line and leaves the store and its "
                          "revision as they were",
-              box && box->title == "Import Failed" && box->text.contains("qrex-bad.ctl: line 2:") &&
+              box && box->title == "Import Failed" && box->icon == QMessageBox::Warning && box->text.contains("qrex-bad.ctl: line 2:") &&
                   fx.backend->annotations() == before && fx.backend->annotations_revision() == rev,
               m.describe());
     }
