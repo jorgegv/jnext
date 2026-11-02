@@ -74,6 +74,11 @@ public:
     /// every NR 0xA2 write, which is when its inputs change.
     bool fe_ear() const { return fe_ear_; }
 
+    /// NR 0xA2 sends the Pi's audio to EAR: I2S enabled (b7 or b6) and b0 set,
+    /// the condition `pi_fe_ear` needs (zxnext.vhd:2361-2373), whatever the
+    /// current sample. jnext uses it to put PiAudio in tape mode.
+    bool ear_routed() const { return (nr_a2_ctl_ & 0xC0) != 0 && (nr_a2_ctl_ & 0x01) != 0; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 

@@ -1240,7 +1240,7 @@ sub run_fails {
     my $timed_out = 0;
     eval {
         local $SIG{ALRM} = sub { die "timeout\n" };
-        alarm(180);
+        alarm(300);
         while (my $line = <$fh>) {
             if ($line =~ $FAIL_RE) {
                 # Two alternatives, so the ID lands in whichever group matched.
@@ -1261,7 +1261,7 @@ sub run_fails {
     waitpid($pid, 0);
 
     if ($timed_out) {
-        fatal("$binary timed out after 180s");
+        fatal("$binary timed out after 300s");
     }
 
     return $FAILS_CACHE{$binary} = \%fails;

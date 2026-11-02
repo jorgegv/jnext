@@ -191,12 +191,21 @@ STANDIN
     # channels in phase at +-24576 (10-bit 0x380/0x080: the EAR comparator's
     # thresholds 11 and 00), flipping every 20 frames. On a 48K machine the
     # injected program (org 0x8000) sets NR 0xA2 = 0xC3 (stereo + EAR; bit 1
-    # reserved), counts changes of port 0xFE bit 6 over 60000 reads, then
-    # writes 0xA5 and the count (high, low) to the magic port and loops:
-    #   NEXTREG $A2,$C3 ; LD HL,0 ; LD DE,60000 ; LD C,0
+    # reserved), waits for port 0xFE bit 6 to change once (the tone reaching
+    # EAR), counts its changes over the next 60000 reads, then writes 0xA5 and
+    # the count (high, low) to the magic port and loops:
+    #   NEXTREG $A2,$C3 ; LD A,$FF ; IN A,($FE) ; AND $40 ; LD C,A
+    #   wait: LD A,$FF ; IN A,($FE) ; AND $40 ; CP C ; JR Z,wait
+    #   LD HL,0 ; LD DE,60000 ; LD C,0
     #   loop: LD A,$FF ; IN A,($FE) ; AND $40 ; CP C ; JR Z,same ; LD C,A ; INC HL
     #   same: DEC DE ; LD A,D ; OR E ; JR NZ,loop
     #   LD BC,$1234 ; LD A,$A5 ; OUT (C),A ; OUT (C),H ; OUT (C),L ; JR $
+    # The wait is there because NR 0xA2 bit 0 puts PiAudio in tape mode, which
+    # plays nothing until it holds 250 ms (11025 frames). The stand-in delivers
+    # in real time at most, while the headless run is uncapped, so a count that
+    # started at once would be over before the first frame played. 1500 frames,
+    # as fact 1, give the fill its time on a loaded host: measured on macOS
+    # (8 CPUs), 32 of 32 passed run 8 at once beside 4 busy loops.
     rm -rf "$np"
     mkdir -p "$np/boot"
     : >"$np/nextpi.img"
@@ -217,13 +226,13 @@ STANDIN
     else
         cp "$stand_in/qemu-system-arm" "$ear_bin/qemu-system-arm"   # fact 1's, reading its own dir
     fi
-    printf '\355\221\242\303\041\000\000\021\140\352\016\000\076\377\333\376\346\100\271\050\002\117\043\033\172\263\040\360\001\064\022\076\245\355\171\355\141\355\151\030\376' \
+    printf '\355\221\242\303\076\377\333\376\346\100\117\076\377\333\376\346\100\271\050\367\041\000\000\021\140\352\016\000\076\377\333\376\346\100\271\050\002\117\043\033\172\263\040\360\001\064\022\076\245\355\171\355\141\355\151\030\376' \
         >"$TMP_DIR/nextpi-ear.bin"
     rc=0
     out=$(timeout --foreground --kill-after=5s 60s \
         env "${wp[@]}" PATH="$ear_bin:$PATH" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine 48k \
         --nextpi --inject "$TMP_DIR/nextpi-ear.bin" --magic-port 0x1234 --magic-port-mode dec \
-        --delayed-automatic-exit-frames 150 </dev/null 2>&1) || rc=$?
+        --delayed-automatic-exit-frames 1500 </dev/null 2>&1) || rc=$?
     [[ $rc -eq 0 ]] || fails+=("the NR 0xA2 bit 0 EAR run exited $rc, want 0")
     toggles=$(awk '$0=="165" {getline h; getline l; print h * 256 + l; exit}' <<<"$out")
     if [[ ! "$toggles" =~ ^[0-9]+$ ]]; then
