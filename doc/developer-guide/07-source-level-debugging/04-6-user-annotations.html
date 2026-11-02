@@ -2999,9 +2999,9 @@ error is <code>line N: reason</code>.</p>
    file cannot disagree: <code>UserAnnotations::valid_label_name()</code>
    (<code>src/debug/user_annotations.cpp:29</code>: components <code>[A-Za-z_][A-Za-z0-9_]*</code>
    joined by single dots, exactly what the DSL's <code>@name</code> lexes,
-   <code>lex_symbol()</code>, <code>src/script/lexer.cpp:217-235</code>), <code>valid_utf8()</code> (<code>:39</code>: no overlong form, no
+   <code>lex_symbol()</code>, <code>src/script/lexer.cpp:217-235</code>), <code>valid_utf8()</code> (<code>src/debug/user_annotations.cpp:39</code>: no overlong form, no
    surrogate, nothing past U+10FFFF) and the uniqueness of a name
-   (<code>set_label()</code>, <code>:62-80</code>).</li>
+   (<code>set_label()</code>, <code>src/debug/user_annotations.cpp:62-80</code>).</li>
 <li><strong>A key the file can name.</strong> <code>nameable()</code> (<code>src/debug/user_annotations.cpp:15</code>)
    refuses any memory with <code>parse_space_tag(space_tag(s)) != s</code> (page 0xE0, ROM 4,
    DivMMC bank 16 ...), so Save never writes a file that Load then refuses whole.

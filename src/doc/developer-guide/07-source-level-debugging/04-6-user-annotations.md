@@ -69,9 +69,9 @@ error is `line N: reason`.
    file cannot disagree: `UserAnnotations::valid_label_name()`
    (`src/debug/user_annotations.cpp:29`: components `[A-Za-z_][A-Za-z0-9_]*`
    joined by single dots, exactly what the DSL's `@name` lexes,
-   `lex_symbol()`, `src/script/lexer.cpp:217-235`), `valid_utf8()` (`:39`: no overlong form, no
+   `lex_symbol()`, `src/script/lexer.cpp:217-235`), `valid_utf8()` (`src/debug/user_annotations.cpp:39`: no overlong form, no
    surrogate, nothing past U+10FFFF) and the uniqueness of a name
-   (`set_label()`, `:62-80`).
+   (`set_label()`, `src/debug/user_annotations.cpp:62-80`).
 5. **A key the file can name.** `nameable()` (`src/debug/user_annotations.cpp:15`)
    refuses any memory with `parse_space_tag(space_tag(s)) != s` (page 0xE0, ROM 4,
    DivMMC bank 16 ...), so Save never writes a file that Load then refuses whole.
