@@ -3862,6 +3862,24 @@ static void test_annotations() {
                          "'; one' for a single line, and not at all with page 0x11 mapped",
               c10 == "; two ..." && painted_c && c11.empty() && one == "; one", c10 + "|" + c11 + "|" + one);
     }
+    {   // QANN-15: the Label column holds 16 characters; a longer name is cut to 13 plus "..."
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x10);
+        jnext::dbg::Debugger dbg(emu);
+        dbg.set_user_label(P10, 0xC000, "abcdefghijklmnopqrst");   // 20 characters
+        dbg.set_user_label(P10, 0xC001, "abcdefghijklmnop");       // exactly 16: kept whole
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0xC000);
+        dis.refresh();
+        const std::string long_name = s(dis.line_label(0)), exact = s(dis.line_label(1));
+        check("QANN-15", "a 20-character label shows as its first 13 characters and '...' (16 in all); a 16-character one "
+                         "is shown whole",
+              built && long_name == "abcdefghijklm..." && exact == "abcdefghijklmnop", long_name + "|" + exact);
+    }
     {   // QANN-04 and QANN-06: operands, the copy, the address field
         Emulator emu;
         const bool built = build(emu, MachineType::ZXN_ISSUE2);

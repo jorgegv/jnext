@@ -84,6 +84,7 @@
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QToolBar>
 
@@ -362,11 +363,32 @@ struct Modals {
     }
     ~Modals() { timer.stop(); }
 
+    // GH #387 review: a bound. A modal that stays open past `deadline_ms` is rejected and recorded as "stuck"
+    // (the row FAILs naming it, instead of the suite waiting for an answer nobody gives), and with
+    // `expect_modals` false any modal is rejected unanswered and recorded as "unexpected". Neither changes what a
+    // row that expects its dialogs gets.
+    bool                       expect_modals = true;
+    bool                       stuck = false;
+    int                        deadline_ms = 20000;
+    QElapsedTimer              open_since;
+
     void poll() {
         QWidget* w = QApplication::activeModalWidget();
-        if (!w) return;
+        if (!w) { open_since.invalidate(); return; }
         auto* dlg = qobject_cast<QDialog*>(w);
         if (!dlg) return;
+        if (!open_since.isValid()) open_since.start();
+        else if (open_since.elapsed() > deadline_ms) {
+            stuck = true;
+            seen.push_back({"stuck", dlg->windowTitle(), {}});
+            dlg->reject();
+            return;
+        }
+        if (!expect_modals) {
+            seen.push_back({"unexpected", dlg->windowTitle(), {}});
+            dlg->reject();
+            return;
+        }
         if (seen.size() >= kMaxModals) { dlg->reject(); return; }
         if (auto* fd = qobject_cast<QFileDialog*>(w)) {
             seen.push_back({"file", fd->windowTitle(), {}, fd->nameFilters().join(QStringLiteral(";;"))});
@@ -3364,10 +3386,11 @@ static void test_annotations_ui() {
         fx.backend->set_user_label(P10, 0xC010, "second");
         const bool dirty = fx.mgr->annotations_unsaved();
         Modals ms;
+        ms.expect_modals = false;   // Save with a current file opens no dialog: one that does is rejected and FAILs the row
         if (save) save->trigger();
         ms.timer.stop();
         const std::string written = slurp_file(good);
-        const bool saved = ms.seen.empty() && !fx.mgr->annotations_unsaved() &&
+        const bool saved = ms.seen.empty() && !ms.stuck && !fx.mgr->annotations_unsaved() &&
                            written == "jnext-annotations 1\nlabel P10 $C000 banked\ncomment P10 $C000 hi\nlabel P10 $C010 second\n";
         // a failed Open: the box names the line, the store is as it was
         const auto before = fx.backend->annotations();
@@ -3396,7 +3419,34 @@ static void test_annotations_ui() {
                          "dialog; a file that does not parse gives an 'Open Failed' box naming the line and keeps the "
                          "store; Save with no file asks where and adds .jdp",
               items && opened && dirty && saved && failed && asked,
-              fmt("items=%d opened=%d dirty=%d saved=%d failed=%d asked=%d", items, opened, dirty, saved, failed, asked));
+              fmt("items=%d opened=%d dirty=%d saved=%d failed=%d asked=%d dialogs-on-save=%s", items, opened, dirty, saved, failed,
+                  asked, ms.describe().c_str()));
+    }
+    {   // QANN-18: Open Annotations refreshes the panels at once, like every Map load (the GH #390 R-1 row)
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QANN-18", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.enable();
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0xC000);
+        DebuggerWindow* d = fx.dbg();
+        auto bp_symbol = [&]() {
+            QString out = QStringLiteral("<no row>");
+            if (auto* t = d->breakpoint_panel()->findChild<QTableWidget*>())
+                for (int r = 0; r < t->rowCount(); ++r)
+                    if (t->item(r, 2) && t->item(r, 2)->text() == "$C000" && t->item(r, 3)) out = t->item(r, 3)->text();
+            return out;
+        };
+        const QString before = bp_symbol();
+        Modals mo;
+        mo.file_path = QString::fromStdString(good);
+        if (QAction* open = item_named(menu_named(d->menuBar(), "Map"), "Open Annotations...")) open->trigger();
+        mo.timer.stop();
+        const QString after = bp_symbol();   // no tick, no other refresh
+        check("QANN-18", "Map > Open Annotations refreshes the panels at once: the Breakpoints Symbol cell of a breakpoint "
+                         "at $C000 shows the opened file's label right after the dialog, with no tick",
+              before.isEmpty() && after == "banked" && !mo.stuck,
+              fmt("before='%s' after='%s'", s(before).c_str(), s(after).c_str()));
     }
     {   // QANN-13
         Fixture fx(MachineType::ZXN_ISSUE2);

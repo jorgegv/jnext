@@ -1093,15 +1093,18 @@ void MainWindow::create_menus() {
     // that was being dropped.
     //
     // close() returns false only if closeEvent() ignored the event.
-    // MainWindow::closeEvent() never does — it contains no ignore() call — and
-    // it cannot put a question to the user either: stop_recording() shows no
-    // dialog, and the debugger teardown deliberately passes
-    // prompt_on_corrupt=false (Task 60f, pinned by debugger_quit_gate_test
-    // QG-01/QG-04). So Quit always quits today. The guard exists so that IF a
-    // veto is ever added — an "unsaved changes?" prompt, say — declining it
-    // cancels the quit instead of the app dying anyway. It can BLOCK, briefly:
-    // stopping a recording runs the ffmpeg mux synchronously. That is the same
-    // wait the [X] path has always had, and it finishes.
+    // MainWindow::closeEvent() ignores it in ONE case: the user has unsaved
+    // debugger labels or comments (GH #387, D11), is asked Save / Discard /
+    // Cancel, and answers Cancel (or Save fails); the guard below then cancels
+    // the quit instead of the app dying anyway. That question is the only one
+    // closeEvent() puts: stop_recording() shows no dialog, and the debugger
+    // teardown deliberately passes prompt_on_corrupt=false (Task 60f, pinned by
+    // debugger_quit_gate_test QG-01/QG-04). An UNATTENDED close (the delayed
+    // automatic exit, a signal: set_unattended()) skips even that question,
+    // logs that the changes were discarded and quits, since nobody could answer
+    // (QG-ANN-05). Stopping a recording can BLOCK, briefly: it runs the ffmpeg
+    // mux synchronously. That is the same wait the [X] path has always had, and
+    // it finishes.
     //
     // qApp->quit() stays explicit rather than being left to
     // quitOnLastWindowClosed: that fallback depends on no OTHER top-level
@@ -3817,10 +3820,17 @@ void MainWindow::wheelEvent(QWheelEvent* event) {
 void MainWindow::closeEvent(QCloseEvent* event) {
 #ifdef ENABLE_DEBUGGER
     // GH #387 (D11): unsaved labels and comments are asked about first; Cancel keeps the app open
-    // (File > Quit goes through close(), which returns false when the event is ignored).
-    if (debugger_mgr_ && !debugger_mgr_->confirm_discard_annotations()) {
-        event->ignore();
-        return;
+    // (File > Quit goes through close(), which returns false when the event is ignored). An
+    // UNATTENDED close (the delayed automatic exit, SIGINT/SIGTERM) asks nothing: nobody would
+    // answer, and the exit must happen (GH #364). The changes are discarded and the log says so.
+    if (debugger_mgr_) {
+        if (unattended_) {
+            if (debugger_mgr_->annotations_unsaved())
+                Log::platform()->warn("unattended exit: the unsaved debugger labels and comments were discarded");
+        } else if (!debugger_mgr_->confirm_discard_annotations()) {
+            event->ignore();
+            return;
+        }
     }
 #endif
     // Stop any active recording before closing. The result is not lost:

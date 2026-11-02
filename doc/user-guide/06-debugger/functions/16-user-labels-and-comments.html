@@ -4180,7 +4180,7 @@ added when the name has none). Open replaces everything you have, or nothing if 
 the message names the line. If you have unsaved changes, Open and quitting ask whether to <strong>Save</strong>,
 <strong>Discard</strong> or <strong>Cancel</strong>; with nothing changed they do not ask.</p>
 <p><code>jnext --annotations FILE</code> loads a file at start-up, before any script, and Save then writes back
-to it. A file that cannot be read is an error and jnext exits with status 1.</p>
+to it. A file that cannot be read, or does not parse (the message names the line), is an error and jnext exits with status 1. When jnext ends by itself (<code>--delayed-automatic-exit</code>) or is stopped by a signal, unsaved labels and comments are discarded without asking.</p>
 <p>The file is text, in UTF-8:</p>
 <pre><code>jnext-annotations 1
 label P04 $8000 Start

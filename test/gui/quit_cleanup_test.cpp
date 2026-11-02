@@ -93,6 +93,7 @@
 // here. The prompt and the vetoed close are.
 // ===========================================================================
 #include <QAbstractButton>
+#include <QDialog>
 #include <QAction>
 #include <QFile>
 #include <QApplication>
@@ -271,9 +272,12 @@ void test_annotations_veto() {
     QMessageBox::StandardButton to_click = QMessageBox::Cancel;
     bool asked = false;
     QObject::connect(&answer, &QTimer::timeout, [&]() {
-        if (auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+        QWidget* m = QApplication::activeModalWidget();
+        if (auto* mb = qobject_cast<QMessageBox*>(m)) {
             asked = true;
             if (QAbstractButton* b = mb->button(to_click)) b->click(); else mb->done(to_click);
+        } else if (auto* d = qobject_cast<QDialog*>(m)) {
+            d->reject();   // a dialog this row did not expect: never wait on it
         }
     });
     answer.start(1);
@@ -289,6 +293,39 @@ void test_annotations_veto() {
           cancel_ok && asked && closed_discard && !mgr->is_enabled(),
           std::string("cancel_ok=") + (cancel_ok ? "1" : "0") + " asked=" + (asked ? "1" : "0") +
           " closed=" + (closed_discard ? "1" : "0"));
+}
+
+// ---------------------------------------------------------------------------
+// QG-ANN-05 (GH #387 review) -- an UNATTENDED close (the delayed automatic exit, SIGINT/SIGTERM through
+// set_unattended(true)) asks nothing about unsaved annotations and quits: a modal there would wait forever on a
+// dialog nobody answers (qt_app.cpp, "a modal ... would then wait forever"). The watcher dismisses any modal it
+// sees and fails the row, so a regression cannot hang the suite.
+// ---------------------------------------------------------------------------
+void test_annotations_unattended() {
+    Fixture fx;
+    if (!fx.ok) { check("QG-ANN-05", "fixture", false, "no fixture"); return; }
+    DebuggerManager* mgr = fx.win.debugger_manager();
+    mgr->set_enabled(true);
+    QApplication::processEvents();
+    fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x8000, "start");
+    fx.win.set_unattended(true);
+    QTimer watch;
+    QString modal;
+    QObject::connect(&watch, &QTimer::timeout, [&]() {
+        if (auto* d = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+            modal = d->windowTitle().isEmpty() ? QStringLiteral("(untitled dialog)") : d->windowTitle();
+            d->reject();
+        }
+    });
+    watch.start(1);
+    const bool unsaved = mgr->annotations_unsaved();
+    const bool closed = fx.win.close();
+    watch.stop();
+    check("QG-ANN-05", "an unattended close with unsaved annotations asks nothing and the window closes (the changes are "
+                       "discarded, with a log line)",
+          unsaved && modal.isEmpty() && closed && !mgr->is_enabled(),
+          std::string("unsaved=") + (unsaved ? "1" : "0") + " modal='" + modal.toStdString() + "' closed=" +
+              (closed ? "1" : "0"));
 }
 
 void test_recorder_stop() {
@@ -551,6 +588,7 @@ int main(int argc, char** argv) {
 
     test_debugger_teardown();
     test_annotations_veto();
+    test_annotations_unattended();
     test_recorder_stop();
     test_geometry_persisted();
     test_startup_migration();

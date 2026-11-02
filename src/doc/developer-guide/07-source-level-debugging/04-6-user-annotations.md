@@ -173,7 +173,8 @@ The same two views edit the store and draw it; nothing here changes what the sto
   `remove_user_label()`. A refused name or text is a `QMessageBox::warning` with the backend's reason and
   changes nothing (`QANN-09`). **Rename** on a toolchain label creates a user label that shadows it;
   **Remove** acts on user labels only, so on a toolchain-only label it is disabled and its tooltip names the
-  file `state_of()` (`:24`) found it in. The panels hold a `const Debugger*` for reading; the writes go
+  file the toolchain layer was loaded from (`toolchain_symbols().loaded_file()` in `add_annotation_actions()`,
+  `annotation_menu.cpp:95-98`; `state_of()`, `:24`, only says whether a label is there). The panels hold a `const Debugger*` for reading; the writes go
   through the non-const pointer `DebuggerManager` hands them with `set_annotation_backend()`
   (`src/debugger/debugger_manager.cpp:386` and `:390`), and each panel's `annotations_changed()` signal makes the
   manager refresh the panels.
@@ -194,8 +195,10 @@ The same two views edit the store and draw it; nothing here changes what the sto
   `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
   `confirm_discard_annotations()` (`debugger_manager.cpp:760`) asks Save / Discard / Cancel when they differ, and is
   asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
-  (`src/gui/main_window.cpp:3821`) before anything else, which ignores the event on Cancel (File ▸ Quit goes
-  through `close()`, which then returns false). With nothing changed there is no dialog. `set_annotations_file()`
+  (`src/gui/main_window.cpp:3830`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
+  through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
+  SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3827`) asks nothing: it logs that the unsaved changes were
+  discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
   (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`src/gui/qt_app.cpp:391`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is

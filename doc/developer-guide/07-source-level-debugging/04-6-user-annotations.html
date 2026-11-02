@@ -3086,7 +3086,8 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   <code>remove_user_label()</code>. A refused name or text is a <code>QMessageBox::warning</code> with the backend's reason and
   changes nothing (<code>QANN-09</code>). <strong>Rename</strong> on a toolchain label creates a user label that shadows it;
   <strong>Remove</strong> acts on user labels only, so on a toolchain-only label it is disabled and its tooltip names the
-  file <code>state_of()</code> (<code>:24</code>) found it in. The panels hold a <code>const Debugger*</code> for reading; the writes go
+  file the toolchain layer was loaded from (<code>toolchain_symbols().loaded_file()</code> in <code>add_annotation_actions()</code>,
+  <code>annotation_menu.cpp:95-98</code>; <code>state_of()</code>, <code>:24</code>, only says whether a label is there). The panels hold a <code>const Debugger*</code> for reading; the writes go
   through the non-const pointer <code>DebuggerManager</code> hands them with <code>set_annotation_backend()</code>
   (<code>src/debugger/debugger_manager.cpp:386</code> and <code>:390</code>), and each panel's <code>annotations_changed()</code> signal makes the
   manager refresh the panels.</li>
@@ -3107,8 +3108,10 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   <code>annotations_revision()</code> at the last Open, Save or <code>--annotations</code>; <code>annotations_unsaved()</code> compares them.
   <code>confirm_discard_annotations()</code> (<code>debugger_manager.cpp:760</code>) asks Save / Discard / Cancel when they differ, and is
   asked by <code>on_open_annotations()</code> before it opens and by <code>MainWindow::closeEvent()</code>
-  (<code>src/gui/main_window.cpp:3821</code>) before anything else, which ignores the event on Cancel (File ▸ Quit goes
-  through <code>close()</code>, which then returns false). With nothing changed there is no dialog. <code>set_annotations_file()</code>
+  (<code>src/gui/main_window.cpp:3830</code>) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
+  through <code>close()</code>, which then returns false). An unattended close (<code>unattended_</code>, the delayed automatic exit and
+  SIGINT/SIGTERM, tested at <code>src/gui/main_window.cpp:3827</code>) asks nothing: it logs that the unsaved changes were
+  discarded and quits (<code>QG-ANN-05</code>). With nothing changed there is no dialog. <code>set_annotations_file()</code>
   (<code>debugger_manager.cpp:725</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>src/gui/qt_app.cpp:391</code>), makes that file
   the Save target and the starting point of "unsaved".</li>
 <li><strong>Settings.</strong> None: the store has no Preferences field, so <code>config_keys.cpp</code> has no row; the CLI is

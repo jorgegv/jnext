@@ -48,6 +48,8 @@
 #include <QApplication>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QDialog>
+#include <QElapsedTimer>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -135,21 +137,42 @@ bool make_corrupt(Emulator& emu) {
 struct ModalWatcher {
     QMessageBox::StandardButton to_click;
     bool  saw_modal = false;
+    // GH #387 review: a modal that is not a message box (a file dialog) is rejected and recorded, and one
+    // that stays open past `deadline_ms` is rejected and recorded as stuck, so a row FAILS where it used
+    // to wait for an answer nobody gives. Neither changes what a message box gets.
+    bool  saw_other = false;
+    bool  stuck = false;
+    QString other_title;
+    int   deadline_ms = 20000;
+    QElapsedTimer open_since;
     QTimer timer;
 
     explicit ModalWatcher(QMessageBox::StandardButton b) : to_click(b) {
         QObject::connect(&timer, &QTimer::timeout, [this]() {
             QWidget* w = QApplication::activeModalWidget();
+            if (!w) { open_since.invalidate(); return; }
+            if (!open_since.isValid()) open_since.start();
+            else if (open_since.elapsed() > deadline_ms) {
+                stuck = true;
+                other_title = w->windowTitle();
+                if (auto* d = qobject_cast<QDialog*>(w)) d->reject(); else w->close();
+                return;
+            }
             if (auto* mb = qobject_cast<QMessageBox*>(w)) {
                 saw_modal = true;
                 if (QAbstractButton* btn = mb->button(to_click))
                     btn->click();
                 else
                     mb->done(to_click);
+            } else if (auto* d = qobject_cast<QDialog*>(w)) {
+                saw_other = true;
+                other_title = d->windowTitle();
+                d->reject();
             }
         });
         timer.start(1);
     }
+    bool clean() const { return !saw_other && !stuck; }
     void stop() { timer.stop(); }
 };
 
@@ -294,12 +317,40 @@ static void test_quit_gate() {
             check("QG-ANN-01", "with unsaved annotations the quit question appears: Cancel returns false and writes nothing, "
                                "Discard returns true and writes nothing, Save writes the file and returns true",
                   unsaved && cancel.saw_modal && !r_cancel && still && discard.saw_modal && r_discard && kept_unsaved &&
-                      save.saw_modal && r_save && wrote && !fx.mgr->annotations_unsaved(),
+                      save.saw_modal && r_save && wrote && !fx.mgr->annotations_unsaved() && cancel.clean() &&
+                      discard.clean() && save.clean(),
                   fmt("unsaved=%d cancel=%d/%d discard=%d/%d save=%d/%d wrote=%d", unsaved, cancel.saw_modal, r_cancel,
                       discard.saw_modal, r_discard, save.saw_modal, r_save, wrote));
+            // (a watcher around the second call too: a regression that asks would otherwise wait for nobody)
+            ModalWatcher again(QMessageBox::Cancel);
+            const bool again_ok = fx.mgr->confirm_discard_annotations();
+            again.stop();
             check("QG-ANN-02", "with nothing unsaved (a --annotations file just loaded, or already saved) there is no "
                                "question and the answer is yes",
-                  clean && no_modal_clean && fx.mgr->confirm_discard_annotations());
+                  clean && no_modal_clean && again_ok && !again.saw_modal && again.clean() && quiet.clean(),
+                  fmt("clean=%d modal=%d again=%d/%d other='%s'", clean, quiet.saw_modal, again_ok, again.saw_modal,
+                      again.other_title.toStdString().c_str()));
+        }
+    }
+
+    // QG-ANN-04 (GH #387 review) -- a Save that FAILS at the quit question (the file cannot be written) is not a
+    // yes: the question returns false, the app stays and the changes stay unsaved. (The failure shows its own
+    // warning box, which the watcher dismisses.)
+    {
+        Fixture fx(/*corrupt=*/false);
+        if (!fx.ok) {
+            check("QG-ANN-04", "fixture (clean+paused)", false);
+        } else {
+            QTemporaryDir dir;
+            fx.mgr->set_annotations_file(dir.filePath(QStringLiteral("no/such/dir/q.jdp")));
+            fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x8000, "start");
+            ModalWatcher save(QMessageBox::Save);
+            const bool r = fx.mgr->confirm_discard_annotations();
+            save.stop();
+            check("QG-ANN-04", "a Save that fails at the quit question returns false and the changes stay unsaved",
+                  save.saw_modal && !r && fx.mgr->annotations_unsaved() && save.clean(),
+                  fmt("modal=%d r=%d unsaved=%d other='%s'", save.saw_modal, r, fx.mgr->annotations_unsaved(),
+                      save.other_title.toStdString().c_str()));
         }
     }
 

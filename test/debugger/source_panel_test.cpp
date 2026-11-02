@@ -60,6 +60,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QContextMenuEvent>
+#include <QElapsedTimer>
 #include <QInputDialog>
 #include <QDialog>
 #include <QDir>
@@ -247,9 +248,15 @@ int drive_modals(const std::function<void(QWidget*, int)>& act,
                  const std::function<void()>& open) {
     int n = 0;
     QTimer timer;
+    QElapsedTimer open_since;   // GH #387 review: a modal open past 20 s is rejected, so a row FAILs where it would hang
     QObject::connect(&timer, &QTimer::timeout, [&]() {
         QWidget* w = QApplication::activeModalWidget();
-        if (!w || !w->isVisible()) return;
+        if (!w || !w->isVisible()) { open_since.invalidate(); return; }
+        if (!open_since.isValid()) open_since.start();
+        else if (open_since.elapsed() > 20000) {
+            if (auto* d = qobject_cast<QDialog*>(w)) d->reject(); else w->close();
+            return;
+        }
         act(w, n++);
     });
     timer.start(1);
@@ -6449,9 +6456,17 @@ QStringList ann_words(const std::vector<PopItem>& v) {
 struct Answerer {
     QString text;
     QStringList boxes;
+    QStringList initial;   // what each input dialog opened showing
+    bool keep = false;     // OK the dialog as it opened, without typing
     int inputs = 0;
     void operator()(QWidget* w, int) {
-        if (auto* in = qobject_cast<QInputDialog*>(w)) { ++inputs; in->setTextValue(text); in->accept(); return; }
+        if (auto* in = qobject_cast<QInputDialog*>(w)) {
+            ++inputs;
+            initial << in->textValue();
+            if (!keep) in->setTextValue(text);
+            in->accept();
+            return;
+        }
         if (auto* mb = qobject_cast<QMessageBox*>(w)) { boxes << mb->text(); click_box(w, QMessageBox::Ok); return; }
         if (auto* d = qobject_cast<QDialog*>(w)) d->reject();
     }
@@ -6549,6 +6564,58 @@ void test_annotations_menu() {
               n == 2 && bad.boxes.size() == 1 && bad.boxes[0].contains("not a label name") && unchanged1 &&
                   dup.boxes.size() == 1 && dup.boxes[0].contains("already names") && fx.backend->annotations() == with_taken,
               s(bad.boxes.join("|")) + " / " + s(dup.boxes.join("|")));
+    }
+    {   // QANN-16: the Rename and Edit Comment dialogs open with the current text; OK unchanged changes nothing
+        Fixture fx;
+        fx.enable();
+        write_main({});
+        SyncWin w(fx);
+        w.dp->show_address(0x8002);
+        const int row = w.centre();
+        const jnext::dbg::MemSpace sp = fx.backend->source_page(0x8002);
+        fx.backend->set_user_label(sp, 0x8002, "mine");
+        fx.backend->set_user_comment(sp, 0x8002, "c1\nc2");
+        const uint64_t ann = fx.backend->annotations_revision(), st = fx.backend->state_revision();
+        const auto before = fx.backend->annotations();
+        Answerer lab;
+        lab.keep = true;
+        drive_modals(std::ref(lab), [&] { disasm_popup(w.dp, row, "Rename Label..."); });
+        Answerer com;
+        com.keep = true;
+        drive_modals(std::ref(com), [&] { disasm_popup(w.dp, row, "Edit Comment..."); });
+        check("QANN-16", "Rename Label... opens showing the current label and Edit Comment... the current comment; OK on "
+                         "either unchanged leaves the store and both revisions as they were (nothing is lost, nothing is "
+                         "marked unsaved)",
+              lab.initial == QStringList({"mine"}) && com.initial == QStringList({"c1\nc2"}) &&
+                  fx.backend->annotations() == before && fx.backend->annotations_revision() == ann &&
+                  fx.backend->state_revision() == st,
+              s(lab.initial.join("|")) + " / " + s(com.initial.join("|")));
+    }
+    {   // QANN-17: a label added from the SOURCE TAB shows in the Breakpoints Symbol column at once
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8002);
+        auto bp_sym = [&]() {
+            QString out = QStringLiteral("<no row>");
+            if (auto* t = fx.dbg()->breakpoint_panel()->findChild<QTableWidget*>())
+                for (int r = 0; r < t->rowCount(); ++r)
+                    if (t->item(r, 2) && t->item(r, 2)->text() == "$8002" && t->item(r, 3)) out = t->item(r, 3)->text();
+            return out;
+        };
+        QMenu m(w.sp);
+        w.sp->fill_context_menu(m, 11, 0);
+        QAction* add = nullptr;
+        for (QAction* a : m.actions()) if (a->text() == "Add Label...") add = a;
+        Answerer ans;
+        ans.text = "fromsource";
+        drive_modals(std::ref(ans), [&] { if (add) add->trigger(); });
+        const QString shown = bp_sym();   // no tick
+        check("QANN-17", "a label added from the Source tab's menu shows in the Breakpoints Symbol column at once (the "
+                         "tab's annotations_changed reaches the manager's refresh)",
+              add && shown == "fromsource", s(shown));
     }
     {   // QANN-10: the Source tab acts per place
         Fixture fx;

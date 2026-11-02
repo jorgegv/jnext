@@ -53,7 +53,7 @@ the message names the line. If you have unsaved changes, Open and quitting ask w
 **Discard** or **Cancel**; with nothing changed they do not ask.
 
 `jnext --annotations FILE` loads a file at start-up, before any script, and Save then writes back
-to it. A file that cannot be read is an error and jnext exits with status 1.
+to it. A file that cannot be read, or does not parse (the message names the line), is an error and jnext exits with status 1. When jnext ends by itself (`--delayed-automatic-exit`) or is stopped by a signal, unsaved labels and comments are discarded without asking.
 
 The file is text, in UTF-8:
 
