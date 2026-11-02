@@ -11,7 +11,8 @@
 // installs produced from our own vars.c / other.c), whose records are quoted
 // verbatim in the rows, and the writers' own sources, which fix the grammar:
 // src/sccz80/cdbfile.c (z88dk, "DA%dx", "SB" absent, "S6", "DV") and SDCC's
-// cdbFile.c cdbTypeInfo() ("DA%ud," where the 'd' is a literal, "SB%d$%d", "SV",
+// cdbFile.c cdbTypeInfo() (every cdbFile.c / SDCCmem.c line cited below is from SDCC
+// r15248, the zsdcc_r15248_src.tar.gz in the z88dk repository; "DA%ud," where the 'd' is a literal, "SB%d$%d", "SV",
 // "SQ", the D? pointer classes). A synthetic record is marked as such in its row;
 // it follows the same grammar. No VHDL counterpart. Pure: no machine.
 // Run: ./build/test/cdb_record_test
@@ -485,6 +486,28 @@ int main() {
               rg.members[1].hidden == CdbHidden::Temporary && rg.members[1].var.type.chain[0].bit_start == 3 &&
               rg.members[1].var.type.chain[0].bit_width == 2 && rg.members[2].hidden == CdbHidden::None &&
               rx.members[0].hidden == CdbHidden::None && rx.members[1].hidden == CdbHidden::None);
+    }
+
+    // CDB-50 .. CDB-52: bytes >= 0x80 in a name (a UTF-8 file name).
+    {
+        // sccz80 master, probe: `static int s_v;` in a file named λ.c (UTF-8 CE BB) and in ñ.c (C3 B1):
+        //   zcc +zxn -clib=new -debug -m -subtype=nex -o prog -create-app 'λ.c'
+        // The writers print each byte as a sign-extended int through "%02x" (cdbfile.c:21, zcc.c:2036).
+        const CdbDecoded l = cdb_decode_symbol(
+            "__CDBINFO__S_3aF_ffffffce_ffffffbb_2ec_24s_5fv_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30");
+        check("CDB-50", "a record scoped by λ.c (_ffffffce_ffffffbb) decodes to the UTF-8 bytes CE BB, not to garbage: scope 'λ.c', name s_v",
+              l.ok() && l.record.scope == CdbScope::File && l.record.scope_name == "\xCE\xBB.c" &&
+              l.record.var.name == "s_v" && l.record.var.type.size == 2);
+        const CdbDecoded n = cdb_decode_symbol(
+            "__CDBINFO__S_3aF_ffffffc3_ffffffb1_2ec_24s_5fv_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30");
+        check("CDB-51", "ñ.c (_ffffffc3_ffffffb1: a digit in a hex pair) decodes too, and _ffffff7f (a value below 0x80 in the long form) is refused",
+              n.ok() && n.record.scope_name == "\xC3\xB1.c" && n.record.var.name == "s_v" &&
+              cdb_unescape("_ffffff7f").error.find("bad escape") != std::string::npos);
+        check("CDB-52", "a bare two-digit escape >= 0x80 (_ff, _c3), a short or non-hex _ffffffhh, and an _ffffff7f (< 0x80) are refused with a bad-escape reason",
+              !cdb_unescape("_ff").ok() && !cdb_unescape("_c3").ok() && !cdb_unescape("_ffffff").ok() &&
+              !cdb_unescape("_ffffffc").ok() && !cdb_unescape("_ffffffzz").ok() && !cdb_unescape("_ffffff7f").ok() &&
+              !cdb_unescape("_ffffff00").ok() && cdb_unescape("_ffffffce").text == "\xCE" &&
+              cdb_unescape("_ff").error.find("bad escape") != std::string::npos);
     }
 
     // CDB-35 .. CDB-36: every record of every committed map.

@@ -143,8 +143,9 @@ struct CdbUnescaped {
 /// z80asm only carries the symbol): a letter stands for itself, every other byte
 /// is `_` and two lower-case hex digits (digits and `_` too). Refused, with a
 /// reason: any other unescaped byte (zcc also lets whitespace through raw), a bad
-/// or truncated `_hh`, an escaped NUL. A byte >= 0x80 comes out of the writers as
-/// `_ffffffXX` (a signed char through %02x), which this refuses as a bad escape.
+/// or truncated `_hh`, an escaped NUL. A byte >= 0x80 (a UTF-8 file name) is written
+/// as `_ffffffhh`, a signed char through %02x, and decodes to the byte hh; a bare
+/// two-digit escape >= 0x80 (`_ff`, `_c3`) is never written and is refused.
 CdbUnescaped cdb_unescape(std::string_view escaped);
 
 /// Decode an UNESCAPED record (`S:G$g_int$0_0$0({2}SI:S),E,0,0`).

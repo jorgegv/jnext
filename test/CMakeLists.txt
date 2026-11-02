@@ -1231,13 +1231,13 @@ target_compile_definitions(z88dk_lis_test PRIVATE
 add_test(NAME z88dk_lis_tests COMMAND z88dk_lis_test)
 # GH #432 - the z88dk CDB record decoder (pure): verbatim records of the committed
 # z88dk fixtures' maps, and every __CDBINFO__ record of every one of them.
-add_executable(cdb_record_test debug/cdb_record_test.cpp)
-target_link_libraries(cdb_record_test PRIVATE
-    jnext_core jnext_cpu jnext_memory jnext_video
-    jnext_audio jnext_port jnext_peripheral jnext_input
-    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+# The decoder (std only) is compiled into the test itself, with the libstdc++ checked
+# containers on this target only: an out-of-range access in it aborts the suite, and
+# the shipped binary is not hardened by it (libc++ and other STLs ignore the macro).
+add_executable(cdb_record_test debug/cdb_record_test.cpp ${CMAKE_SOURCE_DIR}/src/debug/cdb_record.cpp)
 target_include_directories(cdb_record_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(cdb_record_test PRIVATE
+    _GLIBCXX_ASSERTIONS
     JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME cdb_record_tests COMMAND cdb_record_test)
 add_executable(source_debug_test debug/source_debug_test.cpp)

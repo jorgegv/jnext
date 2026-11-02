@@ -49,9 +49,3 @@ target_link_libraries(jnext_debug PRIVATE jnext_core)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(jnext_debug PRIVATE -Werror=switch)
 endif()
-
-# GH #432 - the CDB record decoder reads untrusted map text. Build it with the
-# libstdc++ checked containers always, so an out-of-range string_view access in
-# it aborts the suite in every build (it once did so only in a distro rpm build,
-# whose optflags carry -D_GLIBCXX_ASSERTIONS). Ignored by other C++ libraries.
-set_source_files_properties(cdb_record.cpp PROPERTIES COMPILE_DEFINITIONS _GLIBCXX_ASSERTIONS)

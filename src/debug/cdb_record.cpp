@@ -310,18 +310,29 @@ CdbUnescaped cdb_unescape(std::string_view s) {
         if (is_alpha(c)) {
             out.text.push_back(c);
         } else if (c == '_') {
-            const int hi = i + 1 < s.size() ? hex_val(s[i + 1]) : -1;
-            const int lo = i + 2 < s.size() ? hex_val(s[i + 2]) : -1;
-            if (hi < 0 || lo < 0) {
+            // `_hh` is a byte below 0x80. A byte >= 0x80 is printed through a signed char
+            // as `_ffffffhh` (the writers' "%02x" of a negative char, sign-extended to int);
+            // it decodes to the byte hh. A bare `_ff` or `_c3` is never written: refused.
+            int v = -1;
+            size_t len = 3;
+            if (i + 8 < s.size() && s.compare(i + 1, 6, "ffffff") == 0) {
+                const int a = hex_val(s[i + 7]), b = hex_val(s[i + 8]);
+                if (a >= 8 && b >= 0) v = a * 16 + b;
+                len = 9;
+            } else if (i + 2 < s.size()) {
+                const int a = hex_val(s[i + 1]), b = hex_val(s[i + 2]);
+                if (a >= 0 && a < 8 && b >= 0) v = a * 16 + b;
+            }
+            if (v < 0) {
                 std::snprintf(msg, sizeof(msg), "bad escape '_' at offset %zu", i);
                 return {std::string(), msg};
             }
-            if (hi == 0 && lo == 0) {
+            if (v == 0) {
                 std::snprintf(msg, sizeof(msg), "escape _00 (NUL) at offset %zu", i);
                 return {std::string(), msg};
             }
-            out.text.push_back(static_cast<char>(hi * 16 + lo));
-            i += 2;
+            out.text.push_back(static_cast<char>(v));
+            i += len - 1;
         } else {
             std::snprintf(msg, sizeof(msg), "unescaped byte 0x%02x at offset %zu", static_cast<unsigned char>(c), i);
             return {std::string(), msg};
