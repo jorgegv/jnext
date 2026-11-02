@@ -17,6 +17,46 @@ Boriel ZX Basic writes **no** SLD. Its only output jnext reads is `Memory.txt`
 with NextBuild has symbols and no source lines unless an SLD is produced by some
 other tool.
 
+## The symbol table the formats fill
+
+There is one `SymbolTable` (`src/debug/symbol_table.*`), owned by the backend. The Qt panels, the DSL's
+`@name`, the GDB server's `monitor sym` and `--map` all read it, so a symbol loaded by one client shows
+in every other. How the formats differ is only in what they put in it.
+
+- **Keyed by memory and address (GH #375).** `add_label(name, addr, space, bind_at_load, c_symbol)`
+  stores a label that is *paged* (assembled for one `FetchSource` such as `Page{20}`, naming the address
+  only while that memory supplies it) or *unpaged* (naming it in every memory: the sjasmplus EQU,
+  Simple and NextBuild loaders make these). There is no address-only lookup:
+  `lookup(space, addr)` finds the paged label with exactly that key, else the unpaged one at `addr`
+  (`MemSpace::cpu()` is "no memory known" and reaches unpaged labels only). The backend's
+  `lookup(addr)` asks with `source_page(addr)`, the same identity the source map and the gutter use
+  ([7.1](01-which-memory.md)), so every consumer (the Disassembly, the Call Stack, the Breakpoints,
+  `monitor sym ADDR`) names an address by what is mapped there now; `disasm_text::symbol_namer()` is
+  that rule as a function for the panels. The first label of a key wins and, apart, the first of a
+  name.
+- **A name** resolves to an address and, through `find_name()` and `resolve_key()`, to the memory it
+  was assembled for; the breakpoint dialogs keep that page. `SymbolTable::resolve()` turns an address
+  field's text into an address: hex first (`4000`, `$4000`, `0x4000`), else a symbol; `@name` always
+  means the symbol, so a program variable named `FE` is still reachable.
+- **Name-only values.** `add_value()` stores a size, an offset or a section bound: `find_name()` and
+  `lookup_name()` resolve it, but it never names an address, so a constant is never shown in a
+  disassembly (a z88dk `; const` line, an SLD `+struct_def` record).
+- **Binding at load.** A z88dk symbol of a section that names no page is stored with `bind_at_load`
+  and no memory; `SymbolTable::bind(space_of)` gives it the RAM page `space_of(addr)` names (ROM,
+  DivMMC and the other overlays leave it unpaged; an empty function unbinds it). The backend binds
+  with the one function the source half uses, `emu.predict_fetch`: at `load_map()` (every success), at
+  the sidecar `<stem>.map` (a tape included, at the attach), and for the user's store at every
+  program load ([7.4.3](04-3-z88dk-map.md), rule 4).
+- **Combining.** `SymbolTable::merge(other)` is the one way to combine two tables: it adds the other's
+  labels whose key is still free, its names and name-only values not yet taken, so the first table wins
+  throughout (row `SYMPG-12`). The sidecar store is assembled with it ([7.3](03-loaders.md)).
+- **C names.** A z88dk C symbol also has its C name (`c_name_to_key_`, `shown_name()`,
+  `lookup_assembler()`; [7.4.3](04-3-z88dk-map.md)); `merge()` carries the C names for the labels the
+  receiving table does not own, and `clear()` empties them (rows `Z88CN-01` to `-16`).
+- **Rows.** `SYMPG-*` and `SLDL-*` (`source_map_test`: pages, SLD labels), `Z88SYM-01` to `-09`
+  and `SRCDBG-SYM-18` to `-22` (the z88dk placement), `SYM-19` to `-32` (`debugger_backend_test`:
+  the EQU and `--map` loaders).
+
 ## The layout of a format page
 
 1. **The producer**, its version and the command.

@@ -38,7 +38,9 @@ Every adapter keeps the same promises, and a new one must too
   (`SourceMapLoadResult::labels >= 0`).
 - **A listing is dropped alone.** A z88dk `.lis` that does not hold up is left out
   with a note (`SourceMapLoadResult::listing_notes`), and its module keeps the
-  map's records ([7.4.4](04-4-z88dk-listings.md)). It never refuses the map.
+  map's records ([7.4.4](04-4-z88dk-listings.md)). It never refuses the map. The count reaches the
+  frontends as `SourceMapLoad::listings` and the notes as `SourceMapLoad::listing_note`; the sidecar log
+  says `and N listings` and one Warn per note.
 - **Look before opening.** `source_file_problem(path)` (`debug/source_file.h`)
   returns a reason, or empty. It refuses anything that is not a regular file (a
   FIFO or device would block or never end) and a file over
@@ -53,7 +55,9 @@ Every adapter keeps the same promises, and a new one must too
   limit"`, table untouched), a pipe included. `load_sjasmplus_equ()`
   (`MapFormat::SjasmplusEqu`, the Qt Map menu's sjasmplus load) is a path the user
   picked, so it does call `source_file_problem()`, like the Map menu's other loaders;
-  the menu shows the reason in its "Load Failed" box.
+  the menu shows the reason in its "Load Failed" box. `load_z88dk_map()` and `load_simple_map()` refuse
+  such a file with the table untouched and say why through their optional `why` argument; a file that
+  merely fails to open leaves the table empty (row `Z88MAP-27`).
 - **Emit only qualified ranges.** Every `SourceRange` carries a `FetchSource`
   ([7.1](01-which-memory.md)); the adapter decides it, and `SourceMap` never
   invents one.

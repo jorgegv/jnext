@@ -116,7 +116,7 @@ generation is the newest one), and the stores are judged by **identity**
   (`SRCLIFE-18`).
 
 Back and Reverse Continue count a trace entry only if it belongs to the current
-generation: `Impl::trace_gens` holds `(first trace sequence number, generation)`
+generation (`TraceLog::recorded()` plus the markers): `Impl::trace_gens` holds `(first trace sequence number, generation)`
 markers, kept in step with the trace's retained window
 (`note_generation()`, `generation_of_seq()`) and cleared when a cold boot makes a
 new `TraceLog`.

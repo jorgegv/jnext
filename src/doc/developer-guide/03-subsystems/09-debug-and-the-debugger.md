@@ -183,7 +183,10 @@ bits behind it.
 The source-level half of this backend (the source map, the symbol table, the
 adapters for sjasmplus, z88dk and NextBuild files, source-line breakpoints and
 steps, and the lifetime rules) has its own chapter:
-[7. Source-level debugging](../07-source-level-debugging/index.md).
+[7. Source-level debugging](../07-source-level-debugging/index.md). The verbs of
+that half are listed in [3.9.1](09-1-the-backend-api.md) (CAP-SYM, CAP-SRC) and
+the mechanism behind each is in chapter 7; the Qt Source tab is
+[7.7](../07-source-level-debugging/07-frontends.md).
 
 The design that produced all of this is `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`,
 with one document per frontend in `doc/design/debug-subsystem/`. The design

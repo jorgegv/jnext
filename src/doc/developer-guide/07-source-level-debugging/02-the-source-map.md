@@ -33,7 +33,7 @@ index of a range (in the vector given to `replace()`) it resolves through.
 
 ## `replace()`: one transaction
 
-`SourceMap::replace(ranges, aliases, identity, loaded_file, format, texts)`
+`SourceMap::replace(ranges, aliases, identity, loaded_file, format, texts, dot)`
 builds a complete new map and move-assigns it over `*this` as its last step, so
 an observer never sees a half-built store. The order of `ranges` is *emission
 order* and matters: it is the tie-break below.
@@ -53,8 +53,12 @@ order* and matters: it is the tie-break below.
    tie, the one *emitted later* first (`primary_first`). The first is the
    segment's primary location.
 
+`loaded_file` is the adapter's absolute, lexically normalised path (`sld_loader.cpp:327-328`,
+`z88dk_source_map.cpp:588`), which is also where the search for a source file starts ([7.7](07-frontends.md)).
 `identity`, `loaded_file`, `format` (`"SLD"` or `"z88dk"`; `clear()` resets it to
-`"SLD"`) and `texts` are stored as given. Every `const SourceLocation*` the class
+`"SLD"`), `texts` and `dot` (`SourceMap::dot()`, GH #351: the map is a z88dk dot command's, so
+the backend never judges it from memory at a load, [7.6](06-lifetime.md); `clear()` resets it)
+are stored as given. Every `const SourceLocation*` the class
 returns points into `locations_` and is valid until the next `replace()` or
 `clear()`; code that keeps a location copies it. The backend does so before it
 calls anything that might load a map.

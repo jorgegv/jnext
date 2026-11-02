@@ -230,7 +230,7 @@ distinct. `Floating` and `Cpu` are never recorded.
 This is a store, not a file format: nothing reads or writes a coverage file, and
 no DZRP, ZRCP, GDB or DSL verb exposes it. Its readers are the Qt Disassembly and
 Memory panels (`disasm_panel.cpp`, `memory_panel.cpp`), the Source tab, and
-`--coverage` (`platform/coverage_startup.h`), which switches it on at startup and
+`--coverage` (`EmulatorConfig::coverage`, applied by the three loop owners through `apply_startup_coverage()`, `platform/coverage_startup.h`), which switches it on at startup and
 logs a summary at exit. The separate logical-PC set of the
 INS-20 `coverage` verbs is described with the trace in
 [3.9.1](../03-subsystems/09-1-the-backend-api.md).

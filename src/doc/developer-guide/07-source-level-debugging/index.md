@@ -51,12 +51,13 @@ meaningful for one of them.
 
 | Page | Answers |
 |---|---|
-| [7.1 Which memory supplied the instruction](01-which-memory.md) | What `MemSpace` and `FetchSource` mean, how the machine predicts and records the one that supplies a fetch, and how coverage is keyed by it |
+| [7.1 Which memory supplied the instruction](01-which-memory.md) | What `MemSpace` and `FetchSource` mean, how the machine predicts and records the one that supplies a fetch, how a space is spelled (the long address and its stable tags), and how coverage is keyed by it |
 | [7.2 The source map](02-the-source-map.md) | The range store: the primary location, `lookup_all()`, `resolve()`, aliases, embedded texts, and the program identity |
 | [7.3 Loading](03-loaders.md) | The adapter contract, content dispatch, the sidecar search, and who owns what |
 | [7.4 File formats and records](04-formats.md) | One page per input: sjasmplus SLD and `--sym`/`--exp`, the z88dk map and listings, `Memory.txt`; each with the producer's code, the grammar, the rules and a real excerpt |
 | [7.5 Breakpoints, steps, history and call frames](05-breakpoints-steps-history.md) | Source-line breakpoints, `source_step()`, Back and Reverse Continue, and the call stack they lean on |
-| [7.6 Lifetime](06-lifetime.md) | What happens to the stores on a reset, a snapshot, a rewind, an RZX or a tape load |
+| [7.6 Lifetime](06-lifetime.md) | What happens to the stores on a reset, a snapshot, a rewind, an RZX, a tape load or a dot command |
+| [7.7 The frontends](07-frontends.md) | Who reads the stores: the Qt Source tab in full (refresh, file search, highlighter and schemes, gutter, selection sync with the Disassembly), the long address in the views, and the GDB, ZRCP, DZRP, script and command-line surfaces |
 | [7.8 Tests, fixtures and adding a producer](08-tests-and-new-producers.md) | The suites, where the fixtures come from, and the checklist for supporting another toolchain |
 
 ## Where the code lives
@@ -64,23 +65,17 @@ meaningful for one of them.
 | Area | Files |
 |---|---|
 | Stores and adapters | `src/debug/source_map.*`, `sld_loader.*`, `z88dk_space.*`, `z88dk_source_map.*`, `z88dk_lis.*`, `symbol_table.*`, `source_file.*`, `source_search.*` |
-| Memory identity | `src/debug/mem_space.h`, `mem_coverage.*`; the arbiter in `src/memory/mmu.h`; `Emulator::predict_fetch()` in `src/core/emulator.cpp` |
+| Memory identity | `src/debug/mem_space.h`, `long_address.*`, `mem_coverage.*`; the arbiter in `src/memory/mmu.h`; `Emulator::predict_fetch()` in `src/core/emulator.cpp` |
 | The backend's side | `src/debug/debugger_source.cpp` (stores, sidecars, lifetime, `source_step()`), `debugger_impl.h`, `debugger_events.cpp` and `debugger_control.cpp` (line breakpoints, run to line), `debugger_inspect.cpp` (coverage), `trace.*`, `call_stack.*` |
 | The loop owners' side | `src/platform/emulator_boot.h` (`--source-map`), and the three `load_program_sidecars()` callers in `headless_app.cpp`, `sdl_app.cpp` and `gui/qt_app.cpp` |
-| The Qt frontend | `src/debugger/source_panel.*`, `breakpoint_model.*`, `debugger_manager.*` |
+| The Qt frontend | `src/debugger/source_panel.*`, `source_highlighter.*`, `breakpoint_model.*`, `debugger_manager.*`, `memory_text.h` |
 
 ## Who reads the stores today
 
-The frontends are described on their own pages; this is only the map from a
-frontend to the part of the chapter it depends on.
-
-| Frontend | Source surface | Page |
-|---|---|---|
-| Qt debugger | The Source tab, the Breakpoints rows, Call Stack, Disassembly names, the Map menu | [3.10.2](../03-subsystems/10-2-the-qt-debugger.md) |
-| GDB RSP | `monitor src`, `monitor sym` | [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md) |
-| ZRCP | `smartload` reaches `Debugger::load()`, and so the sidecars | [3.10.5](../03-subsystems/12-the-zrcp-server.md) |
-| DZRP | None: no `source_*` call in `src/remote/dzrp`. DeZog reads the SLD or map itself and names a breakpoint's memory with the legacy `bank+1` qualifier ([7.1](01-which-memory.md)) | [3.10.3](../03-subsystems/10-the-dzrp-server.md) |
-| Scripts | `on execute FILE:LINE`, `--map` | [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md) |
+[7.7](07-frontends.md) is the map from a frontend to the part of the chapter it depends on, with the
+Qt Source tab described in full. In short: the Qt debugger draws the source; GDB prints it
+(`monitor src`); ZRCP's `smartload` reaches the sidecars; scripts subscribe to `FILE:LINE`; the loop
+owners attach `--source-map`; DZRP has no source surface at all (DeZog reads the SLD or map itself).
 
 The facade verbs themselves (`load_map()`, `source_map()`, `source_location()`,
 `source_step()`, `subscribe_source_line()`) are listed in
