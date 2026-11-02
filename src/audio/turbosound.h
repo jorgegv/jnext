@@ -96,16 +96,6 @@ public:
     /// Access individual AY chip (for debugging).
     const AyChip& ay(int idx) const { return ay_[idx]; }
 
-    /// Force the next tick() to recompute every chip output and the stereo
-    /// mix from their inputs (GH #440). Test seam: ay_cache_test runs the
-    /// "always recompute" reference beside the cached path with it. Nothing in
-    /// the emulator calls it, so a mutation of an emulator-side dirty flag
-    /// cannot change the reference.
-    void invalidate_outputs() {
-        for (auto& a : ay_) a.mark_dirty();
-        mix_dirty_ = true;
-    }
-
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
