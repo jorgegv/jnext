@@ -380,7 +380,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
 | z88dk | DONE (E23-13 (#344), stages 1 to 3; the `--list` listings E23-17 (#348)): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs attach at once and are judged per space where the CPU first runs them (6.2, stage 3) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | DONE (E23-23 (#375) stages 1 to 3): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages (stage 3): `z88dk_section_space()` places each symbol, rule-4 symbols are bound by `SymbolTable::bind()` | 10 | E23-23 (#375); EQU files: #390 |
-| User labels and comments | none | 10 | E23-24 (#387) |
+| User labels and comments | DONE (E23-24 (#387)): `UserAnnotations` (`debug/user_annotations.h`), the `.jdp` adapter (`debug/annotations_file.h`), the CAP-ANN verbs and the composed reader (`Impl::names`, 10.2, 10.3), `--annotations`; in Qt, one menu builder for the Disassembly and the Source tab (`debugger/annotation_menu.h`), the Disassembly's Label column and comment, Map > Open / Save / Save As Annotations and the unsaved-changes question | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); syntax highlighting done in E23-29 (#422); the amber current-line wedge and the "also:" list done in E23-16 (#347) stage 1; selection sync both ways, browsing, Show in Source and Go to PC Line done in E23-16 (#347) stage 2 | 8.2 | E23-16 (#347) |
@@ -1468,6 +1468,23 @@ does); a consumer that cannot gets the 16-bit address (4.6's rule). The verbs' s
 UI, and the rule for a name already used at another key are E23-24's. After both layers, the
 toolchain layer's by-name read also answers to the C name of a z88dk C symbol (10.6).
 
+As built (#387): the reader is a composed `SymbolTable` (`Impl::names`), rebuilt by
+`recompose_names()` after every change of either layer: the user labels are added first and the
+toolchain table `merge()`d after them, so `merge()`'s first-wins is exactly the order above and
+the C-name rule of 10.6 applies inside it unchanged. `Debugger::symbols()`, `lookup()` and
+`lookup_name()` return it; `toolchain_symbols()` is the loaded layer alone (the Load MAP messages
+count that). The attachment cache holds the toolchain layer, never the composition. The verbs are
+`set_user_label()`, `remove_user_label()`, `set_user_comment()`, `annotations()`,
+`annotations_revision()`, `load_annotations()`, `save_annotations()`, `replace_annotations()`; a
+refused argument is `Unsupported`, nothing to remove or an unreadable or unwritable file
+`RefusedUnavailable`, each with a reason. The rule for a name already used: unique within the user
+layer; `set_user_label()` also refuses a name the toolchain gives another address or another paged
+memory (the same address is allowed: it pins an unpaged name to its page); a project file and a
+toolchain loaded later are not refused, and the user layer then wins by name. A label name is the
+grammar of the DSL's `@name`: `[A-Za-z_][A-Za-z0-9_]*` parts joined by single dots. A store key is a memory the project file can name (`parse_space_tag(space_tag(s)) == s`), so Save never writes a file Load refuses. A comment is
+UTF-8 text, CRLF and lone CR turned into LF, empty text removes it. The verbs touch no machine
+state (allowed while running) and each success bumps `state_revision()` (GH #428).
+
 ### 10.4 Page rules per adapter
 
 - **SLD `L`** (E23-23): `page >= 0` gives (`Page{page}`, `value & 0xFFFF`). `page = -1` gives
@@ -1508,6 +1525,18 @@ toolchain layer's by-name read also answers to the C name of a z88dk C symbol (1
   line, and only then is the user layer replaced. An unknown record kind or version is refused.
 - Opened and saved by the user (a menu action); never attached automatically beside a program;
   not part of `.jns`.
+
+As built (#387): the memory field is read case-insensitively by `parse_space_tag()` and written by
+`space_tag()` (4.6); `CPU` is refused (a user entry is always paged), and an entry at an address its
+memory cannot supply (`ROM0 $5000`) is legal and never shows. The address is `$` and four hex digits,
+either case on reading. A UTF-8 BOM, CRLF, `#` lines and blank or tab-only lines are accepted; a
+Save writes none of the `#` lines back. The sort order is the memory kind's enumerator order (`Page`,
+`Rom`, `BootRom`, ... `DivMmcRam`, ...), then the index, then the address, the label record before the
+comment record of a key. A file is validated whole into a scratch store: an error is `line N:
+reason` (an unknown version reads `version N: this jnext reads version 1`), and only a clean file
+replaces the user layer. The 64 MB cap and the regular-file test are those of `source_file_problem()`.
+`--annotations FILE` loads one in `ScriptHost::start()` after `--map` and before the scripts; a file
+that is refused is a startup error (exit 1). Save writes `PATH.part` and renames it over `PATH`.
 
 ### 10.6 C names (E23-31, #424)
 
@@ -1740,6 +1769,15 @@ source breakpoint and the steps inside the command, the same bytes in RAM and un
 judgement at the entry, a hand load, landings, dotx, a rewind), QDOT-01/02
 (`debugger_source_panel_test`) and the functional row `z88dk-dot-source-func` (real NextZXOS, the dot on the
 card with `--sdcard-file-add`, typed, in headless, SDL and Qt).
+
+E23-24 (#387) stage 2 added QANN-01 to QANN-13 (`debugger_panels_test`, `debugger_verbs_test`, `debugger_source_panel_test`: the Label column and comment, the copies unchanged, the Call Stack and Breakpoints names, the menus per place, the dialogs, a refused name, the Map menu, the unsaved-changes question), QG-ANN-01 to QG-ANN-03 (`debugger_quit_gate_test`, `quit_cleanup_test`: the quit question and its veto), SRCDBG-UANN-21 (a verb that changes nothing bumps neither revision) and QMAP-10; QSRC-119 now lists the three new entries of the Disassembly menu.
+
+E23-24 (#387) stage 1 added UANN-01 to UANN-13 and JDP-01 to JDP-09 (`source_map_test`: the store, the
+label grammar, the name rule, the file's bytes and every refusal), SRCDBG-UANN-01 to SRCDBG-UANN-20
+(`source_debug_test`: the two layers and the one reader by page, the name rule against the toolchain,
+the file through the backend, no lifetime across sidecars, hand loads, resets, state loads and ring
+landings, purity with its control, the state revision), GDB-ANN-01 (`gdb_rsp_test`), SCRIPT-ANN-01
+(`script_events_test`), CLI-ANN-01 (`cli_options_test`), QMAP-10 (`debugger_verbs_test`: the four Load MAP boxes count the loaded file only) and the functional row `annotations-func` (headless, Qt and SDL).
 
 E23-23 (#375) stage 3 added SYMPG-13 (`source_map_test`: `bind()`), Z88SYM-01 to Z88SYM-09
 (`z88dk_map_test`: the symbol loader's pages, the rule-4 bind, the Unpaged and Refused table, two

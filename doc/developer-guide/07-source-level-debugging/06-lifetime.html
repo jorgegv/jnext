@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2387,6 +2387,8 @@
       
         
       
+        
+      
     
     
     
@@ -2582,6 +2584,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
   
 
     
@@ -2910,7 +2940,9 @@
 a snapshot, a state load, a rewind or the arrival of a tape's program, they may
 describe a program that is no longer there. This page is the set of rules that
 decides, for each store and each kind of replacement, between <em>keep</em>, <em>drop</em> and
-<em>stale</em>. All the rules run in one place, <code>Impl::recheck()</code>
+<em>stale</em>. (The user's labels and comments are not among the stores that follow
+these rules: that store is kept across every replacement, <a href="04-6-user-annotations.html">7.4.6</a>.)
+All the rules run in one place, <code>Impl::recheck()</code>
 (<code>src/debug/debugger_source.cpp</code>).</p>
 <p><img alt="What happens to an attachment when the machine is replaced" src="../img/srcdbg-lifetime.svg" /></p>
 <p><em>A landing only marks the new generation. <code>recheck()</code> judges it, run first by
@@ -2963,7 +2995,7 @@ attachment of that generation:</p>
 <li>The record comes from the <strong>attachment cache</strong>, <code>Impl::attach_cache</code>: one
   <code>Attachment</code> per generation, holding the sidecar <code>SourceMap</code> and <code>SymbolTable</code>
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>debugger_impl.h:188</code>); when
+  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>debugger_impl.h:204</code>); when
   a fifth is added the oldest record is evicted. <code>cache_push_current()</code> erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.</li>
@@ -3035,9 +3067,9 @@ where the loader puts the bytes.</p>
   checks (<code>set_verify_window()</code>). While it is set the machine is armed (<code>verify_hold_</code>
   is an <code>armed()</code> contributor of its own, with <code>magic_hold_</code>, in <code>refresh_gates_()</code> and
   <code>SuspendScope</code>). The emulator asks <code>verify_window_hit(pc)</code>, two compares, first in
-  <code>run_frame()</code>'s armed block (<code>emulator.cpp:10041</code>), before <code>consume_step_off()</code>, the
+  <code>run_frame()</code>'s armed block (<code>emulator.cpp:10058</code>), before <code>consume_step_off()</code>, the
   legacy breakpoint test and the execute gate, and in <code>step_frame_slot()</code> for a debugger
-  Step (<code>:11464</code>).</li>
+  Step (<code>:11481</code>).</li>
 <li><strong>The verdict is recorded, not applied.</strong> On a hit, <code>Impl::verify_hook(pc)</code> takes
   <code>predict_fetch(pc)</code>, finds the spans of each check that contain <code>pc</code> in <em>that exact
   memory</em>, judges each unit now with <code>verify_identity_unit()</code> (through
@@ -3072,7 +3104,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 (<code>source_map.h:179</code>) is set by the z88dk adapter (<a href="04-3-z88dk-map.html">7.4.3</a>, rule 5).</p>
 <ul>
 <li><strong>Always deferred.</strong> <code>load_source_map()</code> defers a dot map whatever <code>verify_at_first_execution</code> says
-  (<code>debugger_source.cpp:496</code>), when it has any byte check. <code>add_check()</code> marks the check <code>dot</code> only if
+  (<code>debugger_source.cpp:497</code>), when it has any byte check. <code>add_check()</code> marks the check <code>dot</code> only if
   one of its units is the DivMMC bank, <code>dot_entry_unit()</code> = <code>DivmmcRam{kNextZxosDotBank}</code> (bank 2,
   <code>z88dk_space.h:46</code>); a dot map with no byte check of the DivMMC part has no entry to judge and takes the
   tape rule (<code>add_check()</code>, <code>:161-176</code>).</li>
@@ -3098,21 +3130,21 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>The history.</strong> <code>dot_record()</code> (<code>:213</code>) appends a snapshot <code>{generation, cycle, entry_ok, units,
   spans, held}</code> to <code>DeferredCheck::history</code> at every judgement and every change of the check, replacing
   the records of the same generation from that cycle on (a re-run replaces what the first run recorded
-  from there), and keeping at most <code>kDotHistoryMax</code> = 256 (<code>debugger_impl.h:151</code>; the oldest go, and
+  from there), and keeping at most <code>kDotHistoryMax</code> = 256 (<code>debugger_impl.h:167</code>; the oldest go, and
   a landing older than the oldest reads pending). <code>dot_landing(false)</code> picks the last record of the
   landed generation strictly <em>before</em> the landed cycle (a verdict at cycle C applies to the instruction
   about to run at C, which a landing at C has not run); none means pending. Records of earlier generations
   are kept, so a rewind back across a reset reads them.</li>
-<li><strong>A hand load made while the command already runs.</strong> <code>load_source_map()</code> calls <code>dot_adopt()</code> (<code>:256</code>)
+<li><strong>A hand load made while the command already runs.</strong> <code>load_source_map()</code> calls <code>dot_adopt()</code> (<code>debugger_source.cpp:256</code>)
   for a dot map: if <code>predict_fetch(PC)</code> is the entry unit and the bank holds this command, it judges like
   a landing and is verified at once (<code>dot_match()</code>); the result is no longer pending and its note is the
-  ordinary identity note (<code>debugger_source.cpp:516-522</code>).</li>
+  ordinary identity note (<code>debugger_source.cpp:517-523</code>).</li>
 <li><strong>RZX.</strong> An RZX playback start is a landing like any other (<a href="#tier-2-any-other-landing">above</a>), and
   <code>--source-map</code> with a replay accepts only a dot map (<a href="03-loaders.html">7.3</a>): the map attaches pending
   at start-up and the verify hook does not distinguish a replayed session from a live one
-  (<code>replay_mode()</code> is the rewind replay's flag, <code>emulator.cpp:14110</code>, not RZX's). What the row
+  (<code>replay_mode()</code> is the rewind replay's flag, <code>emulator.cpp:14127</code>, not RZX's). What the row
   <code>z88dk-dot-source-rzx-func</code> pins is the attach and the refusal, not a verdict reached during playback.</li>
-<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1146</code>, set at <code>debugger_source.cpp:588</code>) tells the Source tab to word its pending note
+<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1143</code>, set at <code>debugger_source.cpp:591</code>) tells the Source tab to word its pending note
   <em>...when the dot command runs</em> (<a href="07-frontends.html">7.7</a>).</li>
 </ul>
 <h2 id="what-the-backend-cannot-see">What the backend cannot see<a class="headerlink" href="#what-the-backend-cannot-see" title="Permanent link">&para;</a></h2>

@@ -1171,6 +1171,26 @@ with status 1.
     saved list is edited under **Preferences \> Paths**, and **Locate
     File…** in the Source tab adds a directory.
 
+**--annotations** *FILE*
+:   Load a debugger annotations file (`.jdp`): the user’s labels and
+    comments, each keyed by a memory (the page or ROM that supplies the
+    address, written as the debugger shows it: `P0E`, `ROM1`, `DIVRAM2`)
+    and a 16-bit address. A user label is shown by the debugger views,
+    named by a script’s `@name` and by GDB `monitor sym`, over the
+    toolchain’s own symbols, and only while its memory supplies the
+    address. The file is plain UTF-8 text: the line
+    `jnext-annotations 1`, then `label SPACE $ADDR NAME` and
+    `comment SPACE $ADDR TEXT` records (in TEXT `\\` is a backslash and
+    `\n` a line break); lines starting with `#` and blank lines are
+    ignored. It is loaded before the scripts, replaces nothing the
+    program or **--map** loaded, and is kept across resets, state loads
+    and rewinds. In the Qt debugger the labels and comments are added
+    from the Disassembly and Source right-click menus, and **Map \> Open
+    Annotations…**, **Save Annotations** and **Save Annotations As…**
+    read and write the file (Save writes back to *FILE*). A file that
+    cannot be read, or does not parse (the message names the line), is a
+    startup error (exit status 1).
+
 **--export-skoolkit** *DIR*
 :   When jnext exits, write the debugger’s labels and the code/data map
     that **--coverage** recorded into *DIR* as skoolkit control files

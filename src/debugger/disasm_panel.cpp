@@ -4,6 +4,7 @@
 #include "debugger/source_sync_colors.h"   // GH #347
 #include "debugger/breakpoint_model.h"
 #include "debugger/operand_menu.h"
+#include "debugger/annotation_menu.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -557,6 +558,9 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     painter.drawText(2, header_y, "BP");
     painter.drawText(GUTTER_WIDTH + 4, header_y, "Addr");
     painter.drawText(GUTTER_WIDTH + 4 + ADDR_WIDTH, header_y, "Mem");   // GH #360
+    const bool label_col = label_column_shown();   // GH #387
+    if (label_col)
+        painter.drawText(GUTTER_WIDTH + 4 + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH, header_y, "Label");
     painter.setFont(mono_font_);
 
     // Draw gutter separator
@@ -653,8 +657,15 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         }
         painter.drawText(x, text_y, bytes_str);
 
-        // Mnemonic column — with optional symbol resolution
+        // GH #387 - the Label column: the name of this line's own address in its own memory.
         x += BYTES_WIDTH;
+        if (label_col) {
+            painter.setPen(palette_tint::ink(palette(), QColor(0x20, 0x70, 0x20)));
+            painter.drawText(x, text_y, line_label(i));
+            x += label_width();
+        }
+
+        // Mnemonic column — with optional symbol resolution
         if (entry.is_current_pc) {
             QFont bold = mono_font_;
             bold.setBold(true);
@@ -669,6 +680,13 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         const QString mnemonic_str = QString::fromStdString(
             disasm_text::apply_symbols(entry.line.mnemonic, namer()));
         painter.drawText(x, text_y, mnemonic_str);
+
+        // GH #387 - the user's comment after the mnemonic, in muted ink.
+        const QString comment = line_comment(i);
+        if (!comment.isEmpty()) {
+            painter.setPen(palette_tint::ink(palette(), QColor(0x60, 0x80, 0x60)));
+            painter.drawText(x + fm.horizontalAdvance(mnemonic_str) + 12, text_y, comment);
+        }
 
         if (entry.is_current_pc) {
             painter.setFont(mono_font_);
@@ -960,6 +978,11 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         connect(show_src, &QAction::triggered, this, [this, addr]() { emit show_source_requested(addr); });
     }
 
+    // GH #387 - the user's labels and comments on the line's own address, in its own memory.
+    if (annot_)
+        add_annotation_actions(menu, this, *annot_, {{addr, entries_[line].space, QString()}},
+                               [this]() { emit annotations_changed(); update(); });
+
     // --- The operands of the line: watch and data breakpoint entries ---
     // One builder for this view and the Source tab (GH #423), so the two cannot
     // differ in words or order.
@@ -985,6 +1008,38 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     add_operand_actions(menu, this, ops, watch_panel_, bp_model_.data());
 
     menu.exec(event->globalPos());
+}
+
+bool DisasmPanel::label_column_shown() const { return symbol_table_ && !symbol_table_->empty(); }
+
+int DisasmPanel::label_width() const
+{
+    return QFontMetrics(mono_font_).horizontalAdvance(QLatin1Char('0')) * LABEL_CHARS + 8;
+}
+
+int DisasmPanel::mnemonic_x() const
+{
+    return GUTTER_WIDTH + 4 + ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH + (label_column_shown() ? label_width() : 0);
+}
+
+QString DisasmPanel::line_label(int line) const
+{
+    if (!symbol_table_ || line < 0 || line >= static_cast<int>(entries_.size())) return QString();
+    const auto name = symbol_table_->lookup(entries_[line].space, entries_[line].line.addr);
+    if (!name) return QString();
+    QString t = QString::fromStdString(*name);
+    if (t.size() > LABEL_CHARS) t = t.left(LABEL_CHARS - 3) + QStringLiteral("...");
+    return t;
+}
+
+QString DisasmPanel::line_comment(int line) const
+{
+    if (!dbg_ || line < 0 || line >= static_cast<int>(entries_.size())) return QString();
+    const auto* a = dbg_->annotations().find(entries_[line].space, entries_[line].line.addr);
+    if (!a || a->comment.empty()) return QString();
+    const QString c = QString::fromStdString(a->comment);
+    const int nl = c.indexOf(QLatin1Char('\n'));
+    return QStringLiteral("; ") + (nl < 0 ? c : c.left(nl) + QStringLiteral(" ..."));
 }
 
 uint16_t DisasmPanel::extract_immediate16(const char* mnemonic)

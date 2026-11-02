@@ -284,7 +284,7 @@ add_test(NAME uart_integration_tests COMMAND uart_integration_test)
 # unchanged; the scaffolding is shared
 # through uart/uart_integration_includes.h + uart_integration_helpers.h.
 if(NOT WIN32)
-    add_executable(uart_posix_test uart/uart_posix_test.cpp)
+    add_executable(uart_posix_test uart/uart_posix_test.cpp uart/audio_log_capture.cpp)
     target_link_libraries(uart_posix_test PRIVATE
         jnext_core jnext_cpu jnext_memory jnext_video
         jnext_audio jnext_port jnext_peripheral jnext_input

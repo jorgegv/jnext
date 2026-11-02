@@ -96,10 +96,10 @@ reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
-**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:831`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `debugger_manager.h:344`: ~4 Hz). Paused, it
+**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:913`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `debugger_manager.h:361`: ~4 Hz). Paused, it
 redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `:820`; `PausedStamp`,
-`debugger_manager.h:219`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+`debugger_manager.h:236`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:
 
@@ -119,7 +119,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
   and Kempston mouse capture must not redraw a paused window;
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
-  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:550`), so an edit on disk still shows.
+  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`), so an edit on disk still shows.
 
 `refresh_window()` (`:811`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
@@ -272,6 +272,14 @@ any other client loads shows in the panels too. What each loader reads is
   target names are computed in the panels' own `refresh()`, so a load that skipped it left the previous names
   on a paused machine (rows `QMAP-05` and `QMAP-06`). A file refused rather than unreadable has the
   backend's reason appended to the failure box (`on_load_map_z88dk()`, `on_load_map_simple()`, rows `QMAP-07`).
+
+## Labels and comments of your own (GH #387)
+
+The Disassembly and the Source tab share one menu builder, `add_annotation_actions()`
+(`src/debugger/annotation_menu.cpp:77`), for Add / Rename Label…, Remove Label and Add / Edit Comment…;
+`DisasmPanel` draws a **Label** column and the first line of a comment, and **Map ▸ Open / Save / Save As
+Annotations** and the quit question about unsaved changes are `DebuggerManager`'s. The mechanism and its rows
+are [7.4.6](../07-source-level-debugging/04-6-user-annotations.md), section 10.
 
 ## Source
 

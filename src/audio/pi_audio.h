@@ -31,6 +31,15 @@
 /// overflowed while nothing consumed (a pause longer than the ring), the next
 /// pop flushes it and playback restarts on fresh audio.
 ///
+/// TAPE MODE (`set_tape_mode`, on while NR 0xA2 sends the Pi's audio to EAR):
+/// a tape loader times every edge, so the trims and refills above, harmless in
+/// music, break a load. In tape mode the ring is held at `kTapeTarget` (250 ms,
+/// several of QEMU's bursts) instead: it prebuffers that much, and drift is
+/// corrected by skipping or repeating ONE frame (22.7 us) at most every
+/// `kTapeAdjustEvery` pops while the level is more than `kTapeBand` off the
+/// target, which no loader notices. Only past `kTapeMaxLatency` does it trim.
+/// Latency does not matter while loading; outside tape mode it stays as above.
+///
 /// Single producer (the thread), single consumer (the emulator thread).
 ///
 /// The pipe is a FIFO on POSIX and a named pipe jnext serves on Windows
@@ -43,6 +52,10 @@ public:
     static constexpr uint32_t kPrebuffer   = 2205;       ///< 50 ms before (re)starting
     static constexpr uint32_t kTarget      = 4410;       ///< 100 ms after a trim
     static constexpr uint32_t kMaxLatency  = 13230;      ///< 300 ms: trim beyond this
+    static constexpr uint32_t kTapeTarget      = 11025;  ///< tape mode: 250 ms prebuffer and level held
+    static constexpr uint32_t kTapeBand        = 3308;   ///< tape mode: +-75 ms left alone (1.5 of QEMU's ~50 ms bursts)
+    static constexpr uint32_t kTapeAdjustEvery = 500;    ///< tape mode: at most one skip/repeat per this many pops (0.2%)
+    static constexpr uint32_t kTapeMaxLatency  = 44100;  ///< tape mode: 1 s, trim to kTapeTarget beyond this
 
     PiAudio() = default;
     ~PiAudio();
@@ -63,6 +76,12 @@ public:
     /// an underrun). Called once per mixer output sample.
     bool pop(int16_t& left, int16_t& right);
 
+    /// Consumer: switch tape mode (see the class comment). Entering it while
+    /// playing prebuffers again to `kTapeTarget`; leaving it trims a backlog
+    /// past `kTarget` back to `kTarget`. Idempotent; cheap enough to call per pop.
+    void set_tape_mode(bool on);
+    bool tape_mode() const { return tape_mode_; }
+
     /// A signed 16-bit PCM sample as the Pi's 10-bit I2S input: offset binary,
     /// 0x200 = silence (i2s.vhd:177-180 inverts the sign bit). Pure.
     static uint16_t to_i2s(int16_t sample);
@@ -70,6 +89,8 @@ public:
     uint64_t frames_received() const { return received_.load(); }  ///< read from QEMU
     uint64_t frames_dropped()  const { return dropped_.load(); }    ///< ring full, or trimmed
     uint64_t underruns()       const { return underruns_.load(); }  ///< ran dry while playing
+    uint64_t frames_skipped()  const { return skipped_.load(); }    ///< tape mode: single frames skipped (drift)
+    uint64_t frames_repeated() const { return repeated_.load(); }   ///< tape mode: single frames repeated (drift)
     /// Reads that found no writer (QEMU not started yet, or gone). Each came
     /// after a poll() that either timed out (20 ms) or, on Linux for a gone
     /// writer, returned at once and was followed by a 20 ms pause, so this
@@ -113,9 +134,13 @@ private:
     std::atomic<uint32_t>   head_{0};   ///< producer: frames written (mod 2^32)
     std::atomic<uint32_t>   tail_{0};   ///< consumer: frames read
     bool                    playing_ = false;   ///< consumer-side only
+    bool                    tape_mode_ = false; ///< consumer-side only
+    uint32_t                since_adjust_ = 0;  ///< consumer-side: pops since the last skip/repeat
     std::atomic<uint64_t>   received_{0};
     std::atomic<uint64_t>   dropped_{0};
     std::atomic<uint64_t>   underruns_{0};
+    std::atomic<uint64_t>   skipped_{0};
+    std::atomic<uint64_t>   repeated_{0};
     std::atomic<uint64_t>   eof_reads_{0};
     std::atomic<uint64_t>   no_writer_pauses_{0};
     std::atomic<uint64_t>   idle_reads_{0};

@@ -290,6 +290,27 @@ How the table is keyed, bound and merged, and what each format puts in it, is
 placement rules and C names are [7.4.3](../07-source-level-debugging/04-3-z88dk-map.md); the three
 other loaders are 7.4.1, 7.4.2 and 7.4.5.
 
+### User labels and comments — CAP-ANN
+
+A second layer beside the toolchain's symbols: the user's labels and comments (GH #387), keyed by memory and
+address. `symbols()`, `lookup()` and `lookup_name()` return the composition of the two layers, the user's first,
+so no consumer merges them. The store has no lifetime: loads, resets, state loads and rewinds leave it alone, and
+it is not in `.jns`.
+
+| Verb | Does |
+|---|---|
+| `set_user_label(space, addr, name, why)` | names `addr` in `space` (a rename when the key has a label); `Unsupported` with `why` for the Cpu space, a memory the file cannot name, a bad name, a name in use, or a name the loaded symbols give another address or memory |
+| `remove_user_label(space, addr)` | removes the user's label; `RefusedUnavailable` when there is none (the toolchain's is untouched) |
+| `set_user_comment(space, addr, text, why)` | sets the comment; empty text removes it; CRLF and CR become LF; `Unsupported` for the Cpu space, a memory the file cannot name, or text that is not UTF-8 |
+| `annotations()`, `annotations_revision()` | the store, and a counter that rises with each successful change |
+| `load_annotations(path, why)`, `save_annotations(path, why)` | the `.jdp` file: a load replaces the whole store or leaves it as it was (`Unsupported`, `line N: ...`; `RefusedUnavailable` for a file that cannot be read); a save writes `PATH.part` and renames it, and is `RefusedUnavailable` when it cannot write |
+| `replace_annotations(a)` | replaces the whole store (what an import builds offline) |
+| `toolchain_symbols()` | the loaded layer alone (the Load MAP messages count this) |
+
+The verbs touch no machine state (allowed while running) and each success bumps `state_revision()`. The file,
+the composed reader, where it is recomposed and why the attachment cache holds the toolchain layer only are
+[7.4.6](../07-source-level-debugging/04-6-user-annotations.md).
+
 ### Source maps — CAP-SRC
 
 The backend also owns one `SourceMap` (`src/debug/source_map.*`), keyed by the `FetchSource` that

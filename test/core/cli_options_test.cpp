@@ -1015,6 +1015,7 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-COV-01", "--coverage reaches the loop owner",
                  "jnext binary not built at " + bin);
+            skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
             skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
                  "jnext binary not built at " + bin);
         } else if (!have_timeout) {
@@ -1060,6 +1061,7 @@ int main() {
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-COV-01", "--coverage reaches the loop owner",
                  "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
             skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
@@ -1644,6 +1646,40 @@ int main() {
                       arity && rc == 0 && logs && files && rc_bad != 0 && names_it && rc_bad_g != 0 && names_g,
                       std::string("rc=") + std::to_string(rc) + " logs=" + (logs ? "1" : "0") + " files=" +
                           (files ? "1" : "0") + " rc_bad=" + std::to_string(rc_bad) + " names=" + (names_it ? "1" : "0") + " rc_bad_g=" + std::to_string(rc_bad_g) + " names_g=" + (names_g ? "1" : "0"));
+            }
+
+            // CLI-ANN-01: --annotations FILE loads a project file before the first frame (GH #387):
+            // it logs its counts; a file that does not parse exits 1 naming the line; absent, nothing.
+            {
+                const std::string good = bin + tag + ".good.jdp", bad_file = bin + tag + ".bad.jdp";
+                { std::ofstream f(good, std::ios::binary);
+                  f << "jnext-annotations 1\nlabel P04 $8000 Start\nlabel P1E $8000 Other\n"
+                       "comment P04 $8000 Entry\\npoint\n"; }
+                { std::ofstream f(bad_file, std::ios::binary);
+                  f << "jnext-annotations 1\nlabel P04 $8000 Start\nlabel P04 $8001 !\n"; }
+                const auto go = [&](const std::string& flags) {
+                    std::remove(out_path.c_str());
+                    std::remove(err_path.c_str());
+                    const int rc = jtp::run_bounded(bin, "--headless --machine 48k" + sd_arg + " " + flags +
+                                                         " --delayed-automatic-exit-frames 1", out_path, err_path);
+                    return std::make_pair(rc, slurp(out_path) + slurp(err_path));
+                };
+                const auto ok = go("--annotations \"" + good + "\"");
+                const auto bad = go("--annotations \"" + bad_file + "\"");
+                const auto none = go("");
+                const auto opt = cli::find("--annotations");
+                check("CLI-ANN-01", "--annotations FILE takes one value, loads the project file (logging its labels "
+                                    "and comments) and exits 0; a file that does not parse exits non-zero naming the "
+                                    "line; without it nothing is loaded",
+                      opt && opt->arity == 1 && opt->id == cli::OptId::Annotations && ok.first == 0 &&
+                          ok.second.find(": 2 labels, 1 comment") != std::string::npos && bad.first != 0 &&
+                          bad.second.find("--annotations") != std::string::npos &&
+                          bad.second.find("line 3:") != std::string::npos &&
+                          none.second.find("--annotations") == std::string::npos,
+                      "rc " + std::to_string(ok.first) + "/" + std::to_string(bad.first) + " ok: " + ok.second.substr(0, 300) +
+                          " bad: " + bad.second.substr(0, 300));
+                std::remove(good.c_str());
+                std::remove(bad_file.c_str());
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

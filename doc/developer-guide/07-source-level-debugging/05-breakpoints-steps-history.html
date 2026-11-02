@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2387,6 +2387,8 @@
       
         
       
+        
+      
     
     
     
@@ -2582,6 +2584,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
   
 
     
@@ -3025,10 +3055,10 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
   <code>HALT</code> with interrupts disabled (<code>Warn</code>: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>debugger.h:1253</code>) since the start
+  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>debugger.h:1251</code>) since the start
   (<code>Warn</code>); then the delivery below.
 - <strong>The limit.</strong> After <code>SOURCE_STEP_LIMIT</code> instructions (1,000,000,
-  <code>debugger.h:1249</code>) the step ends with a <code>Warn</code>.
+  <code>debugger.h:1247</code>) the step ends with a <code>Warn</code>.
 - <strong>The delivery.</strong> <code>debugger_step()</code> delivers no <code>Execute</code> event, because <code>run_frame()</code>
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC <code>run_frame()</code>'s treatment itself, in its

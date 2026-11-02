@@ -285,6 +285,8 @@ struct EmulatorConfig {
     std::vector<std::string>                   script_files;
     std::vector<std::pair<uint32_t, int>>      script_keys;
     std::string                                map_file;
+    /// `--annotations`: a debugger annotations file (.jdp), loaded before the scripts (GH #387).
+    std::string                                annotations_file;
     /// `--source-map`: a source map to attach after the first `--load` (empty = none).
     std::string                                source_map_file;
     /// GH #351: 0 a program loads (--source-map follows it); 1 no --load; 2 an RZX replay.

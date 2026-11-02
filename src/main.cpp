@@ -350,6 +350,7 @@ int main(int argc, char* argv[]) {
     std::vector<std::pair<uint32_t, int>> script_keys;
     std::string                           map_file;
     std::string                           source_map_file;
+    std::string                           annotations_file;
     std::string                           record_script_file;   // GH #26 WP6
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
@@ -880,6 +881,9 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SourceMap:
                 source_map_file = v[0];
+                break;
+            case cli::OptId::Annotations:
+                annotations_file = v[0];
                 break;
             case cli::OptId::SourceDir: {
                 // ONE directory per occurrence, appended to the list --set may have
@@ -2177,6 +2181,7 @@ int main(int argc, char* argv[]) {
         cfg.script_keys  = script_keys;
         cfg.map_file     = map_file;
         cfg.source_map_file = source_map_file;
+        cfg.annotations_file = annotations_file;
         // GH #351: with no program to load (no --load, or an RZX replay: --rzx-play R or
         // --load R.rzx) only a z88dk dot command's map is accepted; the frontend attaches it
         // at start-up, pending, and refuses any other map.

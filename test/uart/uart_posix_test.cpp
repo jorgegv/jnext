@@ -98,6 +98,7 @@ std::string bytes_hex(const std::vector<uint8_t>& bytes) {
 } // namespace
 
 #include "uart_integration_helpers.h"
+#include "audio_log_capture.h"
 
 static void test_joy_uart_cable_posix() {
     set_group("JOY");
@@ -1639,6 +1640,107 @@ static void test_nextpi_audio() {
               "the warm-start recording boot gets no NextPi audio reader (one consumer of the "
               "Pi's sound; jnext-only, no VHDL counterpart)",
               b.pi_audio == nullptr && b.sd_card_image == "card.img", "");
+    }
+
+    // ── PI-65 — tape mode follows NR 0xA2: the emulator, popping the Pi's
+    // audio once per mixer sample, puts PiAudio in tape mode exactly while
+    // NR 0xA2 sends it to EAR (I2S enabled and b0), and out again when not.
+    // No stream is needed: the mode is set on every pop, data or not.
+    {
+        PiAudio audio;
+        EmulatorConfig cfg;
+        cfg.type                 = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        cfg.pi_audio             = &audio;
+        Emulator emu;
+        emu.init(cfg);
+        const bool start_off = !audio.tape_mode();
+        auto mode_after = [&](uint8_t a2) { mixer_levels(emu, a2, 1); return audio.tape_mode(); };
+        const bool on_c1  = mode_after(0xC1);
+        const bool off_01 = !mode_after(0x01);     // bit 0 without I2S enabled
+        const bool on_41  = mode_after(0x41);
+        const bool off_c0 = !mode_after(0xC0);     // enabled, bit 0 clear
+        check("PI-65",
+              "the emulator puts the Pi's audio in tape mode exactly while NR 0xA2 sends it to "
+              "EAR (I2S enabled and bit 0 set: 0xC1, 0x41 on; 0x01, 0xC0 off), re-evaluated as "
+              "it pops each mixer sample (zxnext.vhd:2361-2373; the buffering is jnext-only)",
+              start_off && on_c1 && off_01 && on_41 && off_c0,
+              fmt("start_off=%d on(0xC1)=%d off(0x01)=%d on(0x41)=%d off(0xC0)=%d", start_off ? 1 : 0,
+                  on_c1 ? 1 : 0, off_01 ? 1 : 0, on_41 ? 1 : 0, off_c0 ? 1 : 0));
+    }
+
+    // ── PI-66 — the tape-mode underrun warning: one line per underrun while
+    // NR 0xA2 sends the Pi's audio to EAR, none for an underrun outside it.
+    // An underrun is the ring running dry after a refill; the emulator logs it
+    // on the `audio` logger once (not on every silent pop that follows).
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path dir = fs::temp_directory_path() / ("jnext-pi66-" + std::to_string(::getpid()));
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        const std::string fifo = (dir / "pi.fifo").string();
+        PiAudio audio;
+        std::string open_err;
+        const bool opened = audio.open(fifo, open_err);
+        const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+        // Write `frames` stereo frames (a WAV header first the first time), wait until the reader has
+        // them, then run 30 frames of the mixer (26460 pops: more than 11025 + the repeats) so the
+        // ring plays out and runs dry.
+        bool header_sent = false, wrote = true;
+        auto drain = [&](Emulator& emu, uint8_t a2, int frames) {
+            std::string b;
+            if (!header_sent) {
+                b.assign("RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\x44\xac\0\0\x10\xb1\x02\0\x04\0\x10\0data\0\0\0\0", 44);
+                header_sent = true;
+            }
+            for (int i = 0; i < frames; ++i) { b.push_back(static_cast<char>(i)); b.push_back(static_cast<char>(i >> 8)); b.append(2, '\0'); }
+            wrote = wrote && w >= 0 && ::write(w, b.data(), b.size()) == static_cast<ssize_t>(b.size());
+            const uint32_t want = audio.available() + static_cast<uint32_t>(frames);
+            for (int i = 0; i < 300 && audio.available() < want; ++i) ::usleep(10000);
+            mixer_levels(emu, a2, 30);
+        };
+        auto count = [](const std::string& text) {
+            int n = 0;
+            for (std::size_t at = text.find("Pi audio stopped while sent to EAR"); at != std::string::npos;
+                 at = text.find("Pi audio stopped while sent to EAR", at + 1))
+                ++n;
+            return n;
+        };
+        EmulatorConfig cfg;
+        cfg.type                 = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        cfg.pi_audio             = &audio;
+        Emulator emu;
+        emu.init(cfg);
+        int tape1 = -1, tape2 = -1, music = -1;
+        uint64_t under_tape = 0, under_music = 0;
+        {
+            nxs::AudioLogCapture log;
+            drain(emu, 0xC1, 11025);                // tape mode: play out, run dry
+            tape1      = count(log.text());
+            under_tape = audio.underruns();
+            drain(emu, 0xC1, 11025);                // a second, separate underrun
+            tape2 = count(log.text());
+        }
+        {
+            nxs::AudioLogCapture log;
+            const uint64_t before = audio.underruns();
+            drain(emu, 0xC0, 4410);                 // music mode: 2205 prebuffer, run dry
+            under_music = audio.underruns() - before;
+            music       = count(log.text());
+        }
+        if (w >= 0) ::close(w);
+        fs::remove_all(dir, ec);
+        check("PI-66",
+              "in tape mode (NR 0xA2 sends the Pi's audio to EAR) each Pi audio underrun logs "
+              "exactly one warning, not one per silent pop after it; an underrun outside tape "
+              "mode logs none (jnext-only warning; zxnext.vhd:2361-2373 for the EAR route)",
+              opened && wrote && tape1 == 1 && under_tape == 1 && tape2 == 2 && under_music >= 1 && music == 0,
+              fmt("opened=%d wrote=%d tape underruns=%llu warnings after the first=%d (want 1) after the second=%d "
+                  "(want 2); music underruns=%llu warnings=%d (want 0)",
+                  opened ? 1 : 0, wrote ? 1 : 0, static_cast<unsigned long long>(under_tape), tape1, tape2,
+                  static_cast<unsigned long long>(under_music), music));
     }
 
     // ── PI-51 — the audio FIFO cannot be made: start() fails with PiAudio's

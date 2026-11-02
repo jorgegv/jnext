@@ -1,6 +1,6 @@
 # 7.4 File formats and records
 
-Five inputs feed the stores. Each gets a page, laid out the same way so that a
+Six inputs feed the stores. Each gets a page, laid out the same way so that a
 reader can compare formats and a maintainer adding one ([7.8](08-tests-and-new-producers.md))
 knows what to write.
 
@@ -11,6 +11,7 @@ knows what to write.
 | [7.4.3 The z88dk map](04-3-z88dk-map.md) | `<stem>.map`, with `-debug` line records | z88dk (`z80asm`) | labels and source map, identity from section binaries |
 | [7.4.4 z88dk listings](04-4-z88dk-listings.md) | `<file>.lis` | z88dk (`z80asm --list`) | source map (replaces a module's map records), embedded texts |
 | [7.4.5 NextBuild `Memory.txt`](04-5-nextbuild-memory-txt.md) | `8000: ._Main` lines | Boriel ZX Basic `zxbc -M`, via NextBuild | labels |
+| [7.4.6 The annotations file](04-6-user-annotations.md) | `.jdp`: `label` and `comment` records | the user, in JNEXT | the user's labels and comments (a third store) |
 
 The reverse direction, the skoolkit control files and Ghidra symbol files jnext writes, is
 [7.4.7](04-7-skoolkit-and-ghidra-exports.md).

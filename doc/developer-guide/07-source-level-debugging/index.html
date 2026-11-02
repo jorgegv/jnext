@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2387,6 +2387,8 @@
       
         
       
+        
+      
     
     
     
@@ -2602,6 +2604,34 @@
   
   
     <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
         
   
@@ -2775,7 +2805,7 @@
 instead of by address: a breakpoint set on a line, a step that moves a
 statement at a time, a Source tab that follows the program counter. JNEXT does
 this from files the toolchain already writes (an sjasmplus SLD, a z88dk map and
-its listings, a NextBuild <code>Memory.txt</code>). It reads them into two stores and
+its listings, a NextBuild <code>Memory.txt</code>). It reads them into two stores (and the user's own labels and comments into a third, 7.4.6) and
 answers every question about them from those stores plus one fact only the
 running machine knows: which memory supplies the instruction at an address
 right now.</p>
@@ -2798,7 +2828,9 @@ loaders of <code>symbol_table.*</code>.</p>
 tagged with the memory they came from (<a href="02-the-source-map.html">7.2</a>);
 <code>SymbolTable</code> (<code>symbol_table.*</code>) holds labels keyed by that memory and an
 address. Both are owned by <code>Debugger::Impl</code> and replaced only by a complete,
-successful load.</p>
+successful load. The user's own labels and comments (<code>UserAnnotations</code>,
+<code>user_annotations.*</code>) are a third store, beside the <code>SymbolTable</code> and winning over it, that no toolchain
+fills (<a href="04-6-user-annotations.html">7.4.6</a>).</p>
 <p><strong>Consumers</strong> ask a question and get an answer about the machine as it is now:
 the location of an address, the addresses of a line, the name of a label, the
 lines a run has executed. They go through the facade (<code>debug/debugger.h</code>);
@@ -2832,7 +2864,7 @@ meaningful for one of them.</p>
 </tr>
 <tr>
 <td><a href="04-formats.html">7.4 File formats and records</a></td>
-<td>One page per input: sjasmplus SLD and <code>--sym</code>/<code>--exp</code>, the z88dk map and listings, <code>Memory.txt</code>; each with the producer's code, the grammar, the rules and a real excerpt</td>
+<td>One page per input: sjasmplus SLD and <code>--sym</code>/<code>--exp</code>, the z88dk map and listings, <code>Memory.txt</code>, and the user's <code>.jdp</code> annotations file; each with the producer's code, the grammar, the rules and a real excerpt</td>
 </tr>
 <tr>
 <td><a href="05-breakpoints-steps-history.html">7.5 Breakpoints, steps, history and call frames</a></td>

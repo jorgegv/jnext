@@ -93,6 +93,10 @@
 // here. The prompt and the vetoed close are.
 // ===========================================================================
 #include <QAbstractButton>
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
+#include "core/log.h"
+#include <QDialog>
 #include <QAction>
 #include <QFile>
 #include <QApplication>
@@ -254,6 +258,102 @@ void test_debugger_teardown() {
           dbg != nullptr && !dbg->isVisible(),
           std::string("window=") + (dbg ? "exists" : "missing") +
           " visible=" + (dbg && dbg->isVisible() ? "1" : "0"));
+}
+
+// ---------------------------------------------------------------------------
+// QG-ANN-03 (GH #387, D11) -- closeEvent asks about unsaved labels and comments first, and Cancel vetoes the
+// close (File > Quit goes through close(), which returns false then): nothing is torn down.
+// ---------------------------------------------------------------------------
+void test_annotations_veto() {
+    Fixture fx;
+    if (!fx.ok) { check("QG-ANN-03", "fixture", false, "no fixture"); return; }
+    DebuggerManager* mgr = fx.win.debugger_manager();
+    mgr->set_enabled(true);
+    QApplication::processEvents();
+    fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x8000, "start");
+    QTimer answer;
+    QMessageBox::StandardButton to_click = QMessageBox::Cancel;
+    bool asked = false;
+    QObject::connect(&answer, &QTimer::timeout, [&]() {
+        QWidget* m = QApplication::activeModalWidget();
+        if (auto* mb = qobject_cast<QMessageBox*>(m)) {
+            asked = true;
+            if (QAbstractButton* b = mb->button(to_click)) b->click(); else mb->done(to_click);
+        } else if (auto* d = qobject_cast<QDialog*>(m)) {
+            d->reject();   // a dialog this row did not expect: never wait on it
+        }
+    });
+    answer.start(1);
+    const bool closed_cancel = fx.win.close();
+    const bool cancel_ok = asked && !closed_cancel && mgr->is_enabled() && mgr->debugger_window_ptr() &&
+                           mgr->debugger_window_ptr()->isVisible();
+    asked = false;
+    to_click = QMessageBox::Discard;
+    const bool closed_discard = fx.win.close();
+    answer.stop();
+    check("QG-ANN-03", "closing the main window with unsaved annotations asks first: Cancel keeps the window open and the "
+                       "debugger enabled; Discard closes it and tears the debugger down",
+          cancel_ok && asked && closed_discard && !mgr->is_enabled(),
+          std::string("cancel_ok=") + (cancel_ok ? "1" : "0") + " asked=" + (asked ? "1" : "0") +
+          " closed=" + (closed_discard ? "1" : "0"));
+}
+
+// ---------------------------------------------------------------------------
+// QG-ANN-05 (GH #387 review) -- an UNATTENDED close (the delayed automatic exit, SIGINT/SIGTERM through
+// set_unattended(true)) asks nothing about unsaved annotations and quits: a modal there would wait forever on a
+// dialog nobody answers (qt_app.cpp, "a modal ... would then wait forever"). The watcher dismisses any modal it
+// sees and fails the row, so a regression cannot hang the suite.
+// ---------------------------------------------------------------------------
+void test_annotations_unattended() {
+    // The platform log, captured (as preferences_apply_test captures the emulator's): the close must LOG that it
+    // discarded unsaved changes, once, and log nothing of the kind when there were none.
+    std::ostringstream cap;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+    sink->set_pattern("%l %v");   // the level is part of the line: the warning must be a WARNING
+    Log::platform()->sinks().push_back(sink);
+    const auto discarded = [&cap]() {
+        const std::string t = cap.str();
+        size_t n = 0;
+        static const std::string line = "warning unattended exit: the unsaved debugger labels and comments were discarded";
+        for (size_t at = t.find(line); at != std::string::npos; at = t.find(line, at + 1)) ++n;
+        return n;
+    };
+    // One unattended close; `unsaved` says whether a label was added first. Returns {modal title, closed, log count}.
+    struct Out { QString modal; bool closed = false, unsaved = false, ok = false; size_t logged = 0; };
+    const auto run = [&](bool add_label) {
+        Out o;
+        Fixture fx;
+        if (!fx.ok) return o;
+        DebuggerManager* mgr = fx.win.debugger_manager();
+        mgr->set_enabled(true);
+        QApplication::processEvents();
+        if (add_label) fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x8000, "start");
+        fx.win.set_unattended(true);
+        QTimer watch;
+        QObject::connect(&watch, &QTimer::timeout, [&]() {
+            if (auto* d = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+                o.modal = d->windowTitle().isEmpty() ? QStringLiteral("(untitled dialog)") : d->windowTitle();
+                d->reject();
+            }
+        });
+        watch.start(1);
+        o.unsaved = mgr->annotations_unsaved();
+        cap.str(std::string());
+        o.closed = fx.win.close();
+        watch.stop();
+        o.logged = discarded();
+        o.ok = o.closed && !mgr->is_enabled();
+        return o;
+    };
+    const Out with = run(true), none = run(false);
+    Log::platform()->sinks().pop_back();
+    check("QG-ANN-05", "an unattended close with unsaved annotations asks nothing, the window closes and the log says once "
+                       "that the changes were discarded; with nothing unsaved it logs no such line",
+          with.unsaved && with.modal.isEmpty() && with.ok && with.logged == 1 && !none.unsaved && none.modal.isEmpty() &&
+              none.ok && none.logged == 0,
+          "unsaved: modal='" + with.modal.toStdString() + "' closed=" + std::to_string(with.ok) + " logged=" +
+              std::to_string(with.logged) + "; clean: modal='" + none.modal.toStdString() + "' logged=" +
+              std::to_string(none.logged));
 }
 
 void test_recorder_stop() {
@@ -515,6 +615,8 @@ int main(int argc, char** argv) {
     }
 
     test_debugger_teardown();
+    test_annotations_veto();
+    test_annotations_unattended();
     test_recorder_stop();
     test_geometry_persisted();
     test_startup_migration();
