@@ -2939,7 +2939,7 @@ case and the labels in definition order; from v1.18.0 <code>--sym</code> shares 
   the value as 8 upper-case hex digits (<code>PrintHex32</code>).</li>
 <li><code>--sym</code>: <code>CLabelTable::DumpSymbols()</code>, <code>sjasm/tables.cpp:610-624</code>, calls it for
   every symbol in name order, skipping a name that starts with a digit (a
-  temporary label) and a keyword (<code>:619-620</code>; the call is at <code>:621</code>).</li>
+  temporary label) and a keyword (<code>sjasm/tables.cpp:619-620</code>; the call is at <code>sjasm/tables.cpp:621</code>).</li>
 <li><code>--exp</code>: <code>WriteExp()</code>, <code>sjasm/sjio.cpp:1445-1447</code>, called by the <code>EXPORT</code>
   directive (<code>sjasm/directives.cpp:1707</code>). A name exported twice is written twice
   (the fixture has <code>counter</code> at both of its values).</li>

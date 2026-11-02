@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=243  # 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=298  # 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -849,6 +849,342 @@ out_h2=$(ascii_lint); rc_h2=$?
 arrow=$(grep -c 'non-ASCII' <<<"$out_h2" || true)
 check "HS-97h" "rule A covers src/esp01/test/ (an em dash there fails) and rule B does not (an arrow there passes)" 0 $rc_h2 \
     "em=$em arrow=$arrow" "em=1" "arrow=0"
+
+# ------------- the developer-guide cite check must stay wired AND must fire (GH #430)
+# test/lint-devguide-cites.pl is a prerequisite of docs-check (so of unit-test and regression).
+# Nothing else proves it is still REACHED, or that its verdict turns red on a cite that moved,
+# has no symbol to anchor it, or cannot be resolved. The rows below run the real script against
+# throwaway trees (its optional root argument): a one-file code tree plus one guide page.
+DGC_CMD_RE='^[[:space:]]*perl[[:space:]]+test/lint-devguide-cites\.pl'
+dg_u=n; grep -qE "$DGC_CMD_RE" <<<"$dry"     && dg_u=y
+dg_r=n; grep -qE "$DGC_CMD_RE" <<<"$dry_reg" && dg_r=y
+check "HS-102" "the developer-guide cite check COMMAND (perl test/lint-devguide-cites.pl) is in the unit-test AND regression dry runs, not just its target name (GH #430)" 0 0 \
+    "unit=$dg_u regression=$dg_r" "unit=y" "regression=y"
+
+DG="$T/dg-tree"
+dg_lint() { timeout --kill-after=5s "${INVOKE_TIMEOUT}s" perl "$PROJECT_DIR/test/lint-devguide-cites.pl" "$DG" 2>&1; }
+dg_tree() {     # $1 = the page body; src/a.cpp holds `alpha` on line 3 and `beta` on line 4
+    rm -rf "$DG"; mkdir -p "$DG/src/doc/developer-guide" "$DG/src/core" "$DG/src/video"
+    printf 'int x;\nint y;\nvoid alpha() {}\nint beta = 1;\n' > "$DG/src/core/a.cpp"
+    printf '// row QSRC-195\nint gamma;\nvoid delta() {}\n' > "$DG/src/core/t.cpp"
+    printf 'int alphabet;\nvoid alpha() {}\n' > "$DG/src/core/w.cpp"
+    printf 'int bar;\n' > "$DG/src/core/support.cpp"
+    printf 'say("hello world");\nsay("Version 2");\nsay("-----");\nsay("abc abcd");\n' > "$DG/src/core/s.cpp"
+    mkdir -p "$DG/test/fixtures/z88dk" "$DG/packaging" "$DG/src/doc/developer-guide/diagrams"
+    printf 'int x;\n' > "$DG/test/fixtures/main.c"
+    printf 'int q;\n' > "$DG/test/fixtures/z88dk/s.c"
+    printf 'Name: alpha\n' > "$DG/packaging/x.spec"
+    printf 'alpha:\n' > "$DG/Makefile"
+    printf 'tmpAb12.asm:\nB\t2\nC3\n' > "$DG/test/fixtures/e.lis"
+    mkdir -p "$DG/test/fixtures/p" "$DG/test/fixtures/q"
+    printf 'one\n' > "$DG/test/fixtures/p/same.lis"; printf 'one\n' > "$DG/test/fixtures/q/same.lis"
+    printf '%s\n' "$1" > "$DG/src/doc/developer-guide/p.md"
+}
+dg_tree 'It is `alpha()` (`src/core/a.cpp:3`) and `beta` is in `a.cpp:4`; vhdl is `foo` at `zxnext.vhd:99999`.'
+out_a=$(dg_lint); rc_a=$?
+check "HS-103" "an exact cite passes, a bare-name cite resolves uniquely, and a .vhd cite is out of scope by declaration" 0 $rc_a "$out_a" \
+    "checked 2 cites, 0 failed, 1 out of scope"
+dg_tree 'The function `alpha()` lives at `src/core/a.cpp:4`.'
+out_b=$(dg_lint); rc_b=$?
+check "HS-104" "a cite shifted by ONE line fails, naming page:line, the cite, the anchor and what the cited line holds" 1 $rc_b "$out_b" \
+    "p.md:1: src/core/a.cpp:4 | alpha | int beta = 1;" "1 failed"
+dg_tree 'The code is in `src/core/a.cpp:3`.'
+out_c=$(dg_lint); rc_c=$?
+check "HS-105" "a cite with no backticked identifier in its sentence fails as unanchored, and an identifier of the previous sentence does not anchor it" 1 $rc_c "$out_c" \
+    "unanchored" "1 failed"
+dg_tree 'The `alpha()` is here. It is in `src/core/a.cpp:3`.'
+out_c2=$(dg_lint); rc_c2=$?
+check "HS-106" "...the sentence boundary is enforced: an anchor in the previous sentence fails" 1 $rc_c2 "$out_c2" "unanchored"
+dg_tree 'See `alpha()` at `src/core/missing.cpp:3` and at `src/core/a.cpp:99`.'
+out_d=$(dg_lint); rc_d=$?
+check "HS-107" "a cite of a file that does not exist, and a line past the end of one that does, both fail" 1 $rc_d "$out_d" \
+    "not in the repository" "a.cpp has 4 lines" "2 failed"
+dg_tree 'See `alpha()` at `x.cpp:3`.'
+printf 'void alpha() {}\n' > "$DG/src/video/x.cpp"; printf 'void alpha() {}\n' > "$DG/src/core/x.cpp"
+out_e=$(dg_lint); rc_e=$?
+check "HS-108" "a bare name that matches two repo files fails as ambiguous, naming both candidates" 1 $rc_e "$out_e" \
+    "ambiguous" "src/core/x.cpp" "src/video/x.cpp"
+dg_tree 'The `beta` is in `src/core/a.cpp:3-4` and `alpha` in `a.cpp:1-2`, then `alpha()` in `a.cpp:3`, `:4` and `beta` in `:4`.'
+out_f=$(dg_lint); rc_f=$?
+check "HS-109" "a range passes when its anchor is inside it and fails when the anchor is one line outside; a bare :N resolves to the last file named on the page" 1 $rc_f "$out_f" \
+    "a.cpp:1-2 | alpha" "src/core/a.cpp:4 | alpha" "2 failed"
+dg_tree 'Before it, `alpha()` is at `:3`. Then `src/core/a.cpp` is named, and `beta` is at `:4`.'
+out_g=$(dg_lint); rc_g=$?
+check "HS-110" "a bare :N with no file named earlier on the page fails; one after a named file passes" 1 $rc_g "$out_g" \
+    "no file named earlier" "checked 2 cites, 1 failed"
+dg_tree 'See `alpha()` at `a.cpp:3,4`, and `beta` at `a.cpp:4` in
+```
+a.cpp:1
+```
+and `beta` at `zzz.foo:3`.'
+out_h=$(dg_lint); rc_h=$?
+check "HS-111" "a comma list and a cite of an unknown (non-repo, non-declared) file fail; a cite inside a fenced block is not read" 1 $rc_h "$out_h" \
+    "comma list" "zzz.foo:3" "2 failed"
+# The cases the first review found unchecked (R1..R6): each row below fails under the mutation
+# of the script that removes the behaviour it pins.
+dg_tree 'The `alph` is at `src/core/w.cpp:1` and `alpha` at `src/core/w.cpp:2`.'
+out=$(dg_lint); rc=$?
+check "HS-112" "the anchor is a WHOLE word: alph does not match a line holding only alphabet, alpha matches alpha()" 1 $rc "$out" \
+    "src/core/w.cpp:1 | alph | int alphabet;" "checked 2 cites, 1 failed"
+dg_tree 'x'
+printf 'digraph g {\n    // `alpha()` is here, and it spans\n    // two lines, at `alpha()` (src/core/a.cpp:3).\n    n [label="x"];\n    // `beta` sits at src/core/a.cpp:3.\n}\n' > "$DG/src/doc/developer-guide/diagrams/d.dot"
+out=$(dg_lint); rc=$?
+check "HS-113" "a .dot page is read: a // comment block anchors over its lines, and a shifted cite there fails naming the .dot page" 1 $rc "$out" \
+    "diagrams/d.dot:5: src/core/a.cpp:3 | beta" "checked 2 cites, 1 failed"
+dg_tree 'The `alpha()` is at line 3 in `src/core/a.cpp`, and `beta` at line 4 of `src/core/a.cpp`. Next, `beta` is in `src/core/a.cpp` (line 3). And `alpha()` is at `src/core/a.cpp`, line 3.'
+out=$(dg_lint); rc=$?
+check "HS-114" "every prose form (line N in/of FILE, FILE (line N), FILE, line N) is checked: three hold their symbol, the shifted one fails" 1 $rc "$out" \
+    "src/core/a.cpp:3 | beta" "checked 4 cites, 1 failed"
+dg_tree 'Row `QSRC-195` is at `src/core/t.cpp:1`; `QSRC-196` is at `src/core/t.cpp:1`.'
+out=$(dg_lint); rc=$?
+check "HS-115" "a test ID is an anchor: it passes on a line holding it and fails on a line that does not" 1 $rc "$out" \
+    "src/core/t.cpp:1 | QSRC-196" "checked 2 cites, 1 failed"
+dg_tree 'See `src/core/a.cpp` and `src/core/t.cpp`, where `delta()` is at `:3`. See `src/core/a.cpp` and `src/core/t.cpp`, where `alpha()` is at `:3`.'
+out=$(dg_lint); rc=$?
+check "HS-116" "a bare :N after two different files binds to the LAST one (delta passes in t.cpp, alpha fails there)" 1 $rc "$out" \
+    "src/core/t.cpp:3 | alpha" "checked 2 cites, 1 failed"
+dg_tree 'See `src/core/a.cpp` and [the page](src/core/t.cpp). Then `alpha()` is at `:3`.'
+out=$(dg_lint); rc=$?
+check "HS-117" "a file named only in a markdown link target is not a mention: the bare :N still binds to a.cpp" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree 'The `x` is at `main.c:17` (a program position), and `x` at `test/fixtures/main.c:1`, and `y` at `test/fixtures/main.c:2`.'
+out=$(dg_lint); rc=$?
+check "HS-118" "a BARE example-program name is out of scope; the same name with a directory is a repo cite and is checked" 1 $rc "$out" \
+    "test/fixtures/main.c:2 | y" "checked 2 cites, 1 failed, 1 out of scope"
+dg_tree 'In `main.c:17`, `alpha()` is at `:3`. In `zxnext.vhd:5`, `foo` is at `:7`.'
+out=$(dg_lint); rc=$?
+check "HS-119" "a bare :N bound to an example-program name or to an external file FAILS (name the file)" 1 $rc "$out" \
+    "an example-program name: name the file" "an external file: name the file" "2 failed"
+dg_tree '| a | `src/core/a.cpp` |
+| `alpha()` | `:3` |
+
+`beta` is on `:4`.'
+out=$(dg_lint); rc=$?
+check "HS-120" "a whole table is ONE paragraph for a bare :N, and a bare :N in a paragraph that names no file fails even if an earlier paragraph did" 1 $rc "$out" \
+    "p.md:4: :4 | - | bare line cite with no file named earlier in its paragraph" "checked 2 cites, 1 failed"
+dg_tree 'The `q` is at `test/fixtures/z88dk/s.c:1`, `z` at `test/fixtures/z88dk/s.c:1`, and `foo` at `support.cpp:1`.'
+out=$(dg_lint); rc=$?
+check "HS-121" "a path under the repo's own z88dk/ fixtures tree and a bare name that a repo file also has are CHECKED, never external" 1 $rc "$out" \
+    "s.c:1 | z" "support.cpp:1 | foo" "checked 3 cites, 2 failed, 0 out of scope"
+dg_tree 'The `alpha` is in `packaging/x.spec:1`, `Makefile:1` and `src/core/a.cpp`:3, but `beta` is not in `src/core/a.mm:4`, nor at `src/core/a.cpp`:3.'
+out=$(dg_lint); rc=$?
+check "HS-122" "any extension with a directory, Makefile and a colon outside the code span are all cites: three hold, a missing .mm file and a shifted cite fail" 1 $rc "$out" \
+    "src/core/a.mm:4" "not in the repository" "src/core/a.cpp:3 | beta" "checked 5 cites, 2 failed"
+dg_tree 'From `test/fixtures/e.lis` (lines 1-2 and 3):
+
+```
+tmpXXXXXXXX.asm:
+B<TAB>2
+```
+```
+C3
+```'
+out=$(dg_lint); rc=$?
+check "HS-123" "an excerpt after a lines phrase equals the cited lines across several blocks, with the XXXXXXXX and <TAB> conventions" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree 'From `test/fixtures/e.lis` (lines 1-3):
+
+```
+tmpXXXXXXXX.asm:
+B<TAB>2
+CX
+```'
+out=$(dg_lint); rc=$?
+dg_tree 'From `test/fixtures/e.lis` (lines 1-3):
+
+```
+tmpXXXXXXXX.asm:
+B2
+```'
+out_b=$(dg_lint); rc_b=$?
+dg_tree 'From `test/fixtures/e.lis` (the number is the line in the file):
+
+```
+2:B3
+```'
+out_c=$(dg_lint); rc_c=$?
+check "HS-124" "a changed excerpt row, an excerpt with the wrong number of rows and a changed numbered row each FAIL, naming the row" 1 $(( rc == 1 && rc_b == 1 && rc_c == 1 ? 1 : 0 )) \
+    "$out"$'\n'"$out_b"$'\n'"$out_c" "excerpt row 3" "cites 3 lines, the excerpt shows 2" "excerpt line 2"
+dg_tree 'The `alpha()` is at `src/core/a.cpp:3`.
+
+```
+never closed'
+out=$(dg_lint); rc=$?
+check "HS-125" "a fence that is never closed FAILS, so it cannot hide the rest of a page" 1 $rc "$out" "never closed"
+dg_tree 'Text.
+
+````
+```
+src/core/a.cpp:99
+```
+````
+
+The `beta` is at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-126" "a closing fence must be as long as its opening one: a three-backtick line inside a four-backtick fence does not end it, so the prose after the fence is read" 1 $rc "$out" \
+    "src/core/a.cpp:3 | beta" "checked 1 cites, 1 failed"
+# Round 2 of the review (R2-1..R2-6): an unresolvable file is still the file a phrase binds to.
+dg_tree 'The `alpha` is in `src/core/gone.cpp`, line 3.'
+out=$(dg_lint); rc=$?
+check "HS-127" "a lines phrase after a file that does not exist FAILS (a deleted or renamed file cannot go silent)" 1 $rc "$out" \
+    "not in the repository" "1 failed"
+dg_tree 'In `src/core/a.cpp`, see `alpha` in `src/core/gone.cpp`, line 3.'
+out=$(dg_lint); rc=$?
+check "HS-128" "a lines phrase after a.cpp and then gone.cpp binds to gone.cpp and fails; it is not checked against a.cpp" 1 $rc "$out" \
+    "src/core/gone.cpp:3" "not in the repository"
+dg_tree 'In `src/core/a.cpp` and `src/core/gone.cpp`, `alpha` is at `:3`.'
+out=$(dg_lint); rc=$?
+check "HS-129" "a bare :N after a.cpp and then gone.cpp binds to gone.cpp and fails (unresolvable), not to a.cpp" 1 $rc "$out" \
+    "(src/core/gone.cpp)" "an unresolvable name: name the file"
+dg_tree 'From `test/fixtures/nosuch.lis` (lines 1-2):
+
+```
+one
+two
+```'
+out=$(dg_lint); rc=$?
+check "HS-130" "an excerpt pointer to a fixture that does not exist FAILS instead of leaving the excerpt unverified" 1 $rc "$out" \
+    "test/fixtures/nosuch.lis:1" "not in the repository"
+dg_tree 'The sjasmplus manual, `docs/documentation.xml` chapter `c_sld_data`, line 5479.'
+out=$(dg_lint); rc=$?
+check "HS-131" "the sjasmplus manual (docs/documentation.xml) is a declared external file: its line cite is out of scope, not unresolvable" 0 $rc "$out" \
+    "checked 0 cites, 0 failed, 1 out of scope"
+dg_tree 'The `alpha()` is in `src/core/a.cpp`, see the fixtures in `src/core`, line 3.'
+out=$(dg_lint); rc=$?
+check "HS-132" "a token naming a repo directory is no file: a lines phrase after it binds to the file before it" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree '| `src/core/a.cpp` | b |
+|---|---|
+| `alpha` | x |
+| y | `src/core/a.cpp:3` |'
+out=$(dg_lint); rc=$?
+check "HS-133" "a table row ends the sentence for the anchor search: an earlier row's symbol does not anchor a later row's cite" 1 $rc "$out" \
+    "unanchored" "1 failed"
+dg_tree 'From `same.lis` (the number is the line in the file):
+
+```
+1:one
+```'
+out=$(dg_lint); rc=$?
+check "HS-134" "a numbered excerpt of an ambiguous file name FAILS, naming the candidates (first one visible)" 1 $rc "$out" \
+    "ambiguous" "test/fixtures/p/same.lis"
+dg_tree 'In `src/core/a.cpp`, `alpha` is at `:3,4`.'
+out=$(dg_lint); rc=$?
+check "HS-135" "a bare comma list of lines FAILS as a comma list" 1 $rc "$out" "comma list of lines"
+dg_tree 'Text.
+
+```
+src/core/a.cpp:99
+~~~
+
+The `alpha()` is at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-136" "a backtick fence is not closed by a tilde line: it is reported unclosed" 1 $rc "$out" "never closed"
+dg_tree 'Text.
+
+~~~
+src/core/a.cpp:99
+~~~
+
+The `alpha()` is at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-137" "a tilde fence is a fence: its content is not read, and the prose after it is" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree 'Here the number is the line in the file:
+
+```
+2:B3
+```'
+out=$(dg_lint); rc=$?
+check "HS-138" "a numbered excerpt in a paragraph that names no file FAILS" 1 $rc "$out" \
+    "no file named in the paragraph above it"
+dg_tree 'From `test/fixtures/e.lis` (the number is the line in the file):
+
+```
+2:B<TAB>2
+```'
+out=$(dg_lint); rc=$?
+check "HS-139" "a numbered excerpt uses the <TAB> convention too" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+# Round 3 (the 17-line shift of emulator.cpp that the gate missed): a cite is attached to the
+# symbol in ITS parenthesis, or the one right before the parenthesis; never to a symbol that
+# merely appears elsewhere in the sentence.
+dg_tree 'The emulator asks `beta`, two compares, first in `alpha()`'"'"'s armed block (`src/core/a.cpp:3`).'
+out=$(dg_lint); rc=$?
+check "HS-140" "a parenthesised cite after text that is not its symbol FAILS even though the sentence's nearest symbol (alpha) is on the line" 1 $rc "$out" \
+    "unanchored" "in the cite's parenthesis" "1 failed"
+dg_tree 'It is in `alpha()` (`src/core/a.cpp:3`) and in `beta` for a Step (`:4`).'
+out=$(dg_lint); rc=$?
+check "HS-141" "a bare :N continuation in a second parenthesis with no symbol of its own FAILS; the first parenthesis (symbol right before it) passes" 1 $rc "$out" \
+    "p.md:1: :4 | - | unanchored" "checked 2 cites, 1 failed"
+dg_tree 'The `alpha()` and `beta` differ, see `gamma` at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-142" "a symbol elsewhere in the sentence that happens to be on the cited line does not anchor a cite attached to another symbol" 1 $rc "$out" \
+    "src/core/a.cpp:3 | gamma" "1 failed"
+dg_tree 'The `alpha()` (`src/core/a.cpp:3`), and **Then `beta`** (`src/core/a.cpp:4`), and the flag (`gamma`, `src/core/a.cpp:3`).'
+out=$(dg_lint); rc=$?
+check "HS-143" "a symbol right before the parenthesis (also through ** markup) anchors it; a symbol inside the parenthesis anchors it and nothing else does" 1 $rc "$out" \
+    "src/core/a.cpp:3 | gamma" "checked 3 cites, 1 failed"
+dg_tree 'It is (`alpha()`, `src/core/a.cpp:3` and `:3`).'
+out=$(dg_lint); rc=$?
+check "HS-144" "a bare :N continuation inside a parenthesis that has its symbol passes" 0 $rc "$out" \
+    "checked 2 cites, 0 failed"
+# Round 4 (review 4): the narrowing behaviours of the parenthesis rule, and the .dot grouping.
+dg_tree 'The `alpha()` (`beta`, `src/core/a.cpp:3`).'
+out=$(dg_lint); rc=$?
+check "HS-145" "a symbol INSIDE the parenthesis wins over the span before it: beta is not on the line, so the cite fails although alpha() is" 1 $rc "$out" \
+    "src/core/a.cpp:3 | beta" "1 failed"
+dg_tree 'The `beta` (the `alpha` flag, read (`src/core/a.cpp:3`)).'
+out=$(dg_lint); rc=$?
+check "HS-146" "the INNERMOST parenthesis is the scope: an outer parenthesis's symbol does not anchor a cite in a nested one" 1 $rc "$out" \
+    "unanchored" "1 failed"
+dg_tree 'x'
+printf 'digraph g {\n    // `alpha()` is here, and it is at\n    // src/core/a.cpp:3.\n    n [label="x"];\n    // `beta` is here, and it is at\n    // src/core/a.cpp:3.\n}\n' > "$DG/src/doc/developer-guide/diagrams/d.dot"
+out=$(dg_lint); rc=$?
+check "HS-147" "consecutive // comment lines are one sentence block in a .dot page: a bare cite on the second line takes its symbol from the first (pass), a wrong one fails" 1 $rc "$out" \
+    "diagrams/d.dot:6: src/core/a.cpp:3 | beta" "checked 2 cites, 1 failed"
+dg_tree 'The `alpha()` (`src/core/a.cpp:3`), set at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-148" "a closed parenthesis ends its scope: a later cite in the same sentence is anchored by the sentence's nearest symbol again" 0 $rc "$out" \
+    "checked 2 cites, 0 failed"
+dg_tree 'It is set by `alpha()` (`src/core/a.cpp:3` and `:3`), and by `beta` (`src/core/a.cpp:4` and `:3`).'
+out=$(dg_lint); rc=$?
+check "HS-149" "a cite span inside a parenthesis is not a symbol of its own: a second cite there is anchored by the span before the parenthesis too (and fails on its own line)" 1 $rc "$out" \
+    "src/core/a.cpp:3 | beta" "checked 4 cites, 1 failed"
+dg_tree 'The `alpha()` (`QSRC-196`, `src/core/a.cpp:3`).'
+out=$(dg_lint); rc=$?
+dg_tree 'The `alpha()` (`QSRC-195`, `src/core/t.cpp:1`).'
+out_b=$(dg_lint); rc_b=$?
+check "HS-150" "a test ID inside the parenthesis is its own symbol: it fails where the ID is not on the line (alpha() is), and passes where it is" 1 $(( rc == 1 && rc_b == 0 ? 1 : 0 )) \
+    "$out"$'\n'"$out_b" "src/core/a.cpp:3 | QSRC-196" "checked 1 cites, 1 failed" "checked 1 cites, 0 failed"
+dg_tree 'The `main()` (`"hello world"`, `src/core/s.cpp:1`) and `main()` (`"goodbye"`, `src/core/s.cpp:1`) and `main()` (`"version 2"`, `src/core/s.cpp:2`).'
+out=$(dg_lint); rc=$?
+check "HS-151" "a backticked string literal anchors a cite when its text is on the cited line (hello world passes), fails when it is not (goodbye), and the match is case-sensitive (version 2 against Version 2)" 1 $rc "$out" \
+    "src/core/s.cpp:1 | goodbye" "src/core/s.cpp:2 | version 2" "checked 3 cites, 2 failed"
+dg_tree 'The `alpha()` flag (set early) is read at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-152" "a closed parenthesis earlier in the sentence does not turn a later cite into a parenthesised one: the nearest symbol still anchors it" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree 'Here is the (`" "`, `src/core/s.cpp:1`) and the (`"y"`, `src/core/s.cpp:1`) and the (`"ab"`, `src/core/s.cpp:1`) and the (`"----"`, `src/core/s.cpp:3`) and the (`"abc"`, `src/core/s.cpp:4`) and the (`"abcd"`, `src/core/s.cpp:4`).'
+out=$(dg_lint); rc=$?
+check "HS-153" "a quoted text of fewer than 4 characters, or with no letter or digit, does not anchor a cite: five fail as unanchored ("----" is 4 characters with no letter or digit; "abc" is one character short) and "abcd", exactly 4 characters, anchors" 1 $rc "$out" \
+    "unanchored" "checked 6 cites, 5 failed"
+dg_tree 'The `main()` (`"Version 2"`, `src/core/s.cpp:1-2`) and `main()` (`"hello world"`, `src/core/s.cpp:1-2`).'
+out=$(dg_lint); rc=$?
+check "HS-154" "a quoted text on the LAST line of a range anchors it (the range rule holds for literals), as on its first line" 0 $rc "$out" \
+    "checked 2 cites, 0 failed"
+dg_tree 'The `alpha()` is at `src/core/a.cpp:3`.'
+DUMPF="$T/dg-dump.txt"; rm -f "$DUMPF"
+out=$(JNEXT_CITES_DUMP="$DUMPF" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" perl "$PROJECT_DIR/test/lint-devguide-cites.pl" "$DG" 2>&1); rc=$?
+dumped=$(cat "$DUMPF" 2>/dev/null | tr '\t' '|')
+check "HS-155" "JNEXT_CITES_DUMP writes one OK row per checked repository cite, so the merge-time map procedure cannot silently go empty" 0 $rc "$out"$'\n'"$dumped" \
+    "OK|src/doc/developer-guide/p.md:1|src/core/a.cpp:3"
+rm -f "$DUMPF"
+dg_tree 'The `get_int_param()` (`skoolkit/ctlparser.py:119`) and `ImportSymbolsScript.py:35` are the pinned foreign tools, but `skoolkit/other.py:3` is not declared.'
+out=$(dg_lint); rc=$?
+check "HS-156" "the pinned foreign tools (skoolkit ctlparser/__init__/sna2skool, Ghidra ImportSymbolsScript) are declared external; another skoolkit file is not" 1 $rc "$out" \
+    "skoolkit/other.py:3" "checked 1 cites, 1 failed, 2 out of scope"
+rm -rf "$DG"
 
 # ------------- worktree-bootstrap must not call an unprovisioned tree "ready" (GH #149)
 # `git worktree add` does not populate submodules, so a fresh worktree has an EMPTY

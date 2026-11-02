@@ -68,7 +68,7 @@ to keep that combination building.
 `make regression` runs the screenshot and functional suite headless. Between
 them they pull in a set of structural gates as prerequisites —
 `lint-assertions`, `lint-makefile-help`, `lint-thread-detach`, `lint-ascii-text`, `cli-check`,
-`docs-check`,
+`docs-check` (which includes `docs-devguide-cites-check`),
 `traceability-check` and friends — which is deliberate: it puts those checks in
 your inner loop instead of leaving them for CI to discover. `make regression`
 also runs `make fuse-pgo`, the FUSE Z80 opcode suite built against the PGO
@@ -137,9 +137,10 @@ staleness check guarding it:
 | `docs-userguide` | `doc/user-guide` from `src/doc/user-guide` | `docs-userguide-check` |
 | `docs-devguide` | `doc/developer-guide` from `src/doc/developer-guide` | `docs-devguide-check` |
 | `docs-devguide-diagrams` | the guide's committed SVGs from Graphviz `.dot` sources | (same check) |
+| (none) | the guide's file and line cites, checked against the code | `docs-devguide-cites-check` |
 | `docs-screenshots` | the user guide's Qt screenshots (`img/debugger-*.png`, the main window, Preferences) from the running debugger | none — see below |
 
-`make docs-check` runs the first three guards and aggregates their results, so
+`make docs-check` runs the first three guards and the cite check and aggregates their results, so
 one stale document never hides another behind it. It is a prerequisite of both test
 targets. For reading rather than checking, `make read-userguide` and
 `make read-devguide` serve the rendered sites on localhost.

@@ -1800,10 +1800,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-three-parts" class="md-nav__link">
+  <a href="#the-four-parts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The three parts
+        The four parts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-developer-guide-cite-rule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The developer-guide cite rule
       
     </span>
   </a>
@@ -2921,7 +2932,7 @@ notice when a committed output stops matching the source it came from.</p>
 <p><code>make docs-check</code> is what closes that hole, and it is a prerequisite of <strong>both</strong>
 <code>make unit-test</code> and <code>make regression</code>, so a stale document fails the test run
 itself rather than waiting for CI or a reviewer to spot it.</p>
-<h2 id="the-three-parts">The three parts<a class="headerlink" href="#the-three-parts" title="Permanent link">&para;</a></h2>
+<h2 id="the-four-parts">The four parts<a class="headerlink" href="#the-four-parts" title="Permanent link">&para;</a></h2>
 <p><code>docs-check</code> runs each part as its own target and aggregates the results, so
 that one stale document never hides another and each one prints its own
 remediation line:</p>
@@ -2932,15 +2943,108 @@ remediation line:</p>
 <li><strong><code>docs-userguide-check</code></strong> rebuilds the user guide from <code>src/doc/user-guide</code>
   with <code>mkdocs build --strict</code> and diffs the resulting tree against
   <code>doc/user-guide</code>. The fix is <code>make docs-userguide</code>, then commit.</li>
-<li><strong><code>docs-devguide-check</code></strong> does the same for <code>src/doc/developer-guide</code> against
+<li>
+<p><strong><code>docs-devguide-check</code></strong> does the same for <code>src/doc/developer-guide</code> against
   <code>doc/developer-guide</code>, <strong>and</strong> additionally re-renders every
   <code>diagrams/*.dot</code> to SVG and diffs those too. Checking only the rendered site
   would let a hand-edited SVG through, because mkdocs copies it across
-  unchanged. The fix is <code>make docs-devguide</code>, then commit both.</li>
+  unchanged. The fix is <code>make docs-devguide</code>, then commit both.</p>
+</li>
+<li>
+<p><strong><code>docs-devguide-cites-check</code></strong> (GH #430) verifies the developer guide's
+  code cites. It is not a freshness check: no renderer is involved. See
+  <a href="#the-developer-guide-cite-rule">the cite rule</a> below.</p>
+</li>
 </ul>
 <p>On a machine that has no pandoc, mkdocs or graphviz the relevant part
 <strong>fails</strong>, there and in CI alike (the old <code>$CI</code> split is gone: CI and local do
 the same thing), because a check that cannot run is not a pass.</p>
+<h2 id="the-developer-guide-cite-rule">The developer-guide cite rule<a class="headerlink" href="#the-developer-guide-cite-rule" title="Permanent link">&para;</a></h2>
+<p>The guide cites code as a file name, a colon and a line number, and every such
+cite of a file in this repository is checked by <code>test/lint-devguide-cites.pl</code>
+(a Perl script like the other lints; <code>make docs-devguide-cites-check</code> runs it,
+and <code>docs-check</code> runs that). Before it existed one merge shifted 17 cites of
+chapter 7 and only a reviewer's script noticed. The rule, in full:</p>
+<ul>
+<li><strong>Every cite is anchored to a symbol.</strong> The nearest backticked identifier
+  before the cite in the same sentence (a function, class, member, constant or
+  test ID; <code>Class::name</code> and <code>name()</code> count, the last component is the symbol)
+  must appear as a whole word on the cited line, or, for a range, on a line of
+  the range. There is <strong>no +-1 tolerance</strong>: a cite one line off fails.
+  A sentence break (a full stop followed by a capital) ends the sentence, so the
+  symbol of the previous sentence does not anchor this one. A cite inside a
+  parenthesis is attached to the symbol in <strong>that parenthesis</strong>, or to the one
+  that ends right where it opens (<code>`sym()` (`file:N`)</code>, also through <code>**</code>
+  markup); a symbol elsewhere in the sentence never anchors it, however well it
+  happens to match the line. A cite with no
+  such symbol fails as <em>unanchored</em>: add the symbol, in backticks, before it.</li>
+<li><strong>The forms</strong> are a file token (any path whose last component has an
+  extension, or <code>Makefile</code>; a bare name when it is unique in the repository,
+  else a path that ends the same way) with <code>:N</code> or <code>:N-M</code>, the colon inside or
+  outside the code span; a bare backticked <code>:N</code> or <code>:N-M</code>, which binds to <strong>the
+  nearest file named earlier in the same paragraph</strong> (a whole table counts as
+  one paragraph; a markdown link target is not a mention) and <strong>fails</strong> when
+  none is named there, or when that file is an example-program name or one of
+  the declared external files: name the file again in every cite; the prose
+  forms <em>line N in</em> or <em>of</em> a file, a file followed by <em>(line N)</em> or <em>, line N</em>.
+  A comma list of lines fails: write one cite per line.</li>
+<li><strong>Excerpts.</strong> A "lines" phrase after a repository file, in a paragraph that is
+  directly followed by fenced blocks, introduces an excerpt, and the rows of
+  those blocks must equal the cited lines (a run of <code>X</code> matches a temp name and
+  <code>&lt;TAB&gt;</code> is a tab); a block of <code>N:</code>-prefixed rows after "the number is the
+  line" is compared line by line the same way. Without a fence after it the
+  phrase is an ordinary cite and needs an anchor.</li>
+<li><strong>Resolution</strong> goes in order: a <em>bare</em> example-program name (<code>main.c</code>,
+  <code>util.c</code>, <code>util.h</code>, <code>asmfn.asm</code>, <code>main.bas</code>, <code>equlabels.asm</code>: positions in the
+  debugged program, not code) is out of scope; a token that matches repository
+  files is checked (several matches fail, naming them), and is <strong>never</strong>
+  external, so the repository's own <code>test/fixtures/z88dk/</code> files and a future
+  <code>support.cpp</code> are checked; only a token that matches nothing in the
+  repository and belongs to a declared external set is out of scope, and any
+  other token fails. A file token that does not resolve is still the nearest
+  file of a bare <code>:N</code>, a "lines" phrase or an excerpt pointer, and those fail on
+  it, so a deleted or renamed file cannot go quiet (the exceptions: <em>e.g.</em>, <em>i.e.</em>
+  and a token that names a repository directory are no file). A table row ends
+  the sentence for the anchor search.</li>
+<li><strong>Out of scope by declaration</strong>, listed in the script's header and nowhere
+  else: the VHDL (a different repository), and the z88dk, sjasmplus, Boriel,
+  NextBuild and NextZXOS sources the format chapters cite, the sjasmplus manual,
+  and the pinned foreign tools the export chapter cites (the skoolkit files
+  <code>__init__.py</code>, <code>ctlparser.py</code> and <code>sna2skool.py</code>, and the Ghidra script
+  <code>ImportSymbolsScript.py</code>), when the repository has no such file. Fenced code blocks are sample data and are not read for
+  cites (only as the excerpt above), but a fence that is never closed fails, and
+  a closing fence must be the opening character, at least as long.</li>
+<li><strong>Quoted text anchors too.</strong> A backticked double-quoted string, such as
+  <code>"unknown memory '"</code>, anchors a cite when its text between the quotes appears
+  verbatim (case-sensitive) on a cited line: a parser message identifies its own
+  line. The text must be at least 4 characters with a letter or digit among them,
+  so <code>" "</code> or <code>"y"</code> cannot anchor almost any line.</li>
+<li><strong>The output</strong> is one line per failure, <code>page:line: cite | anchor | what the
+  cited line holds</code>, then a count; the exit status is non-zero on any failure.</li>
+</ul>
+<p><strong>At a merge, the gate is not enough</strong> (a merge-time procedure, not a gate). The
+rule cannot see a cite whose number did not move while its code did, when the
+symbol is still somewhere in the cited range or a weak anchor happens to match the
+line now there: the 10 cites of the #387 merge, and a plain <code>text</code> that matched a
+comment. After merging code into a branch whose guide has cites, map every cite
+whose number is unchanged through the code diff and re-point the ones whose cited
+lines moved:</p>
+<ol>
+<li><code>JNEXT_CITES_DUMP=FILE perl test/lint-devguide-cites.pl</code> appends one
+   <code>OK&lt;TAB&gt;page:line&lt;TAB&gt;file:N[-M]</code> row per repository cite it checked; run it on
+   the tree before the merge and on the merged tree.</li>
+<li>For each cite present, with the same text, on the same page in both dumps, take
+   <code>git diff -U0 BEFORE HEAD -- FILE</code> and translate the cited lines: an old line
+   above a hunk keeps its number, one below it moves by the hunk's added minus
+   removed lines, one inside a hunk was edited.</li>
+<li>Any cite whose translated lines differ from its number is stale: re-point it,
+   to the epic's number when the other side already did.</li>
+</ol>
+<p>Take care in conflict resolution that "keep my side" does not discard the other
+side's corrected numbers.</p>
+<p>When a cited file changes, run the check and re-point the cites it reports;
+re-point the cite, never the anchor, unless the sentence is wrong. The script's
+rows are <code>HS-102</code>..<code>HS-156</code> of <code>make harness-selftest</code>.</p>
 <h2 id="the-renderer-fingerprint">The renderer fingerprint<a class="headerlink" href="#the-renderer-fingerprint" title="Permanent link">&para;</a></h2>
 <p>pandoc, mkdocs-material and graphviz all emit byte-different output across
 their own versions for identical input. A byte-diff against outputs that were

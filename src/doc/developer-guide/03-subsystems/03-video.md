@@ -63,7 +63,7 @@ for the debugger's raster indicator (GH #22). It classifies the beam's region
 (`blank_n` from `zxula_timing.vhd:348-357`, `border_active` from
 `zxula.vhd:415`) and the ULA's fetch phase (`vram_a`/`vram_rd` on
 `zxula.vhd:226-263` — bit 1 of `hc_ula` selects bitmap vs attribute, gated by
-`border_active_ula` at `:416`). It is Qt-free and takes a `VideoTiming` by
+`border_active_ula` at `zxula.vhd:416`). It is Qt-free and takes a `VideoTiming` by
 reference: the per-machine constants stay in the one timing model, and the
 `c_max_hblank` / `c_max_vblank` accessors were added there rather than
 duplicated in the panel. `raster_state_test` pins it per machine against the

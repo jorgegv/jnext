@@ -25,7 +25,7 @@ In `sjasmplus` v1.23.1:
   the value as 8 upper-case hex digits (`PrintHex32`).
 - `--sym`: `CLabelTable::DumpSymbols()`, `sjasm/tables.cpp:610-624`, calls it for
   every symbol in name order, skipping a name that starts with a digit (a
-  temporary label) and a keyword (`:619-620`; the call is at `:621`).
+  temporary label) and a keyword (`sjasm/tables.cpp:619-620`; the call is at `sjasm/tables.cpp:621`).
 - `--exp`: `WriteExp()`, `sjasm/sjio.cpp:1445-1447`, called by the `EXPORT`
   directive (`sjasm/directives.cpp:1707`). A name exported twice is written twice
   (the fixture has `counter` at both of its values).

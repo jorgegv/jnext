@@ -217,5 +217,32 @@ verdict on the real tree is trusted at all:
   The lint also counts the lines that reached its matcher and refuses the run
   unless that is every line of every in-scope file.
 
+The developer-guide cite check, `test/lint-devguide-cites.pl` (GH #430, see
+[4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking
+like those: the harness self-test runs it against throwaway trees (HS-102 to HS-156), and each
+row was shown to go red when the behaviour it pins is mutated out of the script. HS-102 pins
+the *command* in the `unit-test` and `regression` dry runs, not the target name. The rows cover:
+an exact cite and a declared external one passing; a cite one line off, an unanchored one (also
+when the symbol is in the previous sentence), a missing file, a line past the end, an ambiguous
+bare name, a comma list and a cite of a file in no set failing; the whole-word rule; a test ID
+as an anchor; a range holding its symbol inside it and not one line outside; a `.dot` page
+and its `//` comment grouping; every prose form; a bare `:N` binding to the last of two files,
+ignoring a link target, failing when bound to an example name or an external file, and
+failing across paragraphs while a whole table is one; the bare example-name exemption against
+the same name with a directory; the repository's `z88dk/` fixtures and a repo file named
+like an external one being checked; any extension with a directory, `Makefile` and a colon
+outside the span; excerpts (a match across blocks, a changed row, a wrong row count, a
+numbered row, ambiguous or missing file, the `<TAB>` convention); a lines phrase, bare `:N` or excerpt
+pointer after a file that does not exist; a table row ending the sentence; a bare comma list; the
+sjasmplus manual as a declared external file; and fences: unclosed, closed by the other character,
+shorter than its opening, and `~~~`; and the parenthesis binding (a parenthesised cite after text that is not its symbol,
+a bare `:N` continuation without a symbol, a coincidental match elsewhere in the sentence, a
+symbol right before the parenthesis, a symbol inside the parenthesis winning over it, the innermost
+parenthesis being the scope, a closed parenthesis ending its scope, a cite span in the
+parenthesis not counting as its symbol, a test ID there counting as one, a closed parenthesis not affecting a later cite) and a
+quoted string literal anchoring a cite only when it is on the line (case-sensitive, at least 4
+characters with a letter or digit, also on the last line of a range), and `JNEXT_CITES_DUMP`
+writing the checked cites, and the pinned foreign tools being declared external and the `.dot` comment-block grouping.
+
 Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.

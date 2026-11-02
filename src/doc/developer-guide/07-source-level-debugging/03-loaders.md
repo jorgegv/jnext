@@ -120,8 +120,8 @@ on failure (`-1`) the table and its owner are as they were.
 ### `--source-map`
 
 `EmulatorConfig::source_map_file` is set from `--source-map FILE`
-(`main.cpp:880`, `:2171`). `EmulatorConfig::source_map_no_program` (`emulator_config.h:288`),
-set at `main.cpp:2182`, says which of three cases it is: `0` a program loads and the map
+(`EmulatorConfig::source_map_file`, `src/main.cpp:881`, `:2175`). `EmulatorConfig::source_map_no_program` (`emulator_config.h:288`),
+set at `src/main.cpp:2187`, says which of three cases it is: `0` a program loads and the map
 follows it; `1` there is no `--load`; `2` an RZX replay is the program (`--rzx-play`, or
 `--load R.rzx`, told by the extension).
 
@@ -137,16 +137,16 @@ attaches pending, and the loop owner watches it once per tick with
 **Without one** (`1` and `2`). There is no program to judge a map by, so only the map of a z88dk
 dot command is accepted. Each loop owner makes the load once, at start-up, before
 `ScriptHost::start()`, so a `file:line` rule in a script resolves
-(`headless_app.cpp:76-90`, `sdl_app.cpp:251`, `gui/qt_app.cpp:351`). The call is
+(the guard is `source_map_no_program`: `headless_app.cpp:76-90`, `sdl_app.cpp:251`, `gui/qt_app.cpp:351`). The call is
 `emulator_attach_cli_source_map(dbg, file, deferred = false, dot_only = true, rzx = (case 2))`,
 which passes `dot_only` to `load_source_map()`. After the adapter has parsed the file,
 `dot_only && !candidate.dot()` returns `SourceMapLoad::not_dot` with the error "it is not the map
-of a z88dk dot command" (`debugger_source.cpp:488`), and the helper words it for the frontend:
+of a z88dk dot command" (`SourceMapLoad::not_dot`, `debugger_source.cpp:489`), and the helper words it for the frontend:
 `--source-map requires --load FILE, or the map of a z88dk dot command: '<file>' is not one`, or,
-for case 2, `--source-map with an RZX replay accepts only the map of a z88dk dot command` (`emulator_boot.h:120-125`).
+for case 2, `--source-map with an RZX replay accepts only the map of a z88dk dot command` (`SourceMapLoad::not_dot`, `emulator_boot.h:120-125`).
 The refusal makes the start-up fail (exit 1). A dot map is deferred whatever
 `verify_at_first_execution` says: `defer = (verify_at_first_execution || candidate.dot()) &&
-!verify_spans().empty()` (`debugger_source.cpp:497`), so it attaches pending with the note "identity
+!verify_spans().empty()` (`verify_at_first_execution`, `debugger_source.cpp:497`), so it attaches pending with the note "identity
 check pending: the dot command loads when it runs", and `source_map_watch_` is set from the result.
 How it is then judged is [7.6](06-lifetime.md); how its sections are placed is
 [7.4.3](04-3-z88dk-map.md), rule 5.
@@ -184,8 +184,8 @@ one block, in this order, first wins on every key (`SymbolTable::merge()`):
 3. the z88dk map's symbols, last, and only when **no** `Memory.txt` exists and its
    identity does not mismatch.
 
-The log says what was attached: `Loaded N SLD labels from '<file>'` (`debugger_source.cpp:756`) and
-`Loaded N z88dk symbols from '<file>'` (`:762`).
+The log says what was attached, by `log->info()`: `Loaded N SLD labels from '<file>'` (`log->info()`, `debugger_source.cpp:756`) and
+`Loaded N z88dk symbols from '<file>'` (`log->info()`, `:762`).
 
 If nothing attached, a previous program's Sidecar symbols are cleared, also when
 the new `Memory.txt` cannot be read (`SidecarLoad::symbols_unreadable`): a
