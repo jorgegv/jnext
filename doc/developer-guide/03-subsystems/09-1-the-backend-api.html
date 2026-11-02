@@ -2950,7 +2950,7 @@ table above, filled only by a sidecar, <code>load_map()</code> and a hand SLD (a
 their lifetime drops); <code>Impl::annotations</code> is a <code>UserAnnotations</code>
 (<code>debug/user_annotations.h</code>: std and <code>mem_space.h</code> only), keyed by (<code>MemSpace</code>,
 16-bit address) with at most one label and one comment per key, a label name used
-at one key only, and <code>MemSpace::cpu()</code> refused (a user entry names a memory). A
+at one key only, and <code>MemSpace::cpu()</code> and any memory the file cannot name (<code>parse_space_tag(space_tag(s)) != s</code>: page 0xE0, ROM 4, ...) refused. A
 label name is <code>[A-Za-z_][A-Za-z0-9_]*</code> parts joined by single dots, the grammar the
 DSL's <code>@name</code> lexes (<code>UserAnnotations::valid_label_name()</code>, public for #389's
 import); a comment is UTF-8 text with CRLF and lone CR turned into LF, and empty
@@ -2996,7 +2996,7 @@ the label before the comment of a key, no <code>#</code> lines: a Save does not 
 lower-case tags and hex are accepted; an unknown version, record kind, memory,
 <code>CPU</code>, a doubled space, a bad name, a second label or comment for a key, one name at two keys, an unknown escape
 or invalid UTF-8 refuses the whole file with <code>line N: reason</code> and leaves the store as it was
-(rows JDP-01..07, SRCDBG-UANN-12..14). <code>save_annotations()</code> writes <code>PATH.part</code> and renames it
+(rows JDP-01..09, UANN-13, SRCDBG-UANN-12..14, 20). <code>save_annotations()</code> writes <code>PATH.part</code> and renames it
 over <code>PATH</code>. <code>--annotations FILE</code> loads one in <code>ScriptHost::start()</code> right after <code>--map</code>, before the
 scripts, in every frontend (rows SCRIPT-ANN-01, CLI-ANN-01, <code>annotations-func</code>).</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
