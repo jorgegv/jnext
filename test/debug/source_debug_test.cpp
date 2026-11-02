@@ -69,6 +69,7 @@
 #include "platform/emulator_boot.h"
 #include "debug/sld_loader.h"
 #include "debug/source_file.h"
+#include "debug/variable_store.h"
 #include "core/saveable.h"
 #include "core/log.h"
 
@@ -5761,6 +5762,223 @@ int main() {
                   back == Result::Ok && at_before == 0 && rev1 > rev0,
                   "back=" + std::to_string(int(back)) + " size=" + std::to_string(at_before) +
                       " rev " + std::to_string(rev0) + " -> " + std::to_string(rev1));
+        }
+        // ── GH #433: the C variable store has the lifetime of the source map it came from ──
+        // Oracle: the store is part of SourceMap, so every rule of 7.6 (design 6.8) applies to it; the
+        // program is master/sccz80-cvars (functions sum, main, other; s_dup of vars_c at P4:$909F).
+        const fs::path vz = z / "var";
+        const auto var_dir = [&](const char* name, const char* fixture = "master/sccz80-cvars") {
+            const fs::path d = vz / name;
+            z88_copy(fixture, d);
+            return d;
+        };
+        const auto has_fn = [](const jnext::dbg::VariableStore* s, const char* name) {
+            for (const auto& f : s->functions())
+                if (f.name == name) return true;
+            return false;
+        };
+        const auto s_dup_at = [](const jnext::dbg::VariableStore* s, uint16_t addr) {
+            for (const auto& v : s->variables())
+                if (v.record.var.name == "s_dup" && v.module == "vars_c")
+                    return v.storage.resolved && v.storage.at.space == MemSpace::page(4) &&
+                           v.storage.at.address == addr;
+            return false;
+        };
+        {   // SRCDBG-VAR-01
+            const fs::path d = var_dir("v1");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            Debugger::SidecarLoad r;
+            const std::string log = debugger_log_of([&] {
+                r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            });
+            const auto vs = m.dbg->variables();
+            const std::string map = (d / "prog.map").string();
+            check("SRCDBG-VAR-01", "prog.map beside a .nex: variables() is the source map's own store, with the "
+                                   "functions sum, main and other; the sidecar log says what it said before",
+                  vs && vs == m.dbg->source_map().variables() && has_fn(vs.get(), "sum") &&
+                      has_fn(vs.get(), "main") && has_fn(vs.get(), "other") && s_dup_at(vs.get(), 0x909F) &&
+                      has(log, "Loaded " + std::to_string(r.symbols) + " z88dk symbols from '" + map + "'") &&
+                      has(log, "Loaded " + std::to_string(r.sources) + " z88dk source lines from '" + map +
+                                   "' (program identity verified)") &&
+                      log.find("ariable") == std::string::npos,
+                  log);
+        }
+        {   // SRCDBG-VAR-02
+            const fs::path d = var_dir("v2");
+            const fs::path other = vz / "v2other";
+            fs::create_directories(other);
+            write_text(other / "next.nex", "");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const bool had = m.dbg->variables() != nullptr;
+            m.dbg->load_program_sidecars((other / "next.nex").string());
+            check("SRCDBG-VAR-02", "the next program's load, with no sidecar of its own, drops the source map and "
+                                   "its store: variables() is null",
+                  had && m.dbg->source_map().empty() && !m.dbg->variables());
+        }
+        {   // SRCDBG-VAR-03
+            const fs::path d = var_dir("v3");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto out = m.dbg->load_source_map((d / "prog.map").string(), false);
+            const auto vs = m.dbg->variables();
+            const bool by_user = m.dbg->source_map_status().by_user;
+            const Result cleared = m.dbg->clear_source_map();
+            check("SRCDBG-VAR-03", "Load Source Map by hand carries the store (the map is the user's); "
+                                   "clear_source_map() drops both",
+                  out.count > 0 && vs && by_user && has_fn(vs.get(), "main") && cleared == Result::Ok &&
+                      !m.dbg->variables());
+        }
+        {   // SRCDBG-VAR-04
+            const fs::path d = var_dir("v4");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_source_map((d / "prog.map").string(), false);
+            const bool had = m.dbg->variables() != nullptr;
+            // As SRCLIFE-24: a soft reset keeps the user's map while its bytes are intact; a byte
+            // that changes while the machine runs is found at the next pause, and the map is Stale.
+            const Result rs = m.dbg->reset(m.a, ResetKind::Soft);
+            m.dbg->run(m.a);
+            const uint8_t was = m.emu.mmu().peek(0x8CB5);
+            m.emu.mmu().write(0x8CB5, static_cast<uint8_t>(was ^ 0xFF));
+            for (int i = 0; i < 5; ++i) m.emu.run_frame();
+            m.dbg->pause(m.a);
+            const auto st = m.dbg->source_map_status();
+            const bool stale_null = rs == Result::Ok && m.emu.mmu().peek(0x8CB5) != was &&
+                                    st.state == Debugger::SourceMapStatus::State::Stale && st.by_user &&
+                                    !m.dbg->variables();
+            const auto again = m.dbg->load_source_map((d / "prog.map").string(), true);
+            check("SRCDBG-VAR-04", "the user's map made Stale when its program's bytes change under a soft reset (found at the "
+                                   "next pause): variables() is null while it is Stale, and loading it again by hand brings it back",
+                  had && stale_null && again.count > 0 && m.dbg->variables() != nullptr &&
+                      m.dbg->source_map_status().state == Debugger::SourceMapStatus::State::Attached);
+        }
+        // SRCDBG-VAR-05 / -06: a rewind across the load, as SRCDBG-Z88-26 / -36
+        const auto rewound = [&](const char* name, bool read_first, std::shared_ptr<const jnext::dbg::VariableStore>& before,
+                                 std::shared_ptr<const jnext::dbg::VariableStore>& after_back,
+                                 std::shared_ptr<const jnext::dbg::VariableStore>& after_fwd,
+                                 uint64_t& rev0, uint64_t& rev1) {
+            const fs::path d = var_dir(name);
+            const std::vector<uint8_t> code = read_all(d / "prog_CODE.bin");
+            Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+            const auto frames = [&](int n) {
+                m.dbg->run(m.a);
+                for (int i = 0; i < n; ++i) m.emu.run_frame();
+                m.dbg->pause(m.a);
+            };
+            frames(1);
+            const uint32_t before_load = m.dbg->time().frame;
+            m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
+            write_text(d / "game.nex", "");
+            fs::copy_file(d / "prog.map", d / "game.map");
+            fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
+            m.dbg->load_program_sidecars((d / "game.nex").string());
+            before = m.dbg->variables();
+            frames(2);
+            const uint32_t after_load = m.dbg->time().frame;
+            const Result back = m.dbg->rewind_to_frame(m.a, before_load);
+            rev0 = m.dbg->state_revision();
+            if (read_first) after_back = m.dbg->variables();
+            rev1 = m.dbg->state_revision();
+            if (!read_first) after_back = m.dbg->variables();
+            const Result fwd = m.dbg->rewind_to_frame(m.a, after_load);
+            after_fwd = m.dbg->variables();
+            return back == Result::Ok && fwd == Result::Ok;
+        };
+        {   // SRCDBG-VAR-05
+            std::shared_ptr<const jnext::dbg::VariableStore> before, back, fwd;
+            uint64_t r0 = 0, r1 = 0;
+            const bool ok = rewound("v5", false, before, back, fwd, r0, r1);
+            check("SRCDBG-VAR-05", "a rewind to before the load drops the store (null), and rewinding back restores "
+                                   "the very same store object (pointer equal), shared with the cache, not copied",
+                  ok && before && !back && fwd == before);
+        }
+        {   // SRCDBG-VAR-06
+            std::shared_ptr<const jnext::dbg::VariableStore> before, back, fwd;
+            uint64_t r0 = 0, r1 = 0;
+            const bool ok = rewound("v6", true, before, back, fwd, r0, r1);
+            check("SRCDBG-VAR-06", "after a rewind to before the load, variables() is the FIRST reader: it runs "
+                                   "recheck(), returns null, and the state revision advances",
+                  ok && before && !back && r1 > r0);
+        }
+        {   // SRCDBG-VAR-07
+            const fs::path d = vz / "v7";
+            const std::string tap = tape_copy("v2.4/sccz80-tape", d);
+            Machine m;
+            park(m);
+            const auto r = m.dbg->load_program_sidecars(tap);
+            const auto vs = m.dbg->variables();
+            bool counter = false;
+            for (const auto& v : vs ? vs->variables() : std::vector<jnext::dbg::CVariable>{})
+                counter = counter || (v.record.var.name == "counter" && v.storage.symbol == "_counter");
+            const bool pending = m.dbg->source_map_status().pending;
+            tape_bytes(m, MemSpace::cpu(), d / "prog_CODE.bin", 0xCC4, 0x8000);
+            m.set_pc(0x8000);
+            run_frames(m, 1);
+            check("SRCDBG-VAR-07", "a tape program's map is attached at once, pending, and its store with it "
+                                   "(counter is joined); a wrong byte judged at the first execution drops the map "
+                                   "and the store",
+                  r.sources == 46 && r.sources_pending && pending && vs && counter && m.dbg->source_map().empty() &&
+                      !m.dbg->variables());
+        }
+        {   // SRCDBG-VAR-08
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto r = m.dbg->load_source_map((kZ88Fixtures / "master/sccz80-dot/prog.map").string(), false, false,
+                                                  /*dot_only=*/true);
+            const auto vs = m.dbg->variables();
+            bool total = false;
+            for (const auto& v : vs ? vs->variables() : std::vector<jnext::dbg::CVariable>{})
+                total = total || (v.record.var.name == "total" && v.storage.resolved &&
+                                  v.storage.at.space == MemSpace::divmmc_ram(2) && v.storage.at.address == 0x3251);
+            check("SRCDBG-VAR-08", "a dot command's map loaded by hand (pending, dot): its store has total at "
+                                   "DivMmcRam{2}:$3251",
+                  r.count > 0 && r.pending && vs && total);
+        }
+        {   // SRCDBG-VAR-09
+            const fs::path d = var_dir("v9");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto out = m.dbg->load_map((d / "prog.map").string(), jnext::dbg::MapFormat::Z88dk);
+            check("SRCDBG-VAR-09", "Load MAP of a z88dk map loads the symbols and no source half, so no store (OD-8)",
+                  out && out.value > 0 && m.dbg->lookup_name("_main").has_value() && m.dbg->source_map().empty() &&
+                      !m.dbg->variables());
+        }
+        {   // SRCDBG-VAR-10
+            const fs::path d = var_dir("v10");
+            write_text(d / "prog.sld", program_sld(p80, p90));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto r = m.dbg->load_program_sidecars((d / "prog.nex").string());
+            check("SRCDBG-VAR-10", "an SLD sidecar beside prog.map wins the source half, and an SLD carries no store",
+                  r.sources == 6 && m.dbg->source_map().format() == "SLD" && !m.dbg->variables());
+        }
+        {   // SRCDBG-VAR-11
+            const fs::path d = var_dir("v11");
+            const fs::path plain = d / "mine.sld";
+            write_text(plain, program_sld(p80, p90));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const bool had = m.dbg->variables() != nullptr;
+            m.dbg->load_source_map(plain.string(), false);
+            check("SRCDBG-VAR-11", "a hand SLD loaded over a z88dk map replaces it, and the store goes with the map",
+                  had && m.dbg->source_map().format() == "SLD" && !m.dbg->variables());
+        }
+        {   // SRCDBG-VAR-12
+            const fs::path d = var_dir("v12");
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const auto before = m.dbg->variables();
+            const Result lab = m.dbg->set_user_label(MemSpace::page(4), 0x909F, "mine");
+            const auto k = m.dbg->symbols().find_name("mine");
+            const auto after = m.dbg->variables();
+            check("SRCDBG-VAR-12", "a user label at s_dup's address under another name shows in the symbols, and the "
+                                   "store is the same object, still joining vars.c's s_dup to _s_dup at P4:$909F",
+                  lab == Result::Ok && k && k->addr == 0x909F && m.dbg->lookup(0x909F) == std::string("mine") &&
+                      before && after == before && s_dup_at(after.get(), 0x909F));
         }
     }
 
