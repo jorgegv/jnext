@@ -30,7 +30,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Layer 2               |      174 |      174 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART (POSIX-only rows) |       49 |       49 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART (POSIX-only rows) |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextPi launcher + TCP link (all OSes) |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      246 |      246 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket SIGPIPE (POSIX) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -62,8 +62,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | VideoTiming           |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      173 |      173 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (AY+DAC+Beeper) |      162 |      162 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (Pi I2S source, POSIX) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (AY+DAC+Beeper) |      163 |      163 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (Pi I2S source, POSIX) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (pacing)        |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -178,6 +178,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |       89 |       89 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       91 |       91 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **14189**| **14189**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **14199**| **14199**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

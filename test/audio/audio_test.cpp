@@ -3124,6 +3124,21 @@ static void g_mixer() {
               fmt("reset=%d bit0=%d en=%d onL=%d onR=%d mix=%d off=%d reset2=%d", reset_0, no_bit0,
                   no_en, on_l, on_r, muted_mix, off_again, cleared_by_reset));
     }
+    // MX-58 — I2s::ear_routed, which puts PiAudio in tape mode: NR 0xA2
+    // routes the Pi to EAR whenever the comparator above is allowed to run
+    // (I2S enabled, b7 or b6, and b0 set), whatever the current sample.
+    {
+        I2s i2s;
+        i2s.set_sample(0x200, 0x200);                    // rest: fe_ear() stays 0
+        auto routed = [&](uint8_t v) { i2s.set_nr_a2_ctl(v); return i2s.ear_routed(); };
+        const bool on  = routed(0xC1) && routed(0x81) && routed(0x41) && routed(0xFF);
+        const bool off = !routed(0x01) && !routed(0xC0) && !routed(0x00) && !routed(0x3F);
+        const bool not_level = routed(0xC1) && !i2s.fe_ear();   // the route, not the comparator
+        check("MX-58", "NR 0xA2 sends the Pi's audio to EAR (I2s::ear_routed) exactly when I2S "
+              "is enabled (b7 or b6) and bit 0 is set, independent of the comparator's level "
+              "(zxnext.vhd:2361-2373)",
+              on && off && not_level, fmt("on=%d off=%d not_level=%d", on, off, not_level));
+    }
 
     // MX-30 — RETIRED 2026-09-24 (GH #201), was the G29 WONT.
     //
