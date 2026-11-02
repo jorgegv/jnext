@@ -6,7 +6,7 @@ Every breakpoint in one list, sorted by address: an **On** checkbox, the type,
 the address and — with a MAP file loaded — the symbol at that address, or with
 a source map the source line. The Add dialog takes a symbol or, for an Execute
 breakpoint, a source line (`main.bas:120`); see
-[Source-level debugging](../functions/14-source-level-debugging.md).
+[Breakpoints on a source line](../source-debugger/06-breakpoints-and-steps.md).
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.
 The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.
 A breakpoint qualified with the memory its opcode comes from reads `$8005 P04` or

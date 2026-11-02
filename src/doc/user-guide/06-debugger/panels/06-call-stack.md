@@ -5,7 +5,7 @@ The chain of calls that led to the current instruction: depth number, the type
 recent call first. With a MAP file loaded the target column shows the symbol
 name instead of the address. With a source map loaded, **Called from** shows
 the source line each call was made from
-([Source-level debugging](../functions/14-source-level-debugging.md)); for an
+([The Source Debugger](../source-debugger/index.md)); for an
 `INT` or `NMI` frame that is the line the interrupt interrupted. Code fetched
 from a ROM or an overlay has a line only if the source map names that memory.
 **Caller memory** and **Target memory** name the memory each end ran in, as it was

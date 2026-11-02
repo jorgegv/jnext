@@ -14,7 +14,7 @@ Everything JNEXT keeps for you lives under `~/.jnext`.
 Beside a program you load, JNEXT also reads the debugger's files when they are
 there: `NAME.sld` or `NAME.sld.txt` (a source map) and, for a `.nex`,
 `NAME.Memory.txt` or `Memory.txt` (symbols). It never writes them. See
-[Source-level debugging](../06-debugger/functions/14-source-level-debugging.md).
+[Loading a source map](../06-debugger/source-debugger/05-loading-a-source-map.md).
 
 Two rules worth remembering:
 

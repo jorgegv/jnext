@@ -1,0 +1,5 @@
+# z88dk 39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7 (master)
++ zcc +zxn -clib=new -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000 -DUSE_BANKED_KW --codesegPAGE_20 --list -c banked.c -o banked.o
++ zcc +zxn -clib=new -debug -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000 -DUSE_BANKED_KW -m --list -subtype=nex -o prog -create-app bmain.c bankin.asm banked.o
+Bank 10, 16348 tail bytes free
+rc=0

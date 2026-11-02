@@ -127,6 +127,18 @@ checks; keys, joysticks and host keys; changing the machine; running scripts
 (CLI, GUI, exit codes, watchdog, CI); recording and replaying a session;
 catching memory-corruption bugs (#279); the demo scripts; a quick reference.
 
+**The Source Debugger** (GH #426, its own section): the task-oriented guide to
+stepping a program by its source lines: what a source map is and which file each
+toolchain produces; a worked first session in C with z88dk; building with z88dk
+(options, which compiler and library work on which version, tape and snapshot
+builds, banked code); dot commands; sjasmplus and Boriel ZX Basic; loading a
+source map (sidecars, by hand, tapes, identity, where the sources are found);
+breakpoints on a line, the steps and Run to Here; banked code and the memory
+tags; what the Source tab offers beyond stepping (C names, watches, coverage,
+colour schemes); scripts and remote debuggers; and the messages and limits. The
+per-panel reference stays in the Source panel page; the function page
+Source-level debugging is a list of links to the section.
+
 ## 7. Automation and CI
 
 The same machinery that automates JNEXT's own test suite automates testing of

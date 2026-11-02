@@ -97,7 +97,7 @@ crashed run are swept after a week.
 A program loaded either way brings its debugging files with it when they sit
 beside it: `game.sld` (an sjasmplus source map) and, for a `.nex`,
 `game.Memory.txt` (NextBuild / Boriel ZX Basic symbols). See
-[Source-level debugging](../06-debugger/functions/14-source-level-debugging.md).
+[Loading a source map](../06-debugger/source-debugger/05-loading-a-source-map.md).
 
 ![JNEXT running, with NextZXOS booted](../img/gui-main-window.png)
 
