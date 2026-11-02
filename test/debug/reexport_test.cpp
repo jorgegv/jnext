@@ -756,6 +756,59 @@ static void reader_rows() {
               wa + wb + " a.titles=" + std::to_string(a.titles) + " " + labels_of(a) + " b.titles=" + std::to_string(b.titles) +
                   " c=" + (c ? c->text : "-"));
     }
+    // SKCTL-15: the parameters are skoolkit's grammar (ctlparser.py parse_params()); measured against
+    // sna2skool 10.1, which warns about and drops a line that fails it.
+    {
+        const char* good[] = {
+            "B $C000,8,2:c3", "B $C000,", "B $C000,8,2*3", "B $C000,h8", "S $C000,8,2:4", "B $C000,\"A\"", "B $C000,$10",
+            "B $C000,%101", "L $C000,8,2", "L $C000,8,2,1", "@ $C000 ignoreua:t", "@ $C000 ignoreua", "@ $C000 ignoreua:m=x",
+            " $C000", "B 49152,2", "B $C000,8,2*0", "M $C000,8",
+        };
+        const char* bad[] = {
+            "B $C000,zz", "B $C000,8,", "B $C000,8,x", "B $C000,8,2*x", "L $C000", "L $C000,8", "L $C000,0,3", "L $C000,8,0",
+            "@ $C000 ignoreua:z", "@ $C000 ignoreua:", "c $C000,8", "B $C000,8,2:", "B $C000,*3", "B $C000,8,2:zz",
+            "B $C000,0x10", "S $C000,8,:3",
+        };
+        std::string wrong;
+        for (const char* g : good) {
+            reexport::Imported i;
+            std::string why;
+            if (!sk::parse_ctl(std::string("c $C000\n") + g + "\n", "x", i, why)) wrong += std::string(" good[") + g + " -> " + why + "]";
+        }
+        for (const char* b : bad) {
+            std::string why;
+            if (!parse_fails_at(std::string("c $C000\n") + b + "\n", "x", "line 2:", why)) wrong += std::string(" bad[") + b + " -> " + why + "]";
+        }
+        check("SKCTL-15", "the reader refuses, as sna2skool 10.1 warns about and drops them, B $C000,zz, a trailing empty or "
+                          "non-integer parameter, L without a length or a count, a bad @ignoreua suffix, parameters on a lowercase "
+                          "block, an empty sublength, 0x; and accepts the forms skoolkit accepts (B $C000,8,2:c3, a trailing comma "
+                          "on the first parameter, *N repeats, base letters, \"A\", $ and % numbers, @ignoreua, a blank directive)",
+              wrong.empty(), wrong);
+    }
+    // SKCTL-16: an @ line between a sub-block and its continuation lines leaves the comment open (skoolkit's parse_ctls).
+    {
+        reexport::Imported i;
+        std::string why;
+        const bool ok = sk::parse_ctl("c $C000\nB $C000,1 one\n@ $C000 label=x\n. two\n", "x", i, why);
+        reexport::Imported j;
+        const bool ok2 = sk::parse_ctl("c $C000\n. a title\n@ $C000 label=y\n. more\n", "x", j, why);
+        const auto* c = comment_at(i, 0xC000);
+        check("SKCTL-16", "'B $C000,1 one', '@ $C000 label=x', '. two' imports the comment 'one\\ntwo' and the label; an @ line "
+                          "between a block directive and its title lines leaves the title open",
+              ok && ok2 && c && c->text == "one\ntwo" && labels_of(i) == "$C000 x;" && j.titles == 1 && j.continued == 1, why);
+    }
+    // SKCTL-17: an @ address is range-checked like any other, and the memory header counts only before the first directive.
+    {
+        std::string w1, w2;
+        reexport::Imported late;
+        std::string why;
+        const bool ok = sk::parse_ctl("c $C000\n# jnext space P11\n", "C000-P10", late, why);
+        check("SKCTL-17", "'@ 65536 label=x' and '@ -1 label=x' are refused (line N: outside 0..65535); a '# jnext space P11' line "
+                          "after the first directive is a plain comment: the file stays tagged by its name",
+              parse_fails_at("c $C000\n@ 65536 label=x\n", "x", "line 2:", w1) &&
+                  parse_fails_at("c $C000\n@ -1 label=x\n", "x", "line 2:", w2) &&
+                  ok && late.space && *late.space == MemSpace::page(0x10), w1 + w2);
+    }
     // GHSYM-03: the Ghidra reader, the script's grammar.
     {
         reexport::Imported i;
@@ -799,6 +852,15 @@ static void reader_rows() {
         const bool bad = gh::parse_symbols("c 0x8002 l\nd ram:1\n", out, why);
         check("GHSYM-05", "a Ghidra file whose last line is bad leaves a filled result unchanged",
               good && !bad && out.labels.size() == 2 && out.labels[0].name == "a", why);
+    }
+    // GHSYM-06: a CPU: prefix means no memory (untagged), as the file's CPU.ghidra.txt writes its lines.
+    {
+        reexport::Imported i;
+        std::string why;
+        const bool ok = gh::parse_symbols("c1 CPU:0x8000 l\nc2 CPU:9000\n", i, why);
+        check("GHSYM-06", "the Ghidra reader takes 'CPU:0x8000' as an untagged label, not as the Cpu space",
+              ok && i.labels.size() == 2 && !i.labels[0].space && i.labels[0].addr == 0x8000 && !i.labels[1].space &&
+                  i.labels[1].addr == 0x9000, why);
     }
 }
 
@@ -1248,6 +1310,22 @@ static void backend_rows() {
               r == Result::Ok && rep.files == 1 && rep.labels == 3 && rep.comments == 2 &&
                   has(notes, "8 block title(s)") && has(notes, "1 description(s)") && has(notes, "2 other directive(s)"),
               why + notes);
+    }
+
+    // SRCDBG-REX-16: a space that holds only a user comment still gets its bytes (the .bin is why D-S6 exists).
+    {
+        const fs::path d = g_dir / "r16";
+        Emulator emu; build_next(emu);
+        Debugger dbg(emu);
+        std::string why;
+        dbg.set_user_comment(MemSpace::page(0x10), 0xC000, "only a comment", &why);
+        const Result r = dbg.export_skoolkit(d.string(), nullptr, &why);
+        std::vector<uint8_t> page(0x2000);
+        dbg.peek(MemSpace::page(0x10), 0, page.size(), page.data());
+        check("SRCDBG-REX-16", "a page with a user comment and no label or coverage exports C000-P10.ctl with the comment and "
+                               "C000-P10.bin with the page's bytes",
+              r == Result::Ok && has(slurp(d / "C000-P10.ctl"), "C $C000 only a comment") && bytes_of(slurp(d / "C000-P10.bin")) == page,
+              why + join(ls(d)));
     }
 }
 

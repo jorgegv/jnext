@@ -25,6 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #     only: unsplit, they would be cut to `DEFB $ED,$91`).
 # B4  skool2ctl.py -k -h turns A2-style output back into a control file; --import-skoolkit reads it in a
 #     fresh run and that run's export has the same labels and comments (GH #389 stage B).
+# A4  the same imports through the Qt and SDL owners and a failing import of each kind in each (stage B review 1).
 # A3  the Qt (offscreen) and SDL (dummy driver) loop owners write the same directory as the
 #     headless one, byte for byte (a frontend whose exit forgot the export wrote nothing).
 if want skoolkit-foreign-func; then
@@ -164,6 +165,41 @@ if want skoolkit-foreign-func; then
                 sf_faults+=("B4: $out")
             fi
         fi
+
+        # ---- A4: the three loop owners import (GH #389 stage B review 1): the same --import-skoolkit and
+        # --import-ghidra files, then an export, and the exports are the same; a failing import of each
+        # kind exits non-zero in each owner (dropping the option lists from ScriptHostOptions in an owner
+        # would import nothing there).
+        printf '%s\n' "# jnext space P04" 'c $8000' '@ $8000 label=imp_sk' 'B $8000 imported note' >"$sf_dir/a4.ctl"
+        printf '%s\n' "imp_gh P04:0x8010 l" >"$sf_dir/a4.txt"
+        printf '%s\n' "# jnext space P04" 'c $ZZZZ' >"$sf_dir/a4bad.ctl"
+        printf '%s\n' "x ram:0x8000 l" >"$sf_dir/a4bad.txt"
+        for fe in plain qt sdl; do
+            bin=$JNEXT; [[ $fe == sdl ]] && bin=$JNEXT_SDL
+            sf_jnext "$bin" "$fe" "$sf_dir/a4-$fe.log" --machine 48k --coverage --import-skoolkit "$sf_dir/a4.ctl" \
+                --import-ghidra "$sf_dir/a4.txt" --export-skoolkit "$sf_dir/D4-$fe" --export-ghidra "$sf_dir/G4-$fe" \
+                --delayed-automatic-exit-frames 20
+            if ! grep -qE -- "--import-skoolkit: 1 file, 1 label, 1 comment" "$sf_dir/a4-$fe.log" ||
+               ! grep -qE -- "--import-ghidra: 1 file, 1 label, 0 comments" "$sf_dir/a4-$fe.log"; then
+                sf_faults+=("A4: $fe did not log both imports")
+            fi
+            grep -q "label=imp_sk" "$sf_dir/D4-$fe/8000-P04.ctl" 2>/dev/null || sf_faults+=("A4: $fe's export lacks the imported skoolkit label")
+            grep -q "imported note" "$sf_dir/D4-$fe/8000-P04.ctl" 2>/dev/null || sf_faults+=("A4: $fe's export lacks the imported comment")
+            grep -q "imp_gh P04:0x8010 l" "$sf_dir/G4-$fe/P04.ghidra.txt" 2>/dev/null || sf_faults+=("A4: $fe's Ghidra export lacks the imported label")
+            for kind in skoolkit ghidra; do
+                badf="$sf_dir/a4bad.ctl"; [[ $kind == ghidra ]] && badf="$sf_dir/a4bad.txt"
+                rc=0
+                sf_jnext_rc "$bin" "$fe" "$sf_dir/a4-bad-$kind-$fe.log" --machine 48k --import-"$kind" "$badf" \
+                    --delayed-automatic-exit-frames 5 || rc=$?
+                [[ $rc -ne 0 ]] || sf_faults+=("A4: $fe exited 0 with a failing --import-$kind")
+                grep -q -- "--import-$kind .*line [0-9]*:" "$sf_dir/a4-bad-$kind-$fe.log" || sf_faults+=("A4: $fe did not name the line of the failing --import-$kind")
+            done
+        done
+        for fe in qt sdl; do
+            if ! diff -r "$sf_dir/D4-plain" "$sf_dir/D4-$fe" >"$sf_dir/a4-$fe.diff" 2>&1 || ! diff -r "$sf_dir/G4-plain" "$sf_dir/G4-$fe" >>"$sf_dir/a4-$fe.diff" 2>&1; then
+                sf_faults+=("A4: $fe's exports after the imports differ from the headless ones: $(head -n 2 "$sf_dir/a4-$fe.diff" | tr '\n' ' ' || true)")
+            fi
+        done
 
         # ---- A3: the three loop owners write the same files
         printf '%s\n' "rom_start: EQU 0x00000000" "rst38: EQU 0x00000038" >"$sf_dir/a3.sym"

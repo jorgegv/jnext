@@ -1698,6 +1698,8 @@ int main() {
                 { std::ofstream f(fb); f << "# jnext space P04\nc $8010\n@ $8010 label=lb\n"; }
                 { std::ofstream f(fg); f << "lg P04:0x8020 l\n"; }
                 { std::ofstream f(fbad); f << "# jnext space P04\nc $ZZZZ\n"; }
+                const std::string fbadg = rx + ".bad.txt";
+                { std::ofstream f(fbadg); f << "x ram:0x8000 l\n"; }
                 const std::string base = "--headless --machine 48k" + sd_arg + " --delayed-automatic-exit-frames 1";
                 const std::string good = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fb +
                                          "\" --import-ghidra \"" + fg + "\"";
@@ -1712,12 +1714,18 @@ int main() {
                 const std::string bad_all = slurp(out_path) + slurp(err_path);
                 const bool names = bad_all.find("--import-skoolkit") != std::string::npos &&
                                    bad_all.find("bad.ctl: line 2:") != std::string::npos;
+                const std::string badg = base + " --import-ghidra \"" + fbadg + "\"";
+                const int rc_bad_g = run(badg);
+                run_split(badg);
+                const std::string badg_all = slurp(out_path) + slurp(err_path);
+                const bool names_g = badg_all.find("--import-ghidra") != std::string::npos &&
+                                     badg_all.find("bad.txt: line 1:") != std::string::npos;
                 const bool arity = cli::find("--import-skoolkit") && cli::find("--import-skoolkit")->arity == 1 &&
                                    cli::find("--import-ghidra") && cli::find("--import-ghidra")->arity == 1;
-                for (const std::string& f : {fa, fb, fg, fbad}) std::remove(f.c_str());
+                for (const std::string& f : {fa, fb, fg, fbad, fbadg}) std::remove(f.c_str());
                 check("CLI-REX-02", "two --import-skoolkit and one --import-ghidra read their files at start and log the "
-                                    "counts; a bad control file fails the run, naming the option, the file and the line",
-                      arity && rc == 0 && logged && rc_bad != 0 && names,
+                                    "counts; a bad control file and a bad Ghidra file each fail the run, naming the option, the file and the line",
+                      arity && rc == 0 && logged && rc_bad != 0 && names && rc_bad_g != 0 && names_g,
                       std::string("rc=") + std::to_string(rc) + " logged=" + (logged ? "1" : "0") + " rc_bad=" +
                           std::to_string(rc_bad) + " names=" + (names ? "1" : "0") + " " + all.substr(0, 300));
             }

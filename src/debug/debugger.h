@@ -1071,8 +1071,10 @@ public:
     // generation moves; allowed while the machine runs.
     //
     // Each file is written to `<name>.part` and renamed. A previous export's files
-    // this one does not write are removed (a `*.ctl` whose first line is
-    // `# jnext space ` and its `.bin`; every `*.ghidra.txt`), so a stale space never
+    // this one does not write are removed: a `*.ctl` whose first line is
+    // `# jnext space ` and the `.bin` of its `WWWW-TAG` stem, or `CPU.ghidra.txt`,
+    // `view.ghidra.txt` and `<TAG>.ghidra.txt` for a TAG that names a space (any other
+    // `*.ghidra.txt` is the user's), so a stale space never
     // reaches `sna2skool.py -c DIR`. A `.ctl` or `.bin` the export would write that
     // exists and is not jnext's refuses the export before anything is written.
     //

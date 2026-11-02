@@ -2963,114 +2963,144 @@ into the user's labels and comments (7.4.6). The decisions are in section 11.2 o
 <p>Both are pure (std, <code>mem_space.h</code>, <code>long_address.h</code>, <code>disasm.h</code>); their inputs and outputs are the
 plain structs of <code>src/debug/reexport.h</code>.</p>
 <ul>
-<li><strong>The classifier</strong>, <code>skoolkit::classify()</code> (<code>skoolkit_ctl.cpp:34</code>). Over a space's whole store:
-  an X byte starts an instruction whose extent is <code>instruction_length()</code>, clipped at the store end
-  and at the next X start; a byte is code inside an extent, else data (R or W), else unknown. A
-  store with no mark is one code run.</li>
-<li><strong>The files</strong>, <code>skoolkit::build()</code> (<code>skoolkit_ctl.cpp:196</code>): one <code>&lt;WWWW&gt;-&lt;TAG&gt;.ctl</code> and <code>.bin</code>
-  (<code>file_name()</code>, <code>skoolkit_ctl.cpp:87</code>) per window of each space, <code>0000-0CPU.ctl</code> for the unpaged labels. The
-  windows are those holding the space's keys; with none, the one that maps the space now
-  (<code>Input::mapped_window</code>), else <code>home_window()</code> (<code>skoolkit_ctl.cpp:19</code>).
-  <code>render_window()</code> (<code>skoolkit_ctl.cpp:142</code>) writes the
-  header, <code>@ start</code> / <code>@ org</code>, the block directives (<code>block_letter()</code>, <code>skoolkit_ctl.cpp:137</code>), the labels, the
-  <code>B</code>/<code>C</code> sub-blocks and the closing <code>i</code>. A Z80N instruction or a clipped one is a <code>B</code> sub-block,
-  and so is each piece of an instruction a key falls in.</li>
-<li><strong>Window sizes and homes.</strong> <code>window_size()</code> (<code>skoolkit_ctl.cpp:17</code>) is the size of the space's
-  store: 8 KB, or 16 KB for <code>Rom</code>, <code>AltRom</code> and <code>Config</code>. A space with neither keys nor a current
-  mapping goes to <code>home_window()</code> (<code>skoolkit_ctl.cpp:19</code>): the 128K bank positions for a RAM page
-  (<code>$4000</code>/<code>$6000</code> for pages <code>0x0A</code>/<code>0x0B</code>, <code>$8000</code>/<code>$A000</code> for <code>0x04</code>/<code>0x05</code>, <code>$C000</code> plus
-  <code>(n &amp; 1) * $2000</code> for any other), <code>$0000</code> for ROM, <code>$2000</code> for a DivMMC bank. The home exists
-  because coverage is keyed by (memory, offset) and records no logical address: nothing says where a
-  page was mapped when it ran.</li>
+<li><strong>The classifier</strong>, <code>classify()</code> (<code>skoolkit_ctl.cpp:34</code>).
+  Over a space's whole store: an X byte starts an instruction whose extent is <code>instruction_length()</code>,
+  clipped at the store end and at the next X start; a byte is code inside an extent, else data (R or W),
+  else unknown. A store with no mark is one code run.</li>
+<li><strong>The files</strong>, <code>build()</code> (<code>skoolkit_ctl.cpp:196</code>):
+  one <code>&lt;WWWW&gt;-&lt;TAG&gt;.ctl</code> and <code>.bin</code> per window of each space, named by <code>file_name()</code> (<code>skoolkit_ctl.cpp:87</code>),
+  and <code>0000-0CPU.ctl</code> for the unpaged labels. The windows are those holding the space's keys; with
+  none, the one that maps the space now (<code>Input::mapped_window</code>), else <code>home_window()</code> (<code>skoolkit_ctl.cpp:19</code>).
+  The text of a window is written by <code>render_window()</code> (<code>skoolkit_ctl.cpp:142</code>):
+  the header, <code>@ start</code> / <code>@ org</code>, the block directives (<code>block_letter()</code> (<code>skoolkit_ctl.cpp:137</code>)),
+  the labels, the <code>B</code>/<code>C</code> sub-blocks and the closing <code>i</code>. A Z80N instruction or a clipped one is a <code>B</code>
+  sub-block, and so is each piece of an instruction a key falls in.</li>
+<li><strong>Window sizes and homes.</strong> <code>window_size()</code> (<code>skoolkit_ctl.cpp:17</code>)
+  is the size of the space's store: 8 KB, or 16 KB for <code>Rom</code>, <code>AltRom</code> and <code>Config</code>. A space with
+  neither keys nor a current mapping goes to <code>home_window()</code> (<code>skoolkit_ctl.cpp:19</code>):
+  the 128K bank positions for a RAM page (<code>$4000</code>/<code>$6000</code> for pages <code>0x0A</code>/<code>0x0B</code>, <code>$8000</code>/<code>$A000</code> for
+  <code>0x04</code>/<code>0x05</code>, <code>$C000</code> plus <code>(n &amp; 1) * $2000</code> for any other), <code>$0000</code> for ROM, <code>$2000</code> for a DivMMC
+  bank. The home exists because coverage is keyed by (memory, offset) and records no logical address:
+  nothing says where a page was mapped when it ran.</li>
 <li><strong>Where the identity lives.</strong> A control file describes one 64 KB view and skoolkit's only bank
   notion is the <code>@bank</code> directive, which names neither the Next's 224 8 KB pages nor ROM and the
-  overlays. So the identity is the file name and the first line, <code>"# jnext space " + tag</code>
-  (<code>skoolkit_ctl.cpp:186</code>), a control-file comment skoolkit ignores. The same
-  prefix is how a later export recognises its own files (<code>kCtlHeader</code>, <code>debugger_reinterop.cpp:33</code>).</li>
-<li><strong>File order.</strong> <code>build()</code> puts the unpaged file first (<code>skoolkit_ctl.cpp:286</code>; it is named <code>0000-0CPU.ctl</code>, not <code>0000-CPU.ctl</code>, because the <code>0</code> sorts before the letter every <code>0000-&lt;TAG&gt;</code> starts with: <code>0000-ALTROM0</code>, <code>0000-BOOT</code> and <code>0000-CFG00</code> would otherwise sort ahead of it) and sorts all files by
-  name with <code>stable_sort()</code> (<code>skoolkit_ctl.cpp:288</code>), which is address order. Two files that disagree at a shared boundary address are
-  applied in command-line order, and <code>sna2skool.py -c DIR</code> reads <code>sorted(glob(DIR/*.ctl))</code>, so a
-  paged label wins over an unpaged one at the same address, as in the disassembly.</li>
-<li><strong>The <code>.bin</code>.</strong> <code>build()</code> writes it beside each control file (<code>skoolkit_ctl.cpp:266</code>) from the
-  bytes <code>export_skoolkit()</code> read with <code>peek()</code> now (<code>debugger_reinterop.cpp:200</code>). skoolkit reads no
-  NEX, so a Next page's control file is useless without them, and <code>sna2skool.py -o 0xWWWW
-  WWWW-TAG.bin</code> finds exactly that <code>.ctl</code> by default pickup, which happens only when no <code>-c</code> is given.</li>
+  overlays. So the identity is the file name and the first line, written as the string
+  <code>"# jnext space "</code> (<code>skoolkit_ctl.cpp:186</code>) (a control-file comment
+  skoolkit ignores). The same prefix is how a later export recognises its own files:
+  <code>kCtlHeader()</code> (<code>debugger_reinterop.cpp:33</code>).</li>
+<li><strong>File order.</strong> <code>out.files</code> (<code>skoolkit_ctl.cpp:286</code>)
+  puts the unpaged file first; it is named <code>0000-0CPU.ctl</code>, not <code>0000-CPU.ctl</code>, because the <code>0</code> sorts
+  before the letter every <code>0000-&lt;TAG&gt;</code> starts with (<code>0000-ALTROM0</code>, <code>0000-BOOT</code> and <code>0000-CFG00</code> would
+  otherwise sort ahead of it). All files are then ordered by name with
+  <code>stable_sort()</code> (<code>skoolkit_ctl.cpp:288</code>), which is address order.
+  Two files that disagree at a shared boundary address are applied in command-line order, and
+  <code>sna2skool.py -c DIR</code> reads <code>sorted(glob(DIR/*.ctl))</code>, so a paged label wins over an unpaged one at
+  the same address, as in the disassembly.</li>
+<li><strong>The <code>.bin</code>.</strong> <code>file_name()</code> (<code>skoolkit_ctl.cpp:266</code>)
+  writes it beside each control file, from the bytes the export read with
+  <code>peek()</code> (<code>debugger_reinterop.cpp:200</code>) now. skoolkit reads no NEX, so a Next
+  page's control file is useless without them, and <code>sna2skool.py -o 0xWWWW WWWW-TAG.bin</code> finds exactly
+  that <code>.ctl</code> by default pickup, which happens only when no <code>-c</code> is given.</li>
 <li><strong>No map for what cannot be read.</strong> The identity-only memories (boot ROM, Multiface, DivMMC ROM,
   alternate ROM, Layer 2, config, floating) are refused by <code>peek()</code>, so they have no instruction
-  lengths and get no code/data map; <code>export_skoolkit()</code> says so in the report (<code>"coverage of ... is
-  not mapped"</code>, <code>debugger_reinterop.cpp:208</code>; SRCDBG-REX-07). With coverage off the report says that
-  too (the <code>mem_coverage_enabled()</code> test at <code>debugger_reinterop.cpp:184</code>).</li>
-<li><strong>Unpaged labels</strong> are also label-less keys of every window written that covers their address
-  (the loop in <code>skoolkit::build()</code>, <code>skoolkit_ctl.cpp:247-255</code>), so the same splits keep them from being dropped by sna2skool
-  (SKCTL-08d).</li>
-<li><strong>Ghidra</strong>, <code>ghidra::build()</code> (<code>ghidra_symbols.cpp:39</code>): one file per space; the <code>&lt;TAG&gt;:</code> prefix
-  is set in <code>prefix_of</code> (<code>ghidra_symbols.cpp:54</code>); <code>CPU.ghidra.txt</code> and <code>view.ghidra.txt</code> (the labels the disassembly shows now).</li>
-<li><strong>The line formats.</strong> <code>render()</code> (<code>ghidra_symbols.cpp:29</code>) writes <code>NAME &lt;TAG&gt;:0xHHHH l</code> for a
-  space's file and <code>NAME 0xHHHH l</code> for <code>CPU.ghidra.txt</code> and <code>view.ghidra.txt</code> (the format string is
-  at <code>ghidra_symbols.cpp:33</code>), sorted by address then name, with no header, comment or blank line, and
-  only when the file has a line (<code>ghidra_symbols.cpp:64</code>). <code>view.ghidra.txt</code> exists because on a 48K
-  or 128K machine every RAM label is paged, so the per-space files alone would need one overlay per
-  page to import a 48K program into flat memory.</li>
-<li><strong>The Z80N table</strong>, <code>kZ80nEd</code> (<code>disasm.cpp:362</code>)
-  read by <code>z80n_ed_length()</code> (<code>disasm.cpp:371</code>), by
-  <code>instruction_length()</code> and by <code>is_z80n_extension()</code> (<code>disasm.cpp:813</code>).</li>
+  lengths and get no code/data map; the report says so with the note
+  <code>space_tag()</code> (<code>debugger_reinterop.cpp:208</code>)
+  (SRCDBG-REX-07). With coverage off the report says that too, behind
+  <code>mem_coverage_enabled()</code> (<code>debugger_reinterop.cpp:184</code>).</li>
+<li><strong>Unpaged labels</strong> are also label-less keys of every window written that covers their address, added
+  by the loop over <code>by_window</code> (<code>skoolkit_ctl.cpp:251</code>), so the same
+  splits keep them from being dropped by sna2skool (SKCTL-08d).</li>
+<li><strong>Ghidra</strong>, <code>build()</code> (<code>ghidra_symbols.cpp:39</code>):
+  one file per space; the <code>&lt;TAG&gt;:</code> prefix is set in <code>prefix_of</code> (<code>ghidra_symbols.cpp:54</code>);
+  <code>CPU.ghidra.txt</code> and <code>view.ghidra.txt</code> (the labels the disassembly shows now).</li>
+<li><strong>The line formats.</strong> <code>render()</code> (<code>ghidra_symbols.cpp:29</code>)
+  writes <code>NAME &lt;TAG&gt;:0xHHHH l</code> for a space's file and <code>NAME 0xHHHH l</code> for <code>CPU.ghidra.txt</code> and
+  <code>view.ghidra.txt</code>, sorted by address then name (the format string is at <code>hex4()</code> (<code>ghidra_symbols.cpp:33</code>)),
+  with no header, comment or blank line, and only when the file has a line, as
+  <code>render()</code> (<code>ghidra_symbols.cpp:64</code>) shows.
+  <code>view.ghidra.txt</code> exists because on a 48K or 128K machine every RAM label is paged, so the per-space
+  files alone would need one overlay per page to import a 48K program into flat memory.</li>
+<li><strong>The Z80N table</strong>, <code>kZ80nEd()</code> (<code>disasm.cpp:362</code>), is read by
+  <code>z80n_ed_length()</code> (<code>disasm.cpp:371</code>), by <code>instruction_length()</code> and by
+  <code>is_z80n_extension()</code> (<code>disasm.cpp:813</code>).</li>
 </ul>
 <h2 id="3-the-verbs-and-the-directory">3. The verbs and the directory<a class="headerlink" href="#3-the-verbs-and-the-directory" title="Permanent link">&para;</a></h2>
-<p><code>debugger_reinterop.cpp</code>: <code>gather_labels()</code> (<code>debugger_reinterop.cpp:75</code>) takes one entry per key of <code>symbols()</code> named by
-<code>lookup()</code>; <code>Debugger::export_skoolkit()</code> (<code>debugger_reinterop.cpp:176</code>) adds the stores (<code>peek()</code> and <code>mem_coverage()</code>,
-a note for coverage it cannot read) and <code>export_ghidra()</code> (<code>debugger_reinterop.cpp:225</code>) the view. <code>write_directory()</code>
-(<code>debugger_reinterop.cpp:93</code>) checks every file in the way before writing (<code>Unsupported</code>), writes <code>&lt;name&gt;.part</code>
-(<code>debugger_reinterop.cpp:127</code>)
-and renames it with <code>fs::rename</code> (<code>debugger_reinterop.cpp:137</code>), then removes a previous export's files that this one did not
-write: a <code>*.ctl</code> whose first line is <code># jnext space</code> (<code>has_jnext_header()</code>, <code>debugger_reinterop.cpp:151</code>) and the <code>.bin</code> of its <code>WWWW-TAG</code> stem
-(<code>is_ctl_stem()</code>, defined at <code>debugger_reinterop.cpp:59</code>
-and applied at <code>debugger_reinterop.cpp:158</code>),
-or the Ghidra names (<code>is_ghidra_export_name()</code>, <code>debugger_reinterop.cpp:49</code>). Anything
-else in the directory is never touched. A path that is a regular file (<code>refuse()</code> at <code>debugger_reinterop.cpp:98</code>) or a directory that
-cannot be created (<code>refuse()</code> at <code>debugger_reinterop.cpp:100</code>) is <code>RefusedUnavailable</code>; a <code>.ctl</code> or <code>.bin</code> in the way that is not jnext's
-is <code>Unsupported</code> and nothing is written (<code>refuse()</code> at <code>debugger_reinterop.cpp:113</code>).</p>
-<p>Names are exported as <code>lookup()</code> shows them (<code>gather_labels()</code>, <code>debugger_reinterop.cpp:84</code>), so a
-z88dk C symbol goes out under its C name. The verbs are reads: they call only <code>peek()</code>,
-<code>mem_coverage()</code>, <code>mem_coverage_enabled()</code>, <code>mem_coverage_spaces()</code>, <code>symbols()</code>, <code>lookup()</code> and <code>source_page()</code>, so no machine state changes and no
-generation moves (SRCDBG-REX-03, with REX-04 as its control).</p>
+<p>All in <code>debugger_reinterop.cpp</code>. <code>gather_labels()</code> (<code>debugger_reinterop.cpp:75</code>)
+takes one entry per key of <code>symbols()</code> named by <code>lookup()</code>.
+<code>Debugger::export_skoolkit</code> (<code>debugger_reinterop.cpp:176</code>)
+adds the stores (<code>peek()</code> and <code>mem_coverage()</code>, a note for coverage it cannot read) and
+<code>Debugger::export_ghidra</code> (<code>debugger_reinterop.cpp:225</code>) the view.</p>
+<p><code>write_directory()</code> (<code>debugger_reinterop.cpp:93</code>)
+checks every file in the way before writing (<code>Unsupported</code>), writes <code>&lt;name&gt;.part</code>
+(<code>part</code> (<code>debugger_reinterop.cpp:127</code>)) and renames it with
+<code>fs::rename</code> (<code>debugger_reinterop.cpp:137</code>). Then it removes a previous
+export's files that this one did not write: a <code>*.ctl</code> whose first line is <code># jnext space</code>
+(<code>has_jnext_header()</code> (<code>debugger_reinterop.cpp:151</code>))
+and the <code>.bin</code> of its <code>WWWW-TAG</code> stem (<code>is_ctl_stem()</code> (<code>debugger_reinterop.cpp:59</code>),
+applied at <code>is_ctl_stem()</code> (<code>debugger_reinterop.cpp:158</code>)), or the Ghidra names
+(<code>is_ghidra_export_name()</code> (<code>debugger_reinterop.cpp:49</code>)). Anything else in
+the directory is never touched. A path that is a regular file
+(<code>refuse()</code> (<code>debugger_reinterop.cpp:98</code>)) or a directory that cannot be created
+(<code>refuse()</code> (<code>debugger_reinterop.cpp:100</code>)) is <code>RefusedUnavailable</code>; a <code>.ctl</code> or <code>.bin</code>
+in the way that is not jnext's is <code>Unsupported</code> and nothing is written
+(<code>refuse()</code> (<code>debugger_reinterop.cpp:113</code>)).</p>
+<p>Names are exported as <code>lookup()</code> shows them (<code>lookup()</code> (<code>debugger_reinterop.cpp:84</code>)),
+so a z88dk C symbol goes out under its C name. The verbs are reads: they call only <code>peek()</code>,
+<code>mem_coverage()</code>, <code>mem_coverage_enabled()</code>, <code>mem_coverage_spaces()</code>, <code>symbols()</code>, <code>lookup()</code> and
+<code>source_page()</code>, so no machine state changes and no generation moves (SRCDBG-REX-03, with REX-04 as its
+control).</p>
 <h3 id="import">Import<a class="headerlink" href="#import" title="Permanent link">&para;</a></h3>
-<p><code>Debugger::import_skoolkit()</code> (<code>debugger_reinterop.cpp:254</code>) and
-<code>Debugger::import_ghidra()</code> (<code>debugger_reinterop.cpp:300</code>) read ALL their files
-into a scratch copy of <code>annotations()</code> and apply it with one <code>replace_annotations()</code>, so a refusal anywhere changes nothing and a
-success is one revision bump (SRCDBG-REX-12, -13). The readers are pure, in the writers' files:</p>
+<p><code>Debugger::import_skoolkit</code> (<code>debugger_reinterop.cpp:254</code>) and
+<code>Debugger::import_ghidra</code> (<code>debugger_reinterop.cpp:300</code>) read ALL their
+files into a scratch copy of <code>annotations()</code> and apply it with one <code>replace_annotations()</code>, so a refusal
+anywhere changes nothing and a success is one revision bump (SRCDBG-REX-12, -13). The readers are pure,
+in the writers' files:</p>
 <ul>
-<li><strong>skoolkit</strong>, <code>parse_ctl()</code> (<code>skoolkit_ctl.cpp:340</code>). It mirrors the grammar of <code>skoolkit/ctlparser.py</code>
-  <code>_parse_ctl_line()</code> (<code>skoolkit/ctlparser.py:208</code>)
-  but is strict where skoolkit only warns (<code>skoolkit/ctlparser.py:119</code>): an address that
-  is not decimal, <code>$hex</code> or <code>%bin</code> (<code>skool_int()</code>, <code>skoolkit_ctl.cpp:316</code>; <code>0x</code> is refused
-  too) or is above 65535, an unknown directive, extra parameters on a block directive, a blank directive before any block, a label name
-  outside <code>UserAnnotations::valid_label_name()</code>, one name at two addresses, and text that is not UTF-8 refuse the file with <code>line N:
-  reason</code>. It takes <code>@ ADDR label=NAME</code> (a leading <code>*</code> dropped; two labels at one address keep the last, as skoolkit applies it) and the
-  text of a <code>B C S T W</code> or blank-lead sub-block with its <code>.</code> / <code>:</code> continuation lines, joined with line feeds, as the comment at that
-  address. Block titles (a lowercase directive with text, or the first <code>.</code> line after one without), <code>D</code> descriptions and the other
-  directives are counted in <code>reexport::Imported</code> (<code>reexport.h:71</code>) and not imported; no store holds a code/data map.</li>
+<li><strong>skoolkit</strong>, <code>parse_ctl()</code> (<code>skoolkit_ctl.cpp:473</code>). It mirrors the grammar of
+  <code>_parse_ctl_line()</code> (<code>skoolkit/ctlparser.py:208</code>) but is strict where skoolkit only warns
+  (<code>skoolkit/ctlparser.py:119</code>, "Ignoring line"). The parameters go through a port of skoolkit's
+  <code>parse_params()</code> (<code>parse_params()</code> (<code>skoolkit_ctl.cpp:447</code>), from
+  <code>skoolkit/ctlparser.py:39</code>): base letters, <code>:</code> sublengths, <code>*N</code> repeats, characters like <code>"A"</code>, and the
+  <code>L</code> loop rules; the numbers are <code>get_int_param()</code> (<code>skoolkit_ctl.cpp:349</code>)
+  (<code>get_int_param()</code> in <code>skoolkit/__init__.py:88</code>, without its <code>0x</code> form). A line skoolkit would drop (a
+  bad integer, extra parameters on a lowercase block, <code>L</code> without a length or count, an unknown
+  directive, a blank directive before any block, a bad <code>@ignoreua</code> suffix) refuses the file with
+  <code>line N: reason</code>, as do an address outside 0..65535, a label name outside
+  <code>UserAnnotations::valid_label_name()</code>, one name at two addresses and text that is not UTF-8
+  (SKCTL-12, SKCTL-15, SKCTL-17; measured against sna2skool 10.1). It takes <code>@ ADDR label=NAME</code> (a
+  leading <code>*</code> dropped; two labels at one address keep the last, as skoolkit applies it) and the text of
+  a <code>B C S T W</code> or blank-lead sub-block with its <code>.</code> / <code>:</code> continuation lines, joined with line feeds,
+  as the comment at that address. An <code>@</code> line leaves a comment open, as in skoolkit (SKCTL-16). Block
+  titles (a lowercase directive with text, or the first <code>.</code> line after one without), <code>D</code> descriptions
+  and the other directives are counted in <code>Imported</code> (<code>reexport.h:71</code>) and not
+  imported; no store holds a code/data map.</li>
 <li><strong>Ghidra</strong>, <code>parse_symbols()</code> (<code>ghidra_symbols.cpp:81</code>), the script's grammar
-  (<code>line.split()</code> at <code>ImportSymbolsScript.py:38</code>,
-  <code>toAddr()</code> at <code>ImportSymbolsScript.py:41</code>): whitespace split, name, address, then anything; blank lines skipped. The address is <code>0xHHHH</code>
-  or <code>TAG:0xHHHH</code>; a prefix that is no jnext memory tag (<code>ram:0x8000</code>), an expression, a <code>#</code> line and a bad name refuse; two labels
-  at one address keep the first (Ghidra's primary is the first created).</li>
-<li><strong>Which memory.</strong> A control file's memory is its <code># jnext space TAG</code> line, else its name (<code>TAG.ctl</code>, <code>WWWW-TAG.ctl</code>), else none; none and
-  <code>CPU</code> are untagged, and each untagged entry takes <code>source_page(addr)</code> when the file is read (<code>debugger_reinterop.cpp:269</code>),
-  the identity the disassembly looks labels up with. A command-line import runs in <code>ScriptHost::start()</code>
-  (<code>script_host.cpp:171</code>;
-  <code>import_all</code> at <code>script_host.cpp:218</code>) after <code>--annotations</code>
-  and before <code>--load</code>, so an untagged file is placed by the mapping at start.</li>
-<li><strong>Export carries comments.</strong> <code>export_skoolkit()</code> passes <code>annotations().entries()</code> with a comment as <code>Input::comments</code>
-  (<code>debugger_reinterop.cpp:185</code>), and <code>symbols()</code> is the composed table,
-  so a user label already shadows the toolchain's in both exports (SRCDBG-REX-14).</li>
+  (<code>line.split()</code>, <code>ImportSymbolsScript.py:38</code>; <code>toAddr()</code>, <code>ImportSymbolsScript.py:41</code>): whitespace
+  split, name, address, then anything; blank lines skipped. The address is <code>0xHHHH</code> or <code>TAG:0xHHHH</code>
+  (<code>CPU:</code> is untagged); a prefix that is no jnext memory tag (<code>ram:0x8000</code>), an expression, a <code>#</code> line
+  and a bad name refuse; two labels at one address keep the first (Ghidra's primary is the first
+  created).</li>
+<li><strong>Which memory.</strong> A control file's memory is its <code># jnext space TAG</code> line (only before the first
+  directive), else its name (<code>TAG.ctl</code>, <code>WWWW-TAG.ctl</code>), else none; none and <code>CPU</code> are untagged, and each
+  untagged entry takes <code>source_page(addr)</code> when the file is read
+  (<code>source_page()</code> (<code>debugger_reinterop.cpp:276</code>)),
+  the identity the disassembly looks labels up with. A command-line import runs in
+  <code>ScriptHost::start</code> (<code>script_host.cpp:171</code>), in
+  <code>import_all()</code> (<code>script_host.cpp:218</code>), after <code>--annotations</code> and before
+  <code>--load</code>, so an untagged file is placed by the mapping at start.</li>
+<li><strong>Export carries comments.</strong> <code>export_skoolkit()</code> passes <code>annotations().entries()</code> with a comment as
+  <code>Input::comments</code> (<code>annotations</code> (<code>debugger_reinterop.cpp:180</code>)),
+  and <code>symbols()</code> is the composed table, so a user label already shadows the toolchain's in both exports
+  (SRCDBG-REX-14).</li>
 </ul>
 <h2 id="4-the-frontends">4. The frontends<a class="headerlink" href="#4-the-frontends" title="Permanent link">&para;</a></h2>
-<p><code>write_re_exports_at_exit()</code> (<code>src/platform/re_export_at_exit.h:39</code>) is called from the three loop
-owners' <code>shutdown()</code>: <code>headless_app.cpp:1075</code>,
-<code>sdl_app.cpp:822</code>,
-<code>qt_app.cpp:522</code>. A failure logs
-and sets the exit code to 1. <code>--export-skoolkit</code> and <code>--export-ghidra</code> are in
-<code>src/core/cli_options.h</code>.</p>
+<p><code>write_re_exports_at_exit()</code> (<code>re_export_at_exit.h:39</code>)
+is called from the three loop owners' <code>shutdown()</code>:
+<code>write_re_exports_at_exit()</code> (<code>headless_app.cpp:1075</code>),
+<code>write_re_exports_at_exit()</code> (<code>sdl_app.cpp:822</code>) and
+<code>write_re_exports_at_exit()</code> (<code>qt_app.cpp:522</code>).
+A failure logs and sets the exit code to 1. <code>--export-skoolkit</code>, <code>--export-ghidra</code>, <code>--import-skoolkit</code>
+and <code>--import-ghidra</code> are in <code>src/core/cli_options.h</code>.</p>
 <h2 id="5-a-real-excerpt">5. A real excerpt<a class="headerlink" href="#5-a-real-excerpt" title="Permanent link">&para;</a></h2>
 <p>The <code>F1</code> fixture of <code>reexport_test</code> (SKCTL-03) writes <code>C000-P10.ctl</code> as below; skoolkit 10.1 reads
 it with no warning and <code>skool2asm.py</code> emits <code>banked:</code>, <code>table:</code> and <code>smc:</code>.</p>
