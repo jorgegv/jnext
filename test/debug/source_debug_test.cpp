@@ -8046,6 +8046,42 @@ int main() {
                   refused && c == Result::Ok && sv == Result::Ok && ld == Result::Ok &&
                       m.dbg->lookup_name("ok") == std::optional<uint16_t>(0x8000));
         }
+        {   // SRCDBG-UANN-21: a verb that changes nothing bumps neither revision (GH #387 N1, decided by the coordinator)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const MemSpace sp = MemSpace::page(0x10);
+            const auto rev = [&] { return std::make_pair(m.dbg->annotations_revision(), m.dbg->state_revision()); };
+            m.dbg->set_user_label(sp, 0xC000, "banked");
+            m.dbg->set_user_comment(sp, 0xC000, "note");
+            const auto r0 = rev();
+            const Result a1 = m.dbg->set_user_label(sp, 0xC000, "banked");           // rename to its own name
+            const bool k1 = rev() == r0;
+            const Result a2 = m.dbg->set_user_comment(sp, 0xC000, "note");           // the identical comment
+            const bool k2 = rev() == r0;
+            const Result a3 = m.dbg->set_user_comment(sp, 0xC100, "");               // clearing one that is not there
+            const bool k3 = rev() == r0;
+            const Result a4 = m.dbg->set_user_comment(sp, 0xC000, "no\r\nte");       // CRLF normalised: a change
+            const bool c4 = rev().first == r0.first + 1 && rev().second > r0.second;
+            m.dbg->set_user_comment(sp, 0xC000, "no\nte");                           // already stored so: nothing
+            const auto r5 = rev();
+            const Result a5 = m.dbg->set_user_comment(sp, 0xC000, "no\r\nte");      // normalises to the stored text
+            const bool k5 = rev() == r5;
+            const Result a6 = m.dbg->replace_annotations(m.dbg->annotations());     // the same store
+            const bool k6 = rev() == r5;
+            const fs::path f = tdir / "u21.jdp";
+            m.dbg->save_annotations(f.string());
+            const Result a7 = m.dbg->load_annotations(f.string());                  // a file of the same store
+            const bool k7 = rev() == r5;
+            // control: a real change after each still bumps both
+            const Result b1 = m.dbg->set_user_label(sp, 0xC000, "renamed");
+            const bool real1 = rev().first == r5.first + 1 && rev().second > r5.second;
+            check("SRCDBG-UANN-21", "a verb that changes nothing (a label renamed to its own name, an identical or "
+                                    "normalised-identical comment, clearing a comment that is not there, replacing or "
+                                    "loading the same store) returns Ok and bumps neither annotations_revision() nor "
+                                    "state_revision(); a real change still bumps both",
+                  a1 == Result::Ok && a2 == Result::Ok && a3 == Result::Ok && a4 == Result::Ok && a5 == Result::Ok &&
+                      a6 == Result::Ok && a7 == Result::Ok && b1 == Result::Ok && k1 && k2 && k3 && c4 && k5 && k6 && k7 &&
+                      real1);
+        }
         {   // SRCDBG-UANN-07 (issue row 2): resets
             bool ok[2] = {false, false};
             for (int hard = 0; hard < 2; ++hard) {

@@ -59,11 +59,14 @@ Result Debugger::set_user_label(FetchSource space, uint16_t addr, const std::str
             return Result::Unsupported;
         }
     }
+    const Annotation* had = impl_->annotations.find(space, addr);
+    const bool same = had && had->label == name;   // a rename to its own name changes nothing
     const std::string e = impl_->annotations.set_label(space, addr, name);
     if (!e.empty()) {
         say(why, e);
         return Result::Unsupported;
     }
+    if (same) return Result::Ok;
     ++impl_->annotations_revision;
     impl_->recompose_names();
     impl_->bump_revision();   // GH #428: a panel shows the name now
@@ -82,11 +85,15 @@ Result Debugger::remove_user_label(FetchSource space, uint16_t addr) {
 Result Debugger::set_user_comment(FetchSource space, uint16_t addr, const std::string& text,
                                   std::string* why) {
     impl_->recheck();
+    const Annotation* had = impl_->annotations.find(space, addr);
+    const std::string before = had ? had->comment : std::string();
     const std::string e = impl_->annotations.set_comment(space, addr, text);
     if (!e.empty()) {
         say(why, e);
         return Result::Unsupported;
     }
+    const Annotation* now = impl_->annotations.find(space, addr);
+    if ((now ? now->comment : std::string()) == before) return Result::Ok;   // nothing changed
     ++impl_->annotations_revision;
     impl_->bump_revision();
     return Result::Ok;
@@ -103,6 +110,7 @@ const SymbolTable& Debugger::toolchain_symbols() const {
 
 Result Debugger::replace_annotations(UserAnnotations a) {
     impl_->recheck();
+    if (a == impl_->annotations) return Result::Ok;   // the same store: nothing changed
     impl_->annotations = std::move(a);
     ++impl_->annotations_revision;
     impl_->recompose_names();
