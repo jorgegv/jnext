@@ -47,7 +47,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 3. `source_map_status()` says Stale or None: a message and nothing else
    (`show_message()`). A pending status appends a note to whatever is shown:
    *Source map not verified yet: it is checked when the program first runs its code*, or
-   for a dot command *...when the dot command runs* (`:621`).
+   for a dot command *...when the dot command runs* (`status.dot`, `source_panel.cpp:622`).
 4. The location is `source_location(pc)`, or, while browsing, `source_location(browse_addr_)`
    (the browse ends if that address has no line now, or another map is loaded, `:630-640`).
    The memory shown in the label is `memtext::text(dbg_, style_, source_page(addr), addr)` (`:646`).
@@ -58,10 +58,10 @@ the stamp carries a flag for "the loaded file changed on disk",
    the m4 *output*, which the build does not keep). Otherwise
    `source_search::resolve()` finds the file (below); no file gives "source file not found"
    and enables Locate File. A file is reloaded when its modification time changes, so an
-   edit-and-rebuild never highlights a line of the old text (`:690-703`). A line past the end
-   of the file found gives "has only N lines; it is not the text the build used" (`:711`; the line
-   count ignores the final newline, `file_line_count()`, `:59`). The label's tooltip is the path found.
-6. The label ends with `SourcePanel::also_text()` (`:574`): `lookup_all()` for the address,
+   edit-and-rebuild never highlights a line of the old text (`lastModified()`, `source_panel.cpp:690-703`). A line past the end
+   of the file found gives "has only N lines; it is not the text the build used" (`file_lines`, `source_panel.cpp:710-712`; the line
+   count ignores the final newline, `file_line_count()`, `source_panel.cpp:59`). The label's tooltip is the path found.
+6. The label ends with `SourcePanel::also_text()` (`source_panel.cpp:574`): `lookup_all()` for the address,
    minus the primary and any entry with the same `file:line`, as `  also: f:l, ...`; then the
    browse text `(browsing; the PC is at f:l, $addr)`; then the pending note.
 7. The extra selections, in this order so a later one wins on its own line: memory coverage
@@ -69,10 +69,10 @@ the stamp carries a flag for "the loaded file changed on disk",
    (`linked_lines_()`, tint `linked_line`), the PC's line (the editor's `Highlight`, only
    when the file shown is the PC's file).
 8. Placement. The cursor moves and the view centres only when something moved: the line,
-   the address, `placed_` cleared or `place_now_` set (`:795-810`). A browse centres only a
+   the address, `placed_` cleared or `place_now_` set (`source_panel.cpp:795-810`). A browse centres only a
    line that is out of view. A user who scrolled away on a paused tick stays put.
 
-`follow_pc()` (`:556`) clears `placed_` and the browse and refreshes at once. It changes what
+`follow_pc()` (`source_panel.cpp:556`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
 `DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1558`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
@@ -88,9 +88,9 @@ the normalised name first, then the directories in order; a leading `..` is drop
 configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3125`, fed by
 `apply_startup_config()`, `:2907`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:437`)
-adds to a second, session-only list through `on_source_dir_located()` (`:316`). The effective
+adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:316`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-`push_source_dirs()` (`:296`) on every change and again in `ensure_window()`, since the window is
+`DebuggerManager::push_source_dirs()` (`debugger_manager.cpp:296`) on every change and again in `ensure_window()`, since the window is
 created lazily. Locate derives the directory with `source_search::root_for()`, refuses a file of
 another name, and asks whether to save it; `source_dir_save_requested` is MainWindow's, which
 appends to `[paths] source_dirs` and refuses a directory that holds the list separator, as
@@ -150,12 +150,12 @@ the log, and the main window's status bar for ten seconds.
   which row `QSRC-195` checks: text and classes 4.5:1 against the background (WCAG 1.4.3), bar
   text 4.5:1, bar against background 3:1, and any two colours at least CIE76 12 apart unless the
   scheme declares them shared (Borland's owner-given groups).
-- **Applying one.** `SourcePanel::apply_scheme_()` (`:524`) takes the *panel's* palette (the
+- **Applying one.** `SourcePanel::apply_scheme_()` (`source_panel.cpp:524`) takes the *panel's* palette (the
   application's, never the editor's) in, resolves Auto against it (`resolve_scheme()`), hands the
   classes to the highlighter (`apply_palette()` rehighlights only when a class colour changed, never on a paused tick or a repeat) and
   puts the background, text and bar colours on the *editor's* palette (`Base`, `Text`, `Highlight`,
   `HighlightedText`). The background is a palette role, not a format, so it fills the whole
-  viewport. `set_colour_scheme()` (`:541`) applies at once (Preferences Apply while the machine
+  viewport. `set_colour_scheme()` (`source_panel.cpp:541`) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections `refresh_()` builds and a paused tick
   redraws only when the machine moved. The setting is held by
   `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:310`) and pushed by
@@ -187,7 +187,7 @@ gutter widget in a left viewport margin and a header strip above it (`setViewpor
   `paint_gutter()` draws on `highlighted_line()` only, in the 5-px strip after the number cell
   (`x` in `[width-6, width-2]`, which no pinned pixel reading uses); the colour goes through `palette_tint::ink()`, and the text
   highlight stays the palette's own.
-- **A click** calls `SourcePanel::toggle_breakpoint_at_line()` (`:1012`), the one toggle: it
+- **A click** calls `SourcePanel::toggle_breakpoint_at_line()` (`source_panel.cpp:1012`), the one toggle: it
   removes what the line shows plus a hidden group tied to an unmapped memory, else
   `add_source_line()` (not idempotent, hence the check). The context menu of GH #423 calls the same
   function. A line with no code shows the store's reason as a tooltip.
@@ -218,16 +218,16 @@ the single seam for the C names (`resolve_key("@" + word)`; `@` forces a symbol)
 
 ### Selection sync with the Disassembly (GH #347)
 
-`DebuggerWindow::create_panels()` wires the two panels with three connections
+`DebuggerWindow::create_panels()` wires the two panels with four `connect()` calls
 (`debugger_window.cpp:1458-1475`), and nothing else couples them. Each carries only what the *user*
 did in its sender, so no move echoes.
 
 - **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is
-  emitted by `emit_lines_()` (`:859`), only when the file or the lines changed (`lines_file_`,
+  emitted by `emit_lines_()` (`source_panel.cpp:859`), only when the file or the lines changed (`lines_file_`,
   `lines_first_`, `lines_last_`; a message and Running emit an empty file, and `none = true` says the
   text stays but nothing of it is selected). The lines are `selected_blocks_()`'s, the same rule as
   Copy with Addresses (a selection ending at a block start does not take that block). The editor's
-  `cursorPositionChanged` / `selectionChanged` slot passes `reveal = true` (`:403-408`); a move the
+  `cursorPositionChanged` / `selectionChanged` slot passes `reveal = true` (`source_panel.cpp:403-408`); a move the
   panel makes itself (the PC placement of `refresh_()`, a text load, `set_disasm_selection()`) runs
   under a `SyncScope` (`syncing_`), so that slot stays silent, and ends with `emit_lines_(false, ...)`,
   so a stop tints the PC statement's other instructions without scrolling.
@@ -268,7 +268,7 @@ per scheme (`SchemeColours::linked_line`), tested for legibility like the covera
 
 Every Qt view names the memory behind an address through `debug/long_address.h`
 ([7.1](01-which-memory.md)) and nowhere else. The Qt-side wrapper is `src/debugger/memory_text.h`:
-`memtext::text(dbg, style, space, addr)` (`:26`) and `memtext::next_layout(dbg)` (`:20`), which is
+`memtext::text(dbg, style, space, addr)` (`memory_text.h:25`) and `memtext::next_layout(dbg)` (`:20`), which is
 true only for the Next machine type (`MachineType::ZXN_ISSUE2`); any other machine prints the Friendly
 tag whatever the style.
 
@@ -296,8 +296,8 @@ The instruction at the PC is read as the CPU will fetch it, not as a data read.
 `Debugger::memory_reader()` (`debugger_inspect.cpp:838`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
-other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:184,190`:
-`is_call_like()` and `instruction_length()` read through it) and ZRCP `cpu-step-over`
+other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:175`: `is_call_like()` at `:184` and `instruction_length()` at `:190`
+read through it) and ZRCP `cpu-step-over`
 (`ZrcpServer::cmd_cpu_step_over`) all use it (rows `LADDR-17` to `LADDR-20`).
 
 ## GDB, ZRCP, DZRP, scripts
@@ -310,8 +310,8 @@ on the Next, the physical text of the slot's first byte. The server's own symbol
 described in [3.10.4](../03-subsystems/11-the-gdb-rsp-server.md).
 
 **ZRCP.** `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2625`) calls
-`Debugger::load()`, which calls `load_program_sidecars()` after a successful load
-(`debugger_reconstruct.cpp:464`, `:527-531`), so a program loaded over ZRCP gets its symbols and
+`Debugger::load()` (`debugger_reconstruct.cpp:464`), which calls `load_program_sidecars()` after a successful load
+(`debugger_reconstruct.cpp:527-531`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
 `get-memory-pages` (`memory_pages()`, `zrcp_format.cpp`) names the eight slots of a Next from what each
 reads now (`SlotInfo::now`): `RO` the boot ROM, `O<n>` the 8 KB ROM page `2*image + half`, `A<n>` RAM,
@@ -321,12 +321,12 @@ mapping. On the other machines segment 0 is `DIV` while DivMMC is paged in.
 **DZRP.** No source surface: `grep` finds no `source_*` call in `src/remote/dzrp`. DeZog reads the SLD
 or the map itself. What DZRP shares with this chapter is the legacy `bank+1` qualifier
 ([7.1](01-which-memory.md)). `CMD_GET_REGISTERS` reports `0xFF` for every ROM slot
-(`cmd_get_registers()`, `dzrp_server.cpp:549-553`), because DeZog has no bank for the ROM values
+(`is_rom`, `dzrp_server.cpp:549-553`), because DeZog has no bank for the ROM values
 `0xE0`-`0xFE`.
 
-**Scripts.** `on execute FILE:LINE` resolves through `source_map().resolve()` at load time and
+**Scripts.** `on execute FILE:LINE` resolves through `source_map().resolve()` at load time (`script_engine.cpp:330`) and
 subscribes one `Execute` per start, each with the `space` its place was compiled for
-(`script_engine.cpp:330`); an unknown line is a diagnostic that names the reason. `--map` loads symbols
+(`space`, `script_engine.cpp:346`); an unknown line is a diagnostic that names the reason. `--map` loads symbols
 with `MapFormat::Z88dkOrSjasmplus` (`script_host.cpp:187`, [7.3](03-loaders.md)). Held scripts and the
 rest of the language are in [3.10.6](../03-subsystems/13-the-debugger-scripting-language.md).
 
