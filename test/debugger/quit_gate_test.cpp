@@ -268,7 +268,9 @@ static void test_quit_gate() {
         } else {
             QTemporaryDir dir;
             const QString file = dir.filePath(QStringLiteral("q.jdp"));
-            fx.mgr->set_annotations_file(file);          // as --annotations does: nothing unsaved yet
+            // as --annotations does: the store is loaded first, then the file is recorded -> nothing unsaved
+            fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x7000, "pre");
+            fx.mgr->set_annotations_file(file);
             ModalWatcher quiet(QMessageBox::Cancel);
             const bool clean = fx.mgr->confirm_discard_annotations();
             quiet.stop();
@@ -288,7 +290,7 @@ static void test_quit_gate() {
             save.stop();
             QFile f(file);
             const bool wrote = f.open(QIODevice::ReadOnly) &&
-                               f.readAll() == QByteArray("jnext-annotations 1\nlabel P04 $8000 start\n");
+                               f.readAll() == QByteArray("jnext-annotations 1\nlabel P04 $7000 pre\nlabel P04 $8000 start\n");
             check("QG-ANN-01", "with unsaved annotations the quit question appears: Cancel returns false and writes nothing, "
                                "Discard returns true and writes nothing, Save writes the file and returns true",
                   unsaved && cancel.saw_modal && !r_cancel && still && discard.saw_modal && r_discard && kept_unsaved &&
