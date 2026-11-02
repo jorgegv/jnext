@@ -179,6 +179,12 @@ public slots:
     void on_open_annotations();
     void on_save_annotations();
     void on_save_annotations_as();
+    /// GH #389 stage C: Map > Import > skoolkit Control Files... / Ghidra Symbols... (several files, one
+    /// store change) and Map > Export > the same two (a directory).
+    void on_import_skoolkit();
+    void on_import_ghidra();
+    void on_export_skoolkit();
+    void on_export_ghidra();
     /// GH #390: Map > Load MAP File > sjasmplus Format (`--sym` / `--exp`).
     void on_load_map_sjasmplus();
     /// CAP-SRC: the Source tab's Load Memory.txt... and Load Source Map... buttons.
@@ -222,6 +228,9 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    /// GH #389: the bodies of Map > Import / Export (`skoolkit` selects the format).
+    void import_re_files(bool skoolkit);
+    void export_re_files(bool skoolkit);
     bool save_annotations_to(const QString& path);
     QString  annotations_file_;
     uint64_t saved_revision_ = 0;   // annotations_revision() at the last open / save / --annotations

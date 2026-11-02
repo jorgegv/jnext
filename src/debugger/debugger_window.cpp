@@ -892,6 +892,20 @@ void DebuggerWindow::create_menus() {
     QAction* save_ann_as = map_menu->addAction(tr("Save Annotations &As..."));
     connect(save_ann_as, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_annotations_as);
 
+    // GH #389: skoolkit and Ghidra files, in and out. I and E are free in this popup; S and G are unique in each
+    // submenu. Import reads into the same store the annotation entries above save; Export writes a directory.
+    map_menu->addSeparator();
+    QMenu* import_menu = map_menu->addMenu(tr("&Import"));
+    QAction* import_sk = import_menu->addAction(tr("&skoolkit Control Files..."));
+    connect(import_sk, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_import_skoolkit);
+    QAction* import_gh = import_menu->addAction(tr("&Ghidra Symbols..."));
+    connect(import_gh, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_import_ghidra);
+    QMenu* export_menu = map_menu->addMenu(tr("&Export"));
+    QAction* export_sk = export_menu->addAction(tr("&skoolkit Control Files..."));
+    connect(export_sk, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_export_skoolkit);
+    QAction* export_gh = export_menu->addAction(tr("&Ghidra Symbols..."));
+    connect(export_gh, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_export_ghidra);
+
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
 

@@ -74,6 +74,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QKeyEvent>
+#include <QLineEdit>
 #include <QKeySequence>
 #include <QMouseEvent>
 #include <QShortcutEvent>
@@ -349,6 +350,8 @@ struct Modals {
     struct Seen { QString kind, title, text, filters; };
 
     QString                    file_path;            // for a QFileDialog
+    QStringList                file_paths;           // GH #389: the files of a multi-select dialog (ExistingFiles)
+    QString                    dir_path;             // GH #389: the directory of a directory dialog
     std::function<void()>      after_file_accept;    // e.g. make the file vanish
     int                        spin_value = -1;      // for a dialog with a QSpinBox
     int                        spin_seen  = -1;      // ... and what it opened showing
@@ -392,7 +395,17 @@ struct Modals {
         if (seen.size() >= kMaxModals) { dlg->reject(); return; }
         if (auto* fd = qobject_cast<QFileDialog*>(w)) {
             seen.push_back({"file", fd->windowTitle(), {}, fd->nameFilters().join(QStringLiteral(";;"))});
-            fd->selectFile(file_path);
+            if (fd->fileMode() == QFileDialog::ExistingFiles || fd->fileMode() == QFileDialog::Directory) {
+                // The widget dialog takes the typed names: a quoted list for several files, the path for a directory.
+                QString typed = dir_path;
+                if (fd->fileMode() == QFileDialog::ExistingFiles) {
+                    typed.clear();
+                    for (const QString& f : file_paths) typed += (typed.isEmpty() ? "" : " ") + QStringLiteral("\"%1\"").arg(f);
+                }
+                if (auto* le = fd->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) le->setText(typed);
+            } else {
+                fd->selectFile(file_path);
+            }
             dlg->accept();          // virtual: QFileDialog::accept(), which validates
             if (after_file_accept) after_file_accept();
             return;
@@ -3477,6 +3490,122 @@ static void test_annotations_ui() {
     }
 }
 
+// ===========================================================================
+// QREX -- Map > Import and Export (GH #389 stage C): skoolkit control files and Ghidra symbol files, in and out of the
+// debugger. The dialogs are the REAL QFileDialog (several files / a directory), the answer a message box.
+// ===========================================================================
+static void test_reexport_ui() {
+    set_group("QREX");
+    const jnext::dbg::MemSpace P10 = jnext::dbg::MemSpace::page(0x10);
+    {   // QREX-01: the menu
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-01", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.enable();
+        QMenu* map = menu_named(fx.dbg()->menuBar(), "Map");
+        QMenu* imp = submenu_named(map, "Import");
+        QMenu* exp = submenu_named(map, "Export");
+        auto unique = [](QMenu* m) {
+            QStringList letters;
+            for (QAction* a : m->actions()) {
+                const int at = a->text().indexOf(QLatin1Char('&'));
+                if (at >= 0 && at + 1 < a->text().size()) letters << a->text().at(at + 1).toUpper();
+            }
+            QStringList u = letters; u.removeDuplicates();
+            return !letters.isEmpty() && u.size() == letters.size();
+        };
+        check("QREX-01", "Map has an Import and an Export submenu, each with 'skoolkit Control Files...' and 'Ghidra Symbols...'; "
+                         "the mnemonics are unique in the Map popup and in each submenu",
+              imp && exp && item_named(imp, "skoolkit Control Files...") && item_named(imp, "Ghidra Symbols...") &&
+                  item_named(exp, "skoolkit Control Files...") && item_named(exp, "Ghidra Symbols...") &&
+                  unique(map) && unique(imp) && unique(exp));
+    }
+    {   // QREX-02: Export writes what the backend verb writes
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-02", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.backend->set_user_label(P10, 0xC000, "banked");
+        fx.backend->set_user_comment(P10, 0xC000, "a note");
+        fx.enable();
+        QMenu* exp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Export");
+        const QString d_sk = g_tmp->filePath(QStringLiteral("qrex-sk")), d_gh = g_tmp->filePath(QStringLiteral("qrex-gh"));
+        QDir().mkpath(d_sk); QDir().mkpath(d_gh);
+        Modals m1, m2;
+        m1.dir_path = d_sk;
+        if (QAction* a = item_named(exp, "skoolkit Control Files...")) a->trigger();
+        m1.timer.stop();
+        m2.dir_path = d_gh;
+        if (QAction* a = item_named(exp, "Ghidra Symbols...")) a->trigger();
+        m2.timer.stop();
+        const std::string ref_sk = g_tmp->filePath(QStringLiteral("qrex-ref-sk")).toStdString();
+        const std::string ref_gh = g_tmp->filePath(QStringLiteral("qrex-ref-gh")).toStdString();
+        jnext::dbg::ReReport rs, rg;
+        std::string why;
+        fx.backend->export_skoolkit(ref_sk, &rs, &why);
+        fx.backend->export_ghidra(ref_gh, &rg, &why);
+        const std::string a1 = slurp_file((d_sk + "/C000-P10.ctl").toStdString()), a2 = slurp_file(ref_sk + "/C000-P10.ctl");
+        const std::string b1 = slurp_file((d_gh + "/P10.ghidra.txt").toStdString()), b2 = slurp_file(ref_gh + "/P10.ghidra.txt");
+        const Modals::Seen* box1 = m1.first("box");
+        const Modals::Seen* box2 = m2.first("box");
+        check("QREX-02", "Export > skoolkit and > Ghidra write the directory the dialog chose with exactly the bytes the backend "
+                         "verbs write, and the box reports the counts",
+              !a1.empty() && a1 == a2 && !b1.empty() && b1 == b2 && box1 && box1->title == "Export Done" &&
+                  box1->text.startsWith(QStringLiteral("2 files, 1 label, 1 comment\n")) && rs.files == 2 && rs.labels == 1 && rs.comments == 1 &&
+                  box2 && box2->title == "Export Done" &&
+                  box2->text.startsWith(QStringLiteral("2 files, 1 label, 0 comments\n")) && rg.files == 2 && rg.labels == 1,
+              fmt("a1=%zu a2=%zu b1=%zu b2=%zu m1=%s m2=%s", a1.size(), a2.size(), b1.size(), b2.size(), m1.describe().c_str(),
+                  m2.describe().c_str()));
+    }
+    {   // QREX-03: Import of two files; the Disassembly shows the label; quitting asks to save
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-03", "fixture", false); return; }
+        fx.emu.nextreg().write(0x56, 0x10);
+        fx.regs(0x8000);
+        fx.enable();
+        const std::string f1 = write_file("qrex-a.ctl", "# jnext space P10\nc $C000\n@ $C000 label=imp_a\nB $C000 note a\n");
+        const std::string f2 = write_file("qrex-b.ctl", "# jnext space P10\nc $C010\n@ $C010 label=imp_b\n");
+        QMenu* imp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Import");
+        const bool clean_before = !fx.mgr->annotations_unsaved();
+        Modals m;
+        m.file_paths = {QString::fromStdString(f1), QString::fromStdString(f2)};
+        if (QAction* a = item_named(imp, "skoolkit Control Files...")) a->trigger();
+        m.timer.stop();
+        DisasmPanel* dp = fx.dbg()->disasm_panel();
+        if (auto* sb = dp->findChild<QScrollBar*>()) sb->setValue(0xC000);
+        QApplication::processEvents();
+        const Modals::Seen* box = m.first("box");
+        check("QREX-03", "Import > skoolkit Control Files with two files selected imports both (the Disassembly shows imp_a), the box "
+                         "reports '2 files, 2 labels, 1 comment', and the labels count as unsaved annotations (the quit question)",
+              clean_before && fx.backend->annotations().find(P10, 0xC000) && fx.backend->annotations().find(P10, 0xC010) &&
+                  dp->line_label(0) == "imp_a" && fx.mgr->annotations_unsaved() && box && box->title == "Import Done" &&
+                  box->text.startsWith(QStringLiteral("2 files, 2 labels, 1 comment\n")),
+              fmt("m=%s label0='%s'", m.describe().c_str(), s(dp->line_label(0)).c_str()));
+    }
+    {   // QREX-04: a failed import
+        Fixture fx(MachineType::ZXN_ISSUE2);
+        if (!fx.ok) { check("QREX-04", "fixture", false); return; }
+        fx.regs(0x8000);
+        fx.enable();
+        fx.backend->set_user_label(P10, 0xC100, "keep");
+        const auto before = fx.backend->annotations();
+        const uint64_t rev = fx.backend->annotations_revision();
+        const std::string good = write_file("qrex-ok.ctl", "# jnext space P10\nc $C000\n@ $C000 label=fine\n");
+        const std::string bad = write_file("qrex-bad.ctl", "# jnext space P10\nc $ZZZZ\n");
+        QMenu* imp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Import");
+        Modals m;
+        m.file_paths = {QString::fromStdString(good), QString::fromStdString(bad)};
+        if (QAction* a = item_named(imp, "skoolkit Control Files...")) a->trigger();
+        m.timer.stop();
+        const Modals::Seen* box = m.first("box");
+        check("QREX-04", "a failed Import shows an 'Import Failed' warning naming the file and the line and leaves the store and its "
+                         "revision as they were",
+              box && box->title == "Import Failed" && box->text.contains("qrex-bad.ctl: line 2:") &&
+                  fx.backend->annotations() == before && fx.backend->annotations_revision() == rev,
+              m.describe());
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -3509,6 +3638,7 @@ int main(int argc, char** argv) {
     test_trace_ui();
     test_map_load();
     test_annotations_ui();
+    test_reexport_ui();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
