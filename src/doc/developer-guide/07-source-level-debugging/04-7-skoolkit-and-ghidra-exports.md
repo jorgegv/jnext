@@ -1,9 +1,10 @@
-# 7.4.7 The skoolkit and Ghidra exports
+# 7.4.7 The skoolkit and Ghidra exports and imports
 
 The other pages of 7.4 are inputs. This one is the reverse direction (GH #389, E23-26):
 `Debugger::export_skoolkit()` and `export_ghidra()` write what the disassembly shows, and for
 skoolkit the code/data map that `--coverage` recorded, into a directory, as the files the two
-reverse-engineering tools read. The decisions are in section 11.2 of
+reverse-engineering tools read; `import_skoolkit()` and `import_ghidra()` (stage B) read such files back
+into the user's labels and comments (7.4.6). The decisions are in section 11.2 of
 `doc/design/SOURCE-LEVEL-DEBUGGING.md`; this page is the code and the formats.
 
 ## 1. The consumers
@@ -96,6 +97,35 @@ Names are exported as `lookup()` shows them (`gather_labels()`, `debugger_reinte
 z88dk C symbol goes out under its C name. The verbs are reads: they call only `peek()`,
 `mem_coverage()`, `mem_coverage_enabled()`, `mem_coverage_spaces()`, `symbols()`, `lookup()` and `source_page()`, so no machine state changes and no
 generation moves (SRCDBG-REX-03, with REX-04 as its control).
+
+### Import
+
+`Debugger::import_skoolkit()` (`debugger_reinterop.cpp:@@debugger_reinterop.cpp|^Result Debugger::import_skoolkit@@`) and
+`Debugger::import_ghidra()` (`debugger_reinterop.cpp:@@debugger_reinterop.cpp|^Result Debugger::import_ghidra@@`) read ALL their files
+into a scratch copy of `annotations()` and apply it with one `replace_annotations()`, so a refusal anywhere changes nothing and a
+success is one revision bump (SRCDBG-REX-12, -13). The readers are pure, in the writers' files:
+
+- **skoolkit**, `parse_ctl()` (`skoolkit_ctl.cpp:@@skoolkit_ctl.cpp|^bool parse_ctl@@`). It mirrors the grammar of `skoolkit/ctlparser.py`
+  `_parse_ctl_line()` (`skoolkit/ctlparser.py:208`) but is strict where skoolkit only warns (`skoolkit/ctlparser.py:119`): an address that
+  is not decimal, `$hex` or `%bin` (`skool_int()`, `skoolkit_ctl.cpp:@@skoolkit_ctl.cpp|^std::optional<uint32_t> skool_int@@`; `0x` is refused
+  too) or is above 65535, an unknown directive, extra parameters on a block directive, a blank directive before any block, a label name
+  outside `UserAnnotations::valid_label_name()`, one name at two addresses, and text that is not UTF-8 refuse the file with `line N:
+  reason`. It takes `@ ADDR label=NAME` (a leading `*` dropped; two labels at one address keep the last, as skoolkit applies it) and the
+  text of a `B C S T W` or blank-lead sub-block with its `.` / `:` continuation lines, joined with line feeds, as the comment at that
+  address. Block titles (a lowercase directive with text, or the first `.` line after one without), `D` descriptions and the other
+  directives are counted in `reexport::Imported` (`reexport.h:@@reexport.h|^struct Imported@@`) and not imported; no store holds a code/data map.
+- **Ghidra**, `parse_symbols()` (`ghidra_symbols.cpp:@@ghidra_symbols.cpp|^bool parse_symbols@@`), the script's grammar
+  (`ImportSymbolsScript.py:38`, `:41`): whitespace split, name, address, then anything; blank lines skipped. The address is `0xHHHH`
+  or `TAG:0xHHHH`; a prefix that is no jnext memory tag (`ram:0x8000`), an expression, a `#` line and a bad name refuse; two labels
+  at one address keep the first (Ghidra's primary is the first created).
+- **Which memory.** A control file's memory is its `# jnext space TAG` line, else its name (`TAG.ctl`, `WWWW-TAG.ctl`), else none; none and
+  `CPU` are untagged, and each untagged entry takes `source_page(addr)` when the file is read (`debugger_reinterop.cpp:@@debugger_reinterop.cpp|const MemSpace sp = imp.space \? \*imp.space : source_page\(l.addr\);@@`),
+  the identity the disassembly looks labels up with. A command-line import runs in `ScriptHost::start()`
+  (`script_host.cpp:@@script_host.cpp|^bool ScriptHost::start@@`; `import_all` at `script_host.cpp:@@script_host.cpp|const auto import_all@@`) after `--annotations`
+  and before `--load`, so an untagged file is placed by the mapping at start.
+- **Export carries comments.** `export_skoolkit()` passes `annotations().entries()` with a comment as `Input::comments`
+  (`debugger_reinterop.cpp:@@debugger_reinterop.cpp|for \(const auto& kv : annotations\(\).entries\(\)\)@@`), and `symbols()` is the composed table,
+  so a user label already shadows the toolchain's in both exports (SRCDBG-REX-14).
 
 ## 4. The frontends
 
