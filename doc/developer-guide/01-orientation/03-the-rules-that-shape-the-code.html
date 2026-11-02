@@ -2473,6 +2473,14 @@ debugger geometry, so it cannot publish anyone's <code>jnext.conf</code>. Meanwh
 had gone stale the same way the debugger images had — <code>gui-main-window.png</code>
 predated the Soft Reset toolbar button by four days and showed three icons
 where the product builds four.</p>
+<p>Since GH #426 it also covers the five <code>debugger-source*.png</code> of the user guide's
+Source Debugger section. They are Group 4, last: it loads a committed z88dk
+fixture (<code>test/fixtures/z88dk</code>, from the working directory or <code>--fixtures DIR</code>)
+through the production load and sidecar path (<code>emulator_apply_load</code>, then
+<code>Debugger::load_program_sidecars</code>), sets a <code>file:line</code> breakpoint through
+<code>BreakpointModel::add_source_line</code>, continues until the machine stops, and fails
+loudly if the Source tab does not read the expected position. The other
+images come out byte-identical with the group present or absent.</p>
 <p>It has nothing to do with the images that are emulator <em>output</em> —
 <code>boot-splash</code>, <code>machine-*</code>, <code>layers-*</code> and the rest — which jnext already
 renders itself with <code>--delayed-screenshot</code>.</p>
