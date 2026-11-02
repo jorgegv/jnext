@@ -56,25 +56,68 @@ bool PiAudio::pop(int16_t& left, int16_t& right) {
     }
 
     if (!playing_) {
-        if (available < kPrebuffer) return false;      // still filling
+        if (available < (tape_mode_ ? kTapeTarget : kPrebuffer)) return false;   // still filling
         playing_ = true;
+        since_adjust_ = 0;
     }
     if (available == 0) {                              // ran dry: silence, then refill
         playing_ = false;
         underruns_.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
-    if (available > kMaxLatency) {                     // built up: drop the oldest
-        const uint32_t skip = available - kTarget;
+    const uint32_t max_latency = tape_mode_ ? kTapeMaxLatency : kMaxLatency;
+    if (available > max_latency) {                     // built up: drop the oldest
+        const uint32_t skip = available - (tape_mode_ ? kTapeTarget : kTarget);
         tail += skip;
         available -= skip;
         dropped_.fetch_add(skip, std::memory_order_relaxed);
     }
+    // Tape mode: steer the level back into kTapeTarget +- kTapeBand one frame
+    // at a time, never more often than every kTapeAdjustEvery pops. Skipping
+    // plays this frame and steps over the next; repeating plays this frame
+    // now and again on the next pop. Either moves one edge by 22.7 us.
+    uint32_t step = 1;
+    if (tape_mode_) {
+        if (since_adjust_ < kTapeAdjustEvery) ++since_adjust_;
+        if (since_adjust_ >= kTapeAdjustEvery) {
+            if (available > kTapeTarget + kTapeBand) {
+                step = 2;
+                skipped_.fetch_add(1, std::memory_order_relaxed);
+                since_adjust_ = 0;
+            } else if (available < kTapeTarget - kTapeBand) {
+                step = 0;
+                repeated_.fetch_add(1, std::memory_order_relaxed);
+                since_adjust_ = 0;
+            }
+        }
+    }
     const uint32_t i = tail % kCapacity;
     left  = ring_[2 * i];
     right = ring_[2 * i + 1];
-    tail_.store(tail + 1, std::memory_order_release);
+    tail_.store(tail + step, std::memory_order_release);
     return true;
+}
+
+void PiAudio::set_tape_mode(bool on) {
+    if (on == tape_mode_) return;
+    tape_mode_ = on;
+    since_adjust_ = 0;
+    if (on) {
+        // Fill to the tape target before the next frame plays, so a loader
+        // starts with the full cushion rather than the 50 ms one.
+        playing_ = false;
+        return;
+    }
+    // Back to music: drop the oldest frames beyond kTarget, once, so the
+    // Pi's sound does not stay 250 ms late.
+    const uint32_t head = head_.load(std::memory_order_acquire);
+    const uint32_t tail = tail_.load(std::memory_order_relaxed);
+    const uint32_t available = head - tail;
+    if (available > kTarget) {
+        const uint32_t skip = available - kTarget;
+        tail_.store(tail + skip, std::memory_order_release);
+        dropped_.fetch_add(skip, std::memory_order_relaxed);
+    }
 }
 
 // The stream parser both transports share. Each time a writer opens the pipe,

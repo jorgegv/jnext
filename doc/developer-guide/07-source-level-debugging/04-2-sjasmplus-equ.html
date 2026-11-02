@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2387,6 +2387,8 @@
       
         
       
+        
+      
     
     
     
@@ -2741,6 +2743,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2909,7 +2939,7 @@ case and the labels in definition order; from v1.18.0 <code>--sym</code> shares 
   the value as 8 upper-case hex digits (<code>PrintHex32</code>).</li>
 <li><code>--sym</code>: <code>CLabelTable::DumpSymbols()</code>, <code>sjasm/tables.cpp:610-624</code>, calls it for
   every symbol in name order, skipping a name that starts with a digit (a
-  temporary label) and a keyword (<code>:619-620</code>; the call is at <code>:621</code>).</li>
+  temporary label) and a keyword (<code>sjasm/tables.cpp:619-620</code>; the call is at <code>sjasm/tables.cpp:621</code>).</li>
 <li><code>--exp</code>: <code>WriteExp()</code>, <code>sjasm/sjio.cpp:1445-1447</code>, called by the <code>EXPORT</code>
   directive (<code>sjasm/directives.cpp:1707</code>). A name exported twice is written twice
   (the fixture has <code>counter</code> at both of its values).</li>

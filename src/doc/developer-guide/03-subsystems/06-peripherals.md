@@ -215,7 +215,7 @@ into its own RX, which matters more than it sounds; see the replay gate below.
 stand-ins for the far end of a home-made DB9 serial cable in a joystick socket —
 the rig dezogif and DeZog use to debug a running Next. The bytes do not go
 through either UART header; they go through the NR 0x0B I/O-mode multiplexer
-(`zxnext.vhd:3340-3341`, `:3526-3538`), which the *guest* controls at run time.
+(`zxnext.vhd:3340-3341`, `zxnext.vhd:3526-3538`), which the *guest* controls at run time.
 
 That is why neither of them is a `UartDevice`. A `UartDevice` is soldered to one
 channel's wire, and this cable has no channel of its own: NR 0x0B bit 0 chooses
@@ -237,7 +237,7 @@ Receive is connector-selected (`zxnext.vhd:3538`). Transmit is not: the transmit
 bit leaves the core as the single output `o_JOY_IO_MODE_PIN_7`
 (`zxnext.vhd:1593`), and the board drives it onto whichever socket `joysel`
 currently points at — which, in io mode, free-runs at 7 MHz
-(`md6_joystick_connector_x2.vhd:109,117`) while one bit at 115200 lasts 243
+(`md6_joystick_connector_x2.vhd:109`, `md6_joystick_connector_x2.vhd:117`) while one bit at 115200 lasts 243
 CLK_28 ticks. Both sockets therefore see it. Copying the receive gate onto the
 transmit path is the obvious-looking symmetry and it is wrong.
 
@@ -348,8 +348,10 @@ while jnext runs neither starts nor stops it. Three pieces:
   mixer output sample into `I2s`, whose NR 0xA2 gating and mixer sum already
   modelled the hardware. The ring prebuffers 50 ms, plays silence on an
   underrun and trims a backlog beyond 300 ms, absorbing the drift between QEMU's
-  host clock and the emulated one. RZX playback does not consume it; a rewind's
-  replay never generates audio at all.
+  host clock and the emulated one. While NR 0xA2 sends the Pi's audio to EAR it
+  switches to tape mode (250 ms, single-frame drift correction), so a tape
+  loaded from the Pi is not cut by a refill or a trim. RZX playback does not
+  consume it; a rewind's replay never generates audio at all.
 
 `main()` wires them: it merges `--nextpi`/`--no-nextpi` over the saved
 preference (GUI sessions only, as for the ESP), puts the `--nextpi-dir`,

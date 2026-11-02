@@ -9748,10 +9748,27 @@ void Emulator::feed_pi_audio()
     uint16_t left  = 0x200;
     uint16_t right = 0x200;
     if (!rzx_player_.is_playing()) {
+        PiAudio& pa = *config_.pi_audio;
+        // Loading a tape from the Pi (NR 0xA2 b0): hold a deeper buffer and
+        // correct drift a frame at a time, so no gap or jump cuts a pulse.
+        pa.set_tape_mode(i2s_.ear_routed());
         int16_t l = 0, r = 0;
-        if (config_.pi_audio->pop(l, r)) {
+        if (pa.pop(l, r)) {
             left  = PiAudio::to_i2s(l);
             right = PiAudio::to_i2s(r);
+        }
+        // An underrun in tape mode is a gap in the signal on EAR: worth a
+        // warning, as a load it falls inside will likely fail. It is also how
+        // every stream ends (QEMU writes nothing while the Pi is silent), so
+        // one after a tape has finished is harmless; outside tape mode they
+        // are routine and not logged.
+        const uint64_t under = pa.underruns();
+        if (under != pi_audio_underruns_seen_) {
+            if (pa.tape_mode())
+                Log::audio()->warn("Pi audio stopped while sent to EAR (underrun {}): harmless "
+                                   "after a tape ends, but a load in progress will likely fail",
+                                   under);
+            pi_audio_underruns_seen_ = under;
         }
     }
     with_pi_ear_tracking([&] { i2s_.set_sample(left, right); });

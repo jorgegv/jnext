@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2487,6 +2487,8 @@
       
         
       
+        
+      
     
     
     
@@ -2682,6 +2684,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
   
 
     
@@ -3041,6 +3071,32 @@ verdict on the real tree is trusted at all:</p>
   The lint also counts the lines that reached its matcher and refuses the run
   unless that is every line of every in-scope file.</li>
 </ul>
+<p>The developer-guide cite check, <code>test/lint-devguide-cites.pl</code> (GH #430, see
+<a href="05-documentation-and-cli-gates.html#the-developer-guide-cite-rule">4.5</a>), is not self-checking
+like those: the harness self-test runs it against throwaway trees (HS-102 to HS-156), and each
+row was shown to go red when the behaviour it pins is mutated out of the script. HS-102 pins
+the <em>command</em> in the <code>unit-test</code> and <code>regression</code> dry runs, not the target name. The rows cover:
+an exact cite and a declared external one passing; a cite one line off, an unanchored one (also
+when the symbol is in the previous sentence), a missing file, a line past the end, an ambiguous
+bare name, a comma list and a cite of a file in no set failing; the whole-word rule; a test ID
+as an anchor; a range holding its symbol inside it and not one line outside; a <code>.dot</code> page
+and its <code>//</code> comment grouping; every prose form; a bare <code>:N</code> binding to the last of two files,
+ignoring a link target, failing when bound to an example name or an external file, and
+failing across paragraphs while a whole table is one; the bare example-name exemption against
+the same name with a directory; the repository's <code>z88dk/</code> fixtures and a repo file named
+like an external one being checked; any extension with a directory, <code>Makefile</code> and a colon
+outside the span; excerpts (a match across blocks, a changed row, a wrong row count, a
+numbered row, ambiguous or missing file, the <code>&lt;TAB&gt;</code> convention); a lines phrase, bare <code>:N</code> or excerpt
+pointer after a file that does not exist; a table row ending the sentence; a bare comma list; the
+sjasmplus manual as a declared external file; and fences: unclosed, closed by the other character,
+shorter than its opening, and <code>~~~</code>; and the parenthesis binding (a parenthesised cite after text that is not its symbol,
+a bare <code>:N</code> continuation without a symbol, a coincidental match elsewhere in the sentence, a
+symbol right before the parenthesis, a symbol inside the parenthesis winning over it, the innermost
+parenthesis being the scope, a closed parenthesis ending its scope, a cite span in the
+parenthesis not counting as its symbol, a test ID there counting as one, a closed parenthesis not affecting a later cite) and a
+quoted string literal anchoring a cite only when it is on the line (case-sensitive, at least 4
+characters with a letter or digit, also on the last line of a range), and <code>JNEXT_CITES_DUMP</code>
+writing the checked cites, and the pinned foreign tools being declared external and the <code>.dot</code> comment-block grouping.</p>
 <p>Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.</p>
 

@@ -1983,6 +1983,26 @@ static void monitor_rows() {
               join(in20) + join(byname) + join(in30) + join(other) + join(plain_addr) + join(plain_name));
     }
     {
+        // GDB-ANN-01 (GH #387): a user label reaches `monitor sym` through the backend's one reader,
+        // in its own memory only (design 10.3); the name form tags it as #360 spells a space.
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        const auto set = rig.dbg->set_user_label(jnext::dbg::MemSpace::page(0x10), 0xC000, "banked");
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 6, 0x10);
+        const auto in10   = c.monitor("sym $C000", f);
+        const auto byname = c.monitor("sym banked", f);
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 6, 0x11);
+        const auto in11 = c.monitor("sym $C000", f);
+        check("GDB-ANN-01", "monitor sym names $C000 by a user label with page 0x10 mapped and not with 0x11; "
+                            "monitor sym NAME gives its address tagged with its memory",
+              set == jnext::dbg::Result::Ok && in10.size() == 1 && in10[0] == "$C000 P10 = banked\n" &&
+                  byname.size() == 1 && byname[0] == "banked = $C000 P10\n" && in11.size() == 1 &&
+                  in11[0] == "no symbol at or below $C000\n",
+              join(in10) + join(byname) + join(in11));
+    }
+    {
         // GDB-MON-42 (GH #360, D3): a non-Next machine has no SRAM layout, so its slot lines end
         // with the tag only: no physical address, no BRAM text.
         Rig    rig;

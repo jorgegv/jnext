@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2515,6 +2515,8 @@
       
         
       
+        
+      
     
     
     
@@ -2710,6 +2712,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
   
 
     
@@ -3024,7 +3054,7 @@ inner byte can sit on an entry point or in the unmap window.</p>
 instruction boundaries, on the FUSE T-state counter, at which /INT is seen low.
 The T80 samples INT_n into INT_s on every CPU rising edge (<code>t80n.vhd:1664</code>) and
 decides at the end of an instruction with the INT_s taken at the <em>start</em> of its
-last T-state (<code>:1742-1772</code>), so a pulse first sampled on CPU edge E_1 and last on
+last T-state (<code>t80n.vhd:1742-1772</code>), so a pulse first sampled on CPU edge E_1 and last on
 E_N is taken at a boundary in [E_1 + 1 T, E_N + 1 T] — 32 CPU cycles on 48K/+3,
 36 otherwise (<code>zxnext.vhd:2033</code>). <code>execute()</code> takes it at the first boundary
 inside the window, keeps it pending at one before (a request resolved at the end

@@ -153,6 +153,11 @@ generated from committed sources, and a stale committed output fails the next
 test run rather than waiting for a reviewer to notice. So edit the source,
 re-render, and commit both in the same change.
 
+Code cites in this guide are held to the same standard: a cite is a file, a colon and a
+line number, anchored to a backticked symbol that sits on exactly that line, and
+`make docs-check` fails when a cited file has moved it
+([4.5](../04-testing/05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)).
+
 The half that no gate can see is whether the prose is still *true*. When you
 change a subsystem, check whether this guide still describes it correctly — a
 stale paragraph here is the same class of defect as a stale man page, with the

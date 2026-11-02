@@ -97,6 +97,7 @@ enum class OptId {
     Map,
     SourceMap,
     SourceDir,
+    Annotations,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -875,6 +876,14 @@ inline constexpr Option OPTIONS[] = {
       "repeat it for more; a path-list separator is rejected.\n"
       "Tried after the map's own directory and its parents.\n"
       "The same as --set paths.source_dirs=DIRS." },
+    { "--annotations", 1, Doc::Documented, OptId::Annotations,
+      "FILE",
+      "Load a debugger annotations file (.jdp): the user's labels\n"
+      "and comments, by memory page, which the debugger views, a\n"
+      "script's `@name` and GDB `monitor sym` show over the\n"
+      "toolchain's symbols. Loaded before the scripts. In the Qt\n"
+      "debugger, Map > Save Annotations writes back to it. A file that\n"
+      "cannot be read or does not parse is a startup error (exit 1)." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2387,6 +2387,8 @@
       
         
       
+        
+      
     
     
     
@@ -2814,6 +2816,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3003,24 +3033,24 @@ classic <code>+zxn</code> banked <code>-debug</code> is not producible (<code>Un
 <p>In z88dk:</p>
 <ul>
 <li><strong>The map line.</strong> <code>z80asm</code> <code>src/z80asm/src/c/symtab1.c:598-616</code> (master; the
-  same line is <code>:641</code> in 2.4): <code>name</code> padded, then <code>= $%04lX</code>, then
+  same line is <code>src/z80asm/src/c/symtab1.c:641</code> in 2.4): <code>name</code> padded, then <code>= $%04lX</code>, then
   <code>; type, scope, def, module, section, file:line</code>, then <code>strstrip()</code>. The <code>def</code>
   field is the word <code>def</code> or empty. An empty section shows as <code>, ,</code>, and a symbol
   with no file ends after the section: the trailing blanks are stripped
   (<code>const, public, def, , ,</code>).</li>
 <li><strong><code>__C_LINE_&lt;n&gt;_&lt;enc&gt;</code>.</strong> <code>Preproc::do_c_line()</code>, <code>src/z80asm/src/cpp/preproc.cpp</code>
-  (master <code>:1721-1755</code>, the symbol built at <code>:1746-1747</code>; 2.4 <code>:1309-1310</code>). Only
+  (master <code>src/z80asm/src/cpp/preproc.cpp:1721-1755</code>, the symbol built at <code>src/z80asm/src/cpp/preproc.cpp:1746-1747</code>; 2.4 <code>src/z80asm/src/cpp/preproc.cpp:1309-1310</code>). Only
   <code>if (g_options.debug)</code>. <code>&lt;n&gt;</code> is the directive's line operand (<code>C_LINE 17,...</code> gives <code>__C_LINE_17_</code>) and <code>&lt;enc&gt;</code>
   is <code>url_encode()</code> of the <em>string operand</em> (<code>main.c::main::1::3</code>): master
-  <code>preproc.cpp:1706</code>, 2.4 <code>:1272</code>. It keeps <code>isalnum()</code> characters and writes
+  <code>preproc.cpp:1706</code>, 2.4 <code>preproc.cpp:1272</code>. It keeps <code>isalnum()</code> characters and writes
   every other byte as <code>_</code> and two lower-case hex digits.</li>
 <li><strong>One symbol per (line, scope).</strong> <code>if (!find_local_symbol(...))</code>
-  (master <code>preproc.cpp:1748</code>, 2.4 <code>:1311</code>): only the first occurrence of an
+  (master <code>preproc.cpp:1748</code>, 2.4 <code>preproc.cpp:1311</code>): only the first occurrence of an
   identical name is defined. That is why sccz80 emits one <code>__C_LINE_18_</code> where
   <code>main.c.lis</code> has four <code>C_LINE 18,</code> (README finding G1).</li>
 <li><strong><code>__ASM_LINE_&lt;n&gt;_&lt;enc&gt;</code>.</strong> <code>asm_cond_LABEL()</code>, <code>src/z80asm/src/c/directives.c</code>
-  (master <code>:76-95</code>; the encoder <code>url_encode()</code> is at <code>:35-53</code>; 2.4 <code>:88</code> and
-  <code>:35</code>). Defined at a label, <code>if (option_debug() &amp;&amp; !sfile_is_c_source())</code>, so a
+  (master <code>src/z80asm/src/c/directives.c:76-95</code>; the encoder <code>url_encode()</code> is at <code>src/z80asm/src/c/directives.c:35-53</code>; 2.4 <code>src/z80asm/src/c/directives.c:88</code> and
+  <code>src/z80asm/src/c/directives.c:35</code>). Defined at a label, <code>if (option_debug() &amp;&amp; !sfile_is_c_source())</code>, so a
   label in assembler that came from C gets no <code>ASM_LINE</code>. In sdcc builds these
   numbers are lines of the generated assembly, not of <code>main.c</code> (README G14).</li>
 </ul>
@@ -3163,13 +3193,13 @@ as an unpaged label, and the source half refuses a line record in it.</p>
    <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another
    value, is not a dot and has no reason; a dot whose <code>__CODE_head</code> is not <code>$2000</code> is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (<code>z88dk_source_map.cpp:201-203</code>), while the symbol half places the map as any other
-   (<code>symbol_table.cpp:82</code>, no reason asked). Both halves read <code>startupoffset</code> and the
-   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants (<code>z88dk_source_map.cpp:187</code>; the symbol half keeps every constant). For a dot,
+   (<code>dot_why</code>, <code>z88dk_source_map.cpp:201-203</code>), while the symbol half places the map as any other
+   (<code>z88dk_dot_command()</code>, <code>symbol_table.cpp:82</code>, no reason asked). Both halves read the
+   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:187</code>; the symbol half keeps every constant). For a dot,
    <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</li>
 <li>an unnumbered section at <code>$2000</code>-<code>$3FFF</code> is <code>DivMmcRam{kNextZxosDotBank}</code>, bank 2
-     (<code>z88dk_space.cpp:176-181</code>), whatever the MMU maps there when the map is loaded;</li>
+     (<code>kNextZxosDotBank</code>, <code>z88dk_space.cpp:176-181</code>), whatever the MMU maps there when the map is loaded;</li>
 <li>a dotx's other unnumbered sections are rule 4: its main part (<code>PROG.X</code>, <code>prog_MAIN.bin</code>
      at <code>CRT_ORG_MAIN</code> <code>$8000</code>) is main RAM;</li>
 <li>in a dotn those sections, and every <code>PAGE_&lt;n&gt;</code> / <code>DIV_&lt;n&gt;</code> section, are <em>refused</em>
@@ -3227,10 +3257,10 @@ line markers:</p>
 <li><strong>Encoding.</strong> Only <code>isalpha()</code> characters are kept; every other character,
   digits included, is <code>_</code> and two lower-case hex digits. Writers: sccz80
   <code>src/sccz80/cdbfile.c:13-24</code> (both trees, <code>defc __CDBINFO__&lt;enc&gt; = 1</code> at
-  <code>:85-87</code>), 80cc <code>src/80cc/cdbfile.c:7-18</code> (master only). For sdcc, zcc folds the
+  <code>src/sccz80/cdbfile.c:85-87</code>), 80cc <code>src/80cc/cdbfile.c:7-18</code> (master only). For sdcc, zcc folds the
   temporary <code>.adb</code> file into the assembly (<code>zsdcc_embed_adb()</code>, master
   <code>src/zcc/zcc.c:2041-2072</code>, called when <code>peepholeopt</code> is non-zero: zcc's <code>-O</code>,
-  <code>:588</code>, <code>:1551</code>), with a variant encoder that
+  <code>src/zcc/zcc.c:588</code>, <code>src/zcc/zcc.c:1551</code>), with a variant encoder that
   also keeps whitespace (<code>zcc.c:2026-2038</code>). The value is always <code>1</code>, so the line
   is <code>const</code>.</li>
 <li><strong>Content.</strong> After decoding <code>_hh</code>, a record starts <code>M:</code> (module), <code>F:</code>

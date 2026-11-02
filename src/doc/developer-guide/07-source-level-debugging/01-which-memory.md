@@ -34,17 +34,17 @@ routes, and a debugger that shows which one answered must not collapse them.
 | Kind | `index` | Store | The VHDL (`zxnext.vhd` unless named) |
 |---|---|---|---|
 | `Cpu` | unused | The live CPU mapping, overlays included. Never an arbiter result: it is the peek side's "whatever the CPU would see" | |
-| `Page` | NR `0x50`-`0x57` page number, 0..223 | An 8 KB page. On the Next it is SRAM page `n + 0x20`, except `n` = `0x0A`/`0x0B` (the bank-5 BRAM) and `0x0E` (the bank-7 BRAM) | `mem_active_page` `:2952`; slots 0/1 `:3037-3043`, slots 2-7 `:3059-3065`; `:2961-2964` |
-| `Rom` | 0..3 | A 16 KB ROM image; the half is `cpu_a(13)` | `sram_rom`, `:3052-3057` |
-| `BootRom` | 0 | The 8 KB boot ROM (`bootrom_en`), mirrored through 0..`0x3FFF`; it sits above the whole SRAM arbiter | `:1856-1857`, `:3199-3204` |
-| `MultifaceRom` | 0 | 0..`0x1FFF` while `mf_mem_en`: SRAM page `0x0A` | `:2923`, `:3030-3035` |
-| `MultifaceRam` | 0 | `0x2000`..`0x3FFF` while `mf_mem_en`: SRAM page `0x0B` | `:3030-3035` |
-| `DivMmcRom` | 0 | The 8 KB DivMMC ROM: SRAM page `0x08` | `:2921`, `:3084-3090`; `divmmc.vhd:94,98` |
-| `DivMmcRam` | bank 0..15 | A DivMMC RAM bank: SRAM page `0x10 + bank` | `:2926`, `:3092-3098`; `divmmc.vhd:95-96,99` |
-| `AltRom` | `sram_alt_128_n` (0 = Alt ROM0 128k, 1 = Alt ROM1 48k) | The alternate-ROM read override, a 16 KB store: SRAM pages `0x0C + 2*index + cpu_a(13)` | `:2924-2925`, `:3116-3122`, selector `:2981-3008` |
-| `Layer2` | `layer2_active_page` | The Layer 2 CPU read mapping: SRAM page `index + 0x20`, never the BRAMs | `:2966-2969`, `:2971`, `:3100-3107` |
-| `Config` | NR `0x04` | The config-mode window, a 16 KB store: SRAM pages `2*index + cpu_a(13)` | `:3044-3050` |
-| `Floating` | 0 | Nothing answers; the read returns the floating bus (`0xFF` in JNEXT) | `:3060-3061`, `:3101-3102` |
+| `Page` | NR `0x50`-`0x57` page number, 0..223 | An 8 KB page. On the Next it is SRAM page `n + 0x20`, except `n` = `0x0A`/`0x0B` (the bank-5 BRAM) and `0x0E` (the bank-7 BRAM) | `mem_active_page` `zxnext.vhd:2952`; slots 0/1 `zxnext.vhd:3037-3043`, slots 2-7 `zxnext.vhd:3059-3065`; `zxnext.vhd:2961-2964` |
+| `Rom` | 0..3 | A 16 KB ROM image; the half is `cpu_a(13)` | `sram_rom`, `zxnext.vhd:3052-3057` |
+| `BootRom` | 0 | The 8 KB boot ROM (`bootrom_en`), mirrored through 0..`0x3FFF`; it sits above the whole SRAM arbiter | `zxnext.vhd:1856-1857`, `zxnext.vhd:3199-3204` |
+| `MultifaceRom` | 0 | 0..`0x1FFF` while `mf_mem_en`: SRAM page `0x0A` | `zxnext.vhd:2923`, `zxnext.vhd:3030-3035` |
+| `MultifaceRam` | 0 | `0x2000`..`0x3FFF` while `mf_mem_en`: SRAM page `0x0B` | `zxnext.vhd:3030-3035` |
+| `DivMmcRom` | 0 | The 8 KB DivMMC ROM: SRAM page `0x08` | `zxnext.vhd:2921`, `zxnext.vhd:3084-3090`; `divmmc.vhd:94`, `divmmc.vhd:98` |
+| `DivMmcRam` | bank 0..15 | A DivMMC RAM bank: SRAM page `0x10 + bank` | `zxnext.vhd:2926`, `zxnext.vhd:3092-3098`; `divmmc.vhd:95-96`, `divmmc.vhd:99` |
+| `AltRom` | `sram_alt_128_n` (0 = Alt ROM0 128k, 1 = Alt ROM1 48k) | The alternate-ROM read override, a 16 KB store: SRAM pages `0x0C + 2*index + cpu_a(13)` | `zxnext.vhd:2924-2925`, `zxnext.vhd:3116-3122`, selector `zxnext.vhd:2981-3008` |
+| `Layer2` | `layer2_active_page` | The Layer 2 CPU read mapping: SRAM page `index + 0x20`, never the BRAMs | `zxnext.vhd:2966-2969`, `zxnext.vhd:2971`, `zxnext.vhd:3100-3107` |
+| `Config` | NR `0x04` | The config-mode window, a 16 KB store: SRAM pages `2*index + cpu_a(13)` | `zxnext.vhd:3044-3050` |
+| `Floating` | 0 | Nothing answers; the read returns the floating bus (`0xFF` in JNEXT) | `zxnext.vhd:3060-3061`, `zxnext.vhd:3101-3102` |
 
 Three facts the table does not show:
 
@@ -149,21 +149,21 @@ memory go through it ([7.7](07-frontends.md)).
   `MFRAM`, `DivMmcRom` `DIVROM`, `DivMmcRam{b}` `DIVRAM%u` (decimal), `AltRom{i}` `ALTROM%u`,
   `Layer2{p}` `L2P%02X`, `Config{b}` `CFG%02X`, `Floating` `FLOAT`, `Cpu` `CPU`. The charset
   is `[A-Z0-9]`: no whitespace and no `:`.
-- **The inverse.** `parse_space_tag()` (`:64`) is strict: digits only, any case, no leading zero
+- **The inverse.** `parse_space_tag()` (`long_address.cpp:64`) is strict: digits only, any case, no leading zero
   on a decimal index, the hardware's ranges (a page `0..0xDF`, ROM `0..3`, DivMMC bank `0..15`,
   alt ROM `0..1`). It refuses `PE5`: a slot 2-7 that holds NR >= `0xE0` reads nothing, so
   `SlotInfo::now` is `Floating` while `SlotInfo::space` is `Page{0xE5}`. A view therefore names
   a slot by `now`, no protocol output tags `space`, and a view that shows the slot's own source
   shows `FLOAT` for a page >= `0xE0`.
 - **The tags are a stable format.** The project file and the ghidra and skoolkit exports key on
-  them, so changing a spelling is a format break, not a tidy-up (the header says so,
-  `long_address.h:9-11`). The trace export's `FETCH=` column is `space_tag(fetch_space())`
+  them, so changing a spelling is a format break, not a tidy-up (the header says so, in the
+  comment on `parse_space_tag`, `long_address.h:9-11`). The trace export's `FETCH=` column is `space_tag(fetch_space())`
   (`trace.cpp:324`), never the GUI's style ([3.9.1](../03-subsystems/09-1-the-backend-api.md)).
-- **The Next layout.** `physical_text(space, addr)` (`:111`) says where the byte sits in the Next's
+- **The Next layout.** `physical_text(space, addr)` (`long_address.cpp:111`) says where the byte sits in the Next's
   memory: `$` and six hex digits of the SRAM address (`Page{n}` and `Layer2{n}` are
-  `(n + 0x20) << 13 | offset`, `zxnext.vhd:2964,2971`; `Rom{i}` `i << 14 | offset`, `:3052-3057`;
-  alt ROM `0x018000 + 0x4000 * i`, `:2924-2925`; Multiface `0x014000` / `0x016000`; DivMMC ROM
-  `0x010000` (SRAM page 8) and DivMMC RAM `0x020000 + 0x2000 * b` (page `0x10 + b`), `zxnext.vhd:2921,2926,3085,3093`), or `BRAM5+$XXXX`
+  `(n + 0x20) << 13 | offset`, `zxnext.vhd:2964`, `zxnext.vhd:2971`; `Rom{i}` `i << 14 | offset`, `zxnext.vhd:3052-3057`;
+  alt ROM `0x018000 + 0x4000 * i`, `zxnext.vhd:2924-2925`; Multiface `0x014000` / `0x016000`; DivMMC ROM
+  `0x010000` (SRAM page 8) and DivMMC RAM `0x020000 + 0x2000 * b` (page `0x10 + b`), `zxnext.vhd:2921`, `zxnext.vhd:2926`, `zxnext.vhd:3085`, `zxnext.vhd:3093`), or `BRAM5+$XXXX`
   (pages `0x0A`, `0x0B`), `BRAM7+$XXXX` (page `0x0E`), `BOOT+$XXXX`, `FLOAT`. Banks 5 and 7 are
   block RAM, not SRAM, apart from page `0x0F`; Layer 2 always sees the SRAM copy.
 - **The style.** `space_text()` and `long_address()` (`$C000 P0E`) choose by `AddressStyle`:

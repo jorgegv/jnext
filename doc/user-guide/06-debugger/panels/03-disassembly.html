@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2297,6 +2297,8 @@
       
         
       
+        
+      
     
     
     
@@ -2753,6 +2755,34 @@
     
   
     Memory coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/16-user-labels-and-comments.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your own labels and comments
   
 
     
@@ -4095,6 +4125,10 @@ so breakpoint dots stay visible.</p>
   symbol and press Enter to centre the view there. A number wins over a symbol
   spelled like one; write <code>@name</code> to mean the symbol.</li>
 <li><strong>Go to PC</strong> re-centres on the current instruction.</li>
+<li>A <strong>Label</strong> column appears between the bytes and the instruction once any label is known: the name
+  of the line's own address in its memory, loaded or your own, shortened after 16 characters. Your
+  comment follows the instruction as <code>; first line</code>. See
+  <a href="../functions/16-user-labels-and-comments.html">Your own labels and comments</a>.</li>
 <li>With a source map loaded, a selection here moves the <a href="15-source.html">Source</a> tab (the cursor goes
   to the line of the instruction you clicked, and the lines of the whole range are tinted), and the
   instructions of the Source tab's selected lines are tinted pale violet here. The right-click menu
@@ -4172,6 +4206,10 @@ focus — click in it first if you have been typing somewhere else.</p>
 <tr>
 <td>Go to Address…</td>
 <td>Jump to the address box</td>
+</tr>
+<tr>
+<td>Add / Rename Label…, Remove Label, Add / Edit Comment…</td>
+<td>Your own label and comment for this line's address, in its memory (<a href="../functions/16-user-labels-and-comments.html">Your own labels and comments</a>)</td>
 </tr>
 <tr>
 <td>Watch <em>symbol</em> / Watch <code>$nnnn</code></td>

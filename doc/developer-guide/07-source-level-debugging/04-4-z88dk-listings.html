@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2387,6 +2387,8 @@
       
         
       
+        
+      
     
     
     
@@ -2780,6 +2782,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2943,13 +2973,13 @@ four builds only). A listing is the assembler's view: addresses are
 map uses (<code>MODULE util_c</code> in <code>game/util.c.lis</code>, module <code>game_util_c</code> in the map;
 README finding G18).</p>
 <h2 id="2-the-producers-writer">2. The producer's writer<a class="headerlink" href="#2-the-producers-writer" title="Permanent link">&para;</a></h2>
-<p><code>z80asm</code> <code>src/z80asm/src/cpp/lstfile.cpp</code> (<code>list_open()</code>: 2.4 <code>:202</code>, master
-<code>:213</code>). The layout is <code>LstFile::out_line()</code> (master <code>:131-177</code>, 2.4 <code>:126-168</code>) with the widths at
-<code>:26-29</code> (identical in both trees): a 6-wide line-number column, 2 blanks, a
+<p><code>z80asm</code> <code>src/z80asm/src/cpp/lstfile.cpp</code> (<code>list_open()</code>: 2.4 <code>src/z80asm/src/cpp/lstfile.cpp:202</code>, master
+<code>src/z80asm/src/cpp/lstfile.cpp:213</code>). The layout is <code>LstFile::out_line()</code> (master <code>src/z80asm/src/cpp/lstfile.cpp:131-177</code>, 2.4 <code>src/z80asm/src/cpp/lstfile.cpp:126-168</code>) with the widths at
+<code>src/z80asm/src/cpp/lstfile.cpp:26-29</code> (identical in both trees): a 6-wide line-number column, 2 blanks, a
 4-digit hex address (the section-relative or phased pc), 2 blanks, 16 characters
 for at most 8 bytes, 2 blanks, and the source text from column 32. Bytes beyond the
 eighth continue on rows that repeat only the bytes. <code>LstFile::out_filename()</code>
-(master <code>:122-129</code>, 2.4 <code>:117-124</code>) writes <code>&lt;name&gt;:</code> on its own line whenever the file changes, which
+(master <code>src/z80asm/src/cpp/lstfile.cpp:122-129</code>, 2.4 <code>src/z80asm/src/cpp/lstfile.cpp:117-124</code>) writes <code>&lt;name&gt;:</code> on its own line whenever the file changes, which
 includes the files <code>z80asm</code> is reading through <code>INCLUDE</code>, a <code>C_LINE</code>'s file operand
 and a macro's source (the <code>.m4</code> text of the start-up code).</p>
 <h2 id="3-the-grammar">3. The grammar<a class="headerlink" href="#3-the-grammar" title="Permanent link">&para;</a></h2>
@@ -3014,14 +3044,14 @@ binaries' bytes). In order:</p>
    <code>offset = map value - listed address</code> for its section. All anchors of one section
    piece must agree, or the listing is dropped ("this is not the listing of this
    build"). A piece with no anchor falls back to <code>__&lt;section&gt;_head</code> when
-   <code>tail - head</code> equals the piece's byte count (<code>z88dk_lis.cpp:603-612</code>). A smaller piece is
+   <code>tail - head</code> equals the piece's byte count (<code>p.pc</code>, <code>z88dk_lis.cpp:603-612</code>). A smaller piece is
    placed by its bytes (5b below). A piece with none of these, and anything inside <code>PHASE</code>,
    cannot be placed; those rows are counted and reported as "N listed lines could not be
    placed".
    <strong>5b. A label-less piece smaller than its section is placed by its bytes</strong> (GH #426 F4;
    design 9.5). Another module can put code in the same section: the banking driver shares
    <code>code_crt_init</code> with the CRT in the banked-CRT fixtures, so the CRT's own piece has no label in
-   the map and is smaller than the section. <code>place_z88dk_listing()</code> (<code>z88dk_lis.cpp:614-664</code>, the "no start" note at <code>:655</code>) tries
+   the map and is smaller than the section. <code>place_z88dk_listing()</code> (<code>z88dk_lis.cpp:396</code>) tries
    every start <code>c</code> from <code>__&lt;s&gt;_head</code> to <code>__&lt;s&gt;_tail</code> minus the piece's size and excludes it when,
    at any <em>checked row</em>, the section binary holds a byte other than the listing's first byte. A
    checked row is the first byte of a mnemonic row, outside <code>PHASE</code>, in a non-data section; the
@@ -3031,7 +3061,7 @@ binaries' bytes). In order:</p>
    <em>unknown</em> (<code>nullopt</code>) when no section binary covers the byte, <strong>when two or more do</strong> (overlay
    sections at one ORG: <code>bin_for(..., &amp;more)</code>, <code>z88dk_source_map.cpp:288</code>, and the <code>byte_at</code> lambda, <code>:358-363</code>), and when <code>place()</code> fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:</li>
-<li><strong>no start survives:</strong> the listing is dropped, with "section '<s>': its label-less lines match no
+<li><strong>no start survives</strong> (<code>survivors</code>, <code>z88dk_lis.cpp:655</code>; the search loop over <code>survivors</code>, <code>z88dk_lis.cpp:614-664</code>): the listing is dropped, with "section '<s>': its label-less lines match no
      place in the section binary; this is not the listing of this build" (row <code>Z88LIS-42</code>);</li>
 <li><strong>exactly one survives and every checked byte was known:</strong> the piece starts there (<code>Z88LIS-36</code>
      and <code>-37</code> on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it
@@ -3143,7 +3173,7 @@ resolves through line 17's first byte row.</p>
    295  0029  210100                ld  hl,_table
 </code></pre>
 <p>The <code>prog.lis</code> of the same build has a header <code>z88dk/lib/config/../..//libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4:</code>
-(file line 4): the text kept as an embedded file, so <code>zxn_crt.asm.m4:9462</code>
+(the <code>zxn_crt</code> header, <code>test/fixtures/z88dk/v2.4/sdcc-SO2/prog.lis:4</code>): the text kept as an embedded file, so <code>zxn_crt.asm.m4:9462</code>
 resolves to <code>$8000</code> (row <code>Z88LIS-10</code>).</p>
 <h2 id="9-the-rows">9. The rows<a class="headerlink" href="#9-the-rows" title="Permanent link">&para;</a></h2>
 <ul>
