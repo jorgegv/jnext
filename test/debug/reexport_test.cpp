@@ -705,7 +705,7 @@ static void backend_rows() {
         std::string why;
         const Result e1 = dbg.export_ghidra(d.string(), nullptr, &why);
         const Result k1 = dbg.export_skoolkit(d.string(), nullptr, &why);
-        for (const char* n : {"mine.ghidra.txt", "PE0.ghidra.txt", "p10.ghidra.txt", "CPU2.ghidra.txt", "x.bin", "1234-notatag.bin"})
+        for (const char* n : {"mine.ghidra.txt", "PE0.ghidra.txt", "p11.ghidra.txt", "CPU2.ghidra.txt", "x.bin", "1234-notatag.bin"})
             write_text(d / n, "mine\n");
         write_text(d / "1234-notatag.ctl", "# jnext space X\n");   // jnext's by its header; its .bin is not an export image
         dbg.clear_symbols();
@@ -713,11 +713,11 @@ static void backend_rows() {
         const Result k2 = dbg.export_skoolkit(d.string(), nullptr, &why);
         const std::vector<std::string> after = ls(d);
         check("SRCDBG-REX-05a", "a re-export removes the Ghidra and skoolkit files it wrote before and no other "
-                                "file: mine.ghidra.txt, PE0.ghidra.txt, p10.ghidra.txt, CPU2.ghidra.txt, x.bin and "
+                                "file: mine.ghidra.txt, PE0.ghidra.txt, p11.ghidra.txt, CPU2.ghidra.txt, x.bin and "
                                 "1234-notatag.bin survive (the .bin beside a stale header-marked .ctl whose stem is no tag too)",
               e1 == Result::Ok && k1 == Result::Ok && e2 == Result::Ok && k2 == Result::Ok &&
                   after == std::vector<std::string>{"1234-notatag.bin", "CPU2.ghidra.txt", "PE0.ghidra.txt",
-                                                    "mine.ghidra.txt", "p10.ghidra.txt", "x.bin"},
+                                                    "mine.ghidra.txt", "p11.ghidra.txt", "x.bin"},
               join(after));
     }
 
