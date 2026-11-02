@@ -351,7 +351,7 @@ static void pure_rows() {
                           "to its home (P0E $C000, P0F $E000, P0A $4000, P05 $A000); a key's window wins "
                           "over the mapping",
               join(ctl) == "4000-P0A.ctl 8000-P20.ctl A000-P05.ctl C000-P0E.ctl E000-P0F.ctl" &&
-                  join({bo.files[0].name, bo.files[1].name}) == "C000-P20.bin C000-P20.ctl",
+                  names_of(bo) == "C000-P20.bin C000-P20.ctl",
               join(ctl) + " | " + names_of(bo));
     }
 
@@ -688,7 +688,8 @@ static void backend_rows() {
                                "RefusedUnavailable and a reason naming the path",
               a == Result::RefusedUnavailable && b == Result::RefusedUnavailable &&
                   c == Result::RefusedUnavailable && e == Result::RefusedUnavailable &&
-                  has(w1, "file") && has(w2, "file") && has(w3, "file") && has(w4, "file") &&
+                  has(w1, "file is not a directory") && has(w2, "file is not a directory") &&
+                  has(w3, "file") && has(w4, "file") &&
                   slurp(d / "file") == "x", w1 + "|" + w3);
     }
 

@@ -1181,11 +1181,13 @@ with status 1.
     Unpaged labels are in `0000-CPU.ctl`. Executed bytes become `c`
     blocks, read or written ones `b`, the rest `u`; without
     **--coverage** each window is one `c` block. skoolkit has no Z80N
-    support, so Z80N instructions are written as `DEFB` sub-blocks. A
-    previous export’s files in *DIR* are replaced; any other file there
-    is never touched, and a `.ctl` or `.bin` of the same name that is
-    not jnext’s makes the export fail. A failed export is logged and
-    jnext exits with status 1.
+    support, so Z80N instructions are written as `DEFB` sub-blocks.
+    sna2skool drops without a word a label that is not at the start of a
+    line it writes: the labels of a memory’s own file always are, those
+    in `0000-CPU.ctl` may not be. A previous export’s files in *DIR* are
+    replaced; any other file there is never touched, and a `.ctl` or
+    `.bin` of the same name that is not jnext’s makes the export fail. A
+    failed export is logged and jnext exits with status 1.
 
 **--export-ghidra** *DIR*
 :   When jnext exits, write the debugger’s labels into *DIR* (created)

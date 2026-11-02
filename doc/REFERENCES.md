@@ -74,6 +74,8 @@ Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURC
 | sjasmplus - the SLD format v1 (`docs/documentation.xml`, chapter "Source Level Debugging (SLD) data", read at v1.23.1) and the `--sym` / `--exp` EQU files | <https://github.com/z00m128/sjasmplus> |
 | SkoolKit - control files (`sphinx/source/control-files.rst`), `sna2skool.py` (`commands.rst`) and the `@bank` directive (`asm.rst`), read on master after release 10.1 | <https://github.com/skoolkid/skoolkit> |
 | Ghidra - `Ghidra/Extensions/Jython/ghidra_scripts/ImportSymbolsScript.py`, the symbol import that the ghidra export targets | <https://github.com/NationalSecurityAgency/ghidra> |
+| SkoolKit 10.1 source distribution, the test-time reader of the control-file export (`skoolkit/ctlparser.py`, `sna2skool.py`, `skool2ctl.py`, `skool2asm.py`; sha256 `e71f0bac...2383`, pinned in `test/provision-skoolkit.sh`; GH #389) | <https://pypi.org/project/skoolkit/10.1/> |
+| Ghidra 12.2 release, the test-time reader of the symbol export (`ImportSymbolsScript.py` and `support/analyzeHeadlessREADME.html` of the release, run headless; `ChangeHistory.md` GP-6754: since 12.1 Jython is an extension; sha256 `2c2cd776...e67`, pinned in `test/provision-ghidra.sh`; GH #389) | <https://github.com/NationalSecurityAgency/ghidra/releases/tag/Ghidra_12.2_build> |
 
 ## Emulators used as oracles / comparison
 
