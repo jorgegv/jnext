@@ -111,6 +111,16 @@ public:
     /// Applies immediately when a window already exists.
     void set_keymap(const jnext::dbgkeys::Keymap& km);
 
+    /// GH #387 - the annotations project file (.jdp): the one `--annotations` loaded at start-up (so
+    /// Save writes back to it and nothing is unsaved), or the last one opened or saved. Empty = none yet.
+    void set_annotations_file(const QString& path);
+    QString annotations_file() const { return annotations_file_; }
+    /// The user's labels and comments differ from the file last opened or saved (D11).
+    bool annotations_unsaved() const { return dbg_.annotations_revision() != saved_revision_; }
+    /// With unsaved annotations, ask Save / Discard / Cancel. True: go on (nothing unsaved, saved, or
+    /// discarded); false: cancelled, or the save failed.
+    bool confirm_discard_annotations();
+
     /// GH #420 - the directories the Source tab also searches for the source files
     /// a map names: the configured list (command line, else the saved one; MainWindow
     /// sets it) and, after it, the ones a Locate File... found this session, which a
@@ -165,6 +175,10 @@ public slots:
     void on_rewind_to_frame(uint32_t frame_num);
     void on_load_map_z88dk();
     void on_load_map_simple();
+    /// GH #387: Map > Open Annotations..., Save Annotations, Save Annotations As...
+    void on_open_annotations();
+    void on_save_annotations();
+    void on_save_annotations_as();
     /// GH #390: Map > Load MAP File > sjasmplus Format (`--sym` / `--exp`).
     void on_load_map_sjasmplus();
     /// CAP-SRC: the Source tab's Load Memory.txt... and Load Source Map... buttons.
@@ -208,6 +222,9 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    bool save_annotations_to(const QString& path);
+    QString  annotations_file_;
+    uint64_t saved_revision_ = 0;   // annotations_revision() at the last open / save / --annotations
     /// GH #428 — everything a paused panel can show that a tick can see
     /// change: the CPU register file (a direct core write, as the tests and host
     /// actions make), the master clock (steps, run-to, rewinds), the backend's state

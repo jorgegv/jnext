@@ -1279,6 +1279,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#user-labels-and-comments-cap-ann" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        User labels and comments — CAP-ANN
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#source-maps-cap-src" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2572,6 +2583,8 @@
       
         
       
+        
+      
     
     
     
@@ -2767,6 +2780,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
   
 
     
@@ -3425,6 +3466,52 @@ server's <code>monitor sym</code> and <code>--map</code> all read it, so a symbo
 <a href="../07-source-level-debugging/04-formats.html">7.4</a> ("The symbol table the formats fill"); the z88dk
 placement rules and C names are <a href="../07-source-level-debugging/04-3-z88dk-map.html">7.4.3</a>; the three
 other loaders are 7.4.1, 7.4.2 and 7.4.5.</p>
+<h3 id="user-labels-and-comments-cap-ann">User labels and comments — CAP-ANN<a class="headerlink" href="#user-labels-and-comments-cap-ann" title="Permanent link">&para;</a></h3>
+<p>A second layer beside the toolchain's symbols: the user's labels and comments (GH #387), keyed by memory and
+address. <code>symbols()</code>, <code>lookup()</code> and <code>lookup_name()</code> return the composition of the two layers, the user's first,
+so no consumer merges them. The store has no lifetime: loads, resets, state loads and rewinds leave it alone, and
+it is not in <code>.jns</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Verb</th>
+<th>Does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>set_user_label(space, addr, name, why)</code></td>
+<td>names <code>addr</code> in <code>space</code> (a rename when the key has a label); <code>Unsupported</code> with <code>why</code> for the Cpu space, a memory the file cannot name, a bad name, a name in use, or a name the loaded symbols give another address or memory</td>
+</tr>
+<tr>
+<td><code>remove_user_label(space, addr)</code></td>
+<td>removes the user's label; <code>RefusedUnavailable</code> when there is none (the toolchain's is untouched)</td>
+</tr>
+<tr>
+<td><code>set_user_comment(space, addr, text, why)</code></td>
+<td>sets the comment; empty text removes it; CRLF and CR become LF; <code>Unsupported</code> for the Cpu space, a memory the file cannot name, or text that is not UTF-8</td>
+</tr>
+<tr>
+<td><code>annotations()</code>, <code>annotations_revision()</code></td>
+<td>the store, and a counter that rises with each successful change</td>
+</tr>
+<tr>
+<td><code>load_annotations(path, why)</code>, <code>save_annotations(path, why)</code></td>
+<td>the <code>.jdp</code> file: a load replaces the whole store or leaves it as it was (<code>Unsupported</code>, <code>line N: ...</code>; <code>RefusedUnavailable</code> for a file that cannot be read); a save writes <code>PATH.part</code> and renames it, and is <code>RefusedUnavailable</code> when it cannot write</td>
+</tr>
+<tr>
+<td><code>replace_annotations(a)</code></td>
+<td>replaces the whole store (what an import builds offline)</td>
+</tr>
+<tr>
+<td><code>toolchain_symbols()</code></td>
+<td>the loaded layer alone (the Load MAP messages count this)</td>
+</tr>
+</tbody>
+</table>
+<p>The verbs touch no machine state (allowed while running) and each success bumps <code>state_revision()</code>. The file,
+the composed reader, where it is recomposed and why the attachment cache holds the toolchain layer only are
+<a href="../07-source-level-debugging/04-6-user-annotations.html">7.4.6</a>.</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
 <p>The backend also owns one <code>SourceMap</code> (<code>src/debug/source_map.*</code>), keyed by the <code>FetchSource</code> that
 supplies the code, filled by a format adapter and replaced only by a complete, successful load.</p>

@@ -1486,6 +1486,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#labels-and-comments-of-your-own-gh-387" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Labels and comments of your own (GH #387)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#source" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2533,6 +2544,8 @@
       
         
       
+        
+      
     
     
     
@@ -2728,6 +2741,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
   
 
     
@@ -3040,10 +3081,10 @@ work. A breakpoint change another client made arrives as
 reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on <code>DebuggerManager</code>'s timer, except
 the two views of the breakpoints.</p>
-<p><strong>Refresh cadence (GH #428).</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:831</code>)
-redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>debugger_manager.h:344</code>: ~4 Hz). Paused, it
+<p><strong>Refresh cadence (GH #428).</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:913</code>)
+redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>debugger_manager.h:361</code>: ~4 Hz). Paused, it
 redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>:820</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:219</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+<code>debugger_manager.h:236</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:</p>
 <ul>
@@ -3063,7 +3104,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse <em>movement</em> is not counted: hover
   and Kempston mouse capture must not redraw a paused window;</li>
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
-  loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:550</code>), so an edit on disk still shows.</li>
+  loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:551</code>), so an edit on disk still shows.</li>
 </ul>
 <p><code>refresh_window()</code> (<code>:811</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
@@ -3201,6 +3242,12 @@ any other client loads shows in the panels too. What each loader reads is
   on a paused machine (rows <code>QMAP-05</code> and <code>QMAP-06</code>). A file refused rather than unreadable has the
   backend's reason appended to the failure box (<code>on_load_map_z88dk()</code>, <code>on_load_map_simple()</code>, rows <code>QMAP-07</code>).</li>
 </ul>
+<h2 id="labels-and-comments-of-your-own-gh-387">Labels and comments of your own (GH #387)<a class="headerlink" href="#labels-and-comments-of-your-own-gh-387" title="Permanent link">&para;</a></h2>
+<p>The Disassembly and the Source tab share one menu builder, <code>add_annotation_actions()</code>
+(<code>src/debugger/annotation_menu.cpp:77</code>), for Add / Rename Label…, Remove Label and Add / Edit Comment…;
+<code>DisasmPanel</code> draws a <strong>Label</strong> column and the first line of a comment, and <strong>Map ▸ Open / Save / Save As
+Annotations</strong> and the quit question about unsaved changes are <code>DebuggerManager</code>'s. The mechanism and its rows
+are <a href="../07-source-level-debugging/04-6-user-annotations.html">7.4.6</a>, section 10.</p>
 <h2 id="source">Source<a class="headerlink" href="#source" title="Permanent link">&para;</a></h2>
 <p>The Source tab (<code>source_panel.*</code>) shows the PC's line from the backend's source map and carries the
 source-step buttons; it holds no state of its own beyond the loaded file, its modification time, where the

@@ -365,6 +365,7 @@ bool QtApp::init(int argc, char* argv[]) {
     {
         jnext::script::ScriptHostOptions so;
         so.map_file = config_.map_file;
+        so.annotations_file = config_.annotations_file;
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
@@ -383,6 +384,12 @@ bool QtApp::init(int argc, char* argv[]) {
     main_window_->set_debugger(debugger_.get());
     main_window_->set_script_host(&script_host_);   // GH #26 WP5 — the Script tab
     main_window_->set_emulator(&emulator_);
+    // GH #387 - the file --annotations loaded is the one Save writes back to.
+#ifdef ENABLE_DEBUGGER
+    if (!config_.annotations_file.empty())
+        if (auto* mgr = main_window_->debugger_manager())
+            mgr->set_annotations_file(QString::fromStdString(config_.annotations_file));
+#endif
     main_window_->set_unattended(exit_countdown_.armed());   // see set_delayed_exit()
     main_window_->set_joy_device_provider([this]() {      // GH #311
         return gamepad_host_ ? gamepad_host_->devices() : std::vector<JoyDeviceInfo>{};

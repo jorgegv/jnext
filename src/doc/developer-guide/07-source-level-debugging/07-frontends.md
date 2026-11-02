@@ -33,11 +33,11 @@ browsed (`browse_addr_`) and the reason `report_sidecars()` gave it.
 
 ### What one refresh does
 
-`SourcePanel::refresh_()` (`source_panel.cpp:589`) runs while the machine is paused,
+`SourcePanel::refresh_()` (`source_panel.cpp:590`) runs while the machine is paused,
 whenever the window's paused stamp changed ([3.10.2](../03-subsystems/10-2-the-qt-debugger.md):
 the stamp carries a flag for "the loaded file changed on disk",
-`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:820`; the flag is
-`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:550`). In order:
+`DebuggerManager::paused_stamp()`, `debugger_manager.cpp:902`; the flag is
+`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`). In order:
 
 1. `update_buttons(paused)` (`:493`): the forward steps need a paused machine and a
    non-empty map; Back and Reverse Continue also need `rewind_blocked()` empty and the
@@ -74,7 +74,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 
 `follow_pc()` (`:556`) clears `placed_` and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1558`) calls it, and
+`DebuggerWindow::activate_follow_pc()` (`debugger_window.cpp:1567`) calls it, and
 `apply_pause_state(true)` runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.
 
@@ -84,13 +84,13 @@ already shown still puts the view back.
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
-`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:304`) takes the
-configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3125`, fed by
-`apply_startup_config()`, `:2907`: the saved list with the command line's `--source-dir` or
-`paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:437`)
-adds to a second, session-only list through `on_source_dir_located()` (`:316`). The effective
+`DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:305`) takes the
+configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3128`, fed by
+`apply_startup_config()`, `:2910`: the saved list with the command line's `--source-dir` or
+`paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:438`)
+adds to a second, session-only list through `on_source_dir_located()` (`:317`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-`push_source_dirs()` (`:296`) on every change and again in `ensure_window()`, since the window is
+`push_source_dirs()` (`:297`) on every change and again in `ensure_window()`, since the window is
 created lazily. Locate derives the directory with `source_search::root_for()`, refuses a file of
 another name, and asks whether to save it; `source_dir_save_requested` is MainWindow's, which
 appends to `[paths] source_dirs` and refuses a directory that holds the list separator, as
@@ -103,12 +103,12 @@ and MainWindow logs `Source search path: ...`.
 ### Loading a map by hand
 
 The Source tab's **Load Source Map...** button and the Debug > Source > Load Source Map... item
-are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:714`). Its file dialog
+are one slot, `DebuggerManager::on_load_sld()` (`debugger_manager.cpp:796`). Its file dialog
 offers `*.sld`, `*.sld.txt` and `*.map`; the backend tells the format by content
 ([7.3](03-loaders.md)), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 `load_map()`; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:756`):
+rather than unreadable. The sidecar report is `DebuggerManager::report_sidecars()` (`:838`):
 the log, and the main window's status bar for ten seconds.
 
 ### Colouring
@@ -138,7 +138,7 @@ the log, and the main window's status bar for ten seconds.
   `p` exponent; Boriel's `t_HEXA`, `t_OCTAL` and `t_BIN` are tried before `t_NUMBER`, and a `$` or `%`
   suffix belongs to its identifier. The scanners are allocation-free per word. Formats set the
   foreground colour and nothing else, so the line geometry and the gutter alignment equal Plain's.
-- **Entering a text.** `SourcePanel::set_source_text()` (`source_panel.cpp:513`) is the one way:
+- **Entering a text.** `SourcePanel::set_source_text()` (`source_panel.cpp:514`) is the one way:
   the language first, then the text, so a load is highlighted once with its own language.
 - **Schemes.** `SourceScheme` (`platform/source_scheme.h`) is the order of the words of the
   `source.colour_scheme` key: Auto, Light, Dark, Borland (`static_assert`s in `app_config.cpp`
@@ -158,7 +158,7 @@ the log, and the main window's status bar for ten seconds.
   viewport. `set_colour_scheme()` (`:541`) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections `refresh_()` builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:310`) and pushed by
+  `DebuggerManager::set_source_scheme()` (`debugger_manager.cpp:311`) and pushed by
   `ensure_window()`, fed by `MainWindow::apply_startup_config()`.
 - **What a scheme does not reach.** The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -167,7 +167,7 @@ the log, and the main window's status bar for ten seconds.
 
 ### The gutter and breakpoints
 
-The editor is a private `QPlainTextEdit` subclass, `SourceEdit` (`source_panel.cpp:98`), with a
+The editor is a private `QPlainTextEdit` subclass, `SourceEdit` (`source_panel.cpp:99`), with a
 gutter widget in a left viewport margin and a header strip above it (`setViewportMargins`; objects
 `source_gutter` and `source_gutter_header`), because the visible blocks' geometry is protected.
 
@@ -204,7 +204,7 @@ gutter widget in a left viewport margin and a header strip above it (`setViewpor
 
 ### The context menu
 
-`SourcePanel::fill_context_menu()` (`:1127`, called from the editor's and the gutter's
+`SourcePanel::fill_context_menu()` (`:1128`, called from the editor's and the gutter's
 `contextMenuEvent`) offers the Disassembly's actions on the source line: Copy, Copy with Addresses,
 Select All; Toggle Breakpoint; Run to Here (`run_to_line_requested`, which `DebuggerManager` runs as
 `Debugger::run_to_source_line` behind its corruption gate; Enter in the editor and the bindable Run to
@@ -216,10 +216,17 @@ labels at the line's places and the word under the pointer. A word is classified
 parentheses, a number or a name, and a name goes through `SourcePanel::symbol_for_word()` (`:1037`),
 the single seam for the C names (`resolve_key("@" + word)`; `@` forces a symbol).
 
+After the Show in Disassembly entry the menu carries the user-annotation entries (GH #387): Add / Rename
+Label…, Remove Label and Add / Edit Comment…, from `add_annotation_actions()`
+(`src/debugger/annotation_menu.cpp:77`), once per place the line compiled to
+(`SourcePanel::fill_context_menu()` calls it at `src/debugger/source_panel.cpp:1208`). The Disassembly
+shows the labels and comments; the Source tab does not. How they are stored, saved and drawn is
+[7.4.6](04-6-user-annotations.md), section 10.
+
 ### Selection sync with the Disassembly (GH #347)
 
 `DebuggerWindow::create_panels()` wires the two panels with three connections
-(`debugger_window.cpp:1458-1475`), and nothing else couples them. Each carries only what the *user*
+(`debugger_window.cpp:1467-1484`), and nothing else couples them. Each carries only what the *user*
 did in its sender, so no move echoes.
 
 - **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is
@@ -231,27 +238,27 @@ did in its sender, so no move echoes.
   panel makes itself (the PC placement of `refresh_()`, a text load, `set_disasm_selection()`) runs
   under a `SyncScope` (`syncing_`), so that slot stays silent, and ends with `emit_lines_(false, ...)`,
   so a stop tints the PC statement's other instructions without scrolling.
-  `DisasmPanel::set_source_lines()` (`disasm_panel.cpp:437`) stores the range; a row is linked
-  (`source_linked()`, `linked_at_()`, `:424-432`) when `lookup_all()` in its own space has a location
+  `DisasmPanel::set_source_lines()` (`disasm_panel.cpp:438`) stores the range; a row is linked
+  (`source_linked()`, `linked_at_()`, `:425-433`) when `lookup_all()` in its own space has a location
   on a selected line of that file, the primary or not. `paintEvent` fills a linked row with
   `source_sync_colors::linked()` before the PC row, the selection and the coverage bar. With `reveal`
   and no linked row in view, the view centres on the first start of `resolve(file:line)` that is
   mapped now; otherwise it never moves.
 - **Disassembly to Source.** `DisasmPanel::selection_changed(lo, hi, caret)` comes from the user paths
-  only (`notify_selection_()`, `:412`: a press, a drag, a navigation key, Select All, the menu's
+  only (`notify_selection_()`, `:413`: a press, a drag, a navigation key, Select All, the menu's
   collapse), when the triple differs from the last one sent. `show_address()` and a refresh do not
   emit; `set_source_lines()` forgets the last triple, so the next click on the same lines is a change
-  again. `SourcePanel::set_disasm_selection()` (`source_panel.cpp:816`) is ignored while running or
+  again. `SourcePanel::set_disasm_selection()` (`source_panel.cpp:817`) is ignored while running or
   without a map, stores the range (`disasm_range_`, dropped when the machine runs, so a stop shows no
   tint of it), and sets `browse_addr_` unless the caret's primary line is the PC's own statement.
   `refresh_()` then describes `browse_addr_` instead of the PC. The lines of the instructions in the
-  range (`linked_lines_()`, `:878`, walking `instruction_length` over `memory_reader()`) get an
+  range (`linked_lines_()`, `:879`, walking `instruction_length` over `memory_reader()`) get an
   `ExtraSelection` in the scheme's `linked_line`, after the coverage tints and before the PC's. There is no cache of those lines: a full 64K
   range cost about 3.5 ms when #347 was written (a figure from its design, not re-measured here), and it is
   paid at each `refresh()`, which since #428 runs only when the paused stamp changed, not on every tick.
 - **Show in Source.** `DisasmPanel::show_source_requested(addr)`, from a menu item present only while
   a map is loaded and enabled only where `lookup()` finds a line. The window raises the Source tab and
-  calls `SourcePanel::show_address()` (`:835`).
+  calls `SourcePanel::show_address()` (`:836`).
 
 Browsing ends at `follow_pc()` (every stop), `show_running()`, the map going away (the None and Stale
 branches of `refresh_()`), another loaded map (`browse_map_`), an address with no line now, and **Go to
