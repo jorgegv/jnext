@@ -79,6 +79,8 @@
 //               Reported against GH #246: three flags in the table, the man
 //               page, USAGE.md and the user guide, absent from `--help`, every
 //               gate green.
+//   CLI-ENV-01  The jnext children these rows start have no DISPLAY / WAYLAND_DISPLAY and a fixed
+//               environment (offscreen Qt, dummy SDL video, LC_ALL=C), test/test_spawn.h (GH #440).
 //   CLI-TBL-06  Every row carries help text, and its metavar count equals its
 //               arity (a quoted run counts once — --rtc takes one argument
 //               spelled "YYYY-MM-DD HH:MM:SS"). An empty help is a flag the
@@ -946,6 +948,45 @@ int main() {
                                 "junk, more than 16 bits and null, leaving out untouched",
                   bad.empty(), join(bad));
         }
+    }
+
+    // CLI-ENV-01: every child jnext test process starts with no display and a fixed
+    // environment (test/test_spawn.h). A mutated or mis-parsing jnext once opened
+    // SD-download dialogs on the developer's desktop through an inherited DISPLAY.
+    // The parent is given a display here so the strip is actually exercised, and
+    // the child is the platform's own environment dump.
+    {
+        const std::string out_path = std::string(JNEXT_BINARY) + ".env." + jtp::process_id_string();
+#ifdef _WIN32
+        ::SetEnvironmentVariableA("DISPLAY", ":99");
+        ::SetEnvironmentVariableA("WAYLAND_DISPLAY", "wayland-99");
+        const int rc = jtp::run_bounded("cmd.exe", "/c set", out_path, "");
+        ::SetEnvironmentVariableA("DISPLAY", nullptr);
+        ::SetEnvironmentVariableA("WAYLAND_DISPLAY", nullptr);
+#else
+        ::setenv("DISPLAY", ":99", 1);
+        ::setenv("WAYLAND_DISPLAY", "wayland-99", 1);
+        const int rc = jtp::run_bounded("env", "", out_path, "");
+        ::unsetenv("DISPLAY");
+        ::unsetenv("WAYLAND_DISPLAY");
+#endif
+        std::ifstream in(out_path, std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        const std::string env = "\n" + ss.str();
+        std::remove(out_path.c_str());
+        auto has_var = [&](const char* line) {
+            return env.find(std::string("\n") + line) != std::string::npos;
+        };
+        std::vector<std::string> bad;
+        if (rc != 0 || env.size() < 8) bad.push_back("environment dump failed");
+        if (has_var("DISPLAY=")) bad.push_back("DISPLAY inherited");
+        if (has_var("WAYLAND_DISPLAY=")) bad.push_back("WAYLAND_DISPLAY inherited");
+        if (!has_var("QT_QPA_PLATFORM=offscreen")) bad.push_back("QT_QPA_PLATFORM not offscreen");
+        if (!has_var("SDL_VIDEODRIVER=dummy")) bad.push_back("SDL_VIDEODRIVER not dummy");
+        if (!has_var("LC_ALL=C")) bad.push_back("LC_ALL not C");
+        check("CLI-ENV-01", "jnext test children start with no DISPLAY/WAYLAND_DISPLAY, offscreen Qt, dummy SDL video and LC_ALL=C",
+              bad.empty(), join(bad));
     }
 
     {
