@@ -77,7 +77,7 @@ if want skoolkit-foreign-func; then
                 >"$sf_dir/a1.skool" 2>"$sf_dir/a1.err" || rc=$?
             [[ $rc -eq 0 ]] || sf_faults+=("A1: sna2skool exit $rc")
             if grep -qvE '^Using control files: ' "$sf_dir/a1.err"; then
-                sf_faults+=("A1: sna2skool said more than 'Using control files': $(head -n 2 "$sf_dir/a1.err" | tr '\n' ' ')")
+                sf_faults+=("A1: sna2skool said more than 'Using control files': $(head -n 2 "$sf_dir/a1.err" | tr '\n' ' ' || true)")
             fi
             if out=$(sf_py "$sf_check" labels "$sf_dir/a1.skool" "$sf_dir"/D1/*.ctl 2>&1); then :; else
                 sf_faults+=("A1: $out")
@@ -94,14 +94,14 @@ if want skoolkit-foreign-func; then
         sf_jnext "$JNEXT" plain "$sf_dir/a2.log" --machine next --load "$sf_nex" --map "$sf_map" --coverage \
             --export-skoolkit "$sf_dir/D2" --delayed-automatic-exit-frames 100
         if [[ ! -f "$sf_dir/D2/8000-P04.ctl" || ! -f "$sf_dir/D2/8000-P04.bin" ]]; then
-            sf_faults+=("A2: no 8000-P04.ctl/.bin: $(ls "$sf_dir/D2" 2>&1 | tr '\n' ' ')")
+            sf_faults+=("A2: no 8000-P04.ctl/.bin: $(ls "$sf_dir/D2" 2>&1 | tr '\n' ' ' || true)")
         else
             rc=0
             sf_py "$sf_root/sna2skool.py" -H -o 0x8000 "$sf_dir/D2/8000-P04.bin" \
                 >"$sf_dir/a2.skool" 2>"$sf_dir/a2.err" || rc=$?
             [[ $rc -eq 0 ]] || sf_faults+=("A2: sna2skool exit $rc")
             if [[ $(cat "$sf_dir/a2.err") != "Using control file: $sf_dir/D2/8000-P04.ctl" ]]; then
-                sf_faults+=("A2: sna2skool did not pick exactly D2/8000-P04.ctl without warnings: $(head -n 3 "$sf_dir/a2.err" | tr '\n' ' ')")
+                sf_faults+=("A2: sna2skool did not pick exactly D2/8000-P04.ctl without warnings: $(head -n 3 "$sf_dir/a2.err" | tr '\n' ' ' || true)")
             fi
             if out=$(sf_py "$sf_check" labels "$sf_dir/a2.skool" "$sf_dir/D2/8000-P04.ctl" 2>&1); then :; else
                 sf_faults+=("A2: $out")
@@ -121,7 +121,7 @@ if want skoolkit-foreign-func; then
         done
         for fe in qt sdl; do
             if ! diff -r "$sf_dir/D3-plain" "$sf_dir/D3-$fe" >"$sf_dir/a3-$fe.diff" 2>&1; then
-                sf_faults+=("A3: $fe's export differs from the headless one: $(head -n 2 "$sf_dir/a3-$fe.diff" | tr '\n' ' ')")
+                sf_faults+=("A3: $fe's export differs from the headless one: $(head -n 2 "$sf_dir/a3-$fe.diff" | tr '\n' ' ' || true)")
             fi
         done
     fi

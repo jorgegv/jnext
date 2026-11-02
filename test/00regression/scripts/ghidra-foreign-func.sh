@@ -43,7 +43,7 @@ if want ghidra-foreign-func; then
             --load "$gf_nex" --map "$gf_map" --coverage --export-ghidra "$gf_dir/G" \
             --delayed-automatic-exit-frames 100 >"$gf_dir/jnext.log" 2>&1 || true
         if [[ ! -s "$gf_dir/G/P04.ghidra.txt" || ! -s "$gf_dir/G/view.ghidra.txt" ]]; then
-            gf_faults+=("jnext wrote no P04.ghidra.txt/view.ghidra.txt: $(ls "$gf_dir/G" 2>&1 | tr '\n' ' ')")
+            gf_faults+=("jnext wrote no P04.ghidra.txt/view.ghidra.txt: $(ls "$gf_dir/G" 2>&1 | tr '\n' ' ' || true)")
         else
             # The control: two valid labels around a space the program lacks.
             printf '%s\n' "ctl_first P04:0x8010 l" "ctl_second P1E:0x8010 l" "ctl_third P04:0x8018 l" >"$gf_dir/control.txt"
@@ -69,7 +69,7 @@ if want ghidra-foreign-func; then
             awk '/^.*JNEXT-ROW MARK control/ {exit} {print}' "$gf_dir/ghidra.log" >"$gf_dir/log.main"
             awk 'f {print} /JNEXT-ROW MARK control/ {f=1}' "$gf_dir/ghidra.log" >"$gf_dir/log.control"
             if grep -qE 'Exception|Traceback' "$gf_dir/log.main"; then
-                gf_faults+=("the real import logged an exception: $(grep -E 'Exception|Traceback' "$gf_dir/log.main" | head -n 1)")
+                gf_faults+=("the real import logged an exception: $(grep -E 'Exception|Traceback' "$gf_dir/log.main" | head -n 1 || true)")
             fi
             if ! grep -q 'NullPointerException' "$gf_dir/log.control"; then
                 gf_faults+=("control: a space the program lacks no longer aborts the script (D-G1 is obsolete?)")
@@ -82,7 +82,7 @@ if want ghidra-foreign-func; then
                 | sort >"$gf_dir/got.positive"
             cat "$gf_dir/want.p04" "$gf_dir/want.view" | sort >"$gf_dir/want.positive"
             if ! cmp -s "$gf_dir/want.positive" "$gf_dir/got.positive"; then
-                gf_faults+=("Ghidra's labels differ from the files' lines: $(diff "$gf_dir/want.positive" "$gf_dir/got.positive" | head -n 4 | tr '\n' ' ')")
+                gf_faults+=("Ghidra's labels differ from the files' lines: $(diff "$gf_dir/want.positive" "$gf_dir/got.positive" | head -n 4 | tr '\n' ' ' || true)")
             fi
             [[ -s "$gf_dir/want.p04" && -s "$gf_dir/want.view" ]] || gf_faults+=("an empty export file")
             # The control created the first label and none after the abort.
