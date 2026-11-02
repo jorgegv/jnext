@@ -93,6 +93,9 @@
 // here. The prompt and the vetoed close are.
 // ===========================================================================
 #include <QAbstractButton>
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
+#include "core/log.h"
 #include <QDialog>
 #include <QAction>
 #include <QFile>
@@ -302,30 +305,54 @@ void test_annotations_veto() {
 // sees and fails the row, so a regression cannot hang the suite.
 // ---------------------------------------------------------------------------
 void test_annotations_unattended() {
-    Fixture fx;
-    if (!fx.ok) { check("QG-ANN-05", "fixture", false, "no fixture"); return; }
-    DebuggerManager* mgr = fx.win.debugger_manager();
-    mgr->set_enabled(true);
-    QApplication::processEvents();
-    fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x8000, "start");
-    fx.win.set_unattended(true);
-    QTimer watch;
-    QString modal;
-    QObject::connect(&watch, &QTimer::timeout, [&]() {
-        if (auto* d = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
-            modal = d->windowTitle().isEmpty() ? QStringLiteral("(untitled dialog)") : d->windowTitle();
-            d->reject();
-        }
-    });
-    watch.start(1);
-    const bool unsaved = mgr->annotations_unsaved();
-    const bool closed = fx.win.close();
-    watch.stop();
-    check("QG-ANN-05", "an unattended close with unsaved annotations asks nothing and the window closes (the changes are "
-                       "discarded, with a log line)",
-          unsaved && modal.isEmpty() && closed && !mgr->is_enabled(),
-          std::string("unsaved=") + (unsaved ? "1" : "0") + " modal='" + modal.toStdString() + "' closed=" +
-              (closed ? "1" : "0"));
+    // The platform log, captured (as preferences_apply_test captures the emulator's): the close must LOG that it
+    // discarded unsaved changes, once, and log nothing of the kind when there were none.
+    std::ostringstream cap;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+    sink->set_pattern("%v");
+    Log::platform()->sinks().push_back(sink);
+    const auto discarded = [&cap]() {
+        const std::string t = cap.str();
+        size_t n = 0;
+        for (size_t at = t.find("were discarded"); at != std::string::npos; at = t.find("were discarded", at + 1)) ++n;
+        return n;
+    };
+    // One unattended close; `unsaved` says whether a label was added first. Returns {modal title, closed, log count}.
+    struct Out { QString modal; bool closed = false, unsaved = false, ok = false; size_t logged = 0; };
+    const auto run = [&](bool add_label) {
+        Out o;
+        Fixture fx;
+        if (!fx.ok) return o;
+        DebuggerManager* mgr = fx.win.debugger_manager();
+        mgr->set_enabled(true);
+        QApplication::processEvents();
+        if (add_label) fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x8000, "start");
+        fx.win.set_unattended(true);
+        QTimer watch;
+        QObject::connect(&watch, &QTimer::timeout, [&]() {
+            if (auto* d = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+                o.modal = d->windowTitle().isEmpty() ? QStringLiteral("(untitled dialog)") : d->windowTitle();
+                d->reject();
+            }
+        });
+        watch.start(1);
+        o.unsaved = mgr->annotations_unsaved();
+        cap.str(std::string());
+        o.closed = fx.win.close();
+        watch.stop();
+        o.logged = discarded();
+        o.ok = o.closed && !mgr->is_enabled();
+        return o;
+    };
+    const Out with = run(true), none = run(false);
+    Log::platform()->sinks().pop_back();
+    check("QG-ANN-05", "an unattended close with unsaved annotations asks nothing, the window closes and the log says once "
+                       "that the changes were discarded; with nothing unsaved it logs no such line",
+          with.unsaved && with.modal.isEmpty() && with.ok && with.logged == 1 && !none.unsaved && none.modal.isEmpty() &&
+              none.ok && none.logged == 0,
+          "unsaved: modal='" + with.modal.toStdString() + "' closed=" + std::to_string(with.ok) + " logged=" +
+              std::to_string(with.logged) + "; clean: modal='" + none.modal.toStdString() + "' logged=" +
+              std::to_string(none.logged));
 }
 
 void test_recorder_stop() {
