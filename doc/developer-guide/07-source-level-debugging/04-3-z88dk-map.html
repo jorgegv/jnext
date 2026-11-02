@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2229,6 +2229,8 @@
       
         
       
+        
+      
     
     
     
@@ -2883,6 +2885,34 @@
   
   
     <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-tests-and-new-producers.html" class="md-nav__link">
         
   
@@ -3084,7 +3114,8 @@ refusal is the first bad line.</p>
 <li>The location is parsed (<code>parse_location()</code>: the text after the last <code>:</code> is the
    line, at least 1; a TAB before it marks an unknown function); an unparsable one
    refuses the half.</li>
-<li>The space is decided by <code>z88dk_section_space()</code>; <code>Unpaged</code> and <code>Refused</code>
+<li>The space is decided by <code>z88dk_section_space()</code> (with the dot verdict, rule 5 of the space rules
+   below); <code>Unpaged</code> and <code>Refused</code>
    refuse the half with a reason naming the map line; a <em>bind-at-load</em> record
    asks the <code>space_of</code> function the caller supplies (<code>Emulator::predict_fetch</code>),
    and an address that is not in a RAM page refuses it too
@@ -3093,7 +3124,7 @@ refusal is the first bad line.</p>
 </ol>
 <h2 id="5-space-and-extent">5. Space and extent<a class="headerlink" href="#5-space-and-extent" title="Permanent link">&para;</a></h2>
 <h3 id="space">Space<a class="headerlink" href="#space" title="Permanent link">&para;</a></h3>
-<p><code>z88dk_section_space(section, value, page_head)</code> (<code>debug/z88dk_space.cpp</code>) maps a
+<p><code>z88dk_section_space(section, value, page_head, dot)</code> (<code>debug/z88dk_space.cpp</code>) maps a
 section name and a (possibly 24-bit) value to a <code>Z88dkSpace</code>. Page numbers are
 0..223, banks 0..111; the numbers in a section name are 1 to 3 decimal digits.
 The rules, in order of the section name:</p>
@@ -3121,9 +3152,35 @@ The rules, in order of the section name:</p>
 </ol>
 <p>A number above the limit of its family (223 for a page, 111 for a bank, 15 for
 DivMMC) makes the value unpaged when it fits 16 bits and refused otherwise.</p>
-<p>A <code>DIV_&lt;n&gt;</code> or <code>&lt;KIND&gt;_DIV_&lt;n&gt;</code> section (DivMMC memory) is unpaged with the reason
-"DivMMC sections are not supported yet": the symbol half keeps a 16-bit symbol of it
+<p>A <code>DIV_&lt;n&gt;</code> or <code>&lt;KIND&gt;_DIV_&lt;n&gt;</code> section (DivMMC memory) is unpaged with the reason "a DIV_n
+bank is the one the program, or a dotn command's allocator, chooses when it runs": the bank is
+the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
 as an unpaged label, and the source half refuses a line record in it.</p>
+<ol>
+<li><strong>A dot command (GH #351).</strong> NextZXOS copies a dot command's file into a DivMMC RAM bank and
+   runs it from <code>$2000</code> there; the map names no bank. <code>z88dk_dot_command(consts, &amp;why)</code>
+   (<code>z88dk_space.cpp:136</code>) says whether a map is one: the constant <code>startupoffset</code> is <code>$0100</code> (dot),
+   <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another
+   value, is not a dot and has no reason; a dot whose <code>__CODE_head</code> is not <code>$2000</code> is not a dot
+   and its reason ("a dot command's CODE must start at $2000") refuses the source half
+   (<code>z88dk_source_map.cpp:201-203</code>), while the symbol half places the map as any other
+   (<code>symbol_table.cpp:82</code>, no reason asked). Both halves read <code>startupoffset</code> and the
+   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants (<code>z88dk_source_map.cpp:187</code>; the symbol half keeps every constant). For a dot,
+   <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
+   an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</li>
+<li>an unnumbered section at <code>$2000</code>-<code>$3FFF</code> is <code>DivMmcRam{kNextZxosDotBank}</code>, bank 2
+     (<code>z88dk_space.cpp:176-181</code>), whatever the MMU maps there when the map is loaded;</li>
+<li>a dotx's other unnumbered sections are rule 4: its main part (<code>PROG.X</code>, <code>prog_MAIN.bin</code>
+     at <code>CRT_ORG_MAIN</code> <code>$8000</code>) is main RAM;</li>
+<li>in a dotn those sections, and every <code>PAGE_&lt;n&gt;</code> / <code>DIV_&lt;n&gt;</code> section, are <em>refused</em>
+     (<code>refused_dotn()</code>: NextZXOS allocates those pages when the command runs, <code>__z_page_table</code>; the
+     reason says to build it as a dotx to debug it);</li>
+<li>a dot's or dotx's <code>PAGE</code>/<code>DIV</code> sections follow the rules above, and <code>DIV_&lt;n&gt;</code> stays unpaged.</li>
+</ol>
+<p>The bank is measured, not documented: booting NextZXOS in JNEXT and typing a dot, a dotx and a dotn,
+   the file lands in bank 2, <code>E3</code> becomes <code>$82</code> (conmem and bank 2) and the CPU executes <code>$2000</code>
+   (fixtures README, G24; <code>kNextZxosDotBank</code>, <code>z88dk_space.h:46</code>). <code>SourceMap::replace(..., dot)</code>
+   remembers the verdict (<code>SourceMap::dot()</code>), which <a href="06-lifetime.html">7.6</a> uses for the identity.</p>
 <p>In a numbered section the bits of <code>value</code> above 15 are not read.</p>
 <h3 id="extent-and-ownership">Extent and ownership<a class="headerlink" href="#extent-and-ownership" title="Permanent link">&para;</a></h3>
 <p>A line record has a start and no end. <code>extent()</code> in <code>load_z88dk_source_map()</code>
@@ -3213,18 +3270,30 @@ __PAGE_20_head                  = $C000 ; const, public, def, , ,
 <p>The <code>PAGE_20</code> section with head <code>$C000</code> puts <code>$C000</code> in page 20. The <code>__CDBINFO__</code>
 line decodes to <code>S:Lbanked.c.banked_add$a$0_0$0({1}SC:U),B,1,6</code>; note the digits
 encoded as <code>_30</code>, <code>_31</code>, <code>_36</code>.</p>
+<p>From <code>test/fixtures/z88dk/v2.4/sccz80-dot/prog.map</code> (a plain dot command, built with
+<code>-subtype=dot</code>; lines 49, 63 and 262): <code>startupoffset</code> is the dot's signature, <code>__CODE_head</code> is
+<code>$2000</code>, and the line record at <code>$2D5F</code>, in <code>code_compiler</code>, is in <code>$2000</code>-<code>$3FFF</code>: rule 5 puts it
+in <code>DivMmcRam{2}</code>.</p>
+<pre><code>__CODE_head                     = $2000 ; const, public, def, , ,
+__C_LINE_12_dot_2ec_3a_3amain_3a_3a0_3a_3a2 = $2D5F ; addr, local, , dot_c, code_compiler, dot.c::main::0::2:12
+startupoffset                   = $0100 ; const, local, , zxn_crt_asm_m4, , z88dk/lib/config/../..//libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4:9
+</code></pre>
 <h2 id="9-the-rows">9. The rows<a class="headerlink" href="#9-the-rows" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>z88dk_map_test</code>: <code>Z88MAP-*</code> (the source half, with the oracle values from the
   fixtures: owners, aliases, extents), <code>Z88SYM-*</code> (the symbol half and the
-  binding), <code>Z88CN-*</code> (C names).</li>
+  binding), <code>Z88CN-*</code> (C names), <code>Z88DOT-*</code> (dot commands: the <code>dot</code>, <code>dotx</code>, <code>dotn</code>
+  and master fixtures in DivMMC bank 2, detection by the map, the symbol half, the identity
+  units, the <code>.lis</code> route, the dotn refusal, the extent bound of another module's symbol in
+  bank 2), <code>MAPCAP-*</code> and <code>MAPBOM-*</code> (the size cap and the UTF-8 BOM of the symbol loaders).</li>
 <li><code>z88dk_lis_test</code>: <code>Z88LIS-*</code> (<a href="04-4-z88dk-listings.html">7.4.4</a>).</li>
 <li><code>source_map_test</code>: <code>Z88FIX-01</code>/<code>02</code> (the fixture manifest).</li>
-<li><code>source_debug_test</code>: <code>SRCDBG-Z88-*</code>, <code>SRCDBG-SYM-*</code>, <code>SRCDBG-TAPE-*</code>.</li>
+<li><code>source_debug_test</code>: <code>SRCDBG-Z88-*</code>, <code>SRCDBG-SYM-*</code>, <code>SRCDBG-TAPE-*</code>, <code>SRCDOT-*</code> (a dot command through
+  the backend: breakpoint and steps in bank 2, judged at the entry, landings).</li>
 <li><code>debugger_backend_test</code>: <code>SYM-14</code> to <code>SYM-18</code> (the <code>-debug</code> markers, on
   <code>test/fixtures/zdebugmap/</code>).</li>
 <li>Functional: <code>z88dk-source-map-func</code>, <code>z88dk-source-func</code>, <code>z88dk-tape-source-func</code>,
-  <code>gdb-z88dk-func</code>.</li>
+  <code>gdb-z88dk-func</code>, <code>z88dk-dot-source-func</code>, <code>z88dk-dot-source-rzx-func</code>.</li>
 </ul>
 
 

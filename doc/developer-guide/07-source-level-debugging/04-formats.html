@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2229,6 +2229,8 @@
       
         
       
+        
+      
     
     
     
@@ -2492,6 +2494,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#the-symbol-table-the-formats-fill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The symbol table the formats fill
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-layout-of-a-format-page" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2733,6 +2746,34 @@
   
   
     <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-tests-and-new-producers.html" class="md-nav__link">
         
   
@@ -2831,6 +2872,45 @@ knows what to write.</p>
 (7.4.5), a list of labels with no source positions, so a BASIC program built
 with NextBuild has symbols and no source lines unless an SLD is produced by some
 other tool.</p>
+<h2 id="the-symbol-table-the-formats-fill">The symbol table the formats fill<a class="headerlink" href="#the-symbol-table-the-formats-fill" title="Permanent link">&para;</a></h2>
+<p>There is one <code>SymbolTable</code> (<code>src/debug/symbol_table.*</code>), owned by the backend. The Qt panels, the DSL's
+<code>@name</code>, the GDB server's <code>monitor sym</code> and <code>--map</code> all read it, so a symbol loaded by one client shows
+in every other. How the formats differ is only in what they put in it.</p>
+<ul>
+<li><strong>Keyed by memory and address (GH #375).</strong> <code>add_label(name, addr, space, bind_at_load, c_symbol)</code>
+  stores a label that is <em>paged</em> (assembled for one <code>FetchSource</code> such as <code>Page{20}</code>, naming the address
+  only while that memory supplies it) or <em>unpaged</em> (naming it in every memory: the sjasmplus EQU,
+  Simple and NextBuild loaders make these). There is no address-only lookup:
+  <code>lookup(space, addr)</code> finds the paged label with exactly that key, else the unpaged one at <code>addr</code>
+  (<code>MemSpace::cpu()</code> is "no memory known" and reaches unpaged labels only). The backend's
+  <code>lookup(addr)</code> asks with <code>source_page(addr)</code>, the same identity the source map and the gutter use
+  (<a href="01-which-memory.html">7.1</a>), so every consumer (the Disassembly, the Call Stack, the Breakpoints,
+  <code>monitor sym ADDR</code>) names an address by what is mapped there now; <code>disasm_text::symbol_namer()</code> is
+  that rule as a function for the panels. The first label of a key wins and, apart, the first of a
+  name.</li>
+<li><strong>A name</strong> resolves to an address and, through <code>find_name()</code> and <code>resolve_key()</code>, to the memory it
+  was assembled for; the breakpoint dialogs keep that page. <code>SymbolTable::resolve()</code> turns an address
+  field's text into an address: hex first (<code>4000</code>, <code>$4000</code>, <code>0x4000</code>), else a symbol; <code>@name</code> always
+  means the symbol, so a program variable named <code>FE</code> is still reachable.</li>
+<li><strong>Name-only values.</strong> <code>add_value()</code> stores a size, an offset or a section bound: <code>find_name()</code> and
+  <code>lookup_name()</code> resolve it, but it never names an address, so a constant is never shown in a
+  disassembly (a z88dk <code>; const</code> line, an SLD <code>+struct_def</code> record).</li>
+<li><strong>Binding at load.</strong> A z88dk symbol of a section that names no page is stored with <code>bind_at_load</code>
+  and no memory; <code>SymbolTable::bind(space_of)</code> gives it the RAM page <code>space_of(addr)</code> names (ROM,
+  DivMMC and the other overlays leave it unpaged; an empty function unbinds it). The backend binds
+  with the one function the source half uses, <code>emu.predict_fetch</code>: at <code>load_map()</code> (every success), at
+  the sidecar <code>&lt;stem&gt;.map</code> (a tape included, at the attach), and for the user's store at every
+  program load (<a href="04-3-z88dk-map.html">7.4.3</a>, rule 4).</li>
+<li><strong>Combining.</strong> <code>SymbolTable::merge(other)</code> is the one way to combine two tables: it adds the other's
+  labels whose key is still free, its names and name-only values not yet taken, so the first table wins
+  throughout (row <code>SYMPG-12</code>). The sidecar store is assembled with it (<a href="03-loaders.html">7.3</a>).</li>
+<li><strong>C names.</strong> A z88dk C symbol also has its C name (<code>c_name_to_key_</code>, <code>shown_name()</code>,
+  <code>lookup_assembler()</code>; <a href="04-3-z88dk-map.html">7.4.3</a>); <code>merge()</code> carries the C names for the labels the
+  receiving table does not own, and <code>clear()</code> empties them (rows <code>Z88CN-01</code> to <code>-16</code>).</li>
+<li><strong>Rows.</strong> <code>SYMPG-*</code> and <code>SLDL-*</code> (<code>source_map_test</code>: pages, SLD labels), <code>Z88SYM-01</code> to <code>-09</code>
+  and <code>SRCDBG-SYM-18</code> to <code>-22</code> (the z88dk placement), <code>SYM-19</code> to <code>-32</code> (<code>debugger_backend_test</code>:
+  the EQU and <code>--map</code> loaders).</li>
+</ul>
 <h2 id="the-layout-of-a-format-page">The layout of a format page<a class="headerlink" href="#the-layout-of-a-format-page" title="Permanent link">&para;</a></h2>
 <ol>
 <li><strong>The producer</strong>, its version and the command.</li>

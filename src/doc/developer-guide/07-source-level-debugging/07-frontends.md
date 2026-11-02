@@ -236,9 +236,9 @@ did in its sender, so no move echoes.
   tint of it), and sets `browse_addr_` unless the caret's primary line is the PC's own statement.
   `refresh_()` then describes `browse_addr_` instead of the PC. The lines of the instructions in the
   range (`linked_lines_()`, `:878`, walking `instruction_length` over `memory_reader()`) get an
-  `ExtraSelection` in the scheme's `linked_line`, after the coverage tints and before the PC's. A full
-  64K range costs about 3.5 ms, and `refresh()` runs on every paused tick that the stamp lets through,
-  so such a selection is the one thing here with no cache.
+  `ExtraSelection` in the scheme's `linked_line`, after the coverage tints and before the PC's. There is no cache of those lines: a full 64K
+  range cost about 3.5 ms when #347 was written (a figure from its design, not re-measured here), and it is
+  paid at each `refresh()`, which since #428 runs only when the paused stamp changed, not on every tick.
 - **Show in Source.** `DisasmPanel::show_source_requested(addr)`, from a menu item present only while
   a map is loaded and enabled only where `lookup()` finds a line. The window raises the Source tab and
   calls `SourcePanel::show_address()` (`:835`).

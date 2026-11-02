@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="06-lifetime.html">
+        <link rel="prev" href="07-frontends.html">
       
       
       
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2227,6 +2227,8 @@
       
         
       
+        
+      
     
     
     
@@ -2657,6 +2659,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -2814,15 +2844,15 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>z88dk_map_test</code></td>
-<td>The z88dk map: the source half (<code>Z88MAP-*</code>), the symbol half and binding (<code>Z88SYM-*</code>), and C names (<code>Z88CN-*</code>)</td>
+<td>The z88dk map: the source half (<code>Z88MAP-*</code>), the symbol half and binding (<code>Z88SYM-*</code>), C names (<code>Z88CN-*</code>), dot commands (<code>Z88DOT-*</code>, <a href="04-3-z88dk-map.html">7.4.3</a> rule 5), and the size cap and BOM of the symbol loaders (<code>MAPCAP-*</code>, <code>MAPBOM-*</code>)</td>
 </tr>
 <tr>
 <td><code>z88dk_lis_test</code></td>
-<td>The listing adapter (<code>Z88LIS-*</code>)</td>
+<td>The listing adapter (<code>Z88LIS-*</code>), including the placement of a label-less piece by its bytes (<code>Z88LIS-36</code> to <code>-47</code>, <a href="04-4-z88dk-listings.html">7.4.4</a> rule 5b) and the BOM (<code>Z88LIS-35</code>, <code>-44</code>)</td>
 </tr>
 <tr>
 <td><code>source_debug_test</code></td>
-<td>The backend on a real machine: identity of fetches (<code>SRCDBG-ID-*</code>), sidecars and ownership (<code>SRCDBG-SIDE-*</code>, <code>-OWN-*</code>), symbols (<code>SRCDBG-SYM-*</code>), z88dk (<code>SRCDBG-Z88-*</code>, <code>-LIS-*</code>), tapes (<code>SRCDBG-TAPE-*</code>), lifetime (<code>SRCLIFE-*</code>), breakpoints (<code>SRCBP-*</code>), run to line (<code>SRCRUN-*</code>), steps (<code>SRCSTEP-*</code>, <code>SRCDBG-STEP-*</code>, <code>-BACK-*</code>, <code>-HIST-*</code>), call stack (<code>SRCDBG-CS-*</code>), coverage (<code>SRCDBG-COV-*</code>)</td>
+<td>The backend on a real machine: identity of fetches (<code>SRCDBG-ID-*</code>), sidecars and ownership (<code>SRCDBG-SIDE-*</code>, <code>-OWN-*</code>), symbols (<code>SRCDBG-SYM-*</code>), z88dk (<code>SRCDBG-Z88-*</code>, <code>-LIS-*</code>), tapes (<code>SRCDBG-TAPE-*</code>), lifetime (<code>SRCLIFE-*</code>), dot commands (<code>SRCDOT-*</code>, <a href="06-lifetime.html">7.6</a>), breakpoints (<code>SRCBP-*</code>), run to line (<code>SRCRUN-*</code>), steps (<code>SRCSTEP-*</code>, <code>SRCDBG-STEP-*</code>, <code>-BACK-*</code>, <code>-HIST-*</code>), call stack (<code>SRCDBG-CS-*</code>), coverage (<code>SRCDBG-COV-*</code>), the long address through a machine (<code>LADDR-17</code> to <code>-20</code>; the pure formatter's <code>LADDR-01</code> to <code>-16</code> are in <code>debugger_backend_test</code>)</td>
 </tr>
 <tr>
 <td><code>source_debug_posix_test</code></td>
@@ -2838,19 +2868,19 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 </tr>
 <tr>
 <td><code>debugger_backend_test</code></td>
-<td>Symbols across formats (<code>SYM-*</code>)</td>
+<td>Symbols across formats (<code>SYM-*</code>), and the pure long-address formatter (<code>LADDR-01</code> to <code>-16</code>)</td>
 </tr>
 <tr>
-<td><code>gdb_rsp_test</code></td>
-<td><code>monitor src</code> and <code>monitor sym</code> (<code>GDB-MON-*</code>)</td>
+<td><code>gdb_rsp_test</code>, <code>zrcp_adapter_test</code>, <code>dzrp_adapter_test</code></td>
+<td><code>monitor src</code> and <code>monitor sym</code> (<code>GDB-MON-*</code>); ZRCP <code>get-memory-pages</code> names and <code>cpu-step-over</code> at a DivMMC entry (<code>LADDR-21</code>, <code>-22</code>); DZRP's <code>0xFF</code> for a ROM slot (<code>DZRP-REG-08</code>)</td>
 </tr>
 <tr>
 <td><code>script_events_test</code></td>
 <td>The DSL's <code>on execute FILE:LINE</code> and <code>--map</code></td>
 </tr>
 <tr>
-<td><code>debugger_source_panel_test</code>, <code>debugger_verbs_test</code></td>
-<td>The Qt Source tab and the Map menu; gated on Qt and the debugger</td>
+<td><code>debugger_source_panel_test</code>, <code>debugger_verbs_test</code>, <code>debugger_panels_test</code>, <code>debugger_disasm_copy_test</code>, <code>debugger_menu_test</code></td>
+<td>The Qt Source tab (<code>QSRC-*</code>: the highlighter and schemes <code>QSRC-190</code> to <code>-200</code>, the selection sync <code>QSRC-176</code> to <code>-189</code> and <code>-201</code> to <code>-208</code>, the dot command's tab <code>QDOT-*</code>), the Map menu, and the long address in every panel (<code>QLADDR-*</code>); gated on Qt and the debugger</td>
 </tr>
 </tbody>
 </table>
@@ -2898,6 +2928,14 @@ absence matches the gate for the build (<a href="../04-testing/02-declared-suite
 <td><code>--map &lt;(cmd)</code>, read once</td>
 </tr>
 <tr>
+<td><code>z88dk-dot-source-func</code></td>
+<td>A z88dk dot command's map with <code>--source-map</code> and no <code>--load</code>: attached pending, judged at the command's entry; any other map refused (exit 1)</td>
+</tr>
+<tr>
+<td><code>z88dk-dot-source-rzx-func</code></td>
+<td><code>--source-map</code> with an RZX replay (<code>--rzx-play</code>, <code>--load R.rzx</code>): a dot command's map attaches, any other is refused naming the RZX</td>
+</tr>
+<tr>
 <td><code>coverage-frontends-func</code></td>
 <td><code>--coverage</code> starts memory coverage in every loop owner (headless, Qt, SDL)</td>
 </tr>
@@ -2908,7 +2946,7 @@ absence matches the gate for the build (<a href="../04-testing/02-declared-suite
 small program, committed so that CI, which has no z88dk, can check the adapters
 against ground truth. Its <code>README.md</code> is the reference: the two installs and
 their commits, the build matrix (one row per fixture directory with its flags and
-what it covers), the numbered findings (G1...G22, Z1...Z4) that rows cite, and
+what it covers), the numbered findings (G1...G24, Z1...Z4) that rows cite, and
 the rules that normalise and trim the output.</p>
 <ul>
 <li><strong>Regenerate with <code>bash test/fixtures/z88dk/generate.sh</code>.</strong> Overrides:
@@ -2932,6 +2970,12 @@ the rules that normalise and trim the output.</p>
   address, line and section in a z88dk row comes from these files, never from the
   code under test.</li>
 </ul>
+<p>The dot-command builds (GH #351) are <code>dot:&lt;subtype&gt;</code> lines in <code>generate.sh</code>, compiled from <code>dot.c dutil.c</code>
+with <code>-subtype=dot</code>, <code>dotx</code> or <code>dotn</code> instead of <code>nex</code>: <code>v2.4/sccz80-dot</code>, <code>sccz80-dotx</code>, <code>sdcc-dot</code>,
+<code>v2.4-dotn/sccz80</code> and <code>master/sccz80-dot</code>, <code>sccz80-dotx</code>, <code>sdcc-dot</code>, <code>80cc-dot</code>. The dotn lives in its own
+directory so that <code>Z88CN-10</code>'s walk over <code>v2.4/</code> and <code>master/</code> (every map shows a C name) is not tripped by
+its refused C symbols. The banked-CRT builds (<code>sccz80-banked-crt</code>, both trees) are the fixtures of the
+placement by bytes (GH #426 F4).</p>
 <p><strong><code>test/fixtures/sjasmequ/</code></strong> is made by hand with an exact command, sjasmplus
 commit and <code>sha256</code> per file (its <code>README.md</code>): <code>equlabels.asm</code> is ours, and
 <code>equlabels.sym</code>, <code>equlabels.exp</code>, <code>equlabels-win.sym</code> (a MinGW build run under

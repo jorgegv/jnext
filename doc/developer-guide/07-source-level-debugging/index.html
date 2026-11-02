@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2229,6 +2229,8 @@
       
         
       
+        
+      
     
     
     
@@ -2662,6 +2664,34 @@
   
   
     <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-tests-and-new-producers.html" class="md-nav__link">
         
   
@@ -2760,7 +2790,7 @@ meaningful for one of them.</p>
 <tbody>
 <tr>
 <td><a href="01-which-memory.html">7.1 Which memory supplied the instruction</a></td>
-<td>What <code>MemSpace</code> and <code>FetchSource</code> mean, how the machine predicts and records the one that supplies a fetch, and how coverage is keyed by it</td>
+<td>What <code>MemSpace</code> and <code>FetchSource</code> mean, how the machine predicts and records the one that supplies a fetch, how a space is spelled (the long address and its stable tags), and how coverage is keyed by it</td>
 </tr>
 <tr>
 <td><a href="02-the-source-map.html">7.2 The source map</a></td>
@@ -2780,7 +2810,11 @@ meaningful for one of them.</p>
 </tr>
 <tr>
 <td><a href="06-lifetime.html">7.6 Lifetime</a></td>
-<td>What happens to the stores on a reset, a snapshot, a rewind, an RZX or a tape load</td>
+<td>What happens to the stores on a reset, a snapshot, a rewind, an RZX, a tape load or a dot command</td>
+</tr>
+<tr>
+<td><a href="07-frontends.html">7.7 The frontends</a></td>
+<td>Who reads the stores: the Qt Source tab in full (refresh, file search, highlighter and schemes, gutter, selection sync with the Disassembly), the long address in the views, and the GDB, ZRCP, DZRP, script and command-line surfaces</td>
 </tr>
 <tr>
 <td><a href="08-tests-and-new-producers.html">7.8 Tests, fixtures and adding a producer</a></td>
@@ -2803,7 +2837,7 @@ meaningful for one of them.</p>
 </tr>
 <tr>
 <td>Memory identity</td>
-<td><code>src/debug/mem_space.h</code>, <code>mem_coverage.*</code>; the arbiter in <code>src/memory/mmu.h</code>; <code>Emulator::predict_fetch()</code> in <code>src/core/emulator.cpp</code></td>
+<td><code>src/debug/mem_space.h</code>, <code>long_address.*</code>, <code>mem_coverage.*</code>; the arbiter in <code>src/memory/mmu.h</code>; <code>Emulator::predict_fetch()</code> in <code>src/core/emulator.cpp</code></td>
 </tr>
 <tr>
 <td>The backend's side</td>
@@ -2815,49 +2849,15 @@ meaningful for one of them.</p>
 </tr>
 <tr>
 <td>The Qt frontend</td>
-<td><code>src/debugger/source_panel.*</code>, <code>breakpoint_model.*</code>, <code>debugger_manager.*</code></td>
+<td><code>src/debugger/source_panel.*</code>, <code>source_highlighter.*</code>, <code>breakpoint_model.*</code>, <code>debugger_manager.*</code>, <code>memory_text.h</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="who-reads-the-stores-today">Who reads the stores today<a class="headerlink" href="#who-reads-the-stores-today" title="Permanent link">&para;</a></h2>
-<p>The frontends are described on their own pages; this is only the map from a
-frontend to the part of the chapter it depends on.</p>
-<table>
-<thead>
-<tr>
-<th>Frontend</th>
-<th>Source surface</th>
-<th>Page</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Qt debugger</td>
-<td>The Source tab, the Breakpoints rows, Call Stack, Disassembly names, the Map menu</td>
-<td><a href="../03-subsystems/10-2-the-qt-debugger.html">3.10.2</a></td>
-</tr>
-<tr>
-<td>GDB RSP</td>
-<td><code>monitor src</code>, <code>monitor sym</code></td>
-<td><a href="../03-subsystems/11-the-gdb-rsp-server.html">3.10.4</a></td>
-</tr>
-<tr>
-<td>ZRCP</td>
-<td><code>smartload</code> reaches <code>Debugger::load()</code>, and so the sidecars</td>
-<td><a href="../03-subsystems/12-the-zrcp-server.html">3.10.5</a></td>
-</tr>
-<tr>
-<td>DZRP</td>
-<td>None: no <code>source_*</code> call in <code>src/remote/dzrp</code>. DeZog reads the SLD or map itself and names a breakpoint's memory with the legacy <code>bank+1</code> qualifier (<a href="01-which-memory.html">7.1</a>)</td>
-<td><a href="../03-subsystems/10-the-dzrp-server.html">3.10.3</a></td>
-</tr>
-<tr>
-<td>Scripts</td>
-<td><code>on execute FILE:LINE</code>, <code>--map</code></td>
-<td><a href="../03-subsystems/13-the-debugger-scripting-language.html">3.10.6</a></td>
-</tr>
-</tbody>
-</table>
+<p><a href="07-frontends.html">7.7</a> is the map from a frontend to the part of the chapter it depends on, with the
+Qt Source tab described in full. In short: the Qt debugger draws the source; GDB prints it
+(<code>monitor src</code>); ZRCP's <code>smartload</code> reaches the sidecars; scripts subscribe to <code>FILE:LINE</code>; the loop
+owners attach <code>--source-map</code>; DZRP has no source surface at all (DeZog reads the SLD or map itself).</p>
 <p>The facade verbs themselves (<code>load_map()</code>, <code>source_map()</code>, <code>source_location()</code>,
 <code>source_step()</code>, <code>subscribe_source_line()</code>) are listed in
 <a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>.</p>

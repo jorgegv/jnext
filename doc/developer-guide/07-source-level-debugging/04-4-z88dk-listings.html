@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2229,6 +2229,8 @@
       
         
       
+        
+      
     
     
     
@@ -2849,6 +2851,34 @@
   
   
     <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-tests-and-new-producers.html" class="md-nav__link">
         
   
@@ -2984,36 +3014,64 @@ binaries' bytes). In order:</p>
    <code>offset = map value - listed address</code> for its section. All anchors of one section
    piece must agree, or the listing is dropped ("this is not the listing of this
    build"). A piece with no anchor falls back to <code>__&lt;section&gt;_head</code> when
-   <code>tail - head</code> equals the piece's byte count. A piece with neither, and anything
-   inside <code>PHASE</code>, cannot be placed; those rows are counted and reported as "N
-   listed lines could not be placed".</li>
-<li><strong>Placement and the first-byte check.</strong> An item's map value is <code>offset + address</code>
+   <code>tail - head</code> equals the piece's byte count (<code>z88dk_lis.cpp:603-612</code>). A smaller piece is
+   placed by its bytes (5b below). A piece with none of these, and anything inside <code>PHASE</code>,
+   cannot be placed; those rows are counted and reported as "N listed lines could not be
+   placed".
+   <strong>5b. A label-less piece smaller than its section is placed by its bytes</strong> (GH #426 F4;
+   design 9.5). Another module can put code in the same section: the banking driver shares
+   <code>code_crt_init</code> with the CRT in the banked-CRT fixtures, so the CRT's own piece has no label in
+   the map and is smaller than the section. <code>place_z88dk_listing()</code> (<code>z88dk_lis.cpp:614-664</code>, the "no start" note at <code>:655</code>) tries
+   every start <code>c</code> from <code>__&lt;s&gt;_head</code> to <code>__&lt;s&gt;_tail</code> minus the piece's size and excludes it when,
+   at any <em>checked row</em>, the section binary holds a byte other than the listing's first byte. A
+   checked row is the first byte of a mnemonic row, outside <code>PHASE</code>, in a non-data section; the
+   rest of an instruction is never compared, because the linker patches operands and z80asm never
+   patches an opcode, so a listing of this build is never excluded at its true start. The byte at
+   <code>c + row address</code> comes from <code>view.byte_at(value, space)</code>, where <code>place()</code> gave the space; it is
+   <em>unknown</em> (<code>nullopt</code>) when no section binary covers the byte, <strong>when two or more do</strong> (overlay
+   sections at one ORG: <code>bin_for(..., &amp;more)</code>, <code>z88dk_source_map.cpp:288</code>, and the <code>byte_at</code> lambda, <code>:357-363</code>), and when <code>place()</code> fails (a ROM area: the memory is not a RAM
+   page, so no byte can be read). The outcome is one of three:</li>
+<li><strong>no start survives:</strong> the listing is dropped, with "section '<s>': its label-less lines match no
+     place in the section binary; this is not the listing of this build" (row <code>Z88LIS-42</code>);</li>
+<li><strong>exactly one survives and every checked byte was known:</strong> the piece starts there (<code>Z88LIS-36</code>
+     and <code>-37</code> on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it
+     are left without a line; <code>Z88LIS-38</code> with a patched <code>defw</code> and a <code>PHASE</code> row);</li>
+<li><strong>several survive, or the one left has an unknown byte:</strong> nothing is guessed. The piece's rows
+     are not placed and are counted in the "could not be placed ... do not fit exactly one place in
+     the section binary" note, while the listing's other pieces stay (<code>Z88LIS-39</code>, <code>-40</code>, <code>-41</code>,
+     <code>-45</code>, <code>-46</code>; a data section has no checked rows, so both starts survive, <code>Z88LIS-43</code>).</li>
+</ol>
+<p>The loop stops at the second survivor (<code>survivors &lt; 2</code>). This rule replaced "the size must be
+   equal", which left 17 lines of the CRT unplaced when the map and the listing disagreed by one byte
+   (<code>Z88LIS-19</code>, re-specified).
+6. <strong>Placement and the first-byte check.</strong> An item's map value is <code>offset + address</code>
    (a value above <code>0xFFFFFF</code> drops the listing); <code>place()</code> supplies the memory and
    16-bit address, or a reason that drops the listing. For a mnemonic row in a
    non-data section the section binary's byte at that value must equal the listing's
    first byte, else the listing is dropped ("holds $X in the section binary, the
    listing says $Y"): operands are module-relative in a listing, the opcode is not.
+   The check abstains where the byte is unknown (no binary covers it, or two do): a labelled
+   piece over two overlapping section binaries is kept (<code>Z88LIS-47</code>).
    An item with a location gets a <code>SourceRange</code> of <code>[lo, min(lo + bytes, 8K window
    end))</code>. One range per byte <em>row</em>, so the several rows of one line are adjacent
    ranges of the same line, which <code>resolve()</code> collapses into one start
-   (<a href="02-the-source-map.html">7.2</a>, "continuation").</li>
-<li><strong>Zero-width lines.</strong> A marker with no bytes of its own resolves through the
+   (<a href="02-the-source-map.html">7.2</a>, "continuation").
+7. <strong>Zero-width lines.</strong> A marker with no bytes of its own resolves through the
    next byte row of its section, as an alias. In <code>Asm</code> mode a marker is a label row
    with no bytes that the map names (an anchor); in the C modes a marker directly followed by bytes owns them
    (no alias), and one followed by more markers aliases the next byte row, except
    that when a function-entry label (one starting <code>_</code>) intervenes only the last marker
-   before it does. One alias per <code>(file, line)</code>.</li>
-<li><strong>The cross-check.</strong> Every map line record of this module is compared with the
+   before it does. One alias per <code>(file, line)</code>.
+8. <strong>The cross-check.</strong> Every map line record of this module is compared with the
    listing: a <code>__C_LINE_</code> record with where the first <code>C_LINE</code> of the same operand
    string sits, an <code>__ASM_LINE_</code> record with the first anchor label row at that
    <code>header:line</code>. It agrees when the section matches and <code>position + offset ==
    value</code>. Disagreements do <strong>not</strong> drop the listing; they are counted and the
    first three named in one note ("the listings disagree with the map at N of M line
-   records (first: ...); the listings were used").</li>
-<li><strong>Embedded text.</strong> Every row under a header ending <code>.m4</code>, with a line-number
+   records (first: ...); the listings were used").
+9. <strong>Embedded text.</strong> Every row under a header ending <code>.m4</code>, with a line-number
    column from 1 to 1,000,000, is kept as that line of that file; <code>lines[i]</code> is line
-   <code>i + 1</code>.</li>
-</ol>
+   <code>i + 1</code>.</p>
 <h3 id="choosing-listings-load_z88dk_source_map-z88dklistingsbeside">Choosing listings: <code>load_z88dk_source_map(..., Z88dkListings::Beside)</code><a class="headerlink" href="#choosing-listings-load_z88dk_source_map-z88dklistingsbeside" title="Permanent link">&para;</a></h3>
 <p>The candidates are <code>&lt;map stem&gt;.lis</code> (the start-up code; it may be a listing of any
 module of the map) and <code>&lt;file&gt;.lis</code> for every source file named by the location
@@ -3038,7 +3096,7 @@ identity is built, so they are byte-checked like the map's own
 (<a href="04-3-z88dk-map.html">7.4.3</a>).</p>
 <h2 id="7-what-is-skipped">7. What is skipped<a class="headerlink" href="#7-what-is-skipped" title="Permanent link">&para;</a></h2>
 <p>Rows inside a macro definition; the first-byte check of rows that do not start with
-a mnemonic (data) and of data sections; bytes inside <code>PHASE</code>; rows of a section piece with no offset; and, per listing, every
+a mnemonic (data) and of data sections; bytes inside <code>PHASE</code>; rows of a section piece with no offset (no anchor, no head fallback, and no single verified start by its bytes); and, per listing, every
 reason in rules 1-8 that drops it whole.</p>
 <h2 id="8-excerpts">8. Excerpts<a class="headerlink" href="#8-excerpts" title="Permanent link">&para;</a></h2>
 <p><code>test/fixtures/z88dk/v2.4/sccz80-debug/main.c.lis</code> (z88dk 2.4, sccz80 <code>-debug</code>;

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2229,6 +2229,8 @@
       
         
       
+        
+      
     
     
     
@@ -2759,6 +2761,34 @@
   
   
     <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-tests-and-new-producers.html" class="md-nav__link">
         
   
@@ -2842,7 +2872,9 @@ user's (<code>User</code>) and is never touched by a sidecar.</em></p>
   (<code>SourceMapLoadResult::labels &gt;= 0</code>).</li>
 <li><strong>A listing is dropped alone.</strong> A z88dk <code>.lis</code> that does not hold up is left out
   with a note (<code>SourceMapLoadResult::listing_notes</code>), and its module keeps the
-  map's records (<a href="04-4-z88dk-listings.html">7.4.4</a>). It never refuses the map.</li>
+  map's records (<a href="04-4-z88dk-listings.html">7.4.4</a>). It never refuses the map. The count reaches the
+  frontends as <code>SourceMapLoad::listings</code> and the notes as <code>SourceMapLoad::listing_note</code>; the sidecar log
+  says <code>and N listings</code> and one Warn per note.</li>
 <li><strong>Look before opening.</strong> <code>source_file_problem(path)</code> (<code>debug/source_file.h</code>)
   returns a reason, or empty. It refuses anything that is not a regular file (a
   FIFO or device would block or never end) and a file over
@@ -2857,7 +2889,9 @@ user's (<code>User</code>) and is never touched by a sidecar.</em></p>
   limit"</code>, table untouched), a pipe included. <code>load_sjasmplus_equ()</code>
   (<code>MapFormat::SjasmplusEqu</code>, the Qt Map menu's sjasmplus load) is a path the user
   picked, so it does call <code>source_file_problem()</code>, like the Map menu's other loaders;
-  the menu shows the reason in its "Load Failed" box.</li>
+  the menu shows the reason in its "Load Failed" box. <code>load_z88dk_map()</code> and <code>load_simple_map()</code> refuse
+  such a file with the table untouched and say why through their optional <code>why</code> argument; a file that
+  merely fails to open leaves the table empty (row <code>Z88MAP-27</code>).</li>
 <li><strong>Emit only qualified ranges.</strong> Every <code>SourceRange</code> carries a <code>FetchSource</code>
   (<a href="01-which-memory.html">7.1</a>); the adapter decides it, and <code>SourceMap</code> never
   invents one.</li>
@@ -2866,8 +2900,8 @@ user's (<code>User</code>) and is never touched by a sidecar.</em></p>
 extends) and its space rule (which memory a record belongs to) are written down;
 those are the first two parts of every <a href="04-formats.html">7.4</a> page.</p>
 <h2 id="dispatch-by-content">Dispatch by content<a class="headerlink" href="#dispatch-by-content" title="Permanent link">&para;</a></h2>
-<p><code>Debugger::load_source_map(path, accept_identity_mismatch, verify_at_first_execution)</code>
-(<code>debugger_source.cpp</code>) is the hand load. After <code>source_file_problem()</code> it tells
+<p><code>Debugger::load_source_map(path, accept_identity_mismatch, verify_at_first_execution, dot_only)</code>
+(<code>debugger_source.cpp:451</code>) is the hand load. After <code>source_file_problem()</code> it tells
 the format <em>by content</em>, never by extension: <code>looks_like_sld()</code> is true when the
 first line starts <code>|SLD.data.version|</code>, or when the file cannot be opened at all,
 so that the SLD loader's own error names it. Anything else is read as a z88dk
@@ -2913,15 +2947,35 @@ On success the symbols become the user's and a rule-4 z88dk symbol takes the RAM
 page <code>predict_fetch</code> says is mapped (<code>SymbolTable::bind()</code>, <a href="04-3-z88dk-map.html">7.4.3</a>);
 on failure (<code>-1</code>) the table and its owner are as they were.</p>
 <h3 id="-source-map"><code>--source-map</code><a class="headerlink" href="#-source-map" title="Permanent link">&para;</a></h3>
-<p><code>EmulatorConfig::source_map_file</code> is set from <code>--source-map FILE</code>, which <code>main.cpp</code>
-refuses without <code>--load</code>. Each loop owner (<code>headless_app.cpp</code>, <code>sdl_app.cpp</code>,
-<code>gui/qt_app.cpp</code>) calls <code>load_program_sidecars()</code> after its first successful
-<code>--load</code> and then <code>emulator_attach_cli_source_map()</code> (<code>platform/emulator_boot.h</code>),
-the same call as a hand Load Source Map with a mismatch refused. A refusal logs an
-error and the run exits 1. When the program is a tape (<code>program_loads_later()</code>)
-the helper passes <code>deferred</code>, the map attaches pending, and the loop owner watches
-it once per tick with <code>emulator_poll_cli_source_map()</code> (<code>source_map_watch_</code>): a map
-dropped by the check logs <code>--source-map: dropped: &lt;reason&gt;</code> and exits 1.</p>
+<p><code>EmulatorConfig::source_map_file</code> is set from <code>--source-map FILE</code>
+(<code>main.cpp:880</code>, <code>:2171</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:286</code>),
+set at <code>main.cpp:2182</code>, says which of three cases it is: <code>0</code> a program loads and the map
+follows it; <code>1</code> there is no <code>--load</code>; <code>2</code> an RZX replay is the program (<code>--rzx-play</code>, or
+<code>--load R.rzx</code>, told by the extension).</p>
+<p><strong>With a program</strong> (<code>0</code>). Each loop owner (<code>headless_app.cpp</code>, <code>sdl_app.cpp</code>,
+<code>gui/qt_app.cpp</code>) calls <code>load_program_sidecars()</code> after its first successful <code>--load</code>
+and then <code>emulator_attach_cli_source_map()</code> (<code>platform/emulator_boot.h:112</code>), the same call
+as a hand Load Source Map with a mismatch refused. A refusal logs an error and the run exits 1.
+When the program is a tape (<code>program_loads_later()</code>) the helper passes <code>deferred</code>, the map
+attaches pending, and the loop owner watches it once per tick with
+<code>emulator_poll_cli_source_map()</code> (<code>source_map_watch_</code>): a map dropped by the check logs
+<code>--source-map: dropped: &lt;reason&gt;</code> and exits 1.</p>
+<p><strong>Without one</strong> (<code>1</code> and <code>2</code>). There is no program to judge a map by, so only the map of a z88dk
+dot command is accepted. Each loop owner makes the load once, at start-up, before
+<code>ScriptHost::start()</code>, so a <code>file:line</code> rule in a script resolves
+(<code>headless_app.cpp:76-90</code>, <code>sdl_app.cpp:251</code>, <code>gui/qt_app.cpp:351</code>). The call is
+<code>emulator_attach_cli_source_map(dbg, file, deferred = false, dot_only = true, rzx = (case 2))</code>,
+which passes <code>dot_only</code> to <code>load_source_map()</code>. After the adapter has parsed the file,
+<code>dot_only &amp;&amp; !candidate.dot()</code> returns <code>SourceMapLoad::not_dot</code> with the error "it is not the map
+of a z88dk dot command" (<code>debugger_source.cpp:487</code>), and the helper words it for the frontend:
+<code>--source-map requires --load FILE, or the map of a z88dk dot command: '&lt;file&gt;' is not one</code>, or,
+for case 2, <code>--source-map with an RZX replay accepts only the map of a z88dk dot command</code> (<code>emulator_boot.h:120-125</code>).
+The refusal makes the start-up fail (exit 1). A dot map is deferred whatever
+<code>verify_at_first_execution</code> says: <code>defer = (verify_at_first_execution || candidate.dot()) &amp;&amp;
+!verify_spans().empty()</code> (<code>debugger_source.cpp:496</code>), so it attaches pending with the note "identity
+check pending: the dot command loads when it runs", and <code>source_map_watch_</code> is set from the result.
+How it is then judged is <a href="06-lifetime.html">7.6</a>; how its sections are placed is
+<a href="04-3-z88dk-map.html">7.4.3</a>, rule 5.</p>
 <h2 id="the-sidecars-of-a-program">The sidecars of a program<a class="headerlink" href="#the-sidecars-of-a-program" title="Permanent link">&para;</a></h2>
 <p><code>Debugger::load_program_sidecars(path)</code> is called after every successful
 <code>--load</code> in the three loop owners (<code>headless_app.cpp</code>, <code>sdl_app.cpp</code>,

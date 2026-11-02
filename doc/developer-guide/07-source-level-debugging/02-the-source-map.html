@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2229,6 +2229,8 @@
       
         
       
+        
+      
     
     
     
@@ -2803,6 +2805,34 @@
   
   
     <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-tests-and-new-producers.html" class="md-nav__link">
         
   
@@ -2877,7 +2907,7 @@ store handles it: it is counted by <code>size()</code> and kept out of both inde
 A <code>SourceAlias</code> names a <code>(file, line)</code> that has no bytes of its own and the
 index of a range (in the vector given to <code>replace()</code>) it resolves through.</p>
 <h2 id="replace-one-transaction"><code>replace()</code>: one transaction<a class="headerlink" href="#replace-one-transaction" title="Permanent link">&para;</a></h2>
-<p><code>SourceMap::replace(ranges, aliases, identity, loaded_file, format, texts)</code>
+<p><code>SourceMap::replace(ranges, aliases, identity, loaded_file, format, texts, dot)</code>
 builds a complete new map and move-assigns it over <code>*this</code> as its last step, so
 an observer never sees a half-built store. The order of <code>ranges</code> is <em>emission
 order</em> and matters: it is the tie-break below.</p>
@@ -2897,8 +2927,12 @@ order</em> and matters: it is the tie-break below.</p>
    tie, the one <em>emitted later</em> first (<code>primary_first</code>). The first is the
    segment's primary location.</li>
 </ol>
-<p><code>identity</code>, <code>loaded_file</code>, <code>format</code> (<code>"SLD"</code> or <code>"z88dk"</code>; <code>clear()</code> resets it to
-<code>"SLD"</code>) and <code>texts</code> are stored as given. Every <code>const SourceLocation*</code> the class
+<p><code>loaded_file</code> is the adapter's absolute, lexically normalised path (<code>sld_loader.cpp:327-328</code>,
+<code>z88dk_source_map.cpp:588</code>), which is also where the search for a source file starts (<a href="07-frontends.html">7.7</a>).
+<code>identity</code>, <code>loaded_file</code>, <code>format</code> (<code>"SLD"</code> or <code>"z88dk"</code>; <code>clear()</code> resets it to
+<code>"SLD"</code>), <code>texts</code> and <code>dot</code> (<code>SourceMap::dot()</code>, GH #351: the map is a z88dk dot command's, so
+the backend never judges it from memory at a load, <a href="06-lifetime.html">7.6</a>; <code>clear()</code> resets it)
+are stored as given. Every <code>const SourceLocation*</code> the class
 returns points into <code>locations_</code> and is valid until the next <code>replace()</code> or
 <code>clear()</code>; code that keeps a location copies it. The backend does so before it
 calls anything that might load a map.</p>

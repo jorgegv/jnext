@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2229,6 +2229,8 @@
       
         
       
+        
+      
     
     
     
@@ -2371,6 +2373,17 @@
     <span class="md-ellipsis">
       
         The prediction and the record
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spelling-a-space-the-long-address-gh-360" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spelling a space: the long address (GH #360)
       
     </span>
   </a>
@@ -2764,6 +2777,34 @@
   
   
     <li class="md-nav__item">
+      <a href="07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-tests-and-new-producers.html" class="md-nav__link">
         
   
@@ -2932,10 +2973,14 @@ routes, and a debugger that shows which one answered must not collapse them.
   <code>AltRom</code> and <code>Config</code> and <code>0x2000</code> for every other kind, and <code>space_offset(s,
   logical)</code> is <code>logical &amp; (size - 1)</code>. Every route the arbiter produces has
   exactly this offset.</li>
-<li><strong>Only three kinds are accessible to a verb.</strong> <code>Debugger::peek()</code> and <code>poke()</code>
-  take <code>Cpu</code>, <code>Page</code> and <code>Rom</code>; every other kind is <em>identity-only</em>: the arbiter
+<li><strong>Only some kinds are accessible to a verb.</strong> <code>Debugger::peek()</code> and <code>poke()</code>
+  take <code>Cpu</code>, <code>Page</code> and <code>Rom</code>. <code>DivMmcRam{b}</code> can be <em>read</em> (GH #351: the dot
+  commands run from DivMMC bank 2, so their bytes must be checkable): bank <code>b</code>
+  is <code>DivMmc::ram_page(b)</code> (SRAM page <code>0x10 + b</code>, <code>zxnext.vhd:3092-3098</code>), a bank
+  past <code>DivMmc::kRamPages</code> is <code>InvalidPage</code> (<code>debugger_inspect.cpp:310-317</code>), and
+  <code>poke</code> of it stays <code>Unsupported</code>. Every other kind is <em>identity-only</em>: the arbiter
   names it, and <code>peek</code> and <code>poke</code> refuse it with <code>Result::Unsupported</code>
-  (<code>identity_only()</code> in <code>debugger_inspect.cpp</code>, one total <code>switch</code> with no
+  (<code>identity_only()</code>, <code>debugger_inspect.cpp:98</code>, one total <code>switch</code> with no
   <code>default</code>, so a new kind is a compile error there). <code>Rom</code> is read-only
   (<code>RefusedReadOnly</code>). Coverage is the exception: <code>mem_coverage()</code> accepts the
   identity-only kinds.</li>
@@ -3003,6 +3048,43 @@ must agree for every instruction that fetches. The rows <code>SRCDBG-ID-*</code>
 <code>source_debug_test</code> step instructions across DivMMC, Multiface, boot-ROM and
 NMI paths and compare the two; <code>FSRC-*</code> in <code>mmu_test</code> and
 <code>mmu_integration_test</code> pin the arbiter's order and identities against the VHDL.</p>
+<h2 id="spelling-a-space-the-long-address-gh-360">Spelling a space: the long address (GH #360)<a class="headerlink" href="#spelling-a-space-the-long-address-gh-360" title="Permanent link">&para;</a></h2>
+<p>One place spells a <code>MemSpace</code> for a human or a file: <code>src/debug/long_address.*</code> (std headers
+and <code>mem_space.h</code> only). Every Qt view, the trace export and the remote protocols that name a
+memory go through it (<a href="07-frontends.html">7.7</a>).</p>
+<ul>
+<li><strong>The tag.</strong> <code>space_tag()</code> (<code>long_address.cpp:46</code>) is the stable name: <code>Page{n}</code> is <code>P%02X</code>
+  (<code>P04</code>, <code>P0E</code>), <code>Rom{i}</code> <code>ROM%u</code>, <code>BootRom</code> <code>BOOT</code>, <code>MultifaceRom</code> <code>MFROM</code>, <code>MultifaceRam</code>
+  <code>MFRAM</code>, <code>DivMmcRom</code> <code>DIVROM</code>, <code>DivMmcRam{b}</code> <code>DIVRAM%u</code> (decimal), <code>AltRom{i}</code> <code>ALTROM%u</code>,
+  <code>Layer2{p}</code> <code>L2P%02X</code>, <code>Config{b}</code> <code>CFG%02X</code>, <code>Floating</code> <code>FLOAT</code>, <code>Cpu</code> <code>CPU</code>. The charset
+  is <code>[A-Z0-9]</code>: no whitespace and no <code>:</code>.</li>
+<li><strong>The inverse.</strong> <code>parse_space_tag()</code> (<code>:64</code>) is strict: digits only, any case, no leading zero
+  on a decimal index, the hardware's ranges (a page <code>0..0xDF</code>, ROM <code>0..3</code>, DivMMC bank <code>0..15</code>,
+  alt ROM <code>0..1</code>). It refuses <code>PE5</code>: a slot 2-7 that holds NR &gt;= <code>0xE0</code> reads nothing, so
+  <code>SlotInfo::now</code> is <code>Floating</code> while <code>SlotInfo::space</code> is <code>Page{0xE5}</code>. A view therefore names
+  a slot by <code>now</code>, no protocol output tags <code>space</code>, and a view that shows the slot's own source
+  shows <code>FLOAT</code> for a page &gt;= <code>0xE0</code>.</li>
+<li><strong>The tags are a stable format.</strong> The project file and the ghidra and skoolkit exports key on
+  them, so changing a spelling is a format break, not a tidy-up (the header says so,
+  <code>long_address.h:9-11</code>). The trace export's <code>FETCH=</code> column is <code>space_tag(fetch_space())</code>
+  (<code>trace.cpp:324</code>), never the GUI's style (<a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>).</li>
+<li><strong>The Next layout.</strong> <code>physical_text(space, addr)</code> (<code>:111</code>) says where the byte sits in the Next's
+  memory: <code>$</code> and six hex digits of the SRAM address (<code>Page{n}</code> and <code>Layer2{n}</code> are
+  <code>(n + 0x20) &lt;&lt; 13 | offset</code>, <code>zxnext.vhd:2964,2971</code>; <code>Rom{i}</code> <code>i &lt;&lt; 14 | offset</code>, <code>:3052-3057</code>;
+  alt ROM <code>0x018000 + 0x4000 * i</code>, <code>:2924-2925</code>; Multiface <code>0x014000</code> / <code>0x016000</code>; DivMMC ROM
+  <code>0x010000</code>; DivMMC RAM <code>0x020000 + 0x2000 * b</code>, <code>divmmc.vhd:94-96</code>), or <code>BRAM5+$XXXX</code>
+  (pages <code>0x0A</code>, <code>0x0B</code>), <code>BRAM7+$XXXX</code> (page <code>0x0E</code>), <code>BOOT+$XXXX</code>, <code>FLOAT</code>. Banks 5 and 7 are
+  block RAM, not SRAM, apart from page <code>0x0F</code>; Layer 2 always sees the SRAM copy.</li>
+<li><strong>The style.</strong> <code>space_text()</code> and <code>long_address()</code> (<code>$C000 P0E</code>) choose by <code>AddressStyle</code>:
+  <code>Friendly</code> prints the tag, <code>Physical</code> the physical text, and Physical falls back to Friendly
+  wherever <code>next_layout</code> is false (a non-Next machine: <code>memtext::next_layout()</code>,
+  <code>memory_text.h:20</code>).</li>
+</ul>
+<p>The instruction at the PC is a special read. <code>Debugger::memory_reader()</code>
+(<code>debugger_inspect.cpp:838</code>) returns the bytes the CPU <em>will fetch</em> for that one instruction
+(<code>Emulator::predict_instruction_bytes()</code>, at most four) and <code>Mmu::peek()</code> for everything else,
+because at a DivMMC instant entry the M1 itself maps DivMMC. That is the prediction half of this
+page applied to the bytes instead of the identity.</p>
 <h2 id="two-ways-to-name-a-memory-in-an-execute-filter">Two ways to name a memory in an Execute filter<a class="headerlink" href="#two-ways-to-name-a-memory-in-an-execute-filter" title="Permanent link">&para;</a></h2>
 <p>An <code>Execute</code> subscription has two memory qualifiers (<code>EventFilter</code> in
 <code>debug/events.h</code>):</p>
@@ -3053,7 +3135,7 @@ distinct. <code>Floating</code> and <code>Cpu</code> are never recorded.</p>
 <p>This is a store, not a file format: nothing reads or writes a coverage file, and
 no DZRP, ZRCP, GDB or DSL verb exposes it. Its readers are the Qt Disassembly and
 Memory panels (<code>disasm_panel.cpp</code>, <code>memory_panel.cpp</code>), the Source tab, and
-<code>--coverage</code> (<code>platform/coverage_startup.h</code>), which switches it on at startup and
+<code>--coverage</code> (<code>EmulatorConfig::coverage</code>, applied by the three loop owners through <code>apply_startup_coverage()</code>, <code>platform/coverage_startup.h</code>), which switches it on at startup and
 logs a summary at exit. The separate logical-PC set of the
 INS-20 <code>coverage</code> verbs is described with the trace in
 <a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>.</p>
