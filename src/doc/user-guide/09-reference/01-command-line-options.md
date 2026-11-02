@@ -1169,6 +1169,35 @@ with status 1.
     saved list is edited under **Preferences \> Paths**, and **Locate
     File…** in the Source tab adds a directory.
 
+**--export-skoolkit** *DIR*
+:   When jnext exits, write the debugger’s labels and the code/data map
+    that **--coverage** recorded into *DIR* as skoolkit control files
+    (*DIR* is created). One `WWWW-TAG.ctl` and `WWWW-TAG.bin` pair per
+    memory and window: *TAG* names the memory as the debugger does
+    (`P0A`, `ROM0`, `DIVRAM3`), *WWWW* is the hex base of the 8 KB
+    window (16 KB for ROM) the labels sit in, and the `.bin` holds that
+    window’s bytes, so `sna2skool.py -o 0xWWWW WWWW-TAG.bin` picks its
+    control file by itself and `sna2skool.py -c DIR` combines them.
+    Unpaged labels are in `0000-CPU.ctl`. Executed bytes become `c`
+    blocks, read or written ones `b`, the rest `u`; without
+    **--coverage** each window is one `c` block. skoolkit has no Z80N
+    support, so Z80N instructions are written as `DEFB` sub-blocks. A
+    previous export’s files in *DIR* are replaced; any other file there
+    is never touched, and a `.ctl` or `.bin` of the same name that is
+    not jnext’s makes the export fail. A failed export is logged and
+    jnext exits with status 1.
+
+**--export-ghidra** *DIR*
+:   When jnext exits, write the debugger’s labels into *DIR* (created)
+    as symbol files for Ghidra’s `ImportSymbolsScript.py`, one line
+    `NAME ADDRESS l` per label: `TAG.ghidra.txt` for each memory
+    (`P0A:0x8000`, the address in the overlay address space *TAG* that
+    you create for that page), `CPU.ghidra.txt` for the unpaged labels
+    (`0x8000`) and `view.ghidra.txt` for the memory as mapped when jnext
+    exits (`0x8000`, no overlay needed). A previous export’s
+    `*.ghidra.txt` files in *DIR* are replaced. A failed export is
+    logged and jnext exits with status 1.
+
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional,
     for example `0x00FF`).

@@ -659,6 +659,73 @@ from (`fetch_kind`, `fetch_index`). `trace_export()` writes all of them; the ROM
 mask is the `ROM=` column after the pages and the identity the `FETCH=<tag>`
 column after it (`space_tag()` of `fetch_space()`, never the GUI's address style).
 
+### Reverse-engineering exports — CAP-REX
+
+`export_skoolkit(dir, report, why)` and `export_ghidra(dir, report, why)` (GH #389)
+write what the disassembly shows into a directory the verb creates: every key
+(memory, address) of `symbols()` under the name `lookup()` gives (so a z88dk C symbol
+is its C name), and for skoolkit the code/data map `mem_coverage()` recorded. They are
+reads: `peek()`, the coverage and the symbol table are side-effect free, so an export
+changes no machine state and moves no generation (SRCDBG-REX-03 and its control 04),
+and it is allowed while the machine runs. The formats are the pure writers' —
+`skoolkit_ctl.{h,cpp}` and `ghidra_symbols.{h,cpp}`, which take plain structs
+(`reexport.h`) and need no machine or Qt — and `debugger_reinterop.cpp` gathers their
+inputs and writes the files. `ReReport` carries the counts and the notes (a name
+skipped, coverage of a memory whose bytes cannot be read, coverage off).
+
+**skoolkit.** One control file and one `.bin` image per (memory, window):
+`<WWWW>-<TAG>.ctl`, WWWW the base of an aligned window of the store (8 KB; 16 KB for
+`Rom`, `AltRom`, `Config`), TAG `space_tag()` (`long_address.h`, above); unpaged labels
+are in `0000-CPU.ctl`. A control file describes one 64 KB view and skoolkit's only bank
+notion is `@bank`, so the identity cannot be written into the format: it is the file
+name and a first line `# jnext space <TAG>`, a comment skoolkit ignores. The names sort
+in address order, which `sna2skool.py -c DIR` needs (two files that disagree at a shared
+boundary address are applied in command-line order; the unpaged file sorts first, so a
+paged label wins, as in the disassembly), and `sna2skool.py -o 0xWWWW <WWWW>-<TAG>.bin`
+picks the one file by default pickup (which happens only when no `-c` is given). The
+`.bin` holds the window's bytes as `peek()` reads them now: skoolkit reads no NEX, so a
+Next page's control file is useless without them. A window is one of the space's keys'
+windows; a space with none goes to the window that maps it now (`source_page()`), else to
+its home (`home_window()`: the 128K bank positions for a RAM page, `$0000` for ROM,
+`$2000` for a DivMMC bank), because coverage is keyed by (memory, offset) and does not
+record the logical address a page ran at.
+
+*The classifier* (`skoolkit::classify()`): an X byte starts an instruction whose extent is
+`instruction_length()` over the store, clipped at the store's end and at the next X start;
+a byte is code inside an extent, else data (R or W), else unknown. A memory with no mark is
+one code run, as sna2skool's own default. Runs become `c`, `b` and `u` blocks, closed by
+`i $EEEE` at the window end. The Z80N extensions (`is_z80n_extension()`; the opcode table
+is one in `disasm.cpp`, read by `instruction_length()` and the predicate) and clipped
+instructions are written as `B` sub-blocks, because skoolkit is Z80-only and would
+misalign the code after a 4-byte `NEXTREG`; a label or comment inside an instruction splits
+it into `B` sub-blocks at the key, because sna2skool silently drops a label that is not
+at a line start. For the same reason an unpaged label in `0000-CPU.ctl` that falls in a data
+or unknown run of another file is dropped by `-c DIR`: it has no sub-block there.
+The identity-only memories (boot ROM, Multiface, DivMMC ROM, alternate ROM, Layer 2,
+config, floating: `peek()` refuses them) get no code/data map and the report names them.
+
+**Ghidra.** One file per memory, `<TAG>.ghidra.txt`, lines `NAME <TAG>:0xHHHH l`;
+`CPU.ghidra.txt` for the unpaged labels (`NAME 0xHHHH l`); `view.ghidra.txt`, the labels
+the disassembly shows now, unprefixed. The script splits a line on whitespace, has no
+comment and no blank line, and stops at the first line whose address space the program lacks
+(a NullPointerException; Ghidra still exits 0 — measured, `ghidra-foreign-func` pins it as its
+control), hence a file per space: a memory the user has not created as an overlay costs only
+its own file. On a 48K or 128K machine every RAM label is paged, so the view file is what
+flat memory takes without any overlay. Since Ghidra 12.1 `ImportSymbolsScript.py` is shipped
+only in the Jython extension, which is not installed by default.
+
+**Writing the directory.** Each file is written to `<name>.part` and renamed. A previous
+export's files that this one does not write are removed: a `*.ctl` whose first line is
+`# jnext space ` and its `.bin`, and every `*.ghidra.txt`; any other file is never touched,
+and a `.ctl` or `.bin` the export would write that is not jnext's refuses it before anything is
+written (`Unsupported`). A directory that cannot be created, or a path that is a regular file,
+is `RefusedUnavailable`. `--export-skoolkit DIR` and `--export-ghidra DIR` call the verbs at exit
+from the three loop owners through `write_re_exports_at_exit()` (`platform/re_export_at_exit.h`,
+the `--coverage` pattern); a failure logs and exits 1. The suite is `reexport_test` (SKCTL, GHSYM
+and SRCDBG-REX rows) and the functional rows `skoolkit-foreign-func` and `ghidra-foreign-func`
+run the foreign readers (provisioned by `make skoolkit` and `make ghidra`, see
+[4.3](../04-testing/03-the-regression-suite.md)).
+
 ### Session — CAP-SES
 
 `attach`, `detach`, `set_listener`, `add_service`, `remove_service`, `pump`,
@@ -686,6 +753,7 @@ internals directly, through the pointers the constructor publishes into
 | `debugger_reconstruct.cpp` | the loop driver, `reset(Hard)`, `load()`, the cold-boot notifications and the reconstruct contract |
 | `debugger_capture.cpp` | screenshots, bookmarks, `save_snapshot` |
 | `debugger_source.cpp` | CAP-SRC: the source map, program sidecars, `source_step()` |
+| `debugger_reinterop.cpp` | CAP-REX: `export_skoolkit()` and `export_ghidra()` (the writers are `skoolkit_ctl.*` and `ghidra_symbols.*`) |
 | `debugger_render.cpp` | `render_layer()` |
 | `event_table.*` | `EventTable`: subscriptions, cheap filters, the latch ring, the delivery history |
 | `inspect.cpp`, `result.cpp` | the free functions of `inspect.h` (`key_name_to_matrix()`, `rrrgggbb_to_argb()`, `rgb333_to_argb()`) and `result_name()` |

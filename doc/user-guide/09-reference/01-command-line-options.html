@@ -4787,6 +4787,33 @@ saved one for the run; directories added by <strong>Locate File…</strong> stil
 apply. A relative <em>DIR</em> is taken from the working directory. The
 saved list is edited under <strong>Preferences &gt; Paths</strong>, and <strong>Locate
 File…</strong> in the Source tab adds a directory.</dd>
+<dt><strong>--export-skoolkit</strong> <em>DIR</em></dt>
+<dd>When jnext exits, write the debugger’s labels and the code/data map
+that <strong>--coverage</strong> recorded into <em>DIR</em> as skoolkit control files
+(<em>DIR</em> is created). One <code>WWWW-TAG.ctl</code> and <code>WWWW-TAG.bin</code> pair per
+memory and window: <em>TAG</em> names the memory as the debugger does
+(<code>P0A</code>, <code>ROM0</code>, <code>DIVRAM3</code>), <em>WWWW</em> is the hex base of the 8 KB
+window (16 KB for ROM) the labels sit in, and the <code>.bin</code> holds that
+window’s bytes, so <code>sna2skool.py -o 0xWWWW WWWW-TAG.bin</code> picks its
+control file by itself and <code>sna2skool.py -c DIR</code> combines them.
+Unpaged labels are in <code>0000-CPU.ctl</code>. Executed bytes become <code>c</code>
+blocks, read or written ones <code>b</code>, the rest <code>u</code>; without
+<strong>--coverage</strong> each window is one <code>c</code> block. skoolkit has no Z80N
+support, so Z80N instructions are written as <code>DEFB</code> sub-blocks. A
+previous export’s files in <em>DIR</em> are replaced; any other file there
+is never touched, and a <code>.ctl</code> or <code>.bin</code> of the same name that is
+not jnext’s makes the export fail. A failed export is logged and
+jnext exits with status 1.</dd>
+<dt><strong>--export-ghidra</strong> <em>DIR</em></dt>
+<dd>When jnext exits, write the debugger’s labels into <em>DIR</em> (created)
+as symbol files for Ghidra’s <code>ImportSymbolsScript.py</code>, one line
+<code>NAME ADDRESS l</code> per label: <code>TAG.ghidra.txt</code> for each memory
+(<code>P0A:0x8000</code>, the address in the overlay address space <em>TAG</em> that
+you create for that page), <code>CPU.ghidra.txt</code> for the unpaged labels
+(<code>0x8000</code>) and <code>view.ghidra.txt</code> for the memory as mapped when jnext
+exits (<code>0x8000</code>, no overlay needed). A previous export’s
+<code>*.ghidra.txt</code> files in <em>DIR</em> are replaced. A failed export is
+logged and jnext exits with status 1.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
 for example <code>0x00FF</code>).</dd>

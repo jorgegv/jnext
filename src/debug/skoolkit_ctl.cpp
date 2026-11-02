@@ -149,8 +149,10 @@ std::string render_window(const std::string& tag, uint16_t base, uint32_t wsz,
         em.lines.push_back({r.start, 0,
                             std::string(1, block_letter(r.cls)) + " " + hex4(base + r.start)});
         if (r.cls == Class::Code && cl.marked) {
-            for (const Insn& in : cl.insns) {
-                if (in.off < r.start || in.off >= r.end) continue;
+            auto first = std::lower_bound(cl.insns.begin(), cl.insns.end(), r.start,
+                                          [](const Insn& i, uint32_t off) { return i.off < off; });
+            for (auto it = first; it != cl.insns.end() && it->off < r.end; ++it) {
+                const Insn& in = *it;
                 std::vector<uint32_t> bounds{in.off};
                 for (auto it = keys.upper_bound(in.off); it != keys.end() && it->first < in.off + in.len; ++it)
                     bounds.push_back(it->first);

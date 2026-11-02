@@ -439,6 +439,26 @@ static void pure_rows() {
               bad.empty() && not_ed, bad);
     }
 
+    // SKCTL-08c: a label name both formats would split on is skipped, and the report says so.
+    {
+        const MemSpace p10 = MemSpace::page(0x10);
+        sk::Input in = f1_input();
+        in.labels.push_back({p10, 0xC004, "has space"});
+        in.labels.push_back({std::nullopt, 0x0008, "tab\tname"});
+        in.labels.push_back({std::nullopt, 0x0010, ""});
+        const reexport::Output a = sk::build(in);
+        const reexport::Output g = gh::build(in.labels, {{0xC004, "has space"}});
+        bool noted_a = false, noted_g = false;
+        for (const std::string& n : a.notes) noted_a = noted_a || has(n, "'has space'");
+        for (const std::string& n : g.notes) noted_g = noted_g || has(n, "'has space'");
+        check("SKCTL-08c", "a label name with whitespace, a control character or nothing is skipped by both "
+                           "writers (skoolkit and Ghidra split lines on whitespace) and the report names it",
+              text_of(a, "C000-P10.ctl") == text_of(sk::build(f1_input()), "C000-P10.ctl") && !file_of(a, "0000-CPU.ctl") &&
+                  a.labels == 3 && noted_a && noted_g && !file_of(g, "CPU.ghidra.txt") &&
+                  !has(text_of(g, "P10.ghidra.txt"), "has") && !file_of(g, "view.ghidra.txt"),
+              names_of(a) + " | " + names_of(g));
+    }
+
     // GHSYM-01: the Ghidra writer.
     {
         const MemSpace p10 = MemSpace::page(0x10);
