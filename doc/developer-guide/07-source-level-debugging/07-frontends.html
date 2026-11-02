@@ -2996,7 +2996,8 @@ the stamp carries a flag for "the loaded file changed on disk",
    <code>source_search::resolve()</code> finds the file (below); no file gives "source file not found"
    and enables Locate File. A file is reloaded when its modification time changes, so an
    edit-and-rebuild never highlights a line of the old text (<code>:690-703</code>). A line past the end
-   of the file found gives "has only N lines; it is not the text the build used" (<code>:711</code>).</li>
+   of the file found gives "has only N lines; it is not the text the build used" (<code>:711</code>; the line
+   count ignores the final newline, <code>file_line_count()</code>, <code>:59</code>). The label's tooltip is the path found.</li>
 <li>The label ends with <code>SourcePanel::also_text()</code> (<code>:574</code>): <code>lookup_all()</code> for the address,
    minus the primary and any entry with the same <code>file:line</code>, as <code>also: f:l, ...</code>; then the
    browse text <code>(browsing; the PC is at f:l, $addr)</code>; then the pending note.</li>
@@ -3058,9 +3059,12 @@ the log, and the main window's status bar for ten seconds.</p>
   Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment); Text is the editor
   palette's text colour and never a format. Punctuation and operators (<code>kKeywordPunct</code>, <code>:280</code>)
   are Keyword, tested at each scanner's fall-through point after comment, string, char, number
-  and word detection, so those win. A sign is part of a number only inside an exponent; C and
-  Boriel numbers have their own scanners. Formats set the foreground colour and nothing else, so
-  the line geometry and the gutter alignment equal Plain's.</li>
+  and word detection, so those win; Qt merges adjacent equal formats, so <code>-&gt;</code> or <code>&lt;&lt;=</code> is one Keyword
+  range. A sign is part of a number only inside an exponent (<code>-5</code> is a Keyword and an Integer). C and
+  Boriel numbers have their own scanners: Float is a point or an exponent, including the C hex-float
+  <code>p</code> exponent; Boriel's <code>t_HEXA</code>, <code>t_OCTAL</code> and <code>t_BIN</code> are tried before <code>t_NUMBER</code>, and a <code>$</code> or <code>%</code>
+  suffix belongs to its identifier. The scanners are allocation-free per word. Formats set the
+  foreground colour and nothing else, so the line geometry and the gutter alignment equal Plain's.</li>
 <li><strong>Entering a text.</strong> <code>SourcePanel::set_source_text()</code> (<code>source_panel.cpp:513</code>) is the one way:
   the language first, then the text, so a load is highlighted once with its own language.</li>
 <li><strong>Schemes.</strong> <code>SourceScheme</code> (<code>platform/source_scheme.h</code>) is the order of the words of the
@@ -3105,7 +3109,7 @@ gutter widget in a left viewport margin and a header strip above it (<code>setVi
   <code>breakpoint_glyph.h</code> paints the glyph for both panels.</li>
 <li><strong>The PC wedge</strong> (GH #347): <code>paint_pc_marker()</code> (<code>breakpoint_glyph.h:46</code>), the amber wedge
   <code>paint_gutter()</code> draws on <code>highlighted_line()</code> only, in the 5-px strip after the number cell
-  (<code>x</code> in <code>[width-6, width-2]</code>); the colour goes through <code>palette_tint::ink()</code>, and the text
+  (<code>x</code> in <code>[width-6, width-2]</code>, which no pinned pixel reading uses); the colour goes through <code>palette_tint::ink()</code>, and the text
   highlight stays the palette's own.</li>
 <li><strong>A click</strong> calls <code>SourcePanel::toggle_breakpoint_at_line()</code> (<code>:1012</code>), the one toggle: it
   removes what the line shows plus a hidden group tied to an unmapped memory, else
