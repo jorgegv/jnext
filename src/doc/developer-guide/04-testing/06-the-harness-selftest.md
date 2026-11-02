@@ -217,5 +217,15 @@ verdict on the real tree is trusted at all:
   The lint also counts the lines that reached its matcher and refuses the run
   unless that is every line of every in-scope file.
 
+The developer-guide cite check, `test/lint-devguide-cites.pl` (GH #430, see
+[4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking
+like those: the harness self-test runs it against throwaway trees
+(HS-100a to HS-100j). It is wired to `unit-test` and `regression` through `docs-check`; an
+exact cite and a declared external one pass; a cite one line off, an
+unanchored one (also when the symbol is in the previous sentence), a missing file, a
+line past the end, an ambiguous bare name, a bare line number with no file before it, a
+comma list and an unknown extension fail; a range holds its symbol inside it
+and not one line outside; a fenced block is not read.
+
 Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.

@@ -3065,10 +3065,10 @@ memory go through it (<a href="07-frontends.html">7.7</a>).</p>
   a slot by <code>now</code>, no protocol output tags <code>space</code>, and a view that shows the slot's own source
   shows <code>FLOAT</code> for a page &gt;= <code>0xE0</code>.</li>
 <li><strong>The tags are a stable format.</strong> The project file and the ghidra and skoolkit exports key on
-  them, so changing a spelling is a format break, not a tidy-up (the header says so,
-  <code>long_address.h:9-11</code>). The trace export's <code>FETCH=</code> column is <code>space_tag(fetch_space())</code>
+  them, so changing a spelling is a format break, not a tidy-up (the header says so, in the
+  comment on <code>parse_space_tag</code>, <code>long_address.h:9-11</code>). The trace export's <code>FETCH=</code> column is <code>space_tag(fetch_space())</code>
   (<code>trace.cpp:324</code>), never the GUI's style (<a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>).</li>
-<li><strong>The Next layout.</strong> <code>physical_text(space, addr)</code> (<code>:111</code>) says where the byte sits in the Next's
+<li><strong>The Next layout.</strong> <code>physical_text(space, addr)</code> (<code>long_address.cpp:111</code>) says where the byte sits in the Next's
   memory: <code>$</code> and six hex digits of the SRAM address (<code>Page{n}</code> and <code>Layer2{n}</code> are
   <code>(n + 0x20) &lt;&lt; 13 | offset</code>, <code>zxnext.vhd:2964,2971</code>; <code>Rom{i}</code> <code>i &lt;&lt; 14 | offset</code>, <code>:3052-3057</code>;
   alt ROM <code>0x018000 + 0x4000 * i</code>, <code>:2924-2925</code>; Multiface <code>0x014000</code> / <code>0x016000</code>; DivMMC ROM

@@ -197,7 +197,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        kloc-count kloc-count-detailed regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
-       docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
+       docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
        docs-schema schema-check snapshot-zip-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
@@ -1259,6 +1259,7 @@ docs-check:
 	 $(MAKE) --no-print-directory docs-man-check || rc=1; \
 	 $(MAKE) --no-print-directory docs-userguide-check || rc=1; \
 	 $(MAKE) --no-print-directory docs-devguide-check || rc=1; \
+	 $(MAKE) --no-print-directory docs-devguide-cites-check || rc=1; \
 	 exit $$rc
 
 # Fail if the man page, USAGE.md or the guide's option page are stale
@@ -1467,6 +1468,13 @@ docs-devguide: docs-devguide-diagrams
 	@$(DEVGUIDE_FINGERPRINT) > $(DEVGUIDE_RENDERER)
 	@printf "$(BADGE_PASS) OK $(RESET) developer guide rendered to $(DEVGUIDE_OUT)\n"
 	@printf "        it is committed: commit the regenerated files alongside your change\n"
+
+# Fail if a developer-guide file:line cite does not hold the symbol it names (GH #430)
+docs-devguide-cites-check:
+	@# Not a freshness check: no renderer is involved, so it has no version-gap
+	@# case. perl is already a hard prerequisite of unit-test. The rules and the
+	@# declared out-of-scope sources are in the script's header.
+	@perl test/lint-devguide-cites.pl
 
 # Fail if the committed developer guide (or its SVGs) is stale vs its sources
 docs-devguide-check:

@@ -3025,7 +3025,7 @@ the guest's own driver talks to. Both are called out below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-around line 890, and again in the GUI's file dialogs and in the headless
+(the <code>ext</code> chain, <code>src/main.cpp:2647-2705</code>), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised

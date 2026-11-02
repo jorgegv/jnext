@@ -19,7 +19,8 @@
 #                            same page (any file.ext token, cited with a line or
 #                            not, in this page's text order). If that file is
 #                            declared external the cite is out of scope with it.
-#   line(s) N[-M] of `file`  the prose form; same rules.
+#   line(s) N[-M] of `file`   the prose forms; same rules. `file` (line(s) N[-M])
+#   'around line N' and any other vague form is not a form: reword it.
 #   Known extensions: cpp cc c h hpp asm vhd py sh pl cmake txt conf md def m4
 #   inc bas yaml yml json lis map sld.
 #
@@ -159,6 +160,9 @@ sub paragraph {
     }
     while ($text =~ /\blines?\s+(\d+)(?:-(\d+))?\s+of\s+`($FILE)`/g) {
         push @cites, [ $-[0], $+[0], $3, $1, $2 // $1, 'prose' ];
+    }
+    while ($text =~ /`($FILE)`\s*\(\s*lines?\s+(\d+)(?:-(\d+))?\s*\)/g) {
+        push @cites, [ $-[0], $+[0], $1, $2, $3 // $2, 'prose' ];
     }
     # unknown-extension cite: name.xyz:N in prose (not 4.5:1, not an IP)
     while ($text =~ /(?<![A-Za-z0-9_.\/+-])([A-Za-z0-9_+-]+(?:\.[A-Za-z0-9_+-]+)*\.([A-Za-z][A-Za-z0-9_]*)):(\d+)/g) {

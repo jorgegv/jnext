@@ -11,7 +11,7 @@ notice when a committed output stops matching the source it came from.
 `make unit-test` and `make regression`, so a stale document fails the test run
 itself rather than waiting for CI or a reviewer to spot it.
 
-## The three parts
+## The four parts
 
 `docs-check` runs each part as its own target and aggregates the results, so
 that one stale document never hides another and each one prints its own
@@ -29,9 +29,53 @@ remediation line:
   would let a hand-edited SVG through, because mkdocs copies it across
   unchanged. The fix is `make docs-devguide`, then commit both.
 
+- **`docs-devguide-cites-check`** (GH #430) verifies the developer guide's
+  code cites. It is not a freshness check: no renderer is involved. See
+  [the cite rule](#the-developer-guide-cite-rule) below.
+
 On a machine that has no pandoc, mkdocs or graphviz the relevant part
 **fails**, there and in CI alike (the old `$CI` split is gone: CI and local do
 the same thing), because a check that cannot run is not a pass.
+
+## The developer-guide cite rule
+
+The guide cites code as a file name, a colon and a line number, and every such
+cite of a file in this repository is checked by `test/lint-devguide-cites.pl`
+(a Perl script like the other lints; `make docs-devguide-cites-check` runs it,
+and `docs-check` runs that). Before it existed one merge shifted 17 cites of
+chapter 7 and only a reviewer's script noticed. The rule, in full:
+
+- **Every cite is anchored to a symbol.** The nearest backticked identifier
+  before the cite in the same sentence (a function, class, member, constant or
+  test ID; `Class::name` and `name()` count, the last component is the symbol)
+  must appear as a whole word on the cited line, or, for a range, on a line of
+  the range. There is **no +-1 tolerance**: a cite one line off fails.
+  A sentence break (a full stop followed by a capital) ends the sentence, so the
+  symbol of the previous sentence does not anchor this one. A cite with no
+  such symbol fails as *unanchored*: add the symbol, in backticks, before it.
+- **The forms** are a file (a bare name when it is unique in the repository,
+  else a path that ends the same way) with `:N` or `:N-M`; a bare backticked
+  `:N` or `:N-M`, which means **the last file named earlier on the same page**
+  (a mention counts with or without a line; link targets do not), so name the
+  file again whenever another file has been mentioned since; the prose forms
+  *line N of* a file and a file followed by *(line N)*. A comma list of lines
+  fails: write one cite per line. "Around line N" is not a form: reword it.
+- **Nothing is skipped.** A cite whose file is not in the repository, is
+  ambiguous (the failure names the candidates), or whose line does not exist,
+  fails; so does a cite with an extension the script does not know.
+- **Out of scope by declaration**, listed in the script's header and nowhere
+  else: the VHDL (a different repository), the z88dk, sjasmplus, Boriel,
+  NextBuild and NextZXOS sources the format chapters cite, and the *program*
+  locations of the examples (a bare `main.c`, `util.h`, `main.bas`:
+  positions in the debugged program, not code). Written with a directory they
+  are repository cites and are checked. Fenced code blocks are sample data and
+  are not read.
+- **The output** is one line per failure, `page:line: cite | anchor | what the
+  cited line holds`, then a count; the exit status is non-zero on any failure.
+
+When a cited file changes, run the check and re-point the cites it reports;
+re-point the cite, never the anchor, unless the sentence is wrong. The script's
+rows are `HS-100a`..`HS-100j` of `make harness-selftest`.
 
 ## The renderer fingerprint
 
