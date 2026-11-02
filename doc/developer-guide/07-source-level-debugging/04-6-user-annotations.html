@@ -2979,22 +2979,22 @@ name at one key only.</p>
 file into a scratch store and assigns <code>out</code> only when it is all good; every
 error is <code>line N: reason</code>.</p>
 <ol>
-<li><strong>Skipped:</strong> a UTF-8 BOM at byte 0 of line 1 only (the <code>\xEF\xBB\xBF</code> <code>compare</code>, <code>src/debug/annotations_file.cpp:90</code>), a trailing CR
+<li><strong>Skipped:</strong> a UTF-8 BOM at byte 0 of line 1 only (the <code>"\xEF\xBB\xBF"</code> compare, <code>src/debug/annotations_file.cpp:90</code>), a trailing CR
    (CRLF), a line whose first character is <code>#</code>, a blank line.</li>
 <li><strong>The header</strong> is the first other line and must be exactly <code>jnext-annotations 1</code>
    (<code>kHeader</code>, <code>src/debug/annotations_file.cpp:94</code>); <code>jnext-annotations N</code> for another canonical N reads <code>version N: this
-   jnext reads version 1</code> (the <code>"version "</code> message of <code>fail</code>, <code>:100</code>); anything else is <code>not a jnext annotations
+   jnext reads version 1</code> (the <code>"version "</code> message, <code>:100</code>); anything else is <code>not a jnext annotations
    file</code>.</li>
-<li><strong>A record</strong> with an unknown kind is refused (the <code>"unknown record '"</code> message of <code>fail</code>, <code>src/debug/annotations_file.cpp:117</code>; forward compatibility is
+<li><strong>A record</strong> with an unknown kind is refused (the <code>"unknown record '"</code> message, <code>src/debug/annotations_file.cpp:117</code>; forward compatibility is
    a version bump, not skipping). <code>&lt;SPACE&gt;</code> goes through <code>parse_space_tag()</code>
    (case-insensitive, strict digits, the hardware's ranges) or the file is
-   refused (<code>"unknown memory '"</code> from <code>fail</code>, <code>:122</code>); <code>CPU</code> is refused (<code>"memory CPU:"</code> from <code>fail</code>, <code>:124</code>), since a user entry names a memory.
+   refused (<code>"unknown memory '"</code>, <code>:122</code>); <code>CPU</code> is refused (<code>"memory CPU:"</code>, <code>:124</code>), since a user entry names a memory.
    <code>&lt;ADDR&gt;</code> is <code>$</code> and exactly four hex digits, either case (<code>parse_addr()</code>, <code>:46</code>;
-   <code>"bad address '"</code> from <code>fail</code>, <code>:127</code>). A label has exactly four fields (<code>"a label record has exactly"</code> from <code>fail</code>, <code>:130</code>). A second label or comment for
-   a key is refused (<code>"a second label"</code> from <code>fail</code>, <code>:132</code>; <code>"a second comment"</code>, <code>:141</code>), a CR inside a text is refused
-   (<code>"a carriage return"</code> from <code>fail</code>, <code>:143</code>), and
+   <code>"bad address '"</code>, <code>:127</code>). A label has exactly four fields (<code>"a label record has exactly"</code>, <code>:130</code>). A second label or comment for
+   a key is refused (<code>"a second label"</code>, <code>:132</code>; <code>"a second comment"</code>, <code>:141</code>), a CR inside a text is refused
+   (<code>"a carriage return"</code>, <code>:143</code>), and
    <code>unescape()</code> (<code>:33</code>) accepts only <code>\\</code> and <code>\n</code> (a final lone <code>\</code> is refused,
-   <code>"lone backslash"</code> after <code>size()</code>, <code>:37</code>).</li>
+   <code>"lone backslash"</code>, <code>:37</code>).</li>
 <li><strong>Names and text</strong> are checked by the store, not the adapter, so the API and the
    file cannot disagree: <code>UserAnnotations::valid_label_name()</code>
    (<code>src/debug/user_annotations.cpp:29</code>: components <code>[A-Za-z_][A-Za-z0-9_]*</code>

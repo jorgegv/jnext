@@ -3016,8 +3016,8 @@ the stamp carries a flag for "the loaded file changed on disk",
    <em>Source map not verified yet: it is checked when the program first runs its code</em>, or
    for a dot command <em>...when the dot command runs</em> (<code>status.dot</code>, <code>source_panel.cpp:623</code>).</li>
 <li>The location is <code>source_location(pc)</code>, or, while browsing, <code>source_location(browse_addr_)</code>
-   (the browse ends if that address has no line now, or another map is loaded, <code>source_panel.cpp:630-640</code>).
-   The memory shown in the label is <code>memtext::text(dbg_, style_, source_page(addr), addr)</code> (<code>source_panel.cpp:646</code>).</li>
+   (the browse ends if that address has no line now, or another map is loaded, <code>source_panel.cpp:631-641</code>).
+   The memory shown in the label is <code>memtext::text(dbg_, style_, source_page(addr), addr)</code> (<code>source_panel.cpp:647</code>).</li>
 <li>The text. A file the map carries as embedded text (<code>SourceMap::embedded_text()</code>, the
    m4 output of the CRT from <code>prog.lis</code>, <a href="02-the-source-map.html">7.2</a>) is shown from the map
    and labelled <code>(m4 output, from &lt;listing&gt;)</code>. Otherwise a z88dk record in a <code>.m4</code> file with
@@ -3025,8 +3025,8 @@ the stamp carries a flag for "the loaded file changed on disk",
    the m4 <em>output</em>, which the build does not keep). Otherwise
    <code>source_search::resolve()</code> finds the file (below); no file gives "source file not found"
    and enables Locate File. A file is reloaded when its modification time changes, so an
-   edit-and-rebuild never highlights a line of the old text (<code>lastModified()</code>, <code>source_panel.cpp:690-703</code>). A line past the end
-   of the file found gives "has only N lines; it is not the text the build used" (<code>file_lines</code>, <code>source_panel.cpp:710-712</code>; the line
+   edit-and-rebuild never highlights a line of the old text (<code>lastModified()</code>, <code>source_panel.cpp:691-704</code>). A line past the end
+   of the file found gives "has only N lines; it is not the text the build used" (<code>file_lines</code>, <code>source_panel.cpp:711-713</code>; the line
    count ignores the final newline, <code>file_line_count()</code>, <code>source_panel.cpp:60</code>). The label's tooltip is the path found.</li>
 <li>The label ends with <code>SourcePanel::also_text()</code> (<code>source_panel.cpp:575</code>): <code>lookup_all()</code> for the address,
    minus the primary and any entry with the same <code>file:line</code>, as <code>also: f:l, ...</code>; then the
@@ -3036,7 +3036,7 @@ the stamp carries a flag for "the loaded file changed on disk",
    (<code>linked_lines_()</code>, tint <code>linked_line</code>), the PC's line (the editor's <code>Highlight</code>, only
    when the file shown is the PC's file).</li>
 <li>Placement. The cursor moves and the view centres only when something moved: the line,
-   the address, <code>placed_</code> cleared or <code>place_now_</code> set (<code>place_now_</code>, <code>source_panel.cpp:795-810</code>). A browse centres only a
+   the address, <code>placed_</code> cleared or <code>place_now_</code> set (<code>place_now_</code>, <code>source_panel.cpp:796-811</code>). A browse centres only a
    line that is out of view. A user who scrolled away on a paused tick stays put.</li>
 </ol>
 <p><code>follow_pc()</code> (<code>source_panel.cpp:557</code>) clears <code>placed_</code> and the browse and refreshes at once. It changes what
@@ -3182,7 +3182,7 @@ shows the labels and comments; the Source tab does not. How they are stored, sav
 <a href="04-6-user-annotations.html">7.4.6</a>, section 10.</p>
 <h3 id="selection-sync-with-the-disassembly-gh-347">Selection sync with the Disassembly (GH #347)<a class="headerlink" href="#selection-sync-with-the-disassembly-gh-347" title="Permanent link">&para;</a></h3>
 <p><code>DebuggerWindow::create_panels()</code> wires the two panels with four <code>connect()</code> calls
-(<code>connect()</code>, <code>debugger_window.cpp:1458-1475</code>), and nothing else couples them. Each carries only what the <em>user</em>
+(<code>connect()</code>, <code>debugger_window.cpp:1471-1485</code>), and nothing else couples them. Each carries only what the <em>user</em>
 did in its sender, so no move echoes.</p>
 <ul>
 <li><strong>Source to Disassembly.</strong> <code>SourcePanel::source_lines_selected(file, first, last, reveal)</code> is

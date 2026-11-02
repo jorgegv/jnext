@@ -3012,12 +3012,35 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:</p>
   has no such file. Fenced code blocks are sample data and are not read for
   cites (only as the excerpt above), but a fence that is never closed fails, and
   a closing fence must be the opening character, at least as long.</li>
+<li><strong>Quoted text anchors too.</strong> A backticked double-quoted string, such as
+  <code>"unknown memory '"</code>, anchors a cite when its text between the quotes appears
+  verbatim on a cited line: a parser message identifies its own line.</li>
 <li><strong>The output</strong> is one line per failure, <code>page:line: cite | anchor | what the
   cited line holds</code>, then a count; the exit status is non-zero on any failure.</li>
 </ul>
+<p><strong>At a merge, the gate is not enough</strong> (a merge-time procedure, not a gate). The
+rule cannot see a cite whose number did not move while its code did, when the
+symbol is still somewhere in the cited range or a weak anchor happens to match the
+line now there: the 10 cites of the #387 merge, and a plain <code>text</code> that matched a
+comment. After merging code into a branch whose guide has cites, map every cite
+whose number is unchanged through the code diff and re-point the ones whose cited
+lines moved:</p>
+<ol>
+<li><code>JNEXT_CITES_DUMP=FILE perl test/lint-devguide-cites.pl</code> appends one
+   <code>OK&lt;TAB&gt;page:line&lt;TAB&gt;file:N[-M]</code> row per repository cite it checked; run it on
+   the tree before the merge and on the merged tree.</li>
+<li>For each cite present, with the same text, on the same page in both dumps, take
+   <code>git diff -U0 BEFORE HEAD -- FILE</code> and translate the cited lines: an old line
+   above a hunk keeps its number, one below it moves by the hunk's added minus
+   removed lines, one inside a hunk was edited.</li>
+<li>Any cite whose translated lines differ from its number is stale: re-point it,
+   to the epic's number when the other side already did.</li>
+</ol>
+<p>Take care in conflict resolution that "keep my side" does not discard the other
+side's corrected numbers.</p>
 <p>When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are <code>HS-102</code>..<code>HS-149</code> of <code>make harness-selftest</code>.</p>
+rows are <code>HS-102</code>..<code>HS-152</code> of <code>make harness-selftest</code>.</p>
 <h2 id="the-renderer-fingerprint">The renderer fingerprint<a class="headerlink" href="#the-renderer-fingerprint" title="Permanent link">&para;</a></h2>
 <p>pandoc, mkdocs-material and graphviz all emit byte-different output across
 their own versions for identical input. A byte-diff against outputs that were

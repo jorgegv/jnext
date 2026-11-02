@@ -58,7 +58,10 @@
 # paragraph start: a blank line, a list bullet, a table, a heading, a fence; in
 # .dot, consecutive // comment lines or one line). An identifier is a span like
 # `name`, `Class::name`, `obj.member`, `name()` or `name(args)` (the last
-# component is the anchor), or a test ID like `QSRC-195`. The anchor must appear
+# component is the anchor), a test ID like `QSRC-195`, or a double-quoted string
+# literal such as `"unknown memory '"`, which anchors a cite when its text (between
+# the quotes) appears verbatim, as a substring, on a cited line (an addition to the
+# owner's four rules: it identifies a parser message by its own text). The anchor must appear
 # as a whole word on the cited line; for a range N-M, on some line in N..M. There
 # is NO +-1 tolerance. No identifier in the sentence: FAIL "unanchored".
 #
@@ -87,6 +90,8 @@
 # split over lines inside one token; indented (non-fenced) code; a "line N"
 # phrase in a paragraph that names a file for another reason.
 #
+# Env: JNEXT_CITES_DUMP=FILE appends every checked repo cite (merge-time map check, see
+# the developer guide 4.5); JNEXT_CITES_FULL=1 untruncates the messages.
 # Usage: perl test/lint-devguide-cites.pl [root]     (root defaults to the repo)
 # Output: one line per failure `page:line: cite | anchor | cited line`, then a
 # `checked N cites, F failed, S out of scope` summary line.
@@ -241,7 +246,7 @@ sub excerpt_numbered {
 sub is_ident_span {
     my $c = shift;
     return 0 if $c =~ /:\d/ || ($c =~ /^$FT$/ && looks_like_file($c) && (classify($c))[0] ne 'none');
-    return 1 if $c =~ /^[A-Z][A-Z0-9]*-\d+[a-z]?$/;
+    return 1 if $c =~ /^[A-Z][A-Z0-9]*-\d+[a-z]?$/ || $c =~ /^".+"$/s;
     (my $id = $c) =~ s/\(.*\)\s*$//s;
     return $id =~ /^[A-Za-z_]\w*(?:(?:::|\.|->)[A-Za-z_]\w*)*$/ ? 1 : 0;
 }
@@ -371,13 +376,14 @@ sub paragraph {
                 last;
             }
         }
-        my ($anchor, $loose);
+        my ($anchor, $loose, $lit);
         for my $sp (reverse @spans) {
             next if $adj && $sp != $adj;
             next if !$adj && ($sp->[1] > $s || $sp->[0] < $lo);
             my $c2 = $sp->[2];
             next if $c2 =~ /:\d/ || ($c2 =~ /^$FT$/ && looks_like_file($c2) && (classify($c2))[0] ne 'none');
             if ($c2 =~ /^[A-Z][A-Z0-9]*-\d+[a-z]?$/) { $anchor = $c2; last }
+            if ($c2 =~ /^"(.+)"$/s) { $anchor = $1; $lit = 1; last }
             (my $id = $c2) =~ s/\(.*\)\s*$//s;
             if ($id =~ /^[A-Za-z_]\w*(?:(?:::|\.|->)[A-Za-z_]\w*)*$/) { ($anchor) = $id =~ /([A-Za-z_]\w*)$/; last }
         }
@@ -385,6 +391,10 @@ sub paragraph {
         if ($k eq 'none') { fail($page, $ln, $show, $anchor, "file not in the repository and in no declared external set"); next }
         if ($k eq 'ambig') { fail($page, $ln, $show, $anchor, "ambiguous, write a longer path: " . join(' ', @r)); next }
         my $rel = $r[0];
+        if ($ENV{JNEXT_CITES_DUMP}) {      # merge-time map check: every repo cite, as page:line and file:N[-M]
+            open my $dh, '>>', $ENV{JNEXT_CITES_DUMP} or die "cannot write $ENV{JNEXT_CITES_DUMP}: $!";
+            print $dh "OK\t$page:$ln\t$rel:$n" . ($m != $n ? "-$m" : '') . "\n"; close $dh;
+        }
         my $fl = file_lines($rel);
         if ($m < $n || $n < 1 || $m > @$fl) { fail($page, $ln, $show, $anchor, "$rel has " . scalar(@$fl) . " lines"); next }
         if (!defined $anchor && @open) {      # for the message: what the loose rule would have used
@@ -396,7 +406,9 @@ sub paragraph {
         }
         if (!defined $anchor) { fail($page, $ln, $show, undef, "unanchored: no backticked identifier " . (@open ? "in the cite's parenthesis or right before it" : "before the cite in its sentence") . " ($rel line $n: " . $fl->[$n-1] . ")" . (defined $loose ? " [sentence symbol: `$loose`]" : "")); next }
         my $ok = 0;
-        for my $i ($n .. $m) { if ($fl->[$i-1] =~ /(?<![A-Za-z0-9_])\Q$anchor\E(?![A-Za-z0-9_])/) { $ok = 1; last } }
+        for my $i ($n .. $m) {
+            if ($lit ? index($fl->[$i-1], $anchor) >= 0 : $fl->[$i-1] =~ /(?<![A-Za-z0-9_])\Q$anchor\E(?![A-Za-z0-9_])/) { $ok = 1; last }
+        }
         next if $ok;
         my $held = $fl->[$n-1]; $held =~ s/^\s+//;
         fail($page, $ln, "$rel:$n" . ($m != $n ? "-$m" : ''), $anchor, $held);

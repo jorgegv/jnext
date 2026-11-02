@@ -3093,7 +3093,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   never finished (<code>checks.push_back</code> at <code>debugger_source.cpp:430</code>), so a later entry that does not match puts the map back
   to pending.</li>
 <li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:952</code>): for a user's map that is a dot map,
-  <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:956-965</code>); the checks are
+  <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:961-970</code>); the checks are
   re-derived by <code>dot_landing(fresh)</code> (<code>debugger_source.cpp:233</code>). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (<code>dot_landing()</code> skips the others) to <code>dot_reset()</code>: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.</li>
@@ -3108,7 +3108,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>A hand load made while the command already runs.</strong> <code>load_source_map()</code> calls <code>dot_adopt()</code> (<code>debugger_source.cpp:256</code>)
   for a dot map: if <code>predict_fetch(PC)</code> is the entry unit and the bank holds this command, it judges like
   a landing and is verified at once (<code>dot_match()</code>); the result is no longer pending and its note is the
-  ordinary identity note (<code>dot_adopt()</code>, <code>debugger_source.cpp:516-522</code>).</li>
+  ordinary identity note (<code>dot_adopt()</code>, <code>debugger_source.cpp:517-523</code>).</li>
 <li><strong>RZX.</strong> An RZX playback start is a landing like any other (<a href="#tier-2-any-other-landing">above</a>), and
   <code>--source-map</code> with a replay accepts only a dot map (<a href="03-loaders.html">7.3</a>): the map attaches pending
   at start-up and the verify hook does not distinguish a replayed session from a live one

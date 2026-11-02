@@ -49,8 +49,8 @@ the stamp carries a flag for "the loaded file changed on disk",
    *Source map not verified yet: it is checked when the program first runs its code*, or
    for a dot command *...when the dot command runs* (`status.dot`, `source_panel.cpp:623`).
 4. The location is `source_location(pc)`, or, while browsing, `source_location(browse_addr_)`
-   (the browse ends if that address has no line now, or another map is loaded, `source_panel.cpp:630-640`).
-   The memory shown in the label is `memtext::text(dbg_, style_, source_page(addr), addr)` (`source_panel.cpp:646`).
+   (the browse ends if that address has no line now, or another map is loaded, `source_panel.cpp:631-641`).
+   The memory shown in the label is `memtext::text(dbg_, style_, source_page(addr), addr)` (`source_panel.cpp:647`).
 5. The text. A file the map carries as embedded text (`SourceMap::embedded_text()`, the
    m4 output of the CRT from `prog.lis`, [7.2](02-the-source-map.md)) is shown from the map
    and labelled `(m4 output, from <listing>)`. Otherwise a z88dk record in a `.m4` file with
@@ -58,8 +58,8 @@ the stamp carries a flag for "the loaded file changed on disk",
    the m4 *output*, which the build does not keep). Otherwise
    `source_search::resolve()` finds the file (below); no file gives "source file not found"
    and enables Locate File. A file is reloaded when its modification time changes, so an
-   edit-and-rebuild never highlights a line of the old text (`lastModified()`, `source_panel.cpp:690-703`). A line past the end
-   of the file found gives "has only N lines; it is not the text the build used" (`file_lines`, `source_panel.cpp:710-712`; the line
+   edit-and-rebuild never highlights a line of the old text (`lastModified()`, `source_panel.cpp:691-704`). A line past the end
+   of the file found gives "has only N lines; it is not the text the build used" (`file_lines`, `source_panel.cpp:711-713`; the line
    count ignores the final newline, `file_line_count()`, `source_panel.cpp:60`). The label's tooltip is the path found.
 6. The label ends with `SourcePanel::also_text()` (`source_panel.cpp:575`): `lookup_all()` for the address,
    minus the primary and any entry with the same `file:line`, as `  also: f:l, ...`; then the
@@ -69,7 +69,7 @@ the stamp carries a flag for "the loaded file changed on disk",
    (`linked_lines_()`, tint `linked_line`), the PC's line (the editor's `Highlight`, only
    when the file shown is the PC's file).
 8. Placement. The cursor moves and the view centres only when something moved: the line,
-   the address, `placed_` cleared or `place_now_` set (`place_now_`, `source_panel.cpp:795-810`). A browse centres only a
+   the address, `placed_` cleared or `place_now_` set (`place_now_`, `source_panel.cpp:796-811`). A browse centres only a
    line that is out of view. A user who scrolled away on a paused tick stays put.
 
 `follow_pc()` (`source_panel.cpp:557`) clears `placed_` and the browse and refreshes at once. It changes what
@@ -226,7 +226,7 @@ shows the labels and comments; the Source tab does not. How they are stored, sav
 ### Selection sync with the Disassembly (GH #347)
 
 `DebuggerWindow::create_panels()` wires the two panels with four `connect()` calls
-(`connect()`, `debugger_window.cpp:1458-1475`), and nothing else couples them. Each carries only what the *user*
+(`connect()`, `debugger_window.cpp:1471-1485`), and nothing else couples them. Each carries only what the *user*
 did in its sender, so no move echoes.
 
 - **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is

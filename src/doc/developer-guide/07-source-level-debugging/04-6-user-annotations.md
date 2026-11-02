@@ -49,22 +49,22 @@ name at one key only.
 file into a scratch store and assigns `out` only when it is all good; every
 error is `line N: reason`.
 
-1. **Skipped:** a UTF-8 BOM at byte 0 of line 1 only (the `\xEF\xBB\xBF` `compare`, `src/debug/annotations_file.cpp:90`), a trailing CR
+1. **Skipped:** a UTF-8 BOM at byte 0 of line 1 only (the `"\xEF\xBB\xBF"` compare, `src/debug/annotations_file.cpp:90`), a trailing CR
    (CRLF), a line whose first character is `#`, a blank line.
 2. **The header** is the first other line and must be exactly `jnext-annotations 1`
    (`kHeader`, `src/debug/annotations_file.cpp:94`); `jnext-annotations N` for another canonical N reads `version N: this
-   jnext reads version 1` (the `"version "` message of `fail`, `:100`); anything else is `not a jnext annotations
+   jnext reads version 1` (the `"version "` message, `:100`); anything else is `not a jnext annotations
    file`.
-3. **A record** with an unknown kind is refused (the `"unknown record '"` message of `fail`, `src/debug/annotations_file.cpp:117`; forward compatibility is
+3. **A record** with an unknown kind is refused (the `"unknown record '"` message, `src/debug/annotations_file.cpp:117`; forward compatibility is
    a version bump, not skipping). `<SPACE>` goes through `parse_space_tag()`
    (case-insensitive, strict digits, the hardware's ranges) or the file is
-   refused (`"unknown memory '"` from `fail`, `:122`); `CPU` is refused (`"memory CPU:"` from `fail`, `:124`), since a user entry names a memory.
+   refused (`"unknown memory '"`, `:122`); `CPU` is refused (`"memory CPU:"`, `:124`), since a user entry names a memory.
    `<ADDR>` is `$` and exactly four hex digits, either case (`parse_addr()`, `:46`;
-   `"bad address '"` from `fail`, `:127`). A label has exactly four fields (`"a label record has exactly"` from `fail`, `:130`). A second label or comment for
-   a key is refused (`"a second label"` from `fail`, `:132`; `"a second comment"`, `:141`), a CR inside a text is refused
-   (`"a carriage return"` from `fail`, `:143`), and
+   `"bad address '"`, `:127`). A label has exactly four fields (`"a label record has exactly"`, `:130`). A second label or comment for
+   a key is refused (`"a second label"`, `:132`; `"a second comment"`, `:141`), a CR inside a text is refused
+   (`"a carriage return"`, `:143`), and
    `unescape()` (`:33`) accepts only `\\` and `\n` (a final lone `\` is refused,
-   `"lone backslash"` after `size()`, `:37`).
+   `"lone backslash"`, `:37`).
 4. **Names and text** are checked by the store, not the adapter, so the API and the
    file cannot disagree: `UserAnnotations::valid_label_name()`
    (`src/debug/user_annotations.cpp:29`: components `[A-Za-z_][A-Za-z0-9_]*`

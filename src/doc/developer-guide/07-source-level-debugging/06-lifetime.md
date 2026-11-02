@@ -202,7 +202,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   never finished (`checks.push_back` at `debugger_source.cpp:430`), so a later entry that does not match puts the map back
   to pending.
 - **A landing does not judge it.** `recheck()` (`debugger_source.cpp:952`): for a user's map that is a dot map,
-  `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:956-965`); the checks are
+  `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:961-970`); the checks are
   re-derived by `dot_landing(fresh)` (`debugger_source.cpp:233`). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (`dot_landing()` skips the others) to `dot_reset()`: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.
@@ -217,7 +217,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 - **A hand load made while the command already runs.** `load_source_map()` calls `dot_adopt()` (`debugger_source.cpp:256`)
   for a dot map: if `predict_fetch(PC)` is the entry unit and the bank holds this command, it judges like
   a landing and is verified at once (`dot_match()`); the result is no longer pending and its note is the
-  ordinary identity note (`dot_adopt()`, `debugger_source.cpp:516-522`).
+  ordinary identity note (`dot_adopt()`, `debugger_source.cpp:517-523`).
 - **RZX.** An RZX playback start is a landing like any other ([above](#tier-2-any-other-landing)), and
   `--source-map` with a replay accepts only a dot map ([7.3](03-loaders.md)): the map attaches pending
   at start-up and the verify hook does not distinguish a replayed session from a live one

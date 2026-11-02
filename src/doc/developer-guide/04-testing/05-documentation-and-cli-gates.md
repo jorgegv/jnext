@@ -91,12 +91,36 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
   has no such file. Fenced code blocks are sample data and are not read for
   cites (only as the excerpt above), but a fence that is never closed fails, and
   a closing fence must be the opening character, at least as long.
+- **Quoted text anchors too.** A backticked double-quoted string, such as
+  `"unknown memory '"`, anchors a cite when its text between the quotes appears
+  verbatim on a cited line: a parser message identifies its own line.
 - **The output** is one line per failure, `page:line: cite | anchor | what the
   cited line holds`, then a count; the exit status is non-zero on any failure.
 
+**At a merge, the gate is not enough** (a merge-time procedure, not a gate). The
+rule cannot see a cite whose number did not move while its code did, when the
+symbol is still somewhere in the cited range or a weak anchor happens to match the
+line now there: the 10 cites of the #387 merge, and a plain `text` that matched a
+comment. After merging code into a branch whose guide has cites, map every cite
+whose number is unchanged through the code diff and re-point the ones whose cited
+lines moved:
+
+1. `JNEXT_CITES_DUMP=FILE perl test/lint-devguide-cites.pl` appends one
+   `OK<TAB>page:line<TAB>file:N[-M]` row per repository cite it checked; run it on
+   the tree before the merge and on the merged tree.
+2. For each cite present, with the same text, on the same page in both dumps, take
+   `git diff -U0 BEFORE HEAD -- FILE` and translate the cited lines: an old line
+   above a hunk keeps its number, one below it moves by the hunk's added minus
+   removed lines, one inside a hunk was edited.
+3. Any cite whose translated lines differ from its number is stale: re-point it,
+   to the epic's number when the other side already did.
+
+Take care in conflict resolution that "keep my side" does not discard the other
+side's corrected numbers.
+
 When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are `HS-102`..`HS-149` of `make harness-selftest`.
+rows are `HS-102`..`HS-152` of `make harness-selftest`.
 
 ## The renderer fingerprint
 
