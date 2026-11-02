@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=253  # 243 -> 253: HS-100a..j added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=253  # 243 -> 253: HS-102..111 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -858,7 +858,7 @@ check "HS-97h" "rule A covers src/esp01/test/ (an em dash there fails) and rule 
 DGC_CMD_RE='docs-devguide-cites-check'
 dg_u=n; grep -qE "$DGC_CMD_RE" <<<"$dry"     && dg_u=y
 dg_r=n; grep -qE "$DGC_CMD_RE" <<<"$dry_reg" && dg_r=y
-check "HS-100a" "the developer-guide cite check is wired to unit-test AND regression through docs-check (GH #430)" 0 0 \
+check "HS-102" "the developer-guide cite check is wired to unit-test AND regression through docs-check (GH #430)" 0 0 \
     "unit=$dg_u regression=$dg_r" "unit=y" "regression=y"
 
 DG="$T/dg-tree"
@@ -870,35 +870,35 @@ dg_tree() {     # $1 = the page body; src/a.cpp holds `alpha` on line 3 and `bet
 }
 dg_tree 'It is `alpha()` (`src/core/a.cpp:3`) and `beta` is in `a.cpp:4`; vhdl is `foo` at `zxnext.vhd:99999`.'
 out_a=$(dg_lint); rc_a=$?
-check "HS-100b" "an exact cite passes, a bare-name cite resolves uniquely, and a .vhd cite is out of scope by declaration" 0 $rc_a "$out_a" \
+check "HS-103" "an exact cite passes, a bare-name cite resolves uniquely, and a .vhd cite is out of scope by declaration" 0 $rc_a "$out_a" \
     "checked 2 cites, 0 failed, 1 out of scope"
 dg_tree 'The function `alpha()` lives at `src/core/a.cpp:4`.'
 out_b=$(dg_lint); rc_b=$?
-check "HS-100c" "a cite shifted by ONE line fails, naming page:line, the cite, the anchor and what the cited line holds" 1 $rc_b "$out_b" \
+check "HS-104" "a cite shifted by ONE line fails, naming page:line, the cite, the anchor and what the cited line holds" 1 $rc_b "$out_b" \
     "p.md:1: src/core/a.cpp:4 | alpha | int beta = 1;" "1 failed"
 dg_tree 'The code is in `src/core/a.cpp:3`.'
 out_c=$(dg_lint); rc_c=$?
-check "HS-100d" "a cite with no backticked identifier in its sentence fails as unanchored, and an identifier of the previous sentence does not anchor it" 1 $rc_c "$out_c" \
+check "HS-105" "a cite with no backticked identifier in its sentence fails as unanchored, and an identifier of the previous sentence does not anchor it" 1 $rc_c "$out_c" \
     "unanchored" "1 failed"
 dg_tree 'The `alpha()` is here. It is in `src/core/a.cpp:3`.'
 out_c2=$(dg_lint); rc_c2=$?
-check "HS-100e" "...the sentence boundary is enforced: an anchor in the previous sentence fails" 1 $rc_c2 "$out_c2" "unanchored"
+check "HS-106" "...the sentence boundary is enforced: an anchor in the previous sentence fails" 1 $rc_c2 "$out_c2" "unanchored"
 dg_tree 'See `alpha()` at `src/core/missing.cpp:3` and at `src/core/a.cpp:99`.'
 out_d=$(dg_lint); rc_d=$?
-check "HS-100f" "a cite of a file that does not exist, and a line past the end of one that does, both fail" 1 $rc_d "$out_d" \
+check "HS-107" "a cite of a file that does not exist, and a line past the end of one that does, both fail" 1 $rc_d "$out_d" \
     "not in the repository" "a.cpp has 4 lines" "2 failed"
 dg_tree 'See `alpha()` at `x.cpp:3`.'
 printf 'void alpha() {}\n' > "$DG/src/video/x.cpp"; printf 'void alpha() {}\n' > "$DG/src/core/x.cpp"
 out_e=$(dg_lint); rc_e=$?
-check "HS-100g" "a bare name that matches two repo files fails as ambiguous, naming both candidates" 1 $rc_e "$out_e" \
+check "HS-108" "a bare name that matches two repo files fails as ambiguous, naming both candidates" 1 $rc_e "$out_e" \
     "ambiguous" "src/core/x.cpp" "src/video/x.cpp"
 dg_tree 'The `beta` is in `src/core/a.cpp:3-4` and `alpha` in `a.cpp:1-2`, then `alpha()` in `a.cpp:3`, `:4` and `beta` in `:4`.'
 out_f=$(dg_lint); rc_f=$?
-check "HS-100h" "a range passes when its anchor is inside it and fails when the anchor is one line outside; a bare :N resolves to the last file named on the page" 1 $rc_f "$out_f" \
+check "HS-109" "a range passes when its anchor is inside it and fails when the anchor is one line outside; a bare :N resolves to the last file named on the page" 1 $rc_f "$out_f" \
     "a.cpp:1-2 | alpha" "src/core/a.cpp:4 | alpha" "2 failed"
 dg_tree 'Before it, `alpha()` is at `:3`. Then `src/core/a.cpp` is named, and `beta` is at `:4`.'
 out_g=$(dg_lint); rc_g=$?
-check "HS-100i" "a bare :N with no file named earlier on the page fails; one after a named file passes" 1 $rc_g "$out_g" \
+check "HS-110" "a bare :N with no file named earlier on the page fails; one after a named file passes" 1 $rc_g "$out_g" \
     "no file named earlier" "checked 2 cites, 1 failed"
 dg_tree 'See `alpha()` at `a.cpp:3,4`, and `beta` at `a.cpp:4` in
 ```
@@ -906,7 +906,7 @@ a.cpp:1
 ```
 and `beta` at `zzz.foo:3`.'
 out_h=$(dg_lint); rc_h=$?
-check "HS-100j" "a comma list and an unknown extension fail; a cite inside a fenced block is not read" 1 $rc_h "$out_h" \
+check "HS-111" "a comma list and an unknown extension fail; a cite inside a fenced block is not read" 1 $rc_h "$out_h" \
     "comma list" "unknown extension .foo" "2 failed"
 rm -rf "$DG"
 

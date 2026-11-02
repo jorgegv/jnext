@@ -220,7 +220,7 @@ verdict on the real tree is trusted at all:
 The developer-guide cite check, `test/lint-devguide-cites.pl` (GH #430, see
 [4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking
 like those: the harness self-test runs it against throwaway trees
-(HS-100a to HS-100j). It is wired to `unit-test` and `regression` through `docs-check`; an
+(HS-102 to HS-111). It is wired to `unit-test` and `regression` through `docs-check`; an
 exact cite and a declared external one pass; a cite one line off, an
 unanchored one (also when the symbol is in the previous sentence), a missing file, a
 line past the end, an ambiguous bare name, a bare line number with no file before it, a
