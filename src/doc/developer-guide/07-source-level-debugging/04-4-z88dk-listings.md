@@ -98,15 +98,44 @@ binaries' bytes). In order:
    `offset = map value - listed address` for its section. All anchors of one section
    piece must agree, or the listing is dropped ("this is not the listing of this
    build"). A piece with no anchor falls back to `__<section>_head` when
-   `tail - head` equals the piece's byte count. A piece with neither, and anything
-   inside `PHASE`, cannot be placed; those rows are counted and reported as "N
-   listed lines could not be placed".
+   `tail - head` equals the piece's byte count (`z88dk_lis.cpp:603-612`). A smaller piece is
+   placed by its bytes (5b below). A piece with none of these, and anything inside `PHASE`,
+   cannot be placed; those rows are counted and reported as "N listed lines could not be
+   placed".
+   **5b. A label-less piece smaller than its section is placed by its bytes** (GH #426 F4;
+   design 9.5). Another module can put code in the same section: the banking driver shares
+   `code_crt_init` with the CRT in the banked-CRT fixtures, so the CRT's own piece has no label in
+   the map and is smaller than the section. `place_z88dk_listing()` (`z88dk_lis.cpp:614-664`, the "no start" note at `:655`) tries
+   every start `c` from `__<s>_head` to `__<s>_tail` minus the piece's size and excludes it when,
+   at any *checked row*, the section binary holds a byte other than the listing's first byte. A
+   checked row is the first byte of a mnemonic row, outside `PHASE`, in a non-data section; the
+   rest of an instruction is never compared, because the linker patches operands and z80asm never
+   patches an opcode, so a listing of this build is never excluded at its true start. The byte at
+   `c + row address` comes from `view.byte_at(value, space)`, where `place()` gave the space; it is
+   *unknown* (`nullopt`) when no section binary covers the byte, **when two or more do** (overlay
+   sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:288`, and the `byte_at` lambda, `:357-363`), and when `place()` fails (a ROM area: the memory is not a RAM
+   page, so no byte can be read). The outcome is one of three:
+   - **no start survives:** the listing is dropped, with "section '<s>': its label-less lines match no
+     place in the section binary; this is not the listing of this build" (row `Z88LIS-42`);
+   - **exactly one survives and every checked byte was known:** the piece starts there (`Z88LIS-36`
+     and `-37` on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it
+     are left without a line; `Z88LIS-38` with a patched `defw` and a `PHASE` row);
+   - **several survive, or the one left has an unknown byte:** nothing is guessed. The piece's rows
+     are not placed and are counted in the "could not be placed ... do not fit exactly one place in
+     the section binary" note, while the listing's other pieces stay (`Z88LIS-39`, `-40`, `-41`,
+     `-45`, `-46`; a data section has no checked rows, so both starts survive, `Z88LIS-43`).
+
+   The loop stops at the second survivor (`survivors < 2`). This rule replaced "the size must be
+   equal", which left 17 lines of the CRT unplaced when the map and the listing disagreed by one byte
+   (`Z88LIS-19`, re-specified).
 6. **Placement and the first-byte check.** An item's map value is `offset + address`
    (a value above `0xFFFFFF` drops the listing); `place()` supplies the memory and
    16-bit address, or a reason that drops the listing. For a mnemonic row in a
    non-data section the section binary's byte at that value must equal the listing's
    first byte, else the listing is dropped ("holds $X in the section binary, the
    listing says $Y"): operands are module-relative in a listing, the opcode is not.
+   The check abstains where the byte is unknown (no binary covers it, or two do): a labelled
+   piece over two overlapping section binaries is kept (`Z88LIS-47`).
    An item with a location gets a `SourceRange` of `[lo, min(lo + bytes, 8K window
    end))`. One range per byte *row*, so the several rows of one line are adjacent
    ranges of the same line, which `resolve()` collapses into one start
@@ -159,7 +188,7 @@ identity is built, so they are byte-checked like the map's own
 ## 7. What is skipped
 
 Rows inside a macro definition; the first-byte check of rows that do not start with
-a mnemonic (data) and of data sections; bytes inside `PHASE`; rows of a section piece with no offset; and, per listing, every
+a mnemonic (data) and of data sections; bytes inside `PHASE`; rows of a section piece with no offset (no anchor, no head fallback, and no single verified start by its bytes); and, per listing, every
 reason in rules 1-8 that drops it whole.
 
 ## 8. Excerpts

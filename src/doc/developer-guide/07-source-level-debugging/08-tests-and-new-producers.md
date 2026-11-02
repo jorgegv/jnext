@@ -17,16 +17,16 @@ rows, with the VHDL as the oracle where hardware is involved, is in
 | Suite | What it covers |
 |---|---|
 | `source_map_test` | The std-only layer, with no emulator: `SourceMap` (`SRCRNG-*`, `SRCMAP-*`, `SRCPATH-*`, `SRCTXT-01`), the SLD adapter (`SLD-*`, `SLDL-*`), the symbol table's pages (`SYMPG-*`), the NextBuild adapter (`NBSYM-*`), and the fixture manifest (`Z88FIX-01`, `Z88FIX-02`) |
-| `z88dk_map_test` | The z88dk map: the source half (`Z88MAP-*`), the symbol half and binding (`Z88SYM-*`), and C names (`Z88CN-*`) |
-| `z88dk_lis_test` | The listing adapter (`Z88LIS-*`) |
-| `source_debug_test` | The backend on a real machine: identity of fetches (`SRCDBG-ID-*`), sidecars and ownership (`SRCDBG-SIDE-*`, `-OWN-*`), symbols (`SRCDBG-SYM-*`), z88dk (`SRCDBG-Z88-*`, `-LIS-*`), tapes (`SRCDBG-TAPE-*`), lifetime (`SRCLIFE-*`), breakpoints (`SRCBP-*`), run to line (`SRCRUN-*`), steps (`SRCSTEP-*`, `SRCDBG-STEP-*`, `-BACK-*`, `-HIST-*`), call stack (`SRCDBG-CS-*`), coverage (`SRCDBG-COV-*`) |
+| `z88dk_map_test` | The z88dk map: the source half (`Z88MAP-*`), the symbol half and binding (`Z88SYM-*`), C names (`Z88CN-*`), dot commands (`Z88DOT-*`, [7.4.3](04-3-z88dk-map.md) rule 5), and the size cap and BOM of the symbol loaders (`MAPCAP-*`, `MAPBOM-*`) |
+| `z88dk_lis_test` | The listing adapter (`Z88LIS-*`), including the placement of a label-less piece by its bytes (`Z88LIS-36` to `-47`, [7.4.4](04-4-z88dk-listings.md) rule 5b) and the BOM (`Z88LIS-35`, `-44`) |
+| `source_debug_test` | The backend on a real machine: identity of fetches (`SRCDBG-ID-*`), sidecars and ownership (`SRCDBG-SIDE-*`, `-OWN-*`), symbols (`SRCDBG-SYM-*`), z88dk (`SRCDBG-Z88-*`, `-LIS-*`), tapes (`SRCDBG-TAPE-*`), lifetime (`SRCLIFE-*`), dot commands (`SRCDOT-*`, [7.6](06-lifetime.md)), breakpoints (`SRCBP-*`), run to line (`SRCRUN-*`), steps (`SRCSTEP-*`, `SRCDBG-STEP-*`, `-BACK-*`, `-HIST-*`), call stack (`SRCDBG-CS-*`), coverage (`SRCDBG-COV-*`), the long address through a machine (`LADDR-17` to `-20`; the pure formatter's `LADDR-01` to `-16` are in `debugger_backend_test`) |
 | `source_debug_posix_test` | The rows whose fixtures are POSIX file types (a looping link, a FIFO); gated by OS |
 | `mmu_test`, `mmu_integration_test` | The arbiter against the VHDL's memory map (`FSRC-*`) |
 | `step_out_test`, `rewind_call_stack_test` | Step Out's `RET` predicate, and the call-stack tracker restored across a rewind (the frame-ending rule itself is `SRCDBG-CS-08` to `-15` in `source_debug_test`) |
-| `debugger_backend_test` | Symbols across formats (`SYM-*`) |
-| `gdb_rsp_test` | `monitor src` and `monitor sym` (`GDB-MON-*`) |
+| `debugger_backend_test` | Symbols across formats (`SYM-*`), and the pure long-address formatter (`LADDR-01` to `-16`) |
+| `gdb_rsp_test`, `zrcp_adapter_test`, `dzrp_adapter_test` | `monitor src` and `monitor sym` (`GDB-MON-*`); ZRCP `get-memory-pages` names and `cpu-step-over` at a DivMMC entry (`LADDR-21`, `-22`); DZRP's `0xFF` for a ROM slot (`DZRP-REG-08`) |
 | `script_events_test` | The DSL's `on execute FILE:LINE` and `--map` |
-| `debugger_source_panel_test`, `debugger_verbs_test` | The Qt Source tab and the Map menu; gated on Qt and the debugger |
+| `debugger_source_panel_test`, `debugger_verbs_test`, `debugger_panels_test`, `debugger_disasm_copy_test`, `debugger_menu_test` | The Qt Source tab (`QSRC-*`: the highlighter and schemes `QSRC-190` to `-200`, the selection sync `QSRC-176` to `-189` and `-201` to `-208`, the dot command's tab `QDOT-*`), the Map menu, and the long address in every panel (`QLADDR-*`); gated on Qt and the debugger |
 
 A suite marked `?` in `test/unit-tests.conf` is gated; the harness checks that its
 absence matches the gate for the build ([4.2](../04-testing/02-declared-suites-and-pinned-counts.md)).
@@ -43,6 +43,8 @@ Functional rows (`test/00regression/functional_tests.conf`):
 | `gdb-z88dk-func` | The real `z88dk-gdb` client against the GDB server, with a program and its map |
 | `nextbuild-symbols-func` | `Memory.txt` in headless, Qt and SDL |
 | `script-map-pipe-func` | `--map <(cmd)`, read once |
+| `z88dk-dot-source-func` | A z88dk dot command's map with `--source-map` and no `--load`: attached pending, judged at the command's entry; any other map refused (exit 1) |
+| `z88dk-dot-source-rzx-func` | `--source-map` with an RZX replay (`--rzx-play`, `--load R.rzx`): a dot command's map attaches, any other is refused naming the RZX |
 | `coverage-frontends-func` | `--coverage` starts memory coverage in every loop owner (headless, Qt, SDL) |
 
 ## Fixtures
@@ -51,7 +53,7 @@ Functional rows (`test/00regression/functional_tests.conf`):
 small program, committed so that CI, which has no z88dk, can check the adapters
 against ground truth. Its `README.md` is the reference: the two installs and
 their commits, the build matrix (one row per fixture directory with its flags and
-what it covers), the numbered findings (G1...G22, Z1...Z4) that rows cite, and
+what it covers), the numbered findings (G1...G24, Z1...Z4) that rows cite, and
 the rules that normalise and trim the output.
 
 - **Regenerate with `bash test/fixtures/z88dk/generate.sh`.** Overrides:
@@ -74,6 +76,13 @@ the rules that normalise and trim the output.
 - **Why committed.** CI has no z88dk, and the values are the oracle: every expected
   address, line and section in a z88dk row comes from these files, never from the
   code under test.
+
+The dot-command builds (GH #351) are `dot:<subtype>` lines in `generate.sh`, compiled from `dot.c dutil.c`
+with `-subtype=dot`, `dotx` or `dotn` instead of `nex`: `v2.4/sccz80-dot`, `sccz80-dotx`, `sdcc-dot`,
+`v2.4-dotn/sccz80` and `master/sccz80-dot`, `sccz80-dotx`, `sdcc-dot`, `80cc-dot`. The dotn lives in its own
+directory so that `Z88CN-10`'s walk over `v2.4/` and `master/` (every map shows a C name) is not tripped by
+its refused C symbols. The banked-CRT builds (`sccz80-banked-crt`, both trees) are the fixtures of the
+placement by bytes (GH #426 F4).
 
 **`test/fixtures/sjasmequ/`** is made by hand with an exact command, sjasmplus
 commit and `sha256` per file (its `README.md`): `equlabels.asm` is ours, and
