@@ -12,7 +12,7 @@ reverse-engineering tools read. The decisions are in section 11.2 of
   `%` or `;` and anything else must be a directive (`skoolkit/ctlparser.py:254-255`), so the first
   line of every file, `# jnext space <TAG>`, is inert. A bad line is only a warning
   (`skoolkit/ctlparser.py:119`, "Ignoring line"). An address is decimal, `$hex` or `%bin`, never `0x`
-  (`skoolkit/__init__.py:88-98`). With no `-c`, `sna2skool.py` reads every `<input-stem>*.ctl`
+  (`get_int_param()`, `skoolkit/__init__.py:88-98`). With no `-c`, `sna2skool.py` reads every `<input-stem>*.ctl`
   (`skoolkit/sna2skool.py:34`); a `-c` that names a directory reads `sorted(glob(DIR/*.ctl))`
   (`skoolkit/sna2skool.py:39-40`), so the file names must sort in address order. skoolkit is Z80-only and
   drops, with no warning, a label that is not at the start of a line it writes.
@@ -34,7 +34,7 @@ plain structs of `src/debug/reexport.h`.
   and at the next X start; a byte is code inside an extent, else data (R or W), else unknown. A
   store with no mark is one code run.
 - **The files**, `skoolkit::build()` (`skoolkit_ctl.cpp:195`): one `<WWWW>-<TAG>.ctl` and `.bin`
-  (`file_name()`, `:86`) per window of each space, `0000-CPU.ctl` for the unpaged labels. The
+  (`file_name()`, `:86`) per window of each space, `0000-0CPU.ctl` for the unpaged labels. The
   windows are those holding the space's keys; with none, the one that maps the space now
   (`Input::mapped_window`), else `home_window()` (`:18`). `render_window()` (`:141`) writes the
   header, `@ start` / `@ org`, the block directives (`block_letter()`, `:136`), the labels, the
@@ -52,7 +52,7 @@ plain structs of `src/debug/reexport.h`.
   overlays. So the identity is the file name and the first line, `"# jnext space " + tag`
   (`skoolkit_ctl.cpp:185`), a control-file comment skoolkit ignores. The same
   prefix is how a later export recognises its own files (`kCtlHeader`, `debugger_reinterop.cpp:31`).
-- **File order.** `build()` puts `0000-CPU.ctl` first (`skoolkit_ctl.cpp:285`) and sorts all files by
+- **File order.** `build()` puts the unpaged file first (`skoolkit_ctl.cpp:285`; it is named `0000-0CPU.ctl`, not `0000-CPU.ctl`, because the `0` sorts before the letter every `0000-<TAG>` starts with: `0000-ALTROM0`, `0000-BOOT` and `0000-CFG00` would otherwise sort ahead of it) and sorts all files by
   name with `stable_sort()` (`skoolkit_ctl.cpp:287`), which is address order. Two files that disagree at a shared boundary address are
   applied in command-line order, and `sna2skool.py -c DIR` reads `sorted(glob(DIR/*.ctl))`, so a
   paged label wins over an unpaged one at the same address, as in the disassembly.
@@ -64,9 +64,9 @@ plain structs of `src/debug/reexport.h`.
   alternate ROM, Layer 2, config, floating) are refused by `peek()`, so they have no instruction
   lengths and get no code/data map; `export_skoolkit()` says so in the report (`"coverage of ... is
   not mapped"`, `debugger_reinterop.cpp:201`; SRCDBG-REX-07). With coverage off the report says that
-  too (`debugger_reinterop.cpp:180`).
+  too (the `mem_coverage_enabled()` test at `debugger_reinterop.cpp:179`).
 - **Unpaged labels** are also label-less keys of every window written that covers their address
-  (`skoolkit_ctl.cpp:246-254`), so the same splits keep them from being dropped by sna2skool
+  (the loop in `skoolkit::build()`, `skoolkit_ctl.cpp:246-254`), so the same splits keep them from being dropped by sna2skool
   (SKCTL-08d).
 - **Ghidra**, `ghidra::build()` (`ghidra_symbols.cpp:37`): one file per space; the `<TAG>:` prefix
   is set in `prefix_of` (`ghidra_symbols.cpp:52`); `CPU.ghidra.txt` and `view.ghidra.txt` (the labels the disassembly shows now).
@@ -94,7 +94,7 @@ is `Unsupported` and nothing is written (`refuse()` at `:111`).
 
 Names are exported as `lookup()` shows them (`gather_labels()`, `debugger_reinterop.cpp:82`), so a
 z88dk C symbol goes out under its C name. The verbs are reads: they call only `peek()`,
-`mem_coverage()`, `symbols()`, `lookup()` and `source_page()`, so no machine state changes and no
+`mem_coverage()`, `mem_coverage_enabled()`, `mem_coverage_spaces()`, `symbols()`, `lookup()` and `source_page()`, so no machine state changes and no
 generation moves (SRCDBG-REX-03, with REX-04 as its control).
 
 ## 4. The frontends

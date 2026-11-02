@@ -1180,7 +1180,7 @@ with status 1.
     window (16 KB for ROM) the labels sit in, and the `.bin` holds that
     window’s bytes, so `sna2skool.py -o 0xWWWW WWWW-TAG.bin` picks its
     control file by itself and `sna2skool.py -c DIR` combines them.
-    Unpaged labels are in `0000-CPU.ctl`. Executed bytes become `c`
+    Unpaged labels are in `0000-0CPU.ctl`. Executed bytes become `c`
     blocks, read or written ones `b`, the rest `u`; without
     **--coverage** each window is one `c` block. skoolkit has no Z80N
     support, so Z80N instructions are written as `DEFB` sub-blocks.

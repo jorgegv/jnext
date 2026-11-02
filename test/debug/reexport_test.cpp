@@ -303,18 +303,18 @@ static void pure_rows() {
                    : name.find("P01") != std::string::npos ? s01.bytes : in.stores[0].bytes;
         };
         for (const reexport::File& f : out.files) {
-            if (f.name.size() < 4 || f.name.compare(f.name.size() - 4, 4, ".ctl") != 0 || f.name == "0000-CPU.ctl") continue;
+            if (f.name.size() < 4 || f.name.compare(f.name.size() - 4, 4, ".ctl") != 0 || f.name == "0000-0CPU.ctl") continue;
             const reexport::File* bin = file_of(out, f.name.substr(0, f.name.size() - 4) + ".bin");
             const std::vector<uint8_t>& want = store_of(f.name);
             bins = bins && bin && bytes_of(bin->content) == want;
         }
         const std::string rom_ctl = text_of(out, "0000-ROM0.ctl");
         check("SKCTL-05", "keys at $C000 and $4000 of P10 write two windows; the unpaged labels write "
-                          "0000-CPU.ctl (labels only); a window at $E000 has no end line; ROM0 writes "
+                          "0000-0CPU.ctl (labels only); a window at $E000 has no end line; ROM0 writes "
                           "0000-ROM0.ctl ending i $4000; every .ctl but CPU's has its .bin of the store's size",
-              names == "0000-CPU.ctl 0000-ROM0.bin 0000-ROM0.ctl 4000-P10.bin 4000-P10.ctl C000-P10.bin "
+              names == "0000-0CPU.ctl 0000-ROM0.bin 0000-ROM0.ctl 4000-P10.bin 4000-P10.ctl C000-P10.bin "
                        "C000-P10.ctl E000-P01.bin E000-P01.ctl" &&
-                  text_of(out, "0000-CPU.ctl") == "# jnext space CPU\n@ $0008 label=rst8\n@ $0010 label=print\n" &&
+                  text_of(out, "0000-0CPU.ctl") == "# jnext space CPU\n@ $0008 label=rst8\n@ $0010 label=print\n" &&
                   !has(text_of(out, "E000-P01.ctl"), "\ni ") &&
                   rom_ctl.size() > 8 && rom_ctl.compare(rom_ctl.size() - 8, 8, "i $4000\n") == 0 &&
                   bins,
@@ -453,13 +453,13 @@ static void pure_rows() {
         for (const std::string& n : g.notes) noted_g = noted_g || has(n, "'has space'");
         check("SKCTL-08c", "a label name with whitespace, a control character or nothing is skipped by both "
                            "writers (skoolkit and Ghidra split lines on whitespace) and the report names it",
-              text_of(a, "C000-P10.ctl") == text_of(sk::build(f1_input()), "C000-P10.ctl") && !file_of(a, "0000-CPU.ctl") &&
+              text_of(a, "C000-P10.ctl") == text_of(sk::build(f1_input()), "C000-P10.ctl") && !file_of(a, "0000-0CPU.ctl") &&
                   a.labels == 3 && noted_a && noted_g && !file_of(g, "CPU.ghidra.txt") &&
                   !has(text_of(g, "P10.ghidra.txt"), "has") && !file_of(g, "view.ghidra.txt"),
               names_of(a) + " | " + names_of(g));
     }
 
-    // SKCTL-08d: an unpaged label (0000-CPU.ctl knows nothing of the window's code and data) is a
+    // SKCTL-08d: an unpaged label (0000-0CPU.ctl knows nothing of the window's code and data) is a
     // label-less key in every window written, so sna2skool keeps it: inside an executed instruction,
     // inside a data run, inside an unknown run, and in an unmarked window.
     {
@@ -475,10 +475,30 @@ static void pure_rows() {
         const std::string tu = text_of(sk::build(un), "C000-P10.ctl");
         check("SKCTL-08d", "each unpaged label is a split point in every window written: B inside the "
                            "executed instruction (and its first byte), B in a data run and in an unknown "
-                           "run, C in an unmarked window; its @ line stays in 0000-CPU.ctl only",
+                           "run, C in an unmarked window; its @ line stays in 0000-0CPU.ctl only",
               has(t, "\nc $C010\nB $C010,1\nB $C011,2\n") && has(t, "\nb $C028\nB $C02B\n") && !has(t, "label=midinsn") &&
                   has(t, "\nu $C004\nB $C008\n") && has(tu, "\nC $C02B\n") && has(tu, "\nC $C008\n") &&
-                  has(tu, "\nC $C011\n") && has(text_of(a, "0000-CPU.ctl"), "@ $C011 label=midinsn\n"), t + "|" + tu);
+                  has(tu, "\nC $C011\n") && has(text_of(a, "0000-0CPU.ctl"), "@ $C011 label=midinsn\n"), t + "|" + tu);
+    }
+
+    // SKCTL-08e: sna2skool -c DIR reads sorted(glob(DIR/*.ctl)) and the later file wins at a shared
+    // address, so the unpaged file must sort BEFORE every other file: a paged label wins. Spaces with
+    // tags that sort ahead of "CPU" (ALTROM0, BOOT, CFG00) are the test: a bytes-less window each, with
+    // a paged label at the unpaged label's address.
+    {
+        sk::Input in;
+        in.labels = {{std::nullopt, 0x0008, "unpaged"}, {MemSpace::alt_rom(0), 0x0008, "alt"},
+                     {MemSpace::boot_rom(), 0x0008, "boot"}, {MemSpace::config(0), 0x0008, "cfg"},
+                     {MemSpace::rom(0), 0x0008, "rom"}, {MemSpace::page(0x0A), 0x4008, "page"}};
+        const reexport::Output out = sk::build(in);
+        std::vector<std::string> ctl;
+        for (const reexport::File& f : out.files)
+            if (f.name.size() > 4 && f.name.compare(f.name.size() - 4, 4, ".ctl") == 0) ctl.push_back(f.name);
+        std::vector<std::string> sorted_ctl = ctl;
+        std::sort(sorted_ctl.begin(), sorted_ctl.end());
+        check("SKCTL-08e", "the unpaged control file sorts before every other .ctl, including 0000-ALTROM0, "
+                           "0000-BOOT and 0000-CFG00 (sna2skool -c DIR applies sorted names, the later wins)",
+              ctl.size() == 6 && sorted_ctl == ctl && ctl[0] == "0000-0CPU.ctl", join(ctl));
     }
 
     // GHSYM-01: the Ghidra writer.

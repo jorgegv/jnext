@@ -1042,7 +1042,7 @@ public:
     // =======================================================================
 
     /// CAP-REX - one control file and one `.bin` per (space, window), plus
-    /// `0000-CPU.ctl` for the unpaged labels (skoolkit_ctl.h).
+    /// `0000-0CPU.ctl` for the unpaged labels (skoolkit_ctl.h).
     Result export_skoolkit(const std::string& dir, ReReport* report = nullptr,
                            std::string* why = nullptr) const;
 

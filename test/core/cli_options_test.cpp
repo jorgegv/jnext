@@ -1619,7 +1619,7 @@ int main() {
                 const std::string all = slurp(out_path) + slurp(err_path);
                 const bool logs = all.find("--export-skoolkit " + dsk + ": ") != std::string::npos &&
                                   all.find("--export-ghidra " + dgh + ": 2 files, 1 labels, 0 comments") != std::string::npos;
-                const std::string cpu_ctl = slurp(dsk + "/0000-CPU.ctl");
+                const std::string cpu_ctl = slurp(dsk + "/0000-0CPU.ctl");
                 const bool files = cpu_ctl.find("@ $0010 label=rexlabel\n") != std::string::npos &&
                                    slurp(dsk + "/0000-ROM0.ctl").find("# jnext space ROM0\n") == 0 &&
                                    slurp(dgh + "/CPU.ghidra.txt") == "rexlabel 0x0010 l\n";

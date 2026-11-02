@@ -139,7 +139,7 @@ if want skoolkit-foreign-func; then
             bin=$JNEXT; [[ $fe == sdl ]] && bin=$JNEXT_SDL
             sf_jnext "$bin" "$fe" "$sf_dir/a3-$fe.log" --machine 48k --map "$sf_dir/a3.sym" --coverage \
                 --export-skoolkit "$sf_dir/D3-$fe" --delayed-automatic-exit-frames 20
-            [[ -f "$sf_dir/D3-$fe/0000-CPU.ctl" ]] || sf_faults+=("A3: $fe wrote no export")
+            [[ -f "$sf_dir/D3-$fe/0000-0CPU.ctl" ]] || sf_faults+=("A3: $fe wrote no export")
         done
         # ...and a failing export fails the run in each (a regular file where DIR should be).
         : >"$sf_dir/not-a-dir"

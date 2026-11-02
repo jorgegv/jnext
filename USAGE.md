@@ -1203,7 +1203,7 @@ window: *TAG* names the memory as the debugger does (`P0A`, `ROM0`,
 the labels sit in, and the `.bin` holds that window’s bytes, so
 `sna2skool.py -o 0xWWWW WWWW-TAG.bin` picks its control file by itself
 and `sna2skool.py -c DIR` combines them. Unpaged labels are in
-`0000-CPU.ctl`. Executed bytes become `c` blocks, read or written ones
+`0000-0CPU.ctl`. Executed bytes become `c` blocks, read or written ones
 `b`, the rest `u`; without **--coverage** each window is one `c` block.
 skoolkit has no Z80N support, so Z80N instructions are written as `DEFB`
 sub-blocks. sna2skool drops without a word a label that is not at the

@@ -244,7 +244,7 @@ reexport::Output build(const Input& in) {
         }
 
         // sna2skool silently drops a label that is not at the start of a line it writes, and the
-        // unpaged labels are in 0000-CPU.ctl only, which knows nothing of this window's code and
+        // unpaged labels are in 0000-0CPU.ctl only, which knows nothing of this window's code and
         // data. So each unpaged address is a label-less key here: the splits that keep a paged
         // label alive (B/C sub-blocks inside an instruction or a data run) then keep it too.
         for (auto& wk : by_window)
@@ -279,10 +279,10 @@ reexport::Output build(const Input& in) {
         if (cpu.emplace(l.addr, l.name).second) ++out.labels;
     }
     if (!cpu.empty()) {
-        // Names sort first, so a paged label wins at a shared address, as in the disassembly.
+        // The name sorts before every 0000-<TAG> (a tag starts with a letter, the 0 does not): a paged label wins.
         std::string text = "# jnext space CPU\n";
         for (const auto& kv : cpu) text += "@ " + hex4(kv.first) + " label=" + kv.second + "\n";
-        out.files.insert(out.files.begin(), {"0000-CPU.ctl", text});
+        out.files.insert(out.files.begin(), {"0000-0CPU.ctl", text});
     }
     std::stable_sort(out.files.begin(), out.files.end(),
                      [](const reexport::File& a, const reexport::File& b) { return a.name < b.name; });

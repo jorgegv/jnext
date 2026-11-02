@@ -5170,7 +5170,7 @@ memory and window: <em>TAG</em> names the memory as the debugger does
 window (16 KB for ROM) the labels sit in, and the <code>.bin</code> holds that
 window’s bytes, so <code>sna2skool.py -o 0xWWWW WWWW-TAG.bin</code> picks its
 control file by itself and <code>sna2skool.py -c DIR</code> combines them.
-Unpaged labels are in <code>0000-CPU.ctl</code>. Executed bytes become <code>c</code>
+Unpaged labels are in <code>0000-0CPU.ctl</code>. Executed bytes become <code>c</code>
 blocks, read or written ones <code>b</code>, the rest <code>u</code>; without
 <strong>--coverage</strong> each window is one <code>c</code> block. skoolkit has no Z80N
 support, so Z80N instructions are written as <code>DEFB</code> sub-blocks.

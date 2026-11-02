@@ -8,7 +8,7 @@
 // base of an aligned window of the space (8 KB; 16 KB for ROM, alternate ROM and
 // config), TAG the space's `space_tag()`; beside it `<WWWW>-<TAG>.bin`, the
 // window's bytes, so `sna2skool.py -o 0xWWWW <WWWW>-<TAG>.bin` picks that control
-// file (and only it) by default. Unpaged labels are in `0000-CPU.ctl`. The names
+// file (and only it) by default. Unpaged labels are in `0000-0CPU.ctl`. The names
 // sort in address order, which `sna2skool.py -c DIR` needs: two files that
 // disagree at a shared boundary address are applied in command-line order.
 //

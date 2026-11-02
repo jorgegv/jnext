@@ -884,7 +884,7 @@ inline constexpr Option OPTIONS[] = {
       "--coverage into DIR as skoolkit control files: one\n"
       "WWWW-TAG.ctl and WWWW-TAG.bin per memory page and window\n"
       "(sna2skool.py -o 0xWWWW WWWW-TAG.bin, or -c DIR), and\n"
-      "0000-CPU.ctl for the unpaged labels. DIR is created; a\n"
+      "0000-0CPU.ctl for the unpaged labels. DIR is created; a\n"
       "previous export's files in it are replaced, other files are\n"
       "never touched. A failure exits 1" },
     { "--export-ghidra", 1, Doc::Documented, OptId::ExportGhidra,

@@ -3,7 +3,7 @@
 //
 // The formats are the pure writers' (`skoolkit_ctl`, `ghidra_symbols`); this file
 // gathers their inputs through the backend's public verbs only - `symbols()`,
-// `lookup()`, `source_page()`, `peek()`, `mem_coverage()` - and writes the result
+// `lookup()`, `source_page()`, `peek()`, `mem_coverage()`, `mem_coverage_enabled()`, `mem_coverage_spaces()` - and writes the result
 // into a directory. Everything it calls is side-effect free, so an export changes
 // no machine state.
 
