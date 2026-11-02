@@ -25,7 +25,7 @@ z88dk's own debugger, `z88dk-gdb`, already debugs C on jnext's GDB server: again
 therefore the in-emulator experience: the Source tab, statement steps, `file:line`
 breakpoints, banked code, rewind.
 
-**First usable cut ("cut 1").** SLD (sjasmplus, Boriel) and z88dk `-debug` maps (sccz80 on 2.4
+**First usable cut ("cut 1").** SLD (sjasmplus; Boriel / NextBuild gives `Memory.txt` symbols only, section 2.2) and z88dk `-debug` maps (sccz80 on 2.4
 and on master; sdcc and 80cc on master); a Source tab with a menu and keys, click-to-break
 and Run to Line; Into / Over / Out / Back / Reverse Continue; `file:line` breakpoints with
 several locations; banked code; correct behaviour across rewind, state loads and resets;
@@ -70,7 +70,10 @@ after the header `|SLD.data.version|1` (sjasmplus 1.23.1, "Source Level Debuggin
 ### 2.2 NextBuild `Memory.txt`
 
 `8000: ._Main` lines (hex address, label), written by the NextBuild / Boriel ZX Basic
-toolchain beside a program. Symbols only, with no page (section 10.4).
+toolchain beside a program. Symbols only, with no page (section 10.4). The compiler writes them
+(`zxbc -M`, `src/zxbc/args_parser.py` `-M/--mmap`: "Generate label memory map") and NextBuild's
+`Scripts/nextbuild.py` passes `-M Memory.txt`; Boriel's compiler has no SLD option, so no SLD comes
+from that toolchain (the references are in [`../REFERENCES.md`](../REFERENCES.md)).
 
 ### 2.3 z88dk ground truth
 
