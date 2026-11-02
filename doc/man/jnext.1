@@ -1347,6 +1347,26 @@ A relative \f[I]DIR\f[R] is taken from the working directory.
 The saved list is edited under \f[B]Preferences > Paths\f[R], and
 \f[B]Locate File\&...\f[R] in the Source tab adds a directory.
 .TP
+\f[B]\-\-annotations\f[R] \f[I]FILE\f[R]
+Load a debugger annotations file (\f[CR].jdp\f[R]): the user\(cqs labels
+and comments, each keyed by a memory (the page or ROM that supplies the
+address, written as the debugger shows it: \f[CR]P0E\f[R],
+\f[CR]ROM1\f[R], \f[CR]DIVRAM2\f[R]) and a 16\-bit address.
+A user label is shown by the debugger views, named by a script\(cqs
+\f[CR]\(atname\f[R] and by GDB \f[CR]monitor sym\f[R], over the
+toolchain\(cqs own symbols, and only while its memory supplies the
+address.
+The file is plain UTF\-8 text: the line \f[CR]jnext\-annotations 1\f[R],
+then \f[CR]label SPACE $ADDR NAME\f[R] and
+\f[CR]comment SPACE $ADDR TEXT\f[R] records (in TEXT \f[CR]\(rs\(rs\f[R]
+is a backslash and \f[CR]\(rsn\f[R] a line break); lines starting with
+\f[CR]#\f[R] and blank lines are ignored.
+It is loaded before the scripts, replaces nothing the program or
+\f[B]\-\-map\f[R] loaded, and is kept across resets, state loads and
+rewinds.
+A file that cannot be read, or does not parse (the message names the
+line), is a startup error (exit status 1).
+.TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, \f[CR]0x\f[R] prefix
 optional, for example \f[CR]0x00FF\f[R]).

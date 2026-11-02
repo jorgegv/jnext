@@ -1296,32 +1296,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#source-maps-cap-src" class="md-nav__link">
+  <a href="#user-labels-and-comments-cap-ann" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Source maps — CAP-SRC
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#coverage-and-the-trace" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Coverage and the trace
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#session-cap-ses" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Session — CAP-SES
+        User labels and comments — CAP-ANN
       
     </span>
   </a>
@@ -1330,17 +1308,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#behind-the-facade" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Behind the facade
-      
-    </span>
-  </a>
   
 </li>
       
@@ -2900,7 +2867,7 @@ machine after the refusal (<code>rewind_refusal_reason()</code> in
 reason in its status bar. <code>RefusedCorrupt</code> logs no reason line: the corruption
 incident is reported on its own.</p>
 <h3 id="symbols-cap-sym">Symbols — CAP-SYM<a class="headerlink" href="#symbols-cap-sym" title="Permanent link">&para;</a></h3>
-<p>There is one symbol table, and the backend owns it. <code>load_map(path, format)</code>
+<p>There is one symbol table, and the backend owns it (the toolchain layer; <code>symbols()</code> returns its composition with the user's labels, see CAP-ANN below). <code>load_map(path, format)</code>
 reads a z88dk map (<code>MapFormat::Z88dk</code>), a plain <code>SYMBOL = $ADDR</code> list
 (<code>MapFormat::Simple</code>) or an sjasmplus <code>--sym</code> / <code>--exp</code> file
 (<code>MapFormat::SjasmplusEqu</code>); <code>clear_symbols</code>, <code>lookup(addr)</code>, <code>lookup_name(name)</code> and
@@ -2976,6 +2943,62 @@ sjasmplus names its files freely and z88dk's assembler writes a <code>.sym</code
 own, in the map format; and in one read, because <code>--map &lt;(cmd)</code> is a pipe, which
 a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
 the functional row <code>script-map-pipe-func</code>).</p>
+<h3 id="user-labels-and-comments-cap-ann">User labels and comments — CAP-ANN<a class="headerlink" href="#user-labels-and-comments-cap-ann" title="Permanent link">&para;</a></h3>
+<p>The user's own labels and comments are a second layer beside the toolchain's
+symbols (GH #387; design 10.2, 10.3, 10.5, 6.8). <code>Impl::toolchain_symbols</code> is the
+table above, filled only by a sidecar, <code>load_map()</code> and a hand SLD (and emptied by
+their lifetime drops); <code>Impl::annotations</code> is a <code>UserAnnotations</code>
+(<code>debug/user_annotations.h</code>: std and <code>mem_space.h</code> only), keyed by (<code>MemSpace</code>,
+16-bit address) with at most one label and one comment per key, a label name used
+at one key only, and <code>MemSpace::cpu()</code> refused (a user entry names a memory). A
+label name is <code>[A-Za-z_][A-Za-z0-9_]*</code> parts joined by single dots, the grammar the
+DSL's <code>@name</code> lexes (<code>UserAnnotations::valid_label_name()</code>, public for #389's
+import); a comment is UTF-8 text with CRLF and lone CR turned into LF, and empty
+text removes it.</p>
+<p><strong>One reader.</strong> <code>Impl::names</code> is the composition every reader goes through:
+<code>recompose_names()</code> adds the user labels first and then <code>merge()</code>s
+<code>toolchain_symbols</code>, so by address the user label wins over the toolchain's paged
+label, which wins over its unpaged one, and by name the user layer comes first.
+<code>symbols()</code>, <code>lookup()</code> and <code>lookup_name()</code> return <code>names</code>, so the Qt panels,
+the DSL's <code>@name</code>, GDB <code>monitor sym</code> and the disassembler's operands see user
+labels with no code of their own; no consumer merges the layers. <code>names</code> is
+assigned in place, so a panel's <code>&amp;symbols()</code> stays valid. <code>recompose_names()</code> runs
+after every change of either layer: every toolchain writer (<code>load_map()</code>,
+<code>clear_symbols()</code>, <code>attach_hand_labels()</code>, the program-load attach and its <code>bind()</code>,
+<code>drop_sidecars()</code>, the deferred-check drop, both <code>recheck()</code> landing paths) and
+every annotation verb. The attachment cache (<code>cache_push_current()</code>) copies
+<code>toolchain_symbols</code>, never <code>names</code>, so a ring landing cannot resurrect a user
+label that was removed or drop one that was added. The loaded layer alone is
+<code>toolchain_symbols()</code>; the Load MAP messages count that.</p>
+<p><strong>Verbs</strong> (a section of the frozen <code>debugger.h</code>, added by the #378 decision):
+<code>set_user_label()</code> (a rename when the key has a label), <code>remove_user_label()</code>,
+<code>set_user_comment()</code>, <code>annotations()</code>, <code>annotations_revision()</code> (+1 per
+successful change, for an unsaved-changes test), <code>load_annotations(path)</code>,
+<code>save_annotations(path)</code>, <code>replace_annotations()</code> (what an import builds
+offline), <code>toolchain_symbols()</code>. A refused argument (the Cpu space, a bad name, a
+name in use, text that is not UTF-8, a project file that does not parse) is
+<code>Unsupported</code>; nothing to remove, or a file that cannot be read or written,
+<code>RefusedUnavailable</code>; <code>why</code> carries the reason. <code>set_user_label()</code> also refuses a
+name the toolchain layer gives another address, or another paged memory (pinning
+an unpaged toolchain name to its page at the same address is allowed); a project
+file and a toolchain loaded later are not refused, and the user layer then wins
+by name. The verbs touch no machine state: allowed while running, no load
+generation, nothing in <code>.jns</code>, the rewind ring or the attachment cache, and no
+reset, state load, rewind or sidecar changes the store (rows SRCDBG-UANN-05..11).
+Each success bumps <code>state_revision()</code>, because a paused panel must redraw (GH</p>
+<h1 id="428-srcdbg-uann-17">428; SRCDBG-UANN-17).<a class="headerlink" href="#428-srcdbg-uann-17" title="Permanent link">&para;</a></h1>
+<p><strong>The project file</strong> (<code>.jdp</code>, <code>debug/annotations_file.h</code>): <code>jnext-annotations 1</code>,
+then <code>label SPACE $ADDR NAME</code> and <code>comment SPACE $ADDR TEXT</code> records, SPACE being
+<code>space_tag()</code> of <code>long_address.h</code> (<code>P0E</code>, <code>ROM1</code>, <code>DIVRAM2</code>...), <code>$ADDR</code> four upper-case hex digits, TEXT with <code>\\</code>
+and <code>\n</code> escapes. The writer is canonical (LF, sorted by memory kind, index, address,
+the label before the comment of a key, no <code>#</code> lines: a Save does not keep a user's
+<code>#</code> lines). The reader is strict and transactional: a BOM, CRLF, <code>#</code> lines, blank lines,
+lower-case tags and hex are accepted; an unknown version, record kind, memory,
+<code>CPU</code>, a doubled space, a bad name, a second label or comment for a key, one name at two keys, an unknown escape
+or invalid UTF-8 refuses the whole file with <code>line N: reason</code> and leaves the store as it was
+(rows JDP-01..07, SRCDBG-UANN-12..14). <code>save_annotations()</code> writes <code>PATH.part</code> and renames it
+over <code>PATH</code>. <code>--annotations FILE</code> loads one in <code>ScriptHost::start()</code> right after <code>--map</code>, before the
+scripts, in every frontend (rows SCRIPT-ANN-01, CLI-ANN-01, <code>annotations-func</code>).</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
 <p>Remote and script consumers of the map (GH #346): the GDB server's <code>monitor src</code>
 reads <code>source_location()</code>; the DSL's <code>on execute file:line</code> reads

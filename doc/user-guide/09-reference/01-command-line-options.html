@@ -4787,6 +4787,21 @@ saved one for the run; directories added by <strong>Locate File…</strong> stil
 apply. A relative <em>DIR</em> is taken from the working directory. The
 saved list is edited under <strong>Preferences &gt; Paths</strong>, and <strong>Locate
 File…</strong> in the Source tab adds a directory.</dd>
+<dt><strong>--annotations</strong> <em>FILE</em></dt>
+<dd>Load a debugger annotations file (<code>.jdp</code>): the user’s labels and
+comments, each keyed by a memory (the page or ROM that supplies the
+address, written as the debugger shows it: <code>P0E</code>, <code>ROM1</code>, <code>DIVRAM2</code>)
+and a 16-bit address. A user label is shown by the debugger views,
+named by a script’s <code>@name</code> and by GDB <code>monitor sym</code>, over the
+toolchain’s own symbols, and only while its memory supplies the
+address. The file is plain UTF-8 text: the line
+<code>jnext-annotations 1</code>, then <code>label SPACE $ADDR NAME</code> and
+<code>comment SPACE $ADDR TEXT</code> records (in TEXT <code>\\</code> is a backslash and
+<code>\n</code> a line break); lines starting with <code>#</code> and blank lines are
+ignored. It is loaded before the scripts, replaces nothing the
+program or <strong>--map</strong> loaded, and is kept across resets, state loads
+and rewinds. A file that cannot be read, or does not parse (the
+message names the line), is a startup error (exit status 1).</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
 for example <code>0x00FF</code>).</dd>

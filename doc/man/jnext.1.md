@@ -1084,6 +1084,20 @@ naming the option and the value, and exits with status 1.
     is edited under **Preferences > Paths**, and **Locate File...** in the
     Source tab adds a directory.
 
+**\--annotations** *FILE*
+:   Load a debugger annotations file (`.jdp`): the user's labels and comments,
+    each keyed by a memory (the page or ROM that supplies the address, written
+    as the debugger shows it: `P0E`, `ROM1`, `DIVRAM2`) and a 16-bit address. A
+    user label is shown by the debugger views, named by a script's `@name` and
+    by GDB `monitor sym`, over the toolchain's own symbols, and only while its
+    memory supplies the address. The file is plain UTF-8 text: the line
+    `jnext-annotations 1`, then `label SPACE $ADDR NAME` and `comment SPACE
+    $ADDR TEXT` records (in TEXT `\\` is a backslash and `\n` a line break);
+    lines starting with `#` and blank lines are ignored. It is loaded before the
+    scripts, replaces nothing the program or **\--map** loaded, and is kept
+    across resets, state loads and rewinds. A file that cannot be read, or does
+    not parse (the message names the line), is a startup error (exit status 1).
+
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for example `0x00FF`).
 
