@@ -6592,6 +6592,32 @@ void test_annotations_menu() {
         QAction* add0 = nullptr;
         for (QAction* a : m0.actions()) if (a->text() == "Add Label...") add0 = a;
         const bool nocode = add0 && !add0->isEnabled() && add0->toolTip().contains("no code at");
+        // QANN-14: a name added through the menu, or by any client while paused, reaches the panels that compute it
+        // in refresh() (the Breakpoints Symbol column) at the next paused refresh -- GH #428's stamp sees the change.
+        Fixture f3;
+        f3.enable();
+        f3.load_map();
+        write_main({});
+        SyncWin sw3(f3);
+        f3.mgr->breakpoints().add(BreakpointModel::Execute, 0x8002);
+        auto bp_sym = [&]() {
+            QString out = QStringLiteral("<no row>");
+            if (auto* t = f3.dbg()->breakpoint_panel()->findChild<QTableWidget*>())
+                for (int r = 0; r < t->rowCount(); ++r)
+                    if (t->item(r, 2) && t->item(r, 2)->text() == "$8002" && t->item(r, 3)) out = t->item(r, 3)->text();
+            return out;
+        };
+        sw3.dp->show_address(0x8002);
+        Answerer via;
+        via.text = "viamenu";
+        drive_modals(std::ref(via), [&] { disasm_popup(sw3.dp, sw3.centre(), "Add Label..."); });
+        const QString after_menu = bp_sym();
+        f3.backend->set_user_label(f3.backend->source_page(0x8002), 0x8002, "viabackend");
+        f3.mgr->refresh_panels();
+        const QString after_backend = bp_sym();
+        check("QANN-14", "a label added from the Disassembly menu shows in the Breakpoints Symbol column at once, and one added by "
+                         "the backend while paused shows after the next paused refresh",
+              after_menu == "viamenu" && after_backend == "viabackend", s(after_menu) + " | " + s(after_backend));
         check("QANN-10", "Source tab: a line with one place acts on its (memory, address); a line with two places gives a submenu "
                          "and the entry chosen acts on its own place ($9000, not $8002); a line with no code has the entries "
                          "disabled with 'no code at ...'",
