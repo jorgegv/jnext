@@ -2231,6 +2231,8 @@
       
         
       
+        
+      
     
     
     
@@ -2913,6 +2915,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3023,7 +3053,7 @@ automatically.</p>
 <p>The BOM, CR, <code>#</code> lines and blank lines above. Nothing else: an unknown record,
 tag, version or escape refuses the file.</p>
 <h2 id="8-excerpt">8. Excerpt<a class="headerlink" href="#8-excerpt" title="Permanent link">&para;</a></h2>
-<p>From the writer's row <code>JDP-01</code> (<code>test/debug/source_map_test.cpp:1319-1325</code>), the
+<p>From the writer's row <code>JDP-01</code> (<code>test/debug/source_map_test.cpp:1343-1349</code>), the
 bytes of a store inserted in a shuffled order:</p>
 <pre><code>jnext-annotations 1
 label P04 $8000 Start
@@ -3045,10 +3075,10 @@ so every consumer reads both layers with no code of its own.
 and Breakpoints panels hold (<code>set_symbol_table(&amp;dbg_.symbols())</code>) stays valid.</p>
 <p><code>recompose_names()</code> is called after every change of either layer: the toolchain writers
 (<code>recompose_names</code> at <code>src/debug/debugger.cpp:270</code> in load_map and <code>:284</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:409</code> the deferred-check drop, <code>:542</code> and <code>:549</code> the
-hand SLD's labels, <code>:773</code> the program-load attach and its bind, <code>:937</code>
-drop_sidecars, <code>:1035</code> and <code>:1041</code> the ring landing) and every verb that changes a label
+hand SLD's labels, <code>:779</code> the program-load attach and its bind, <code>:943</code>
+drop_sidecars, <code>:1041</code> and <code>:1047</code> the ring landing) and every verb that changes a label
 (<code>recompose_names</code> at <code>src/debug/debugger_annotations.cpp:71</code> in set_user_label, <code>:80</code> in remove_user_label, <code>:116</code> in replace_annotations; <code>set_user_comment()</code> changes no name and does not). The attachment cache
-copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:888</code>),
+copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:894</code>),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.</p>
 <p>The name rule against the toolchain layer is in <code>set_user_label()</code>

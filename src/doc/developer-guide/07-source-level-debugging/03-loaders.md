@@ -28,10 +28,13 @@ Every adapter keeps the same promises, and a new one must too
   returns false for a record that names nothing, and `SymbolTable::read_z88dk_map()`
   `continue`s past a symbol no rule places. A bad source record must not cost the
   user their labels, and a label that does not fit 16 bits must not cost them
-  their lines.
+  their lines. The C variable records are lenient like the symbols: one the decoder
+  refuses is kept in the store's `refused()` with its reason, one that cannot be
+  joined stays unresolved with its reason, and neither refuses the lines ([7.9](09-c-variables.md)).
 - **One file can be two transactions.** A z88dk map is read twice
   (`SymbolTable::load_z88dk_map()` for the symbols, `load_z88dk_source_map()` for
-  the lines). An SLD is read once and yields both: `load_sld(map, path, &labels)`.
+  the lines, which fills the C variable store in the same pass and hands it to the
+  same `map.replace()`, [7.9](09-c-variables.md)). An SLD is read once and yields both: `load_sld(map, path, &labels)`.
   A file refused *as a whole* (a missing header, a bad device or identity
   record) loads neither half and leaves both stores as they were; a bad trace
   record refuses only the source half, and the labels still load
@@ -184,7 +187,7 @@ one block, in this order, first wins on every key (`SymbolTable::merge()`):
 3. the z88dk map's symbols, last, and only when **no** `Memory.txt` exists and its
    identity does not mismatch.
 
-The log says what was attached, by `log->info()`: `Loaded N SLD labels from '<file>'` (`log->info()`, `debugger_source.cpp:756`) and
+The log says what was attached, by `log->info()`: `Loaded N SLD labels from '<file>'` (`log->info()`, `debugger_source.cpp:762`) and
 `Loaded N z88dk symbols from '<file>'` (`log->info()`, `:762`).
 
 If nothing attached, a previous program's Sidecar symbols are cleared, also when

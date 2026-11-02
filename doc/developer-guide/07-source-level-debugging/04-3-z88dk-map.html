@@ -2231,6 +2231,8 @@
       
         
       
+        
+      
     
     
     
@@ -2964,6 +2966,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2995,7 +3025,8 @@
 <p>The z88dk linker map is the one file that feeds both stores, by two separate
 loads. Its <code>addr</code> lines are the symbols. A build with <code>-debug</code> adds two kinds of
 marker symbol, <code>__C_LINE_</code> and <code>__ASM_LINE_</code>, whose names and addresses are the
-source lines, and a third kind, <code>__CDBINFO__</code>, which JNEXT does not interpret.
+source lines, and a third kind, <code>__CDBINFO__</code>, the C debug information, which the variable store
+reads (<a href="09-c-variables.html">7.9</a>).
 The map carries no length for a line and no page for an address: both have to be
 derived from the section a symbol lives in.</p>
 <h2 id="1-the-producer">1. The producer<a class="headerlink" href="#1-the-producer" title="Permanent link">&para;</a></h2>
@@ -3193,9 +3224,9 @@ as an unpaged label, and the source half refuses a line record in it.</p>
    <code>$0200</code> (dotx) or <code>$0300</code> (dotn) and <code>__CODE_head</code> is <code>$2000</code>. No <code>startupoffset</code>, or another
    value, is not a dot and has no reason; a dot whose <code>__CODE_head</code> is not <code>$2000</code> is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (<code>dot_why</code>, <code>z88dk_source_map.cpp:201-203</code>), while the symbol half places the map as any other
+   (<code>dot_why</code>, <code>z88dk_source_map.cpp:520-522</code>), while the symbol half places the map as any other
    (<code>z88dk_dot_command()</code>, <code>symbol_table.cpp:82</code>, no reason asked). Both halves read the
-   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:187</code>; the symbol half keeps every constant). For a dot,
+   <code>__&lt;s&gt;_head</code>/<code>_tail</code> constants and <code>startupoffset</code> (<code>z88dk_source_map.cpp:506</code>; the symbol half keeps every constant). For a dot,
    <code>z88dk_section_space()</code> takes it as a last argument, after rules 1 to 3 (a value above <code>0xFFFF</code> in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:</li>
 <li>an unnumbered section at <code>$2000</code>-<code>$3FFF</code> is <code>DivMmcRam{kNextZxosDotBank}</code>, bank 2
@@ -3267,9 +3298,9 @@ line markers:</p>
   (function), <code>S:</code> (symbol) or <code>T:</code> (type). The reference decoder is z88dk's own
   <code>debug_add_info_encoded()</code> (<code>src/ticks/debug.c:656</code>), called from <code>src/ticks/syms.c:173</code>.</li>
 <li><strong>Duplicates.</strong> <code>z80asm</code> ignores a second definition (<code>symtab1.c:117</code>).</li>
-<li><strong>In JNEXT.</strong> The symbol loader skips them (<code>symbol_table.cpp</code>, rule 1 above) and
-  so does the source half (<code>z88dk_source_map.cpp</code>, pass 1, <code>!starts_with(name,
-  "__CDBINFO__")</code>). Nothing else in <code>src/</code> reads them. Only a test does: it decodes
+<li><strong>In JNEXT.</strong> The symbol loader skips them (<code>symbol_table.cpp</code>, rule 1 above). The
+  source half keeps the <code>const</code> lines that start <code>__CDBINFO__</code> and decodes them into
+  the C variable store (<a href="09-c-variables.html">7.9</a>); it takes no symbol from them. A test also decodes
   the names of the C identifiers to check the C names above (<code>Z88CN-01</code>).</li>
 </ul>
 <h2 id="8-excerpts">8. Excerpts<a class="headerlink" href="#8-excerpts" title="Permanent link">&para;</a></h2>

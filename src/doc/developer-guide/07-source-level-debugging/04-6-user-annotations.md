@@ -100,7 +100,7 @@ tag, version or escape refuses the file.
 
 ## 8. Excerpt
 
-From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1319-1325`), the
+From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1343-1349`), the
 bytes of a store inserted in a shuffled order:
 
 ```
@@ -128,10 +128,10 @@ and Breakpoints panels hold (`set_symbol_table(&dbg_.symbols())`) stays valid.
 
 `recompose_names()` is called after every change of either layer: the toolchain writers
 (`recompose_names` at `src/debug/debugger.cpp:270` in load_map and `:284` in clear_symbols; in `src/debug/debugger_source.cpp` at `:409` the deferred-check drop, `:542` and `:549` the
-hand SLD's labels, `:773` the program-load attach and its bind, `:937`
-drop_sidecars, `:1035` and `:1041` the ring landing) and every verb that changes a label
+hand SLD's labels, `:779` the program-load attach and its bind, `:943`
+drop_sidecars, `:1041` and `:1047` the ring landing) and every verb that changes a label
 (`recompose_names` at `src/debug/debugger_annotations.cpp:71` in set_user_label, `:80` in remove_user_label, `:116` in replace_annotations; `set_user_comment()` changes no name and does not). The attachment cache
-copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:888`),
+copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:894`),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.
 

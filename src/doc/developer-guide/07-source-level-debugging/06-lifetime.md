@@ -6,6 +6,8 @@ describe a program that is no longer there. This page is the set of rules that
 decides, for each store and each kind of replacement, between *keep*, *drop* and
 *stale*. (The user's labels and comments are not among the stores that follow
 these rules: that store is kept across every replacement, [7.4.6](04-6-user-annotations.md).)
+The C variable store ([7.9](09-c-variables.md)) is not a fourth store: it is part
+of the `SourceMap` it was read from, so these rules apply to it with no code of its own.
 All the rules run in one place, `Impl::recheck()`
 (`src/debug/debugger_source.cpp`).
 
@@ -50,7 +52,7 @@ restored generation), or, for any other landing, begins a generation and sets
 half-built when the hook fires (inside `init()`, or a warm start).
 
 `Impl::recheck()` does the work, when somebody looks. Every reader runs it first
-(`source_map()`, `source_map_status()`, `source_location()`, `lookup()`,
+(`source_map()`, `source_map_status()`, `variables()`, `source_location()`, `lookup()`,
 `lookup_name()`, `symbols()`, `executed_source_lines()`, `source_step()`), and so
 does every writer (`load_map()`, `clear_symbols()`, `load_source_map()`,
 `clear_source_map()`, `load_program_sidecars()`), so a pending landing is judged
@@ -180,7 +182,7 @@ A z88dk dot command is not a program the emulator loads. NextZXOS copies the fil
 bank when the command is typed and runs it from `$2000` there, so at the moment the map is attached
 nothing says whether the right command is in memory, and a landing says nothing about it either.
 The map therefore has its own rule, on top of the tape machinery above. `SourceMap::dot()`
-(`source_map.h:179`) is set by the z88dk adapter ([7.4.3](04-3-z88dk-map.md), rule 5).
+(`source_map.h:194`) is set by the z88dk adapter ([7.4.3](04-3-z88dk-map.md), rule 5).
 
 - **Always deferred.** `load_source_map()` defers a dot map whatever `verify_at_first_execution` says
   (`verify_at_first_execution`, `debugger_source.cpp:497`), when it has any byte check. `add_check()` marks the check `dot` only if
@@ -201,7 +203,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   `Verified ... the dot command in <space> matches its binary identity`) and keeps the check: it is
   never finished (`checks.push_back` at `debugger_source.cpp:430`), so a later entry that does not match puts the map back
   to pending.
-- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:952`): for a user's map that is a dot map,
+- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:958`): for a user's map that is a dot map,
   `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:961-970`); the checks are
   re-derived by `dot_landing(fresh)` (`debugger_source.cpp:233`). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (`dot_landing()` skips the others) to `dot_reset()`: pending until the next entry. A ring restore reads back what the
@@ -223,7 +225,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (`replay_mode()` is the rewind replay's flag, `emulator.h:1180`, not RZX's). What the row
   `z88dk-dot-source-rzx-func` pins is the attach and the refusal, not a verdict reached during playback.
-- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1144`, set at `SourceMapStatus::dot`, `debugger_source.cpp:591`) tells the Source tab to word its pending note
+- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1144`, set at `SourceMapStatus::dot`, `debugger_source.cpp:597`) tells the Source tab to word its pending note
   *...when the dot command runs* ([7.7](07-frontends.md)).
 
 ## What the backend cannot see

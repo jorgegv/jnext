@@ -2231,6 +2231,8 @@
       
         
       
+        
+      
     
     
     
@@ -2840,6 +2842,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2892,10 +2922,13 @@ user's (<code>User</code>) and is never touched by a sidecar.</em></p>
   returns false for a record that names nothing, and <code>SymbolTable::read_z88dk_map()</code>
   <code>continue</code>s past a symbol no rule places. A bad source record must not cost the
   user their labels, and a label that does not fit 16 bits must not cost them
-  their lines.</li>
+  their lines. The C variable records are lenient like the symbols: one the decoder
+  refuses is kept in the store's <code>refused()</code> with its reason, one that cannot be
+  joined stays unresolved with its reason, and neither refuses the lines (<a href="09-c-variables.html">7.9</a>).</li>
 <li><strong>One file can be two transactions.</strong> A z88dk map is read twice
   (<code>SymbolTable::load_z88dk_map()</code> for the symbols, <code>load_z88dk_source_map()</code> for
-  the lines). An SLD is read once and yields both: <code>load_sld(map, path, &amp;labels)</code>.
+  the lines, which fills the C variable store in the same pass and hands it to the
+  same <code>map.replace()</code>, <a href="09-c-variables.html">7.9</a>). An SLD is read once and yields both: <code>load_sld(map, path, &amp;labels)</code>.
   A file refused <em>as a whole</em> (a missing header, a bad device or identity
   record) loads neither half and leaves both stores as they were; a bad trace
   record refuses only the source half, and the labels still load
@@ -3057,7 +3090,7 @@ one block, in this order, first wins on every key (<code>SymbolTable::merge()</c
 <li>the z88dk map's symbols, last, and only when <strong>no</strong> <code>Memory.txt</code> exists and its
    identity does not mismatch.</li>
 </ol>
-<p>The log says what was attached, by <code>log-&gt;info()</code>: <code>Loaded N SLD labels from '&lt;file&gt;'</code> (<code>log-&gt;info()</code>, <code>debugger_source.cpp:756</code>) and
+<p>The log says what was attached, by <code>log-&gt;info()</code>: <code>Loaded N SLD labels from '&lt;file&gt;'</code> (<code>log-&gt;info()</code>, <code>debugger_source.cpp:762</code>) and
 <code>Loaded N z88dk symbols from '&lt;file&gt;'</code> (<code>log-&gt;info()</code>, <code>:762</code>).</p>
 <p>If nothing attached, a previous program's Sidecar symbols are cleared, also when
 the new <code>Memory.txt</code> cannot be read (<code>SidecarLoad::symbols_unreadable</code>): a

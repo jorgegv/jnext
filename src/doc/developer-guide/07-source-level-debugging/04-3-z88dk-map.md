@@ -3,7 +3,8 @@
 The z88dk linker map is the one file that feeds both stores, by two separate
 loads. Its `addr` lines are the symbols. A build with `-debug` adds two kinds of
 marker symbol, `__C_LINE_` and `__ASM_LINE_`, whose names and addresses are the
-source lines, and a third kind, `__CDBINFO__`, which JNEXT does not interpret.
+source lines, and a third kind, `__CDBINFO__`, the C debug information, which the variable store
+reads ([7.9](09-c-variables.md)).
 The map carries no length for a line and no page for an address: both have to be
 derived from the section a symbol lives in.
 
@@ -176,9 +177,9 @@ as an unpaged label, and the source half refuses a line record in it.
    `$0200` (dotx) or `$0300` (dotn) and `__CODE_head` is `$2000`. No `startupoffset`, or another
    value, is not a dot and has no reason; a dot whose `__CODE_head` is not `$2000` is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (`dot_why`, `z88dk_source_map.cpp:201-203`), while the symbol half places the map as any other
+   (`dot_why`, `z88dk_source_map.cpp:520-522`), while the symbol half places the map as any other
    (`z88dk_dot_command()`, `symbol_table.cpp:82`, no reason asked). Both halves read the
-   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:187`; the symbol half keeps every constant). For a dot,
+   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:506`; the symbol half keeps every constant). For a dot,
    `z88dk_section_space()` takes it as a last argument, after rules 1 to 3 (a value above `0xFFFF` in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:
    - an unnumbered section at `$2000`-`$3FFF` is `DivMmcRam{kNextZxosDotBank}`, bank 2
@@ -259,9 +260,9 @@ line markers:
   (function), `S:` (symbol) or `T:` (type). The reference decoder is z88dk's own
   `debug_add_info_encoded()` (`src/ticks/debug.c:656`), called from `src/ticks/syms.c:173`.
 - **Duplicates.** `z80asm` ignores a second definition (`symtab1.c:117`).
-- **In JNEXT.** The symbol loader skips them (`symbol_table.cpp`, rule 1 above) and
-  so does the source half (`z88dk_source_map.cpp`, pass 1, `!starts_with(name,
-  "__CDBINFO__")`). Nothing else in `src/` reads them. Only a test does: it decodes
+- **In JNEXT.** The symbol loader skips them (`symbol_table.cpp`, rule 1 above). The
+  source half keeps the `const` lines that start `__CDBINFO__` and decodes them into
+  the C variable store ([7.9](09-c-variables.md)); it takes no symbol from them. A test also decodes
   the names of the C identifiers to check the C names above (`Z88CN-01`).
 
 ## 8. Excerpts

@@ -4,7 +4,7 @@ A program built from C, assembly or BASIC source can be debugged by `file:line`
 instead of by address: a breakpoint set on a line, a step that moves a
 statement at a time, a Source tab that follows the program counter. JNEXT does
 this from files the toolchain already writes (an sjasmplus SLD, a z88dk map and
-its listings, a NextBuild `Memory.txt`). It reads them into two stores (and the user's own labels and comments into a third, 7.4.6) and
+its listings, a NextBuild `Memory.txt`). It reads them into two stores (and the user's own labels and comments into a third, 7.4.6; a z88dk map's C variables ride inside the source map, 7.9) and
 answers every question about them from those stores plus one fact only the
 running machine knows: which memory supplies the instruction at an address
 right now.
@@ -61,6 +61,7 @@ meaningful for one of them.
 | [7.6 Lifetime](06-lifetime.md) | What happens to the stores on a reset, a snapshot, a rewind, an RZX, a tape load or a dot command |
 | [7.7 The frontends](07-frontends.md) | Who reads the stores: the Qt Source tab in full (refresh, file search, highlighter and schemes, gutter, selection sync with the Disassembly), the long address in the views, and the GDB, ZRCP, DZRP, script and command-line surfaces |
 | [7.8 Tests, fixtures and adding a producer](08-tests-and-new-producers.md) | The suites, where the fixtures come from, and the checklist for supporting another toolchain |
+| [7.9 C variables](09-c-variables.md) | The variable store a z88dk map carries: the `__CDBINFO__` records joined to the map's symbols by module, the storage of each variable, each function's scope table, and its lifetime |
 
 ## Where the code lives
 
