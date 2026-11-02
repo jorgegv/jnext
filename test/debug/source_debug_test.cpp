@@ -7954,6 +7954,20 @@ int main() {
                                     "labels are shown and the store is as it was",
                   a && b && c && m.dbg->annotations() == before);
         }
+        {   // SRCDBG-UANN-19: a hand SLD with no labels clears an earlier hand SLD's labels, not the user's
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            m.dbg->set_user_label(m.dbg->source_page(0x8000), 0x8000, "mine");
+            m.dbg->load_source_map((fs::path(JNEXT_SJASMEQU_DIR) / "equlabels.sld").string(), false);
+            const bool loaded = m.dbg->lookup_name("SCREEN") && m.dbg->lookup_name("mine");
+            const fs::path plain = tdir / "u19-plain.sld";
+            write_text(plain, program_sld(p80, p90));
+            const auto none = m.dbg->load_source_map(plain.string(), false);
+            check("SRCDBG-UANN-19", "loading a hand SLD with no labels removes the earlier hand SLD's labels from "
+                                    "every reader (symbols(), lookup_name()) and leaves the user's",
+                  loaded && none.labels == 0 && !m.dbg->lookup_name("SCREEN") && !m.dbg->lookup_name("banked") &&
+                      m.dbg->toolchain_symbols().empty() && m.dbg->lookup_name("mine") == std::optional<uint16_t>(0x8000) &&
+                      m.dbg->symbols().size() == 1);
+        }
         {   // SRCDBG-UANN-07 (issue row 2): resets
             bool ok[2] = {false, false};
             for (int hard = 0; hard < 2; ++hard) {
@@ -8001,8 +8015,8 @@ int main() {
             m.dbg->run(m.a);
             for (int i = 0; i < 3; ++i) m.emu.run_frame();
             m.dbg->pause(m.a);
-            attach(m, "uann9a");                                              // generation A: Main
             m.dbg->set_user_label(m.dbg->source_page(0x8000), 0x8000, "gone");   // removed after A's attach
+            attach(m, "uann9a");                                              // generation A: Main (and "gone" shown)
             const uint32_t fa = m.dbg->time().frame;
             m.dbg->run(m.a);
             for (int i = 0; i < 3; ++i) m.emu.run_frame();
