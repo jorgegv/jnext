@@ -124,7 +124,8 @@ refusal is the first bad line.
 4. The location is parsed (`parse_location()`: the text after the last `:` is the
    line, at least 1; a TAB before it marks an unknown function); an unparsable one
    refuses the half.
-5. The space is decided by `z88dk_section_space()`; `Unpaged` and `Refused`
+5. The space is decided by `z88dk_section_space()` (with the dot verdict, rule 5 of the space rules
+   below); `Unpaged` and `Refused`
    refuse the half with a reason naming the map line; a *bind-at-load* record
    asks the `space_of` function the caller supplies (`Emulator::predict_fetch`),
    and an address that is not in a RAM page refuses it too
@@ -135,7 +136,7 @@ refusal is the first bad line.
 
 ### Space
 
-`z88dk_section_space(section, value, page_head)` (`debug/z88dk_space.cpp`) maps a
+`z88dk_section_space(section, value, page_head, dot)` (`debug/z88dk_space.cpp`) maps a
 section name and a (possibly 24-bit) value to a `Z88dkSpace`. Page numbers are
 0..223, banks 0..111; the numbers in a section name are 1 to 3 decimal digits.
 The rules, in order of the section name:
@@ -164,9 +165,35 @@ The rules, in order of the section name:
 A number above the limit of its family (223 for a page, 111 for a bank, 15 for
 DivMMC) makes the value unpaged when it fits 16 bits and refused otherwise.
 
-A `DIV_<n>` or `<KIND>_DIV_<n>` section (DivMMC memory) is unpaged with the reason
-"DivMMC sections are not supported yet": the symbol half keeps a 16-bit symbol of it
+A `DIV_<n>` or `<KIND>_DIV_<n>` section (DivMMC memory) is unpaged with the reason "a DIV_n
+bank is the one the program, or a dotn command's allocator, chooses when it runs": the bank is
+the program's to choose, so the map cannot say it. The symbol half keeps a 16-bit symbol of it
 as an unpaged label, and the source half refuses a line record in it.
+
+5. **A dot command (GH #351).** NextZXOS copies a dot command's file into a DivMMC RAM bank and
+   runs it from `$2000` there; the map names no bank. `z88dk_dot_command(consts, &why)`
+   (`z88dk_space.cpp:136`) says whether a map is one: the constant `startupoffset` is `$0100` (dot),
+   `$0200` (dotx) or `$0300` (dotn) and `__CODE_head` is `$2000`. No `startupoffset`, or another
+   value, is not a dot and has no reason; a dot whose `__CODE_head` is not `$2000` is not a dot
+   and its reason ("a dot command's CODE must start at $2000") refuses the source half
+   (`z88dk_source_map.cpp:201-203`), while the symbol half places the map as any other
+   (`symbol_table.cpp:82`, no reason asked). Both halves read `startupoffset` and the
+   `__<s>_head`/`_tail` constants (`z88dk_source_map.cpp:187`; the symbol half keeps every constant). For a dot,
+   `z88dk_section_space()` takes it as a last argument, after rules 1 to 3 (a value above `0xFFFF` in
+   an unnumbered section is still refused) and before rule 4, for unnumbered sections only:
+   - an unnumbered section at `$2000`-`$3FFF` is `DivMmcRam{kNextZxosDotBank}`, bank 2
+     (`z88dk_space.cpp:176-181`), whatever the MMU maps there when the map is loaded;
+   - a dotx's other unnumbered sections are rule 4: its main part (`PROG.X`, `prog_MAIN.bin`
+     at `CRT_ORG_MAIN` `$8000`) is main RAM;
+   - in a dotn those sections, and every `PAGE_<n>` / `DIV_<n>` section, are *refused*
+     (`refused_dotn()`: NextZXOS allocates those pages when the command runs, `__z_page_table`; the
+     reason says to build it as a dotx to debug it);
+   - a dot's or dotx's `PAGE`/`DIV` sections follow the rules above, and `DIV_<n>` stays unpaged.
+
+   The bank is measured, not documented: booting NextZXOS in JNEXT and typing a dot, a dotx and a dotn,
+   the file lands in bank 2, `E3` becomes `$82` (conmem and bank 2) and the CPU executes `$2000`
+   (fixtures README, G24; `kNextZxosDotBank`, `z88dk_space.h:46`). `SourceMap::replace(..., dot)`
+   remembers the verdict (`SourceMap::dot()`), which [7.6](06-lifetime.md) uses for the identity.
 
 In a numbered section the bits of `value` above 15 are not read.
 
@@ -277,15 +304,30 @@ The `PAGE_20` section with head `$C000` puts `$C000` in page 20. The `__CDBINFO_
 line decodes to `S:Lbanked.c.banked_add$a$0_0$0({1}SC:U),B,1,6`; note the digits
 encoded as `_30`, `_31`, `_36`.
 
+From `test/fixtures/z88dk/v2.4/sccz80-dot/prog.map` (a plain dot command, built with
+`-subtype=dot`; lines 49, 63 and 262): `startupoffset` is the dot's signature, `__CODE_head` is
+`$2000`, and the line record at `$2D5F`, in `code_compiler`, is in `$2000`-`$3FFF`: rule 5 puts it
+in `DivMmcRam{2}`.
+
+```
+__CODE_head                     = $2000 ; const, public, def, , ,
+__C_LINE_12_dot_2ec_3a_3amain_3a_3a0_3a_3a2 = $2D5F ; addr, local, , dot_c, code_compiler, dot.c::main::0::2:12
+startupoffset                   = $0100 ; const, local, , zxn_crt_asm_m4, , z88dk/lib/config/../..//libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4:9
+```
+
 ## 9. The rows
 
 - `z88dk_map_test`: `Z88MAP-*` (the source half, with the oracle values from the
   fixtures: owners, aliases, extents), `Z88SYM-*` (the symbol half and the
-  binding), `Z88CN-*` (C names).
+  binding), `Z88CN-*` (C names), `Z88DOT-*` (dot commands: the `dot`, `dotx`, `dotn`
+  and master fixtures in DivMMC bank 2, detection by the map, the symbol half, the identity
+  units, the `.lis` route, the dotn refusal, the extent bound of another module's symbol in
+  bank 2), `MAPCAP-*` and `MAPBOM-*` (the size cap and the UTF-8 BOM of the symbol loaders).
 - `z88dk_lis_test`: `Z88LIS-*` ([7.4.4](04-4-z88dk-listings.md)).
 - `source_map_test`: `Z88FIX-01`/`02` (the fixture manifest).
-- `source_debug_test`: `SRCDBG-Z88-*`, `SRCDBG-SYM-*`, `SRCDBG-TAPE-*`.
+- `source_debug_test`: `SRCDBG-Z88-*`, `SRCDBG-SYM-*`, `SRCDBG-TAPE-*`, `SRCDOT-*` (a dot command through
+  the backend: breakpoint and steps in bank 2, judged at the entry, landings).
 - `debugger_backend_test`: `SYM-14` to `SYM-18` (the `-debug` markers, on
   `test/fixtures/zdebugmap/`).
 - Functional: `z88dk-source-map-func`, `z88dk-source-func`, `z88dk-tape-source-func`,
-  `gdb-z88dk-func`.
+  `gdb-z88dk-func`, `z88dk-dot-source-func`, `z88dk-dot-source-rzx-func`.
