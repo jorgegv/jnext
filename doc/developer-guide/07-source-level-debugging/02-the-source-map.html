@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2987,8 +2987,8 @@ order</em> and matters: it is the tie-break below.</p>
    tie, the one <em>emitted later</em> first (<code>primary_first</code>). The first is the
    segment's primary location.</li>
 </ol>
-<p><code>loaded_file</code> is the adapter's absolute, lexically normalised path (<code>sld_loader.cpp:327-328</code>,
-<code>z88dk_source_map.cpp:588</code>), which is also where the search for a source file starts (<a href="07-frontends.html">7.7</a>).
+<p><code>loaded_file</code> is the adapter's absolute, lexically normalised path (built as the local <code>loaded</code>: <code>sld_loader.cpp:328</code>,
+<code>z88dk_source_map.cpp:589</code>), which is also where the search for a source file starts (<a href="07-frontends.html">7.7</a>).
 <code>identity</code>, <code>loaded_file</code>, <code>format</code> (<code>"SLD"</code> or <code>"z88dk"</code>; <code>clear()</code> resets it to
 <code>"SLD"</code>), <code>texts</code> and <code>dot</code> (<code>SourceMap::dot()</code>, GH #351: the map is a z88dk dot command's, so
 the backend never judges it from memory at a load, <a href="06-lifetime.html">7.6</a>; <code>clear()</code> resets it)

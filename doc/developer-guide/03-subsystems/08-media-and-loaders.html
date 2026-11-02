@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.108</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3085,7 +3085,7 @@ the guest's own driver talks to. Both are called out below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-around line 890, and again in the GUI's file dialogs and in the headless
+(the <code>ext</code> chain, <code>src/main.cpp:2654-2712</code>), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -3347,7 +3347,7 @@ trailing bytes depends on the header's <code>file_handle</code>. Any non-zero va
 (<code>keeps_file_open()</code>) keeps the file open; the value only picks where the
 handle goes: 1 to <code>$3FFF</code> in <code>BC</code> (<code>B</code>=0, <code>C</code>=handle), <code>$4000</code> and above
 written to that address (<code>delivers_handle_in_bc()</code>; <code>nexload2.asm:397-407</code>,
-<code>nexload.asm:560-570</code> and <code>:606-609</code>). <code>Emulator::load_nex()</code> then opens the
+<code>nexload.asm:560-570</code> and <code>nexload.asm:606-609</code>). <code>Emulator::load_nex()</code> then opens the
 host file behind the handle — the extended-NEX host bridge in the stand-in
 below — at <code>payload_offset()</code>, just after the last bank, where both loaders
 hand their own handle over (GH #267), and the program streams them. With 0, both loaders read the declared
@@ -3493,7 +3493,7 @@ the regression.</p>
 <p><strong>What it surfaced.</strong> <code>NexLoader::apply()</code> did not model MMU0-5 at all; it
 relied on <code>init()</code>'s reset defaults happening to hold bank 5 at <code>$4000</code> and
 bank 2 at <code>$8000</code>. Both reference loaders set them explicitly
-(<code>nexload.asm:280-284</code> unconditionally, <code>:406-407</code> gated;
+(<code>nexload.asm:280-284</code> unconditionally, <code>nexload.asm:406-407</code> gated;
 <code>nexload2.asm:913-918</code> in its gated reset table), and on a NextZXOS-resident
 machine the defaults do not hold — a measured MMU3 = page 17 sent every write
 to <code>$6000-$7FFF</code> into Layer 2's bank 8. <code>apply()</code> now writes them, which is a
@@ -3974,7 +3974,7 @@ frame earlier or later flips, the <code>--load</code> order, the banked line, th
 errors and the Qt refusal.</p>
 <p><strong>Where a poke lands.</strong> Only 0xC000-0xFFFF is banked. Port 0x7FFD writes MMU6
 and MMU7 and nothing else (<code>zxnext.vhd:4679-4680</code>; MMU2-5 keep pages 0A 0B 04 05,
-<code>:4613-4616</code>), so a Multiface-level POKE with a bank number can only reach that
+<code>zxnext.vhd:4613-4616</code>), so a Multiface-level POKE with a bank number can only reach that
 bank at 0xC000 and above. A banked poke (bank 0-7) at address ≥ 0xC000 is NR page
 <code>2*bank + ((address &gt;&gt; 13) &amp; 1)</code>, offset <code>address &amp; 0x1FFF</code>, whatever is paged in
 (a 48K only has bank 0 there: port 0x7FFD is not decoded, NR 0x82 = 0xC0). Every

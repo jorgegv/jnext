@@ -9,9 +9,9 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 ## 1. The producer
 
 JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
-loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:888` and copies
-it to the configuration at `src/main.cpp:2192`, and `ScriptHost::start()` loads it at
-`src/script/script_host.cpp:201-215`, after `--map` and before the scripts, so a
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:881` and copies
+it to the configuration at `src/main.cpp:2194`, and `ScriptHost::start()` loads it (`annotations_file`,
+`src/script/script_host.cpp:201-215`), after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
 
@@ -27,7 +27,7 @@ LF is the only line end written, and no `#` line, so a Save does not keep a user
 own `#` lines.
 
 The order is the key's: `AnnotationKey::operator<`
-(`src/debug/user_annotations.h:33-37`) compares the memory kind (the
+(`AnnotationKey`, `src/debug/user_annotations.h:33-37`) compares the memory kind (the
 `MemSpace::Kind` enumerator order: `Page`, `Rom`, `BootRom`, ... `DivMmcRam`...),
 then the index, then the address, so the file diffs well in a repository.
 
@@ -49,7 +49,7 @@ name at one key only.
 file into a scratch store and assigns `out` only when it is all good; every
 error is `line N: reason`.
 
-1. **Skipped:** a UTF-8 BOM at byte 0 of line 1 only (the `\xEF\xBB\xBF` compare, `src/debug/annotations_file.cpp:90`), a trailing CR
+1. **Skipped:** a UTF-8 BOM at byte 0 of line 1 only (the `"\xEF\xBB\xBF"` compare, `src/debug/annotations_file.cpp:90`), a trailing CR
    (CRLF), a line whose first character is `#`, a blank line.
 2. **The header** is the first other line and must be exactly `jnext-annotations 1`
    (`kHeader`, `src/debug/annotations_file.cpp:94`); `jnext-annotations N` for another canonical N reads `version N: this
@@ -100,7 +100,7 @@ tag, version or escape refuses the file.
 
 ## 8. Excerpt
 
-From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1319-1324`), the
+From the writer's row `JDP-01` (`test/debug/source_map_test.cpp:1319-1325`), the
 bytes of a store inserted in a shuffled order:
 
 ```
@@ -127,11 +127,10 @@ so every consumer reads both layers with no code of its own.
 and Breakpoints panels hold (`set_symbol_table(&dbg_.symbols())`) stays valid.
 
 `recompose_names()` is called after every change of either layer: the toolchain writers
-(`load_map()` at `src/debug/debugger.cpp:270`, `clear_symbols()` at `:284`;
-`src/debug/debugger_source.cpp:409` the deferred-check drop, `:542` and `:549` the
-hand SLD's labels, `:773` the program-load attach and its `bind()`, `:937`
-`drop_sidecars()`, `:1035` and `:1041` the ring landing) and every verb that changes a label
-(`set_user_label()` at `src/debug/debugger_annotations.cpp:71`, `remove_user_label()` at `:80`, `replace_annotations()` at `:116`; `set_user_comment()` changes no name and does not). The attachment cache
+(`recompose_names` at `src/debug/debugger.cpp:270` in load_map and `:284` in clear_symbols; in `src/debug/debugger_source.cpp` at `:409` the deferred-check drop, `:542` and `:549` the
+hand SLD's labels, `:773` the program-load attach and its bind, `:937`
+drop_sidecars, `:1035` and `:1041` the ring landing) and every verb that changes a label
+(`recompose_names` at `src/debug/debugger_annotations.cpp:71` in set_user_label, `:80` in remove_user_label, `:116` in replace_annotations; `set_user_comment()` changes no name and does not). The attachment cache
 copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:888`),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.
@@ -143,15 +142,15 @@ name to its page) is allowed. A project file is not refused for it, and a toolch
 loaded later is not either: the user layer then wins by name.
 
 `save_annotations()` (`src/debug/debugger_annotations.cpp:141-162`) writes
-`PATH.part` and renames it over `PATH`; `load_annotations()` (`:121`) checks
+`PATH.part` and renames it over `PATH`; `load_annotations()` (`src/debug/debugger_annotations.cpp:121`) checks
 `source_file_problem()` first (not a regular file, over 64 MiB). The verbs touch no
 machine state, so they are allowed while the machine runs, take no load generation
 and leave `.jns`, the rewind ring and the attachment cache alone; each success bumps
 `state_revision()` ([3.9.1](../03-subsystems/09-1-the-backend-api.md), GH #428). A verb that
 changes nothing (a rename to the same name, an identical or already-normalised comment, clearing a
 comment that is not there, replacing or loading the same store) bumps neither revision: the early
-`return Result::Ok` of `set_user_label()` (`src/debug/debugger_annotations.cpp:69`), of
-`set_user_comment()` (`:96`) and of `replace_annotations()` (`:113`), pinned by `SRCDBG-UANN-21`, so
+`return Result::Ok` of `set_user_label()` (`Ok`, `src/debug/debugger_annotations.cpp:69`), of
+`set_user_comment()` (`Ok`, `:96`) and of `replace_annotations()` (`Ok`, `:113`), pinned by `SRCDBG-UANN-21`, so
 an unchanged dialog never raises the unsaved-changes question.
 
 ## 10. The Qt debugger
@@ -161,8 +160,8 @@ The same two views edit the store and draw it; nothing here changes what the sto
 - **One menu builder.** `add_annotation_actions()` (`src/debugger/annotation_menu.cpp:77`) appends, behind a
   separator, **Add Label…** / **Rename Label…**, **Remove Label** and **Add Comment…** / **Edit Comment…** to a
   code view's context menu. The Disassembly calls it with the one place of the line, its address and the
-  `entry.space` it was drawn with (`DisasmPanel::contextMenuEvent()`, `src/debugger/disasm_panel.cpp:983`); the
-  Source tab calls it with the line's `st.starts` (`SourcePanel::fill_context_menu()`,
+  `entry.space` it was drawn with (in `DisasmPanel::contextMenuEvent()`, `add_annotation_actions` is called at `src/debugger/disasm_panel.cpp:983`); the
+  Source tab calls it with the line's `st.starts` (in `SourcePanel::fill_context_menu()`, `add_annotation_actions` is called at
   `src/debugger/source_panel.cpp:1208`), so a line that compiled to several places gets a submenu per entry,
   a place not mapped now stays editable (the key does not depend on the mapping), and a line with no code
   has the entries disabled with the tab's *no code at* tooltip. Both views therefore offer the same words in
@@ -173,7 +172,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   `remove_user_label()`. A refused name or text is a `QMessageBox::warning` with the backend's reason and
   changes nothing (`QANN-09`). **Rename** on a toolchain label creates a user label that shadows it;
   **Remove** acts on user labels only, so on a toolchain-only label it is disabled and its tooltip names the
-  file the toolchain layer was loaded from (`toolchain_symbols().loaded_file()` in `add_annotation_actions()`,
+  file the toolchain layer was loaded from (`toolchain_symbols().loaded_file()` in `add_annotation_actions()`, `toolchain_note`,
   `annotation_menu.cpp:95-98`; `state_of()`, `:24`, only says whether a label is there). The panels hold a `const Debugger*` for reading; the writes go
   through the non-const pointer `DebuggerManager` hands them with `set_annotation_backend()`
   (`src/debugger/debugger_manager.cpp:386` and `:390`), and each panel's `annotations_changed()` signal makes the
@@ -187,7 +186,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
-  (`src/debugger/debugger_window.cpp:889-893`), connected to `DebuggerManager::on_open_annotations()`
+  (`connect`, `src/debugger/debugger_window.cpp:889-893`), connected to `DebuggerManager::on_open_annotations()`
   (`debugger_manager.cpp:778`), `on_save_annotations()` (`:754`) and `on_save_annotations_as()` (`:744`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).
@@ -195,11 +194,11 @@ The same two views edit the store and draw it; nothing here changes what the sto
   `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
   `confirm_discard_annotations()` (`debugger_manager.cpp:760`) asks Save / Discard / Cancel when they differ, and is
   asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
-  (`src/gui/main_window.cpp:3830`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
+  (`confirm_discard_annotations`, `src/gui/main_window.cpp:3830`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
   SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3827`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`src/gui/qt_app.cpp:394`), makes that file
+  (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:394`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.

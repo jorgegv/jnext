@@ -177,7 +177,7 @@ inner byte can sit on an entry point or in the unmap window.
 instruction boundaries, on the FUSE T-state counter, at which /INT is seen low.
 The T80 samples INT_n into INT_s on every CPU rising edge (`t80n.vhd:1664`) and
 decides at the end of an instruction with the INT_s taken at the *start* of its
-last T-state (`:1742-1772`), so a pulse first sampled on CPU edge E_1 and last on
+last T-state (`t80n.vhd:1742-1772`), so a pulse first sampled on CPU edge E_1 and last on
 E_N is taken at a boundary in [E_1 + 1 T, E_N + 1 T] — 32 CPU cycles on 48K/+3,
 36 otherwise (`zxnext.vhd:2033`). `execute()` takes it at the first boundary
 inside the window, keeps it pending at one before (a request resolved at the end

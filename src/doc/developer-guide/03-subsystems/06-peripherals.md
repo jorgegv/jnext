@@ -215,7 +215,7 @@ into its own RX, which matters more than it sounds; see the replay gate below.
 stand-ins for the far end of a home-made DB9 serial cable in a joystick socket —
 the rig dezogif and DeZog use to debug a running Next. The bytes do not go
 through either UART header; they go through the NR 0x0B I/O-mode multiplexer
-(`zxnext.vhd:3340-3341`, `:3526-3538`), which the *guest* controls at run time.
+(`zxnext.vhd:3340-3341`, `zxnext.vhd:3526-3538`), which the *guest* controls at run time.
 
 That is why neither of them is a `UartDevice`. A `UartDevice` is soldered to one
 channel's wire, and this cable has no channel of its own: NR 0x0B bit 0 chooses
@@ -237,7 +237,7 @@ Receive is connector-selected (`zxnext.vhd:3538`). Transmit is not: the transmit
 bit leaves the core as the single output `o_JOY_IO_MODE_PIN_7`
 (`zxnext.vhd:1593`), and the board drives it onto whichever socket `joysel`
 currently points at — which, in io mode, free-runs at 7 MHz
-(`md6_joystick_connector_x2.vhd:109,117`) while one bit at 115200 lasts 243
+(`md6_joystick_connector_x2.vhd:109`, `md6_joystick_connector_x2.vhd:117`) while one bit at 115200 lasts 243
 CLK_28 ticks. Both sockets therefore see it. Copying the receive gate onto the
 transmit path is the obvious-looking symmetry and it is wrong.
 
