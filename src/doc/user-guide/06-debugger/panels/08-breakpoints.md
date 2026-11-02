@@ -9,6 +9,11 @@ breakpoint, a source line (`main.bas:120`); see
 [Source-level debugging](../functions/14-source-level-debugging.md).
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.
 The list, the disassembly gutter and the Source tab's BP column stay in sync in both directions.
+A breakpoint qualified with the memory its opcode comes from reads `$8005 P04` or
+`$0008 DIVROM` in the address column
+([which memory an address is in](../index.md#which-memory-an-address-is-in)); the `@14`
+of `$C000 @14` is another client's *page* qualifier (a DZRP or script breakpoint), which
+is a different thing.
 
 ## Whose breakpoints the gutters show and change
 

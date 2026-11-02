@@ -459,6 +459,7 @@ int main(int argc, char* argv[]) {
     std::vector<config_keys::Assignment> qt_assignments;        // the keys only the Qt window has
     std::vector<std::pair<std::string, std::string>> debug_key_assignments;   // debugger_keys.ID=COMBO
     std::optional<bool> debugger_attached_opt;                  // debugger.attached
+    std::optional<bool> debugger_physical_opt;                  // debugger.physical_addresses
     std::optional<std::string> source_dirs_text;                // paths.source_dirs / --source-dir (GH #420)
     // How each key was spelled on the command line, for the "has no effect" warnings.
     std::vector<std::pair<config_keys::KeyId, std::string>> given_as;
@@ -592,6 +593,9 @@ int main(int argc, char* argv[]) {
         case KeyId::NextpiQemuArgs:   nextpi_cli.qemu_args = t; break;
         case KeyId::DebuggerAttached:
             debugger_attached_opt = on;
+            break;
+        case KeyId::DebuggerPhysicalAddresses:
+            debugger_physical_opt = on;
             break;
         // Not settings (parse_assignment refuses them before they get here):
         // history, derived names, the file format version, remembered geometry.
@@ -2557,6 +2561,7 @@ int main(int argc, char* argv[]) {
                 if (session_debug_keys_given) mw->set_session_debug_keys(session_debug_keys);
 #ifdef ENABLE_DEBUGGER
                 if (debugger_attached_opt) mw->set_debugger_attach_override(*debugger_attached_opt);
+                if (debugger_physical_opt) mw->set_debugger_physical_override(*debugger_physical_opt);
 #endif
             }
         }

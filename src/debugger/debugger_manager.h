@@ -127,6 +127,9 @@ public:
 
     /// GH #417 - `--set debugger.attached=` for this run, handed to the window when it
     /// is built (it is created lazily). The file keeps its own value.
+    /// GH #360 - `--set debugger.physical_addresses=` for this run, handed to the window
+    /// when it is created; jnext.conf keeps its value until the Debug menu item is toggled.
+    void set_physical_override(bool physical) { physical_override_ = physical; }
     void set_attach_override(bool attached) { attach_override_ = attached; }
 
     /// GH #278 WP3 — the backend this adapter drives, for the DebuggerWindow's
@@ -324,6 +327,7 @@ private:
     DebuggerWindow* debugger_window_ = nullptr;
     jnext::dbgkeys::Keymap keymap_;      // GH #1
     std::optional<bool> attach_override_;   // GH #417
+    std::optional<bool> physical_override_; // GH #360
     QStringList configured_source_dirs_;    // GH #420
     SourceScheme source_scheme_ = SourceScheme::Auto;   // GH #422 stage 2
     QStringList located_source_dirs_;

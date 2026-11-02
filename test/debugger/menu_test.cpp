@@ -107,6 +107,8 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/mmu_panel.h"
+#include "debugger/memory_panel.h"
 #include "gui/main_window.h"
 #include "gui/preferences_dialog.h"
 #include "debug/source_search.h"
@@ -117,6 +119,7 @@
 #include "platform/emulator_boot.h"
 
 #include <stdexcept>
+#include <array>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -3159,6 +3162,106 @@ static void test_coverage_menu()
     }
 }
 
+// ===========================================================================
+// QLADDR-11 -- GH #360 (E23-22): Debug > Physical Addresses. A checkable item that
+// switches every view to the physical style (the Disassembly's Mem column shows the
+// SRAM address), writes debugger/physical_addresses at once, and a window built over
+// that file starts checked. Oracle: Debug > Coverage's pattern (QCOV-01) and the
+// owner's rule that a setting is reachable from the file (DWK-04).
+// ===========================================================================
+static void test_physical_menu()
+{
+    set_group("QLADDR");
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    const QString conf = home.path() + QStringLiteral("/jnext.conf");
+    const QString key = QStringLiteral("debugger/physical_addresses");
+    auto file_value = [&]() { QSettings s(conf, QSettings::IniFormat); return s.value(key).toString(); };
+    {
+        bool item_ok = false, started_off = false, switched = false, wrote = false, again = false;
+        std::string why = "fixture";
+        {
+            DebuggerFixture fx;
+            QAction* act = fx.ok ? item_named(menu_named(fx.dbg->menuBar(), QStringLiteral("Debug")),
+                                               QStringLiteral("Physical Addresses"))
+                                 : nullptr;
+            if (act) {
+                item_ok = act->isCheckable();
+                started_off = !act->isChecked() &&
+                              fx.dbg->address_style() == jnext::dbg::AddressStyle::Friendly;
+                // The panels repaint in the new style: the pixels of the Disassembly (Mem column), the
+                // Memory panel (the row tags) and the MMU panel (Memory column) all change.
+                auto look = [&]() {
+                    QApplication::processEvents();
+                    return std::array<QImage, 3>{fx.dbg->disasm_panel()->grab().toImage(),
+                                                   fx.dbg->memory_panel()->grab().toImage(),
+                                                   fx.dbg->findChild<MmuPanel*>()->grab().toImage()};
+                };
+                const auto before = look();
+                act->trigger();
+                const auto after = look();
+                switched = act->isChecked() && fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical &&
+                           before[0] != after[0] && before[1] != after[1] && before[2] != after[2];
+                wrote = file_value() == QLatin1String("true");
+                why = fmt("item=%d off=%d switched=%d wrote='%s'", item_ok, started_off, switched,
+                          file_value().toStdString().c_str());
+            }
+        }
+        {
+            DebuggerFixture again_fx;   // a new window over the same file
+            QAction* act = again_fx.ok ? item_named(menu_named(again_fx.dbg->menuBar(), QStringLiteral("Debug")),
+                                                    QStringLiteral("Physical Addresses"))
+                                       : nullptr;
+            again = act && act->isChecked() &&
+                    again_fx.dbg->address_style() == jnext::dbg::AddressStyle::Physical;
+        }
+        check("QLADDR-11",
+              "Debug > Physical Addresses is checkable and starts unchecked; checking it switches the window to the "
+              "physical style and writes debugger/physical_addresses=true at once; a new window over the same file "
+              "starts checked",
+              item_ok && started_off && switched && wrote && again, why + fmt(" again=%d", again));
+    }
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
+// QLADDR-16 -- GH #360: MainWindow hands the `--set debugger.attached` and
+// `--set debugger.physical_addresses` overrides to the DebuggerManager, which
+// gives them to the window it creates. Mutating the hand-off (MainWindow keeps
+// the value and does not pass it on) leaves the window on the FILE's values.
+static void test_set_override_handoff()
+{
+    set_group("QLADDR");
+    const QByteArray prev = qgetenv("JNEXT_CONFIG_DIR");
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    {   // the file says the opposite of both overrides
+        QSettings raw(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+        raw.setValue(QStringLiteral("debugger/attached"), true);
+        raw.setValue(QStringLiteral("debugger/physical_addresses"), false);
+        raw.sync();
+    }
+    bool ok = false, physical = false, detached = false;
+    {
+        MainWindowFixture fx;
+        if (fx.ok) {
+            fx.win.set_debugger_attach_override(false);
+            fx.win.set_debugger_physical_override(true);
+            fx.win.debugger_manager()->set_enabled(true);
+            DebuggerWindow* w = fx.win.debugger_manager()->debugger_window_ptr();
+            ok = w != nullptr;
+            physical = w && w->address_style() == jnext::dbg::AddressStyle::Physical;
+            detached = w && !w->attach_enabled();
+        }
+    }
+    check("QLADDR-16",
+          "MainWindow hands the --set debugger.physical_addresses and debugger.attached overrides to the "
+          "debugger manager: the window it creates opens in the physical style and detached, whatever the "
+          "file says",
+          ok && physical && detached, fmt("ok=%d physical=%d detached=%d", ok, physical, detached));
+    if (prev.isNull()) qunsetenv("JNEXT_CONFIG_DIR"); else qputenv("JNEXT_CONFIG_DIR", prev);
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -3208,6 +3311,9 @@ int main(int argc, char** argv)
     std::printf("  Group: MWSRC          - done\n");
     test_coverage_menu();
     std::printf("  Group: QCOV           - done\n");
+    test_physical_menu();
+    test_set_override_handoff();
+    std::printf("  Group: QLADDR         - done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

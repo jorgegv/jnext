@@ -33,6 +33,8 @@
 //   SRCDBG-OWN-*     store ownership is explicit and changes only on success
 //   SRCDBG-TAPE-*    a tape program's maps attach at once; one with an identity is judged
 //                    where the CPU first runs its code, space by space (GH #344 stage 3)
+//                    (GH #360: the verdict lines name a page as the views do, `P04`, not `page 4`;
+//                    TAPE-15 and TAPE-18 assert the new spelling)
 //   SRCDBG-HIST-*    sidecars are dropped when the machine goes back before
 //                    the load they came with
 //   SRCDBG-PATH-*    a relative map path is made absolute
@@ -2743,14 +2745,137 @@ int main() {
             std::getline(f, l0);
             std::getline(f, l1);
         }
-        check("TRACE-ID-04", "the trace export names the fetch identity after ROM=: kind and "
-                             "index in hex, FETCH=01:04 for RAM page 4, FETCH=06:00 for the "
+        check("TRACE-ID-04", "the trace export names the fetch identity after ROM= as the space "
+                             "tag, FETCH=P04 for RAM page 4, FETCH=DIVROM for the "
                              "DivMMC ROM",
               exported && l0.find("  $8000  ") != std::string::npos &&
-                  l0.find(" FETCH=01:04  [") != std::string::npos &&
+                  l0.find(" FETCH=P04  [") != std::string::npos &&
                   l1.find("  $0000  ") != std::string::npos &&
-                  l1.find(" FETCH=06:00  [") != std::string::npos,
+                  l1.find(" FETCH=DIVROM  [") != std::string::npos,
               "'" + l0 + "' / '" + l1 + "'");
+    }
+    // ── GH #360 (E23-22) F1: the code at the PC is read as the CPU fetches it ──
+    {
+        // divmmc.vhd:147 (instant entry: the M1 at $0000 is DivMMC's), zxnext.vhd:3084:
+        // the data view of slot 0 is still RAM page 10, the instruction is DivMMC's.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(m);
+        m.dbg->step_into(m.a);   // CALL $0000
+        uint8_t pk = 0xEE;
+        m.dbg->peek(MemSpace::cpu(), 0x0000, 1, &pk);
+        const auto line = m.dbg->disassemble(0x0000, 1, nullptr);
+        const std::string mn = line.empty() ? std::string() : std::string(line[0].mnemonic);
+        check("LADDR-17", "at a DivMMC instant entry the memory reader returns the byte the CPU "
+                          "fetches (DivMMC ROM 0x3C), while peek shows the data view (page 10, "
+                          "0x00): the PC line disassembles as INC A",
+              m.pc() == 0x0000 && m.dbg->memory_reader()(0x0000) == 0x3C && pk == 0x00 &&
+                  mn == "INC A" && m.dbg->source_page(0x0000) == MemSpace::divmmc_rom() &&
+                  m.dbg->mmu_slots()[0].now == MemSpace::page(10),
+              "reader=" + hex(m.dbg->memory_reader()(0x0000)) + " peek=" + hex(pk) + " '" + mn + "'");
+    }
+    {
+        // As LADDR-17: step_over() asks is_call_like() / instruction_length() of the reader
+        // (debugger_control.cpp). The DivMMC ROM holds CALL $0010 at 0 and RET at $10.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(m);
+        m.emu.divmmc().rom_data()[0] = 0xCD;
+        m.emu.divmmc().rom_data()[1] = 0x10;
+        m.emu.divmmc().rom_data()[2] = 0x00;
+        m.emu.divmmc().rom_data()[0x10] = 0xC9;
+        // RAM page 10 (the data view) holds other bytes at $0001/$0002: the CALL's operands
+        // are DivMMC's, and the length of the PC instruction is the predicted one (3), not
+        // that of the RAM's byte (1).
+        m.emu.mmu().write(0x0001, 0xAA);
+        m.emu.mmu().write(0x0002, 0xBB);
+        m.set_pc(0x0000);
+        const auto rd = m.dbg->memory_reader();
+        const auto dl = m.dbg->disassemble(0x0000, 1, nullptr);
+        const std::string dm = dl.empty() ? std::string() : std::string(dl[0].mnemonic);
+        const bool operands = rd(1) == 0x10 && rd(2) == 0x00 && dl.size() == 1 &&
+                              dl[0].byte_count == 3 && dm.find("CALL") == 0 &&
+                              dm.find("0010") != std::string::npos;
+        const bool call = m.dbg->is_call_like(0x0000);
+        const Result rc = m.dbg->step_over(m.a);
+        for (int i = 0; i < 3 && !m.dbg->state().paused; ++i) m.emu.run_frame();
+        const uint16_t after = m.pc();
+        // Bytes past the PC instruction are the data view's: INC A is one byte long,
+        // so address 1 reads page 10's byte, not the ROM's RET.
+        Machine n(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(n);
+        n.emu.mmu().write(0x0001, 0xAA);
+        n.set_pc(0x0000);
+        check("LADDR-18", "Step Over at a DivMMC instant entry recognises the CALL the CPU "
+                          "will run (stops at $0003); past a one-byte instruction the reader "
+                          "returns the data view",
+              call && operands && rc == Result::Ok && after == 0x0003 &&
+                  n.dbg->memory_reader()(0x0000) == 0x3C && n.dbg->memory_reader()(0x0001) == 0xAA,
+              "call=" + std::to_string(call) + " operands=" + std::to_string(operands) + " '" + dm + "' pc=" + hex(after) + " b1=" +
+                  hex(n.dbg->memory_reader()(0x0001)));
+    }
+    {
+        // divmmc.vhd:124-148 / design 4.4: with a DELAYED entry the opcode is fetched from
+        // RAM (the M1 itself is not yet DivMMC's) and the operand bytes after it from the
+        // DivMMC ROM. The executed result (HL) is the independent witness of the prediction.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        divmmc_instant_machine(m);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x00);   // delayed entry at $0000
+        m.emu.mmu().write(0x0000, 0x21);          // LD HL,nn in RAM page 10
+        m.emu.mmu().write(0x0001, 0x34);
+        m.emu.mmu().write(0x0002, 0x12);
+        m.emu.divmmc().rom_data()[0] = 0x00;
+        m.emu.divmmc().rom_data()[1] = 0x78;
+        m.emu.divmmc().rom_data()[2] = 0x56;
+        m.set_pc(0x0000);
+        const auto rd = m.dbg->memory_reader();
+        const uint8_t r0 = rd(0), r1 = rd(1), r2 = rd(2);
+        uint8_t pk[3] = {};
+        m.dbg->peek(MemSpace::cpu(), 0x0000, 3, pk);
+        m.dbg->step_into(m.a);
+        check("LADDR-19", "with a delayed DivMMC entry the reader gives the RAM opcode (0x21) and "
+                          "the DivMMC ROM operand bytes (0x78 0x56), which is what the CPU "
+                          "executed (HL), while peek shows the RAM's",
+              r0 == 0x21 && r1 == 0x78 && r2 == 0x56 && pk[1] == 0x34 && pk[2] == 0x12 &&
+                  m.dbg->registers().HL == 0x5678,
+              hex(r0) + " " + hex(r1) + " " + hex(r2) + " HL=" + hex(m.dbg->registers().HL));
+    }
+    {
+        // zxnext.vhd:3084-3098 (DivMMC RAM), :2966-2971 (Layer 2), :1856-1857 (boot ROM):
+        // each entry's FETCH= names the memory the instruction came from.
+        auto fetch_of = [&](Machine& m, const char* name) {
+            const fs::path out = dir / name;
+            m.dbg->trace_clear();
+            m.dbg->step_into(m.a);
+            m.dbg->trace_export(out.string());
+            std::string l;
+            std::ifstream f(out);
+            std::getline(f, l);
+            return l;
+        };
+        Machine a(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        a.emu.mmu().set_boot_rom_enabled(false);
+        a.emu.port().out(0x00E3, 0x83);    // DivMMC conmem, bank 3: $2000-$3FFF is DivMMC RAM 3
+        a.set_pc(0x2000);
+        a.dbg->set_trace_enabled(true);
+        const std::string la = fetch_of(a, "ladd-20a.txt");
+        Machine b(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        b.emu.mmu().set_boot_rom_enabled(false);
+        b.dbg->nextreg_write(b.a, 0x12, 9);
+        b.emu.port().out(0x123B, 0x04);    // Layer 2 read mapping, segment 0
+        b.set_pc(0x0000);
+        b.dbg->set_trace_enabled(true);
+        const std::string lb = fetch_of(b, "ladd-20b.txt");
+        Machine c(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        static const uint8_t boot[0x2000] = {};
+        c.emu.mmu().set_boot_rom(boot, sizeof(boot));
+        c.emu.mmu().set_boot_rom_enabled(true);
+        c.set_pc(0x0000);
+        c.dbg->set_trace_enabled(true);
+        const std::string lc = fetch_of(c, "ladd-20c.txt");
+        check("LADDR-20", "the trace export spells DivMMC RAM 3, the Layer 2 mapping and the "
+                          "boot ROM as FETCH=DIVRAM3, FETCH=L2P12 and FETCH=BOOT",
+              has(la, " FETCH=DIVRAM3  [") && has(lb, " FETCH=L2P12  [") &&
+                  has(lc, " FETCH=BOOT  ["),
+              "'" + la + "' / '" + lb + "' / '" + lc + "'");
     }
     {
         // zxnext.vhd:4688 (the NextREG write), :2952/:2964/:3060 (slot -> page):
@@ -5936,7 +6061,7 @@ int main() {
                       mid.pending && mid_hold && !m.dbg->source_map().empty() &&
                       lines1.size() == 1 &&
                       has(lines1[0], "Verified z88dk source map '" + map +
-                                         "' in page 4; 1 memory space still to check") &&
+                                         "' in P04; 1 memory space still to check") &&
                       lines_again == 1,
                   "state=" + std::to_string(int(mid.state)) + " empty=" + std::to_string(m.dbg->source_map().empty()) + " src_pending=" + std::to_string(r.sources_pending) + " mid.pending=" +
                       std::to_string(mid.pending) + " hold=" + std::to_string(mid_hold) + " lines1=" +
@@ -6012,7 +6137,7 @@ int main() {
             check("SRCDBG-TAPE-18", "the spaces are judged in the order they first run: page 20 first (page "
                                     "4 still empty and not judged), then page 4",
                   mid.state == Debugger::SourceMapStatus::State::Attached && mid.pending &&
-                      lines1.size() == 1 && has(lines1[0], "in page 20; 1 memory space still to check") &&
+                      lines1.size() == 1 && has(lines1[0], "in P14; 1 memory space still to check") &&
                       end.state == Debugger::SourceMapStatus::State::Attached && !end.pending &&
                       verified_lines(lc).size() == 2);
         }

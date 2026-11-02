@@ -58,6 +58,7 @@
 #include "debug/debugger.h"
 #include "debug/disasm.h"
 #include "debug/event_table.h"
+#include "debug/long_address.h"
 #include "peripheral/copper.h"
 #include "peripheral/nmi_source.h"
 #include "port/nextreg.h"
@@ -94,6 +95,7 @@
 #include <map>
 #include <tuple>
 #include <memory>
+#include <set>
 #include <fstream>
 
 #include <cstdint>
@@ -4730,7 +4732,7 @@ static void q_wp3_trace_export_rows() {
         "  AF'=1111 BC'=2222 DE'=3333 HL'=4444"
         "  IX=5555 IY=6666 SP=FF00"
         "  (SP)=ABCD I=3F R=%02X IM1 IFF1=0 IFF2=1"
-        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=03 FETCH=01:04  [SZ-H-P-C]  00",
+        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=03 FETCH=P04  [SZ-H-P-C]  00",
         static_cast<unsigned long long>(e.cycle), e.r,
         e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3], e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7]);
     // ROM= is a literal, not read back from the entry: a 48K maps ROM in
@@ -4739,7 +4741,7 @@ static void q_wp3_trace_export_rows() {
     // (GH #340) is a literal too: the NOP at $8000 came from RAM page 4.
     check("INS-13-14", "trace_export() writes every TraceEntry field — the word at SP, "
                        "I, R, IM, IFF1, IFF2, the eight MMU pages and the ROM-slot mask "
-                       "(ROM=03 on a 48K) and the fetch identity (FETCH=01:04) included, in the "
+                       "(ROM=03 on a 48K) and the fetch identity (FETCH=P04) included, in the "
                        "documented column order",
           rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && e.rom_slots == 0x03 &&
               line == want,
@@ -6458,6 +6460,281 @@ static void rwm_rows() {
               std::string("sv=") + jnext::dbg::result_name(sv) + " got=" + std::to_string(got));
     }
 }
+
+// ── GH #360 (E23-22): the long address ──────────────────────────────────────
+// The formatter is pure (LADDR-01..09, no machine); LADDR-10..16 pin SlotInfo::now
+// on a Next, the memory a read of each slot reaches NOW.
+static void ladd_formatter_rows() {
+    using jnext::dbg::AddressStyle;
+    using jnext::dbg::long_address;
+    using jnext::dbg::parse_space_tag;
+    using jnext::dbg::physical_text;
+    using jnext::dbg::space_tag;
+
+    {
+        // Design 4.1 kinds, 4.6 charset ([A-Z0-9] only); the spellings are the plan's D1.
+        const std::pair<MemSpace, const char*> want[] = {
+            {MemSpace::page(0x00), "P00"},      {MemSpace::page(0x0E), "P0E"},
+            {MemSpace::page(0xDF), "PDF"},      {MemSpace::rom(0), "ROM0"},
+            {MemSpace::rom(1), "ROM1"},         {MemSpace::rom(2), "ROM2"},
+            {MemSpace::rom(3), "ROM3"},         {MemSpace::boot_rom(), "BOOT"},
+            {MemSpace::multiface_rom(), "MFROM"}, {MemSpace::multiface_ram(), "MFRAM"},
+            {MemSpace::divmmc_rom(), "DIVROM"}, {MemSpace::divmmc_ram(0), "DIVRAM0"},
+            {MemSpace::divmmc_ram(3), "DIVRAM3"}, {MemSpace::divmmc_ram(15), "DIVRAM15"},
+            {MemSpace::alt_rom(0), "ALTROM0"},  {MemSpace::alt_rom(1), "ALTROM1"},
+            {MemSpace::layer2(0x12), "L2P12"},  {MemSpace::config(0x17), "CFG17"},
+            {MemSpace::floating(), "FLOAT"},    {MemSpace::cpu(), "CPU"},
+        };
+        bool ok = true;
+        std::string why;
+        for (const auto& [sp, tag] : want) {
+            const std::string got = space_tag(sp);
+            bool charset = !got.empty();
+            for (char c : got) charset = charset && ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'));
+            if (got != tag || !charset) { ok = false; why += " " + got + "!=" + tag; }
+        }
+        check("LADDR-01", "space_tag spells every kind: P00 P0E PDF ROM0..3 BOOT MFROM MFRAM "
+                          "DIVROM DIVRAM0/3/15 ALTROM0/1 L2P12 CFG17 FLOAT CPU, all [A-Z0-9]",
+              ok, why);
+    }
+    {
+        // Design 4.6: the parser is the inverse of the formatter, and no two values share a tag.
+        std::vector<MemSpace> all;
+        for (unsigned p = 0; p <= 0xDF; ++p) { all.push_back(MemSpace::page(p)); all.push_back(MemSpace::layer2(p)); }
+        for (unsigned i = 0; i <= 3; ++i) all.push_back(MemSpace::rom(i));
+        for (unsigned b = 0; b <= 15; ++b) all.push_back(MemSpace::divmmc_ram(b));
+        for (unsigned i = 0; i <= 1; ++i) all.push_back(MemSpace::alt_rom(i));
+        for (unsigned b = 0; b <= 0xFF; ++b) all.push_back(MemSpace::config(b));
+        all.push_back(MemSpace::boot_rom()); all.push_back(MemSpace::multiface_rom());
+        all.push_back(MemSpace::multiface_ram()); all.push_back(MemSpace::divmmc_rom());
+        all.push_back(MemSpace::floating()); all.push_back(MemSpace::cpu());
+        std::set<std::string> tags;
+        bool inverse = true;
+        std::string why;
+        for (const MemSpace& sp : all) {
+            const std::string t = space_tag(sp);
+            tags.insert(t);
+            const auto back = parse_space_tag(t);
+            if (!back || *back != sp) { inverse = false; why = t; }
+        }
+        check("LADDR-02", "parse_space_tag(space_tag(s)) == s for every value the type documents, "
+                          "and no two values share a tag",
+              inverse && tags.size() == all.size(), "tags=" + std::to_string(tags.size()) +
+                  " values=" + std::to_string(all.size()) + " first bad " + why);
+    }
+    {
+        // zxnext.vhd:2964/:3061 (>= 0xE0 is no page), divmmc.vhd:96 (a 4-bit bank).
+        const char* refused[] = {"", "P", "PE0", "P0E0", "P 0E", "P:0E", "ROM4", "ROM01",
+                                 "DIVRAM16", "DIVRAM03", "ALTROM2", "L2PE0", "CFG100", "BOOT0"};
+        std::string bad;
+        for (const char* r : refused) if (parse_space_tag(r)) bad += std::string(" ") + r;
+        const auto lo = parse_space_tag("p0e");
+        const auto dv = parse_space_tag("divrom");
+        check("LADDR-03", "parse_space_tag refuses \"\" P PE0 P0E0 \"P 0E\" P:0E ROM4 ROM01 "
+                          "DIVRAM16 DIVRAM03 ALTROM2 L2PE0 CFG100 BOOT0 and accepts any case",
+              bad.empty() && lo && *lo == MemSpace::page(0x0E) && dv && *dv == MemSpace::divmmc_rom(),
+              "accepted:" + bad);
+    }
+    {
+        // zxnext.vhd:2964 (MMU page + 0x20), :2927 (Spectrum RAM at 0x040000).
+        check("LADDR-04", "Page physical: P10 at $C000 is $060000, P04 at $8123 $048123, P00 at "
+                          "$C000 $040000, PDF at $FFFF $1FFFFF",
+              physical_text(MemSpace::page(0x10), 0xC000) == "$060000" &&
+                  physical_text(MemSpace::page(0x04), 0x8123) == "$048123" &&
+                  physical_text(MemSpace::page(0x00), 0xC000) == "$040000" &&
+                  physical_text(MemSpace::page(0xDF), 0xFFFF) == "$1FFFFF",
+              physical_text(MemSpace::page(0x10), 0xC000) + " " +
+                  physical_text(MemSpace::page(0x04), 0x8123) + " " +
+                  physical_text(MemSpace::page(0x00), 0xC000) + " " +
+                  physical_text(MemSpace::page(0xDF), 0xFFFF));
+    }
+    {
+        // zxnext.vhd:2961-2962, :6558-6578, :6667-6670 (bank 7's upper half, page 0x0F, is SRAM).
+        check("LADDR-05", "the block RAMs are not SRAM: P0A at $4000 BRAM5+$0000, P0B at $7FFF "
+                          "BRAM5+$3FFF, P0E at $C010 BRAM7+$0010, but P0F at $E000 is $05E000",
+              physical_text(MemSpace::page(0x0A), 0x4000) == "BRAM5+$0000" &&
+                  physical_text(MemSpace::page(0x0B), 0x7FFF) == "BRAM5+$3FFF" &&
+                  physical_text(MemSpace::page(0x0E), 0xC010) == "BRAM7+$0010" &&
+                  physical_text(MemSpace::page(0x0F), 0xE000) == "$05E000");
+    }
+    {
+        // zxnext.vhd:2971, :3100-3107: Layer 2 sees the SRAM copy, never the BRAMs.
+        check("LADDR-06", "Layer 2 is the SRAM copy: L2P0A at $0000 is $054000, L2P0E at $2010 "
+                          "$05C010, L2P12 at $0000 $064000",
+              physical_text(MemSpace::layer2(0x0A), 0x0000) == "$054000" &&
+                  physical_text(MemSpace::layer2(0x0E), 0x2010) == "$05C010" &&
+                  physical_text(MemSpace::layer2(0x12), 0x0000) == "$064000");
+    }
+    {
+        // zxnext.vhd:3052-3057 (ROM), :3116-3117 (alt ROM), :3044-3050 (config).
+        check("LADDR-07", "ROM images are 16 KB: ROM0 at $0000 $000000, ROM3 at $3FFF $00FFFF, "
+                          "ALTROM1 at $0001 $01C001, ALTROM0 at $2000 $01A000, CFG17 at $2000 "
+                          "$05E000, CFG05 at $0000 $014000",
+              physical_text(MemSpace::rom(0), 0x0000) == "$000000" &&
+                  physical_text(MemSpace::rom(3), 0x3FFF) == "$00FFFF" &&
+                  physical_text(MemSpace::alt_rom(1), 0x0001) == "$01C001" &&
+                  physical_text(MemSpace::alt_rom(0), 0x2000) == "$01A000" &&
+                  physical_text(MemSpace::config(0x17), 0x2000) == "$05E000" &&
+                  physical_text(MemSpace::config(0x05), 0x0000) == "$014000");
+    }
+    {
+        // zxnext.vhd:3084-3098 (DivMMC), :3029-3035 (Multiface), :3199-3204 (boot ROM).
+        check("LADDR-08", "DIVROM at $0008 $010008, DIVRAM3 at $0100 $026100, DIVRAM15 at $3FFF "
+                          "$03FFFF, MFROM at $0066 $014066, MFRAM at $2000 $016000, BOOT at "
+                          "$3008 BOOT+$1008, FLOAT",
+              physical_text(MemSpace::divmmc_rom(), 0x0008) == "$010008" &&
+                  physical_text(MemSpace::divmmc_ram(3), 0x0100) == "$026100" &&
+                  physical_text(MemSpace::divmmc_ram(15), 0x3FFF) == "$03FFFF" &&
+                  physical_text(MemSpace::multiface_rom(), 0x0066) == "$014066" &&
+                  physical_text(MemSpace::multiface_ram(), 0x2000) == "$016000" &&
+                  physical_text(MemSpace::boot_rom(), 0x3008) == "BOOT+$1008" &&
+                  physical_text(MemSpace::floating(), 0x1234) == "FLOAT");
+    }
+    {
+        check("LADDR-09", "long_address: Friendly \"$C000 P0E\", Physical \"$C000 BRAM7+$0000\", "
+                          "cpu() just \"$C000\" in both, and without the Next layout Physical "
+                          "reads as Friendly",
+              long_address(0xC000, MemSpace::page(0x0E), AddressStyle::Friendly, true) == "$C000 P0E" &&
+                  long_address(0xC000, MemSpace::page(0x0E), AddressStyle::Physical, true) ==
+                      "$C000 BRAM7+$0000" &&
+                  long_address(0xC000, MemSpace::cpu(), AddressStyle::Friendly, true) == "$C000" &&
+                  long_address(0xC000, MemSpace::cpu(), AddressStyle::Physical, true) == "$C000" &&
+                  long_address(0xC000, MemSpace::page(0x0E), AddressStyle::Physical, false) ==
+                      "$C000 P0E");
+    }
+}
+
+static void ladd_slot_rows() {
+    auto next = [](Emulator& emu) {
+        build(emu, MachineType::ZXN_ISSUE2);
+        static const uint8_t boot[0x2000] = {};
+        emu.mmu().set_boot_rom(boot, sizeof(boot));
+    };
+    auto now_is = [](const Debugger& d, int slot, MemSpace s) { return d.mmu_slots()[slot].now == s; };
+    {
+        // zxnext.vhd:1856-1857: the boot ROM answers 0x0000-0x3FFF above the whole arbiter.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(true);
+        Debugger dbg(emu);
+        const auto s = dbg.mmu_slots();
+        bool rest = true;
+        for (int i = 2; i < 8; ++i) rest = rest && s[i].now == s[i].space;
+        check("LADDR-10", "a Next with the boot ROM on: slots 0 and 1 read the boot ROM, slots 2-7 "
+                          "their own page",
+              emu.mmu().boot_rom_enabled() && s[0].now == MemSpace::boot_rom() &&
+                  s[1].now == MemSpace::boot_rom() && rest);
+    }
+    {
+        // divmmc.vhd:94-96, zxnext.vhd:3084-3098.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        const bool premise = dbg.mmu_slots()[0].is_rom && dbg.mmu_slots()[0].now == dbg.mmu_slots()[0].space;
+        emu.port().out(0x00E3, 0x85);   // conmem, bank 5
+        const auto s = dbg.mmu_slots();
+        const bool conmem = now_is(dbg, 0, MemSpace::divmmc_rom()) && now_is(dbg, 1, MemSpace::divmmc_ram(5)) &&
+                            s[0].space.kind == MemSpace::Kind::Rom && s[1].space.kind == MemSpace::Kind::Rom;
+        emu.port().out(0x00E3, 0xC5);   // mapram
+        check("LADDR-11", "DivMMC conmem bank 5 over ROM slots: slot 0 reads DivMMC ROM, slot 1 "
+                          "DivMMC RAM 5, their own space stays a ROM; with mapram slot 0 is "
+                          "DivMMC RAM 3",
+              premise && conmem && now_is(dbg, 0, MemSpace::divmmc_ram(3)),
+              "slot0=" + jnext::dbg::space_tag(dbg.mmu_slots()[0].now));
+    }
+    {
+        // zxnext.vhd:3037-3043 (override "110" overlays a RAM-mapped slot 0/1 too), :3084.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        dbg.nextreg_write(1, 0x50, 0x10);
+        const bool ram = dbg.mmu_slots()[0].now == MemSpace::page(0x10);
+        emu.port().out(0x00E3, 0x80);   // conmem
+        const bool over = now_is(dbg, 0, MemSpace::divmmc_rom()) &&
+                          dbg.mmu_slots()[0].space == MemSpace::page(0x10);
+        emu.port().out(0x00E3, 0x00);
+        check("LADDR-12", "DivMMC conmem overlays a slot mapped to RAM page 0x10 as well; with "
+                          "conmem off the slot reads that page again",
+              ram && over && now_is(dbg, 0, MemSpace::page(0x10)));
+    }
+    {
+        // zxnext.vhd:2937, :3029-3035: the Multiface sits above DivMMC.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        emu.port().out(0x00E3, 0x80);
+        emu.multiface().set_enabled(true);
+        emu.multiface().button_press();
+        emu.multiface().on_m1(0x0066, /*mreq_low=*/true);
+        check("LADDR-13", "Multiface memory paged (with DivMMC conmem also set): slot 0 reads the "
+                          "Multiface ROM, slot 1 its RAM",
+              emu.multiface().is_mem_active() && now_is(dbg, 0, MemSpace::multiface_rom()) &&
+                  now_is(dbg, 1, MemSpace::multiface_ram()));
+    }
+    {
+        // zxnext.vhd:2966-2971, :3043-3065, :3100: Layer 2 read mapping.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        dbg.nextreg_write(1, 0x12, 9);
+        emu.port().out(0x123B, 0x04);   // read enable, segment 0
+        const auto a = dbg.mmu_slots();
+        bool seg0 = a[0].now == MemSpace::layer2(0x12) && a[1].now == MemSpace::layer2(0x13);
+        for (int i = 2; i < 8; ++i) seg0 = seg0 && a[i].now == a[i].space;
+        emu.port().out(0x123B, 0xC4);   // read enable, segment 3 (all 48K)
+        const auto b = dbg.mmu_slots();
+        bool seg3 = true;
+        for (int i = 0; i < 6; ++i)
+            seg3 = seg3 && b[i].now == MemSpace::layer2(static_cast<uint16_t>(0x12 + i));
+        seg3 = seg3 && b[6].now == b[6].space && b[7].now == b[7].space;
+        dbg.nextreg_write(1, 0x12, 4);
+        const auto c = dbg.mmu_slots();
+        check("LADDR-14", "Layer 2 read mapping: segment 0 maps slots 0/1 only (NR 0x12 = 9: "
+                          "L2P12, L2P13); segment 3 maps slots 0-5 and not 6/7; NR 0x12 = 4 gives "
+                          "slot 2 L2P0A while its own space stays page 0x0A",
+              seg0 && seg3 && c[2].now == MemSpace::layer2(0x0A) &&
+                  c[2].space == MemSpace::page(0x0A),
+              "slot2=" + jnext::dbg::space_tag(c[2].now) + "/" + jnext::dbg::space_tag(c[2].space));
+    }
+    {
+        // zxnext.vhd:3078, :3116-3123, :2981-3008: the alt ROM is a READ override only with NR 0x8C bit 6 = 0.
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.mmu().set_config_mode(false);
+        Debugger dbg(emu);
+        emu.mmu().set_nr_8c(0x80);
+        const bool a0 = now_is(dbg, 0, MemSpace::alt_rom(0)) && now_is(dbg, 1, MemSpace::alt_rom(0));
+        emu.mmu().set_nr_8c(0xC0);   // read/write: the alt ROM answers neither reads of a ROM-less read
+        const bool rw = dbg.mmu_slots()[0].now.kind == MemSpace::Kind::Rom;
+        emu.mmu().set_nr_8c(0x00);
+        emu.mmu().map_128k_bank(0x10);
+        emu.mmu().set_nr_8c(0x80);
+        const bool a1 = now_is(dbg, 0, MemSpace::alt_rom(1));
+        check("LADDR-15", "NR 0x8C = 0x80: slots 0/1 read the alt ROM selected by 7FFD (ALTROM0, "
+                          "ALTROM1 with ROM 1); NR 0x8C = 0xC0: the read is the plain ROM",
+              a0 && rw && a1, "a0=" + std::to_string(a0) + " rw=" + std::to_string(rw) +
+                                  " a1=" + std::to_string(a1));
+    }
+    {
+        // zxnext.vhd:3044-3050 (config), :3061 (slots 2-7 >= 0xE0 float), :3052 (ROM sentinel).
+        Emulator emu; next(emu);
+        emu.mmu().set_boot_rom_enabled(false);
+        Debugger dbg(emu);
+        emu.mmu().set_config_mode(true);
+        emu.mmu().set_nr_04_romram_bank(0x17);
+        const bool cfg = now_is(dbg, 0, MemSpace::config(0x17)) && now_is(dbg, 1, MemSpace::config(0x17));
+        emu.mmu().set_config_mode(false);
+        dbg.nextreg_write(1, 0x52, 0xE5);
+        const bool fl = now_is(dbg, 2, MemSpace::floating());
+        dbg.nextreg_write(1, 0x50, 0xE5);
+        const auto s0 = dbg.mmu_slots()[0];
+        check("LADDR-16", "config mode with NR 0x04 = 0x17: slots 0/1 read CFG17; MMU2 = 0xE5 "
+                          "floats slot 2; MMU0 = 0xE5 (config off) is a ROM slot",
+              cfg && fl && s0.is_rom && s0.now.kind == MemSpace::Kind::Rom,
+              "slot0=" + jnext::dbg::space_tag(s0.now));
+    }
+}
+
+
 
 // ===========================================================================
 // GH #388 (E23-25) -- INS-21: memory coverage by execute, read and write.
@@ -19105,6 +19382,8 @@ int main() {
     dzrp_d_rows();
     q_wp7_raster_rows();          // GH #278 WP7
     rwm_rows();                   // §4.2a rewind wall
+    ladd_formatter_rows();        // GH #360
+    ladd_slot_rows();             // GH #360
     dasm_z80n_rows();             // GH #422 F1
     e25_mem_coverage_rows();      // GH #388
     gh428_rev_rows();             // GH #428 state_revision()

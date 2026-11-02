@@ -3,8 +3,11 @@
 ![Disassembly panel](../../img/debugger-disassembly.png)
 
 Z80 plus all 26 Z80N instructions, disassembled live from memory as the CPU
-sees it. Columns are the breakpoint gutter, the address, the raw opcode bytes
-and the mnemonic. The line at `PC` is highlighted in yellow and set in bold;
+sees it. Columns are the breakpoint gutter, the address, the **Mem** column
+(which memory the line's bytes come from: `P04`, `ROM0`, `DIVROM`, or the
+physical address; [details](../index.md#which-memory-an-address-is-in)), the raw
+opcode bytes and the mnemonic. At a DivMMC entry the line at `PC` shows the
+DivMMC ROM's instruction, the one the CPU is about to run, with `DIVROM` beside it. The line at `PC` is highlighted in yellow and set in bold;
 the lines you select are highlighted in blue — over the top of the yellow, so
 the `PC` line stays recognisable inside a selection, and clear of the gutter,
 so breakpoint dots stay visible.

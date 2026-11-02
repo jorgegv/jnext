@@ -3659,6 +3659,26 @@ therefore checks whether its moves actually land, and if several in a row are
 ignored it stops trying, unticks the menu item and says so in the status bar.
 Re-tick it to retry. That automatic stop does not change your saved
 preference.</p>
+<h2 id="which-memory-an-address-is-in">Which memory an address is in<a class="headerlink" href="#which-memory-an-address-is-in" title="Permanent link">&para;</a></h2>
+<p>An address alone does not say which memory answers it: <code>$C000</code> may be RAM page
+<code>0x0E</code> today and page <code>0x14</code> tomorrow, <code>$0000</code> may be a ROM, the boot ROM or the
+DivMMC. Where a view shows an address it also names the memory behind it, by the
+tags of <a href="functions/06-the-trace-log.html">the trace log</a>: <code>P0E</code> (RAM page 0x0E),
+<code>ROM0</code> to <code>ROM3</code>, <code>BOOT</code>, <code>DIVROM</code>, <code>DIVRAM3</code>, <code>MFROM</code>, <code>MFRAM</code>, <code>ALTROM0</code>,
+<code>L2P12</code>, <code>CFG17</code>, <code>FLOAT</code>. The tag names the memory the bytes beside it came
+from: the <strong>live</strong> memory for the Disassembly, Memory, MMU, Stack and Watches
+views (what a read of that address returns now, an overlay included), the memory
+the opcode comes from for the line at <code>PC</code> and for the Source tab, and the
+<strong>recorded</strong> memory for the Call Stack and the trace log.</p>
+<p><strong>Debug ▸ Physical Addresses</strong> switches every view from the tags to the place
+the byte sits in the Next's memory: <code>$060000</code> is the 21-bit address in the SRAM
+(RAM page <em>n</em> is at <code>(n + 0x20) × 8 KB</code>; ROM, DivMMC and Multiface have their own
+areas), and the two block RAMs and the boot ROM, which are not in the SRAM, read
+<code>BRAM5+$0000</code>, <code>BRAM7+$0000</code> and <code>BOOT+$0000</code>. RAM pages 5 and 7 (<code>P0A</code>, <code>P0B</code>,
+<code>P0E</code>) are the block RAMs the CPU reads, while Layer 2 sees the SRAM copy
+<code>L2P0A</code>; the two are different memory. A machine that is not a Next has no such
+layout, and the setting changes nothing there. The choice is kept between
+sessions; <code>--set debugger.physical_addresses=true</code> applies it to one run.</p>
 <p><img alt="The debugger window" src="../img/debugger-window.png" /></p>
 <p>The layout is fixed: video-related tabs on the top left, disassembly in the
 centre, CPU registers and MMU down the right, and memory/stack tabs and

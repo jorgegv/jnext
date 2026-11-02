@@ -602,7 +602,7 @@ void test_breakpoints() {
                      "with its page",
           one);
     char want[32];
-    std::snprintf(want, sizeof(want), "$8005 @%02X", fx.p80);
+    std::snprintf(want, sizeof(want), "$8005 P%02X", fx.p80);
     check("QBPM-02", "its address reads with the page", one && rows[0].addr_text == want,
           one ? s(rows[0].addr_text) : "");
     bool ram_only = false;
@@ -1317,7 +1317,7 @@ void test_line_starts() {
                          "lowest location's address and space",
               g != jnext::dbg::GROUP_NONE && r.size() == 1 && r[0].locations == 2 &&
                   r[0].addr == 0x8000 && r[0].space == MemSpace::page(30) &&
-                  r[0].addr_text == QStringLiteral("$8000 @1E"),
+                  r[0].addr_text == QStringLiteral("$8000 P1E"),
               r.empty() ? std::string() : s(r[0].addr_text));
         m.clear_all();
     }
@@ -1342,6 +1342,51 @@ void test_line_starts() {
               r.size() == 1 && r[0].type == -1 && !r[0].own && r[0].addr_text == QStringLiteral("$C000 @14"),
               r.empty() ? std::string() : s(r[0].addr_text));
         fx.backend->detach(other);
+    }
+
+    // QLADDR-09 (GH #360): the Address column spells an identity row with the formatter's tag, which
+    // parses back to the row's space; another client's legacy page keeps its "@14" (QBPM-18 unchanged).
+    {
+        m.add(BreakpointModel::Execute, 0x8005, pg(fx.p80));
+        m.add(BreakpointModel::Execute, 0x0008, MemSpace::divmmc_rom());
+        jnext::dbg::ClientInfo ci;
+        ci.name = "dzrp-like";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const jnext::dbg::ClientId other = fx.backend->attach(ci).value;
+        jnext::dbg::Subscription legacy;
+        legacy.kind = jnext::dbg::EventKind::Execute;
+        legacy.action = jnext::dbg::Action::Stop;
+        legacy.filter.lo = legacy.filter.hi = 0xC000;
+        legacy.filter.page = 20;
+        fx.backend->subscribe(other, legacy);
+        m.add(BreakpointModel::Execute, 0x8000);   // the model re-reads the listing on its own mutations
+        m.remove(BreakpointModel::Execute, 0x8000);
+        QString ident, div, old;
+        bool parsed = false;
+        for (const auto& r : m.rows()) {
+            if (r.addr == 0x8005) {
+                ident = r.addr_text;
+                const auto sp = jnext::dbg::parse_space_tag(r.addr_text.mid(r.addr_text.indexOf(' ') + 1).toStdString());
+                parsed = sp && *sp == r.space && *sp == pg(fx.p80);
+            }
+            if (r.addr == 0x0008) div = r.addr_text;
+            if (r.addr == 0xC000) old = r.addr_text;
+        }
+        // A 48K machine has no Next layout: the Physical style prints the same tags (plan D3).
+        m.set_address_style(jnext::dbg::AddressStyle::Physical);
+        QString phys;
+        for (const auto& r : m.rows())
+            if (r.addr == 0x8005) phys = r.addr_text;
+        m.set_address_style(jnext::dbg::AddressStyle::Friendly);
+        check("QLADDR-09",
+              "Breakpoints: an identity row reads $8005 P<page> and $0008 DIVROM, its tag parses back to "
+              "the row's space (the Physical style on a 48K prints the same); another client's legacy page "
+              "reads $C000 @14",
+              ident == QString::asprintf("$8005 P%02X", fx.p80) && parsed && div == "$0008 DIVROM" &&
+                  phys == ident && old == QStringLiteral("$C000 @14"),
+              s(ident) + "|" + s(div) + "|" + s(phys) + "|" + s(old));
+        fx.backend->detach(other);
+        m.clear_all();
     }
 }
 
@@ -1613,9 +1658,9 @@ void test_source_messages() {
         fx.emu.cpu().set_registers(r);
         fx.mgr->refresh_panels();
         SourcePanel* sp = fx.dbg()->source_panel();
-        check("QSRC-24", "the PC in ROM reads \"ROM or overlay\" with no source mapping",
+        check("QSRC-24", "the PC in ROM reads \"ROM0\" (its space) with no source mapping",
               sp->location_text() ==
-                  QStringLiteral("$0000 (ROM or overlay): no source mapping; use the disassembly"),
+                  QStringLiteral("$0000 (ROM0): no source mapping; use the disassembly"),
               s(sp->location_text()));
     }
     {
@@ -1659,13 +1704,13 @@ void test_source_hex() {
     fx.emu.cpu().set_registers(r);
     fx.mgr->refresh_panels();
     SourcePanel* sp = fx.dbg()->source_panel();
-    const QString want = QString::asprintf("main.bas:10  $%04X  page %02X", addr, page);
+    const QString want = QString::asprintf("main.bas:10  $%04X  P%02X", addr, page);
     const QString mapped = sp->location_text();
     r.PC = static_cast<uint16_t>(addr - 1);   // below the only record; addr + 1 is inside its range
     fx.emu.cpu().set_registers(r);
     fx.mgr->refresh_panels();
     const QString want_unmapped =
-        QString::asprintf("$%04X (page %02X): no source mapping; use the disassembly", addr - 1, page);
+        QString::asprintf("$%04X (P%02X): no source mapping; use the disassembly", addr - 1, page);
     check("QSRC-44", "the Source tab prints the PC and the page in upper-case hex, mapped "
                      "or not",
           addr != 0 && mapped == want && sp->location_text() == want_unmapped,
@@ -3455,7 +3500,7 @@ void test_source_gutter() {
         check("QSRC-97", "hovering line 11's gutter row sets the tooltip to the line's words, naming "
                          "main.bas:11 and both places with their pages",
               tip == v.sp->line_tooltip(11) && tip.contains(QStringLiteral("main.bas:11")) &&
-                  tip.contains("$8002 @" + hex80) && tip.contains("$9000 @" + hex90),
+                  tip.contains("$8002 P" + hex80) && tip.contains("$9000 P" + hex90),
               s(tip));
 
         // QSRC-86 / QSRC-87: one location removed (the Disassembly gutter's click): a half mark
@@ -3467,7 +3512,7 @@ void test_source_gutter() {
         m.set_enabled(BreakpointModel::Execute, 0x8002, false, p80);
         check("QSRC-87", "the same partial line, disabled, shows the half ring and its tooltip says suspended, 1 of 2",
               v.mark(11) == "half-ring" &&
-                  v.sp->line_tooltip(11) == QStringLiteral("main.bas:11: suspended breakpoint at $8002 @") +
+                  v.sp->line_tooltip(11) == QStringLiteral("main.bas:11: suspended breakpoint at $8002 P") +
                                                 QString::asprintf("%02X", fx.p80) +
                                                 QStringLiteral(" (1 of 2 places)"),
               v.mark(11) + " | " + s(v.sp->line_tooltip(11)));
@@ -3572,7 +3617,7 @@ void test_source_gutter() {
         check("QSRC-90", "a breakpoint on a line whose page is not mapped now is set, shows no mark, and "
                          "the tooltip names that breakpoint and says its memory is not mapped now; a line with one mapped and one "
                          "unmapped place shows the full disc once the mapped place is armed",
-              set && v.mark(12) == "none" && v.sp->line_tooltip(12) == QStringLiteral("main.bas:12: breakpoint at $8005 @") +
+              set && v.mark(12) == "none" && v.sp->line_tooltip(12) == QStringLiteral("main.bas:12: breakpoint at $8005 P") +
                                                 QString::asprintf("%02X", fx.p80 + 2) +
                                                 QStringLiteral(", not mapped now") &&
                   mixed == "disc",
@@ -5882,6 +5927,140 @@ void test_z88dk_c_names_source() {
     m.clear_all();
 }
 
+// ── GH #360: the Call Stack's memory columns, the Source tab's label ────
+
+void test_long_address_views() {
+    {   // QLADDR-08: the recorded identities, not the live page
+        Fixture fx(0, MachineType::ZXN_ISSUE2);
+        fx.enable();
+        fx.emu.mmu().set_boot_rom_enabled(false);
+        fx.emu.mmu().write(0x8003, 0x00);
+        fx.emu.mmu().write(0x8004, 0xC0);
+        fx.emu.mmu().write(0xC000, 0x00);
+        fx.emu.mmu().write(0xC001, 0xC9);
+        fx.emu.mmu().set_page(6, 20);
+        fx.backend->set_call_stack_enabled(true);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $C000, page 20 in slot 6
+        CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+        if (cs) { cs->set_paused(true); cs->refresh(); }
+        const QString predicted = cell(cs, 0, 6);          // not fetched yet: the prediction
+        fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // the first fetch at the target records its memory
+        fx.emu.mmu().set_page(6, 21);                      // then the slots are paged on
+        fx.emu.mmu().set_page(4, 7);                       // (the caller's too)
+        if (cs) cs->refresh();
+        const QString caller = cell(cs, 0, 5), target = cell(cs, 0, 6);
+        if (cs) { cs->set_address_style(jnext::dbg::AddressStyle::Physical); cs->refresh(); }
+        const QString caller_phys = cell(cs, 0, 5), target_phys = cell(cs, 0, 6);
+        check("QLADDR-08",
+              "Call Stack: Caller memory and Target memory are the identities recorded (P04 and P14, the "
+              "target at its first fetch), not the live pages 7 and 21 now in slots 4 and 6; before that fetch the "
+              "target shows the prediction; physical $048002 and $068000",
+              fx.p80 == 4 && fx.pc() == 0xC001 && predicted == "P14" && caller == "P04" && target == "P14" &&
+                  caller_phys == "$048002" && target_phys == "$068000",
+              s(predicted) + "|" + s(caller) + "|" + s(target) + "|" + s(caller_phys) + "|" + s(target_phys));
+    }
+    {   // QLADDR-15: a toggle re-spells the Breakpoints rows that already exist
+        Fixture fx(0, MachineType::ZXN_ISSUE2);
+        fx.enable();
+        fx.emu.mmu().set_boot_rom_enabled(false);
+        BreakpointModel& m = fx.mgr->breakpoints();
+        m.add(BreakpointModel::Execute, 0x8005, pg(fx.p80));
+        const QString before = m.rows().empty() ? QString() : m.rows()[0].addr_text;
+        m.set_address_style(jnext::dbg::AddressStyle::Physical);   // nothing else republishes
+        const QString phys = m.rows().empty() ? QString() : m.rows()[0].addr_text;
+        m.set_address_style(jnext::dbg::AddressStyle::Friendly);
+        const QString back = m.rows().empty() ? QString() : m.rows()[0].addr_text;
+        check("QLADDR-15",
+              "Breakpoints: switching the style re-spells an existing identity row on a Next ($8005 P04 to "
+              "$8005 $048005) and back, with no other change to the model",
+              fx.p80 == 4 && before == "$8005 P04" && phys == "$8005 $048005" && back == before,
+              s(before) + "|" + s(phys) + "|" + s(back));
+        m.clear_all();
+    }
+    {   // QLADDR-10: the Source tab names the memory of the PC, in either style
+        Fixture fx(0, MachineType::ZXN_ISSUE2);
+        fx.enable();
+        fx.emu.mmu().set_boot_rom_enabled(false);
+        fx.load_map();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        fx.mgr->refresh_panels();
+        const QString friendly = sp->location_text();
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Physical);
+        const QString physical = sp->location_text();
+        // ... and at a PC that is not slot-aligned: line 11 starts at $8002.
+        Z80Registers r2 = fx.emu.cpu().get_registers();
+        r2.PC = 0x8002;
+        fx.emu.cpu().set_registers(r2);
+        fx.mgr->refresh_panels();
+        const QString physical2 = sp->location_text();
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Friendly);
+        // The unmapped PC at a DivMMC instant entry: DIVROM, not "ROM or overlay".
+        fx.emu.nextreg().write(0x0A, 0x10);
+        fx.emu.nextreg().write(0xB8, 0x01);
+        fx.emu.nextreg().write(0xB9, 0x01);
+        fx.emu.nextreg().write(0xBA, 0x01);
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x0000;
+        fx.emu.cpu().set_registers(r);
+        fx.mgr->refresh_panels();
+        const QString unmapped = sp->location_text();
+
+        // Every place the tab prints goes through the style: the tooltip's places, the Copy with
+        // Addresses text and the Breakpoints rows (set through the window). Line 12 compiled into a
+        // page that is not mapped now: page 6 at $8005 is SRAM 0x04C005.
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Physical);
+        const std::string dir = g_tmp->path().toStdString();
+        const std::string pa = std::to_string(fx.p80), pb = std::to_string(fx.p80 + 2);
+        write_text(dir + "/far10.sld", std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
+                                           "main.bas|10||0|" + pa + "|32768|T|\n" + "main.bas|10||0|" + pb +
+                                           "|32768|T|\n" + "main.bas|12||0|" + pb + "|32773|T|\n");
+        fx.backend->load_source_map(dir + "/far10.sld", false);
+        BreakpointModel& bm = fx.mgr->breakpoints();
+        Z80Registers pcr = fx.emu.cpu().get_registers();
+        pcr.PC = 0x8000;
+        fx.emu.cpu().set_registers(pcr);
+        SrcView v(fx, bm);
+        v.sp->set_address_style(jnext::dbg::AddressStyle::Physical);
+        v.sp->refresh();
+        const QString tip_unplaced = v.sp->line_tooltip(12);
+        bm.add(BreakpointModel::Execute, 0x8005, pg(fx.p80 + 2));
+        const QString tip_hidden = v.sp->line_tooltip(12);
+        QTextCursor sel(v.ed->document()->findBlockByNumber(9));
+        sel.setPosition(v.ed->document()->findBlockByNumber(11).position() +
+                            v.ed->document()->findBlockByNumber(11).length() - 1,
+                        QTextCursor::KeepAnchor);
+        v.ed->setTextCursor(sel);
+        const QString copied = v.sp->selection_text_with_addresses();
+        QMenu cm;
+        v.sp->fill_context_menu(cm, 10, 0);   // line 10 has two places: Show in Disassembly lists both
+        QStringList places;
+        for (QAction* a : cm.actions())
+            if (a->menu() && a->text() == QLatin1String("Show in Disassembly"))
+                for (QAction* pa2 : a->menu()->actions()) places << pa2->text();
+        const auto rows = bm.rows();
+        const QString row_text = rows.empty() ? QString() : rows[0].addr_text;
+        fx.dbg()->set_address_style(jnext::dbg::AddressStyle::Friendly);
+        check("QLADDR-10",
+              "Source tab: the label names the memory of the PC through the formatter: main.bas:10  $8000  "
+              "P04 (physical $048000), and $0000 (DIVROM): no source mapping at a DivMMC instant entry; the "
+              "tooltip, Copy with Addresses text and Breakpoints rows use the same style",
+              fx.p80 == 4 && friendly == QStringLiteral("main.bas:10  $8000  P04") &&
+                  physical == QStringLiteral("main.bas:10  $8000  $048000") &&
+                  physical2 == QStringLiteral("main.bas:11  $8002  $048002") &&
+                  unmapped == QStringLiteral("$0000 (DIVROM): no source mapping; use the disassembly") &&
+                  tip_unplaced == QStringLiteral("main.bas:12: code at $8005 $04C005, not mapped now; click to set") &&
+                  tip_hidden == QStringLiteral("main.bas:12: breakpoint at $8005 $04C005, not mapped now") &&
+                  copied == QStringLiteral("main.bas:10  $8000 $048000, $8000 $04C000  REM line 10\nmain.bas:11  -  REM line 11\n"
+                                           "main.bas:12  $8005 $04C005  REM line 12\n") &&
+                  places == QStringList{QStringLiteral("$8000 $048000"), QStringLiteral("$8000 $04C000")} &&
+                  row_text == QStringLiteral("$8005 $04C005"),
+              s(friendly) + "|" + s(physical) + "|" + s(unmapped) + "|" + s(tip_unplaced) + "|" + s(tip_hidden) +
+                  "|" + s(copied) + "|" + s(places.join(',')) + "|" + s(row_text));
+    }
+}
+
 // ===========================================================================
 // GH #347 stage 1 - the current-line marker (an amber wedge in the gutter's
 // trailing strip) and the "also:" list of the other places of an address (OD-7).
@@ -6045,13 +6224,13 @@ void test_source_current_line() {
         v.sp->refresh();
         const QStringList pend = v.sp->location_text().split(QLatin1Char('\n'));
         const bool order = pend.size() == 2 &&
-                           pend[0] == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
+                           pend[0] == QStringLiteral("main.bas:11  $8002  P%1  also: util.bas:7").arg(page) &&
                            pend[1].startsWith(QStringLiteral("Source map not verified yet"));
         check("QSRC-174", "two places at $8002 (util.bas:7 emitted first, main.bas:11 later and primary): "
                           "the label names the primary and lists the other as 'also: util.bas:7'; "
                           "a one-place address carries no 'also'; under a pending map 'also' ends the "
                           "position line and the note follows on the next line",
-              at8002 == QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7").arg(page) &&
+              at8002 == QStringLiteral("main.bas:11  $8002  P%1  also: util.bas:7").arg(page) &&
                   !at8000.contains(QStringLiteral("also")) && order,
               s(at8002) + " | " + s(at8000) + " | " + s(v.sp->location_text()));
     }
@@ -6222,7 +6401,7 @@ void test_source_sync() {
         const QString page = QString::asprintf("%02X", ram_page_of(fx.backend->source_page(0x8002)));
         w.dis_click(0x8002);
         const QString browsing = w.sp->location_text();
-        const QString want = QStringLiteral("main.bas:11  $8002  page %1  also: util.bas:7  "
+        const QString want = QStringLiteral("main.bas:11  $8002  P%1  also: util.bas:7  "
                                             "(browsing; the PC is at main.bas:10, $8000)").arg(page);
         const bool label = browsing == want && w.sp->browsing() && w.sp->highlighted_line() == 10;
         // a map still pending verification: the note stays its own line AFTER the position's
@@ -6269,7 +6448,7 @@ void test_source_sync() {
         SyncWin w(fx);
         w.src_move(11);
         QImage img = w.dis_image();
-        const auto px = [&](const QImage& i, int row) { return QColor::fromRgb(i.pixel(i.width() - 40, disasm_row_y(row))); };
+        const auto px = [&](const QImage& i, int row) { return QColor::fromRgb(i.pixel(i.width() - 20, disasm_row_y(row))); };
         const QColor lk = source_sync_colors::linked(w.dp->palette()), yellow(255, 255, 204), white(255, 255, 255);
         const int c = w.centre();
         const bool rows = px(img, c + 2) == lk && px(img, c) == yellow && px(img, c + 1) == white && px(img, c + 3) == white;
@@ -6448,7 +6627,7 @@ void test_source_sync() {
         w.dis_click(0x9000);
         const bool shown = w.sp->shown_file() == "sub.bas" && w.ed->textCursor().blockNumber() == 0 &&
                            w.tinted() == std::set<int>{0} && w.sp->highlighted_line() == 0 && w.sp->browsing() &&
-                           w.sp->location_text() == QStringLiteral("sub.bas:1  $9000  page %1  "
+                           w.sp->location_text() == QStringLiteral("sub.bas:1  $9000  P%1  "
                                                   "(browsing; the PC is at main.bas:10, $8000)").arg(page);
         const int top = w.ed->verticalScrollBar()->value();
         for (int i = 0; i < 20; ++i) w.tick();
@@ -6859,6 +7038,27 @@ void test_source_sync_review() {
               lit && w.tinted().empty() && !w.sp->browsing() && w.sp->highlighted_line() == 10,
               "lit=" + std::to_string(lit) + " tinted=" + std::to_string(w.tinted().size()));
     }
+    {   // QSRC-209 (GH #360 review): the browsed label names the memory of the BROWSED address, not the PC's
+        Fixture fx;
+        fx.enable();
+        const unsigned pc_page = fx.backend->effective_page(0x8000), far_page = fx.backend->effective_page(0xC000);
+        fx.backend->load_source_map(write_sld("sync-far.sld",
+            "main.bas|10||0|" + std::to_string(pc_page) + "|32768|T|\n" +
+            "util.bas|7||0|" + std::to_string(far_page) + "|49152|T|\n"), false);
+        write_main({});
+        {
+            std::string util;
+            for (int i = 1; i <= 12; ++i) util += "REM util " + std::to_string(i) + "\n";
+            write_text(g_tmp->path().toStdString() + "/util.bas", util);
+        }
+        SyncWin w(fx);
+        w.dis_click(0xC000);
+        const QString want = QString::asprintf("util.bas:7  $C000  P%02X  (browsing; the PC is at main.bas:10, $8000)", far_page);
+        check("QSRC-209", "a Disassembly click on $C000, in another MMU slot and page than the PC at $8000, labels the "
+                          "line with the memory of $C000 (its own page tag), not the PC's",
+              pc_page != far_page && w.sp->browsing() && w.sp->location_text() == want,
+              "pc_page=" + std::to_string(pc_page) + " far_page=" + std::to_string(far_page) + " " + s(w.sp->location_text()));
+    }
     {   // QSRC-206: two files whose lines share a number
         Fixture fx;
         fx.enable();
@@ -6936,6 +7136,7 @@ int main(int argc, char** argv) {
     test_source_reverse_refused();
     test_source_messages();
     test_call_stack_pages();
+    test_long_address_views();
     test_paged_symbols();
     test_sld_labels_menu();
     test_sld_labels_add_execute();

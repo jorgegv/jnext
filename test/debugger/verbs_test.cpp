@@ -51,6 +51,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/mmu_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/video_panel.h"
@@ -1250,6 +1251,71 @@ static void test_throttle() {
 // DebuggerManager::take_panel_refresh_count(); every row ticks like QtApp
 // (Fixture::tick() = check_breakpoint_hit() + refresh_panels()).
 // ===========================================================================
+// QLADDR-18/19 (GH #360 with GH #428) -- what the long-address views show while paused reaches the
+// panels. Oracle: the QIDLE contract above (a paused window is redrawn when the clock, the backend's
+// revision, an input or the registers moved, and at no other time) and the panels' own spelling.
+//  18: the Debug > Physical Addresses toggle is the user's input and redraws the panels itself; the
+//      idle ticks after it refresh nothing and do not undo it.
+//  19: another client's NextREG write that remaps a slot (a backend verb, so the revision moves)
+//      refreshes once at the next tick and the MMU panel names the new page ("P20").
+static void test_long_address_paused() {
+    set_group("QLADDR");
+    Fixture fx(MachineType::ZXN_ISSUE2);
+    if (!fx.ok) {
+        check("QLADDR-18", "fixture", false);
+        check("QLADDR-19", "fixture", false);
+        return;
+    }
+    fx.load(PROG, {0x00, 0x00, 0x18, 0xFE});
+    fx.regs(PROG);
+    fx.enable();
+    jnext::dbg::ClientInfo oi;
+    oi.name = "other";
+    oi.kind = jnext::dbg::ClientKind::Test;
+    const jnext::dbg::ClientId other = fx.backend->attach(oi).value;
+    fx.tick();
+    fx.tick();
+    fx.mgr->take_panel_refresh_count();
+    DebuggerWindow* win = fx.dbg();
+    auto mmu_text = [&]() {
+        QString t;
+        if (MmuPanel* m = win->findChild<MmuPanel*>())
+            for (QLabel* l : m->findChildren<QLabel*>()) t += l->text() + "|";
+        return t;
+    };
+    {
+        const QString before = mmu_text();
+        win->set_address_style(jnext::dbg::AddressStyle::Physical);
+        const QString after = mmu_text();
+        for (int i = 0; i < 20; ++i) fx.tick();
+        const uint64_t n = fx.mgr->take_panel_refresh_count();
+        const QString later = mmu_text();
+        win->set_address_style(jnext::dbg::AddressStyle::Friendly);
+        check("QLADDR-18",
+              "Debug > Physical Addresses on a paused idle machine redraws the panels at once (the MMU panel's "
+              "text changes), and 20 idle ticks after it refresh nothing and keep the new style",
+              !before.isEmpty() && before != after && later == after && n == 0,
+              fmt("changed=%d kept=%d n=%llu", before != after, later == after, (unsigned long long)n));
+    }
+    {
+        fx.tick();
+        fx.mgr->take_panel_refresh_count();
+        const QString before = mmu_text();
+        fx.backend->nextreg_write(other, 0x56, 0x20);   // slot 6 ($C000) -> 8K page $20
+        fx.tick();
+        const uint64_t n1 = fx.mgr->take_panel_refresh_count();
+        const QString after = mmu_text();
+        fx.tick();
+        const uint64_t n2 = fx.mgr->take_panel_refresh_count();
+        check("QLADDR-19",
+              "another client's NextREG write that remaps slot 6 while paused refreshes once at the next tick and "
+              "the MMU panel names the new page P20; the tick after refreshes nothing",
+              n1 == 1 && n2 == 0 && !before.contains("P20") && after.contains("P20"),
+              fmt("n1=%llu n2=%llu before_has=%d after_has=%d", (unsigned long long)n1, (unsigned long long)n2,
+                  before.contains("P20"), after.contains("P20")));
+    }
+}
+
 static void test_idle_refresh() {
     set_group("QIDLE");
 
@@ -3176,6 +3242,7 @@ int main(int argc, char** argv) {
     test_pause_edge();
     test_throttle();
     test_idle_refresh();
+    test_long_address_paused();
     test_enable_seeds();
     test_rewind_ui();
     test_rewind_refusal_ui();

@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "debug/long_address.h"
+
 class BreakpointModel;
 class QAction;
 class QLabel;
@@ -129,6 +131,10 @@ public:
     /// an edit-and-rebuild still shows while nothing else changes.
     bool file_changed_on_disk() const;
 
+    /// GH #360 - Friendly (`P04`) or Physical (`$048000`) wherever the tab names the
+    /// memory of an address: the label, the place lists, the tooltips, the menus.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
+
 signals:
     /// Emitted by update_buttons() with the two enabled states it applied.
     void steps_available(bool forward, bool backward);
@@ -190,6 +196,7 @@ private:
     void show_running();
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QLabel* location_label_ = nullptr;
     QPlainTextEdit* editor_ = nullptr;
     SourceHighlighter* highlighter_ = nullptr;

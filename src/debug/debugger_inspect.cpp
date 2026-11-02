@@ -38,6 +38,7 @@
 
 #include "debug/debugger_impl.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -467,6 +468,7 @@ std::array<SlotInfo, 8> Debugger::mmu_slots() const {
             si.space        = MemSpace::page(si.nr_page);
             si.space_offset = 0;
         }
+        si.now = mmu.route(static_cast<uint16_t>(s << 13)).space;
     }
     return out;
 }
@@ -827,13 +829,33 @@ Result Debugger::set_audio_mute_mask(ClientId by, uint8_t mask) {
 // INS-11 — disassembly
 //
 // All four read guest memory through `memory_reader()`, i.e. through
-// `Mmu::peek()`: a disassembly is an observation, and before F1 the panel's own
-// read was the one that latched the floating bus.
+// `Mmu::peek()` (no floating-bus latch): a disassembly is an observation, and
+// before F1 the panel's own read was the one that latched the floating bus. The
+// instruction at the PC is the exception (GH #360): its bytes are the ones the
+// CPU will fetch, which differ from a peek at a DivMMC instant entry.
 // ---------------------------------------------------------------------------
 
 DisasmReadFn Debugger::memory_reader() const {
     Emulator* emu = &impl_->emu;
-    return [emu](uint16_t addr) -> uint8_t { return emu->mmu().peek(addr); };
+    // GH #360 F1: the instruction at the PC is read as the CPU WILL fetch it, not
+    // as the data view shows it. At a DivMMC instant entry the M1 itself maps
+    // DivMMC (design 4.4), so a peek of the PC line shows the bytes of the map
+    // before the M1 while the CPU executes others. Every other address is a peek.
+    const uint16_t pc = emu->cpu().get_registers().PC;
+    uint8_t b[4];
+    emu->predict_instruction_bytes(pc, b);
+    auto peek = [emu](uint16_t a) -> uint8_t { return emu->mmu().peek(a); };
+    const auto mixed = [pc, b, peek](uint16_t a) -> uint8_t {
+        const uint16_t off = static_cast<uint16_t>(a - pc);
+        return off < 4 ? b[off] : peek(a);
+    };
+    // Only the bytes of the PC instruction itself are predicted; what follows it
+    // is the next instruction, which the CPU fetches after the M1 has run.
+    const int n = std::min(4, ::instruction_length(pc, mixed));
+    return [pc, b, n, peek](uint16_t addr) -> uint8_t {
+        const uint16_t off = static_cast<uint16_t>(addr - pc);
+        return off < n ? b[off] : peek(addr);
+    };
 }
 
 std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,

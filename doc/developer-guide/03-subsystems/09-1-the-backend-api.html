@@ -1198,6 +1198,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Conventions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-long-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The long address
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2565,6 +2582,29 @@ slot's <code>effective_page</code> is an un-shifted SRAM page index, outside <co
 numbering. So <code>mmu_slots()</code> returns each slot's complete backing store as
 <code>SlotInfo::space</code> plus <code>SlotInfo::space_offset</code>. <code>rom_select()</code> names the image
 legacy paging selects, even while RAM is paged at 0x0000.</p>
+<p><code>space</code> is the slot's OWN source. <code>SlotInfo::now</code> is what a read of the slot
+reaches right now, overlays included (DivMMC, Multiface, Layer 2, alt ROM,
+config mode, boot ROM): <code>Mmu::route(slot &lt;&lt; 13).space</code>, the live data route of
+the slot's first byte. One value per slot is complete, because every arm of the
+VHDL arbiter switches on <code>cpu_a(15:13)</code> boundaries or coarser. It is the DATA
+view: the instruction at the PC may come from elsewhere, which is what
+<code>source_page(pc)</code> answers.</p>
+<p>A slot 2-7 holding NR &gt;= 0xE0 reads nothing: <code>now</code> is <code>Floating</code>, but <code>space</code> is <code>Page{0xE5}</code>,
+which <code>space_tag()</code> would spell <code>PE5</code>, a tag <code>parse_space_tag()</code> refuses. So a view names a slot by
+<code>now</code>; none of the protocol outputs tags <code>space</code>, and a view that shows the slot's own source shows
+<code>FLOAT</code> for a page &gt;= 0xE0.</p>
+<h3 id="the-long-address">The long address<a class="headerlink" href="#the-long-address" title="Permanent link">&para;</a></h3>
+<p><code>debug/long_address.h</code> (standard headers and <code>mem_space.h</code> only) is the one place
+a <code>MemSpace</code> is spelled for display: <code>space_tag()</code> gives the tag (<code>P0E</code>, <code>ROM1</code>,
+<code>BOOT</code>, <code>MFROM</code>, <code>MFRAM</code>, <code>DIVROM</code>, <code>DIVRAM3</code>, <code>ALTROM0</code>, <code>L2P12</code>, <code>CFG17</code>,
+<code>FLOAT</code>, <code>CPU</code>), <code>parse_space_tag()</code> is its inverse (strict digits, any case),
+<code>physical_text()</code> gives the Next layout (<code>$060000</code>, <code>BRAM5+$0000</code>, <code>BRAM7+$0010</code>,
+<code>BOOT+$1008</code>), and <code>space_text()</code> / <code>long_address()</code> pick between them by
+<code>AddressStyle</code> (Friendly or Physical; Physical falls back to Friendly where
+<code>next_layout</code> is false). <strong>The tags are a stable format</strong>: the project file and
+the ghidra and skoolkit exports key on them, so changing a spelling is a format
+break. Banks 5 and 7 are block RAM, not SRAM, apart from page 0x0F; Layer 2
+always sees the SRAM copy.</p>
 <h2 id="the-capability-families">The capability families<a class="headerlink" href="#the-capability-families" title="Permanent link">&para;</a></h2>
 <p>Each family keeps its design id prefix, which is how the headers, the tests and
 the design documents refer to it.</p>
@@ -3209,8 +3249,8 @@ There is no DZRP, ZRCP, GDB or DSL verb.</p>
 word at SP read with <code>peek()</code>, the eight MMU pages and <code>rom_slots</code>, a bit per
 slot that held ROM, and the identity of the memory its instruction was fetched
 from (<code>fetch_kind</code>, <code>fetch_index</code>). <code>trace_export()</code> writes all of them; the ROM
-mask is the <code>ROM=</code> column after the pages and the identity the <code>FETCH=kk:ii</code>
-column after it (hex kind and index).</p>
+mask is the <code>ROM=</code> column after the pages and the identity the <code>FETCH=&lt;tag&gt;</code>
+column after it (<code>space_tag()</code> of <code>fetch_space()</code>, never the GUI's address style).</p>
 <h3 id="session-cap-ses">Session — CAP-SES<a class="headerlink" href="#session-cap-ses" title="Permanent link">&para;</a></h3>
 <p><code>attach</code>, <code>detach</code>, <code>set_listener</code>, <code>add_service</code>, <code>remove_service</code>, <code>pump</code>,
 <code>stop_policy</code>, <code>set_stop_policy</code>, <code>set_live_raster</code>, <code>live_raster</code>, <code>attached</code>,

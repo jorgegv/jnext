@@ -80,6 +80,33 @@ numbering. So `mmu_slots()` returns each slot's complete backing store as
 `SlotInfo::space` plus `SlotInfo::space_offset`. `rom_select()` names the image
 legacy paging selects, even while RAM is paged at 0x0000.
 
+`space` is the slot's OWN source. `SlotInfo::now` is what a read of the slot
+reaches right now, overlays included (DivMMC, Multiface, Layer 2, alt ROM,
+config mode, boot ROM): `Mmu::route(slot << 13).space`, the live data route of
+the slot's first byte. One value per slot is complete, because every arm of the
+VHDL arbiter switches on `cpu_a(15:13)` boundaries or coarser. It is the DATA
+view: the instruction at the PC may come from elsewhere, which is what
+`source_page(pc)` answers.
+
+A slot 2-7 holding NR >= 0xE0 reads nothing: `now` is `Floating`, but `space` is `Page{0xE5}`,
+which `space_tag()` would spell `PE5`, a tag `parse_space_tag()` refuses. So a view names a slot by
+`now`; none of the protocol outputs tags `space`, and a view that shows the slot's own source shows
+`FLOAT` for a page >= 0xE0.
+
+### The long address
+
+`debug/long_address.h` (standard headers and `mem_space.h` only) is the one place
+a `MemSpace` is spelled for display: `space_tag()` gives the tag (`P0E`, `ROM1`,
+`BOOT`, `MFROM`, `MFRAM`, `DIVROM`, `DIVRAM3`, `ALTROM0`, `L2P12`, `CFG17`,
+`FLOAT`, `CPU`), `parse_space_tag()` is its inverse (strict digits, any case),
+`physical_text()` gives the Next layout (`$060000`, `BRAM5+$0000`, `BRAM7+$0010`,
+`BOOT+$1008`), and `space_text()` / `long_address()` pick between them by
+`AddressStyle` (Friendly or Physical; Physical falls back to Friendly where
+`next_layout` is false). **The tags are a stable format**: the project file and
+the ghidra and skoolkit exports key on them, so changing a spelling is a format
+break. Banks 5 and 7 are block RAM, not SRAM, apart from page 0x0F; Layer 2
+always sees the SRAM copy.
+
 ## The capability families
 
 Each family keeps its design id prefix, which is how the headers, the tests and
@@ -629,8 +656,8 @@ Each trace entry carries the registers (including I, R, IM, IFF1 and IFF2), the
 word at SP read with `peek()`, the eight MMU pages and `rom_slots`, a bit per
 slot that held ROM, and the identity of the memory its instruction was fetched
 from (`fetch_kind`, `fetch_index`). `trace_export()` writes all of them; the ROM
-mask is the `ROM=` column after the pages and the identity the `FETCH=kk:ii`
-column after it (hex kind and index).
+mask is the `ROM=` column after the pages and the identity the `FETCH=<tag>`
+column after it (`space_tag()` of `fetch_space()`, never the GUI's address style).
 
 ### Session — CAP-SES
 

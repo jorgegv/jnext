@@ -546,7 +546,10 @@ void DzrpServer::cmd_get_registers(const Command& cmd) {
     out.push_back(0);  // reserved
     const auto slots = dbg_.mmu_slots();
     out.push_back(static_cast<std::uint8_t>(slots.size()));
-    for (const auto& s : slots) out.push_back(s.nr_page);
+    // 0xFF for every ROM slot: MMU0/1 = 0xE0..0xFE read ROM too (zxnext.vhd:2964,
+    // :3052), and DeZog has no bank for those values (GH #360 F3). DZRP has no value
+    // for an overlay or for "nothing answers", so those keep the NR value.
+    for (const auto& s : slots) out.push_back(s.is_rom ? 0xFF : s.nr_page);
     reply(cmd.seq, out);
 }
 

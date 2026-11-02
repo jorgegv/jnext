@@ -10,8 +10,9 @@ or NextBuild symbols by hand, and **Locate File...**, enabled while the tab says
 paused and a source map is loaded; **Back** and **Reverse** also need the trace
 log and rewind. The same steps and loads are also in **Debug ▸ Source**.
 
-Under them, a line naming the position — `main.bas:120  $8A3C  page 2E`, or
-`ROM or overlay` when no RAM page supplies the address — and
+Under them, a line naming the position — `main.bas:120  $8A3C  P2E`, ending in the tag of the memory the
+opcode comes from (`ROM0`, `DIVROM` when it is not a RAM page; the physical
+address in [the physical style](../index.md#which-memory-an-address-is-in)) — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there. The start-up code of a z88dk program built with `--list`
@@ -109,7 +110,7 @@ on the line under the pointer. A right-click outside the selection first selects
 inside it, the selection stays (so a dragged range can be copied).
 
 - **Copy** (Ctrl+C), **Copy with Addresses** and **Select All** (Ctrl+A). Copy with Addresses
-  puts each selected line on the clipboard as `main.bas:11  $8002 @05, $9000 @06  REM line 11`:
+  puts each selected line on the clipboard as `main.bas:11  $8002 P05, $9000 P06  REM line 11`:
   every address the line compiled to, with its page, or `-` for a line with no code.
 - **Toggle Breakpoint**: the gutter click.
 - **Run to Here**, also **Enter** in the text: run until the first place of the line is reached

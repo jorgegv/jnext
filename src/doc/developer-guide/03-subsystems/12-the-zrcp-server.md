@@ -39,6 +39,17 @@ holds one pump. `hard-reset-cpu` is a cold boot completed inside the reply,
 through the loop owner's `LoopDriver` (the reconstruct contract of [3.9.3](09-3-sessions-the-pump-and-reconstruct.md)): the session
 and its subscriptions survive it, and a stopped machine stays stopped.
 
+## `get-memory-pages`
+
+On the Next `memory_pages()` names each slot from `SlotInfo::now`, with ZEsarUX's
+spellings: `O<2*image + half>` for ROM, `A<page>`, `SR<NR 0x04>` (the full value) in
+config mode, `RO` for the boot ROM, `DIV` for either DivMMC memory (also over a RAM-mapped
+slot: the VHDL overlays it too). The Multiface, Layer 2, alt ROM and a floating slot have no
+ZEsarUX spelling and print the slot's own mapping (`O<n>` / `A<nr_page>`). On the legacy
+machines segment 0 is `DIV` while slot 0 reads DivMMC. `MMU=` stays the DeZog projection
+(ROM half >= 0x8000) and does not use `now`. `cpu-step-over` reads the opcode at the PC
+through `memory_reader()`, the instruction the CPU will fetch.
+
 ## Breakpoints, history, loading
 
 The 100 condition slots of `set-breakpoint` are one backend subscription each,

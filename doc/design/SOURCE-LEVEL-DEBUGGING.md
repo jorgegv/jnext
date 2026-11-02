@@ -370,7 +370,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
 | Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The breakpoint gate, the Breakpoints panel and the disassembly gutter use the `FetchSource` itself (E23-09 (#341)); only the Source tab's display string still reduces it to a RAM page through `ram_page_of()` (`debug/ram_page.h`), which is E23-22's | 4.1, 4.2, 4.4 | E23-07 (#339) |
-| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
+| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=<tag>` (E23-22, 4.6) | 4.3 | E23-08 (#340) |
 | Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
@@ -382,7 +382,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); syntax highlighting done in E23-29 (#422); the amber current-line wedge and the "also:" list done in E23-16 (#347) stage 1; selection sync both ways, browsing, Show in Source and Go to PC Line done in E23-16 (#347) stage 2 | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line, a symbol unknown at start or a load-bound symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
-| The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
+| The identity in every view; remote vocabularies | DONE (E23-22 (#360)): `debug/long_address.h` (`space_tag()`, `parse_space_tag()`, `physical_text()`, `long_address()`), `SlotInfo::now`, `memory_reader()` reads the PC instruction as the CPU fetches it, the trace export prints `FETCH=<tag>`; GDB `monitor mmu` / `monitor sym`, DZRP slot bytes and ZRCP `get-memory-pages` (4.6); the Qt views name the memory in the Disassembly, Memory, MMU, Stack, Watches, Call Stack, Breakpoints and Source tab, with a physical style (4.6) | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | DONE (E23-21 (#351)): rule 5, `peek(DivMmcRam)`, a map judged at the command's entry, `--source-map` without `--load` | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
@@ -528,8 +528,8 @@ interrupted PC: the interrupted instruction has not been fetched, and will be on
 return. The per-instruction prediction of the post-instruction PC is gone.
 
 Back and Reverse Continue look the source map up with the entry's recorded identity, and the
-trace export prints it as ` FETCH=kk:ii` (hex kind and index) after `ROM=`; E23-22 (#360)
-replaces that column's text with its formatter. ZRCP `cpu-history` and DZRP history are not
+trace export prints it as ` FETCH=<tag>` after `ROM=` (E23-22 (#360): `space_tag()` of the
+recorded identity, 4.6; it was `kk:ii`, hex kind and index). ZRCP `cpu-history` and DZRP history are not
 affected.
 
 ### 4.4 The current-PC prediction (E23-07 (#339))
@@ -627,6 +627,45 @@ split at the last `:`; skoolkit file names). E23-22 fixes them. The list on #360
 `ROM0` to `ROM3`, `ALTROM0`, `ALTROM1`, `DIVROM`, `DIVRAM3`, `MFROM`, `MFRAM`, `BOOT`, `L2P12`,
 `CFG` plus the page) is provisional until E23-08 has landed; E23-07 fixed the kinds and indices
 (4.1).
+
+As built (E23-22 stage 1, `debug/long_address.{h,cpp}`): `Page{n}` `P%02X`, `Rom{i}` `ROM%u`,
+`BootRom` `BOOT`, `MultifaceRom` `MFROM`, `MultifaceRam` `MFRAM`, `DivMmcRom` `DIVROM`,
+`DivMmcRam{b}` `DIVRAM%u` (decimal, 0 to 15), `AltRom{i}` `ALTROM%u`, `Layer2{p}` `L2P%02X`,
+`Config{b}` `CFG%02X`, `Floating` `FLOAT`, `Cpu` `CPU`. The parser is case-insensitive, strict
+about digits (no leading zero on a decimal index, a page is 0 to 0xDF, a ROM 0 to 3). The physical
+form is `$` plus six hex digits of the SRAM address (`Page{n}` is SRAM page `n + 0x20`), or
+`BRAM5+$XXXX` (pages 0x0A/0x0B), `BRAM7+$XXXX` (page 0x0E), `BOOT+$XXXX`; page 0x0F (the upper
+half of bank 7) is SRAM, and Layer 2 always shows the SRAM copy. A non-Next machine shows the
+friendly form in either style. The trace export prints the tag whatever the GUI style (an export
+must not depend on a view setting).
+
+A slot 2 to 7 holding NR 0x50+ >= 0xE0 reads nothing (zxnext.vhd:3061): its `SlotInfo::now` is
+`Floating` (`FLOAT`), but its own `SlotInfo::space` is `Page{0xE5}`, which `space_tag()` would spell
+`PE5`, a tag the parser refuses. Decision (E23-22 stage 2): a view names a slot by `now`; no
+protocol output tags `space`; a view that must show the slot's own source (the Memory panel's Slot
+view, stage 3) shows `FLOAT` for a `Page` index >= 0xE0, never `PE5`. `parse_space_tag()` keeps
+refusing pages >= 0xE0.
+
+As built, remote (stage 2): GDB `monitor mmu` ends each slot line with `space_tag(now)` and, on the
+Next, the physical text of the slot's first byte (`slot 0: page FF (effective 00) ROM  DIVROM
+$010000`; the tag alone on other machines); `monitor sym ADDR` is `$C004 P14 = banked+4` (the tag of
+the memory the lookup used) and `monitor sym NAME` is `banked = $C000 P14` for a paged label.
+DZRP sends 0xFF for every ROM slot in `CMD_GET_REGISTERS` (a floating slot and an overlay keep the
+NR value). ZRCP `get-memory-pages` is named from `now`: `RO`, `O<2*image+half>`, `A<page>`,
+`SR<NR 0x04>`, `DIV` (also over a RAM-mapped slot; segment 0 on the legacy machines); overlays with no
+ZEsarUX spelling print the slot's own mapping; `MMU=` is unchanged. ZRCP `cpu-step-over` reads the
+opcode at the PC as the CPU fetches it.
+
+As built, Qt (stage 3): one `AddressStyle` held by `DebuggerWindow` (Debug > Physical Addresses,
+`debugger.physical_addresses`, `--set` as a run override) and handed to every panel. The line at
+`PC` and the Source tab show the fetch prediction; the other Disassembly lines, the MMU panel, the
+Memory panel's CPU view, Watches and Stack show `SlotInfo::now`; the Memory panel's Slot and Page
+views show the space shown (`FLOAT` for a page index >= 0xE0); the Call Stack and the Breakpoints
+list show the recorded identity (an unrecorded call target: the prediction). Layout: a qualifier
+already printed is replaced in place (Breakpoints, Source tab, the Memory selector); otherwise a
+column is added (Disassembly **Mem**, MMU **Memory**, Watches and Stack **Memory**, Call Stack
+**Caller memory** and **Target memory**) and the Memory panel's tag follows its ASCII item. Another
+client's legacy page qualifier keeps `@NN`.
 
 **Remote protocols** (owner decision on #360, 2026-10-18). Each carries as much of the identity
 as its existing vocabulary allows, and none is extended: no new commands, codes or fields on a
@@ -1663,6 +1702,14 @@ any store, the offsets, and the hook per arm, direction, scope and gate), INS-21
 and HOST-COV-01 (`debugger_backend_test`), SRCDBG-COV-01/02 (`source_debug_test`), CLI-COV-01
 (`cli_options_test`) and QCOV-01 to QCOV-07 (`debugger_menu_test`, `debugger_panels_test`,
 `debugger_source_panel_test`).
+
+E23-22 (#360) added LADDR-01 to LADDR-22 (`debugger_backend_test`, `source_debug_test`, `zrcp_adapter_test`: the formatter and
+parser, `SlotInfo::now` per overlay, the PC instruction read as the CPU fetches it, step over, the trace
+export), GDB-MON-40 to GDB-MON-43, DZRP-REG-08, ZRCP-FMT-15 to ZRCP-FMT-18 and ZRCP-PG-02 (the remote
+vocabularies), QLADDR-01 to QLADDR-10 (`debugger_panels_test`, `debugger_source_panel_test`: every view's text
+in both styles), QLADDR-11 (`debugger_menu_test`: Debug > Physical Addresses) and DWK-04
+(`debugger_window_size_test`: the `--set` run override). QBPM-02, QBPM-17, QSRC-24, QSRC-44, QSRC-87,
+QSRC-90, QSRC-97, QMP-03 and DWK-01 changed their spelling or count only (owner, 2026-10-31).
 
 E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug_test`: the live gate,
 the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group

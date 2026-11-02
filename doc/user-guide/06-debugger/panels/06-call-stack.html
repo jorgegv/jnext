@@ -3643,7 +3643,11 @@ name instead of the address. With a source map loaded, <strong>Called from</stro
 the source line each call was made from
 (<a href="../functions/14-source-level-debugging.html">Source-level debugging</a>); for an
 <code>INT</code> or <code>NMI</code> frame that is the line the interrupt interrupted. Code fetched
-from a ROM or an overlay has a line only if the source map names that memory.</p>
+from a ROM or an overlay has a line only if the source map names that memory.
+<strong>Caller memory</strong> and <strong>Target memory</strong> name the memory each end ran in, as it was
+when the call was made, so a bank switch since does not change them; a call whose
+target has not been fetched yet shows the memory predicted for it
+(<a href="../index.html#which-memory-an-address-is-in">which memory an address is in</a>).</p>
 <p>A frame ends when a <code>RET</code> returns to where its call (or interrupt) came from;
 any other <code>RET</code> ends the frames whose return address it has passed on the stack;
 an esxDOS call JNEXT services itself ends its <code>RST</code> frame. A routine that

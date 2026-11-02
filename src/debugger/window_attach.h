@@ -180,17 +180,23 @@ struct WindowSize {
 /// title bar. It comes off the height budget because what has to fit on the
 /// screen is the FRAME, not the client rect. Pass 0 when it is not known.
 ///
+/// `deco_w` likewise is the width added beside it (side borders; 0 when not known).
+///
 /// A degenerate work area returns the request unchanged: guessing a size from a
 /// zero-sized screen is worse than honouring what was asked for.
 inline WindowSize clamp_window_size_to_screen(int want_w, int want_h,
                                               const AttachRect& screen,
-                                              int deco_h = 0)
+                                              int deco_h = 0,
+                                              int deco_w = 0)
 {
     WindowSize s{want_w, want_h};
     if (screen.w <= 0 || screen.h <= 0)
         return s;
-    if (s.w > screen.w)
-        s.w = screen.w;
+    // GH #360: the FRAME has to fit horizontally too: `deco_w` is the width the
+    // window manager adds beside the client area (both side borders).
+    const int max_w = screen.w - (deco_w > 0 ? deco_w : 0);
+    if (max_w > 0 && s.w > max_w)
+        s.w = max_w;
     const int max_h = screen.h - (deco_h > 0 ? deco_h : 0);
     if (max_h > 0 && s.h > max_h)
         s.h = max_h;

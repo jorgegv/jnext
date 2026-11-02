@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "debug/debugger.h"
+#include "debug/long_address.h"
 
 /// GH #278 WP4c — the Qt GUI's breakpoints, as BACKEND SUBSCRIPTIONS.
 ///
@@ -126,10 +127,18 @@ public:
     };
     std::vector<PcBreakpoint> pc_breakpoints() const;
 
-    /// The Address column's spelling of an address and its qualifier:
-    /// `$8002`, `$8002 @04`, `$8002 @01:00`. One spelling for the list and the
-    /// Source tab's tooltip.
+    /// The Address column's spelling of an address and its qualifier, through the
+    /// long-address formatter (GH #360): `$8002`, `$8002 P04`, `$8002 DIVROM`. One
+    /// spelling for the list and the Source tab's tooltip. The two-argument form is
+    /// the Friendly style; the four-argument one is a view's style (Physical only
+    /// differs on a Next-layout machine).
     static QString address_text(uint16_t addr, jnext::dbg::MemSpace space);
+    static QString address_text(uint16_t addr, jnext::dbg::MemSpace space,
+                                jnext::dbg::AddressStyle style, bool next_layout);
+
+    /// GH #360 - the style the listed rows are spelled in. Rebuilds the rows
+    /// (without a `changed()`: no row's kind changed) so the next read has the new text.
+    void set_address_style(jnext::dbg::AddressStyle style);
 
     /// GH #225's master switch — the backend's, one for every client.
     bool master_enabled() const;
@@ -188,6 +197,7 @@ private:
         bool                  live;
     };
     std::vector<Seen> seen_;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     bool master_seen_ = true;
     bool dirty_       = false;
 };

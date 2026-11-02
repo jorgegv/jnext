@@ -1,5 +1,7 @@
 #pragma once
 
+#include "debug/long_address.h"
+
 #include <QDeadlineTimer>
 #include <QMainWindow>
 #include <QSettings>
@@ -45,8 +47,18 @@ public:
     /// GH #417: `attach_override` (`--set debugger.attached=`) is the attach state for
     /// THIS run. It governs the window, never the file: jnext.conf keeps what it had
     /// until the Attach menu item is toggled (save_geometry() writes `attach_saved_`).
+    ///
+    /// GH #360: `physical_override` (`--set debugger.physical_addresses=`) likewise
+    /// is the address style for THIS run; the file keeps its value until the
+    /// Debug > Physical Addresses item is toggled.
     explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr,
-                            std::optional<bool> attach_override = std::nullopt);
+                            std::optional<bool> attach_override = std::nullopt,
+                            std::optional<bool> physical_override = std::nullopt);
+
+    /// GH #360 - the style every panel prints "which memory" in. Physical differs
+    /// from Friendly only on a Next (plan D3). Applies to every panel and refreshes.
+    jnext::dbg::AddressStyle address_style() const { return address_style_; }
+    void set_address_style(jnext::dbg::AddressStyle style);
 
     /// GH #312: merge a legacy <config-dir>/Debugger.conf into jnext.conf
     /// [debugger] and remove it. Idempotent; true only if it migrated.
@@ -125,6 +137,7 @@ protected:
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
     void changeEvent(QEvent* event) override;   // GH #363
+    void resizeEvent(QResizeEvent* event) override;   // GH #360: resumes the opening fit
 
 private:
     void create_panels();
@@ -186,6 +199,31 @@ private:
     bool initial_fit_done_ = false;
     int  initial_fit_passes_ = 0;
     static constexpr int kMaxInitialFitPasses = 4;
+    // GH #360 - the width fit (left column of tabs) has its own bound and its own measured response,
+    // so it converges whatever share of a widening the splitter gives that column.
+    // The size the last fit pass gave the window: a later pass that finds another size knows the user
+    // (or anything else) resized it meanwhile, and leaves it alone.
+    QSize  fit_set_size_;        // what the last fit pass ASKED for
+    QSize  fit_prev_size_;       // the size before that request
+    bool   fit_over_ = false;   // the fit is over (the user resized the window, or its grace window ended)
+    // A window manager can answer the fit's requests late and out of order (the map answers the first,
+    // pre-map request with the size from before it; openbox applies the first request after later ones).
+    // For the fit's own lifetime, every size it asked for, or started a pass from, is its own: a resize
+    // to one of them is the manager's answer, not the user's, and the current request is asked again
+    // (bounded). Any other size is the user's and ends the fit. The fit has an explicit end: kFitGraceMs
+    // after the last pass started (late answers land 150-350 ms after their request under load), the
+    // fit is over, these sizes are forgotten and every size is the user's.
+    std::vector<QSize> fit_sizes_;
+    int    fit_echoes_ = 0;
+    static constexpr int kMaxFitEchoes = 6;
+    static constexpr int kFitGraceMs = 1000;
+    unsigned fit_generation_ = 0;
+    void end_fit_();
+    bool   fit_known_size_(const QSize& s) const;
+    int    initial_fit_width_passes_ = 0;
+    int    fit_last_add_ = 0;       // window width added by the previous width pass
+    int    fit_last_lacking_ = 0;   // what the left column still lacked before it
+    static constexpr int kMaxWidthFitPasses = 8;
     // GH #363 — one queued refresh_panels() per palette change (changeEvent).
     bool palette_refresh_queued_ = false;
 
@@ -240,6 +278,14 @@ private:
     // Sequences the deferred landing checks and counts consecutive misses.
     // Pure logic, unit-tested in test/debugger/window_attach_test.cpp.
     jnext::AttachMoveTracker attach_tracker_;
+
+    // GH #360 - Debug > Physical Addresses. `physical_saved_` is what jnext.conf says (or
+    // the last toggle wrote); `address_style_` is what this run does; they differ only
+    // while a command-line override is in force.
+    void apply_address_style();
+    jnext::dbg::AddressStyle address_style_ = jnext::dbg::AddressStyle::Friendly;
+    bool     physical_saved_ = false;
+    QAction* physical_action_ = nullptr;
 
     // Trace toolbar state
     QPushButton* trace_toggle_btn_ = nullptr;

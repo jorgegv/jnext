@@ -899,6 +899,12 @@ public:
     /// do the trace's bytes and the call stack's opcode capture; what the
     /// trace and the call frames RECORD is `Mmu::last_m1()` itself (GH #340).
     jnext::dbg::MemSpace predict_fetch(uint16_t pc) const;
+
+    /// The first four bytes of the instruction at `pc` as the CPU will fetch
+    /// them (`predict_instruction_()`, the M1 overlays included): pure. The
+    /// debugger's Disassembly, Step Over and ZRCP step logic read the code at
+    /// the PC through this (GH #360 F1).
+    void predict_instruction_bytes(uint16_t pc, uint8_t out[4]) const;
     Renderer&     renderer()  { return renderer_; }
     Profiler&     profiler()  { return profiler_; }
     const Profiler& profiler() const { return profiler_; }

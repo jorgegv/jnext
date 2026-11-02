@@ -14484,6 +14484,12 @@ Emulator::PredictedInstr Emulator::predict_instruction_(uint16_t pc) const
     return p;
 }
 
+void Emulator::predict_instruction_bytes(uint16_t pc, uint8_t out[4]) const
+{
+    const PredictedInstr p = predict_instruction_(pc);
+    for (int i = 0; i < 4; ++i) out[i] = p.b[i];
+}
+
 void Emulator::debug_after_machine_transition_(bool discard_ring)
 {
     // The stop evidence and the pending Stop go regardless of whether a table is

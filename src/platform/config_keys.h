@@ -95,6 +95,7 @@ enum class KeyId : uint8_t {
     NextpiQemuArgs,
     ConfigVersion,
     DebuggerAttached,
+    DebuggerPhysicalAddresses,
     DebuggerSize,
     DebuggerPosition,
     Count
@@ -255,6 +256,9 @@ inline constexpr Key KEYS[] = {
     { KeyId::DebuggerAttached, "debugger", "attached", Type::Bool, 0, 0,
       "true|false", nullptr, QT, true, Owner::DebuggerWindow, nullptr,
       "Debugger window attached to the emulator window" },
+    { KeyId::DebuggerPhysicalAddresses, "debugger", "physical_addresses", Type::Bool, 0, 0,
+      "true|false", nullptr, QT, true, Owner::DebuggerWindow, nullptr,
+      "Debugger shows physical memory addresses instead of page and ROM names" },
     { KeyId::DebuggerSize, "debugger", "size", Type::Text, 0, 0,
       "", nullptr, QT, true, Owner::DebuggerWindow,
       "it is the remembered window geometry; no control sets it", "Debugger window size" },

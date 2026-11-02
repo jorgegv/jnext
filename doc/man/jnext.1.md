@@ -1252,6 +1252,13 @@ The entries say which frontends use the key: the Qt window, the SDL-only build
     as told for this run; the file keeps its value until the **Attach to
     Emulator Window** menu item is toggled. The Qt window with the debugger.
 
+`debugger.physical_addresses` *true|false*
+:   Whether the debugger names an address's memory by where it sits in the
+    Next's memory (`$060000`, `BRAM7+$0000`) instead of by page and ROM name
+    (`P0E`, `ROM1`, `DIVROM`). The window opens as told for this run; the file
+    keeps its value until the **Physical Addresses** item of the **Debug** menu
+    is toggled. The Qt window with the debugger.
+
 # MACHINES
 
 `48k`

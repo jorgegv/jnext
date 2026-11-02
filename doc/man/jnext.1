@@ -1554,6 +1554,16 @@ Whether the debugger window follows the emulator window.
 The window opens as told for this run; the file keeps its value until
 the \f[B]Attach to Emulator Window\f[R] menu item is toggled.
 The Qt window with the debugger.
+.TP
+\f[CR]debugger.physical_addresses\f[R] \f[I]true|false\f[R]
+Whether the debugger names an address\(cqs memory by where it sits in
+the Next\(cqs memory (\f[CR]$060000\f[R], \f[CR]BRAM7+$0000\f[R])
+instead of by page and ROM name (\f[CR]P0E\f[R], \f[CR]ROM1\f[R],
+\f[CR]DIVROM\f[R]).
+The window opens as told for this run; the file keeps its value until
+the \f[B]Physical Addresses\f[R] item of the \f[B]Debug\f[R] menu is
+toggled.
+The Qt window with the debugger.
 .SH MACHINES
 .TP
 \f[CR]48k\f[R]

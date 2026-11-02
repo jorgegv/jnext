@@ -3703,8 +3703,9 @@ or NextBuild symbols by hand, and <strong>Locate File...</strong>, enabled while
 <em>source file not found</em>. The steps are available while the machine is
 paused and a source map is loaded; <strong>Back</strong> and <strong>Reverse</strong> also need the trace
 log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</strong>.</p>
-<p>Under them, a line naming the position — <code>main.bas:120  $8A3C  page 2E</code>, or
-<code>ROM or overlay</code> when no RAM page supplies the address — and
+<p>Under them, a line naming the position — <code>main.bas:120  $8A3C  P2E</code>, ending in the tag of the memory the
+opcode comes from (<code>ROM0</code>, <code>DIVROM</code> when it is not a RAM page; the physical
+address in <a href="../index.html#which-memory-an-address-is-in">the physical style</a>) — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there. The start-up code of a z88dk program built with <code>--list</code>
@@ -3790,7 +3791,7 @@ on the line under the pointer. A right-click outside the selection first selects
 inside it, the selection stays (so a dragged range can be copied).</p>
 <ul>
 <li><strong>Copy</strong> (Ctrl+C), <strong>Copy with Addresses</strong> and <strong>Select All</strong> (Ctrl+A). Copy with Addresses
-  puts each selected line on the clipboard as <code>main.bas:11  $8002 @05, $9000 @06  REM line 11</code>:
+  puts each selected line on the clipboard as <code>main.bas:11  $8002 P05, $9000 P06  REM line 11</code>:
   every address the line compiled to, with its page, or <code>-</code> for a line with no code.</li>
 <li><strong>Toggle Breakpoint</strong>: the gutter click.</li>
 <li><strong>Run to Here</strong>, also <strong>Enter</strong> in the text: run until the first place of the line is reached

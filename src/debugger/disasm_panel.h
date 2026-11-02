@@ -13,6 +13,7 @@
 #include "debug/disasm.h"
 #include "debug/disasm_text.h"
 #include "debug/events.h"
+#include "debug/long_address.h"
 #include "debugger/breakpoint_glyph.h"
 
 class QAction;
@@ -32,8 +33,9 @@ class DisasmPanel : public QWidget {
     Q_OBJECT
 public:
     /// @param dbg  the debugger backend every read goes through (GH #278 WP5):
-    ///             the bytes are its memory_reader() — a peek, so disassembling
-    ///             moves nothing — and the registers its registers().
+    ///             the bytes are its memory_reader() — a peek (the PC
+    ///             instruction as the CPU will fetch it, GH #360), so
+    ///             disassembling moves nothing — and the registers its registers().
     explicit DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Re-disassemble around current PC and repaint.
@@ -97,6 +99,10 @@ public:
     /// the text is memory as it is NOW, so copying while the machine runs
     /// freely can catch self-modifying code mid-write.
     QString selection_text(disasm_text::CopyFormat fmt) const;
+
+    /// GH #360 - Friendly (`P04`, `DIVROM`) or Physical (`$048000`, `BRAM7+$0000`) in
+    /// the Mem column.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
 
     /// Names an address in the memory that supplies it now (GH #375).
     disasm_text::SymbolNamer namer(bool assembler_names = false) const;
@@ -195,8 +201,13 @@ private:
         /// While running the panel is not redrawn, so a click must act on what
         /// it shows, not on what is mapped by then.
         jnext::dbg::MemSpace space = jnext::dbg::MemSpace::cpu();
+        /// GH #360 - the memory the line's BYTES came from, for the Mem column:
+        /// the PC line's is `space` (the fetch prediction), any other line's is
+        /// the live data route of its slot (`SlotInfo::now`, design 10.3).
+        jnext::dbg::MemSpace mem = jnext::dbg::MemSpace::cpu();
     };
     std::vector<DisasmEntry> entries_;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     int selected_line_ = -1;
 
     // GH #21 — the clipboard commands, as real QActions on this widget.
@@ -228,6 +239,7 @@ private:
     static constexpr int LINE_HEIGHT = 18;    // pixels per line
     int visible_lines() const { return std::max(4, (height() - paint_y_offset_) / LINE_HEIGHT); }
     static constexpr int ADDR_WIDTH = 48;     // address column width
+    static constexpr int MEM_WIDTH = 96;      // GH #360: memory column; holds "BRAM7+$1FFF"
     static constexpr int BYTES_WIDTH = 100;   // hex bytes column width
 
     QFont mono_font_;

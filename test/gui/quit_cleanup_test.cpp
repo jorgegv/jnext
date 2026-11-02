@@ -498,7 +498,10 @@ void test_no_veto_on_corrupt_quit() {
 } // namespace
 
 int main(int argc, char** argv) {
-    qputenv("QT_QPA_PLATFORM", "offscreen");
+    // JNEXT_TEST_KEEP_QPA (set by the debugger-window-wm-func row): keep the platform the
+    // environment names (xcb under a real window manager) instead of forcing offscreen.
+    if (qgetenv("JNEXT_TEST_KEEP_QPA").isEmpty())
+        qputenv("QT_QPA_PLATFORM", "offscreen");
     CloseWatchingApp app(argc, argv);
 
     std::printf("Issue #131/#139 - Quit runs closeEvent's cleanup, in order\n");
