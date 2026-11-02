@@ -639,6 +639,12 @@ target_link_libraries(audio_test PRIVATE jnext_audio)
 target_include_directories(audio_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_tests COMMAND audio_test)
 
+# GH #440 - the AY output / TurboSound mix caches against the always-recompute reference
+add_executable(ay_cache_test audio/ay_cache_test.cpp)
+target_link_libraries(ay_cache_test PRIVATE jnext_audio)
+target_include_directories(ay_cache_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ay_cache_tests COMMAND ay_cache_test)
+
 # The Pi I2S source's rows that need a real FIFO (`# os: posix` in
 # unit-tests.conf, GH #214): PiAudio reading QEMU's WAV stream. Windows has
 # no FIFOs, so they live apart from audio_test, whose count is the same on

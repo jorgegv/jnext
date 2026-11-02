@@ -47,6 +47,7 @@ void AyChip::reset()
     out_a_ = 0;
     out_b_ = 0;
     out_c_ = 0;
+    dirty_ = true;
 }
 
 void AyChip::select_register(uint8_t addr)
@@ -59,6 +60,7 @@ void AyChip::write_data(uint8_t val)
     if (addr_ & 0x10) return;  // Only registers 0-15 writable
 
     reg_[addr_ & 0x0F] = val;
+    dirty_ = true;
 
     // Writing to register 13 triggers envelope reset
     if ((addr_ & 0x0F) == 0x0D) {
@@ -170,10 +172,11 @@ uint16_t AyChip::env_comp() const
 // Tick — advance one PSG clock-enable cycle
 // ---------------------------------------------------------------------------
 
-void AyChip::tick()
+bool AyChip::tick()
 {
     // Handle envelope reset (deferred from write)
     if (env_reset_) {
+        dirty_ = true;
         env_cnt_ = 0;
         env_ena_ = true;
 
@@ -202,7 +205,11 @@ void AyChip::tick()
         update_noise_generator();
     }
 
+    if (!ena_div_ && !dirty_) return false;   // GH #440: inputs unchanged since the last compute
+    dirty_ = false;
+    const uint8_t a = out_a_, b = out_b_, c = out_c_;
     update_output();
+    return a != out_a_ || b != out_b_ || c != out_c_;
 }
 
 void AyChip::update_divider()
