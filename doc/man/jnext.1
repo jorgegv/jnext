@@ -1365,8 +1365,9 @@ window is one \f[CR]c\f[R] block.
 skoolkit has no Z80N support, so Z80N instructions are written as
 \f[CR]DEFB\f[R] sub\-blocks.
 sna2skool drops without a word a label that is not at the start of a
-line it writes: the labels of a memory\(cqs own file always are, those
-in \f[CR]0000\-CPU.ctl\f[R] may not be.
+line it writes, so every window file also splits
+(\f[CR]B\f[R]/\f[CR]C\f[R] sub\-blocks) at each unpaged label that falls
+in it, and the labels survive \f[CR]sna2skool.py \-c DIR\f[R].
 A previous export\(cqs files in \f[I]DIR\f[R] are replaced; any other
 file there is never touched, and a \f[CR].ctl\f[R] or \f[CR].bin\f[R] of
 the same name that is not jnext\(cqs makes the export fail.
@@ -1382,8 +1383,10 @@ per label: \f[CR]TAG.ghidra.txt\f[R] for each memory
 for the unpaged labels (\f[CR]0x8000\f[R]) and
 \f[CR]view.ghidra.txt\f[R] for the memory as mapped when jnext exits
 (\f[CR]0x8000\f[R], no overlay needed).
-A previous export\(cqs \f[CR]*.ghidra.txt\f[R] files in \f[I]DIR\f[R]
-are replaced.
+A previous export\(cqs \f[CR]CPU.ghidra.txt\f[R],
+\f[CR]view.ghidra.txt\f[R] and \f[CR]TAG.ghidra.txt\f[R] files in
+\f[I]DIR\f[R] are replaced or removed; any other file there, any other
+\f[CR]*.ghidra.txt\f[R] included, is never touched.
 A failed export is logged and jnext exits with status 1.
 .TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]

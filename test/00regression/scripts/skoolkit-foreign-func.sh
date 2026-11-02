@@ -13,8 +13,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # control file jnext's own importer accepts can still be wrong for skoolkit (the grammar
 # is its, and a bad line is only a WARNING there); this row is the proof it is not.
 #
-# A1  --machine 48k, an sjasmplus --sym of three ROM labels (unpaged, at instruction
-#     starts the run executes), --coverage, a snapshot at frame 100, --export-skoolkit D.
+# A1  --machine 48k, an sjasmplus --sym of ROM and sysvar labels (unpaged: three at executed
+#     instruction starts, four that sna2skool drops unless the export splits at them), --coverage, a snapshot at frame 100, --export-skoolkit D.
 #     `sna2skool.py -H -c D snap.sna` exits 0 with nothing on stderr but "Using control
 #     files"; every `@ $A label=N` of D is `@label=N` right before the line at $A; the
 #     block letter of every run start matches; `skool2asm.py -H` exits 0 and emits `N:`.
@@ -56,18 +56,39 @@ if want skoolkit-foreign-func; then
         fi
     }
 
+    sf_jnext_rc() {   # as sf_jnext, returning the exit status of jnext
+        local bin=$1 fe=$2 log=$3; shift 3
+        if [[ $fe == qt ]]; then
+            QT_QPA_PLATFORM=offscreen timeout --foreground --kill-after=5s 90s "$bin" --silent \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1
+        elif [[ $fe == sdl ]]; then
+            env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+                timeout --foreground --kill-after=5s 90s "$bin" --silent \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1
+        else
+            timeout --foreground --kill-after=5s 90s "$bin" --headless \
+                "${SD_CARD_ARGS[@]}" "$@" >"$log" 2>&1
+        fi
+    }
+
     if [[ -z "$sf_root" || ! -f "$sf_root/sna2skool.py" ]]; then
         fail_row " (skoolkit is not provisioned: run 'make skoolkit' ('make regression' does)); a missing reader is a FAIL, not a SKIP)"
     elif [[ ! -x "$JNEXT_SDL" ]]; then
         fail_row " (SDL-only binary not built: $JNEXT_SDL; run 'make sdl-release')"
     else
         # ---- A1: a 48K snapshot with several control files combined by -c DIR
+        # Three labels at instruction starts the run executes, and four that sna2skool would
+        # silently drop unless the export splits at them (GH #389 review 1): inside an executed
+        # instruction ($0004, inside LD DE,$FFFF at $0002), inside a data run off a DEFB line start
+        # ($5C3A, the system variable ERR_NR), and in ROM the run did not execute ($0205 key_table
+        # and $04C2 sa_bytes).
         printf '%s\n' "rom_start: EQU 0x00000000" "rst38: EQU 0x00000038" "key_scan: EQU 0x0000028E" \
-            >"$sf_dir/a1.sym"
+            "mid_insn: EQU 0x00000004" "err_nr: EQU 0x00005C3A" "key_table: EQU 0x00000205" \
+            "sa_bytes: EQU 0x000004C2" >"$sf_dir/a1.sym"
         sf_jnext "$JNEXT" plain "$sf_dir/a1.log" --machine 48k --map "$sf_dir/a1.sym" --coverage \
             --delayed-snapshot "$sf_dir/a1.sna" --delayed-snapshot-frames 100 \
             --export-skoolkit "$sf_dir/D1" --delayed-automatic-exit-frames 100
-        if ! grep -qE -- "--export-skoolkit .*: [0-9]+ files, 3 labels" "$sf_dir/a1.log"; then
+        if ! grep -qE -- "--export-skoolkit .*: [0-9]+ files, 7 labels" "$sf_dir/a1.log"; then
             sf_faults+=("A1: jnext did not log the export")
         elif [[ ! -s "$sf_dir/a1.sna" ]]; then
             sf_faults+=("A1: no snapshot")
@@ -118,6 +139,16 @@ if want skoolkit-foreign-func; then
             sf_jnext "$bin" "$fe" "$sf_dir/a3-$fe.log" --machine 48k --map "$sf_dir/a3.sym" --coverage \
                 --export-skoolkit "$sf_dir/D3-$fe" --delayed-automatic-exit-frames 20
             [[ -f "$sf_dir/D3-$fe/0000-CPU.ctl" ]] || sf_faults+=("A3: $fe wrote no export")
+        done
+        # ...and a failing export fails the run in each (a regular file where DIR should be).
+        : >"$sf_dir/not-a-dir"
+        for fe in plain qt sdl; do
+            bin=$JNEXT; [[ $fe == sdl ]] && bin=$JNEXT_SDL
+            rc=0
+            sf_jnext_rc "$bin" "$fe" "$sf_dir/a3-bad-$fe.log" --machine 48k --coverage \
+                --export-ghidra "$sf_dir/not-a-dir" --delayed-automatic-exit-frames 5 || rc=$?
+            [[ $rc -ne 0 ]] || sf_faults+=("A3: $fe exited 0 with a failing --export-ghidra")
+            grep -qF "$sf_dir/not-a-dir" "$sf_dir/a3-bad-$fe.log" || sf_faults+=("A3: $fe did not name the failing path")
         done
         for fe in qt sdl; do
             if ! diff -r "$sf_dir/D3-plain" "$sf_dir/D3-$fe" >"$sf_dir/a3-$fe.diff" 2>&1; then

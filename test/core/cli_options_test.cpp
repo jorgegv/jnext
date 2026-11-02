@@ -1628,6 +1628,11 @@ int main() {
                 run_split(refuse);
                 const bool names_it = slurp(err_path).find(bad_dir) != std::string::npos ||
                                       slurp(out_path).find(bad_dir) != std::string::npos;
+                const std::string refuse_g = base + " --export-ghidra \"" + bad_dir + "\"";
+                const int rc_bad_g = run(refuse_g);
+                run_split(refuse_g);
+                const bool names_g = slurp(err_path).find(bad_dir) != std::string::npos ||
+                                     slurp(out_path).find(bad_dir) != std::string::npos;
                 const bool arity = cli::find("--export-skoolkit") && cli::find("--export-skoolkit")->arity == 1 &&
                                    cli::find("--export-ghidra") && cli::find("--export-ghidra")->arity == 1;
                 std::filesystem::remove_all(dsk, ec);
@@ -1635,10 +1640,10 @@ int main() {
                 std::remove(symf.c_str());
                 std::remove(bad_dir.c_str());
                 check("CLI-REX-01", "--export-skoolkit DIR and --export-ghidra DIR write their files when jnext "
-                                    "exits and log the counts; a file where DIR should be fails the run, naming it",
-                      arity && rc == 0 && logs && files && rc_bad != 0 && names_it,
+                                    "exits and log the counts; a file where DIR should be fails the run, naming it, for either option",
+                      arity && rc == 0 && logs && files && rc_bad != 0 && names_it && rc_bad_g != 0 && names_g,
                       std::string("rc=") + std::to_string(rc) + " logs=" + (logs ? "1" : "0") + " files=" +
-                          (files ? "1" : "0") + " rc_bad=" + std::to_string(rc_bad) + " names=" + (names_it ? "1" : "0"));
+                          (files ? "1" : "0") + " rc_bad=" + std::to_string(rc_bad) + " names=" + (names_it ? "1" : "0") + " rc_bad_g=" + std::to_string(rc_bad_g) + " names_g=" + (names_g ? "1" : "0"));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

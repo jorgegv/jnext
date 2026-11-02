@@ -14,6 +14,7 @@
 #include "debug/skoolkit_ctl.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -39,6 +40,27 @@ bool has_jnext_header(const fs::path& path) {
 
 bool ends_with(const std::string& s, const std::string& suffix) {
     return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+/// A name the Ghidra export writes: CPU.ghidra.txt, view.ghidra.txt, <TAG>.ghidra.txt for a
+/// space TAG names. Any other *.ghidra.txt in the directory is the user's.
+bool is_ghidra_export_name(const std::string& name) {
+    const std::string suffix = ".ghidra.txt";
+    if (!ends_with(name, suffix)) return false;
+    const std::string stem = name.substr(0, name.size() - suffix.size());
+    if (stem == "CPU" || stem == "view") return true;
+    const auto sp = parse_space_tag(stem);
+    return sp && sp->kind != MemSpace::Kind::Cpu && space_tag(*sp) == stem;
+}
+
+/// The stem of a control file the skoolkit export writes: WWWW-TAG (4 upper-case hex digits).
+bool is_ctl_stem(const std::string& stem) {
+    if (stem.size() < 6 || stem[4] != '-') return false;
+    for (int i = 0; i < 4; ++i)
+        if (!std::isxdigit(static_cast<unsigned char>(stem[i])) || std::islower(static_cast<unsigned char>(stem[i])))
+            return false;
+    const auto sp = parse_space_tag(stem.substr(5));
+    return sp && sp->kind != MemSpace::Kind::Cpu && space_tag(*sp) == stem.substr(5);
 }
 
 Result refuse(Result r, std::string* why, const std::string& text) {
@@ -124,14 +146,14 @@ Result write_directory(const std::string& dir, const std::vector<reexport::File>
     for (const fs::directory_entry& e : fs::directory_iterator(root, ec)) {
         const std::string name = e.path().filename().string();
         if (names.count(name) || !e.is_regular_file(ec)) continue;
-        if (skoolkit ? (ends_with(name, ".ctl") && has_jnext_header(e.path())) : ends_with(name, ".ghidra.txt"))
+        if (skoolkit ? (ends_with(name, ".ctl") && has_jnext_header(e.path())) : is_ghidra_export_name(name))
             stale.push_back(e.path());
     }
     for (const fs::path& p : stale) {
         fs::remove(p, ec);
         if (skoolkit) {
             const fs::path bin = fs::path(p).replace_extension(".bin");
-            if (!names.count(bin.filename().string())) fs::remove(bin, ec);
+            if (!names.count(bin.filename().string()) && is_ctl_stem(p.stem().string())) fs::remove(bin, ec);
         }
     }
 

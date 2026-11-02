@@ -459,6 +459,28 @@ static void pure_rows() {
               names_of(a) + " | " + names_of(g));
     }
 
+    // SKCTL-08d: an unpaged label (0000-CPU.ctl knows nothing of the window's code and data) is a
+    // label-less key in every window written, so sna2skool keeps it: inside an executed instruction,
+    // inside a data run, inside an unknown run, and in an unmarked window.
+    {
+        sk::Input in;
+        in.stores.push_back(f1_store());
+        for (int o = 0x28; o < 0x30; ++o) in.stores[0].flags[o] = COVERAGE_READ;   // a data run b[$28,$30)
+        in.labels = {{std::nullopt, 0xC011, "midinsn"}, {std::nullopt, 0xC02B, "middata"},
+                     {std::nullopt, 0xC008, "inunk"}, {MemSpace::page(0x10), 0xC000, "paged"}};
+        const reexport::Output a = sk::build(in);
+        const std::string t = text_of(a, "C000-P10.ctl");
+        sk::Input un = in;
+        un.stores[0].flags.clear();
+        const std::string tu = text_of(sk::build(un), "C000-P10.ctl");
+        check("SKCTL-08d", "each unpaged label is a split point in every window written: B inside the "
+                           "executed instruction (and its first byte), B in a data run and in an unknown "
+                           "run, C in an unmarked window; its @ line stays in 0000-CPU.ctl only",
+              has(t, "\nc $C010\nB $C010,1\nB $C011,2\n") && has(t, "\nb $C028\nB $C02B\n") && !has(t, "label=midinsn") &&
+                  has(t, "\nu $C004\nB $C008\n") && has(tu, "\nC $C02B\n") && has(tu, "\nC $C008\n") &&
+                  has(tu, "\nC $C011\n") && has(text_of(a, "0000-CPU.ctl"), "@ $C011 label=midinsn\n"), t + "|" + tu);
+    }
+
     // GHSYM-01: the Ghidra writer.
     {
         const MemSpace p10 = MemSpace::page(0x10);
@@ -670,6 +692,33 @@ static void backend_rows() {
                   x1 == Result::Unsupported && has(why1, "C000-P10.ctl") && ctl_kept &&
                   x2 == Result::Unsupported && has(why, "C000-P10.bin") && bin_kept && no_part,
               join(first) + " | " + join(second));
+    }
+
+    // SRCDBG-REX-05a: the Ghidra export removes only the names it writes; a user's *.ghidra.txt
+    // (and one whose stem is no space tag) survives a re-export, as the skoolkit export's own
+    // clean-up leaves a foreign .bin (no jnext .ctl of that stem) and a foreign stem alone.
+    {
+        const fs::path d = g_dir / "r05a";
+        Emulator emu; build_next(emu);
+        Debugger dbg(emu);
+        load_labels(dbg, g_dir / "r05a.sld", {{"a", 0x10, 0xC000}, {"u", -1, 0x0008}});
+        std::string why;
+        const Result e1 = dbg.export_ghidra(d.string(), nullptr, &why);
+        const Result k1 = dbg.export_skoolkit(d.string(), nullptr, &why);
+        for (const char* n : {"mine.ghidra.txt", "PE0.ghidra.txt", "p10.ghidra.txt", "CPU2.ghidra.txt", "x.bin", "1234-notatag.bin"})
+            write_text(d / n, "mine\n");
+        write_text(d / "1234-notatag.ctl", "# jnext space X\n");   // jnext's by its header; its .bin is not an export image
+        dbg.clear_symbols();
+        const Result e2 = dbg.export_ghidra(d.string(), nullptr, &why);
+        const Result k2 = dbg.export_skoolkit(d.string(), nullptr, &why);
+        const std::vector<std::string> after = ls(d);
+        check("SRCDBG-REX-05a", "a re-export removes the Ghidra and skoolkit files it wrote before and no other "
+                                "file: mine.ghidra.txt, PE0.ghidra.txt, p10.ghidra.txt, CPU2.ghidra.txt, x.bin and "
+                                "1234-notatag.bin survive (the .bin beside a stale header-marked .ctl whose stem is no tag too)",
+              e1 == Result::Ok && k1 == Result::Ok && e2 == Result::Ok && k2 == Result::Ok &&
+                  after == std::vector<std::string>{"1234-notatag.bin", "CPU2.ghidra.txt", "PE0.ghidra.txt",
+                                                    "mine.ghidra.txt", "p10.ghidra.txt", "x.bin"},
+              join(after));
     }
 
     // SRCDBG-REX-06: refusals.

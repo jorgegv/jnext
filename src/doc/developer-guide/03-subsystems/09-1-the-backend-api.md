@@ -699,8 +699,11 @@ is one in `disasm.cpp`, read by `instruction_length()` and the predicate) and cl
 instructions are written as `B` sub-blocks, because skoolkit is Z80-only and would
 misalign the code after a 4-byte `NEXTREG`; a label or comment inside an instruction splits
 it into `B` sub-blocks at the key, because sna2skool silently drops a label that is not
-at a line start. For the same reason an unpaged label in `0000-CPU.ctl` that falls in a data
-or unknown run of another file is dropped by `-c DIR`: it has no sub-block there.
+at a line start. For the same reason each unpaged label, which is written as an `@` line in
+`0000-CPU.ctl` only, is also a label-less key in every window file written that covers its
+address, so the same splits (`B` inside an instruction or a data or unknown run, `C` in an
+unmarked window) keep it alive under `sna2skool.py -c DIR` (SKCTL-08d; `skoolkit-foreign-func`
+A1 uses labels inside an executed instruction, inside a data run and in unexecuted ROM).
 The identity-only memories (boot ROM, Multiface, DivMMC ROM, alternate ROM, Layer 2,
 config, floating: `peek()` refuses them) get no code/data map and the report names them.
 
@@ -716,7 +719,8 @@ only in the Jython extension, which is not installed by default.
 
 **Writing the directory.** Each file is written to `<name>.part` and renamed. A previous
 export's files that this one does not write are removed: a `*.ctl` whose first line is
-`# jnext space ` and its `.bin`, and every `*.ghidra.txt`; any other file is never touched,
+`# jnext space ` and the `.bin` of its `WWWW-TAG` stem, and `CPU.ghidra.txt`, `view.ghidra.txt`
+and `TAG.ghidra.txt` for a TAG that names a space; any other file is never touched,
 and a `.ctl` or `.bin` the export would write that is not jnext's refuses it before anything is
 written (`Unsupported`). A directory that cannot be created, or a path that is a regular file,
 is `RefusedUnavailable`. `--export-skoolkit DIR` and `--export-ghidra DIR` call the verbs at exit

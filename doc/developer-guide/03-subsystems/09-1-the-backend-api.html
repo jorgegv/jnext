@@ -3299,8 +3299,11 @@ is one in <code>disasm.cpp</code>, read by <code>instruction_length()</code> and
 instructions are written as <code>B</code> sub-blocks, because skoolkit is Z80-only and would
 misalign the code after a 4-byte <code>NEXTREG</code>; a label or comment inside an instruction splits
 it into <code>B</code> sub-blocks at the key, because sna2skool silently drops a label that is not
-at a line start. For the same reason an unpaged label in <code>0000-CPU.ctl</code> that falls in a data
-or unknown run of another file is dropped by <code>-c DIR</code>: it has no sub-block there.
+at a line start. For the same reason each unpaged label, which is written as an <code>@</code> line in
+<code>0000-CPU.ctl</code> only, is also a label-less key in every window file written that covers its
+address, so the same splits (<code>B</code> inside an instruction or a data or unknown run, <code>C</code> in an
+unmarked window) keep it alive under <code>sna2skool.py -c DIR</code> (SKCTL-08d; <code>skoolkit-foreign-func</code>
+A1 uses labels inside an executed instruction, inside a data run and in unexecuted ROM).
 The identity-only memories (boot ROM, Multiface, DivMMC ROM, alternate ROM, Layer 2,
 config, floating: <code>peek()</code> refuses them) get no code/data map and the report names them.</p>
 <p><strong>Ghidra.</strong> One file per memory, <code>&lt;TAG&gt;.ghidra.txt</code>, lines <code>NAME &lt;TAG&gt;:0xHHHH l</code>;
@@ -3314,7 +3317,8 @@ flat memory takes without any overlay. Since Ghidra 12.1 <code>ImportSymbolsScri
 only in the Jython extension, which is not installed by default.</p>
 <p><strong>Writing the directory.</strong> Each file is written to <code>&lt;name&gt;.part</code> and renamed. A previous
 export's files that this one does not write are removed: a <code>*.ctl</code> whose first line is
-<code># jnext space</code> and its <code>.bin</code>, and every <code>*.ghidra.txt</code>; any other file is never touched,
+<code># jnext space</code> and the <code>.bin</code> of its <code>WWWW-TAG</code> stem, and <code>CPU.ghidra.txt</code>, <code>view.ghidra.txt</code>
+and <code>TAG.ghidra.txt</code> for a TAG that names a space; any other file is never touched,
 and a <code>.ctl</code> or <code>.bin</code> the export would write that is not jnext's refuses it before anything is
 written (<code>Unsupported</code>). A directory that cannot be created, or a path that is a regular file,
 is <code>RefusedUnavailable</code>. <code>--export-skoolkit DIR</code> and <code>--export-ghidra DIR</code> call the verbs at exit

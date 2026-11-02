@@ -243,6 +243,16 @@ reexport::Output build(const Input& in) {
             by_window[w ? *w : home_window(sp)];   // an empty window
         }
 
+        // sna2skool silently drops a label that is not at the start of a line it writes, and the
+        // unpaged labels are in 0000-CPU.ctl only, which knows nothing of this window's code and
+        // data. So each unpaged address is a label-less key here: the splits that keep a paged
+        // label alive (B/C sub-blocks inside an instruction or a data run) then keep it too.
+        for (auto& wk : by_window)
+            for (const reexport::Label& l : in.labels)
+                if (!l.space && reexport::name_exportable(l.name) &&
+                    static_cast<uint16_t>(l.addr & ~(wsz - 1)) == wk.first)
+                    wk.second[l.addr - wk.first];
+
         const Classified cl = classify(readable ? store->bytes : std::vector<uint8_t>(),
                                        has_marks ? store->flags : std::vector<uint8_t>(), wsz);
         for (const auto& wk : by_window) {

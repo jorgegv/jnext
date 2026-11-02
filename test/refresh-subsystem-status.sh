@@ -203,6 +203,7 @@ BEGIN {
     M["z88dk_map_test"]                = "z88dk -debug map adapter"
     M["z88dk_lis_test"]                = "z88dk --list listing adapter"
     M["source_debug_test"]             = "Source debugging (backend)"
+    M["reexport_test"]                 = "Source debugging (skoolkit/Ghidra export)"
     M["source_debug_posix_test"]       = "Source debugging (POSIX file types)"
     M["debugger_backend_test"]         = "Debugger Backend (GH #276)"
     M["persistent_bp_test"]            = "Debugger persistent BPs"

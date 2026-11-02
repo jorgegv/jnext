@@ -1205,11 +1205,12 @@ and `sna2skool.py -c DIR` combines them. Unpaged labels are in
 `b`, the rest `u`; without **--coverage** each window is one `c` block.
 skoolkit has no Z80N support, so Z80N instructions are written as `DEFB`
 sub-blocks. sna2skool drops without a word a label that is not at the
-start of a line it writes: the labels of a memory’s own file always are,
-those in `0000-CPU.ctl` may not be. A previous export’s files in *DIR*
-are replaced; any other file there is never touched, and a `.ctl` or
-`.bin` of the same name that is not jnext’s makes the export fail. A
-failed export is logged and jnext exits with status 1.
+start of a line it writes, so every window file also splits (`B`/`C`
+sub-blocks) at each unpaged label that falls in it, and the labels
+survive `sna2skool.py -c DIR`. A previous export’s files in *DIR* are
+replaced; any other file there is never touched, and a `.ctl` or `.bin`
+of the same name that is not jnext’s makes the export fail. A failed
+export is logged and jnext exits with status 1.
 
 **--export-ghidra** *DIR*  
 When jnext exits, write the debugger’s labels into *DIR* (created) as
@@ -1218,8 +1219,10 @@ symbol files for Ghidra’s `ImportSymbolsScript.py`, one line
 (`P0A:0x8000`, the address in the overlay address space *TAG* that you
 create for that page), `CPU.ghidra.txt` for the unpaged labels
 (`0x8000`) and `view.ghidra.txt` for the memory as mapped when jnext
-exits (`0x8000`, no overlay needed). A previous export’s `*.ghidra.txt`
-files in *DIR* are replaced. A failed export is logged and jnext exits
+exits (`0x8000`, no overlay needed). A previous export’s
+`CPU.ghidra.txt`, `view.ghidra.txt` and `TAG.ghidra.txt` files in *DIR*
+are replaced or removed; any other file there, any other `*.ghidra.txt`
+included, is never touched. A failed export is logged and jnext exits
 with status 1.
 
 **--magic-port** *PORT*  
