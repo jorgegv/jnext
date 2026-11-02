@@ -44,7 +44,7 @@ and 333 symbols with the same 281 lines on the master build.
 | `prog_CODE.bin` (and `prog_<SECTION>.bin` for banked sections) | beside the map | the **binary identity**: JNEXT compares the bytes of every code range with the program in memory. z88dk's linker writes them with or without `-create-app`; `-create-app` makes the loadable file |
 | `prog.lis` | beside the map | the start-up code's text (labelled `m4 output, from prog.lis`) |
 | `main.c.lis`, `util.c.lis`, `asmfn.asm.lis` | where zcc wrote them: beside each source | found there, whatever the map's directory |
-| the sources | beside the map, in a parent directory, or on the search path | [where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files) |
+| the sources | beside the map, in a parent directory, or on the search path | [where the Source tab finds the files](05-loading-a-source-map.md#where-the-source-tab-finds-the-files) |
 
 If the map is not beside the program, load it by hand with **Load Source
 Map...** in the Source tab, or with `--source-map FILE` after `--load`.
@@ -114,7 +114,7 @@ Verified z88dk source map '/home/you/prog/prog.map': the program loaded from tap
 ```
 
 (338 symbols on the master build.) More about tapes is in
-[loading a source map](../functions/14-source-level-debugging.md#loading-them).
+[loading a source map](05-loading-a-source-map.md).
 
 ## Banked code
 
@@ -146,7 +146,7 @@ The banking driver adds its own code to the start-up section, after the start-up
 code's. The start-up code's part of that section has no label in the map, so JNEXT
 places it by its bytes. It goes where `prog_CODE.bin` holds its instructions, and only when exactly
 one place in the section does. How banked code, pages and addresses show is in
-[banked code](../functions/14-source-level-debugging.md#banked-code).
+[banked code](07-banked-code.md).
 
 ## Things that change the result
 

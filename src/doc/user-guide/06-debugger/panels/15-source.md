@@ -1,7 +1,7 @@
 # Source
 
 The source line the CPU is running, read from the program's source map
-([Source-level debugging](../functions/14-source-level-debugging.md)).
+([The Source Debugger](../source-debugger/index.md)).
 
 At the top, the source steps — **Into**, **Over**, **Out**, **Back** and
 **Reverse** — and **Load Source Map...** / **Load Memory.txt...** to load a source map (an SLD or a z88dk map)
@@ -52,7 +52,7 @@ A small amber arrow at the right edge of the gutter marks the line the CPU is on
 highlight alone can also mean a line you selected by right-clicking; the arrow is only ever
 on the CPU's line. When a toolchain
 attributes the same address to more than one source line, the position line names the
-primary one and lists the others, `main.bas:11  $8002  page 2E  also: util.bas:7`.
+primary one and lists the others, `main.bas:11  $8002  P2E  also: util.bas:7`.
 
 Left of the text is a gutter, like the disassembly's: a **BP** column and the file's
 own **Line** numbers. A line carrying a breakpoint shows the same red mark as the
@@ -114,7 +114,7 @@ inside it, the selection stays (so a dragged range can be copied).
   every address the line compiled to, with its page, or `-` for a line with no code.
 - **Toggle Breakpoint**: the gutter click.
 - **Run to Here**, also **Enter** in the text: run until the first place of the line is reached
-  (see [Running to a source line](../functions/14-source-level-debugging.md#running-to-a-source-line)).
+  (see [Running to a source line](../source-debugger/06-breakpoints-and-steps.md#running-to-a-source-line)).
 - **Show in Disassembly**: the disassembly moves to the line's address and selects it. A line
   that compiled to several places has a submenu, one item per place; a place whose page is not
   mapped now is disabled. (The disassembly's own right-click menu has the counterpart, **Show in
@@ -150,5 +150,5 @@ The source file is found from the name the map records: as it is, if absolute,
 else relative to the map's own directory or one of its parents (the map's
 location is remembered as a full path, whatever directory you loaded it from),
 else in the directories of the source search path
-([Where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files)).
+([Where the Source tab finds the files](../source-debugger/05-loading-a-source-map.md#where-the-source-tab-finds-the-files)).
 A file that changes on disk is reloaded at the next pause.

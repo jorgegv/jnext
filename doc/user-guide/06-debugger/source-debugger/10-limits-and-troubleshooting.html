@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="08-around-the-source.html">
+        <link rel="prev" href="09-scripts-and-remote-debuggers.html">
       
       
         <link rel="next" href="../../07-automation-and-ci/index.html">
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2653,7 +2653,7 @@
   <span class="md-ellipsis">
     
   
-    Source-level debugging
+    Source-level debugging (see The Source Debugger)
   
 
     
@@ -3188,6 +3188,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -3300,6 +3310,34 @@
   
   
     <li class="md-nav__item">
+      <a href="03-dot-commands.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dot commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="04-sjasmplus-and-boriel.html" class="md-nav__link">
         
   
@@ -3328,6 +3366,90 @@
   
   
     <li class="md-nav__item">
+      <a href="05-loading-a-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading a source map, and finding the files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-breakpoints-and-steps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints, steps and running to a line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-banked-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Banked code, and which memory a line is in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-around-the-source.html" class="md-nav__link">
         
   
@@ -3335,7 +3457,35 @@
   <span class="md-ellipsis">
     
   
-    In the Source tab: names, watches and coverage
+    In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-scripts-and-remote-debuggers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts and remote debuggers
   
 
     
@@ -3971,7 +4121,7 @@ output.</p>
 <tr>
 <td><code>main.c:19 - source file not found</code> (Source tab)</td>
 <td>the map names a file the Source tab cannot find</td>
-<td><strong>Locate File...</strong>, the source search path, or <code>--source-dir</code>: <a href="../functions/14-source-level-debugging.html#where-the-source-tab-finds-the-files">where the Source tab finds the files</a></td>
+<td><strong>Locate File...</strong>, the source search path, or <code>--source-dir</code>: <a href="05-loading-a-source-map.html#where-the-source-tab-finds-the-files">where the Source tab finds the files</a></td>
 </tr>
 <tr>
 <td><code>main.c:19 - /path/main.c has only 12 lines; it is not the text the build used</code></td>
@@ -3984,9 +4134,44 @@ output.</p>
 <td>choose a line with code</td>
 </tr>
 <tr>
-<td><code>ROM or overlay</code> (Source tab)</td>
-<td>the address is supplied by a ROM or an overlay (DivMMC, Multiface, Layer 2, boot ROM), not a RAM page</td>
+<td><code>$0038 (ROM0): no source mapping; use the disassembly</code> (Source tab; the tag names the memory: <code>ROM0</code>, <code>DIVROM</code>, <code>MFROM</code>, <code>BOOT</code>...)</td>
+<td>the address is supplied by a ROM or an overlay (DivMMC, Multiface, Layer 2, boot ROM), not a RAM page, and page-tagged records never describe it</td>
 <td>use the disassembly there</td>
+</tr>
+<tr>
+<td><code>$8000 (P04): no source mapping; use the disassembly</code></td>
+<td>the address is in RAM but no line of the map covers it (the compiler's runtime, a library, code copied at run time)</td>
+<td>use the disassembly there</td>
+</tr>
+<tr>
+<td><code>--source-map requires --load FILE, or the map of a z88dk dot command: 'prog.map' is not one</code></td>
+<td><code>--source-map</code> with no <code>--load</code>, and a map that is not a dot command's</td>
+<td>give <code>--load</code>; see <a href="03-dot-commands.html">Dot commands</a></td>
+</tr>
+<tr>
+<td><code>--source-map 'prog.map': line 2089: section 'code_compiler': a dotn command's main bank and PAGE / DIV sections are pages NextZXOS allocates when it runs (__z_page_table); a dotn map cannot place them (build it as a dotx to debug it)</code></td>
+<td>a map of a <code>-subtype=dotn</code> command; the run exits with status 1</td>
+<td>build it as a dotx: <a href="03-dot-commands.html">Dot commands</a></td>
+</tr>
+<tr>
+<td><em>Source map not verified yet: it is checked when the dot command runs</em> (Source tab)</td>
+<td>a dot command's map, attached before <code>.prog</code> has been typed</td>
+<td>nothing; the log says <code>Verified z88dk source map ...</code> when it runs</td>
+</tr>
+<tr>
+<td><em>The dot command started in DivMMC RAM bank 2 is not the one source map ... describes; it stays pending</em> (log)</td>
+<td>another dot command ran from the same bank</td>
+<td>nothing: the map is not dropped. Type the command it describes</td>
+</tr>
+<tr>
+<td><code>Cannot break on 'main.c:19'</code> (z88dk-gdb)</td>
+<td>a map built by master's sdcc (<code>-clib=sdcc_iy -debug -m --list</code>), with the 2.4 and the master clients (the 2026-10-16 master)</td>
+<td>use an address or a symbol in the client, or build with sccz80</td>
+</tr>
+<tr>
+<td><code>Segmentation fault</code> of z88dk-gdb (the 2026-10-16 master client, on the 2.4 and the master banked <code>-run</code> maps)</td>
+<td>the map has a 24-bit <code>__C_LINE_</code> value</td>
+<td>debug it in JNEXT's own Source tab. z88dk PR #3218 (merged 2026-10-31) is said to fix it; not run here</td>
 </tr>
 <tr>
 <td><code>Unknown option2 --hardware-keyboard</code> (z88dk, at build)</td>
@@ -4020,7 +4205,8 @@ the two pragmas: see <a href="02-building-with-z88dk.html#banked-code">Building 
 <li><strong>Programs the guest loads itself</strong> (one chosen in the NextZXOS browser, or
   <code>LOAD ""</code>) are not seen by JNEXT: load their source map by hand.</li>
 <li><strong>DivMMC sections</strong> (<code>DIV_n</code>, and z88dk's <code>dotn</code> programs) are refused: a map
-  with a line in one is rejected, with the line named, rather than attached half.</li>
+  with a line in one is rejected, with the line named, rather than attached half.
+  A <code>dot</code> or <code>dotx</code> command is supported: <a href="03-dot-commands.html">Dot commands</a>.</li>
 <li><strong>C variables beyond their names</strong> (types, locals, structs) are not in the
   debugger yet.</li>
 <li><strong>A step is synchronous and bounded.</strong> A step that never reaches another

@@ -2724,7 +2724,7 @@
   <span class="md-ellipsis">
     
   
-    Source-level debugging
+    Source-level debugging (see The Source Debugger)
   
 
     
@@ -3257,6 +3257,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -3369,6 +3379,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../source-debugger/03-dot-commands.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dot commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../source-debugger/04-sjasmplus-and-boriel.html" class="md-nav__link">
         
   
@@ -3397,6 +3435,90 @@
   
   
     <li class="md-nav__item">
+      <a href="../source-debugger/05-loading-a-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading a source map, and finding the files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/06-breakpoints-and-steps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints, steps and running to a line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/07-banked-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Banked code, and which memory a line is in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../source-debugger/08-around-the-source.html" class="md-nav__link">
         
   
@@ -3404,7 +3526,35 @@
   <span class="md-ellipsis">
     
   
-    In the Source tab: names, watches and coverage
+    In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/09-scripts-and-remote-debuggers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts and remote debuggers
   
 
     
@@ -3918,7 +4068,7 @@
 
 <h1 id="source">Source<a class="headerlink" href="#source" title="Permanent link">&para;</a></h1>
 <p>The source line the CPU is running, read from the program's source map
-(<a href="../functions/14-source-level-debugging.html">Source-level debugging</a>).</p>
+(<a href="../source-debugger/index.html">The Source Debugger</a>).</p>
 <p>At the top, the source steps — <strong>Into</strong>, <strong>Over</strong>, <strong>Out</strong>, <strong>Back</strong> and
 <strong>Reverse</strong> — and <strong>Load Source Map...</strong> / <strong>Load Memory.txt...</strong> to load a source map (an SLD or a z88dk map)
 or NextBuild symbols by hand, and <strong>Locate File...</strong>, enabled while the tab says
@@ -3962,7 +4112,7 @@ its highlight).</p>
 highlight alone can also mean a line you selected by right-clicking; the arrow is only ever
 on the CPU's line. When a toolchain
 attributes the same address to more than one source line, the position line names the
-primary one and lists the others, <code>main.bas:11  $8002  page 2E  also: util.bas:7</code>.</p>
+primary one and lists the others, <code>main.bas:11  $8002  P2E  also: util.bas:7</code>.</p>
 <p>Left of the text is a gutter, like the disassembly's: a <strong>BP</strong> column and the file's
 own <strong>Line</strong> numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a
@@ -4017,7 +4167,7 @@ inside it, the selection stays (so a dragged range can be copied).</p>
   every address the line compiled to, with its page, or <code>-</code> for a line with no code.</li>
 <li><strong>Toggle Breakpoint</strong>: the gutter click.</li>
 <li><strong>Run to Here</strong>, also <strong>Enter</strong> in the text: run until the first place of the line is reached
-  (see <a href="../functions/14-source-level-debugging.html#running-to-a-source-line">Running to a source line</a>).</li>
+  (see <a href="../source-debugger/06-breakpoints-and-steps.html#running-to-a-source-line">Running to a source line</a>).</li>
 <li><strong>Show in Disassembly</strong>: the disassembly moves to the line's address and selects it. A line
   that compiled to several places has a submenu, one item per place; a place whose page is not
   mapped now is disabled. (The disassembly's own right-click menu has the counterpart, <strong>Show in
@@ -4050,7 +4200,7 @@ again.</p>
 else relative to the map's own directory or one of its parents (the map's
 location is remembered as a full path, whatever directory you loaded it from),
 else in the directories of the source search path
-(<a href="../functions/14-source-level-debugging.html#where-the-source-tab-finds-the-files">Where the Source tab finds the files</a>).
+(<a href="../source-debugger/05-loading-a-source-map.html#where-the-source-tab-finds-the-files">Where the Source tab finds the files</a>).
 A file that changes on disk is reloaded at the next pause.</p>
 
 

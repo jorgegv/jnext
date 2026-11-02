@@ -110,7 +110,7 @@ nav:
           - Debugging with z88dk-gdb: 06-debugger/functions/11-debugging-with-z88dk-gdb.md
           - Remote debugging over ZRCP: 06-debugger/functions/12-remote-debugging-over-zrcp.md
           - Debugger scripts: 06-debugger/functions/13-debugger-scripts.md
-          - Source-level debugging: 06-debugger/functions/14-source-level-debugging.md
+          - Source-level debugging (see The Source Debugger): 06-debugger/functions/14-source-level-debugging.md
           - Memory coverage: 06-debugger/functions/15-memory-coverage.md
       - Scripting:
           - 06-debugger/scripting/index.md
@@ -131,8 +131,13 @@ nav:
           - 06-debugger/source-debugger/index.md
           - A first session: 06-debugger/source-debugger/01-a-first-session.md
           - Building programs with z88dk: 06-debugger/source-debugger/02-building-with-z88dk.md
+          - Dot commands: 06-debugger/source-debugger/03-dot-commands.md
           - sjasmplus and Boriel ZX Basic: 06-debugger/source-debugger/04-sjasmplus-and-boriel.md
-          - 'In the Source tab: names, watches and coverage': 06-debugger/source-debugger/08-around-the-source.md
+          - Loading a source map, and finding the files: 06-debugger/source-debugger/05-loading-a-source-map.md
+          - Breakpoints, steps and running to a line: 06-debugger/source-debugger/06-breakpoints-and-steps.md
+          - Banked code, and which memory a line is in: 06-debugger/source-debugger/07-banked-code.md
+          - 'In the Source tab: names, watches, coverage and colours': 06-debugger/source-debugger/08-around-the-source.md
+          - Scripts and remote debuggers: 06-debugger/source-debugger/09-scripts-and-remote-debuggers.md
           - Limits and troubleshooting: 06-debugger/source-debugger/10-limits-and-troubleshooting.md
   - 7. Automation and CI:
       - 07-automation-and-ci/index.md

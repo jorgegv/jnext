@@ -25,7 +25,7 @@
     
     
       
-        <title>Source-level debugging - JNEXT User Guide</title>
+        <title>Source-level debugging (see The Source Debugger) - JNEXT User Guide</title>
       
     
     
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Source-level debugging
+              Source-level debugging (see The Source Debugger)
             
           </span>
         </div>
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2657,24 +2657,6 @@
         
       
       
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Source-level debugging
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
       <a href="14-source-level-debugging.html" class="md-nav__link md-nav__link--active">
         
   
@@ -2682,7 +2664,7 @@
   <span class="md-ellipsis">
     
   
-    Source-level debugging
+    Source-level debugging (see The Source Debugger)
   
 
     
@@ -2691,124 +2673,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#loading-them" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Loading them
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#where-the-source-tab-finds-the-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where the Source tab finds the files
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#banked-code" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Banked code
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-source-tab" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The Source tab
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#running-to-a-source-line" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Running to a source line
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#watching-a-variable-from-the-source" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Watching a variable from the source
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#breakpoints-on-a-source-line" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Breakpoints on a source line
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#debugging-z88dk-c-programs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Debugging z88dk C programs
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#from-scripts-and-z88dk-gdb" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        From scripts and z88dk-gdb
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
       
     </li>
   
@@ -3334,6 +3198,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -3446,6 +3320,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../source-debugger/03-dot-commands.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dot commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../source-debugger/04-sjasmplus-and-boriel.html" class="md-nav__link">
         
   
@@ -3474,6 +3376,90 @@
   
   
     <li class="md-nav__item">
+      <a href="../source-debugger/05-loading-a-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading a source map, and finding the files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/06-breakpoints-and-steps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints, steps and running to a line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/07-banked-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Banked code, and which memory a line is in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../source-debugger/08-around-the-source.html" class="md-nav__link">
         
   
@@ -3481,7 +3467,35 @@
   <span class="md-ellipsis">
     
   
-    In the Source tab: names, watches and coverage
+    In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../source-debugger/09-scripts-and-remote-debuggers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts and remote debuggers
   
 
     
@@ -3994,316 +4008,19 @@
 
 
 <h1 id="source-level-debugging">Source-level debugging<a class="headerlink" href="#source-level-debugging" title="Permanent link">&para;</a></h1>
-<p>This page is the reference for source maps and the Source tab's steps. For a
-worked example and the build routes, see <a href="../source-debugger/index.html">The Source
-Debugger</a>.</p>
-<p>When your program comes with a <strong>source map</strong>, the debugger can show the line
-of BASIC or assembly the CPU is running and step through the program one
-source statement at a time — including over and out of calls, and backwards
-with rewind.</p>
-<p>JNEXT reads source maps in two formats: the <strong>sjasmplus SLD</strong> (<code>.sld</code>), which
-sjasmplus writes with <code>--sld</code>, and which a Boriel ZX Basic / NextBuild build
-can produce too; and the <strong>z88dk <code>-debug</code> map</strong> (<code>.map</code>), which z88dk writes
-for a C program built with <code>-debug -m</code> (see
-<a href="#debugging-z88dk-c-programs">Debugging z88dk C programs</a> below). An SLD also
-lists the program's <strong>labels</strong>, and they join the symbols. Symbols come from
-them, from the <strong>NextBuild <code>Memory.txt</code></strong> the NextBuild toolchain writes beside
-a program, from a z88dk map, and from the MAP files in
-<a href="05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>.</p>
-<h2 id="loading-them">Loading them<a class="headerlink" href="#loading-them" title="Permanent link">&para;</a></h2>
-<p><strong>Automatically.</strong> When a program is loaded — on the command line with
-<code>--load</code>, with <strong>File ▸ Load NEX File…</strong>, or by a remote debugger — JNEXT looks beside it
-for:</p>
+<p>Source-level debugging has its own section, <a href="../source-debugger/index.html">The Source Debugger</a>:</p>
 <ul>
-<li><code>&lt;name&gt;.Memory.txt</code>, else <code>Memory.txt</code>, beside a <code>.nex</code>: the symbols;</li>
-<li><code>&lt;name&gt;.sld</code>, else <code>&lt;name&gt;.sld.txt</code>: the source map and its labels;</li>
-<li><code>&lt;name&gt;.map</code>, a z88dk map, beside a <code>.nex</code>, <code>.tap</code> or <code>.sna</code>: its source lines
-  and its symbols. Beside a tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) they attach at once,
-  and are checked when the program first runs (see <strong>Tapes</strong> below).</li>
+<li><a href="../source-debugger/01-a-first-session.html">A first session</a></li>
+<li><a href="../source-debugger/02-building-with-z88dk.html">Building programs with z88dk</a></li>
+<li><a href="../source-debugger/03-dot-commands.html">Dot commands</a></li>
+<li><a href="../source-debugger/04-sjasmplus-and-boriel.html">sjasmplus and Boriel ZX Basic</a></li>
+<li><a href="../source-debugger/05-loading-a-source-map.html">Loading a source map, and finding the files</a></li>
+<li><a href="../source-debugger/06-breakpoints-and-steps.html">Breakpoints, steps and running to a line</a></li>
+<li><a href="../source-debugger/07-banked-code.html">Banked code, and which memory a line is in</a></li>
+<li><a href="../source-debugger/08-around-the-source.html">In the Source tab: names, watches, coverage and colours</a></li>
+<li><a href="../source-debugger/09-scripts-and-remote-debuggers.html">Scripts and remote debuggers</a></li>
+<li><a href="../source-debugger/10-limits-and-troubleshooting.html">Limits and troubleshooting</a></li>
 </ul>
-<p>Each one found is loaded and named in the log (<code>Loaded 2 NextBuild symbols
-from …</code>, <code>Loaded 12 SLD labels from …</code>, <code>Loaded 812 SLD source traces from …</code>,
-<code>Loaded 19 z88dk symbols from …</code>, <code>Loaded 46 z88dk source lines from …</code>).
-When both a <code>Memory.txt</code> and an SLD have a label, the <code>Memory.txt</code> one wins. A
-z88dk map's source lines are used only when there is no SLD; its symbols come
-last, after an SLD's labels, and are not used at all when a <code>Memory.txt</code> exists
-(a <code>.map</code> with no symbols and no source lines is not a z88dk map, and is
-ignored; a plain <code>-m</code> map gives its symbols, <code>-debug</code> adds the source lines). If the map is refused, say for a malformed line, its symbols still
-attach and the log and the status bar say why the source lines did not. This happens in every
-frontend, with or without the debugger window open, but only the Qt debugger
-shows the source map: with <code>--headless</code>, and in the SDL-only build, it is
-attached and logged, and read by <code>monitor src</code> over the GDB server and by
-scripts (see <a href="#from-scripts-and-z88dk-gdb">From scripts and z88dk-gdb</a>); a
-remote debugger can also look up the symbols.</p>
-<p>They belong to the program that was loaded with them. Loading the next program
-replaces them, or clears them if it has none. Rewinding brings back the ones
-that belonged to the point you land on (the last four programs are remembered).
-When the machine is reset, or a state is restored from a snapshot, a bookmark or
-a remote debugger, or a replay starts, the source map stays only if it carries
-the program's SHA-256 (an SLD extension that most assemblers do not write) and
-the memory still matches it; a reset is checked again at the next pause, since
-the ROM clears memory a few frames later. Otherwise the program's symbols and
-source map are dropped. <strong>Back</strong> and <strong>Reverse Continue</strong> never go back past
-such a landing. A program the guest loads for
-itself, such as one chosen in the NextZXOS browser or started with <code>LOAD ""</code>,
-is not seen by JNEXT: load its source map by hand (below). With
-<code>--esxdos-stub</code>, a <code>.RUN</code> of a sibling NEX is a load like any other: the
-machine cold-boots with it, which drops the old ones, and the new program's
-are attached. An SLD or a z88dk map built for another binary brings no labels or symbols either, and an SLD you
-did not load because you had loaded a source map yourself brings no labels. A z88dk map beside the
-program still brings its symbols then (the log says its source lines were not loaded).</p>
-<p>Symbols you loaded by hand (below), or a MAP given with <code>--map</code>, are kept: they
-are your choice, not the program's. A source map you loaded by hand is yours too
-(a program's map never replaces it), but at each of those landings it is checked
-the same way: if it has no SHA-256, or the memory no longer matches it, it goes
-<strong>stale</strong>. The Source tab then says so and why, and the steps are off; load it
-again (<strong>Load Source Map...</strong>) to use it.</p>
-<p><strong>By hand.</strong> The <strong>Source</strong> tab has <strong>Load Source Map...</strong> and <strong>Load Memory.txt...</strong>
-buttons, also in <strong>Debug ▸ Source ▸ Load Source Map…</strong> and <strong>Load Symbols
-(Memory.txt)…</strong>. The symbols replace whatever was loaded before, as the
-<strong>Map ▸ Load MAP File</strong> formats do. <strong>Load Source Map...</strong> takes an SLD or a
-z88dk <code>.map</code> (told apart by what the file holds). An SLD's labels are loaded too and
-replace the symbols the same way, unless you loaded symbols yourself (<strong>Map ▸ Load MAP
-File</strong>, <strong>Load Memory.txt...</strong> or <code>--map</code>), which are kept; a later SLD replaces an earlier SLD's labels.
-A z88dk map loaded this way gives source lines only (the labels of an SLD loaded before it stay): load its symbols with
-<strong>Map ▸ Load MAP File ▸ Z88DK Format…</strong>, or <code>--map</code>. One built without <code>-debug</code>
-has no source lines and is refused, saying so.</p>
-<p><strong>On the command line.</strong> <code>--source-map FILE</code> does the same load of a source map
-(an SLD or a z88dk map) right after the program given with <code>--load</code> is in memory,
-in every frontend. It needs <code>--load</code>; a map whose binary identity does not match
-the program is refused, and the run exits with status 1 (the log says why). The
-map is yours, like one loaded by hand. With a tape program the map attaches at
-once and is checked when the program first runs its code (see <strong>Tapes</strong> above); a
-mismatch drops it then, and the run exits with status 1.</p>
-<p><strong>Tapes.</strong> A program loaded from tape (<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) is not in memory
-when the load call returns: the machine loads it over the frames that follow. So
-a tape's source map, whether it is <code>&lt;name&gt;.sld</code>, <code>&lt;name&gt;.map</code> or the map of
-<code>--source-map</code>, attaches <strong>at once</strong> and works at once (the Source tab shows its
-files, <code>main.c:19</code> can be set as a breakpoint before the tape has loaded), but
-its binary identity is checked later, <strong>the first time the CPU is about to run
-inside the memory the map describes</strong>. Until then the Source tab says <em>Source map
-not verified yet: it is checked when the program first runs its code</em> and the log
-line ends <code>(identity check pending: the program loads from tape)</code>. The check is
-made <strong>per memory space</strong>: a program with code in the main page and in a bank
-that the tape loads after it has started has each checked when it first runs
-there, and the others stay pending. When the last one matches the log says
-<code>Verified z88dk source map …</code>. If any space does not match, the map is
-<strong>dropped</strong> with an error (<code>Rejected z88dk source map …: the program loaded from
-tape does not match its binary identity</code>), and so are the symbols that came with
-it; with <code>--source-map</code> the run then exits with status 1. A map with no binary
-identity (no section binaries, an SLD without a hash) attaches unverified, as for
-any program, and nothing is waited for. The map's symbols take the page mapped at
-the tape's load call, as its source lines do, and work at once, while the check is
-pending; the map you loaded yourself is bound again at each program load. A reset before the program has arrived
-drops a program's pending map, since the program will not, and makes the one you
-loaded yourself stale (load it again once the program is in memory).</p>
-<p><strong>Binary identity.</strong> An SLD may record the SHA-256 of the program's bytes as it
-was built (<code>||program.sha256:</code>, <code>||program.org:</code> and <code>||program.size:</code> comment
-records, which other SLD readers ignore). An SLD found beside a program whose
-bytes in memory do not match is <strong>rejected</strong> — it belongs to another build.
-One loaded by hand that does not match asks first, because a running
-program may have changed variables stored inside its own image since it started.</p>
-<p>A z88dk map has no hash in the map itself. Its identity is the <strong>section
-binaries</strong> next to it: z88dk's <code>-create-app</code> writes <code>&lt;name&gt;_CODE.bin</code> (and one
-<code>&lt;name&gt;_&lt;SECTION&gt;.bin</code> for every banked section) beside the map, and JNEXT
-compares the bytes of every line range of non-data code with the program in
-memory, in the page the line was built for, whether or not that page is mapped.
-Variables (data, bss) are not compared, since the program writes to them. A map
-with no binaries beside it attaches unverified, and the log says so (<code>program
-identity not verified</code>); when only some of the binaries are there, the log says
-the identity is verified for the code they cover and how many code ranges had no
-binary and were not checked. Only upper-case section names are looked for
-(<code>_CODE</code>, <code>_PAGE_20</code>, <code>_BANK_10</code>).</p>
-<p>A sidecar that is found and refused, for any reason (an SLD or a z88dk map built for another
-binary, a file that is not an SLD or a map, not a regular file, or over 64 MiB), says
-why: the reason is in the log, in the main window's status bar for ten
-seconds, and in the Source tab in place of "No source map loaded".</p>
-<h2 id="where-the-source-tab-finds-the-files">Where the Source tab finds the files<a class="headerlink" href="#where-the-source-tab-finds-the-files" title="Permanent link">&para;</a></h2>
-<p>A map names its files as the compiler saw them, and the build may have run
-somewhere else: in a <code>build/</code> directory beside the sources, on another machine,
-or in a container. The Source tab looks for each file in this order:</p>
-<ol>
-<li>the name as recorded, when it is an absolute path that exists;</li>
-<li>beside the map, then in each of its parent directories;</li>
-<li>your <strong>source search path</strong>: for each directory in it, the whole recorded
-   name, then the name without its first directory, and so on down to the file
-   name alone. The longest matching part of the name wins over the order of the
-   directories, so <code>game/util.c</code> is <code>game/util.c</code> in the second directory rather
-   than <code>util.c</code> in the first. A <code>..</code> at the start of a name is ignored, so a
-   search never leaves the directory it was given.</li>
-</ol>
-<p>Add to the search path with <strong>Preferences ▸ Paths ▸ Source search path</strong> (one
-directory per line, saved), with <code>--source-dir DIR</code> (repeat it; <code>paths.source_dirs</code>
-with <code>--set</code>), or with <strong>Locate File...</strong>. A list given on the command line
-<strong>replaces</strong> the saved one for that run and is never written to the file;
-directories added by <strong>Locate File...</strong> still apply. A relative directory is
-taken from the working directory JNEXT was started in. When the
-tab says <code>main.c:19 - source file not found</code>, <strong>Locate File...</strong> asks for the
-file the map names; the directory it is in is searched from then on, and JNEXT
-asks whether to save it in Preferences too (the default is No). Choosing a file
-of another name is refused. The saved list is one line of <code>jnext.conf</code> with the directories
-separated by <code>:</code> (<code>;</code> on Windows), so a directory whose name holds that character is refused by
-Preferences, by <code>--source-dir</code> and by the Save question of <strong>Locate File...</strong> (it is still searched
-for the session).</p>
-<p>z88dk records its own library files too: the headers (<code>stdint.h</code>) and the
-<code>.inc</code> files, with absolute names. A map built on this machine finds them where
-the compiler left them. For a map built elsewhere, add the z88dk install
-directory (the one holding <code>libsrc/</code> and <code>include/</code>) to the search path, or
-locate one of its files: one pick covers every file under it.</p>
-<p>The start-up code (<code>zxn_crt.asm.m4</code>, which holds the program's first
-instruction) has no file on disk to show: z88dk numbers its lines in the output of
-the <code>m4</code> macro processor, which the build does not keep. When the program was
-built with <code>--list</code>, the listing <code>prog.lis</code> beside the map holds that text, and
-the tab shows it, labelled <code>(m4 output, from prog.lis)</code>; the <code>.inc</code> files the
-start-up code includes are ordinary files, found as any other. Without the
-listing the tab says so and you use the disassembly there.</p>
-<p>A program loaded or reloaded (<strong>Alt+L</strong>) while the machine is paused leaves it
-paused: a paused machine stays paused, at the new program counter. A NEX file
-stops at its entry point, which for z88dk is that start-up code (<code>__Start</code>) and
-not yet <code>main</code>: press <strong>Continue</strong>, or set a breakpoint on <code>main</code> first. A
-running machine keeps running.</p>
-<p>When the file is found but is shorter than the line the map names, the tab says
-so (<code>main.c:19 - /path/main.c has only 12 lines; it is not the text the build
-used</code>): it is not the file the program was built from. The label's tooltip
-shows the path of the file that was found.</p>
-<h2 id="banked-code">Banked code<a class="headerlink" href="#banked-code" title="Permanent link">&para;</a></h2>
-<p>A Next program pages code in and out, so one address can hold different code
-at different times. Each source record names the 8K RAM page its code was built
-for, and the debugger matches the RAM page that supplies that address <em>now</em>:
-the Source tab, the Call Stack and the Breakpoints panel never show a line of
-code that is not the one in memory. Code supplied by ROM or by an overlay
-(DivMMC — including the instruction at which its automatic paging switches on
-or off —, the Multiface, the Layer 2 read mapping, the boot ROM) is not any RAM
-page, so page-tagged records never describe it; the Source tab says "ROM or
-overlay" there. Labels follow the page too: a label assembled for a bank names
-its address only while that bank is mapped there, in the disassembly, the
-Breakpoints and Call Stack panels, and a remote debugger's <code>monitor sym</code>; a label
-assembled for no bank names it always.</p>
-<p>A statement covers every byte up to the next one: the data of a
-<code>DB</code> after an instruction belongs to that instruction's statement, and so does everything after the last
-statement of a page up to the end of that 8K page. Only addresses below a
-page's first statement, and pages with no statement at all, are unmapped.</p>
-<p>Code your program copies somewhere else at run time (a routine moved out of a
-bank into low memory, say) has no record where it runs unless your build made
-one, and shows as unmapped there.</p>
-<h2 id="the-source-tab">The Source tab<a class="headerlink" href="#the-source-tab" title="Permanent link">&para;</a></h2>
-<p>See <a href="../panels/15-source.html">Source</a>. Its buttons step by statement:</p>
-<ul>
-<li><strong>Into</strong> — run to the next source statement, entering calls. Instructions
-  with no source statement (compiler runtime, library code) are run through.</li>
-<li><strong>Over</strong> — the same, but a call is run to its return.</li>
-<li><strong>Out</strong> — run until a statement in the routine that called this one.</li>
-<li><strong>Back</strong> — rewind to the start of the previous source statement that ran
-  before this point (after a <strong>Frame Back</strong>, the history you rewound away from does not
-  count).</li>
-<li><strong>Reverse</strong> — rewind to the most recent source statement with an Execute
-  breakpoint on it.</li>
-</ul>
-<p>The same five are in <strong>Debug ▸ Source</strong>. Into, Over and Out are on <strong>Ctrl+F6</strong>,
-<strong>Ctrl+F7</strong> and <strong>Ctrl+F8</strong> (like F6, F7 and F8 for instructions); Back and
-Reverse ship unbound. All of them can be rebound (<a href="09-changing-the-keys.html">Changing the keys</a>), and they
-work in the debugger window only.</p>
-<p>While a step runs, breakpoints, watchpoints, the magic breakpoint and debugger
-script rules act exactly as they do when the program runs: a breakpoint stops
-the step, a script's <code>log</code> rule logs and lets it carry on. A step that never
-reaches another statement — a loop on one line, a <code>HALT</code> with interrupts off —
-stops by itself (at a disabled-interrupt <code>HALT</code>, or after a million instructions
-or 100 frames) and says so in the log.</p>
-<p><strong>Over</strong> and <strong>Out</strong> count calls with the call-stack tracker, which runs while
-the debugger window is open. <strong>Back</strong> and <strong>Reverse</strong> need the trace log and
-rewind, like <strong>Step Back</strong>
-(<a href="07-backward-execution-rewind.html">Backward execution (rewind)</a>); they look for
-their target in the instructions the trace has kept.</p>
-<h2 id="running-to-a-source-line">Running to a source line<a class="headerlink" href="#running-to-a-source-line" title="Permanent link">&para;</a></h2>
-<p><strong>Run to Here</strong> in the Source tab's right-click menu (or <strong>Enter</strong> on the line) runs the machine
-until the line is reached. A line that compiled to several places stops at the first one
-reached; a line of banked code stops only when its page supplies the code there. No
-breakpoint is left behind, and it works while the machine runs: a second Run to Here replaces
-the first. Run to Cursor, once bound, acts on the Source tab's cursor line while that tab has
-the focus. A breakpoint on the way still stops the run first. See
-<a href="02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html">Run to cursor</a>.</p>
-<h2 id="watching-a-variable-from-the-source">Watching a variable from the source<a class="headerlink" href="#watching-a-variable-from-the-source" title="Permanent link">&para;</a></h2>
-<p>The same menu offers <strong>Watch</strong> and <strong>Break on Read / Write</strong> for the label, number or register
-under the pointer (<a href="../panels/15-source.html#right-click-menu">the Source tab's menu</a>).</p>
-<h2 id="breakpoints-on-a-source-line">Breakpoints on a source line<a class="headerlink" href="#breakpoints-on-a-source-line" title="Permanent link">&para;</a></h2>
-<p>In the Breakpoints panel's <strong>Add</strong> dialog, the address can be a number
-(<code>8000</code>, <code>$8000</code>, <code>0x8000</code>), a symbol (<code>PlayerTick</code>), or, for an Execute
-breakpoint, a source line, <code>file:line</code>: <code>main.bas:120</code>, or the end of the
-path (<code>game/main.bas:120</code>) when two files share a name. A line the program
-compiled to several places (a routine in two banks, say) is ONE breakpoint,
-armed at each place and listed as one row, "main.bas:120 (2 locations)": Enabled,
-Edit and Remove act on all its places, and a click on the dot of one place in the
-disassembly gutter removes only that place. A line with no code is refused with "no code at main.bas:120". A click in the Source tab's
-gutter sets or clears the same breakpoint on the line shown, and removing one place in the
-disassembly leaves a half mark on the Source tab's line. A number wins over a symbol: <code>FE</code> or <code>B</code> is that
-address even when the program has a variable called <code>FE</code> or <code>B</code>. Write <code>@FE</code>
-to mean the symbol (a z88dk C variable takes its C name: <code>counter</code>, not <code>_counter</code>). A breakpoint on a line of banked code is tied to
-the memory that supplies it (shown as <code>$C000 @2E</code> for a RAM page): it fires only
-while that memory supplies the address, and the disassembly gutter shows it only then.</p>
-<p><strong>Breakpoints ▸ Add Execute Breakpoint…</strong> takes <code>file:line</code> too. Symbols work
-in the other address fields: the other <strong>Breakpoints ▸ Add …</strong> dialogs,
-<strong>Watches ▸ Add</strong> (a watch added by name is labelled with it) and the Go to
-Address box of the Disassembly and Memory panels.</p>
-<h2 id="debugging-z88dk-c-programs">Debugging z88dk C programs<a class="headerlink" href="#debugging-z88dk-c-programs" title="Permanent link">&para;</a></h2>
-<p>Build with z88dk's <code>-debug -m</code> (the command lines for a NEX, a tape and a
-snapshot are in <a href="../source-debugger/02-building-with-z88dk.html">Building programs with
-z88dk</a>).</p>
-<p>Load the program (<code>prog.nex</code>, say). The <code>prog.map</code> beside it attaches by itself (see above): the
-Source tab shows <code>main.c</code> with the current line, <strong>Into / Over / Out</strong> step by C
-statement, and <code>main.c:19</code> works in the Breakpoints panel. Each line of the
-map becomes a range that runs to the next line, the next function of another
-module, the end of its section, 1 KB or the end of its 8K page, whichever comes
-first. Two lines that start at the same address are one range owned by the
-later line, and the earlier one is its alias if both are in the same function
-(the compiler put them there); otherwise the earlier line has no code.</p>
-<p>C names: <code>counter</code> works wherever <code>_counter</code> does (the compiler adds the <code>_</code>):
-in the Add dialogs, Go to Address and a script's <code>@counter</code>, and the views show
-<code>counter</code>; see <a href="05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>.</p>
-<p>Which compilers and libraries work on which z88dk, and what the options
-(<code>--list</code>, <code>-debug</code>, optimisation) change, is in <a href="../source-debugger/02-building-with-z88dk.html">Building programs with z88dk</a>; the messages are in <a href="../source-debugger/10-limits-and-troubleshooting.html">Limits and
-troubleshooting</a>. What is
-specific to how the map is read:</p>
-<ul>
-<li><strong>Banked code</strong>: a function in a <code>PAGE_n</code> or <code>BANK_n</code> section is found only
-  while its 8K page is mapped where it runs (the Source tab, Call Stack and
-  Breakpoints panels all follow the page). The map's address for a <code>BANK_n</code>
-  section carries the bank in its high bits; JNEXT reads the page from the
-  section and the address, and the map's symbols follow the page as its lines
-  do (<code>@name</code> and the disassembly name a banked symbol only while its page is
-  mapped); the 24-bit <code>__PAGE_&lt;n&gt;_head</code> that the pragma below produces is read
-  by its low 16 bits. z88dk's <code>__banked</code> on newlib <code>+zxn</code> needs
-  <code>-pragma-define:CRT_ORG_PAGE_&lt;n&gt;=0x&lt;page&gt;&lt;org&gt;</code> (the page in the top byte,
-  for example <code>0x14C000</code> for <code>PAGE_20</code>) and a stack below the banking segment
-  (<code>-pragma-define:REGISTER_SP=0xC000</code>): without them the program itself calls
-  page 0 or loses its stack. <strong>Over</strong> and <strong>Out</strong> step across <code>banked_call</code> and
-  the <code>-debug</code> helpers; <strong>Out</strong> lands on the calling line at the return address
-  (mid-statement), as gdb's <code>finish</code> does. The build commands are in
-  <a href="../source-debugger/02-building-with-z88dk.html#banked-code">Building programs with z88dk</a>.</li>
-<li><strong>DivMMC sections</strong> (<code>DIV_n</code>) are not supported yet: a map with a line in one
-  is refused, with the line named, rather than attached half.</li>
-<li><strong><code>--list</code> listings beside the map</strong>: JNEXT reads the z80asm listings z88dk
-  writes with <code>--list</code> (<code>main.c.lis</code>, <code>prog.lis</code>) by itself; the log says <code>and 4
-  listings</code> and <strong>Load Source Map...</strong> says <code>with 4 z88dk listings</code>. What they
-  add, and how to build them, is in <a href="../source-debugger/02-building-with-z88dk.html">Building programs with
-  z88dk</a>. A listing that cannot be
-  followed is dropped, with a note (rebuild with <code>--list</code>, or delete stale <code>.lis</code>
-  files), and its module keeps the map's lines: that covers a section switched
-  inside an <code>IF</code> branch the listing cannot judge, a macro or <code>REPT</code> body that
-  switches section, and a listing that does not match the map or the section
-  binaries. sccz80 without <code>-debug</code> marks only the start of each function.
-  Classic builds have no section binaries, so their placement rests on the
-  labels of the map and on that check alone.</li>
-<li>Code in a section that names no page (<code>CODE</code>, <code>code_compiler</code>, the program
-  itself) is tied to the RAM page the MMU maps at that address when the program
-  is in memory (page 4 at $8000 for a NEX).</li>
-</ul>
-<h2 id="from-scripts-and-z88dk-gdb">From scripts and z88dk-gdb<a class="headerlink" href="#from-scripts-and-z88dk-gdb" title="Permanent link">&para;</a></h2>
-<p>A script breaks on a source line with <code>on execute main.c:19</code> (see
-<a href="../scripting/03-events.html">Events</a>): it fires at every place the line's code
-starts, each in the memory it was built for. With <code>--load</code> and <code>--script</code>
-together the script waits for the program and its map. Over the GDB server,
-<code>monitor src [ADDR]</code> answers the line of an address (see <a href="11-debugging-with-z88dk-gdb.html">Debugging with
-z88dk-gdb</a>).</p>
 
 
 

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2653,7 +2653,7 @@
   <span class="md-ellipsis">
     
   
-    Source-level debugging
+    Source-level debugging (see The Source Debugger)
   
 
     
@@ -3188,6 +3188,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -3300,6 +3310,34 @@
   
   
     <li class="md-nav__item">
+      <a href="03-dot-commands.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dot commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="04-sjasmplus-and-boriel.html" class="md-nav__link">
         
   
@@ -3328,6 +3366,90 @@
   
   
     <li class="md-nav__item">
+      <a href="05-loading-a-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading a source map, and finding the files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-breakpoints-and-steps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints, steps and running to a line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-banked-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Banked code, and which memory a line is in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-around-the-source.html" class="md-nav__link">
         
   
@@ -3335,7 +3457,35 @@
   <span class="md-ellipsis">
     
   
-    In the Source tab: names, watches and coverage
+    In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-scripts-and-remote-debuggers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts and remote debuggers
   
 
     
@@ -3853,8 +4003,7 @@ of C, assembly or BASIC the CPU is running, stops on a source line
 (<code>main.c:19</code>), and steps one source statement at a time: into calls, over them,
 out of them, and backwards with rewind. This section is the task-oriented
 guide to it, with a worked example in C built with z88dk. The debugger itself
-is in <a href="../index.html">chapter 6</a>, and the reference page for source maps is
-<a href="../functions/14-source-level-debugging.html">Source-level debugging</a>; the <strong>Source</strong> tab's controls are
+is in <a href="../index.html">chapter 6</a>; the <strong>Source</strong> tab's controls are
 in <a href="../panels/15-source.html">its panel page</a>.</p>
 <p>A source map is a file your build writes beside the program. JNEXT finds it by
 itself when the program is loaded, checks that it belongs to that program, and
@@ -3897,21 +4046,24 @@ attaches it. Which file you need depends on the tool:</p>
 <li><a href="02-building-with-z88dk.html">Building programs with z88dk</a>: the options,
   which compiler and library work on which z88dk, tape and snapshot builds,
   banked code.</li>
+<li><a href="03-dot-commands.html">Dot commands</a>: debugging a NextZXOS <code>.command</code> from its map.</li>
 <li><a href="04-sjasmplus-and-boriel.html">sjasmplus and Boriel ZX Basic</a>: the SLD and
   <code>Memory.txt</code> routes.</li>
-<li><a href="08-around-the-source.html">In the Source tab: names, watches and coverage</a>:
-  C names, watching and breaking from the source, and which lines have run.</li>
+<li><a href="05-loading-a-source-map.html">Loading a source map, and finding the files</a>:
+  sidecars, by hand, <code>--source-map</code>, tapes, binary identity, what a reset drops,
+  and where the Source tab looks for the sources.</li>
+<li><a href="06-breakpoints-and-steps.html">Breakpoints, steps and running to a line</a>:
+  <code>file:line</code>, Into / Over / Out / Back, Run to Here.</li>
+<li><a href="07-banked-code.html">Banked code, and which memory a line is in</a>: pages, the
+  <code>P04</code> and <code>ROM0</code> tags, Physical Addresses, z88dk's <code>__banked</code>.</li>
+<li><a href="08-around-the-source.html">In the Source tab: names, watches, coverage and colours</a>:
+  C names, watching and breaking from the source, which lines have run, and
+  the colour schemes.</li>
+<li><a href="09-scripts-and-remote-debuggers.html">Scripts and remote debuggers</a>: <code>on
+  execute main.c:19</code>, z88dk-gdb, DeZog.</li>
 <li><a href="10-limits-and-troubleshooting.html">Limits and troubleshooting</a>: what each
   message means and what to do, then the known limits.</li>
 </ul>
-<p>The reference page <a href="../functions/14-source-level-debugging.html">Source-level debugging</a>
-covers <a href="../functions/14-source-level-debugging.html#loading-them">loading a source map</a>
-(sidecars, by hand, <code>--source-map</code>, tapes, binary identity),
-<a href="../functions/14-source-level-debugging.html#where-the-source-tab-finds-the-files">where the Source tab finds the files</a>,
-<a href="../functions/14-source-level-debugging.html#banked-code">banked code</a>,
-<a href="../functions/14-source-level-debugging.html#breakpoints-on-a-source-line">breakpoints on a source line</a>,
-<a href="../functions/14-source-level-debugging.html#running-to-a-source-line">running to a source line</a>
-and <a href="../functions/14-source-level-debugging.html#from-scripts-and-z88dk-gdb">scripts and z88dk-gdb</a>.</p>
 <h2 id="what-you-will-need">What you will need<a class="headerlink" href="#what-you-will-need" title="Permanent link">&para;</a></h2>
 <p>The examples use the sources JNEXT's own tests are built on, in
 <code>test/fixtures/z88dk/src/</code> of the repository (<code>main.c</code>, <code>util.c</code>, <code>util.h</code>,

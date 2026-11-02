@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2653,7 +2653,7 @@
   <span class="md-ellipsis">
     
   
-    Source-level debugging
+    Source-level debugging (see The Source Debugger)
   
 
     
@@ -3188,6 +3188,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -3435,6 +3445,34 @@
   
   
     <li class="md-nav__item">
+      <a href="03-dot-commands.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dot commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="04-sjasmplus-and-boriel.html" class="md-nav__link">
         
   
@@ -3463,6 +3501,90 @@
   
   
     <li class="md-nav__item">
+      <a href="05-loading-a-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading a source map, and finding the files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-breakpoints-and-steps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints, steps and running to a line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-banked-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Banked code, and which memory a line is in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-around-the-source.html" class="md-nav__link">
         
   
@@ -3470,7 +3592,35 @@
   <span class="md-ellipsis">
     
   
-    In the Source tab: names, watches and coverage
+    In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-scripts-and-remote-debuggers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts and remote debuggers
   
 
     
@@ -4071,7 +4221,7 @@ these beside each other, and they must stay together:</p>
 <p>Why each is there, and the other ways to build, are in
 <a href="02-building-with-z88dk.html">Building programs with z88dk</a>. Keep the four source files where the compiler
 saw them: JNEXT looks for them beside the map, then in its parent directories
-(<a href="../functions/14-source-level-debugging.html#where-the-source-tab-finds-the-files">where the Source tab finds the files</a>).</p>
+(<a href="05-loading-a-source-map.html#where-the-source-tab-finds-the-files">where the Source tab finds the files</a>).</p>
 <h2 id="load-it">Load it<a class="headerlink" href="#load-it" title="Permanent link">&para;</a></h2>
 <p>Start JNEXT with rewind switched on, so that <strong>Back</strong> works later:</p>
 <pre><code>jnext --machine next --rewind-buffer-size 200
@@ -4100,7 +4250,7 @@ identity not verified</code> the map is still used; see
 map names for that address: a start-up file from your z88dk installation,
 <code>crt_start_di.inc</code>, with line 3 (<code>di</code>) highlighted. The position line above the
 text reads like this (the path is that of your installation):</p>
-<pre><code>/home/you/z88dk/lib/config/../../libsrc/_DEVELOPMENT/target/zxn/../crt_start_di.inc:3  $8000  page 04
+<pre><code>/home/you/z88dk/lib/config/../../libsrc/_DEVELOPMENT/target/zxn/../crt_start_di.inc:3  $8000  P04
 </code></pre>
 <p>That is z88dk's own start-up code, not yours; the map records its absolute path,
 so the tab finds it on the machine that built the program. Parts of the start-up
@@ -4110,14 +4260,16 @@ the text from <code>prog.lis</code>, labelled <code>(m4 output, from prog.lis)</
 <p>In the <strong>Breakpoints</strong> panel press <strong>Add</strong>, leave the type on Execute, and enter
 <code>main.c:19</code>. It is accepted because the map has code for that line; a line with
 no code is refused (<code>no code at main.c:3</code>, in red in the dialog). The panel lists
-the breakpoint as <code>main.c:19</code> at <code>$8CB5 @04</code>. Press <strong>F5: Continue</strong>.</p>
+the breakpoint as <code>main.c:19</code> at <code>$8CB5 P04</code>. Press <strong>F5: Continue</strong>.</p>
 <p>The machine stops on <code>table[i] = square(i);</code>, the first time through the loop.
 The Source tab shows <code>main.c</code> with line 19 highlighted, and a line above the
-text names the position: <code>main.c:19  $8CB5  page 04</code>, that is, file and line, the
-address and the 8K page that supplies it. Addresses are those of the z88dk 2.4
+text names the position: <code>main.c:19  $8CB5  P04</code>, that is, file and line, the
+address and the memory that supplies it (<code>P04</code> is RAM page <code>0x04</code>: <a href="07-banked-code.html">banked code</a>). Addresses are those of the z88dk 2.4
 build; another build can place the code elsewhere, and the lines do not move.
 The breakpoint also shows as a red dot in the gutter, left of the line number,
-and a click on the dot clears it (a click on a line sets one).</p>
+and a click on the dot clears it (a click on a line sets one). An amber arrow at the right
+edge of the gutter marks the line the CPU is on.</p>
+<p><img alt="The Source tab stopped at main.c:19" src="../../img/debugger-source.png" /></p>
 <h2 id="watch-a-variable">Watch a variable<a class="headerlink" href="#watch-a-variable" title="Permanent link">&para;</a></h2>
 <p>Right-click <code>counter</code> in the source (line 20, say) and choose <strong>Watch</strong>: it is added to the
 Watches panel under its C name, <code>counter</code> (the compiler's <code>_counter</code> is hidden).
@@ -4160,14 +4312,14 @@ start at the same address in this build, so the tab names the later one.</p>
 <p>The rest of the program changes <code>counter</code> once more: <code>util_twice</code> doubles it and
 adds 1 (207). The values at the start of lines 22, 23, 24 and 26, the first time
 each is reached, are <code>140</code>, <code>100</code>, <code>103</code> and <code>207</code>; a
-<a href="../functions/14-source-level-debugging.html#from-scripts-and-z88dk-gdb">script</a>
+<a href="09-scripts-and-remote-debuggers.html">script</a>
 (<code>on execute main.c:26 once do log "${mem[@counter]:d}" end</code>) prints them
 without the GUI.</p>
 <h2 id="where-next">Where next<a class="headerlink" href="#where-next" title="Permanent link">&para;</a></h2>
 <ul>
 <li>All the ways to build, and what does not work: <a href="02-building-with-z88dk.html">Building programs with z88dk</a>.</li>
 <li>A source map is checked against the program and can be dropped by a reset:
-  <a href="../functions/14-source-level-debugging.html#loading-them">loading a source map</a>.</li>
+  <a href="05-loading-a-source-map.html">loading a source map</a>.</li>
 <li>Something looks wrong: <a href="10-limits-and-troubleshooting.html">Limits and troubleshooting</a>.</li>
 </ul>
 

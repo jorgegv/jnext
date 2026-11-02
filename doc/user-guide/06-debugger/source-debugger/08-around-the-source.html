@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="04-sjasmplus-and-boriel.html">
+        <link rel="prev" href="07-banked-code.html">
       
       
-        <link rel="next" href="10-limits-and-troubleshooting.html">
+        <link rel="next" href="09-scripts-and-remote-debuggers.html">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>In the Source tab: names, watches and coverage - JNEXT User Guide</title>
+        <title>In the Source tab: names, watches, coverage and colours - JNEXT User Guide</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#in-the-source-tab-names-watches-and-coverage" class="md-skip">
+        <a href="#in-the-source-tab-names-watches-coverage-and-colours" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              In the Source tab: names, watches and coverage
+              In the Source tab: names, watches, coverage and colours
             
           </span>
         </div>
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2653,7 +2653,7 @@
   <span class="md-ellipsis">
     
   
-    Source-level debugging
+    Source-level debugging (see The Source Debugger)
   
 
     
@@ -3188,6 +3188,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -3300,6 +3310,34 @@
   
   
     <li class="md-nav__item">
+      <a href="03-dot-commands.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dot commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="04-sjasmplus-and-boriel.html" class="md-nav__link">
         
   
@@ -3308,6 +3346,90 @@
     
   
     sjasmplus and Boriel ZX Basic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-loading-a-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading a source map, and finding the files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-breakpoints-and-steps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints, steps and running to a line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-banked-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Banked code, and which memory a line is in
   
 
     
@@ -3344,7 +3466,7 @@
   <span class="md-ellipsis">
     
   
-    In the Source tab: names, watches and coverage
+    In the Source tab: names, watches, coverage and colours
   
 
     
@@ -3362,7 +3484,7 @@
   <span class="md-ellipsis">
     
   
-    In the Source tab: names, watches and coverage
+    In the Source tab: names, watches, coverage and colours
   
 
     
@@ -3420,10 +3542,60 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#colours" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Colours
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#following-the-disassembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Following the disassembly
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-scripts-and-remote-debuggers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts and remote debuggers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3927,8 +4099,8 @@
   
 
 
-<h1 id="in-the-source-tab-names-watches-and-coverage">In the Source tab: names, watches and coverage<a class="headerlink" href="#in-the-source-tab-names-watches-and-coverage" title="Permanent link">&para;</a></h1>
-<p>Three things that work from the Source tab beyond stepping. The tab's controls
+<h1 id="in-the-source-tab-names-watches-coverage-and-colours">In the Source tab: names, watches, coverage and colours<a class="headerlink" href="#in-the-source-tab-names-watches-coverage-and-colours" title="Permanent link">&para;</a></h1>
+<p>Things that work from the Source tab beyond stepping. The tab's controls
 are in <a href="../panels/15-source.html">its panel page</a>.</p>
 <h2 id="c-names">C names<a class="headerlink" href="#c-names" title="Permanent link">&para;</a></h2>
 <p>A z88dk C variable or function has an underscore in front of its name in the
@@ -3948,18 +4120,45 @@ and choose <strong>Watch</strong>: it joins the Watches panel under its C name. 
 Write</strong> from the same menu stops the machine whenever the program writes it. What
 the menu offers, and for what under the pointer, is described in the panel page's
 <a href="../panels/15-source.html#right-click-menu">right-click menu</a>.</p>
+<p>A write breakpoint on <code>counter</code> is listed in the Breakpoints panel by its C name, next to the
+line breakpoint on <code>main.c:19</code>:</p>
+<p><img alt="The Breakpoints panel with a breakpoint on main.c:19 and a write breakpoint on counter" src="../../img/debugger-source-breakpoints.png" /></p>
+<p>The address column spells <code>$8CB5 P04</code> for the line, which is in RAM page <code>0x04</code>
+(<a href="07-banked-code.html">banked code</a>), and <code>$8F59</code> for the variable.</p>
 <h2 id="which-lines-have-run">Which lines have run<a class="headerlink" href="#which-lines-have-run" title="Permanent link">&para;</a></h2>
 <p>Switch on memory coverage and every line of the shown file that has run gets a
-pale green background; the current line keeps its own highlight. Use <strong>Debug ▸
+tinted background; the current line keeps its own highlight. Use <strong>Debug ▸
 Coverage ▸ Enable Coverage</strong>, or start JNEXT with <code>--coverage</code> to record from the
 first instruction. Marks are visible while the machine is paused, like the rest
 of the debugger.</p>
 <p>It answers "did this code ever run?" without a breakpoint. In the example,
 enable coverage while the machine is paused at the start, add a breakpoint on
-<code>main.c:24</code> and Continue: the lines of <code>main</code> before it are green, and <code>counter++</code> in the final
-<code>while (1)</code> is not. Coverage is kept per physical
+<code>main.c:26</code> and Continue: the lines of <code>main</code> before it are tinted, and <code>counter++</code> in the final
+<code>while (1)</code> is not, since it has not run yet. Coverage is kept per physical
 memory, so the same address in two RAM pages has separate marks. All of it is in
 <a href="../functions/15-memory-coverage.html">Memory coverage</a>.</p>
+<p><img alt="The Source tab with coverage on, stopped at main.c:26" src="../../img/debugger-source-coverage.png" /></p>
+<p>The picture is that run on the z88dk 2.4 build. Line 24, <code>counter = util_twice(counter);</code>, did
+run but is not tinted: this build puts its code under line 25 (the two lines start at the same
+address, <code>$8D12</code>, and the later one owns it), so line 25 is tinted for it. This is the toolchain's
+line attribution again, as in <a href="01-a-first-session.html#step">A first session</a>.</p>
+<h2 id="colours">Colours<a class="headerlink" href="#colours" title="Permanent link">&para;</a></h2>
+<p>The text is coloured by its language (C, Z80 and Z80N assembly, Boriel ZX Basic), and the colours
+come from a scheme: <strong>Auto</strong> (the default, Light or Dark after the application's theme), <strong>Light</strong>,
+<strong>Dark</strong> or <strong>Borland C++ 3.1</strong>. Choose it in <strong>Preferences ▸ Debugger</strong>, or for one run with
+<code>--set source.colour_scheme=auto|light|dark|borland</code>; it applies at once, and is stored as
+<code>colour_scheme</code> in the <code>[source]</code> section of the configuration file. The scheme sets the text, the
+background, the current-line bar and the coverage tint, which is pale green in Light, a dark
+green in Dark and a dark teal in Borland. The same stop as above in the Borland scheme:</p>
+<p><img alt="The Source tab in the Borland C++ 3.1 scheme" src="../../img/debugger-source-borland.png" /></p>
+<p>The ten colour classes and what each one covers are in the panel page,
+<a href="../panels/15-source.html">the Source tab</a>; the setting is in
+<a href="../../04-configuration/01-preferences.html">Preferences</a>.</p>
+<h2 id="following-the-disassembly">Following the disassembly<a class="headerlink" href="#following-the-disassembly" title="Permanent link">&para;</a></h2>
+<p>The Source tab and the Disassembly follow each other's selection, and a small amber arrow marks the
+line the CPU is on. When a toolchain attributes the same address to more than one source line, the
+position line lists the others after <code>also:</code>. All three are described in the panel page's
+<a href="../panels/15-source.html#following-the-disassembly">Following the disassembly</a>.</p>
 
 
 

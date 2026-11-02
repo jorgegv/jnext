@@ -18,10 +18,17 @@ output.
 | `z88dk listings for 'prog.map': prog.lis: section 'code_crt_init': its label-less lines match no place in the section binary; this is not the listing of this build` | a stale `prog.lis`, from another build | rebuild with `--list`, or delete it; the map's own lines stay |
 | `(identity check pending: the program loads from tape)`, then `Verified z88dk source map ...` | a tape program: the map attaches at once and is checked when the program first runs | nothing; wait for the `Verified` line |
 | `Rejected z88dk source map ...: the program loaded from tape does not match its binary identity` | the tape holds a different build than the map | the map and its symbols are dropped. Load the tape the map was built with |
-| `main.c:19 - source file not found` (Source tab) | the map names a file the Source tab cannot find | **Locate File...**, the source search path, or `--source-dir`: [where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files) |
+| `main.c:19 - source file not found` (Source tab) | the map names a file the Source tab cannot find | **Locate File...**, the source search path, or `--source-dir`: [where the Source tab finds the files](05-loading-a-source-map.md#where-the-source-tab-finds-the-files) |
 | `main.c:19 - /path/main.c has only 12 lines; it is not the text the build used` | the file found is not the one the program was built from | put the right file where it is found first |
 | `no code at main.c:3` | the line has no machine code (a comment, a declaration) | choose a line with code |
-| `ROM or overlay` (Source tab) | the address is supplied by a ROM or an overlay (DivMMC, Multiface, Layer 2, boot ROM), not a RAM page | use the disassembly there |
+| `$0038 (ROM0): no source mapping; use the disassembly` (Source tab; the tag names the memory: `ROM0`, `DIVROM`, `MFROM`, `BOOT`...) | the address is supplied by a ROM or an overlay (DivMMC, Multiface, Layer 2, boot ROM), not a RAM page, and page-tagged records never describe it | use the disassembly there |
+| `$8000 (P04): no source mapping; use the disassembly` | the address is in RAM but no line of the map covers it (the compiler's runtime, a library, code copied at run time) | use the disassembly there |
+| `--source-map requires --load FILE, or the map of a z88dk dot command: 'prog.map' is not one` | `--source-map` with no `--load`, and a map that is not a dot command's | give `--load`; see [Dot commands](03-dot-commands.md) |
+| `--source-map 'prog.map': line 2089: section 'code_compiler': a dotn command's main bank and PAGE / DIV sections are pages NextZXOS allocates when it runs (__z_page_table); a dotn map cannot place them (build it as a dotx to debug it)` | a map of a `-subtype=dotn` command; the run exits with status 1 | build it as a dotx: [Dot commands](03-dot-commands.md) |
+| *Source map not verified yet: it is checked when the dot command runs* (Source tab) | a dot command's map, attached before `.prog` has been typed | nothing; the log says `Verified z88dk source map ...` when it runs |
+| *The dot command started in DivMMC RAM bank 2 is not the one source map ... describes; it stays pending* (log) | another dot command ran from the same bank | nothing: the map is not dropped. Type the command it describes |
+| `Cannot break on 'main.c:19'` (z88dk-gdb) | a map built by master's sdcc (`-clib=sdcc_iy -debug -m --list`), with the 2.4 and the master clients (the 2026-10-16 master) | use an address or a symbol in the client, or build with sccz80 |
+| `Segmentation fault` of z88dk-gdb (the 2026-10-16 master client, on the 2.4 and the master banked `-run` maps) | the map has a 24-bit `__C_LINE_` value | debug it in JNEXT's own Source tab. z88dk PR #3218 (merged 2026-10-31) is said to fix it; not run here |
 | `Unknown option2 --hardware-keyboard` (z88dk, at build) | `+zxn -clib=classic -debug` | use `-clib=new`, or `+zx` with the default classic library. Fixed upstream (PR #3198), not in a release |
 | `defc Gcounter0_00==.` syntax error (z88dk 2.4, at build) | sdcc with `-debug` on 2.4 | use `--c-code-in-asm --list` instead of `-debug`, or master |
 
@@ -48,6 +55,7 @@ the two pragmas: see [Building programs with z88dk](02-building-with-z88dk.md#ba
   `LOAD ""`) are not seen by JNEXT: load their source map by hand.
 - **DivMMC sections** (`DIV_n`, and z88dk's `dotn` programs) are refused: a map
   with a line in one is rejected, with the line named, rather than attached half.
+  A `dot` or `dotx` command is supported: [Dot commands](03-dot-commands.md).
 - **C variables beyond their names** (types, locals, structs) are not in the
   debugger yet.
 - **A step is synchronous and bounded.** A step that never reaches another

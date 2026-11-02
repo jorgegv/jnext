@@ -109,7 +109,7 @@ prog.nex  prog.map  prog_CODE.bin  prog.lis  main.c.lis  util.c.lis  asmfn.asm.l
 Why each is there, and the other ways to build, are in
 [Building programs with z88dk](02-building-with-z88dk.md). Keep the four source files where the compiler
 saw them: JNEXT looks for them beside the map, then in its parent directories
-([where the Source tab finds the files](../functions/14-source-level-debugging.md#where-the-source-tab-finds-the-files)).
+([where the Source tab finds the files](05-loading-a-source-map.md#where-the-source-tab-finds-the-files)).
 
 ## Load it
 
@@ -151,7 +151,7 @@ map names for that address: a start-up file from your z88dk installation,
 text reads like this (the path is that of your installation):
 
 ```
-/home/you/z88dk/lib/config/../../libsrc/_DEVELOPMENT/target/zxn/../crt_start_di.inc:3  $8000  page 04
+/home/you/z88dk/lib/config/../../libsrc/_DEVELOPMENT/target/zxn/../crt_start_di.inc:3  $8000  P04
 ```
 
 That is z88dk's own start-up code, not yours; the map records its absolute path,
@@ -164,15 +164,18 @@ the text from `prog.lis`, labelled `(m4 output, from prog.lis)`.
 In the **Breakpoints** panel press **Add**, leave the type on Execute, and enter
 `main.c:19`. It is accepted because the map has code for that line; a line with
 no code is refused (`no code at main.c:3`, in red in the dialog). The panel lists
-the breakpoint as `main.c:19` at `$8CB5 @04`. Press **F5: Continue**.
+the breakpoint as `main.c:19` at `$8CB5 P04`. Press **F5: Continue**.
 
 The machine stops on `table[i] = square(i);`, the first time through the loop.
 The Source tab shows `main.c` with line 19 highlighted, and a line above the
-text names the position: `main.c:19  $8CB5  page 04`, that is, file and line, the
-address and the 8K page that supplies it. Addresses are those of the z88dk 2.4
+text names the position: `main.c:19  $8CB5  P04`, that is, file and line, the
+address and the memory that supplies it (`P04` is RAM page `0x04`: [banked code](07-banked-code.md)). Addresses are those of the z88dk 2.4
 build; another build can place the code elsewhere, and the lines do not move.
 The breakpoint also shows as a red dot in the gutter, left of the line number,
-and a click on the dot clears it (a click on a line sets one).
+and a click on the dot clears it (a click on a line sets one). An amber arrow at the right
+edge of the gutter marks the line the CPU is on.
+
+![The Source tab stopped at main.c:19](../../img/debugger-source.png)
 
 ## Watch a variable
 
@@ -223,7 +226,7 @@ start at the same address in this build, so the tab names the later one.
 The rest of the program changes `counter` once more: `util_twice` doubles it and
 adds 1 (207). The values at the start of lines 22, 23, 24 and 26, the first time
 each is reached, are `140`, `100`, `103` and `207`; a
-[script](../functions/14-source-level-debugging.md#from-scripts-and-z88dk-gdb)
+[script](09-scripts-and-remote-debuggers.md)
 (`on execute main.c:26 once do log "${mem[@counter]:d}" end`) prints them
 without the GUI.
 
@@ -231,5 +234,5 @@ without the GUI.
 
 - All the ways to build, and what does not work: [Building programs with z88dk](02-building-with-z88dk.md).
 - A source map is checked against the program and can be dropped by a reset:
-  [loading a source map](../functions/14-source-level-debugging.md#loading-them).
+  [loading a source map](05-loading-a-source-map.md).
 - Something looks wrong: [Limits and troubleshooting](10-limits-and-troubleshooting.md).

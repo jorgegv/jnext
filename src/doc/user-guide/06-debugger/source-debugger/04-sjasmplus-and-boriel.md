@@ -69,7 +69,7 @@ which is fine for a program you just built; but it also means a reset drops it
 (a source map without an identity cannot be checked against the memory the ROM
 clears a few frames later). A map you loaded by hand goes *stale* on a reset
 instead: load it again. The full account is in
-[loading a source map](../functions/14-source-level-debugging.md#loading-them).
+[loading a source map](05-loading-a-source-map.md).
 
 ## Boriel ZX Basic and NextBuild: `Memory.txt`
 

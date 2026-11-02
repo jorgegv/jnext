@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="02-building-with-z88dk.html">
+        <link rel="prev" href="03-dot-commands.html">
       
       
-        <link rel="next" href="08-around-the-source.html">
+        <link rel="next" href="05-loading-a-source-map.html">
       
       
         
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2653,7 +2653,7 @@
   <span class="md-ellipsis">
     
   
-    Source-level debugging
+    Source-level debugging (see The Source Debugger)
   
 
     
@@ -3188,6 +3188,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -3280,6 +3290,34 @@
     
   
     Building programs with z88dk
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="03-dot-commands.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dot commands
   
 
     
@@ -3425,6 +3463,90 @@
   
   
     <li class="md-nav__item">
+      <a href="05-loading-a-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading a source map, and finding the files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-breakpoints-and-steps.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints, steps and running to a line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-banked-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Banked code, and which memory a line is in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="08-around-the-source.html" class="md-nav__link">
         
   
@@ -3432,7 +3554,35 @@
   <span class="md-ellipsis">
     
   
-    In the Source tab: names, watches and coverage
+    In the Source tab: names, watches, coverage and colours
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-scripts-and-remote-debuggers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts and remote debuggers
   
 
     
@@ -4000,7 +4150,7 @@ which is fine for a program you just built; but it also means a reset drops it
 (a source map without an identity cannot be checked against the memory the ROM
 clears a few frames later). A map you loaded by hand goes <em>stale</em> on a reset
 instead: load it again. The full account is in
-<a href="../functions/14-source-level-debugging.html#loading-them">loading a source map</a>.</p>
+<a href="05-loading-a-source-map.html">loading a source map</a>.</p>
 <h2 id="boriel-zx-basic-and-nextbuild-memorytxt">Boriel ZX Basic and NextBuild: <code>Memory.txt</code><a class="headerlink" href="#boriel-zx-basic-and-nextbuild-memorytxt" title="Permanent link">&para;</a></h2>
 <p>The Boriel compiler, <code>zxbc</code>, has an option <code>-M</code> (long form <code>--mmap</code>), whose help
 text is "Generate label memory map". NextBuild, the build system around it,
