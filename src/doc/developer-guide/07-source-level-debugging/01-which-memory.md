@@ -156,10 +156,10 @@ memory go through it ([7.7](07-frontends.md)).
   a slot by `now`, no protocol output tags `space`, and a view that shows the slot's own source
   shows `FLOAT` for a page >= `0xE0`.
 - **The tags are a stable format.** The project file and the ghidra and skoolkit exports key on
-  them, so changing a spelling is a format break, not a tidy-up (the header says so,
-  `long_address.h:9-11`). The trace export's `FETCH=` column is `space_tag(fetch_space())`
+  them, so changing a spelling is a format break, not a tidy-up (the header says so, in the
+  comment on `parse_space_tag`, `long_address.h:9-11`). The trace export's `FETCH=` column is `space_tag(fetch_space())`
   (`trace.cpp:324`), never the GUI's style ([3.9.1](../03-subsystems/09-1-the-backend-api.md)).
-- **The Next layout.** `physical_text(space, addr)` (`:111`) says where the byte sits in the Next's
+- **The Next layout.** `physical_text(space, addr)` (`long_address.cpp:111`) says where the byte sits in the Next's
   memory: `$` and six hex digits of the SRAM address (`Page{n}` and `Layer2{n}` are
   `(n + 0x20) << 13 | offset`, `zxnext.vhd:2964,2971`; `Rom{i}` `i << 14 | offset`, `:3052-3057`;
   alt ROM `0x018000 + 0x4000 * i`, `:2924-2925`; Multiface `0x014000` / `0x016000`; DivMMC ROM
