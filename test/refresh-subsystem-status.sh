@@ -202,6 +202,7 @@ BEGIN {
     M["source_map_test"]               = "Source maps + symbols"
     M["z88dk_map_test"]                = "z88dk -debug map adapter"
     M["z88dk_lis_test"]                = "z88dk --list listing adapter"
+    M["cdb_record_test"]               = "z88dk CDB record decoder"
     M["source_debug_test"]             = "Source debugging (backend)"
     M["source_debug_posix_test"]       = "Source debugging (POSIX file types)"
     M["debugger_backend_test"]         = "Debugger Backend (GH #276)"

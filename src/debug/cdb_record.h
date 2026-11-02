@@ -32,13 +32,14 @@ inline constexpr std::string_view kCdbPrefix = "__CDBINFO__";
 enum class CdbKind { Function, Module, Variable, Type };
 
 /// Where the name lives: `G` global, `F<file>` file scope, `L<file>.<function>`
-/// a function's locals and parameters, `S` a struct member (inside a `T:`).
-/// A module record has no scope.
-enum class CdbScope { None, Global, File, Local, Member };
+/// a function's locals and parameters. A module record and a type record's
+/// members (`S:S$...` inside a `T:`) have no scope of their own.
+enum class CdbScope { None, Global, File, Local };
 
 /// One element of a type chain, outermost first.
 enum class CdbTypeKind {
     Char, Int, Long, Float, Fixed, Float16, Void,  // SC SI SL SF SQ S6 SV/DV
+    Scalar,  // a bare `:S` / `:U`: SDCC writes no noun for bool, _BitInt and the like; {size} is the width
     Struct,                                        // ST<tag>:S (also a union)
     Bitfield,                                      // SB<start>$<width>:U
     Array,                                         // DA<n>x (sccz80) / DA<n>d (zsdcc)
@@ -49,7 +50,7 @@ enum class CdbTypeKind {
 struct CdbTypeElem {
     CdbTypeKind kind = CdbTypeKind::Int;
     bool is_unsigned = false;  // `:U`; for the Struct / Void / Function kinds always as written
-    int count = 0;             // Array: the element count of THIS dimension (-1: incomplete)
+    int count = 0;             // Array: the element count of THIS dimension (-1: incomplete, 0: `char a[]`)
     char pointer_class = 0;    // Pointer: G C X D I P
     std::string tag;           // Struct: the tag without the `:S`
     int bit_start = 0;         // Bitfield
@@ -72,7 +73,8 @@ struct CdbVar {
     int block = 0;
     CdbType type;
     // Address space: E data symbol, B stack, R registers, C code, D literal,
-    // Z struct member / earlier prototype. 0 for a module.
+    // Z struct member / earlier prototype, I I/O port (SDCC's SFR map letter,
+    // SDCCmem.c:310). 0 for a module.
     char space = 0;
     // The numbers after the space letter, as written: `B,1,-2` is {1,-2}.
     std::vector<int> nums;
@@ -86,20 +88,27 @@ struct CdbVar {
     bool optimised_out() const { return space == 'R' && regs.empty(); }
 };
 
-/// A `T:` member: its byte offset in the aggregate (0 for every member of a union).
-struct CdbMember {
-    int offset = 0;
-    CdbVar var;
-};
-
-/// Why a variable record is not a user variable; views hide everything but None
+/// Why a record is not a user variable; views hide everything but None
 /// (owner decision OD-6 of #353).
 enum class CdbHidden {
     None,
-    Temporary,        // zsdcc `sloc<n>`, `__str_<n>`, `__<digits>`
-    Enumerator,       // a record with an empty type: no value, no enum type
+    Temporary,        // zsdcc `sloc<n>`, `__str_<n>`, `__<digits>` (also the padding member `__00000000`)
+    EmptyType,        // a record with an empty type `({0})`: sccz80/80cc write BOTH an enumerator and
+                      // an I/O port (`__port`, `IO_FE`) this way, so the record cannot tell them
+                      // apart. Neither has memory at its `E,0,0`: never read it as a variable.
+    Port,             // space I: a zsdcc `__sfr`. Reading it is an I/O read with side effects.
     IncompleteArray,  // sccz80 / 80cc `({-1}DA-1x,...)`, the twin of a sized array
     Function          // a function-typed `S:` record (zsdcc writes functions as both)
+};
+
+/// A `T:` member: its byte offset in the aggregate (0 for every member of a union).
+/// The name is EMPTY for a C11 anonymous struct/union member (sccz80, 80cc); its
+/// fields are reached through its `ST<tag>` type. `hidden` is Temporary for a
+/// zsdcc padding member (`unsigned char :2;` is written `__00000000`).
+struct CdbMember {
+    int offset = 0;
+    CdbVar var;
+    CdbHidden hidden = CdbHidden::None;
 };
 
 struct CdbRecord {
@@ -129,9 +138,13 @@ struct CdbUnescaped {
     bool ok() const { return error.empty(); }
 };
 
-/// z80asm's encoding of a record into a symbol name: a letter stands for itself,
-/// every other byte is `_` and two lower-case hex digits (digits and `_` too).
-/// Refused: any other unescaped byte, a bad or truncated `_hh`, an escaped NUL.
+/// The compilers' encoding of a record into a symbol name (sccz80 and 80cc
+/// `encode_cdbstring`, cdbfile.c:13-24; zcc's copy for zsdcc, zcc.c:2026-2038;
+/// z80asm only carries the symbol): a letter stands for itself, every other byte
+/// is `_` and two lower-case hex digits (digits and `_` too). Refused, with a
+/// reason: any other unescaped byte (zcc also lets whitespace through raw), a bad
+/// or truncated `_hh`, an escaped NUL. A byte >= 0x80 comes out of the writers as
+/// `_ffffffXX` (a signed char through %02x), which this refuses as a bad escape.
 CdbUnescaped cdb_unescape(std::string_view escaped);
 
 /// Decode an UNESCAPED record (`S:G$g_int$0_0$0({2}SI:S),E,0,0`).

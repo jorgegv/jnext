@@ -59,7 +59,10 @@ static CdbRecord dec(const char* text) {
     e.tag = "REFUSED";
     r.var.name = "REFUSED";
     r.var.type.chain.assign(4, e);
-    r.members.assign(4, CdbMember{});
+    CdbMember m;
+    m.var.name = "REFUSED";
+    m.var.type.chain.assign(4, e);
+    r.members.assign(4, m);
     return r;
 }
 
@@ -229,6 +232,7 @@ int main() {
               un.members[1].var.type.chain[0].kind == CdbTypeKind::Array && un.members[1].var.type.chain[0].count == 2);
         const CdbRecord fl = dec("T:Fvars$flags[({0}S:S$lo$0_0$0({1}SB0$3:U),Z,0,0)({0}S:S$mid$0_0$0({1}SB3$5:U),Z,0,0)"
                                  "({1}S:S$hi$0_0$0({1}SB0$8:U),Z,0,0)]");  // master/sdcc-cvars
+        // A refused record has 4 sentinel members with 4-element chains (dec()), so this indexes safely.
         const CdbTypeElem& lo = fl.members[0].var.type.chain[0];
         const CdbTypeElem& mid = fl.members[1].var.type.chain[0];
         const CdbTypeElem& hi = fl.members[2].var.type.chain[0];
@@ -261,13 +265,14 @@ int main() {
         const CdbRecord u2 = dec("S:Lvars.sum$sloc$1_0$9({2}SI:S),B,1,4");
         const CdbRecord u3 = dec("S:Lvars.sum$__x$1_0$9({2}SI:S),B,1,4");
         const CdbRecord u4 = dec("S:Lvars.sum$calls$1_0$10({1}SC:U),E,0,0");
-        check("CDB-25", "compiler temporaries are hidden: sloc<n>, __str_<n>, __<digits>; user names like sloc, slocation, __x, calls are not",
+        const CdbRecord u5 = dec("S:Lvars.sum$__str_x$1_0$9({2}SI:S),B,1,4");
+        check("CDB-25", "compiler temporaries are hidden: sloc<n>, __str_<n>, __<digits>; user names like sloc, slocation, __x, __str_x, calls are not",
               s0.hidden == CdbHidden::Temporary && st.hidden == CdbHidden::Temporary &&
               cp.hidden == CdbHidden::Temporary && u1.hidden == CdbHidden::None && u2.hidden == CdbHidden::None &&
-              u3.hidden == CdbHidden::None && u4.hidden == CdbHidden::None);
+              u3.hidden == CdbHidden::None && u4.hidden == CdbHidden::None && u5.hidden == CdbHidden::None);
         const CdbRecord en = dec("S:G$RED$0_0$0({0}),E,0,0");
-        check("CDB-26", "an enumerator (a record with an empty type) is hidden and has an empty chain",
-              en.hidden == CdbHidden::Enumerator && en.var.type.chain.empty() && en.var.type.size == 0 &&
+        check("CDB-26", "an enumerator (a record with an empty type) is hidden as EmptyType and has an empty chain",
+              en.hidden == CdbHidden::EmptyType && en.var.type.chain.empty() && en.var.type.size == 0 &&
               en.var.space == 'E');
         const CdbRecord twin = dec("S:G$g_str$0_0$0({-1}DA-1x,SC:S),E,0,0");
         const CdbRecord full = dec("S:G$g_str$0_0$0({3}DA3x,SC:S),E,0,0");
@@ -341,6 +346,12 @@ int main() {
             {"S:G$a$0_0$0({2}DA3q,SI:S),E,0,0", "array suffix"},
             {"S:G$a$0_0$0({2}DAx,SI:S),E,0,0", "array count"},
             {"S:G$a$0_0$0({2}DA,SI:S),E,0,0", "without a count"},
+            {"S:G$a$0_0$0({2}DA9999999x,SI:S),E,0,0", "array count"},         // 7 digits: the cap that stops int overflow
+            {"S:G$a$0_0$0({2}DA99999999999999d,SI:S),E,0,0", "array count"},
+            {"S:G$a$0_0$0({2}SB0$99999:U),E,0,0", "bitfield"},                 // 5 digits: ditto
+            {"S:G$a$0_0$0({2}SB99999$3:U),E,0,0", "bitfield"},
+            {"S:G$a$0_0$0({2}:X),E,0,0", "unknown type element"},
+            {"S:G$a$0_0$0({2}: S),E,0,0", "unknown type element"},
             {"S:G$a$0_0$0({2}DGG,SI:S),E,0,0", "unknown type element"},
             {"S:G$a$0_0$0({2}SB3:U),E,0,0", "bitfield"},
             {"S:G$a$0_0$0({2}ST:S),E,0,0", "struct without a tag"},
@@ -377,13 +388,103 @@ int main() {
             }
         }
         if (!all) std::printf("  note: reasons not as expected:%s\n", first.c_str());
-        check("CDB-33", "malformed records are refused, each with the reason that names what is wrong (a table of 54)", all);
+        check("CDB-33", "malformed records are refused, each with the reason that names what is wrong (a table of 59)", all);
         const CdbDecoded raw = cdb_decode_symbol(
             "__CDBINFO__S_3aG_24g_5fint_24_30_5f_30_24_30_28_7b_32_7dSI_3aS_29_2cE_2c_30_2c_30");
         check("CDB-34", "a map symbol decodes through the prefix and the un-escaping; without the prefix, or with a bad escape, it is refused with a reason",
               raw.ok() && raw.record.var.name == "g_int" && raw.record.var.type.size == 2 &&
               !cdb_decode_symbol("S_3aG").ok() && !cdb_decode_symbol("__CDBINFO__S_3aG_zz").ok() &&
               cdb_decode_symbol("S_3aG").error.find("__CDBINFO__") != std::string::npos);
+    }
+
+    // CDB-37 .. CDB-49: what the writers emit beyond the fixtures (GH #432 review round 1).
+    // Records marked MEASURED were produced by the z88dk master install (39421a01cd,
+    // ~/src/spectrum/z88dk-original-latest, the fixtures' own) from a small probe program:
+    //   zsdcc : zcc +zxn -vn -clib=sdcc_iy -debug -m -o prog -create-app probe.c
+    //   sccz80: zcc +zxn -vn -clib=new      -debug -m -o prog -create-app probe.c
+    //   80cc  : the sccz80 line with -compiler=80cc
+    // Probe sources are quoted per row. A SYNTHETIC record cites the writer line it follows.
+    {
+        // zsdcc, probe: `#include <stdbool.h>  bool g_flag;  struct withbool { bool on; int n; } g_wb;
+        //                int main(void) { bool b = g_flag; ... }` and `_BitInt(12) g_bi;`
+        // (the _BitInt record was measured by the reviewer of GH #432 with the same install).
+        // SDCC cdbFile.c:515-518: no noun for V_BOOL / V_BITINT, then ':' and S or U anyway.
+        const CdbRecord fl = dec("S:G$g_flag$0_0$0({1}:S),E,0,0");
+        const CdbRecord lb = dec("S:Lprobe.main$b$1_0$8({1}:S),R,0,0,[c]");
+        const CdbRecord bi = dec("S:G$g_bi$0_0$0({2}:S),E,0,0");
+        check("CDB-37", "zsdcc bool and _BitInt write a bare ':S' (no noun): a Scalar element, the {size} gives the width; a bool local is a register [c]",
+              fl.var.type.size == 1 && fl.var.type.chain.size() == 1 && is(fl.var.type.chain[0], CdbTypeKind::Scalar, false) &&
+              fl.hidden == CdbHidden::None && lb.var.regs.size() == 1 && lb.var.regs[0] == "c" &&
+              lb.scope == CdbScope::Local && lb.function == "main" && bi.var.type.size == 2 &&
+              bi.var.type.chain[0].kind == CdbTypeKind::Scalar && dec("S:G$u$0_0$0({1}:U),E,0,0").var.type.chain[0].is_unsigned);
+        // zsdcc, same probe: the struct with a bool member must keep its other member.
+        const CdbRecord wb = dec("T:Fprobe$withbool[({0}S:S$on$0_0$0({1}:S),Z,0,0)({1}S:S$n$0_0$0({2}SI:S),Z,0,0)]");
+        check("CDB-38", "a struct with a bool member decodes whole: on is Scalar at 0, n is int at 1",
+              wb.members.size() == 2 && wb.members[0].var.name == "on" &&
+              wb.members[0].var.type.chain[0].kind == CdbTypeKind::Scalar && wb.members[1].var.name == "n" &&
+              wb.members[1].offset == 1 && is(wb.members[1].var.type.chain[0], CdbTypeKind::Int, false));
+        // sccz80 (and byte-identical on 80cc), probe: `struct outer { int a; struct { int x; int y; };
+        // union { char c; int i; }; };`. declparse.c:430-437 accepts the unnamed field, cdbfile.c:107
+        // writes `S:S$%s$` with the empty name.
+        const CdbRecord out = dec("T:Fprobe.c$outer[({0}S:S$a$0_0$0({2}SI:S),Z,0,0)({2}S:S$$0_0$0({4}ST0__anonstruct_4_0:S),Z,0,0)"
+                                  "({6}S:S$$0_0$0({2}ST0__anonunion_4_1:S),Z,0,0)]");
+        check("CDB-39", "sccz80/80cc anonymous struct and union members have an empty name; the type keeps a, and the anonymous ones keep their tag and offset",
+              out.members.size() == 3 && out.members[0].var.name == "a" && out.members[1].var.name.empty() &&
+              out.members[1].offset == 2 && out.members[1].var.type.chain[0].tag == "0__anonstruct_4_0" &&
+              out.members[2].var.name.empty() && out.members[2].offset == 6 &&
+              out.members[2].var.type.chain[0].tag == "0__anonunion_4_1");
+        // zsdcc, probe2: `__sfr __at 0xfe ula;`. SDCC writes the map's dbName as the space letter
+        // (cdbFile.c:436) and the SFR map's letter is 'I' (SDCCmem.c:310). `<arch/zxn.h>` alone gives 54.
+        const CdbRecord sfr = dec("S:G$ula$0_0$0({1}SC:U),I,0,0");
+        check("CDB-40", "a zsdcc __sfr port is space I, decodes, and is hidden as Port (reading it would be an I/O read)",
+              sfr.var.space == 'I' && sfr.var.nums.size() == 2 && sfr.hidden == CdbHidden::Port &&
+              dec("S:G$nreg$0_0$0({1}SC:U),I,0,0").hidden == CdbHidden::Port);
+        // sccz80, probe: `#include <arch/zxn.h>  ... return IO_FE;` (zxn.h:129 declares `__sfr __at 0xfe IO_FE`).
+        // cdbfile.c:194-198 emit no element for KIND_PORT8/PORT16.
+        const CdbRecord io = dec("S:G$IO_FE$0_0$0({0}),E,0,0");
+        check("CDB-41", "an sccz80 port (IO_FE) is an empty-type E record, hidden as EmptyType; the same shape as an enumerator, so the class says so",
+              io.var.type.chain.empty() && io.var.space == 'E' && io.hidden == CdbHidden::EmptyType);
+        // sccz80, probe: `_Float16 g_h;` (cdbfile.c:174-176 writes S6).
+        const CdbRecord h16 = dec("S:G$g_h$0_0$0({2}S6:S),E,0,0");
+        check("CDB-42", "sccz80 _Float16 is {2}S6:S: kind Float16, size 2, visible",
+              h16.var.type.size == 2 && h16.var.type.chain.size() == 1 &&
+              h16.var.type.chain[0].kind == CdbTypeKind::Float16 && h16.hidden == CdbHidden::None);
+        // SYNTHETIC. SDCC cdbFile.c:480-483 writes DX (FPOINTER), DD (POINTER), DI (IPOINTER) and DP
+        // (PPOINTER); +zxn zsdcc cannot produce them (__code/__xdata/__data/__idata/__pdata are syntax errors).
+        const char pc[] = {'X', 'D', 'I', 'P'};
+        const char* pr[] = {"S:G$p$0_0$0({2}DX,SC:U),E,0,0", "S:G$p$0_0$0({1}DD,SC:U),E,0,0",
+                            "S:G$p$0_0$0({1}DI,SC:U),E,0,0", "S:G$p$0_0$0({1}DP,SC:U),E,0,0"};
+        bool pok[4];
+        for (int i = 0; i < 4; ++i) {
+            const CdbRecord r = dec(pr[i]);
+            pok[i] = r.var.type.chain.size() == 2 && r.var.type.chain[0].kind == CdbTypeKind::Pointer &&
+                     r.var.type.chain[0].pointer_class == pc[i] && is(r.var.type.chain[1], CdbTypeKind::Char, true);
+        }
+        check("CDB-43", "SYNTHETIC (cdbFile.c:480): DX is a pointer of class X", pok[0]);
+        check("CDB-44", "SYNTHETIC (cdbFile.c:481): DD is a pointer of class D", pok[1]);
+        check("CDB-45", "SYNTHETIC (cdbFile.c:482): DI is a pointer of class I", pok[2]);
+        check("CDB-46", "SYNTHETIC (cdbFile.c:483): DP is a pointer of class P", pok[3]);
+        // SYNTHETIC. cdbFile.c:503 writes SQ for V_FIXED16X16 (`__fixed16x16`, a syntax error on +zxn).
+        const CdbRecord fx = dec("S:G$g_fx$0_0$0({4}SQ:S),E,0,0");
+        check("CDB-47", "SYNTHETIC (cdbFile.c:503): SQ is the Fixed kind, not Int",
+              fx.var.type.size == 4 && fx.var.type.chain.size() == 1 && fx.var.type.chain[0].kind == CdbTypeKind::Fixed);
+        // zsdcc, probe: `extern char g_tail[];  struct fl { int n; char data[]; };` (DA%ud with DCL_ELEM 0,
+        // cdbFile.c:485). Count 0 is NOT the {-1} twin: it is visible.
+        const CdbRecord tail = dec("S:G$g_tail$0_0$0({0}DA0d,SC:U),E,0,0");
+        const CdbRecord flx = dec("T:Fa$fl[({0}S:S$n$0_0$0({2}SI:S),Z,0,0)({2}S:S$data$0_0$0({0}DA0d,SC:U),Z,0,0)]");
+        check("CDB-48", "a zero-count array (extern char g_tail[], a flexible member) is visible with count 0; only count < 0 is the hidden twin",
+              tail.var.type.size == 0 && tail.var.type.chain[0].kind == CdbTypeKind::Array &&
+              tail.var.type.chain[0].count == 0 && tail.hidden == CdbHidden::None &&
+              flx.members[1].var.type.chain[0].count == 0 && flx.members[1].hidden == CdbHidden::None);
+        // zsdcc, probe: `struct regs { unsigned char lo:3; unsigned char :2; unsigned char hi:3; };`
+        const CdbRecord rg = dec("T:Fprobe$regs[({0}S:S$lo$0_0$0({1}SB0$3:U),Z,0,0)({0}S:S$__00000000$0_0$0({1}SB3$2:U),Z,0,0)"
+                                 "({0}S:S$hi$0_0$0({1}SB5$3:U),Z,0,0)]");
+        const CdbRecord rx = dec("T:Fp$q[({0}S:S$__x$0_0$0({1}SC:U),Z,0,0)({1}S:S$__str_1$0_0$0({1}SC:U),Z,0,0)]");
+        check("CDB-49", "a zsdcc unnamed bitfield is a member named __<digits>: hidden as Temporary (OD-6); named members and __x / __str_1 are not",
+              rg.members.size() == 3 && rg.members[0].hidden == CdbHidden::None &&
+              rg.members[1].hidden == CdbHidden::Temporary && rg.members[1].var.type.chain[0].bit_start == 3 &&
+              rg.members[1].var.type.chain[0].bit_width == 2 && rg.members[2].hidden == CdbHidden::None &&
+              rx.members[0].hidden == CdbHidden::None && rx.members[1].hidden == CdbHidden::None);
     }
 
     // CDB-35 .. CDB-36: every record of every committed map.
@@ -413,17 +514,17 @@ int main() {
             }
         }
         if (!why.empty()) std::printf("  note: first refusal: %s\n", why.c_str());
-        check("CDB-35", "every __CDBINFO__ record of every committed map decodes (none refused, none dropped), and the three -cvars maps have the counts the README states (53, 63, 55)",
-              !maps.empty() && with_cdb >= 30 && lines == records && refusals == 0 &&
+        check("CDB-35", "every __CDBINFO__ record of every committed map decodes (none refused, none dropped), and the three -cvars maps have the counts the README states (53, 63, 55), 36 maps carry 517 records",
+              !maps.empty() && with_cdb == 36 && records == 517 && lines == records && refusals == 0 &&
               per_map["master/sccz80-cvars"] == 53 && per_map["v2.4/sccz80-cvars"] == 53 &&
               per_map["master/sdcc-cvars"] == 63 && per_map["master/80cc-cvars"] == 55);
         auto n = [&](const char* map, CdbHidden h) { return hidden[map][h]; };
         check("CDB-36", "what the views hide, counted per compiler: sccz80 3 enumerators + 1 twin, zsdcc 4 temporaries + 3 function records, 80cc like sccz80",
-              n("master/sccz80-cvars", CdbHidden::Enumerator) == 3 && n("master/sccz80-cvars", CdbHidden::IncompleteArray) == 1 &&
+              n("master/sccz80-cvars", CdbHidden::EmptyType) == 3 && n("master/sccz80-cvars", CdbHidden::IncompleteArray) == 1 &&
               n("master/sccz80-cvars", CdbHidden::Temporary) == 0 && n("master/sccz80-cvars", CdbHidden::Function) == 0 &&
               n("master/sdcc-cvars", CdbHidden::Temporary) == 4 && n("master/sdcc-cvars", CdbHidden::Function) == 3 &&
-              n("master/sdcc-cvars", CdbHidden::Enumerator) == 0 && n("master/sdcc-cvars", CdbHidden::IncompleteArray) == 0 &&
-              n("master/80cc-cvars", CdbHidden::Enumerator) == 3 && n("master/80cc-cvars", CdbHidden::IncompleteArray) == 1);
+              n("master/sdcc-cvars", CdbHidden::EmptyType) == 0 && n("master/sdcc-cvars", CdbHidden::IncompleteArray) == 0 &&
+              n("master/80cc-cvars", CdbHidden::EmptyType) == 3 && n("master/80cc-cvars", CdbHidden::IncompleteArray) == 1);
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

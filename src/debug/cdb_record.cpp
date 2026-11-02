@@ -110,6 +110,13 @@ bool parse_elem(std::string_view t, CdbTypeElem& e, std::string& why) {
         return false;
     };
     if (t.size() < 2) return bad("unknown type element");
+    // SDCC cdbFile.c:515-518: a noun it has no case for (bool, _BitInt, ...) prints
+    // nothing, then still ':' and S or U.
+    if (t == ":S" || t == ":U") {
+        e.kind = CdbTypeKind::Scalar;
+        e.is_unsigned = t[1] == 'U';
+        return true;
+    }
     if (t[0] == 'D') {
         const char c = t[1];
         if (t == "DF") {
@@ -127,7 +134,7 @@ bool parse_elem(std::string_view t, CdbTypeElem& e, std::string& why) {
             const char suffix = num.back();
             if (suffix != 'x' && suffix != 'd') return bad("array suffix is neither x nor d");
             num.remove_suffix(1);
-            const bool neg = num[0] == '-';
+            const bool neg = !num.empty() && num[0] == '-';
             if (neg) num.remove_prefix(1);
             if (!all_digits(num) || num.size() > 6) return bad("array count is not a number");
             e.kind = CdbTypeKind::Array;
@@ -206,7 +213,7 @@ bool parse_type(Reader& r, CdbType& type) {
 bool parse_storage(Reader& r, CdbVar& v) {
     if (!r.expect(',', "expected ',' before the address space")) return false;
     const char sp = r.peek();
-    if (sp != 'E' && sp != 'B' && sp != 'R' && sp != 'C' && sp != 'D' && sp != 'Z')
+    if (sp != 'E' && sp != 'B' && sp != 'R' && sp != 'C' && sp != 'D' && sp != 'Z' && sp != 'I')
         return r.fail("unknown address space");
     v.space = sp;
     r.expect(sp, "address space");
@@ -250,10 +257,10 @@ bool parse_storage(Reader& r, CdbVar& v) {
 }
 
 // `name$level_sub$block(type),space,...`, the cursor just after the scope's '$'.
-bool parse_var(Reader& r, CdbVar& v) {
+bool parse_var(Reader& r, CdbVar& v, bool allow_empty_name) {
     const std::string_view name = r.until('$', "expected '$' after the name");
     if (r.failed()) return false;
-    if (name.empty()) return r.fail("empty name");
+    if (name.empty() && !allow_empty_name) return r.fail("empty name");
     v.name = std::string(name);
     r.expect('$', "'$'");
     if (!r.integer(v.level, "expected the block level")) return false;
@@ -264,14 +271,18 @@ bool parse_var(Reader& r, CdbVar& v) {
     return parse_type(r, v.type) && parse_storage(r, v);
 }
 
+// zsdcc names an unnamed bitfield member `__<digits>`.
+bool is_padding(std::string_view n) { return starts_with(n, "__") && all_digits(n.substr(2)); }
+
 CdbHidden classify(const CdbRecord& rec) {
     const std::string& n = rec.var.name;
+    if (rec.var.space == 'I') return CdbHidden::Port;
     auto digits_after = [&](std::string_view prefix) {
         return starts_with(n, prefix) && all_digits(std::string_view(n).substr(prefix.size()));
     };
     if (digits_after("sloc") || digits_after("__str_") || digits_after("__")) return CdbHidden::Temporary;
     const auto& chain = rec.var.type.chain;
-    if (chain.empty()) return CdbHidden::Enumerator;
+    if (chain.empty()) return CdbHidden::EmptyType;
     if (chain[0].kind == CdbTypeKind::Array && chain[0].count < 0) return CdbHidden::IncompleteArray;
     if (chain[0].kind == CdbTypeKind::Function) return CdbHidden::Function;
     return CdbHidden::None;
@@ -357,7 +368,8 @@ CdbDecoded cdb_decode(std::string_view rec) {
             if (!r.expect('S', "member scope") || !r.expect(':', "':'") || !r.expect('S', "a member is scoped 'S'") ||
                 !r.expect('$', "'$'"))
                 break;
-            if (!parse_var(r, m.var)) break;
+            if (!parse_var(r, m.var, true)) break;
+            m.hidden = is_padding(m.var.name) ? CdbHidden::Temporary : CdbHidden::None;
             if (!r.expect(')', "member is not closed by ')'")) break;
             out.members.push_back(std::move(m));
         }
@@ -390,7 +402,7 @@ CdbDecoded cdb_decode(std::string_view rec) {
         return refuse_text("unknown scope (expected G, F or L)");
     }
     if (!r.expect('$', "expected '$' after the scope")) return refuse(r);
-    if (!parse_var(r, out.var)) return refuse(r);
+    if (!parse_var(r, out.var, false)) return refuse(r);
     if (!r.at_end()) return refuse_text("text after the record");
     if (out.kind == CdbKind::Variable) out.hidden = classify(out);
     return d;
