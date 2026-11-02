@@ -60,6 +60,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QContextMenuEvent>
+#include <QInputDialog>
 #include <QDialog>
 #include <QDir>
 #include <QFile>
@@ -4450,10 +4451,11 @@ void test_source_context_menu() {
         dp->show_address(0xA000);
         const Popup p = right_click(dp, QPoint(120, 52 + 9));
         const QStringList want{"Copy", "Copy with Addresses", "Select All", "Toggle Breakpoint", "Run to Here",
-                               "Go to Address...", "Watch $4000", "Break on Read $4000", "Break on Write $4000"};
+                               "Go to Address...", "Add Label...", "Remove Label", "Add Comment...",
+                               "Watch $4000", "Break on Read $4000", "Break on Write $4000"};
         check("QSRC-119", "the Disassembly's menu on a `LD HL,$4000` line (watch panel set, no symbols) lists "
                           "exactly Copy, Copy with Addresses, Select All, Toggle Breakpoint, Run to Here, Go to "
-                          "Address..., Watch $4000, Break on Read $4000, Break on Write $4000, in that order",
+                          "Address..., the three annotation entries (GH #387), Watch $4000, Break on Read $4000, Break on Write $4000, in that order",
               p.seen && p.items == want, s(p.items.join("|")));
     }
 }
@@ -6387,6 +6389,216 @@ MenuProbe disasm_menu(DisasmPanel* dp, int row, bool trigger) {
     return out;
 }
 
+// ===========================================================================
+// QANN-07..11 -- GH #387 (E23-24): the annotation entries of the Disassembly and Source tab menus.
+//
+// Oracle: the owner's plan (design 8.2, 10.1, 10.3; the issue): both views offer Add / Rename Label,
+// Remove Label and Add / Edit Comment through one builder, in the same words and order; the key is the
+// memory that supplies the address (the Disassembly line's own, each of a Source line's places); Remove
+// acts on the user's label only; a refused name is a warning and changes nothing.
+// ===========================================================================
+struct PopItem { QString text; bool enabled = true; QString tip; QStringList subs; };
+
+/// Right-click the Disassembly row `row`, list the annotation entries (those between "Show in Source" /
+/// "Go to Address..." and the operand entries) and, when `trigger` is set, trigger that entry (the `sub`-th
+/// of its submenu when `sub` >= 0) while the caller's modal driver answers its dialog.
+std::vector<PopItem> disasm_popup(DisasmPanel* dp, int row, const QString& trigger = QString(), int sub = -1) {
+    std::vector<PopItem> out;
+    bool seen = false;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || seen) return;
+        seen = true;
+        QAction* act = nullptr;
+        for (QAction* a : menu->actions()) {
+            if (a->isSeparator()) continue;
+            PopItem it{a->text(), a->isEnabled(), a->toolTip(), {}};
+            if (a->menu()) for (QAction* b : a->menu()->actions()) it.subs << b->text();
+            out.push_back(it);
+            if (a->text() == trigger) act = (sub >= 0 && a->menu()) ? a->menu()->actions().value(sub) : a;
+        }
+        if (act) act->trigger();
+        menu->close();
+    });
+    timer.start(1);
+    const QPoint pos(kGutterW + 60, disasm_row_y(row));
+    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, dp->mapToGlobal(pos));
+    QApplication::sendEvent(dp, &ev);
+    timer.stop();
+    QApplication::processEvents();
+    return out;
+}
+
+const PopItem* find_item(const std::vector<PopItem>& v, const QString& text) {
+    for (const PopItem& i : v) if (i.text == text) return &i;
+    return nullptr;
+}
+
+/// The annotation entries in order (the three of the builder), by their words.
+QStringList ann_words(const std::vector<PopItem>& v) {
+    QStringList out;
+    for (const PopItem& i : v)
+        if (i.text == "Add Label..." || i.text == "Rename Label..." || i.text == "Remove Label" ||
+            i.text == "Add Comment..." || i.text == "Edit Comment...")
+            out << i.text;
+    return out;
+}
+
+/// Answer the dialogs: an input dialog gets `text`; a message box is recorded and closed.
+struct Answerer {
+    QString text;
+    QStringList boxes;
+    int inputs = 0;
+    void operator()(QWidget* w, int) {
+        if (auto* in = qobject_cast<QInputDialog*>(w)) { ++inputs; in->setTextValue(text); in->accept(); return; }
+        if (auto* mb = qobject_cast<QMessageBox*>(w)) { boxes << mb->text(); click_box(w, QMessageBox::Ok); return; }
+        if (auto* d = qobject_cast<QDialog*>(w)) d->reject();
+    }
+};
+
+void test_annotations_menu() {
+    {   // QANN-07 and QANN-11
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        write_main({});
+        SyncWin w(fx);
+        w.dp->show_address(0x8002);
+        const int row = w.centre();
+        const jnext::dbg::MemSpace sp = fx.backend->source_page(0x8002);
+        const auto bare = disasm_popup(w.dp, row);
+        const PopItem *bl = find_item(bare, "Add Label..."), *br = find_item(bare, "Remove Label"), *bc = find_item(bare, "Add Comment...");
+        const bool none = bl && br && bc && !br->enabled && !find_item(bare, "Rename Label...");
+        fx.backend->set_user_label(sp, 0x8002, "mine");
+        fx.backend->set_user_comment(sp, 0x8002, "c");
+        w.tick();
+        const auto user = disasm_popup(w.dp, row);
+        const PopItem *ul = find_item(user, "Rename Label..."), *ur = find_item(user, "Remove Label"), *uc = find_item(user, "Edit Comment...");
+        const bool usr = ul && ur && uc && ur->enabled && !find_item(user, "Add Label...");
+        // a toolchain-only label: Rename, Remove disabled with the tooltip that says where it comes from
+        Fixture f2;
+        f2.enable();
+        const std::string tc = (g_tmp->path() + "/tcl.map").toStdString();
+        write_text(tc, "toolchain_lbl = $8002\n");
+        f2.backend->load_map(tc, jnext::dbg::MapFormat::Simple);
+        SyncWin w2(f2);
+        w2.dp->show_address(0x8002);
+        const auto tcm = disasm_popup(w2.dp, w2.centre());
+        const PopItem *tl = find_item(tcm, "Rename Label..."), *tr = find_item(tcm, "Remove Label");
+        const bool tool = tl && tr && !tr->enabled && tr->tip.contains("rename it to override it") && tr->tip.contains("tcl.map");
+        check("QANN-07", "Disassembly menu: no label -> Add Label..., Remove Label disabled, Add Comment...; a user label "
+                         "and comment -> Rename Label..., Remove Label enabled, Edit Comment...; a toolchain-only "
+                         "label -> Rename Label... and Remove Label disabled with the tooltip naming the file",
+              none && usr && tool, "none=" + std::to_string(none) + " usr=" + std::to_string(usr) + " tool=" + std::to_string(tool) + " tip=" + (tr ? s(tr->tip) : std::string("-")));
+        // QANN-11: the Source tab says the same, in the same order
+        SourcePanel* spn = w.sp;
+        QMenu m1(spn);
+        spn->fill_context_menu(m1, 11, 0);
+        QStringList src_words;
+        for (QAction* a : m1.actions()) if (!a->isSeparator()) src_words << a->text();
+        QStringList only;
+        for (const QString& t : src_words)
+            if (t == "Add Label..." || t == "Rename Label..." || t == "Remove Label" || t == "Add Comment..." || t == "Edit Comment...")
+                only << t;
+        check("QANN-11", "the Disassembly menu and the Source tab menu offer the annotation entries in the same words and "
+                         "the same order (with a user label and comment on the line's address)",
+              only == ann_words(user) && only == QStringList({"Rename Label...", "Remove Label", "Edit Comment..."}),
+              s(only.join("|")) + " vs " + s(ann_words(user).join("|")));
+    }
+    {   // QANN-08 and QANN-09
+        Fixture fx;
+        fx.enable();
+        write_main({});
+        SyncWin w(fx);
+        w.dp->show_address(0x8002);
+        const int row = w.centre();
+        const jnext::dbg::MemSpace sp = fx.backend->source_page(0x8002);
+        Answerer ans;
+        ans.text = "lbl";
+        drive_modals(std::ref(ans), [&] { disasm_popup(w.dp, row, "Add Label..."); });
+        const auto* a1 = fx.backend->annotations().find(sp, 0x8002);
+        const bool added = a1 && a1->label == "lbl" && w.dp->line_label(w.centre()) == "lbl";
+        ans.text = "c1\nc2";
+        drive_modals(std::ref(ans), [&] { disasm_popup(w.dp, row, "Add Comment..."); });
+        const auto* a2 = fx.backend->annotations().find(sp, 0x8002);
+        const bool commented = a2 && a2->comment == "c1\nc2" && w.dp->line_comment(w.centre()) == "; c1 ...";
+        drive_modals(std::ref(ans), [&] { disasm_popup(w.dp, row, "Remove Label"); });
+        const auto* a3 = fx.backend->annotations().find(sp, 0x8002);
+        const bool removed = a3 && a3->label.empty() && w.dp->line_label(w.centre()).isEmpty();
+        ans.text = "";
+        drive_modals(std::ref(ans), [&] { disasm_popup(w.dp, row, "Edit Comment..."); });
+        const bool cleared = !fx.backend->annotations().find(sp, 0x8002);
+        check("QANN-08", "driving the dialogs on the Disassembly line: Add Label sets (the line's memory, its address) and the "
+                         "line shows it; Add Comment shows '; c1 ...'; Remove Label removes the label only; Edit Comment "
+                         "with empty text clears the entry",
+              added && commented && removed && cleared, std::to_string(added) + std::to_string(commented) + std::to_string(removed) + std::to_string(cleared));
+        // QANN-09: a refused name is a warning with the backend's reason; nothing changes
+        const auto before = fx.backend->annotations();
+        Answerer bad;
+        bad.text = "1bad";
+        const int n = drive_modals(std::ref(bad), [&] { disasm_popup(w.dp, row, "Add Label..."); });
+        const bool unchanged1 = fx.backend->annotations() == before;
+        fx.backend->set_user_label(sp, 0x8003, "taken");
+        const auto with_taken = fx.backend->annotations();
+        Answerer dup;
+        dup.text = "taken";
+        drive_modals(std::ref(dup), [&] { disasm_popup(w.dp, row, "Add Label..."); });
+        check("QANN-09", "a refused name (grammar, or one already used) shows a warning with the backend's reason and the store is "
+                         "unchanged",
+              n == 2 && bad.boxes.size() == 1 && bad.boxes[0].contains("not a label name") && unchanged1 &&
+                  dup.boxes.size() == 1 && dup.boxes[0].contains("already names") && fx.backend->annotations() == with_taken,
+              s(bad.boxes.join("|")) + " / " + s(dup.boxes.join("|")));
+    }
+    {   // QANN-10: the Source tab acts per place
+        Fixture fx;
+        fx.enable();
+        load_two_place(fx, "ann-two.sld");
+        write_main({});
+        SyncWin sw2(fx);
+        SourcePanel* spn = sw2.sp;
+        QMenu m(spn);
+        spn->fill_context_menu(m, 11, 0);
+        QAction* add = nullptr;
+        for (QAction* a : m.actions()) if (a->text() == "Add Label...") add = a;
+        const bool submenu = add && add->menu() && add->menu()->actions().size() == 2;
+        QAction* at9000 = nullptr;
+        if (submenu) for (QAction* b : add->menu()->actions()) if (b->text().contains("9000")) at9000 = b;
+        Answerer ans;
+        ans.text = "second";
+        drive_modals(std::ref(ans), [&] { if (at9000) at9000->trigger(); });
+        const auto key = fx.backend->annotations().find_name("second");
+        const bool second_place = submenu && at9000 && key && key->addr == 0x9000 && key->space == fx.backend->source_page(0x9000) &&
+                                  !fx.backend->annotations().find(fx.backend->source_page(0x8002), 0x8002);
+        // one place: the entry acts on it directly
+        Fixture f1;
+        f1.enable();
+        f1.load_map();
+        write_main({});
+        SyncWin sw1(f1);
+        SourcePanel* s1 = sw1.sp;
+        QMenu m1(s1);
+        s1->fill_context_menu(m1, 11, 0);
+        QAction* add1 = nullptr;
+        for (QAction* a : m1.actions()) if (a->text() == "Add Label...") add1 = a;
+        Answerer a1;
+        a1.text = "single";
+        drive_modals(std::ref(a1), [&] { if (add1) add1->trigger(); });
+        const auto k1 = f1.backend->annotations().find_name("single");
+        const bool one = add1 && !add1->menu() && k1 && k1->addr == 0x8002 && k1->space == f1.backend->source_page(0x8002);
+        // no code: disabled with the Source tab's tooltip
+        QMenu m0(s1);
+        s1->fill_context_menu(m0, 3, 0);
+        QAction* add0 = nullptr;
+        for (QAction* a : m0.actions()) if (a->text() == "Add Label...") add0 = a;
+        const bool nocode = add0 && !add0->isEnabled() && add0->toolTip().contains("no code at");
+        check("QANN-10", "Source tab: a line with one place acts on its (memory, address); a line with two places gives a submenu "
+                         "and the entry chosen acts on its own place ($9000, not $8002); a line with no code has the entries "
+                         "disabled with 'no code at ...'",
+              one && second_place && nocode, std::to_string(one) + std::to_string(second_place) + std::to_string(nocode));
+    }
+}
+
 void test_source_sync() {
     const std::string tmp = g_tmp->path().toStdString();
     {   // QSRC-176: the label names the address browsed, with its "also" list and where the PC is
@@ -7158,6 +7370,7 @@ int main(int argc, char** argv) {
     test_z88dk_c_names_source();
     test_source_current_line();   // GH #347 stage 1
     test_source_sync();           // GH #347 stage 2
+    test_annotations_menu();      // GH #387 stage 2
     test_source_sync_review();    // GH #347 stage 2, review 1
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

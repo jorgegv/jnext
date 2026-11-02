@@ -256,6 +256,41 @@ void test_debugger_teardown() {
           " visible=" + (dbg && dbg->isVisible() ? "1" : "0"));
 }
 
+// ---------------------------------------------------------------------------
+// QG-ANN-03 (GH #387, D11) -- closeEvent asks about unsaved labels and comments first, and Cancel vetoes the
+// close (File > Quit goes through close(), which returns false then): nothing is torn down.
+// ---------------------------------------------------------------------------
+void test_annotations_veto() {
+    Fixture fx;
+    if (!fx.ok) { check("QG-ANN-03", "fixture", false, "no fixture"); return; }
+    DebuggerManager* mgr = fx.win.debugger_manager();
+    mgr->set_enabled(true);
+    QApplication::processEvents();
+    fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x8000, "start");
+    QTimer answer;
+    QMessageBox::StandardButton to_click = QMessageBox::Cancel;
+    bool asked = false;
+    QObject::connect(&answer, &QTimer::timeout, [&]() {
+        if (auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            asked = true;
+            if (QAbstractButton* b = mb->button(to_click)) b->click(); else mb->done(to_click);
+        }
+    });
+    answer.start(1);
+    const bool closed_cancel = fx.win.close();
+    const bool cancel_ok = asked && !closed_cancel && mgr->is_enabled() && mgr->debugger_window_ptr() &&
+                           mgr->debugger_window_ptr()->isVisible();
+    asked = false;
+    to_click = QMessageBox::Discard;
+    const bool closed_discard = fx.win.close();
+    answer.stop();
+    check("QG-ANN-03", "closing the main window with unsaved annotations asks first: Cancel keeps the window open and the "
+                       "debugger enabled; Discard closes it and tears the debugger down",
+          cancel_ok && asked && closed_discard && !mgr->is_enabled(),
+          std::string("cancel_ok=") + (cancel_ok ? "1" : "0") + " asked=" + (asked ? "1" : "0") +
+          " closed=" + (closed_discard ? "1" : "0"));
+}
+
 void test_recorder_stop() {
     Fixture fx;
     if (!fx.ok) {
@@ -515,6 +550,7 @@ int main(int argc, char** argv) {
     }
 
     test_debugger_teardown();
+    test_annotations_veto();
     test_recorder_stop();
     test_geometry_persisted();
     test_startup_migration();

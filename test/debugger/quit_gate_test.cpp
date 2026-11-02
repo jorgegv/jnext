@@ -257,6 +257,50 @@ static void test_quit_gate() {
         }
     }
 
+    // QG-ANN-01 / QG-ANN-02 (GH #387, D11) — the quit question about unsaved labels and comments. The
+    // manager's confirm_discard_annotations() is what MainWindow::closeEvent asks first (QG-ANN-03,
+    // quit_cleanup_test, pins that it vetoes the close).
+    {
+        Fixture fx(/*corrupt=*/false);
+        if (!fx.ok) {
+            check("QG-ANN-01", "fixture (clean+paused)", false);
+            check("QG-ANN-02", "fixture (clean+paused)", false);
+        } else {
+            QTemporaryDir dir;
+            const QString file = dir.filePath(QStringLiteral("q.jdp"));
+            fx.mgr->set_annotations_file(file);          // as --annotations does: nothing unsaved yet
+            ModalWatcher quiet(QMessageBox::Cancel);
+            const bool clean = fx.mgr->confirm_discard_annotations();
+            quiet.stop();
+            const bool no_modal_clean = !quiet.saw_modal;
+            fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x8000, "start");
+            const bool unsaved = fx.mgr->annotations_unsaved();
+            ModalWatcher cancel(QMessageBox::Cancel);
+            const bool r_cancel = fx.mgr->confirm_discard_annotations();
+            cancel.stop();
+            const bool still = fx.mgr->annotations_unsaved() && !QFile::exists(file);
+            ModalWatcher discard(QMessageBox::Discard);
+            const bool r_discard = fx.mgr->confirm_discard_annotations();
+            discard.stop();
+            const bool kept_unsaved = fx.mgr->annotations_unsaved() && !QFile::exists(file);
+            ModalWatcher save(QMessageBox::Save);
+            const bool r_save = fx.mgr->confirm_discard_annotations();
+            save.stop();
+            QFile f(file);
+            const bool wrote = f.open(QIODevice::ReadOnly) &&
+                               f.readAll() == QByteArray("jnext-annotations 1\nlabel P04 $8000 start\n");
+            check("QG-ANN-01", "with unsaved annotations the quit question appears: Cancel returns false and writes nothing, "
+                               "Discard returns true and writes nothing, Save writes the file and returns true",
+                  unsaved && cancel.saw_modal && !r_cancel && still && discard.saw_modal && r_discard && kept_unsaved &&
+                      save.saw_modal && r_save && wrote && !fx.mgr->annotations_unsaved(),
+                  fmt("unsaved=%d cancel=%d/%d discard=%d/%d save=%d/%d wrote=%d", unsaved, cancel.saw_modal, r_cancel,
+                      discard.saw_modal, r_discard, save.saw_modal, r_save, wrote));
+            check("QG-ANN-02", "with nothing unsaved (a --annotations file just loaded, or already saved) there is no "
+                               "question and the answer is yes",
+                  clean && no_modal_clean && fx.mgr->confirm_discard_annotations());
+        }
+    }
+
     // QG-05 — control: the INTERACTIVE disable of a CLEAN machine does NOT prompt
     // (the gate is a no-op when last_state_error() is empty). Proves QG-02's
     // modal came from the corruption, not from every disable.
