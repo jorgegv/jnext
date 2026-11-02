@@ -79,15 +79,39 @@ PY
     fi
     gdb_stop
 
-    rc=0
-    out=$(LANG=C timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
-            "${SD_CARD_ARGS[@]}" --silent --load "$nex" --annotations "$bad" \
-            --delayed-automatic-exit-frames 10 2>&1) || rc=$?
-    [[ $rc -eq 1 ]] || fails+=("a file that does not parse exited $rc, not 1")
-    grep -Fq 'line 3: ' <<<"$out" || fails+=("a file that does not parse did not name its line")
+    # The same good and bad file in the three frontends (Qt offscreen, SDL-only with dummy drivers):
+    # each forwards --annotations to the ScriptHost, logs its counts and exits 1 naming the line.
+    run_fe() {   # run_fe <out-var> <rc-var> <qt|sdl|headless> <annotations file>
+        local __o __rc=0
+        case "$3" in
+        headless) __o=$(LANG=C timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
+                    "${SD_CARD_ARGS[@]}" --silent --load "$nex" --annotations "$4" \
+                    --delayed-automatic-exit-frames 10 2>&1) || __rc=$? ;;
+        qt)       __o=$(env QT_QPA_PLATFORM=offscreen LANG=C timeout --foreground --kill-after=5s 60s \
+                    "$JNEXT" --machine next "${SD_CARD_ARGS[@]}" --silent --load "$nex" --annotations "$4" \
+                    --delayed-automatic-exit-frames 10 2>&1) || __rc=$? ;;
+        sdl)      if [[ -x "$JNEXT_SDL" ]]; then
+                      __o=$(env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy LANG=C \
+                        timeout --foreground --kill-after=5s 60s "$JNEXT_SDL" --machine next --silent \
+                        "${SD_CARD_ARGS[@]}" --load "$nex" --annotations "$4" \
+                        --delayed-automatic-exit-frames 10 2>&1) || __rc=$?
+                  else __o="(SDL-only binary not built: $JNEXT_SDL; run 'make sdl-release')"; __rc=99; fi ;;
+        esac
+        printf -v "$1" '%s' "$__o"
+        printf -v "$2" '%s' "$__rc"
+    }
+    for fe in headless qt sdl; do
+        run_fe good_out good_rc "$fe" "$jdp"
+        run_fe bad_out bad_rc "$fe" "$bad"
+        grep -Eq -e "$want_line" <<<"$good_out" ||
+            fails+=("$fe: no '--annotations ...: 2 labels, 1 comment' line (rc $good_rc)")
+        [[ $good_rc -eq 0 ]] || fails+=("$fe: the good file exited $good_rc")
+        [[ $bad_rc -eq 1 ]] || fails+=("$fe: a file that does not parse exited $bad_rc, not 1")
+        grep -Fq 'line 3: ' <<<"$bad_out" || fails+=("$fe: a file that does not parse did not name its line")
+    done
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (--annotations: monitor sym Start = \$8000 P04, \$8000 = Start, Other only in P1E; a bad file exits 1 naming the line)"
+        pass_row " (--annotations: monitor sym Start = \$8000 P04, \$8000 = Start, Other only in P1E; headless, Qt and SDL log the counts, and a bad file exits 1 naming the line in each)"
     else
         fail_row " (${fails[*]})"
     fi

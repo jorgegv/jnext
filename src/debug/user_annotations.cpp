@@ -10,6 +10,13 @@ namespace {
 bool ident_start(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_'; }
 bool ident_char(char c) { return ident_start(c) || (c >= '0' && c <= '9'); }
 
+// Whether the project file can name `s`: the rule is the parser's own (long_address.h), so the
+// store holds no key that Save writes and Load then refuses (the whole file).
+bool nameable(MemSpace s) {
+    const std::optional<MemSpace> back = parse_space_tag(space_tag(s));
+    return back && *back == s;
+}
+
 std::string key_text(const AnnotationKey& k) {
     static const char* hex = "0123456789ABCDEF";
     std::string s = "$";
@@ -55,6 +62,8 @@ bool UserAnnotations::valid_utf8(std::string_view s) {
 std::string UserAnnotations::set_label(MemSpace space, uint16_t addr, const std::string& name) {
     if (space.kind == MemSpace::Kind::Cpu)
         return "a user label names a memory, not the CPU view";
+    if (!nameable(space))
+        return "'" + space_tag(space) + "' is not a memory the project file can name";
     if (!valid_label_name(name))
         return "'" + name + "' is not a label name (letters, digits and _, not starting "
                "with a digit; '.' joins parts)";
@@ -83,6 +92,8 @@ bool UserAnnotations::remove_label(MemSpace space, uint16_t addr) {
 std::string UserAnnotations::set_comment(MemSpace space, uint16_t addr, std::string text) {
     if (space.kind == MemSpace::Kind::Cpu)
         return "a user comment names a memory, not the CPU view";
+    if (!nameable(space))
+        return "'" + space_tag(space) + "' is not a memory the project file can name";
     if (!valid_utf8(text)) return "the comment is not valid UTF-8";
     std::string t;
     t.reserve(text.size());

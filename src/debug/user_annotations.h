@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 // The user's labels and comments (GH #387, E23-24; design 10.2, 10.5).
 //
-// A pure store: std headers and `mem_space.h` only, no machine, no file. An
+// A pure store: std headers and `mem_space.h` only (the .cpp also uses `long_address.h`, to
+// refuse a memory the project file cannot name), no machine, no file. An
 // entry is keyed by (memory, 16-bit logical address), the key of the page-aware
 // symbol table (10.1). A user entry always names a memory (design 10.4), so
 // `MemSpace::cpu()` is refused. At most one label and one comment per key; a

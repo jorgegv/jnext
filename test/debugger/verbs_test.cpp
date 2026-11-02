@@ -2595,7 +2595,7 @@ static void test_map_load() {
 
     Fixture fx;
     if (!fx.ok) {
-        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07", "QMAP-08"})
+        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06", "QMAP-07", "QMAP-08", "QMAP-09"})
             check(id, "fixture", false);
         return;
     }
@@ -2875,6 +2875,48 @@ static void test_map_load() {
               fmt("ok: %s bad: %s table after bad=%zu; empty: %s table after=%zu", ok.describe().c_str(),
                   bad.describe().c_str(), after_bad, empty.describe().c_str(),
                   fx.backend->symbols().size()));
+    }
+
+    {
+        // QMAP-09 (GH #387): the box of each of the four symbol loads counts the file it loaded, not the
+        // user's labels that share the table the panels read: with one user label in the store,
+        // symbols() is one more than the box says. Z88DK (3 `; addr` symbols), Simple (2), sjasmplus
+        // (the fixture's 14 addresses, QMAP-05) and NextBuild Memory.txt (2 labels).
+        fx.backend->clear_symbols();
+        const bool user = fx.backend->set_user_label(jnext::dbg::MemSpace::page(4), 0x7000, "mine") ==
+                          jnext::dbg::Result::Ok;
+        struct Case { const char* what; std::string path; const char* title; unsigned n; };
+        const Case cases[] = {
+            {"Z88DK", write_file("q9_z88dk.map", "_a = $8000 ; addr, public\n_b = $8001 ; addr, public\n_c = $8002 ; addr, public\n"), "MAP Loaded", 3},
+            {"Simple", write_file("q9_simple.map", "QA = $8000\nQB = $8001\n"), "MAP Loaded", 2},
+            {"sjasmplus", std::string(JNEXT_SJASMEQU_DIR "/equlabels.sym"), "MAP Loaded", 14},
+            {"NextBuild", write_file("q9.Memory.txt", "8000: ._Main\nC000: .banked\n"), "Symbols Loaded", 2},
+        };
+        std::string bad;
+        for (const Case& c : cases) {
+            Modals m;
+            m.file_path = QString::fromStdString(c.path);
+            if (std::string(c.what) == "NextBuild") fx.mgr->on_load_nextbuild_memory();
+            else if (QAction* a = item_named(load_menu, std::string(c.what) == "Z88DK" ? "Z88DK Format..."
+                                                       : std::string(c.what) == "Simple" ? "Simple Format (48K ROM)..."
+                                                                                         : "sjasmplus Format (--sym, --exp)..."))
+                a->trigger();
+            m.timer.stop();
+            const Modals::Seen* box = m.first("box");
+            if (!box || box->title != c.title ||
+                box->text != QStringLiteral("Loaded %1 symbols from:\n%2").arg(c.n).arg(QString::fromStdString(c.path)) ||
+                fx.backend->symbols().size() != c.n + 1 || fx.backend->toolchain_symbols().size() != c.n ||
+                !fx.backend->annotations().find_name("mine"))
+                bad += std::string(" ") + c.what + "(" + (box ? s(box->text) : std::string("no box")) + " table=" +
+                       std::to_string(fx.backend->symbols().size()) + ")";
+        }
+        check("QMAP-09",
+              "with one user label in the store, each of the four symbol loads (Z88DK, Simple, sjasmplus, "
+              "NextBuild Memory.txt) reports the file's own count in its box, and the table the panels read is "
+              "one label bigger",
+              user && bad.empty(), bad);
+        fx.backend->clear_symbols();
+        fx.backend->remove_user_label(jnext::dbg::MemSpace::page(4), 0x7000);
     }
 
     {

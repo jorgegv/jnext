@@ -376,7 +376,7 @@ table above, filled only by a sidecar, `load_map()` and a hand SLD (and emptied 
 their lifetime drops); `Impl::annotations` is a `UserAnnotations`
 (`debug/user_annotations.h`: std and `mem_space.h` only), keyed by (`MemSpace`,
 16-bit address) with at most one label and one comment per key, a label name used
-at one key only, and `MemSpace::cpu()` refused (a user entry names a memory). A
+at one key only, and `MemSpace::cpu()` and any memory the file cannot name (`parse_space_tag(space_tag(s)) != s`: page 0xE0, ROM 4, ...) refused. A
 label name is `[A-Za-z_][A-Za-z0-9_]*` parts joined by single dots, the grammar the
 DSL's `@name` lexes (`UserAnnotations::valid_label_name()`, public for #389's
 import); a comment is UTF-8 text with CRLF and lone CR turned into LF, and empty
@@ -425,7 +425,7 @@ the label before the comment of a key, no `#` lines: a Save does not keep a user
 lower-case tags and hex are accepted; an unknown version, record kind, memory,
 `CPU`, a doubled space, a bad name, a second label or comment for a key, one name at two keys, an unknown escape
 or invalid UTF-8 refuses the whole file with `line N: reason` and leaves the store as it was
-(rows JDP-01..07, SRCDBG-UANN-12..14). `save_annotations()` writes `PATH.part` and renames it
+(rows JDP-01..09, UANN-13, SRCDBG-UANN-12..14, 20). `save_annotations()` writes `PATH.part` and renames it
 over `PATH`. `--annotations FILE` loads one in `ScriptHost::start()` right after `--map`, before the
 scripts, in every frontend (rows SCRIPT-ANN-01, CLI-ANN-01, `annotations-func`).
 

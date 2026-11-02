@@ -1250,6 +1250,45 @@ int main() {
         }
         {
             UserAnnotations u;
+            u.set_label(P04, 0x8000, "keep");
+            u.set_comment(P04, 0x8000, "note");
+            const bool both = u.label_count() == 1 && u.comment_count() == 1;
+            u.set_comment(P04, 0x8000, "");
+            check("UANN-12", "clearing the comment of a key that has a label keeps the label (find, find_name, one "
+                             "label, no comment)",
+                  both && u.find(P04, 0x8000) && u.find(P04, 0x8000)->label == "keep" &&
+                      u.find(P04, 0x8000)->comment.empty() && u.find_name("keep") && u.label_count() == 1 &&
+                      u.comment_count() == 0);
+        }
+        {
+            struct Edge { MemSpace last_ok; MemSpace first_bad; };
+            const Edge edges[] = {
+                {MemSpace::page(0xDF), MemSpace::page(0xE0)},     {MemSpace::page(0xDF), MemSpace::page(0x100)},
+                {MemSpace::rom(3), MemSpace::rom(4)},             {MemSpace::alt_rom(1), MemSpace::alt_rom(2)},
+                {MemSpace::divmmc_ram(15), MemSpace::divmmc_ram(16)},
+                {MemSpace::layer2(0xDF), MemSpace::layer2(0xE0)}, {MemSpace::config(0xFF), MemSpace::config(0x100)},
+                {MemSpace::boot_rom(), MemSpace{MemSpace::Kind::BootRom, 1}},
+                {MemSpace::floating(), MemSpace{MemSpace::Kind::Floating, 2}},
+            };
+            std::string bad;
+            for (const Edge& e : edges) {
+                UserAnnotations u;
+                u.set_label(P04, 0x1000, "keep");
+                const UserAnnotations before = u;
+                if (u.set_label(e.first_bad, 0x8000, "x").empty()) bad += " label-accepted";
+                if (u.set_comment(e.first_bad, 0x8000, "c").empty()) bad += " comment-accepted";
+                if (u != before) bad += " changed";
+                if (!u.set_label(e.last_ok, 0x8000, "ok").empty()) bad += " last-refused";
+                if (!u.set_comment(e.last_ok, 0x8001, "c").empty()) bad += " last-comment-refused";
+            }
+            check("UANN-13", "the store refuses a memory the project file cannot name (the first out-of-range index "
+                             "of a page, ROM, alt ROM, DivMMC RAM bank, Layer 2 page and config bank, an index on a "
+                             "single-image memory), unchanged, and accepts the last in-range one",
+                  bad.empty());
+            if (!bad.empty()) std::printf("    UANN-13:%s\n", bad.c_str());
+        }
+        {
+            UserAnnotations u;
             u.set_label(P10, 0xC000, "x");
             u.set_label(P11, 0xC000, "y");
             check("UANN-11", "two memories at one address are two entries",
@@ -1361,6 +1400,7 @@ int main() {
                 {"comment P04 $8000 abc\\", "the text ends in a lone backslash"},
                 {"comment P04 $8000 a\rb", "a carriage return inside the text"},
                 {"comment P04 $8000 \xC3", "the comment is not valid UTF-8"},
+                {"\xEF\xBB\xBF" "label P04 $8000 x", "unknown record '\xEF\xBB\xBF" "label'"},
             };
             bool all = true;
             std::string first_bad;
@@ -1393,6 +1433,27 @@ int main() {
                             "name at two keys",
                   all && dup);
             if (!all) std::printf("    first bad: %s\n", first_bad.c_str());
+        }
+        {
+            // every key the store accepts, at both ends of its range, survives write then read
+            UserAnnotations all;
+            const MemSpace ends[] = {MemSpace::page(0), MemSpace::page(0xDF), MemSpace::rom(0), MemSpace::rom(3),
+                                     MemSpace::alt_rom(0), MemSpace::alt_rom(1), MemSpace::divmmc_ram(0),
+                                     MemSpace::divmmc_ram(15), MemSpace::layer2(0), MemSpace::layer2(0xDF),
+                                     MemSpace::config(0), MemSpace::config(0xFF)};
+            int i = 0;
+            bool accepted = true;
+            for (const MemSpace& s : ends) {
+                accepted = accepted && all.set_label(s, 0x4000, "e" + std::to_string(i)).empty() &&
+                           all.set_comment(s, 0x4000, "c").empty();
+                ++i;
+            }
+            UserAnnotations back;
+            std::string why;
+            const bool ok = parse(bytes(all), back, why);
+            check("JDP-09", "every key the store accepts, at both ends of each memory's range, is written and read "
+                            "back identically (Save never writes a file Load refuses)",
+                  accepted && ok && back == all && back.entries().size() == 12);
         }
         {
             UserAnnotations u;

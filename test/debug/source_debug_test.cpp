@@ -7969,6 +7969,27 @@ int main() {
                       m.dbg->toolchain_symbols().empty() && m.dbg->lookup_name("mine") == std::optional<uint16_t>(0x8000) &&
                       m.dbg->symbols().size() == 1);
         }
+        {   // SRCDBG-UANN-20: a memory the project file cannot name is refused through the verbs
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string w1, w2;
+            const uint64_t r0 = m.dbg->annotations_revision(), v0 = m.dbg->state_revision();
+            const Result a = m.dbg->set_user_label(MemSpace::page(0xE0), 0x8000, "x", &w1);
+            const Result b = m.dbg->set_user_comment(MemSpace::rom(4), 0x0000, "c", &w2);
+            const bool refused = a == Result::Unsupported && b == Result::Unsupported &&
+                                 w1.find("PE0") != std::string::npos && w2.find("ROM4") != std::string::npos &&
+                                 m.dbg->annotations().empty() && m.dbg->annotations_revision() == r0 &&
+                                 m.dbg->state_revision() == v0;
+            const Result c = m.dbg->set_user_label(MemSpace::page(0xDF), 0x8000, "ok");
+            const fs::path f = tdir / "u20.jdp";
+            const Result sv = m.dbg->save_annotations(f.string());
+            m.dbg->replace_annotations(jnext::dbg::UserAnnotations{});
+            const Result ld = m.dbg->load_annotations(f.string());
+            check("SRCDBG-UANN-20", "set_user_label / set_user_comment refuse a memory the file cannot name (PE0, ROM4) "
+                                    "with Unsupported, a reason, and no change of the store or the revisions; the last "
+                                    "in-range page is accepted and survives a save and a load",
+                  refused && c == Result::Ok && sv == Result::Ok && ld == Result::Ok &&
+                      m.dbg->lookup_name("ok") == std::optional<uint16_t>(0x8000));
+        }
         {   // SRCDBG-UANN-07 (issue row 2): resets
             bool ok[2] = {false, false};
             for (int hard = 0; hard < 2; ++hard) {

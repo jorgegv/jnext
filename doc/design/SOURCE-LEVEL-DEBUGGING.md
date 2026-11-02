@@ -1476,7 +1476,7 @@ refused argument is `Unsupported`, nothing to remove or an unreadable or unwrita
 layer; `set_user_label()` also refuses a name the toolchain gives another address or another paged
 memory (the same address is allowed: it pins an unpaged name to its page); a project file and a
 toolchain loaded later are not refused, and the user layer then wins by name. A label name is the
-grammar of the DSL's `@name`: `[A-Za-z_][A-Za-z0-9_]*` parts joined by single dots. A comment is
+grammar of the DSL's `@name`: `[A-Za-z_][A-Za-z0-9_]*` parts joined by single dots. A store key is a memory the project file can name (`parse_space_tag(space_tag(s)) == s`), so Save never writes a file Load refuses. A comment is
 UTF-8 text, CRLF and lone CR turned into LF, empty text removes it. The verbs touch no machine
 state (allowed while running) and each success bumps `state_revision()` (GH #428).
 
@@ -1717,12 +1717,12 @@ judgement at the entry, a hand load, landings, dotx, a rewind), QDOT-01/02
 (`debugger_source_panel_test`) and the functional row `z88dk-dot-source-func` (real NextZXOS, the dot on the
 card with `--sdcard-file-add`, typed, in headless, SDL and Qt).
 
-E23-24 (#387) stage 1 added UANN-01 to UANN-11 and JDP-01 to JDP-07 (`source_map_test`: the store, the
-label grammar, the name rule, the file's bytes and every refusal), SRCDBG-UANN-01 to SRCDBG-UANN-18
+E23-24 (#387) stage 1 added UANN-01 to UANN-13 and JDP-01 to JDP-09 (`source_map_test`: the store, the
+label grammar, the name rule, the file's bytes and every refusal), SRCDBG-UANN-01 to SRCDBG-UANN-20
 (`source_debug_test`: the two layers and the one reader by page, the name rule against the toolchain,
 the file through the backend, no lifetime across sidecars, hand loads, resets, state loads and ring
 landings, purity with its control, the state revision), GDB-ANN-01 (`gdb_rsp_test`), SCRIPT-ANN-01
-(`script_events_test`), CLI-ANN-01 (`cli_options_test`) and the functional row `annotations-func`.
+(`script_events_test`), CLI-ANN-01 (`cli_options_test`), QMAP-09 (`debugger_verbs_test`: the four Load MAP boxes count the loaded file only) and the functional row `annotations-func` (headless, Qt and SDL).
 
 E23-23 (#375) stage 3 added SYMPG-13 (`source_map_test`: `bind()`), Z88SYM-01 to Z88SYM-09
 (`z88dk_map_test`: the symbol loader's pages, the rule-4 bind, the Unpaged and Refused table, two
