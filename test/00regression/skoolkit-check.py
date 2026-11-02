@@ -10,6 +10,11 @@ this script only reads their output, so the verdict is skoolkit's and not ours.
         the skool file's entry at ADDR starts with
     skoolkit-check.py asm <file.asm> <file.ctl>...
         every label of the control files is a line `NAME:` of the assembly
+    skoolkit-check.py compare <a.ctl> <b.ctl>
+        both control files hold the same `@ $ADDR label=NAME` lines and the same comment
+        (the text of a B/C/S/T/W sub-block plus its `.` / `:` lines) at every address
+    skoolkit-check.py comments <file.skool> <min>
+        at least <min> instruction comments in the skool file (a `;` after an instruction)
     skoolkit-check.py z80n <file.skool> <min>
         at least <min> `DEFB $ED,$91,$xx,$yy` lines (a Z80N NEXTREG kept whole)
         and no `DEFB $ED,$91` cut to its two Z80 bytes
@@ -88,6 +93,54 @@ def cmd_asm(asm, ctls):
     print(f'OK skool2asm emitted all {len(labels)} labels')
 
 
+def labels_and_comments(path):
+    labels, comments = set(), {}
+    cur = None
+    with open(path, encoding='utf-8') as f:
+        for line in f:
+            line = line.rstrip('\n')
+            m = LABEL.match(line)
+            if m:
+                labels.add((int(m.group(1), 16), m.group(2)))
+                cur = None
+                continue
+            m = re.match(r'^([BCSTW]) \$([0-9A-F]{4})(?:,\S+)?(?: (.*))?$', line)
+            if m:
+                cur = int(m.group(2), 16)
+                if m.group(3):
+                    comments[cur] = m.group(3)
+                continue
+            if line[:1] in ('.', ':') and cur is not None:
+                comments[cur] = comments[cur] + '\n' + line[2:] if cur in comments else line[2:]
+                continue
+            cur = None
+    return labels, comments
+
+
+def cmd_compare(a, b):
+    la, ca = labels_and_comments(a)
+    lb, cb = labels_and_comments(b)
+    if la != lb:
+        fail(f'labels differ: only in a {sorted(la - lb)[:4]}, only in b {sorted(lb - la)[:4]}')
+    if ca != cb:
+        diff = sorted(set(ca.items()) ^ set(cb.items()))[:4]
+        fail(f'comments differ: {diff}')
+    if not ca:
+        fail('no comments in either file: the comparison would prove nothing')
+    print(f'OK {len(la)} labels and {len(ca)} comments equal')
+
+
+def cmd_comments(skool, minimum):
+    n = 0
+    with open(skool, encoding='utf-8') as f:
+        for line in f:
+            if INSN.match(line) and re.search(r' ; \S', line):
+                n += 1
+    if n < minimum:
+        fail(f'{n} instruction comments, wanted at least {minimum}')
+    print(f'OK {n} instruction comments')
+
+
 def cmd_z80n(skool, minimum):
     whole = cut = 0
     with open(skool, encoding='ascii') as f:
@@ -108,6 +161,10 @@ if __name__ == '__main__':
         cmd_labels(sys.argv[2], sys.argv[3:])
     elif len(sys.argv) >= 4 and sys.argv[1] == 'asm':
         cmd_asm(sys.argv[2], sys.argv[3:])
+    elif len(sys.argv) == 4 and sys.argv[1] == 'compare':
+        cmd_compare(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 4 and sys.argv[1] == 'comments':
+        cmd_comments(sys.argv[2], int(sys.argv[3]))
     elif len(sys.argv) == 4 and sys.argv[1] == 'z80n':
         cmd_z80n(sys.argv[2], int(sys.argv[3]))
     else:

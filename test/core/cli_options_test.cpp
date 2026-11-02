@@ -1019,6 +1019,8 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
                  "jnext binary not built at " + bin);
+            skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -1065,6 +1067,8 @@ int main() {
             skip("CLI-ANN-01", "--annotations reaches the backend before the first frame",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-REX-02", "--import-skoolkit and --import-ghidra read files at start",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -1682,6 +1686,40 @@ int main() {
                           " bad: " + bad.second.substr(0, 300));
                 std::remove(good.c_str());
                 std::remove(bad_file.c_str());
+            }
+
+            // CLI-REX-02: --import-skoolkit FILE (repeatable) and --import-ghidra FILE read files into the
+            // debugger's labels and comments at start (GH #389 stage B), logging their counts; a bad file exits
+            // non-zero naming the option and the line.
+            {
+                const std::string rx = bin + tag + ".imp";
+                const std::string fa = rx + ".a.ctl", fb = rx + ".b.ctl", fg = rx + ".g.txt", fbad = rx + ".bad.ctl";
+                { std::ofstream f(fa); f << "# jnext space P04\nc $8000\n@ $8000 label=la\nB $8000 note\n"; }
+                { std::ofstream f(fb); f << "# jnext space P04\nc $8010\n@ $8010 label=lb\n"; }
+                { std::ofstream f(fg); f << "lg P04:0x8020 l\n"; }
+                { std::ofstream f(fbad); f << "# jnext space P04\nc $ZZZZ\n"; }
+                const std::string base = "--headless --machine 48k" + sd_arg + " --delayed-automatic-exit-frames 1";
+                const std::string good = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fb +
+                                         "\" --import-ghidra \"" + fg + "\"";
+                const int rc = run(good);
+                run_split(good);
+                const std::string all = slurp(out_path) + slurp(err_path);
+                const bool logged = all.find("--import-skoolkit: 2 files, 2 labels, 1 comment") != std::string::npos &&
+                                    all.find("--import-ghidra: 1 file, 1 label, 0 comments") != std::string::npos;
+                const std::string badcmd = base + " --import-skoolkit \"" + fa + "\" --import-skoolkit \"" + fbad + "\"";
+                const int rc_bad = run(badcmd);
+                run_split(badcmd);
+                const std::string bad_all = slurp(out_path) + slurp(err_path);
+                const bool names = bad_all.find("--import-skoolkit") != std::string::npos &&
+                                   bad_all.find("bad.ctl: line 2:") != std::string::npos;
+                const bool arity = cli::find("--import-skoolkit") && cli::find("--import-skoolkit")->arity == 1 &&
+                                   cli::find("--import-ghidra") && cli::find("--import-ghidra")->arity == 1;
+                for (const std::string& f : {fa, fb, fg, fbad}) std::remove(f.c_str());
+                check("CLI-REX-02", "two --import-skoolkit and one --import-ghidra read their files at start and log the "
+                                    "counts; a bad control file fails the run, naming the option, the file and the line",
+                      arity && rc == 0 && logged && rc_bad != 0 && names,
+                      std::string("rc=") + std::to_string(rc) + " logged=" + (logged ? "1" : "0") + " rc_bad=" +
+                          std::to_string(rc_bad) + " names=" + (names ? "1" : "0") + " " + all.substr(0, 300));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

@@ -1213,6 +1213,35 @@ read and write the file (Save writes back to *FILE*). A file that cannot
 be read, or does not parse (the message names the line), is a startup
 error (exit status 1).
 
+**--import-skoolkit** *FILE*  
+At start, after **--annotations**, read *FILE*, a skoolkit control file
+(your own, or one made by `skool2ctl.py -k -h` from a disassembly), into
+the debugger’s labels and comments. Taken: the `@ ADDR label=NAME` lines
+(a leading `*` is dropped) and the text of the `B`, `C`, `S`, `T` and
+`W` sub-blocks, with their `.` and `:` continuation lines, as the
+instruction comment at that address. Counted in the log, not imported:
+block titles (sna2skool writes its own), `D` descriptions and the other
+directives. The memory of a file is its `# jnext space TAG` first line,
+else its name (`TAG.ctl` or `WWWW-TAG.ctl`, as **--export-skoolkit**
+writes them), else the memory that supplies the address when the file is
+read, which is before **--load** runs (the page mapped at start, the ROM
+at `$0000`). An imported label or comment replaces the one at the same
+address; all the files of the option are read first, so a failure
+changes nothing. Repeatable. A file that cannot be read, or that
+skoolkit would only warn about (an address that is not decimal, `$hex`
+or `%binary`, or above 65535; an unknown directive; a label name that is
+not a name; one name at two addresses), is a startup error (exit
+status 1) naming the line.
+
+**--import-ghidra** *FILE*  
+As **--import-skoolkit** for a Ghidra symbol file: lines
+`NAME ADDRESS l` (`l` or `f` or anything else, ignored), the address
+`0xHHHH` or `TAG:0xHHHH` with a jnext memory tag, as **--export-ghidra**
+writes them. A blank line is skipped. A `#` line, an address prefix that
+is not a jnext memory tag (`ram:0x8000`), an expression, or a name that
+is not a name is a startup error (exit status 1). Repeatable. There are
+no comments in the format.
+
 **--export-skoolkit** *DIR*  
 When jnext exits, write the debugger’s labels and the code/data map that
 **--coverage** recorded into *DIR* as skoolkit control files (*DIR* is

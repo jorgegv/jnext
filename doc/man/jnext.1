@@ -1375,6 +1375,45 @@ Annotations As\&...\f[R] read and write the file (Save writes back to
 A file that cannot be read, or does not parse (the message names the
 line), is a startup error (exit status 1).
 .TP
+\f[B]\-\-import\-skoolkit\f[R] \f[I]FILE\f[R]
+At start, after \f[B]\-\-annotations\f[R], read \f[I]FILE\f[R], a
+skoolkit control file (your own, or one made by
+\f[CR]skool2ctl.py \-k \-h\f[R] from a disassembly), into the
+debugger\(cqs labels and comments.
+Taken: the \f[CR]\(at ADDR label=NAME\f[R] lines (a leading \f[CR]*\f[R]
+is dropped) and the text of the \f[CR]B\f[R], \f[CR]C\f[R],
+\f[CR]S\f[R], \f[CR]T\f[R] and \f[CR]W\f[R] sub\-blocks, with their
+\f[CR].\f[R] and \f[CR]:\f[R] continuation lines, as the instruction
+comment at that address.
+Counted in the log, not imported: block titles (sna2skool writes its
+own), \f[CR]D\f[R] descriptions and the other directives.
+The memory of a file is its \f[CR]# jnext space TAG\f[R] first line,
+else its name (\f[CR]TAG.ctl\f[R] or \f[CR]WWWW\-TAG.ctl\f[R], as
+\f[B]\-\-export\-skoolkit\f[R] writes them), else the memory that
+supplies the address when the file is read, which is before
+\f[B]\-\-load\f[R] runs (the page mapped at start, the ROM at
+\f[CR]$0000\f[R]).
+An imported label or comment replaces the one at the same address; all
+the files of the option are read first, so a failure changes nothing.
+Repeatable.
+A file that cannot be read, or that skoolkit would only warn about (an
+address that is not decimal, \f[CR]$hex\f[R] or \f[CR]%binary\f[R], or
+above 65535; an unknown directive; a label name that is not a name; one
+name at two addresses), is a startup error (exit status 1) naming the
+line.
+.TP
+\f[B]\-\-import\-ghidra\f[R] \f[I]FILE\f[R]
+As \f[B]\-\-import\-skoolkit\f[R] for a Ghidra symbol file: lines
+\f[CR]NAME ADDRESS l\f[R] (\f[CR]l\f[R] or \f[CR]f\f[R] or anything
+else, ignored), the address \f[CR]0xHHHH\f[R] or \f[CR]TAG:0xHHHH\f[R]
+with a jnext memory tag, as \f[B]\-\-export\-ghidra\f[R] writes them.
+A blank line is skipped.
+A \f[CR]#\f[R] line, an address prefix that is not a jnext memory tag
+(\f[CR]ram:0x8000\f[R]), an expression, or a name that is not a name is
+a startup error (exit status 1).
+Repeatable.
+There are no comments in the format.
+.TP
 \f[B]\-\-export\-skoolkit\f[R] \f[I]DIR\f[R]
 When jnext exits, write the debugger\(cqs labels and the code/data map
 that \f[B]\-\-coverage\f[R] recorded into \f[I]DIR\f[R] as skoolkit

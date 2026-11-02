@@ -1638,8 +1638,10 @@ tools, ghidra's script), never by jnext's own importer: the functional rows
 `skool2asm.py`) and Ghidra 12.2 (`analyzeHeadless` with `ImportSymbolsScript.py`), provisioned
 sha256-pinned into the user cache by `make skoolkit` and `make ghidra`, for test time only.
 **Stage A, as built (GH #389):** the exports, `Debugger::export_skoolkit()` and
-`export_ghidra()` (CAP-REX), `--export-skoolkit DIR` and `--export-ghidra DIR` at exit. Labels
-and the code/data map are written; comments (E23-24) and import are the later stages.
+`export_ghidra()` (CAP-REX), `--export-skoolkit DIR` and `--export-ghidra DIR` at exit. Labels,
+comments and the code/data map are written, and `import_skoolkit()` / `import_ghidra()` (stage B,
+`--import-skoolkit FILE`, `--import-ghidra FILE`, repeatable, at start after `--annotations`) read
+them back into the user layer.
 What follows was measured against the readers themselves, and corrects the first design.
 
 - **ghidra.** The export is symbol files for Ghidra's `ImportSymbolsScript.py`: one label per
@@ -1704,8 +1706,28 @@ What follows was measured against the readers themselves, and corrects the first
   space), that the new export does not write is removed, so a stale space never reaches
   `-c DIR`; any other file is never touched, and a `.ctl` or `.bin` of a name the export would
   write that is not jnext's refuses the export before anything is written.
-- **Import (a later stage)** takes the space from the header comment, else from the file
-  name's `<TAG>`, else from the mapping at import (`source_page()`).
+- **Import** (stage B) reads labels and instruction comments only. skoolkit: `@ ADDR label=NAME`
+  (a leading `*` entry-point marker dropped; `label=` and `label=*` name nothing) and the text of a
+  `B C S T W` or blank-lead sub-block with its `.` / `:` continuation lines (joined with line feeds);
+  block titles (sna2skool writes its own, and `skool2ctl.py -k -h` brings them back), `D`
+  descriptions, `R N E M L >` and the other `@` directives are counted in the report and not imported,
+  and no store holds the block types (a code/data map). The reader is strict where skoolkit only
+  warns: an address that is not decimal, `$hex` or `%bin` (`0x` is refused too) or is above 65535, an
+  unknown directive, extra parameters, a blank directive before any block, a name outside the label
+  grammar, one name at two addresses, and text that is not UTF-8 refuse the whole file with
+  `line N: reason`; two labels at one address keep the last (skoolkit applies the last). Ghidra:
+  the script's grammar (whitespace split, name, address, `f` or anything else; blank lines skipped),
+  the address `0xHHHH` or `TAG:0xHHHH` with a jnext tag; a `#` line, an address prefix that is no
+  jnext memory (`ram:0x8000`: use no prefix, the mapping places the label), an expression and a bad
+  name refuse; two labels at one address keep the first (Ghidra's primary is the first created). The
+  memory of a control file is its `# jnext space TAG` line, else its name (`TAG.ctl`,
+  `WWWW-TAG.ctl`), else none; none (and `CPU`) is UNTAGGED: each entry takes `source_page(addr)` at
+  import, the identity the disassembly looks labels up with (not the data route of `route()`). A
+  command-line import runs before `--load`, so an untagged file is placed by the mapping at start.
+  All the files of one import are read into a scratch copy of `annotations()` and applied with ONE
+  `replace_annotations()`: an imported label replaces the label at its key and a comment the comment,
+  any refusal (a file, a line, a name already at another key) leaves the store and its revision
+  untouched, and `replace_annotations()` does not apply the toolchain-name rule of `set_user_label()`.
 
 ### 11.3 Out of scope
 

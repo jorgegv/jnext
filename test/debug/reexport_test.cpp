@@ -681,6 +681,7 @@ static void reader_rows() {
               oh && ok_ && labels_of(h) == "$C000 banked;$C003 table;$C011 smc;" && labels_of(k) == labels_of(h) &&
                   h3 && h3->text == "two lines" && k3 && k3->text == "two\nlines" &&
                   comment_at(h, 0xC010) && comment_at(k, 0xC010) && comment_at(k, 0xC010)->text == "Load the first byte" &&
+                  h.comments.size() == 2 && k.comments.size() == 2 &&   // no title or description became a comment
                   h.titles == 8 && k.titles == 8 && h.descriptions == 1 && k.descriptions == 1 &&
                   h.space && *h.space == MemSpace::page(0x10) && k.space && *k.space == MemSpace::page(0x10),
               wh + wk + " h.titles=" + std::to_string(h.titles) + " k.titles=" + std::to_string(k.titles));

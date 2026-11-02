@@ -5210,6 +5210,35 @@ Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Anno
 read and write the file (Save writes back to <em>FILE</em>). A file that
 cannot be read, or does not parse (the message names the line), is a
 startup error (exit status 1).</dd>
+<dt><strong>--import-skoolkit</strong> <em>FILE</em></dt>
+<dd>At start, after <strong>--annotations</strong>, read <em>FILE</em>, a skoolkit control
+file (your own, or one made by <code>skool2ctl.py -k -h</code> from a
+disassembly), into the debugger’s labels and comments. Taken: the
+<code>@ ADDR label=NAME</code> lines (a leading <code>*</code> is dropped) and the text of
+the <code>B</code>, <code>C</code>, <code>S</code>, <code>T</code> and <code>W</code> sub-blocks, with their <code>.</code> and <code>:</code>
+continuation lines, as the instruction comment at that address.
+Counted in the log, not imported: block titles (sna2skool writes its
+own), <code>D</code> descriptions and the other directives. The memory of a
+file is its <code># jnext space TAG</code> first line, else its name (<code>TAG.ctl</code>
+or <code>WWWW-TAG.ctl</code>, as <strong>--export-skoolkit</strong> writes them), else the
+memory that supplies the address when the file is read, which is
+before <strong>--load</strong> runs (the page mapped at start, the ROM at
+<code>$0000</code>). An imported label or comment replaces the one at the same
+address; all the files of the option are read first, so a failure
+changes nothing. Repeatable. A file that cannot be read, or that
+skoolkit would only warn about (an address that is not decimal,
+<code>$hex</code> or <code>%binary</code>, or above 65535; an unknown directive; a label
+name that is not a name; one name at two addresses), is a startup
+error (exit status 1) naming the line.</dd>
+<dt><strong>--import-ghidra</strong> <em>FILE</em></dt>
+<dd>As <strong>--import-skoolkit</strong> for a Ghidra symbol file: lines
+<code>NAME ADDRESS l</code> (<code>l</code> or <code>f</code> or anything else, ignored), the address
+<code>0xHHHH</code> or <code>TAG:0xHHHH</code> with a jnext memory tag, as
+<strong>--export-ghidra</strong> writes them. A blank line is skipped. A <code>#</code>
+line, an address prefix that is not a jnext memory tag
+(<code>ram:0x8000</code>), an expression, or a name that is not a name is a
+startup error (exit status 1). Repeatable. There are no comments in
+the format.</dd>
 <dt><strong>--export-skoolkit</strong> <em>DIR</em></dt>
 <dd>When jnext exits, write the debugger’s labels and the code/data map
 that <strong>--coverage</strong> recorded into <em>DIR</em> as skoolkit control files

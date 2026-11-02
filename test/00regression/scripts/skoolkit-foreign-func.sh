@@ -23,6 +23,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #     D/8000-P04.bin` picks D/8000-P04.ctl and ONLY it (no -c), warns of nothing, every label
 #     lands, and the Z80N NEXTREGs are kept whole as `DEFB $ED,$91,$xx,$yy` (skoolkit is Z80
 #     only: unsplit, they would be cut to `DEFB $ED,$91`).
+# B4  skool2ctl.py -k -h turns A2-style output back into a control file; --import-skoolkit reads it in a
+#     fresh run and that run's export has the same labels and comments (GH #389 stage B).
 # A3  the Qt (offscreen) and SDL (dummy driver) loop owners write the same directory as the
 #     headless one, byte for byte (a frontend whose exit forgot the export wrote nothing).
 if want skoolkit-foreign-func; then
@@ -130,6 +132,36 @@ if want skoolkit-foreign-func; then
             fi
             if out=$(sf_py "$sf_check" z80n "$sf_dir/a2.skool" 11 2>&1); then :; else
                 sf_faults+=("A2: $out")
+            fi
+        fi
+
+        # ---- B4: skoolkit's own writer's output is imported (GH #389 stage B). Run 1 exports labels and
+        # two user comments; sna2skool turns them into a skool file; skool2ctl.py -k -h (skoolkit's own
+        # control-file writer) turns that back into a control file, with its titles and descriptions;
+        # --import-skoolkit reads it in a fresh run, untagged (placed by the mapping, page 4 at $8000);
+        # that run's export has the same labels and the same comments as run 1's.
+        printf '%s\n' "jnext-annotations 1" 'comment P04 $80C4 Program entry\nsecond line' \
+            'comment P04 $8138 Wait for the frame' >"$sf_dir/b4.jdp"
+        sf_jnext "$JNEXT" plain "$sf_dir/b4a.log" --machine next --load "$sf_nex" --map "$sf_map" --coverage \
+            --annotations "$sf_dir/b4.jdp" --export-skoolkit "$sf_dir/D4" --delayed-automatic-exit-frames 100
+        if [[ ! -f "$sf_dir/D4/8000-P04.bin" ]]; then
+            sf_faults+=("B4: no D4/8000-P04.bin: $(ls "$sf_dir/D4" 2>&1 | tr '\n' ' ' || true)")
+        else
+            rc=0
+            sf_py "$sf_root/sna2skool.py" -H -o 0x8000 "$sf_dir/D4/8000-P04.bin" >"$sf_dir/b4.skool" 2>"$sf_dir/b4.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("B4: sna2skool exit $rc")
+            if out=$(sf_py "$sf_check" comments "$sf_dir/b4.skool" 2 2>&1); then :; else sf_faults+=("B4: $out"); fi
+            rc=0
+            sf_py "$sf_root/skool2ctl.py" -k -h "$sf_dir/b4.skool" >"$sf_dir/b4.ctl" 2>"$sf_dir/b4ctl.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("B4: skool2ctl exit $rc")
+            sf_jnext "$JNEXT" plain "$sf_dir/b4b.log" --machine next --load "$sf_nex" --coverage \
+                --import-skoolkit "$sf_dir/b4.ctl" --export-skoolkit "$sf_dir/D5" --delayed-automatic-exit-frames 100
+            if ! grep -qE -- "--import-skoolkit: 1 file, [0-9]+ labels, [1-9][0-9]* comments" "$sf_dir/b4b.log"; then
+                sf_faults+=("B4: jnext did not import skool2ctl's file: $(grep -h -- '--import-skoolkit' "$sf_dir/b4b.log" | head -n 2 | tr '\n' ' ' || true)")
+            elif [[ ! -f "$sf_dir/D5/8000-P04.ctl" ]]; then
+                sf_faults+=("B4: the second run exported no 8000-P04.ctl")
+            elif out=$(sf_py "$sf_check" compare "$sf_dir/D4/8000-P04.ctl" "$sf_dir/D5/8000-P04.ctl" 2>&1); then :; else
+                sf_faults+=("B4: $out")
             fi
         fi
 
