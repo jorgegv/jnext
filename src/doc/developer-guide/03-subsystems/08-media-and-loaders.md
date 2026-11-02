@@ -316,7 +316,7 @@ trailing bytes depends on the header's `file_handle`. Any non-zero value
 (`keeps_file_open()`) keeps the file open; the value only picks where the
 handle goes: 1 to `$3FFF` in `BC` (`B`=0, `C`=handle), `$4000` and above
 written to that address (`delivers_handle_in_bc()`; `nexload2.asm:397-407`,
-`nexload.asm:560-570` and `:606-609`). `Emulator::load_nex()` then opens the
+`nexload.asm:560-570` and `nexload.asm:606-609`). `Emulator::load_nex()` then opens the
 host file behind the handle — the extended-NEX host bridge in the stand-in
 below — at `payload_offset()`, just after the last bank, where both loaders
 hand their own handle over (GH #267), and the program streams them. With 0, both loaders read the declared
@@ -477,7 +477,7 @@ the regression.
 **What it surfaced.** `NexLoader::apply()` did not model MMU0-5 at all; it
 relied on `init()`'s reset defaults happening to hold bank 5 at `$4000` and
 bank 2 at `$8000`. Both reference loaders set them explicitly
-(`nexload.asm:280-284` unconditionally, `:406-407` gated;
+(`nexload.asm:280-284` unconditionally, `nexload.asm:406-407` gated;
 `nexload2.asm:913-918` in its gated reset table), and on a NextZXOS-resident
 machine the defaults do not hold — a measured MMU3 = page 17 sent every write
 to `$6000-$7FFF` into Layer 2's bank 8. `apply()` now writes them, which is a
@@ -943,7 +943,7 @@ errors and the Qt refusal.
 
 **Where a poke lands.** Only 0xC000-0xFFFF is banked. Port 0x7FFD writes MMU6
 and MMU7 and nothing else (`zxnext.vhd:4679-4680`; MMU2-5 keep pages 0A 0B 04 05,
-`:4613-4616`), so a Multiface-level POKE with a bank number can only reach that
+`zxnext.vhd:4613-4616`), so a Multiface-level POKE with a bank number can only reach that
 bank at 0xC000 and above. A banked poke (bank 0-7) at address ≥ 0xC000 is NR page
 `2*bank + ((address >> 13) & 1)`, offset `address & 0x1FFF`, whatever is paged in
 (a 48K only has bank 0 there: port 0x7FFD is not decoded, NR 0x82 = 0xC0). Every

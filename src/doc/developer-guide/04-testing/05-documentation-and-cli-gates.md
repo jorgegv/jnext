@@ -53,29 +53,42 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
   A sentence break (a full stop followed by a capital) ends the sentence, so the
   symbol of the previous sentence does not anchor this one. A cite with no
   such symbol fails as *unanchored*: add the symbol, in backticks, before it.
-- **The forms** are a file (a bare name when it is unique in the repository,
-  else a path that ends the same way) with `:N` or `:N-M`; a bare backticked
-  `:N` or `:N-M`, which means **the last file named earlier on the same page**
-  (a mention counts with or without a line; link targets do not), so name the
-  file again whenever another file has been mentioned since; the prose forms
-  *line N of* a file and a file followed by *(line N)*. A comma list of lines
-  fails: write one cite per line. "Around line N" is not a form: reword it.
-- **Nothing is skipped.** A cite whose file is not in the repository, is
-  ambiguous (the failure names the candidates), or whose line does not exist,
-  fails; so does a cite with an extension the script does not know.
+- **The forms** are a file token (any path whose last component has an
+  extension, or `Makefile`; a bare name when it is unique in the repository,
+  else a path that ends the same way) with `:N` or `:N-M`, the colon inside or
+  outside the code span; a bare backticked `:N` or `:N-M`, which binds to **the
+  nearest file named earlier in the same paragraph** (a whole table counts as
+  one paragraph; a markdown link target is not a mention) and **fails** when
+  none is named there, or when that file is an example-program name or one of
+  the declared external files: name the file again in every cite; the prose
+  forms *line N in* or *of* a file, a file followed by *(line N)* or *, line N*.
+  A comma list of lines fails: write one cite per line.
+- **Excerpts.** A "lines" phrase after a repository file, in a paragraph that is
+  directly followed by fenced blocks, introduces an excerpt, and the rows of
+  those blocks must equal the cited lines (a run of `X` matches a temp name and
+  `<TAB>` is a tab); a block of `N:`-prefixed rows after "the number is the
+  line" is compared line by line the same way. Without a fence after it the
+  phrase is an ordinary cite and needs an anchor.
+- **Resolution** goes in order: a *bare* example-program name (`main.c`,
+  `util.c`, `util.h`, `asmfn.asm`, `main.bas`, `equlabels.asm`: positions in the
+  debugged program, not code) is out of scope; a token that matches repository
+  files is checked (several matches fail, naming them), and is **never**
+  external, so the repository's own `test/fixtures/z88dk/` files and a future
+  `support.cpp` are checked; only a token that matches nothing in the
+  repository and belongs to a declared external set is out of scope, and any
+  other token fails.
 - **Out of scope by declaration**, listed in the script's header and nowhere
-  else: the VHDL (a different repository), the z88dk, sjasmplus, Boriel,
-  NextBuild and NextZXOS sources the format chapters cite, and the *program*
-  locations of the examples (a bare `main.c`, `util.h`, `main.bas`:
-  positions in the debugged program, not code). Written with a directory they
-  are repository cites and are checked. Fenced code blocks are sample data and
-  are not read.
+  else: the VHDL (a different repository), and the z88dk, sjasmplus, Boriel,
+  NextBuild and NextZXOS sources the format chapters cite, when the repository
+  has no such file. Fenced code blocks are sample data and are not read for
+  cites (only as the excerpt above), but a fence that is never closed fails, and
+  a closing fence must be the opening character, at least as long.
 - **The output** is one line per failure, `page:line: cite | anchor | what the
   cited line holds`, then a count; the exit status is non-zero on any failure.
 
 When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are `HS-102`..`HS-111` of `make harness-selftest`.
+rows are `HS-102`..`HS-126` of `make harness-selftest`.
 
 ## The renderer fingerprint
 

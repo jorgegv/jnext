@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=253  # 243 -> 253: HS-102..111 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=268  # 243 -> 268: HS-102..126 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -855,10 +855,10 @@ check "HS-97h" "rule A covers src/esp01/test/ (an em dash there fails) and rule 
 # Nothing else proves it is still REACHED, or that its verdict turns red on a cite that moved,
 # has no symbol to anchor it, or cannot be resolved. The rows below run the real script against
 # throwaway trees (its optional root argument): a one-file code tree plus one guide page.
-DGC_CMD_RE='docs-devguide-cites-check'
+DGC_CMD_RE='^[[:space:]]*perl[[:space:]]+test/lint-devguide-cites\.pl'
 dg_u=n; grep -qE "$DGC_CMD_RE" <<<"$dry"     && dg_u=y
 dg_r=n; grep -qE "$DGC_CMD_RE" <<<"$dry_reg" && dg_r=y
-check "HS-102" "the developer-guide cite check is wired to unit-test AND regression through docs-check (GH #430)" 0 0 \
+check "HS-102" "the developer-guide cite check COMMAND (perl test/lint-devguide-cites.pl) is in the unit-test AND regression dry runs, not just its target name (GH #430)" 0 0 \
     "unit=$dg_u regression=$dg_r" "unit=y" "regression=y"
 
 DG="$T/dg-tree"
@@ -866,6 +866,15 @@ dg_lint() { timeout --kill-after=5s "${INVOKE_TIMEOUT}s" perl "$PROJECT_DIR/test
 dg_tree() {     # $1 = the page body; src/a.cpp holds `alpha` on line 3 and `beta` on line 4
     rm -rf "$DG"; mkdir -p "$DG/src/doc/developer-guide" "$DG/src/core" "$DG/src/video"
     printf 'int x;\nint y;\nvoid alpha() {}\nint beta = 1;\n' > "$DG/src/core/a.cpp"
+    printf '// row QSRC-195\nint gamma;\nvoid delta() {}\n' > "$DG/src/core/t.cpp"
+    printf 'int alphabet;\nvoid alpha() {}\n' > "$DG/src/core/w.cpp"
+    printf 'int bar;\n' > "$DG/src/core/support.cpp"
+    mkdir -p "$DG/test/fixtures/z88dk" "$DG/packaging" "$DG/src/doc/developer-guide/diagrams"
+    printf 'int x;\n' > "$DG/test/fixtures/main.c"
+    printf 'int q;\n' > "$DG/test/fixtures/z88dk/s.c"
+    printf 'Name: alpha\n' > "$DG/packaging/x.spec"
+    printf 'alpha:\n' > "$DG/Makefile"
+    printf 'tmpAb12.asm:\nB\t2\nC3\n' > "$DG/test/fixtures/e.lis"
     printf '%s\n' "$1" > "$DG/src/doc/developer-guide/p.md"
 }
 dg_tree 'It is `alpha()` (`src/core/a.cpp:3`) and `beta` is in `a.cpp:4`; vhdl is `foo` at `zxnext.vhd:99999`.'
@@ -906,8 +915,111 @@ a.cpp:1
 ```
 and `beta` at `zzz.foo:3`.'
 out_h=$(dg_lint); rc_h=$?
-check "HS-111" "a comma list and an unknown extension fail; a cite inside a fenced block is not read" 1 $rc_h "$out_h" \
-    "comma list" "unknown extension .foo" "2 failed"
+check "HS-111" "a comma list and a cite of an unknown (non-repo, non-declared) file fail; a cite inside a fenced block is not read" 1 $rc_h "$out_h" \
+    "comma list" "zzz.foo:3" "2 failed"
+# The cases the first review found unchecked (R1..R6): each row below fails under the mutation
+# of the script that removes the behaviour it pins.
+dg_tree 'The `alph` is at `src/core/w.cpp:1` and `alpha` at `src/core/w.cpp:2`.'
+out=$(dg_lint); rc=$?
+check "HS-112" "the anchor is a WHOLE word: alph does not match a line holding only alphabet, alpha matches alpha()" 1 $rc "$out" \
+    "src/core/w.cpp:1 | alph | int alphabet;" "checked 2 cites, 1 failed"
+dg_tree 'x'
+printf 'digraph g {\n    // `alpha()` is here, and it spans\n    // two lines (src/core/a.cpp:3).\n    n [label="x"];\n    // `beta` sits at src/core/a.cpp:3.\n}\n' > "$DG/src/doc/developer-guide/diagrams/d.dot"
+out=$(dg_lint); rc=$?
+check "HS-113" "a .dot page is read: a // comment block anchors over its lines, and a shifted cite there fails naming the .dot page" 1 $rc "$out" \
+    "diagrams/d.dot:5: src/core/a.cpp:3 | beta" "checked 2 cites, 1 failed"
+dg_tree 'The `alpha()` is at line 3 in `src/core/a.cpp`, and `beta` at line 4 of `src/core/a.cpp`. Next, `beta` is in `src/core/a.cpp` (line 3). And `alpha()` is at `src/core/a.cpp`, line 3.'
+out=$(dg_lint); rc=$?
+check "HS-114" "every prose form (line N in/of FILE, FILE (line N), FILE, line N) is checked: three hold their symbol, the shifted one fails" 1 $rc "$out" \
+    "src/core/a.cpp:3 | beta" "checked 4 cites, 1 failed"
+dg_tree 'Row `QSRC-195` is at `src/core/t.cpp:1`; `QSRC-196` is at `src/core/t.cpp:1`.'
+out=$(dg_lint); rc=$?
+check "HS-115" "a test ID is an anchor: it passes on a line holding it and fails on a line that does not" 1 $rc "$out" \
+    "src/core/t.cpp:1 | QSRC-196" "checked 2 cites, 1 failed"
+dg_tree 'See `src/core/a.cpp` and `src/core/t.cpp`, where `delta()` is at `:3`. See `src/core/a.cpp` and `src/core/t.cpp`, where `alpha()` is at `:3`.'
+out=$(dg_lint); rc=$?
+check "HS-116" "a bare :N after two different files binds to the LAST one (delta passes in t.cpp, alpha fails there)" 1 $rc "$out" \
+    "src/core/t.cpp:3 | alpha" "checked 2 cites, 1 failed"
+dg_tree 'See `src/core/a.cpp` and [the page](src/core/t.cpp). Then `alpha()` is at `:3`.'
+out=$(dg_lint); rc=$?
+check "HS-117" "a file named only in a markdown link target is not a mention: the bare :N still binds to a.cpp" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree 'The `x` is at `main.c:17` (a program position), and `x` at `test/fixtures/main.c:1`, and `y` at `test/fixtures/main.c:2`.'
+out=$(dg_lint); rc=$?
+check "HS-118" "a BARE example-program name is out of scope; the same name with a directory is a repo cite and is checked" 1 $rc "$out" \
+    "test/fixtures/main.c:2 | y" "checked 2 cites, 1 failed, 1 out of scope"
+dg_tree 'In `main.c:17`, `alpha()` is at `:3`. In `zxnext.vhd:5`, `foo` is at `:7`.'
+out=$(dg_lint); rc=$?
+check "HS-119" "a bare :N bound to an example-program name or to an external file FAILS (name the file)" 1 $rc "$out" \
+    "an example-program name: name the file" "an external file: name the file" "2 failed"
+dg_tree '| a | `src/core/a.cpp` |
+| `alpha()` | `:3` |
+
+`beta` is on `:4`.'
+out=$(dg_lint); rc=$?
+check "HS-120" "a whole table is ONE paragraph for a bare :N, and a bare :N in a paragraph that names no file fails even if an earlier paragraph did" 1 $rc "$out" \
+    "p.md:4: :4 | - | bare line cite with no file named earlier in its paragraph" "checked 2 cites, 1 failed"
+dg_tree 'The `q` is at `test/fixtures/z88dk/s.c:1`, `z` at `test/fixtures/z88dk/s.c:1`, and `foo` at `support.cpp:1`.'
+out=$(dg_lint); rc=$?
+check "HS-121" "a path under the repo's own z88dk/ fixtures tree and a bare name that a repo file also has are CHECKED, never external" 1 $rc "$out" \
+    "s.c:1 | z" "support.cpp:1 | foo" "checked 3 cites, 2 failed, 0 out of scope"
+dg_tree 'The `alpha` is in `packaging/x.spec:1`, `Makefile:1` and `src/core/a.cpp`:3, but `beta` is not in `src/core/a.mm:4`, nor at `src/core/a.cpp`:3.'
+out=$(dg_lint); rc=$?
+check "HS-122" "any extension with a directory, Makefile and a colon outside the code span are all cites: three hold, a missing .mm file and a shifted cite fail" 1 $rc "$out" \
+    "src/core/a.mm:4" "not in the repository" "src/core/a.cpp:3 | beta" "checked 5 cites, 2 failed"
+dg_tree 'From `test/fixtures/e.lis` (lines 1-2 and 3):
+
+```
+tmpXXXXXXXX.asm:
+B<TAB>2
+```
+```
+C3
+```'
+out=$(dg_lint); rc=$?
+check "HS-123" "an excerpt after a lines phrase equals the cited lines across several blocks, with the XXXXXXXX and <TAB> conventions" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree 'From `test/fixtures/e.lis` (lines 1-3):
+
+```
+tmpXXXXXXXX.asm:
+B<TAB>2
+CX
+```'
+out=$(dg_lint); rc=$?
+dg_tree 'From `test/fixtures/e.lis` (lines 1-3):
+
+```
+tmpXXXXXXXX.asm:
+B2
+```'
+out_b=$(dg_lint); rc_b=$?
+dg_tree 'From `test/fixtures/e.lis` (the number is the line in the file):
+
+```
+2:B3
+```'
+out_c=$(dg_lint); rc_c=$?
+check "HS-124" "a changed excerpt row, an excerpt with the wrong number of rows and a changed numbered row each FAIL, naming the row" 1 $(( rc == 1 && rc_b == 1 && rc_c == 1 ? 1 : 0 )) \
+    "$out"$'\n'"$out_b"$'\n'"$out_c" "excerpt row 3" "cites 3 lines, the excerpt shows 2" "excerpt line 2"
+dg_tree 'The `alpha()` is at `src/core/a.cpp:3`.
+
+```
+never closed'
+out=$(dg_lint); rc=$?
+check "HS-125" "a fence that is never closed FAILS, so it cannot hide the rest of a page" 1 $rc "$out" "never closed"
+dg_tree 'Text.
+
+````
+```
+src/core/a.cpp:99
+```
+````
+
+The `beta` is at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-126" "a closing fence must be as long as its opening one: a three-backtick line inside a four-backtick fence does not end it, so the prose after the fence is read" 1 $rc "$out" \
+    "src/core/a.cpp:3 | beta" "checked 1 cites, 1 failed"
 rm -rf "$DG"
 
 # ------------- worktree-bootstrap must not call an unprovisioned tree "ready" (GH #149)

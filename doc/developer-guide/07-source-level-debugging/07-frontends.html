@@ -2976,7 +2976,7 @@ the stamp carries a flag for "the loaded file changed on disk",
 <code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:820</code>; the flag is
 <code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:550</code>). In order:</p>
 <ol>
-<li><code>update_buttons(paused)</code> (<code>:493</code>): the forward steps need a paused machine and a
+<li><code>update_buttons(paused)</code> (<code>source_panel.cpp:493</code>): the forward steps need a paused machine and a
    non-empty map; Back and Reverse Continue also need <code>rewind_blocked()</code> empty and the
    trace on. It emits <code>steps_available(forward, backward)</code>, so the Debug &gt; Source menu
    items and the buttons share one predicate.</li>
@@ -2986,8 +2986,8 @@ the stamp carries a flag for "the loaded file changed on disk",
    <em>Source map not verified yet: it is checked when the program first runs its code</em>, or
    for a dot command <em>...when the dot command runs</em> (<code>status.dot</code>, <code>source_panel.cpp:622</code>).</li>
 <li>The location is <code>source_location(pc)</code>, or, while browsing, <code>source_location(browse_addr_)</code>
-   (the browse ends if that address has no line now, or another map is loaded, <code>:630-640</code>).
-   The memory shown in the label is <code>memtext::text(dbg_, style_, source_page(addr), addr)</code> (<code>:646</code>).</li>
+   (the browse ends if that address has no line now, or another map is loaded, <code>source_panel.cpp:630-640</code>).
+   The memory shown in the label is <code>memtext::text(dbg_, style_, source_page(addr), addr)</code> (<code>source_panel.cpp:646</code>).</li>
 <li>The text. A file the map carries as embedded text (<code>SourceMap::embedded_text()</code>, the
    m4 output of the CRT from <code>prog.lis</code>, <a href="02-the-source-map.html">7.2</a>) is shown from the map
    and labelled <code>(m4 output, from &lt;listing&gt;)</code>. Otherwise a z88dk record in a <code>.m4</code> file with
@@ -3052,7 +3052,7 @@ the log, and the main window's status bar for ten seconds.</p>
   <code>h</code> are C; <code>asm</code>, <code>s</code>, <code>z80</code> and <code>inc</code> are assembly; <code>bas</code> is Boriel. Otherwise the first 200
   lines vote: a line counts for a language when its first word is in that language's set alone
   (a column-0 label is skipped); the winner needs three votes and strictly more than the others
-  (<code>kMinVotes</code>, <code>:463</code>); else Plain.</li>
+  (<code>kMinVotes</code>, <code>zxn_crt.asm.m4:463</code>); else Plain.</li>
 <li><strong>The word tables.</strong> The Z80/Z80N mnemonics and register words are not listed anywhere: they
   are enumerated once from <code>disasm_one()</code> over the seven opcode pages, so a new Z80N opcode is
   coloured the day the disassembler names it. The directive, C and Boriel tables are committed
@@ -3061,7 +3061,7 @@ the log, and the main window's status bar for ten seconds.</p>
 <li><strong>The scanners</strong> are hand-written, linear per line, and carry multi-line comments and embedded
   assembly in the block state. The classes are the owner's ten (<code>Role</code>: Text, Keyword,
   Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment); Text is the editor
-  palette's text colour and never a format. Punctuation and operators (<code>kKeywordPunct</code>, <code>:280</code>)
+  palette's text colour and never a format. Punctuation and operators (<code>kKeywordPunct</code>, <code>source_highlighter.cpp:280</code>)
   are Keyword, tested at each scanner's fall-through point after comment, string, char, number
   and word detection, so those win; Qt merges adjacent equal formats, so <code>-&gt;</code> or <code>&lt;&lt;=</code> is one Keyword
   range. A sign is part of a number only inside an exponent (<code>-5</code> is a Keyword and an Integer). C and
@@ -3101,9 +3101,9 @@ the log, and the main window's status bar for ten seconds.</p>
 gutter widget in a left viewport margin and a header strip above it (<code>setViewportMargins</code>; objects
 <code>source_gutter</code> and <code>source_gutter_header</code>), because the visible blocks' geometry is protected.</p>
 <ul>
-<li><strong>Columns.</strong> <code>BP | Line</code> (GH #421): the number is <code>blockNumber() + 1</code> (<code>paint_gutter()</code>, <code>:154</code>).</li>
+<li><strong>Columns.</strong> <code>BP | Line</code> (GH #421): the number is <code>blockNumber() + 1</code> (<code>paint_gutter()</code>, <code>source_panel.cpp:154</code>).</li>
 <li><strong>The mark of a line</strong> is computed at paint time, for the visible lines only
-  (<code>SourcePanel::line_mark()</code>, <code>:969</code>, over <code>line_state()</code>, <code>:924</code>), so it is never stale and needs
+  (<code>SourcePanel::line_mark()</code>, <code>source_panel.cpp:969</code>, over <code>line_state()</code>, <code>source_panel.cpp:924</code>), so it is never stale and needs
   no cache. <code>line_state()</code> derives, for line L of the file shown: <code>starts</code> (where the map says L
   begins, from <code>resolve(file:line)</code>, so an alias line is marked), <code>placed</code> (those starts the
   memory mapped <em>now</em> supplies), <code>drawn</code> (this GUI's Execute breakpoints, from
@@ -3133,7 +3133,7 @@ gutter widget in a left viewport margin and a header strip above it (<code>setVi
   caller with its recorded <code>FetchSource</code> (<code>CallFrame::caller_space</code>).</li>
 </ul>
 <h3 id="the-context-menu">The context menu<a class="headerlink" href="#the-context-menu" title="Permanent link">&para;</a></h3>
-<p><code>SourcePanel::fill_context_menu()</code> (<code>:1127</code>, called from the editor's and the gutter's
+<p><code>SourcePanel::fill_context_menu()</code> (<code>source_panel.cpp:1127</code>, called from the editor's and the gutter's
 <code>contextMenuEvent</code>) offers the Disassembly's actions on the source line: Copy, Copy with Addresses,
 Select All; Toggle Breakpoint; Run to Here (<code>run_to_line_requested</code>, which <code>DebuggerManager</code> runs as
 <code>Debugger::run_to_source_line</code> behind its corruption gate; Enter in the editor and the bindable Run to
@@ -3142,7 +3142,7 @@ Cursor, while the tab has the focus, are the same request); Show in Disassembly
 Those entries come from <code>operand_menu.{h,cpp}</code> (<code>add_operand_actions()</code>), shared with the
 Disassembly's own menu so the two cannot differ. The Source tab fills a <code>MenuOperands</code> from the
 labels at the line's places and the word under the pointer. A word is classified as a register in
-parentheses, a number or a name, and a name goes through <code>SourcePanel::symbol_for_word()</code> (<code>:1037</code>),
+parentheses, a number or a name, and a name goes through <code>SourcePanel::symbol_for_word()</code> (<code>source_panel.cpp:1037</code>),
 the single seam for the C names (<code>resolve_key("@" + word)</code>; <code>@</code> forces a symbol).</p>
 <h3 id="selection-sync-with-the-disassembly-gh-347">Selection sync with the Disassembly (GH #347)<a class="headerlink" href="#selection-sync-with-the-disassembly-gh-347" title="Permanent link">&para;</a></h3>
 <p><code>DebuggerWindow::create_panels()</code> wires the two panels with four <code>connect()</code> calls
@@ -3165,7 +3165,7 @@ did in its sender, so no move echoes.</p>
   and no linked row in view, the view centres on the first start of <code>resolve(file:line)</code> that is
   mapped now; otherwise it never moves.</li>
 <li><strong>Disassembly to Source.</strong> <code>DisasmPanel::selection_changed(lo, hi, caret)</code> comes from the user paths
-  only (<code>notify_selection_()</code>, <code>:412</code>: a press, a drag, a navigation key, Select All, the menu's
+  only (<code>notify_selection_()</code>, <code>disasm_panel.cpp:412</code>: a press, a drag, a navigation key, Select All, the menu's
   collapse), when the triple differs from the last one sent. <code>show_address()</code> and a refresh do not
   emit; <code>set_source_lines()</code> forgets the last triple, so the next click on the same lines is a change
   again. <code>SourcePanel::set_disasm_selection()</code> (<code>source_panel.cpp:816</code>) is ignored while running or
@@ -3178,11 +3178,11 @@ did in its sender, so no move echoes.</p>
   paid at each <code>refresh()</code>, which since #428 runs only when the paused stamp changed, not on every tick.</li>
 <li><strong>Show in Source.</strong> <code>DisasmPanel::show_source_requested(addr)</code>, from a menu item present only while
   a map is loaded and enabled only where <code>lookup()</code> finds a line. The window raises the Source tab and
-  calls <code>SourcePanel::show_address()</code> (<code>:835</code>).</li>
+  calls <code>SourcePanel::show_address()</code> (<code>source_panel.cpp:835</code>).</li>
 </ul>
 <p>Browsing ends at <code>follow_pc()</code> (every stop), <code>show_running()</code>, the map going away (the None and Stale
 branches of <code>refresh_()</code>), another loaded map (<code>browse_map_</code>), an address with no line now, and <strong>Go to
-PC Line</strong> (<code>go_to_pc_line()</code>, <code>:841</code>). A message about the browsed line itself (file not found, a <code>.m4</code>
+PC Line</strong> (<code>go_to_pc_line()</code>, <code>source_panel.cpp:841</code>). A message about the browsed line itself (file not found, a <code>.m4</code>
 line without a listing) does not end it, so the message and Locate File... stay usable, and Go to PC Line stays enabled. Every accepted
 Disassembly selection places the cursor on the caret's line (<code>place_now_</code>, cleared by the placement
 itself, so the next ticks leave the cursor and scroll alone). A Source move made while the machine runs
@@ -3225,8 +3225,8 @@ read through it) and ZRCP <code>cpu-step-over</code>
 <h2 id="gdb-zrcp-dzrp-scripts">GDB, ZRCP, DZRP, scripts<a class="headerlink" href="#gdb-zrcp-dzrp-scripts" title="Permanent link">&para;</a></h2>
 <p><strong>GDB RSP</strong> (<code>src/remote/gdb/rsp_server.cpp</code>). <code>monitor src [ADDR]</code> (<code>monitor_src()</code>, <code>:1033</code>) prints
 <code>$8CB8 main.c:19 P04</code> or <code>$8CB8 unmapped P28</code>: <code>source_location()</code> and the tag of
-<code>source_page(addr)</code>. <code>monitor sym</code> (<code>monitor_sym()</code>, <code>:996</code>) prints the tag of the memory the lookup
-used; a name prints its tag when it is paged. <code>monitor mmu</code> (<code>monitor_mmu()</code>, <code>:893</code>) prints each slot's <code>now</code> tag and,
+<code>source_page(addr)</code>. <code>monitor sym</code> (<code>monitor_sym()</code>, <code>rsp_server.cpp:996</code>) prints the tag of the memory the lookup
+used; a name prints its tag when it is paged. <code>monitor mmu</code> (<code>monitor_mmu()</code>, <code>rsp_server.cpp:893</code>) prints each slot's <code>now</code> tag and,
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in <a href="../03-subsystems/11-the-gdb-rsp-server.html">3.10.4</a>.</p>
 <p><strong>ZRCP.</strong> <code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2625</code>) calls

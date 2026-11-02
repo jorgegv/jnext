@@ -2901,7 +2901,7 @@ produced it.</p>
 label memory map" (<code>boriel-basic/zxbasic</code>, <code>src/zxbc/args_parser.py:151</code>, read on
 <code>main</code> at <code>29f0b2f0ce</code>, 2026-11-01). NextBuild (<code>em00k/NextBuild</code>, read at
 <code>364b2d13c5</code>) runs <code>zxbc</code> in-process from <code>Scripts/nextbuild.py</code>, after
-<code>os.chdir()</code> to the program's source folder (<code>:70</code>), with the argument pair
+<code>os.chdir()</code> to the program's source folder (<code>Scripts/nextbuild.py:70</code>), with the argument pair
 <code>'-M','Memory.txt'</code> in each of its three compile calls: headerless (<code>Scripts/nextbuild.py:400</code>), tape
 (<code>Scripts/nextbuild.py:404</code>) and the default <code>.bin</code> (<code>Scripts/nextbuild.py:406</code>). The call that writes assembly
 (<code>'-A'</code>, <code>Scripts/nextbuild.py:409</code>) has no <code>-M</code>. So the file lands as <code>Memory.txt</code> in the source

@@ -19,13 +19,13 @@ README finding G18).
 
 ## 2. The producer's writer
 
-`z80asm` `src/z80asm/src/cpp/lstfile.cpp` (`list_open()`: 2.4 `:202`, master
-`:213`). The layout is `LstFile::out_line()` (master `:131-177`, 2.4 `:126-168`) with the widths at
-`:26-29` (identical in both trees): a 6-wide line-number column, 2 blanks, a
+`z80asm` `src/z80asm/src/cpp/lstfile.cpp` (`list_open()`: 2.4 `src/z80asm/src/cpp/lstfile.cpp:202`, master
+`src/z80asm/src/cpp/lstfile.cpp:213`). The layout is `LstFile::out_line()` (master `src/z80asm/src/cpp/lstfile.cpp:131-177`, 2.4 `src/z80asm/src/cpp/lstfile.cpp:126-168`) with the widths at
+`src/z80asm/src/cpp/lstfile.cpp:26-29` (identical in both trees): a 6-wide line-number column, 2 blanks, a
 4-digit hex address (the section-relative or phased pc), 2 blanks, 16 characters
 for at most 8 bytes, 2 blanks, and the source text from column 32. Bytes beyond the
 eighth continue on rows that repeat only the bytes. `LstFile::out_filename()`
-(master `:122-129`, 2.4 `:117-124`) writes `<name>:` on its own line whenever the file changes, which
+(master `src/z80asm/src/cpp/lstfile.cpp:122-129`, 2.4 `src/z80asm/src/cpp/lstfile.cpp:117-124`) writes `<name>:` on its own line whenever the file changes, which
 includes the files `z80asm` is reading through `INCLUDE`, a `C_LINE`'s file operand
 and a macro's source (the `.m4` text of the start-up code).
 
@@ -245,7 +245,7 @@ resolves through line 17's first byte row.
 ```
 
 The `prog.lis` of the same build has a header `z88dk/lib/config/../..//libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4:`
-(file line 4): the text kept as an embedded file, so `zxn_crt.asm.m4:9462`
+(the `zxn_crt` header, `test/fixtures/z88dk/v2.4/sdcc-SO2/prog.lis:4`): the text kept as an embedded file, so `zxn_crt.asm.m4:9462`
 resolves to `$8000` (row `Z88LIS-10`).
 
 ## 9. The rows

@@ -3043,13 +3043,20 @@ verdict on the real tree is trusted at all:</p>
 </ul>
 <p>The developer-guide cite check, <code>test/lint-devguide-cites.pl</code> (GH #430, see
 <a href="05-documentation-and-cli-gates.html#the-developer-guide-cite-rule">4.5</a>), is not self-checking
-like those: the harness self-test runs it against throwaway trees
-(HS-102 to HS-111). It is wired to <code>unit-test</code> and <code>regression</code> through <code>docs-check</code>; an
-exact cite and a declared external one pass; a cite one line off, an
-unanchored one (also when the symbol is in the previous sentence), a missing file, a
-line past the end, an ambiguous bare name, a bare line number with no file before it, a
-comma list and an unknown extension fail; a range holds its symbol inside it
-and not one line outside; a fenced block is not read.</p>
+like those: the harness self-test runs it against throwaway trees (HS-102 to HS-126), and each
+row was shown to go red when the behaviour it pins is mutated out of the script. HS-102 pins
+the <em>command</em> in the <code>unit-test</code> and <code>regression</code> dry runs, not the target name. The rows cover:
+an exact cite and a declared external one passing; a cite one line off, an unanchored one (also
+when the symbol is in the previous sentence), a missing file, a line past the end, an ambiguous
+bare name, a comma list and a cite of a file in no set failing; the whole-word rule; a test ID
+as an anchor; a range holding its symbol inside it and not one line outside; a <code>.dot</code> page
+and its <code>//</code> comment grouping; every prose form; a bare <code>:N</code> binding to the last of two files,
+ignoring a link target, failing when bound to an example name or an external file, and
+failing across paragraphs while a whole table is one; the bare example-name exemption against
+the same name with a directory; the repository's <code>z88dk/</code> fixtures and a repo file named
+like an external one being checked; any extension with a directory, <code>Makefile</code> and a colon
+outside the span; excerpts (a match across blocks, a changed row, a wrong row count, a
+numbered row); and an unclosed fence and a closing fence shorter than its opening one.</p>
 <p>Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.</p>
 

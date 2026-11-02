@@ -15,7 +15,7 @@ The Boriel ZX Basic compiler, `zxbc`, option `-M FILE` / `--mmap FILE`, "Generat
 label memory map" (`boriel-basic/zxbasic`, `src/zxbc/args_parser.py:151`, read on
 `main` at `29f0b2f0ce`, 2026-11-01). NextBuild (`em00k/NextBuild`, read at
 `364b2d13c5`) runs `zxbc` in-process from `Scripts/nextbuild.py`, after
-`os.chdir()` to the program's source folder (`:70`), with the argument pair
+`os.chdir()` to the program's source folder (`Scripts/nextbuild.py:70`), with the argument pair
 `'-M','Memory.txt'` in each of its three compile calls: headerless (`Scripts/nextbuild.py:400`), tape
 (`Scripts/nextbuild.py:404`) and the default `.bin` (`Scripts/nextbuild.py:406`). The call that writes assembly
 (`'-A'`, `Scripts/nextbuild.py:409`) has no `-M`. So the file lands as `Memory.txt` in the source
