@@ -398,7 +398,7 @@ int main() {
         for (const fs::path& m : maps) {
             const std::vector<std::string> syms = cdb_symbols(m);
             if (!syms.empty()) ++with_cdb;
-            const std::string rel = fs::relative(m.parent_path(), kFixtures).string();
+            const std::string rel = fs::relative(m.parent_path(), kFixtures).generic_string();
             for (const std::string& s : syms) {
                 ++lines;
                 const CdbDecoded d = cdb_decode_symbol(s);
