@@ -403,8 +403,9 @@ void Debugger::Impl::apply_deferred() {
             if (c.guards_symbols && symbols_owner == StoreOwner::Sidecar) {
                 cache_erase(attach_gen);
                 erased = true;
-                symbols.clear();
+                toolchain_symbols.clear();
                 symbols_owner = StoreOwner::None;
+                recompose_names();
                 pending_log.push_back(std::string("Dropped the program's symbols: ") +
                                       kTapeMismatch);
             }
@@ -534,15 +535,17 @@ int Debugger::Impl::attach_hand_labels(SymbolTable&& labels, int n) {
         // An earlier hand SLD's labels describe another build; a program's
         // sidecar symbols (or nothing) are left alone.
         if (symbols_owner == StoreOwner::User) {
-            symbols.clear();
+            toolchain_symbols.clear();
             symbols_owner    = StoreOwner::None;
             symbols_from_sld = false;
+            recompose_names();
         }
         return 0;
     }
-    symbols          = std::move(labels);
-    symbols_owner    = StoreOwner::User;
-    symbols_from_sld = true;
+    toolchain_symbols = std::move(labels);
+    symbols_owner     = StoreOwner::User;
+    symbols_from_sld  = true;
+    recompose_names();
     return n;
 }
 
@@ -717,16 +720,16 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     if (impl_->symbols_owner == Owner::User) {
         // The user's map (`--map`, Load MAP) takes its rule-4 pages at every
         // program load, whatever sidecars exist (design 9.4).
-        impl_->symbols.bind(fetch_space);
+        impl_->toolchain_symbols.bind(fetch_space);
         if (memory)
             log->info("Kept the loaded symbols '{}'; not loading '{}'",
-                      impl_->symbols.loaded_file(), memory->string());
+                      impl_->toolchain_symbols.loaded_file(), memory->string());
         else if (sld_labels_attach)
             log->info("Kept the loaded symbols '{}'; not loading '{}'",
-                      impl_->symbols.loaded_file(), parsed.file);
+                      impl_->toolchain_symbols.loaded_file(), parsed.file);
         else if (zsyms_attach)
             log->info("Kept the loaded symbols '{}'; not loading '{}'",
-                      impl_->symbols.loaded_file(), zpath->string());
+                      impl_->toolchain_symbols.loaded_file(), zpath->string());
     } else {
         // The program's symbols: each sidecar in order, first wins.
         SymbolTable store;
@@ -758,14 +761,15 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             log->info("Loaded {} z88dk symbols from '{}'", zn, zpath->string());
         }
         if (attached_symbols) {
-            impl_->symbols       = std::move(store);
-            impl_->symbols_owner = Owner::Sidecar;
-            out.symbols          = n;
+            impl_->toolchain_symbols = std::move(store);
+            impl_->symbols_owner     = Owner::Sidecar;
+            out.symbols              = n;
         } else if (impl_->symbols_owner == Owner::Sidecar) {
-            impl_->symbols.clear();
+            impl_->toolchain_symbols.clear();
             impl_->symbols_owner = Owner::None;
         }
     }
+    impl_->recompose_names();   // GH #387: the toolchain layer changed (or was bound) above
 
     // The source map, under the same ownership rule.
     if (user_sources) {
@@ -880,7 +884,7 @@ void Debugger::Impl::cache_push_current() {
     if (sources_owner == StoreOwner::Sidecar)
         a.sources = std::make_shared<const SourceMap>(source_map);
     if (symbols_owner == StoreOwner::Sidecar)
-        a.symbols = std::make_shared<const SymbolTable>(symbols);
+        a.symbols = std::make_shared<const SymbolTable>(toolchain_symbols);   // never `names`: GH #387
     for (const auto& c : checks)
         if (!c.user) a.checks.push_back(c);
     cache_erase(attach_gen);
@@ -927,8 +931,9 @@ uint64_t Debugger::Impl::generation_of_seq(uint64_t seq) const {
 
 void Debugger::Impl::drop_sidecars(const std::string& why) {
     if (symbols_owner == StoreOwner::Sidecar) {
-        symbols.clear();
+        toolchain_symbols.clear();
         symbols_owner = StoreOwner::None;
+        recompose_names();
         pending_log.push_back("Dropped the program's symbols: " + why);
     }
     if (sources_owner == StoreOwner::Sidecar) {
@@ -1024,13 +1029,15 @@ void Debugger::Impl::recheck() {
                 if (symbols_owner != StoreOwner::User) {
                     const bool had = symbols_owner == StoreOwner::Sidecar;
                     if (rec && rec->symbols) {
-                        symbols = *rec->symbols;
+                        toolchain_symbols = *rec->symbols;
                         symbols_owner = StoreOwner::Sidecar;
+                        recompose_names();
                         pending_log.push_back("Restored the program's symbols of this "
                                               "point in the history");
                     } else {
-                        symbols.clear();
+                        toolchain_symbols.clear();
                         symbols_owner = StoreOwner::None;
+                        recompose_names();
                         if (had)
                             pending_log.push_back("Dropped the program's symbols: " +
                                                   std::string(before));

@@ -641,7 +641,7 @@ void DebuggerManager::on_load_map_z88dk() {
     if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Z88dk, &why)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(dbg_.symbols().size())
+                .arg(dbg_.toolchain_symbols().size())
                 .arg(path));
         refresh_panels();   // GH #390: the Breakpoints / Call Stack names are computed there
     } else {
@@ -661,7 +661,7 @@ void DebuggerManager::on_load_map_simple() {
     if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Simple, &why)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(dbg_.symbols().size())
+                .arg(dbg_.toolchain_symbols().size())
                 .arg(path));
         refresh_panels();
     } else {
@@ -680,7 +680,7 @@ void DebuggerManager::on_load_map_sjasmplus() {
     if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::SjasmplusEqu)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(dbg_.symbols().size())
+                .arg(dbg_.toolchain_symbols().size())
                 .arg(path));
         refresh_panels();
     } else {
@@ -700,7 +700,7 @@ void DebuggerManager::on_load_nextbuild_memory() {
     if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::NextBuild, &why)) {
         QMessageBox::information(main_window_, QObject::tr("Symbols Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(dbg_.symbols().size())
+                .arg(dbg_.toolchain_symbols().size())
                 .arg(path));
         refresh_panels();
     } else {

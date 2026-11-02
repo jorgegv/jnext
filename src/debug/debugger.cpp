@@ -251,11 +251,11 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
     impl_->recheck();   // a writer first (CAP-SRC)
     int n = -1;
     switch (format) {
-        case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path, why); break;
-        case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path, why); break;
-        case MapFormat::NextBuild: n = impl_->symbols.load_nextbuild_memory(path, why); break;
-        case MapFormat::SjasmplusEqu: n = impl_->symbols.load_sjasmplus_equ(path); break;
-        case MapFormat::Z88dkOrSjasmplus: n = impl_->symbols.load_z88dk_or_sjasmplus(path); break;
+        case MapFormat::Z88dk:     n = impl_->toolchain_symbols.load_z88dk_map(path, why); break;
+        case MapFormat::Simple:    n = impl_->toolchain_symbols.load_simple_map(path, why); break;
+        case MapFormat::NextBuild: n = impl_->toolchain_symbols.load_nextbuild_memory(path, why); break;
+        case MapFormat::SjasmplusEqu: n = impl_->toolchain_symbols.load_sjasmplus_equ(path); break;
+        case MapFormat::Z88dkOrSjasmplus: n = impl_->toolchain_symbols.load_z88dk_or_sjasmplus(path); break;
     }
     // A MAP the user chose replaces whatever a program's sidecar brought —
     // once it HAS: a file that cannot be read leaves the table, and so its
@@ -266,7 +266,8 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
         impl_->bump_revision();   // GH #428
         // A z88dk map's rule-4 symbols take the RAM page mapped now (and again
         // at the program load), the function `source_page()` answers with.
-        impl_->symbols.bind([this](uint16_t a) { return impl_->emu.predict_fetch(a); });
+        impl_->toolchain_symbols.bind([this](uint16_t a) { return impl_->emu.predict_fetch(a); });
+        impl_->recompose_names();
     }
     // Both loaders return -1 on a file that cannot be read or parsed. That is
     // not a refusal of the verb by the machine's state, and it is not "there is
@@ -277,26 +278,27 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
 
 Result Debugger::clear_symbols() {
     impl_->recheck();   // a writer first (CAP-SRC)
-    impl_->symbols.clear();
+    impl_->toolchain_symbols.clear();
     impl_->symbols_owner    = Impl::StoreOwner::None;
     impl_->symbols_from_sld = false;
+    impl_->recompose_names();
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 std::optional<std::string> Debugger::lookup(uint16_t addr) const {
     impl_->recheck();   // CAP-SRC: a reader never sees a stale sidecar
-    return impl_->symbols.lookup(source_page(addr), addr);
+    return impl_->names.lookup(source_page(addr), addr);
 }
 
 std::optional<uint16_t> Debugger::lookup_name(const std::string& name) const {
     impl_->recheck();
-    return impl_->symbols.lookup_name(name);
+    return impl_->names.lookup_name(name);
 }
 
 const SymbolTable& Debugger::symbols() const {
     impl_->recheck();
-    return impl_->symbols;
+    return impl_->names;
 }
 
 // ---------------------------------------------------------------------------
