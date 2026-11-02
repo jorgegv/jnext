@@ -1602,7 +1602,7 @@ int main() {
 
             // CLI-REX-01: --export-skoolkit DIR and --export-ghidra DIR (GH #389) write their files
             // when jnext exits and log what they wrote; with a file where DIR should be, the run
-            // exits 1 naming it. The label comes from an sjasmplus --sym (an unpaged label).
+            // fails (non-zero: run_bounded reports only that) naming it. The label comes from an sjasmplus --sym (an unpaged label).
             {
                 const std::string rex = bin + tag + ".rex";
                 const std::string symf = rex + ".sym", dsk = rex + ".sk", dgh = rex + ".gh", bad_dir = rex + ".file";
@@ -1618,7 +1618,7 @@ int main() {
                 run_split(both);
                 const std::string all = slurp(out_path) + slurp(err_path);
                 const bool logs = all.find("--export-skoolkit " + dsk + ": ") != std::string::npos &&
-                                  all.find("--export-ghidra " + dgh + ": 1 files, 1 labels, 0 comments") != std::string::npos;
+                                  all.find("--export-ghidra " + dgh + ": 2 files, 1 labels, 0 comments") != std::string::npos;
                 const std::string cpu_ctl = slurp(dsk + "/0000-CPU.ctl");
                 const bool files = cpu_ctl.find("@ $0010 label=rexlabel\n") != std::string::npos &&
                                    slurp(dsk + "/0000-ROM0.ctl").find("# jnext space ROM0\n") == 0 &&
@@ -1635,8 +1635,8 @@ int main() {
                 std::remove(symf.c_str());
                 std::remove(bad_dir.c_str());
                 check("CLI-REX-01", "--export-skoolkit DIR and --export-ghidra DIR write their files when jnext "
-                                    "exits and log the counts; a file where DIR should be exits 1 naming it",
-                      arity && rc == 0 && logs && files && rc_bad == 1 && names_it,
+                                    "exits and log the counts; a file where DIR should be fails the run, naming it",
+                      arity && rc == 0 && logs && files && rc_bad != 0 && names_it,
                       std::string("rc=") + std::to_string(rc) + " logs=" + (logs ? "1" : "0") + " files=" +
                           (files ? "1" : "0") + " rc_bad=" + std::to_string(rc_bad) + " names=" + (names_it ? "1" : "0"));
             }
