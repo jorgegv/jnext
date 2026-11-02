@@ -2998,7 +2998,7 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   overlays. So the identity is the file name and the first line, written as the string
   <code>"# jnext space "</code> (<code>skoolkit_ctl.cpp:186</code>) (a control-file comment
   skoolkit ignores). The same prefix is how a later export recognises its own files:
-  <code>kCtlHeader()</code> (<code>debugger_reinterop.cpp:33</code>).</li>
+  <code>kCtlHeader</code> (<code>debugger_reinterop.cpp:33</code>).</li>
 <li><strong>File order.</strong> <code>out.files</code> (<code>skoolkit_ctl.cpp:286</code>)
   puts the unpaged file first; it is named <code>0000-0CPU.ctl</code>, not <code>0000-CPU.ctl</code>, because the <code>0</code> sorts
   before the letter every <code>0000-&lt;TAG&gt;</code> starts with (<code>0000-ALTROM0</code>, <code>0000-BOOT</code> and <code>0000-CFG00</code> would
@@ -3007,8 +3007,8 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   Two files that disagree at a shared boundary address are applied in command-line order, and
   <code>sna2skool.py -c DIR</code> reads <code>sorted(glob(DIR/*.ctl))</code>, so a paged label wins over an unpaged one at
   the same address, as in the disassembly.</li>
-<li><strong>The <code>.bin</code>.</strong> <code>file_name()</code> (<code>skoolkit_ctl.cpp:266</code>)
-  writes it beside each control file, from the bytes the export read with
+<li><strong>The <code>.bin</code>.</strong> <code>build()</code> writes it beside each control file with the <code>out.files</code> push
+  (<code>out.files</code> at <code>skoolkit_ctl.cpp:266</code>; <code>file_name()</code> only names it), from the bytes the export read with
   <code>peek()</code> (<code>debugger_reinterop.cpp:200</code>) now. skoolkit reads no NEX, so a Next
   page's control file is useless without them, and <code>sna2skool.py -o 0xWWWW WWWW-TAG.bin</code> finds exactly
   that <code>.ctl</code> by default pickup, which happens only when no <code>-c</code> is given.</li>
@@ -3026,12 +3026,12 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   <code>CPU.ghidra.txt</code> and <code>view.ghidra.txt</code> (the labels the disassembly shows now).</li>
 <li><strong>The line formats.</strong> <code>render()</code> (<code>ghidra_symbols.cpp:29</code>)
   writes <code>NAME &lt;TAG&gt;:0xHHHH l</code> for a space's file and <code>NAME 0xHHHH l</code> for <code>CPU.ghidra.txt</code> and
-  <code>view.ghidra.txt</code>, sorted by address then name (the format string is at <code>hex4()</code> (<code>ghidra_symbols.cpp:33</code>)),
+  <code>view.ghidra.txt</code>, sorted by address then name (the line is built by the format string <code>" l\n"</code> (<code>ghidra_symbols.cpp:33</code>)),
   with no header, comment or blank line, and only when the file has a line, as
   <code>render()</code> (<code>ghidra_symbols.cpp:64</code>) shows.
   <code>view.ghidra.txt</code> exists because on a 48K or 128K machine every RAM label is paged, so the per-space
   files alone would need one overlay per page to import a 48K program into flat memory.</li>
-<li><strong>The Z80N table</strong>, <code>kZ80nEd()</code> (<code>disasm.cpp:362</code>), is read by
+<li><strong>The Z80N table</strong>, <code>kZ80nEd</code> (<code>disasm.cpp:362</code>), is read by
   <code>z80n_ed_length()</code> (<code>disasm.cpp:371</code>), by <code>instruction_length()</code> and by
   <code>is_z80n_extension()</code> (<code>disasm.cpp:813</code>).</li>
 </ul>
@@ -3069,14 +3069,15 @@ in the writers' files:</p>
 <ul>
 <li><strong>skoolkit</strong>, <code>parse_ctl()</code> (<code>skoolkit_ctl.cpp:473</code>). It mirrors the grammar of
   <code>_parse_ctl_line()</code> (<code>skoolkit/ctlparser.py:208</code>) but is strict where skoolkit only warns
-  (<code>skoolkit/ctlparser.py:119</code>, "Ignoring line"). The parameters go through a port of skoolkit's
-  <code>parse_params()</code> (<code>parse_params()</code> (<code>skoolkit_ctl.cpp:447</code>), from
-  <code>skoolkit/ctlparser.py:39</code>): base letters, <code>:</code> sublengths, <code>*N</code> repeats, characters like <code>"A"</code>, and the
-  <code>L</code> loop rules; the numbers are <code>get_int_param()</code> (<code>skoolkit_ctl.cpp:349</code>)
-  (<code>get_int_param()</code> in <code>skoolkit/__init__.py:88</code>, without its <code>0x</code> form). A line skoolkit would drop (a
+  (<code>skoolkit/ctlparser.py:119</code>, "Ignoring line"). The parameters go through <code>parse_params()</code>
+  (<code>skoolkit_ctl.cpp:447</code>), a port of skoolkit's own <code>parse_params()</code>
+  (<code>skoolkit/ctlparser.py:39</code>): base letters, <code>:</code> sublengths, <code>*N</code> repeats, characters like <code>"A"</code>, and the
+  <code>L</code> loop rules; the numbers are read by <code>get_int_param()</code> (<code>skoolkit_ctl.cpp:349</code>),
+  skoolkit's own <code>get_int_param()</code> (<code>skoolkit/__init__.py:88</code>) without its <code>0x</code> form, in <code>py_int()</code> (<code>skoolkit_ctl.cpp:316</code>)
+  which also refuses a value past 2^40, far beyond any address or length. A line skoolkit would drop (a
   bad integer, extra parameters on a lowercase block, <code>L</code> without a length or count, an unknown
   directive, a blank directive before any block, a bad <code>@ignoreua</code> suffix) refuses the file with
-  <code>line N: reason</code>, as do an address outside 0..65535, a label name outside
+  <code>line N: reason</code>, as do an address outside 0..65535 (and, in a length, a number past 2^40), a label name outside
   <code>UserAnnotations::valid_label_name()</code>, one name at two addresses and text that is not UTF-8
   (SKCTL-12, SKCTL-15, SKCTL-17; measured against sna2skool 10.1). It takes <code>@ ADDR label=NAME</code> (a
   leading <code>*</code> dropped; two labels at one address keep the last, as skoolkit applies it) and the text of
@@ -3094,13 +3095,13 @@ in the writers' files:</p>
 <li><strong>Which memory.</strong> A control file's memory is its <code># jnext space TAG</code> line (only before the first
   directive), else its name (<code>TAG.ctl</code>, <code>WWWW-TAG.ctl</code>), else none; none and <code>CPU</code> are untagged, and each
   untagged entry takes <code>source_page(addr)</code> when the file is read
-  (<code>source_page()</code> (<code>debugger_reinterop.cpp:276</code>)),
+  through <code>source_page</code> (<code>debugger_reinterop.cpp:276</code>),
   the identity the disassembly looks labels up with. A command-line import runs in
   <code>ScriptHost::start</code> (<code>script_host.cpp:171</code>), in
   <code>import_all()</code> (<code>script_host.cpp:218</code>), after <code>--annotations</code> and before
   <code>--load</code>, so an untagged file is placed by the mapping at start.</li>
 <li><strong>Export carries comments.</strong> <code>export_skoolkit()</code> passes <code>annotations().entries()</code> with a comment as
-  <code>Input::comments</code> (<code>annotations</code> (<code>debugger_reinterop.cpp:180</code>)),
+  <code>Input::comments</code> from the loop over <code>annotations</code> (<code>debugger_reinterop.cpp:180</code>),
   and <code>symbols()</code> is the composed table, so a user label already shadows the toolchain's in both exports
   (SRCDBG-REX-14).</li>
 </ul>
