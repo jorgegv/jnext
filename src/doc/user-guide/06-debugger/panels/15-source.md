@@ -119,6 +119,10 @@ inside it, the selection stays (so a dragged range can be copied).
   that compiled to several places has a submenu, one item per place; a place whose page is not
   mapped now is disabled. (The disassembly's own right-click menu has the counterpart, **Show in
   Source**, while a source map is loaded.)
+- **Add / Rename Label…**, **Remove Label** and **Add / Edit Comment…**, the same entries as the
+  disassembly's, for the places of the line: a line with several places gives each a submenu
+  (see [Your own labels and comments](../functions/16-user-labels-and-comments.md)). The tab does
+  not draw comments; they show in the Disassembly.
 - **Watch** and **Break on Read / Write** entries, as in the disassembly menu, for the labels at
   the line's address, and for what is under the pointer: a symbol (a label or a name of the
   map; a z88dk C variable or function is offered under its C name, `counter`, whether the source

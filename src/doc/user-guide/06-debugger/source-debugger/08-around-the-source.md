@@ -18,6 +18,13 @@ when the program has a variable of that name. Write `@FE` to mean the symbol.
 
 See [Symbols from MAP files](../functions/05-symbols-from-z88dk-map-files.md).
 
+## Your own labels and comments
+
+Right-click a source line and **Add Label…** names the address it compiled to (a line with several
+places asks which); **Add Comment…** attaches a note to it. They are kept in a `.jdp` file with
+**Map ▸ Save Annotations**, belong to the memory the line was compiled for, and show in the
+Disassembly. See [Your own labels and comments](../functions/16-user-labels-and-comments.md).
+
 ## Watching and breaking from the source
 
 In the example of [A first session](01-a-first-session.md), right-click `counter` on line 20

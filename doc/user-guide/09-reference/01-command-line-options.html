@@ -2224,6 +2224,8 @@
       
         
       
+        
+      
     
     
     
@@ -2680,6 +2682,34 @@
     
   
     Memory coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-debugger/functions/16-user-labels-and-comments.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your own labels and comments
   
 
     
@@ -5174,8 +5204,12 @@ address. The file is plain UTF-8 text: the line
 <code>\n</code> a line break); lines starting with <code>#</code> and blank lines are
 ignored. It is loaded before the scripts, replaces nothing the
 program or <strong>--map</strong> loaded, and is kept across resets, state loads
-and rewinds. A file that cannot be read, or does not parse (the
-message names the line), is a startup error (exit status 1).</dd>
+and rewinds. In the Qt debugger the labels and comments are added
+from the Disassembly and Source right-click menus, and <strong>Map &gt; Open
+Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Annotations As…</strong>
+read and write the file (Save writes back to <em>FILE</em>). A file that
+cannot be read, or does not parse (the message names the line), is a
+startup error (exit status 1).</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
 for example <code>0x00FF</code>).</dd>

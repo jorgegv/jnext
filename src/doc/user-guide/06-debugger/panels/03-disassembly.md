@@ -29,6 +29,10 @@ so breakpoint dots stay visible.
   symbol and press Enter to centre the view there. A number wins over a symbol
   spelled like one; write `@name` to mean the symbol.
 - **Go to PC** re-centres on the current instruction.
+- A **Label** column appears between the bytes and the instruction once any label is known: the name
+  of the line's own address in its memory, loaded or your own, shortened after 16 characters. Your
+  comment follows the instruction as `; first line`. See
+  [Your own labels and comments](../functions/16-user-labels-and-comments.md).
 - With a source map loaded, a selection here moves the [Source](15-source.md) tab (the cursor goes
   to the line of the instruction you clicked, and the lines of the whole range are tinted), and the
   instructions of the Source tab's selected lines are tinted pale violet here. The right-click menu
@@ -94,6 +98,7 @@ The right-click menu is where most of the day-to-day work happens:
 | Toggle Breakpoint | Execute breakpoint on this line |
 | Run to Here | Resume until this address is reached |
 | Go to Address… | Jump to the address box |
+| Add / Rename Label…, Remove Label, Add / Edit Comment… | Your own label and comment for this line's address, in its memory ([Your own labels and comments](../functions/16-user-labels-and-comments.md)) |
 | Watch *symbol* / Watch `$nnnn` | Watch this line's symbol, or a 16-bit immediate in the instruction |
 | Watch `(HL)` `(DE)` `(BC)` `(IX` `(IY` `(SP)` | Watch the address the register currently holds |
 | Break on Read / Break on Write | Data breakpoint on that immediate, or on the register's current value |

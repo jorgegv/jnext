@@ -204,7 +204,7 @@ gutter widget in a left viewport margin and a header strip above it (`setViewpor
 
 ### The context menu
 
-`SourcePanel::fill_context_menu()` (`:1127`, called from the editor's and the gutter's
+`SourcePanel::fill_context_menu()` (`:1128`, called from the editor's and the gutter's
 `contextMenuEvent`) offers the Disassembly's actions on the source line: Copy, Copy with Addresses,
 Select All; Toggle Breakpoint; Run to Here (`run_to_line_requested`, which `DebuggerManager` runs as
 `Debugger::run_to_source_line` behind its corruption gate; Enter in the editor and the bindable Run to
@@ -215,6 +215,13 @@ Disassembly's own menu so the two cannot differ. The Source tab fills a `MenuOpe
 labels at the line's places and the word under the pointer. A word is classified as a register in
 parentheses, a number or a name, and a name goes through `SourcePanel::symbol_for_word()` (`:1037`),
 the single seam for the C names (`resolve_key("@" + word)`; `@` forces a symbol).
+
+After the Show in Disassembly entry the menu carries the user-annotation entries (GH #387): Add / Rename
+Label…, Remove Label and Add / Edit Comment…, from `add_annotation_actions()`
+(`src/debugger/annotation_menu.cpp:77`), once per place the line compiled to
+(`SourcePanel::fill_context_menu()` calls it at `src/debugger/source_panel.cpp:1208`). The Disassembly
+shows the labels and comments; the Source tab does not. How they are stored, saved and drawn is
+[7.4.6](04-6-user-annotations.md), section 10.
 
 ### Selection sync with the Disassembly (GH #347)
 

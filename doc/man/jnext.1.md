@@ -1097,7 +1097,10 @@ naming the option and the value, and exits with status 1.
     $ADDR TEXT` records (in TEXT `\\` is a backslash and `\n` a line break);
     lines starting with `#` and blank lines are ignored. It is loaded before the
     scripts, replaces nothing the program or **\--map** loaded, and is kept
-    across resets, state loads and rewinds. A file that cannot be read, or does
+    across resets, state loads and rewinds. In the Qt debugger the labels and
+    comments are added from the Disassembly and Source right-click menus, and
+    **Map > Open Annotations...**, **Save Annotations** and **Save Annotations
+    As...** read and write the file (Save writes back to *FILE*). A file that cannot be read, or does
     not parse (the message names the line), is a startup error (exit status 1).
 
 **\--magic-port** *PORT*

@@ -1367,6 +1367,11 @@ is a backslash and \f[CR]\(rsn\f[R] a line break); lines starting with
 It is loaded before the scripts, replaces nothing the program or
 \f[B]\-\-map\f[R] loaded, and is kept across resets, state loads and
 rewinds.
+In the Qt debugger the labels and comments are added from the
+Disassembly and Source right\-click menus, and \f[B]Map > Open
+Annotations\&...\f[R], \f[B]Save Annotations\f[R] and \f[B]Save
+Annotations As\&...\f[R] read and write the file (Save writes back to
+\f[I]FILE\f[R]).
 A file that cannot be read, or does not parse (the message names the
 line), is a startup error (exit status 1).
 .TP

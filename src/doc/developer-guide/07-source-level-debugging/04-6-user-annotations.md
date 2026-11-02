@@ -8,9 +8,9 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 
 ## 1. The producer
 
-JNEXT. The Qt Map menu opens and saves it (stage 2 of #387); `--annotations FILE`
-loads one at start-up (`src/main.cpp:884` parses it, `src/main.cpp:2176` puts it
-in the configuration, and `ScriptHost::start()` loads it at
+JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:884` and copies
+it to the configuration at `src/main.cpp:2176`, and `ScriptHost::start()` loads it at
 `src/script/script_host.cpp:201-215`, after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
@@ -49,26 +49,27 @@ name at one key only.
 file into a scratch store and assigns `out` only when it is all good; every
 error is `line N: reason`.
 
-1. **Skipped:** a UTF-8 BOM at byte 0 of line 1 only (`:90`), a trailing CR
+1. **Skipped:** a UTF-8 BOM at byte 0 of line 1 only (the `\xEF\xBB\xBF` compare, `src/debug/annotations_file.cpp:90`), a trailing CR
    (CRLF), a line whose first character is `#`, a blank line.
 2. **The header** is the first other line and must be exactly `jnext-annotations 1`
-   (`:94`); `jnext-annotations N` for another canonical N reads `version N: this
-   jnext reads version 1` (`:100`); anything else is `not a jnext annotations
+   (`kHeader`, `src/debug/annotations_file.cpp:94`); `jnext-annotations N` for another canonical N reads `version N: this
+   jnext reads version 1` (the `"version "` message, `:100`); anything else is `not a jnext annotations
    file`.
-3. **A record** with an unknown kind is refused (`:117`; forward compatibility is
+3. **A record** with an unknown kind is refused (the `"unknown record '"` message, `src/debug/annotations_file.cpp:117`; forward compatibility is
    a version bump, not skipping). `<SPACE>` goes through `parse_space_tag()`
    (case-insensitive, strict digits, the hardware's ranges) or the file is
-   refused (`:122`); `CPU` is refused (`:124`), since a user entry names a memory.
-   `<ADDR>` is `$` and exactly four hex digits, either case (`parse_addr()`, `:46`,
-   `:127`). A label has exactly four fields (`:130`). A second label or comment for
-   a key is refused (`:132`, `:141`), a CR inside a text is refused (`:143`), and
+   refused (`"unknown memory '"`, `:122`); `CPU` is refused (`"memory CPU:"`, `:124`), since a user entry names a memory.
+   `<ADDR>` is `$` and exactly four hex digits, either case (`parse_addr()`, `:46`;
+   `"bad address '"`, `:127`). A label has exactly four fields (`"a label record has exactly"`, `:130`). A second label or comment for
+   a key is refused (`"a second label"`, `:132`; `"a second comment"`, `:141`), a CR inside a text is refused
+   (`"a carriage return"`, `:143`), and
    `unescape()` (`:33`) accepts only `\\` and `\n` (a final lone `\` is refused,
-   `:37`).
+   `"lone backslash"`, `:37`).
 4. **Names and text** are checked by the store, not the adapter, so the API and the
    file cannot disagree: `UserAnnotations::valid_label_name()`
    (`src/debug/user_annotations.cpp:29`: components `[A-Za-z_][A-Za-z0-9_]*`
    joined by single dots, exactly what the DSL's `@name` lexes,
-   `src/script/lexer.cpp:217-235`), `valid_utf8()` (`:39`: no overlong form, no
+   `lex_symbol()`, `src/script/lexer.cpp:217-235`), `valid_utf8()` (`:39`: no overlong form, no
    surrogate, nothing past U+10FFFF) and the uniqueness of a name
    (`set_label()`, `:62-80`).
 5. **A key the file can name.** `nameable()` (`src/debug/user_annotations.cpp:15`)
@@ -125,35 +126,87 @@ so every consumer reads both layers with no code of its own.
 `names` is assigned in place, so the `const SymbolTable*` the Disassembly, Call Stack
 and Breakpoints panels hold (`set_symbol_table(&dbg_.symbols())`) stays valid.
 
-It is called after every change of either layer: the toolchain writers
-(`src/debug/debugger.cpp:270` `load_map()`, `:284` `clear_symbols()`;
+`recompose_names()` is called after every change of either layer: the toolchain writers
+(`load_map()` at `src/debug/debugger.cpp:270`, `clear_symbols()` at `:284`;
 `src/debug/debugger_source.cpp:409` the deferred-check drop, `:542` and `:549` the
 hand SLD's labels, `:773` the program-load attach and its `bind()`, `:937`
 `drop_sidecars()`, `:1035` and `:1041` the ring landing) and every verb that changes a label
-(`src/debug/debugger_annotations.cpp:68`, `:77`, `:108`; `set_user_comment()` changes no name and does not). The attachment cache
+(`set_user_label()` at `src/debug/debugger_annotations.cpp:71`, `remove_user_label()` at `:80`, `replace_annotations()` at `:116`; `set_user_comment()` changes no name and does not). The attachment cache
 copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:888`),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.
 
 The name rule against the toolchain layer is in `set_user_label()`
-(`src/debug/debugger_annotations.cpp:51-61`): a name the loaded symbols give another
+(the `toolchain_symbols.find_name()` test, `src/debug/debugger_annotations.cpp:53-61`): a name the loaded symbols give another
 address, or another paged memory, is refused; the same address (pinning an unpaged
 name to its page) is allowed. A project file is not refused for it, and a toolchain
 loaded later is not either: the user layer then wins by name.
 
-`save_annotations()` (`src/debug/debugger_annotations.cpp:133-154`) writes
-`PATH.part` and renames it over `PATH`; `load_annotations()` (`:113`) checks
+`save_annotations()` (`src/debug/debugger_annotations.cpp:141-162`) writes
+`PATH.part` and renames it over `PATH`; `load_annotations()` (`:121`) checks
 `source_file_problem()` first (not a regular file, over 64 MiB). The verbs touch no
 machine state, so they are allowed while the machine runs, take no load generation
 and leave `.jns`, the rewind ring and the attachment cache alone; each success bumps
-`state_revision()` ([3.9.1](../03-subsystems/09-1-the-backend-api.md), GH #428).
+`state_revision()` ([3.9.1](../03-subsystems/09-1-the-backend-api.md), GH #428). A verb that
+changes nothing (a rename to the same name, an identical or already-normalised comment, clearing a
+comment that is not there, replacing or loading the same store) bumps neither revision: the early
+`return Result::Ok` of `set_user_label()` (`src/debug/debugger_annotations.cpp:69`), of
+`set_user_comment()` (`:96`) and of `replace_annotations()` (`:113`), pinned by `SRCDBG-UANN-21`, so
+an unchanged dialog never raises the unsaved-changes question.
 
-## 10. The rows that pin it
+## 10. The Qt debugger
+
+The same two views edit the store and draw it; nothing here changes what the store holds.
+
+- **One menu builder.** `add_annotation_actions()` (`src/debugger/annotation_menu.cpp:77`) appends, behind a
+  separator, **Add Label…** / **Rename Label…**, **Remove Label** and **Add Comment…** / **Edit Comment…** to a
+  code view's context menu. The Disassembly calls it with the one place of the line, its address and the
+  `entry.space` it was drawn with (`DisasmPanel::contextMenuEvent()`, `src/debugger/disasm_panel.cpp:983`); the
+  Source tab calls it with the line's `st.starts` (`SourcePanel::fill_context_menu()`,
+  `src/debugger/source_panel.cpp:1208`), so a line that compiled to several places gets a submenu per entry,
+  a place not mapped now stays editable (the key does not depend on the mapping), and a line with no code
+  has the entries disabled with the tab's *no code at* tooltip. Both views therefore offer the same words in
+  the same order (`QANN-11`).
+- **What the entries do.** `edit_label()` (`annotation_menu.cpp:35`) is a `QInputDialog::getText` that
+  calls `Debugger::set_user_label()`; `edit_comment()` (`:53`) is a `QInputDialog::getMultiLineText`
+  that calls `set_user_comment()` (empty text removes); `remove_label()` (`:70`) calls
+  `remove_user_label()`. A refused name or text is a `QMessageBox::warning` with the backend's reason and
+  changes nothing (`QANN-09`). **Rename** on a toolchain label creates a user label that shadows it;
+  **Remove** acts on user labels only, so on a toolchain-only label it is disabled and its tooltip names the
+  file `state_of()` (`:24`) found it in. The panels hold a `const Debugger*` for reading; the writes go
+  through the non-const pointer `DebuggerManager` hands them with `set_annotation_backend()`
+  (`src/debugger/debugger_manager.cpp:386` and `:390`), and each panel's `annotations_changed()` signal makes the
+  manager refresh the panels.
+- **The Disassembly draws it.** `label_column_shown()` (`disasm_panel.cpp:1013`) is true while the symbol table
+  (the composed reader, section 9) holds any label; then the **Label** column sits between the bytes and the
+  mnemonic and every x after it moves by `label_width()` (16 characters), `mnemonic_x()` (`:1020`); with no
+  label the layout is the old one (`QANN-01`). `line_label()` (`:1025`) is the name the reader gives the line's
+  own address in its own memory, shortened with `...`; `line_comment()` (`:1035`) is `; ` and the comment's first
+  line, plus ` ...` when it has more. Both are what the painter draws and what the tests read. The copy
+  formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
+  file).
+- **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
+  (`src/debugger/debugger_window.cpp:889-893`), connected to `DebuggerManager::on_open_annotations()`
+  (`debugger_manager.cpp:778`), `on_save_annotations()` (`:754`) and `on_save_annotations_as()` (`:744`); Save with no
+  current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
+  backend's `why` (an Open names the line).
+- **Unsaved changes (D11).** `DebuggerManager` keeps `saved_revision_` (`debugger_manager.h`), the backend's
+  `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
+  `confirm_discard_annotations()` (`debugger_manager.cpp:760`) asks Save / Discard / Cancel when they differ, and is
+  asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
+  (`src/gui/main_window.cpp:3821`) before anything else, which ignores the event on Cancel (File ▸ Quit goes
+  through `close()`, which then returns false). With nothing changed there is no dialog. `set_annotations_file()`
+  (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`src/gui/qt_app.cpp:391`), makes that file
+  the Save target and the starting point of "unsaved".
+- **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
+  `--annotations FILE`.
+
+## 11. The rows that pin it
 
 - `source_map_test`: `UANN-01` to `UANN-13` (the store: keys, grammar, name rule,
   comment text, order, unnameable memories) and `JDP-01` to `JDP-09` (the file's
   bytes, the leniencies, every refusal with its line, atomicity, the round trip).
-- `source_debug_test`: `SRCDBG-UANN-01` to `-20` (the two layers and the one reader
+- `source_debug_test`: `SRCDBG-UANN-01` to `-21` (the two layers and the one reader
   by page, the name rule, the file through the backend, no lifetime across
   sidecars, hand loads, resets, state loads and ring landings, purity with its
   control, the state revision).
@@ -161,3 +214,8 @@ and leave `.jns`, the rewind ring and the attachment cache alone; each success b
   `cli_options_test` `CLI-ANN-01`, `debugger_verbs_test` `QMAP-10` (the four Load
   MAP boxes count the loaded file only), and the functional row `annotations-func`
   (headless, Qt and SDL).
+- The Qt side: `debugger_panels_test` `QANN-01` to `-04` and `-06` (the column, the comment, the copies, the
+  address field), `debugger_verbs_test` `QANN-05` (Call Stack and Breakpoints), `QANN-12` and `-13` (the Map
+  menu, the unsaved question), `debugger_source_panel_test` `QANN-07` to `-11` (the menus, per place, the
+  dialogs, a refused name, parity), `debugger_quit_gate_test` `QG-ANN-01`/`-02` and `quit_cleanup_test`
+  `QG-ANN-03` (the quit question) (SRCDBG-UANN-21: a no-op verb bumps nothing, in the backend list above).

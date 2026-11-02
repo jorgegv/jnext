@@ -1,5 +1,7 @@
 # Symbols from MAP files
 
+(Names you add yourself are a separate layer and win over these: [Your own labels and comments](16-user-labels-and-comments.md).)
+
 Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
 
 - **Z88DK Format…** — the `.map` file `zcc` writes next to your binary.

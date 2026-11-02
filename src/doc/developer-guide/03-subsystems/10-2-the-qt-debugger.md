@@ -273,6 +273,14 @@ any other client loads shows in the panels too. What each loader reads is
   on a paused machine (rows `QMAP-05` and `QMAP-06`). A file refused rather than unreadable has the
   backend's reason appended to the failure box (`on_load_map_z88dk()`, `on_load_map_simple()`, rows `QMAP-07`).
 
+## Labels and comments of your own (GH #387)
+
+The Disassembly and the Source tab share one menu builder, `add_annotation_actions()`
+(`src/debugger/annotation_menu.cpp:77`), for Add / Rename Label…, Remove Label and Add / Edit Comment…;
+`DisasmPanel` draws a **Label** column and the first line of a comment, and **Map ▸ Open / Save / Save As
+Annotations** and the quit question about unsaved changes are `DebuggerManager`'s. The mechanism and its rows
+are [7.4.6](../07-source-level-debugging/04-6-user-annotations.md), section 10.
+
 ## Source
 
 The Source tab (`source_panel.*`) shows the PC's line from the backend's source map and carries the

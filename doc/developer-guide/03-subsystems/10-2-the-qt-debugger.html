@@ -1486,6 +1486,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#labels-and-comments-of-your-own-gh-387" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Labels and comments of your own (GH #387)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#source" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3231,6 +3242,12 @@ any other client loads shows in the panels too. What each loader reads is
   on a paused machine (rows <code>QMAP-05</code> and <code>QMAP-06</code>). A file refused rather than unreadable has the
   backend's reason appended to the failure box (<code>on_load_map_z88dk()</code>, <code>on_load_map_simple()</code>, rows <code>QMAP-07</code>).</li>
 </ul>
+<h2 id="labels-and-comments-of-your-own-gh-387">Labels and comments of your own (GH #387)<a class="headerlink" href="#labels-and-comments-of-your-own-gh-387" title="Permanent link">&para;</a></h2>
+<p>The Disassembly and the Source tab share one menu builder, <code>add_annotation_actions()</code>
+(<code>src/debugger/annotation_menu.cpp:77</code>), for Add / Rename Label…, Remove Label and Add / Edit Comment…;
+<code>DisasmPanel</code> draws a <strong>Label</strong> column and the first line of a comment, and <strong>Map ▸ Open / Save / Save As
+Annotations</strong> and the quit question about unsaved changes are <code>DebuggerManager</code>'s. The mechanism and its rows
+are <a href="../07-source-level-debugging/04-6-user-annotations.html">7.4.6</a>, section 10.</p>
 <h2 id="source">Source<a class="headerlink" href="#source" title="Permanent link">&para;</a></h2>
 <p>The Source tab (<code>source_panel.*</code>) shows the PC's line from the backend's source map and carries the
 source-step buttons; it holds no state of its own beyond the loaded file, its modification time, where the
