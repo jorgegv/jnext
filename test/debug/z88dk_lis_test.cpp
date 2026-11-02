@@ -847,7 +847,7 @@ int main() {
 
     // ── Z88LIS-35: a BOM at the start of a listing changes nothing (owner decision 2026-11-01, GH #427).
     // zcc's fixtures head their listing with a throwaway temp name no row is placed under, so this
-    // shape alone cannot go red; Z88LIS-48 is the one whose first header carries rows. ──
+    // shape alone cannot go red; Z88LIS-44 is the one whose first header carries rows. ──
     {
         const fs::path d = dir / "z35";
         fs::create_directories(d);
@@ -865,7 +865,7 @@ int main() {
     }
 
 
-    // ── Z88LIS-48 (GH #427 stage 2b round 2): a BOM before a listing's FIRST header, which carries the rows ──
+    // ── Z88LIS-44 (GH #427 stage 2b round 2): a BOM before a listing's FIRST header, which carries the rows ──
     {
         const std::vector<LisRow> rows = {
             {1, nullptr, nullptr, " SECTION code_user"}, {2, nullptr, nullptr, " ORG $8000"},
@@ -882,7 +882,7 @@ int main() {
         SourceMap plain, bom;
         const auto rp = load(plain, dir / "z44a" / "q.map");
         const auto rb = load(bom, dir / "z44b" / "q.map");
-        check("Z88LIS-48", "a UTF-8 BOM before the listing's first header (the one holding the rows and the "
+        check("Z88LIS-44", "a UTF-8 BOM before the listing's first header (the one holding the rows and the "
                            "anchor) is skipped: the nop and ret are q.asm:5 and :6 exactly as without it",
               rp && rb && rp.listings == 1 && rb.listings == 1 && rb.count == rp.count &&
                   is_at(plain.lookup(P4, 0x8000), "q.asm", 5) && is_at(bom.lookup(P4, 0x8000), "q.asm", 5) &&

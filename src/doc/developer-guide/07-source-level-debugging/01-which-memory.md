@@ -56,10 +56,14 @@ Three facts the table does not show:
   `AltRom` and `Config` and `0x2000` for every other kind, and `space_offset(s,
   logical)` is `logical & (size - 1)`. Every route the arbiter produces has
   exactly this offset.
-- **Only three kinds are accessible to a verb.** `Debugger::peek()` and `poke()`
-  take `Cpu`, `Page` and `Rom`; every other kind is *identity-only*: the arbiter
+- **Only some kinds are accessible to a verb.** `Debugger::peek()` and `poke()`
+  take `Cpu`, `Page` and `Rom`. `DivMmcRam{b}` can be *read* (GH #351: the dot
+  commands run from DivMMC bank 2, so their bytes must be checkable): bank `b`
+  is `DivMmc::ram_page(b)` (SRAM page `0x10 + b`, `zxnext.vhd:3092-3098`), a bank
+  past `DivMmc::kRamPages` is `InvalidPage` (`debugger_inspect.cpp:310-317`), and
+  `poke` of it stays `Unsupported`. Every other kind is *identity-only*: the arbiter
   names it, and `peek` and `poke` refuse it with `Result::Unsupported`
-  (`identity_only()` in `debugger_inspect.cpp`, one total `switch` with no
+  (`identity_only()`, `debugger_inspect.cpp:98`, one total `switch` with no
   `default`, so a new kind is a compile error there). `Rom` is read-only
   (`RefusedReadOnly`). Coverage is the exception: `mem_coverage()` accepts the
   identity-only kinds.
@@ -133,6 +137,45 @@ must agree for every instruction that fetches. The rows `SRCDBG-ID-*` in
 `source_debug_test` step instructions across DivMMC, Multiface, boot-ROM and
 NMI paths and compare the two; `FSRC-*` in `mmu_test` and
 `mmu_integration_test` pin the arbiter's order and identities against the VHDL.
+
+## Spelling a space: the long address (GH #360)
+
+One place spells a `MemSpace` for a human or a file: `src/debug/long_address.*` (std headers
+and `mem_space.h` only). Every Qt view, the trace export and the remote protocols that name a
+memory go through it ([7.7](07-frontends.md)).
+
+- **The tag.** `space_tag()` (`long_address.cpp:46`) is the stable name: `Page{n}` is `P%02X`
+  (`P04`, `P0E`), `Rom{i}` `ROM%u`, `BootRom` `BOOT`, `MultifaceRom` `MFROM`, `MultifaceRam`
+  `MFRAM`, `DivMmcRom` `DIVROM`, `DivMmcRam{b}` `DIVRAM%u` (decimal), `AltRom{i}` `ALTROM%u`,
+  `Layer2{p}` `L2P%02X`, `Config{b}` `CFG%02X`, `Floating` `FLOAT`, `Cpu` `CPU`. The charset
+  is `[A-Z0-9]`: no whitespace and no `:`.
+- **The inverse.** `parse_space_tag()` (`:64`) is strict: digits only, any case, no leading zero
+  on a decimal index, the hardware's ranges (a page `0..0xDF`, ROM `0..3`, DivMMC bank `0..15`,
+  alt ROM `0..1`). It refuses `PE5`: a slot 2-7 that holds NR >= `0xE0` reads nothing, so
+  `SlotInfo::now` is `Floating` while `SlotInfo::space` is `Page{0xE5}`. A view therefore names
+  a slot by `now`, no protocol output tags `space`, and a view that shows the slot's own source
+  shows `FLOAT` for a page >= `0xE0`.
+- **The tags are a stable format.** The project file and the ghidra and skoolkit exports key on
+  them, so changing a spelling is a format break, not a tidy-up (the header says so,
+  `long_address.h:9-11`). The trace export's `FETCH=` column is `space_tag(fetch_space())`
+  (`trace.cpp:324`), never the GUI's style ([3.9.1](../03-subsystems/09-1-the-backend-api.md)).
+- **The Next layout.** `physical_text(space, addr)` (`:111`) says where the byte sits in the Next's
+  memory: `$` and six hex digits of the SRAM address (`Page{n}` and `Layer2{n}` are
+  `(n + 0x20) << 13 | offset`, `zxnext.vhd:2964,2971`; `Rom{i}` `i << 14 | offset`, `:3052-3057`;
+  alt ROM `0x018000 + 0x4000 * i`, `:2924-2925`; Multiface `0x014000` / `0x016000`; DivMMC ROM
+  `0x010000`; DivMMC RAM `0x020000 + 0x2000 * b`, `divmmc.vhd:94-96`), or `BRAM5+$XXXX`
+  (pages `0x0A`, `0x0B`), `BRAM7+$XXXX` (page `0x0E`), `BOOT+$XXXX`, `FLOAT`. Banks 5 and 7 are
+  block RAM, not SRAM, apart from page `0x0F`; Layer 2 always sees the SRAM copy.
+- **The style.** `space_text()` and `long_address()` (`$C000 P0E`) choose by `AddressStyle`:
+  `Friendly` prints the tag, `Physical` the physical text, and Physical falls back to Friendly
+  wherever `next_layout` is false (a non-Next machine: `memtext::next_layout()`,
+  `memory_text.h:20`).
+
+The instruction at the PC is a special read. `Debugger::memory_reader()`
+(`debugger_inspect.cpp:838`) returns the bytes the CPU *will fetch* for that one instruction
+(`Emulator::predict_instruction_bytes()`, at most four) and `Mmu::peek()` for everything else,
+because at a DivMMC instant entry the M1 itself maps DivMMC. That is the prediction half of this
+page applied to the bytes instead of the identity.
 
 ## Two ways to name a memory in an Execute filter
 
