@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=268  # 243 -> 268: HS-102..126 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=281  # 243 -> 281: HS-102..139 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -875,6 +875,8 @@ dg_tree() {     # $1 = the page body; src/a.cpp holds `alpha` on line 3 and `bet
     printf 'Name: alpha\n' > "$DG/packaging/x.spec"
     printf 'alpha:\n' > "$DG/Makefile"
     printf 'tmpAb12.asm:\nB\t2\nC3\n' > "$DG/test/fixtures/e.lis"
+    mkdir -p "$DG/test/fixtures/p" "$DG/test/fixtures/q"
+    printf 'one\n' > "$DG/test/fixtures/p/same.lis"; printf 'one\n' > "$DG/test/fixtures/q/same.lis"
     printf '%s\n' "$1" > "$DG/src/doc/developer-guide/p.md"
 }
 dg_tree 'It is `alpha()` (`src/core/a.cpp:3`) and `beta` is in `a.cpp:4`; vhdl is `foo` at `zxnext.vhd:99999`.'
@@ -1020,6 +1022,89 @@ The `beta` is at `src/core/a.cpp:3`.'
 out=$(dg_lint); rc=$?
 check "HS-126" "a closing fence must be as long as its opening one: a three-backtick line inside a four-backtick fence does not end it, so the prose after the fence is read" 1 $rc "$out" \
     "src/core/a.cpp:3 | beta" "checked 1 cites, 1 failed"
+# Round 2 of the review (R2-1..R2-6): an unresolvable file is still the file a phrase binds to.
+dg_tree 'The `alpha` is in `src/core/gone.cpp`, line 3.'
+out=$(dg_lint); rc=$?
+check "HS-127" "a lines phrase after a file that does not exist FAILS (a deleted or renamed file cannot go silent)" 1 $rc "$out" \
+    "not in the repository" "1 failed"
+dg_tree 'In `src/core/a.cpp`, see `alpha` in `src/core/gone.cpp`, line 3.'
+out=$(dg_lint); rc=$?
+check "HS-128" "a lines phrase after a.cpp and then gone.cpp binds to gone.cpp and fails; it is not checked against a.cpp" 1 $rc "$out" \
+    "src/core/gone.cpp:3" "not in the repository"
+dg_tree 'In `src/core/a.cpp` and `src/core/gone.cpp`, `alpha` is at `:3`.'
+out=$(dg_lint); rc=$?
+check "HS-129" "a bare :N after a.cpp and then gone.cpp binds to gone.cpp and fails (unresolvable), not to a.cpp" 1 $rc "$out" \
+    "(src/core/gone.cpp)" "an unresolvable name: name the file"
+dg_tree 'From `test/fixtures/nosuch.lis` (lines 1-2):
+
+```
+one
+two
+```'
+out=$(dg_lint); rc=$?
+check "HS-130" "an excerpt pointer to a fixture that does not exist FAILS instead of leaving the excerpt unverified" 1 $rc "$out" \
+    "test/fixtures/nosuch.lis:1" "not in the repository"
+dg_tree 'The sjasmplus manual, `docs/documentation.xml` chapter `c_sld_data`, line 5479.'
+out=$(dg_lint); rc=$?
+check "HS-131" "the sjasmplus manual (docs/documentation.xml) is a declared external file: its line cite is out of scope, not unresolvable" 0 $rc "$out" \
+    "checked 0 cites, 0 failed, 1 out of scope"
+dg_tree 'The `alpha()` is in `src/core/a.cpp`, see the fixtures in `src/core`, line 3.'
+out=$(dg_lint); rc=$?
+check "HS-132" "a token naming a repo directory is no file: a lines phrase after it binds to the file before it" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree '| `src/core/a.cpp` | b |
+|---|---|
+| `alpha` | x |
+| y | `src/core/a.cpp:3` |'
+out=$(dg_lint); rc=$?
+check "HS-133" "a table row ends the sentence for the anchor search: an earlier row's symbol does not anchor a later row's cite" 1 $rc "$out" \
+    "unanchored" "1 failed"
+dg_tree 'From `same.lis` (the number is the line in the file):
+
+```
+1:one
+```'
+out=$(dg_lint); rc=$?
+check "HS-134" "a numbered excerpt of an ambiguous file name FAILS, naming the candidates (first one visible)" 1 $rc "$out" \
+    "ambiguous" "test/fixtures/p/same.lis"
+dg_tree 'In `src/core/a.cpp`, `alpha` is at `:3,4`.'
+out=$(dg_lint); rc=$?
+check "HS-135" "a bare comma list of lines FAILS as a comma list" 1 $rc "$out" "comma list of lines"
+dg_tree 'Text.
+
+```
+src/core/a.cpp:99
+~~~
+
+The `alpha()` is at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-136" "a backtick fence is not closed by a tilde line: it is reported unclosed" 1 $rc "$out" "never closed"
+dg_tree 'Text.
+
+~~~
+src/core/a.cpp:99
+~~~
+
+The `alpha()` is at `src/core/a.cpp:3`.'
+out=$(dg_lint); rc=$?
+check "HS-137" "a tilde fence is a fence: its content is not read, and the prose after it is" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
+dg_tree 'Here the number is the line in the file:
+
+```
+2:B3
+```'
+out=$(dg_lint); rc=$?
+check "HS-138" "a numbered excerpt in a paragraph that names no file FAILS" 1 $rc "$out" \
+    "no file named in the paragraph above it"
+dg_tree 'From `test/fixtures/e.lis` (the number is the line in the file):
+
+```
+2:B<TAB>2
+```'
+out=$(dg_lint); rc=$?
+check "HS-139" "a numbered excerpt uses the <TAB> convention too" 0 $rc "$out" \
+    "checked 1 cites, 0 failed"
 rm -rf "$DG"
 
 # ------------- worktree-bootstrap must not call an unprovisioned tree "ready" (GH #149)

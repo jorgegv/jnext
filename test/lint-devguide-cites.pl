@@ -66,12 +66,19 @@
 # is an excerpt of the file named in that paragraph, row N being the text after the colon. Row counts must
 # agree. A phrase with no fence after it is an ordinary cite and needs an anchor.
 #
+# A file token that does not resolve is still the nearest file of a bare :N, a
+# "lines" phrase or an excerpt pointer, and those FAIL on it (a deleted or renamed
+# file cannot be skipped or hand its cites to an earlier file). Exceptions: e.g./
+# i.e., and a token that names a repo DIRECTORY (v2.4/sccz80-debug) is no file.
+# A table row ends the sentence for the anchor search. The sjasmplus manual
+# (docs/documentation.xml) is declared external.
+#
 # CANNOT CATCH, as examples and not as an exhaustive list: a cite whose sentence
 # names a real identifier that is not the one the cite is about (the anchor
 # proves the line holds that symbol, not that the sentence is right); a
 # previous sentence's symbol anchoring a sentence that starts with a digit, a
 # lowercase letter or a quote, or follows ; or :; in a table row, a symbol of
-# another cell; a range whose symbol is anywhere in it rather than first; a cite
+# another cell of the same row; a range whose symbol is anywhere in it rather than first; a cite
 # split over lines inside one token; indented (non-fenced) code; a "line N"
 # phrase in a paragraph that names a file for another reason.
 #
@@ -109,6 +116,7 @@ my @EXTERNAL = (
     qr/^src\/(?:zxbc|zxbasm)\//, qr/^(?:.*\/)?keywords\.py$/,
     qr/^(?:.*\/)?nextbuild\.py$/,
     qr/^(?:nexload2?\.asm|readdir\.asm|esxapi\.def)$/,
+    qr/^docs\/documentation\.xml$/,
 );
 my %EXAMPLE = map { $_ => 1 } qw(main.c util.c util.h asmfn.asm main.bas equlabels.asm);
 sub is_external { my $t = shift; for (@EXTERNAL) { return 1 if $t =~ $_ } 0 }
@@ -132,6 +140,17 @@ if (-e "$root/.git") {
         return if -l $_;
         add_path(substr($_, length($root) + 1));
     }}, $root);
+}
+
+my %DIRS;
+for my $list (values %by_base) {
+    for my $f (@$list) { my @c = split /\//, $f; pop @c; my $d = ''; for my $c (@c) { $d = $d eq '' ? $c : "$d/$c"; $DIRS{$d} = 1 } }
+}
+sub is_dir {
+    my $t = shift; $t =~ s/\/+$//; $t =~ s/\/+/\//g;
+    return 1 if $DIRS{$t};
+    for my $d (keys %DIRS) { return 1 if substr($d, -length($t) - 1) eq "/$t" }
+    return 0;
 }
 
 sub candidates {
@@ -217,9 +236,10 @@ sub excerpt_numbered {
 sub paragraph {
     my ($page, $para, $fences, $state) = @_;
     return unless @$para;
-    my ($text, @map) = ('');
+    my ($text, @map, @rowat) = ('');
     for my $e (@$para) {                       # char offset -> source line
         push @map, [length($text), $e->[0]];
+        push @rowat, length($text) if $e->[1] =~ /^\s*\|/;
         $text .= $e->[1] . ' ';
     }
     my $lineat = sub { my $o = shift; my $l = $map[0][1]; for (@map) { $l = $_->[1] if $_->[0] <= $o } $l };
@@ -235,8 +255,8 @@ sub paragraph {
     while ($nolink =~ /(?<![\w.\/+-])($FT)(?::\d+(?:-\d+)?)?(?![\w])/g) {
         my ($tok, $at) = ($1, $-[0]);
         next unless looks_like_file($tok);
-        my ($k) = classify($tok);
-        push @mentions, [ $at, $tok ] if $k ne 'none';
+        next if $tok =~ /^(?:e\.g|i\.e)$/ || is_dir($tok);
+        push @mentions, [ $at, $tok ];
     }
     my $last_before = sub {
         my $s = shift; my $t;
@@ -254,7 +274,8 @@ sub paragraph {
         }
         push @cites, [ $s, $e, $tok, $n, $m // $n, 'colon' ];
     }
-    while ($text =~ /`:(\d+)(?:-(\d+))?`/g) {
+    while ($text =~ /`:(\d+)(?:-(\d+))?(,[\d,-]*)?`/g) {
+        fail($page, $lineat->($-[0]), ":$1$3", undef, "comma list of lines: write one cite per line") if defined $3;
         push @cites, [ $-[0], $+[0], undef, $1, $2 // $1, 'bare' ];
     }
     # "lines" phrases, bound to the nearest file token before them
@@ -284,6 +305,7 @@ sub paragraph {
             my $tok = $last_before->(length $text);
             my ($k, @r) = $tok ? classify($tok) : ('none');
             if ($k eq 'repo') { excerpt_numbered($page, $lineat->(0), $r[0], $f) }
+            elsif ($k eq 'ambig') { fail($page, $f->{start}, "numbered excerpt of $tok", undef, "ambiguous, write a longer path: " . join(' ', @r)) }
             elsif ($k eq 'none' || !$tok) { fail($page, $f->{start}, "numbered excerpt", undef, "no file named in the paragraph above it") }
         }
     }
@@ -319,6 +341,7 @@ sub paragraph {
         my $sent = 0;
         my $pre = substr($mask, 0, $s);
         while ($pre =~ /(?<!e\.g)(?<!i\.e)(?<!\bvs)[.!?]\s+(?=[A-Z`*(\[])/g) { $sent = $+[0] }
+        for my $ra (@rowat) { $sent = $ra if $ra <= $s && $ra > $sent }
         my $anchor;
         for my $sp (reverse @spans) {
             next if $sp->[1] > $s || $sp->[0] < $sent;

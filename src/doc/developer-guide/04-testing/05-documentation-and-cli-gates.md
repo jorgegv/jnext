@@ -76,7 +76,11 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
   external, so the repository's own `test/fixtures/z88dk/` files and a future
   `support.cpp` are checked; only a token that matches nothing in the
   repository and belongs to a declared external set is out of scope, and any
-  other token fails.
+  other token fails. A file token that does not resolve is still the nearest
+  file of a bare `:N`, a "lines" phrase or an excerpt pointer, and those fail on
+  it, so a deleted or renamed file cannot go quiet (the exceptions: *e.g.*, *i.e.*
+  and a token that names a repository directory are no file). A table row ends
+  the sentence for the anchor search.
 - **Out of scope by declaration**, listed in the script's header and nowhere
   else: the VHDL (a different repository), and the z88dk, sjasmplus, Boriel,
   NextBuild and NextZXOS sources the format chapters cite, when the repository
@@ -88,7 +92,7 @@ chapter 7 and only a reviewer's script noticed. The rule, in full:
 
 When a cited file changes, run the check and re-point the cites it reports;
 re-point the cite, never the anchor, unless the sentence is wrong. The script's
-rows are `HS-102`..`HS-126` of `make harness-selftest`.
+rows are `HS-102`..`HS-139` of `make harness-selftest`.
 
 ## The renderer fingerprint
 

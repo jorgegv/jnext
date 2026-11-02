@@ -121,7 +121,7 @@ the log, and the main window's status bar for ten seconds.
   `h` are C; `asm`, `s`, `z80` and `inc` are assembly; `bas` is Boriel. Otherwise the first 200
   lines vote: a line counts for a language when its first word is in that language's set alone
   (a column-0 label is skipped); the winner needs three votes and strictly more than the others
-  (`kMinVotes`, `zxn_crt.asm.m4:463`); else Plain.
+  (`kMinVotes`, `source_highlighter.cpp:463`); else Plain.
 - **The word tables.** The Z80/Z80N mnemonics and register words are not listed anywhere: they
   are enumerated once from `disasm_one()` over the seven opcode pages, so a new Z80N opcode is
   coloured the day the disassembler names it. The directive, C and Boriel tables are committed
