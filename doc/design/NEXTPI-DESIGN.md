@@ -525,17 +525,17 @@ NextPi image is needed.
 | PIT-01..25 | `nextpi_test` (every OS): `md5_file`, the socket command line, the host audio back-end per OS, what an empty audio setting means (the mixer, PIT-16/17/18), the Pi audio pipe (writers coming and going, a full ring, a prompt `close()`, no spinning, an uncreatable pipe: PIT-19..23), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale, the stop grace and the startup window are elapsed time, not a count of sleeps (PIT-24/25, GH #355) |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
-`test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40, MX-42..47, MX-50..57 and MX-59..60 for `PiAudio`
+`test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40, MX-42..47, MX-50..57 and MX-59..61 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
 writes), the 10-bit mapping, a frame's level in the mix and the received count;
 prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
 100 ms) and its edge (13230 frames, 300 ms, kept; 13231 trimmed); the ring full
 (131072 frames); a pause longer than the ring, flushed on resume, with the prebuffer
-again; tape mode (MX-54..57, MX-59, MX-60: the 11025-frame prebuffer,
+again; tape mode (MX-54..57, MX-59..61: the 11025-frame prebuffer,
 single-frame skips and repeats every 500th pop and the band's edges at 14333 and
-7717 frames, entering and leaving it, and the tape trim at 44100 frames; MX-58 in
-`audio_test` and PI-65 in `uart_posix_test` cover `I2s::ear_routed` and the
-emulator switching the mode); a writer reconnecting with a fresh header, also one split at any read
+7717 frames, entering and leaving it, the tape trim at 44100 frames and the adjust timer restarting with each playback; MX-58 in
+`audio_test` and PI-65 and PI-66 in `uart_posix_test` cover `I2s::ear_routed`, the
+emulator switching the mode and its one-warning-per-underrun log in tape mode); a writer reconnecting with a fresh header, also one split at any read
 boundary; audio that spells `RIFF` without `WAVE`; the open errors and
 the FIFO's 0600 mode; the reader pausing, not spinning, while there is no
 writer; the latency of a write, of `close()` and of a reconnect, and an idle

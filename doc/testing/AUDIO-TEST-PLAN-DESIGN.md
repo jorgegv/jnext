@@ -494,6 +494,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-58  | I2S: NR 0xA2 routes the Pi to EAR (`I2s::ear_routed`) | True for 0xC1, 0x81, 0x41, 0xFF; false for 0x01, 0xC0, 0x00, 0x3F; true at 0xC1 while the comparator (`fe_ear()`) is 0, so it is the route, not the level (`zxnext.vhd:2361-2373`). In `audio_test`, every OS |
 | MX-59  | Pi I2S source: the tape trim | Tape mode: 44100 frames in, one pop: frame 0, 44099 left, nothing dropped. 44101 frames in: the pop returns frame 33076, 11024 left, 33076 dropped (cut to 11025, the oldest first). Literal numbers. jnext-only buffering |
 | MX-60  | Pi I2S source: the band's upper edge | Tape mode, 1000 pops: with 14832 frames in, pop 500 reads 14333 (11025 + 3308, on the edge) and nothing is skipped; with 14833 it reads 14334 and exactly one frame is skipped, seen at pop 500. jnext-only buffering |
+| MX-61  | Pi I2S source: the adjust timer restarts with each playback | Tape mode: 600 pops in the band, then pops until dry (one underrun, nothing left), then a refill to 14833 frames: exactly one frame is skipped, seen at pop 500 of the new playback (not sooner, whatever the timer held when the last playback ended). jnext-only buffering |
 
 ### 5.2 Final Mix
 

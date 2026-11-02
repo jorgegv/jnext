@@ -34,7 +34,7 @@ mentions them, so a test can no longer be absent from this document.
 | DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
-| UART+I2C/RTC                               |   253 |  253 |    0 |    0 |       0 |          0 |
+| UART+I2C/RTC                               |   254 |  254 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6058 | 6058 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6059 | 6059 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6058**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5583**. Rows the 172 suites declared in `test/unit-tests.conf` run live: **14117**.
+Rows the sections above carry: **6059**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5583**. Rows the 172 suites declared in `test/unit-tests.conf` run live: **14117**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1935,6 +1935,7 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | MX-58 | NR 0xA2 sends the Pi's audio to EAR (I2s::ear_routed) exactly when I2S is enabled (b7 or b6) and bit 0 is set, independent of the comparator's level (zxnext.vhd:2361-2373) | zxnext.vhd:2361-2373 | pass | test/audio/audio_test.cpp:3137 |
 | MX-59 | in tape mode a Pi audio backlog of 44100 frames (1 s) is kept, and one of 44101 is trimmed to 11025 by dropping the oldest (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1080 |
 | MX-60 | in tape mode a Pi audio level of 14333 frames (the band's upper edge, 11025 + 3308) is left alone, and 14334 gets exactly one skip, at pop 500 (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1118 |
+| MX-61 | in tape mode the drift-correction timer restarts with each playback: after a refill to 14833 frames (one above the band's upper edge at pop 500) the first skip is seen at pop 500, even when the previous playback ended with the timer part-way (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1155 |
 | MX-10 | silence: pcm_L = 0 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3169 |
 | MX-11 | silence: pcm_R = 0 | audio_mixer.vhd:100 | pass | test/audio/audio_test.cpp:3180 |
 | MX-12 | reset empties ring buffer | audio_mixer.vhd:95-97 | pass | test/audio/audio_test.cpp:3217 |
@@ -1989,7 +1990,6 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | SD2-02 | NR 0x84 b2 CLEAR: identical OUTs to 0x7FF1/0xDFF9/0x1FF1 DO reapply 7FFD/DFFD/1FFD paging, DAC untouched [zxnext.vhd:2708 conflict term 0; :2718-2720 fire] | zxnext.vhd:2708 | pass | test/audio/audio_port_dispatch_test.cpp:880 |
 | AY-63a | noise output is poly17 BIT 0: 96 shifts match an independent re-implementation of the VHDL LFSR recurrence bit for bit | ym2149.vhd:111,284,293,302 | pass | test/audio/audio_test.cpp:884 |
 | AY-63b | a single shared noise drives all three channel mixers (A == B == C on every tick, with the stream actually moving) | ym2149.vhd:302,470-472 | pass | test/audio/audio_test.cpp:915 |
-| MX-61 | in tape mode the drift-correction timer restarts with each playback: after a refill to 14833 frames (one above the band's upper edge at pop 500) the first skip is seen at pop 500, even when the previous playback ended with the timer part-way (jnext-only buffering) | — | pass | test/audio/audio_posix_test.cpp:1155 |
 | AY-101a | env period 0 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1362 |
 | AY-101b | env period 1 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1366 |
 | MX-BL-01 | emit_sample = time-weighted average of the interval | — | pass | test/audio/audio_test.cpp:3383 |
@@ -2824,6 +2824,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-63 | under --silent a rewind replay does not consume the Pi's sound, and a live run does (jnext-only: --silent and the rewind replay have no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2295 |
 | PI-64 | a tape save made while NR 0xA2 bit 0 sends a Pi square wave to the EAR input records the comparator's edges: the MIC jack carries i_AUDIO_EAR, which includes pi_fe_ear (zxnext.vhd:6503, zxnext_top_issue2.vhd:673) | zxnext.vhd:6503, zxnext_top_issue2.vhd:673 | pass | test/uart/uart_posix_test.cpp:2335 |
 | PI-65 | the emulator puts the Pi's audio in tape mode exactly while NR 0xA2 sends it to EAR (I2S enabled and bit 0 set: 0xC1, 0x41 on; 0x01, 0xC0 off), re-evaluated as it pops each mixer sample (zxnext.vhd:2361-2373; the buffering is jnext-only) | zxnext.vhd:2361-2373 | pass | test/uart/uart_posix_test.cpp:1663 |
+| PI-66 | in tape mode (NR 0xA2 sends the Pi's audio to EAR) each Pi audio underrun logs exactly one warning, not one per silent pop after it; an underrun outside tape mode logs none (jnext-only warning; zxnext.vhd:2361-2373 for the EAR route) | zxnext.vhd:2361-2373 | pass | test/uart/uart_posix_test.cpp:1735 |
 | PIT-01 | nextpi::md5_file returns the RFC 1321 digest of a file (empty, short, and one crossing the 1 MiB read buffer) and "" for a file that does not exist | — | pass | test/uart/nextpi_test.cpp:2700 |
 | PIT-02 | the socket transport's QEMU command line puts the console UART on a loopback-only, non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no pipe chardev, the monitor on stdio on Windows and off elsewhere, and the rest of the raspi0 command line unchanged | — | pass | test/uart/nextpi_test.cpp:2739 |
 | PIT-03 | the host back-end per OS: dsound on Windows, coreaudio on macOS, pa elsewhere | — | pass | test/uart/nextpi_test.cpp:2758 |

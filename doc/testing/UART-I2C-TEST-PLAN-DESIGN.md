@@ -573,6 +573,7 @@ network or a NextPi image.
 | PI-63 | `cfg.silent`, a Pi ring of 8000 frames; two frames in rewind replay, then one live | `available()` unchanged after the replay, lower after the live frame. jnext-only: `--silent` and the replay have no VHDL counterpart |
 | PI-64 | `start_tape_save` to a `.tzx`, a Pi square wave flipping every 20 frames, NR 0xA2 = 0xC3, five frames | the recorder holds 150..300 edges (about 220: one per comparator change): the MIC jack carries `pi_fe_ear` (`zxnext.vhd:6503`, `zxnext_top_issue2.vhd:673`) |
 | PI-65 | an Emulator with a `PiAudio` (no stream), one frame each at NR 0xA2 = 0xC1, 0x01, 0x41, 0xC0 | `tape_mode()` is off at start, on after 0xC1 and 0x41, off after 0x01 (bit 0, I2S disabled) and 0xC0 (enabled, bit 0 clear): `feed_pi_audio` sets it from `I2s::ear_routed` on every pop (`zxnext.vhd:2361-2373`; the buffering is jnext-only) |
+| PI-66 | an Emulator with a `PiAudio` on a FIFO; 11025 frames written and played out at NR 0xA2 = 0xC1, twice; then 4410 frames at 0xC0 | the `audio` logger records exactly 1 "Pi audio stopped while sent to EAR" warning after the first tape-mode underrun and 2 after the second (one per underrun, not one per silent pop after it); the music-mode underrun (counted) logs none (`zxnext.vhd:2361-2373` for the EAR route; the warning is jnext-only) |
 
 ### Companion suite — `test/uart/nextpi_test.cpp`
 
