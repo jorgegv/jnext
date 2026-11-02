@@ -5555,16 +5555,72 @@ int main() {
                       m.dbg->lookup_name("banked") == 0xC000 && !m.dbg->lookup_name("_main"),
                   "first=" + std::to_string(first.labels) + " second=" + std::to_string(second.labels));
         }
-        {   // Z88-30: a BOM'd SLD is an SLD
+        {   // Z88-30: a BOM'd SLD is an SLD, and it loads
+            // History: GH #344 review F5 made the BOM route to the SLD loader, which then refused
+            // it ("missing SLD.data.version 1 header"); owner decision 2026-11-01 (GH #427): the
+            // BOM is skipped and the file loads exactly as without it.
             const fs::path d = z / "d30";
             fs::create_directories(d);
             write_text(d / "bom.sld", std::string("\xEF\xBB\xBF") + program_sld(p80, p90));
+            write_text(d / "plain.sld", program_sld(p80, p90));
             Machine m(false, MachineType::ZXN_ISSUE2);
             const auto out = m.dbg->load_source_map((d / "bom.sld").string(), false);
-            check("SRCDBG-Z88-30", "a UTF-8 BOM before an SLD's header sends it to the SLD loader (its own "
-                                   "error), not to the z88dk adapter's \"no source lines\"",
-                  out.count == -1 && has(out.error, "SLD") && !has(out.error, "no source lines"),
-                  out.error);
+            Machine mp(false, MachineType::ZXN_ISSUE2);
+            const auto plain = mp.dbg->load_source_map((d / "plain.sld").string(), false);
+            check("SRCDBG-Z88-30", "a UTF-8 BOM before an SLD's header is skipped: the SLD loads exactly "
+                                   "as the same file without it (count, error, format)",
+                  out.error.empty() && out.count > 0 && out.count == plain.count &&
+                      m.dbg->source_map().size() == mp.dbg->source_map().size() &&
+                      m.dbg->source_map().format() == mp.dbg->source_map().format(),
+                  out.error + " count=" + std::to_string(out.count) + "/" + std::to_string(plain.count));
+        }
+        {   // Z88-33: a BOM'd SLD carries its labels too
+            const fs::path d = z / "d33";
+            fs::create_directories(d);
+            std::ifstream in(JNEXT_SJASMEQU_DIR "/equlabels.sld", std::ios::binary);
+            const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            write_text(d / "bom.sld", std::string("\xEF\xBB\xBF") + body);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            Machine mp(false, MachineType::ZXN_ISSUE2);
+            const auto out = m.dbg->load_source_map((d / "bom.sld").string(), true);
+            const auto plain = mp.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", true);
+            check("SRCDBG-Z88-33", "a BOM'd SLD loads the same labels and source lines as the plain one",
+                  out.error.empty() && plain.labels == 12 && out.labels == plain.labels &&
+                      out.count == plain.count && m.dbg->lookup_name("banked") == 0xC000 &&
+                      m.dbg->lookup_name("banked") == mp.dbg->lookup_name("banked"),
+                  out.error + " labels=" + std::to_string(out.labels));
+        }
+        {   // Z88-34: only a BOM at the very start is skipped
+            const fs::path d = z / "d34";
+            fs::create_directories(d);
+            const std::string bom = "\xEF\xBB\xBF";
+            write_text(d / "twice.sld", bom + bom + program_sld(p80, p90));
+            write_text(d / "line2.sld", "\n" + bom + program_sld(p80, p90));
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const auto twice = m.dbg->load_source_map((d / "twice.sld").string(), false);
+            const auto line2 = m.dbg->load_source_map((d / "line2.sld").string(), false);
+            check("SRCDBG-Z88-34", "a second BOM, or a BOM after a leading blank line, is not skipped: the "
+                                   "file is not an SLD (its first line does not start the header), is read "
+                                   "as a z88dk map and refused",
+                  twice.count == -1 && has(twice.error, "no source lines") && line2.count == -1 &&
+                      has(line2.error, "no source lines") &&
+                      m.dbg->source_map().size() == 0,
+                  twice.error + " | " + line2.error);
+        }
+        {   // Z88-35: a BOM'd z88dk map still goes to the z88dk adapter and loads as without it
+            const fs::path d = z / "d35";
+            z88_copy("v2.4/sccz80-debug", d);
+            std::ifstream in(d / "prog.map", std::ios::binary);
+            const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            write_text(d / "bom.map", std::string("\xEF\xBB\xBF") + body);
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            z88_load(m, d / "prog.nex");
+            const auto out = m.dbg->load_source_map((d / "bom.map").string(), true);
+            check("SRCDBG-Z88-35", "a BOM'd z88dk map is routed to the z88dk adapter and loads its 46 source "
+                                   "lines as without the BOM",
+                  out.error.empty() && out.count == 46 && m.dbg->source_map().format() == "z88dk" &&
+                      line_of(*m.dbg, 0x8CB8) == "main.c:19",
+                  out.error + " count=" + std::to_string(out.count));
         }
         {   // Z88-31: the --source-map helper's line for an SLD
             const std::string sha = "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a";

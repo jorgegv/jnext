@@ -1155,7 +1155,9 @@ file, told apart by its contents (z88dk’s assembler also writes a
 their pages as its source lines do: a banked one only while its page is
 mapped, the rest in the page mapped at their address when the program is
 loaded (a map read before **--load** takes them then). A file that
-cannot be loaded, or holds no symbols, is a startup error.
+cannot be loaded, or holds no symbols, is a startup error. More than 64
+MiB (of a file, or of what a pipe such as `--map <(cmd)` delivers) is
+refused, and the error names the limit.
 
 **--source-map** *FILE*  
 Attach a source map, an sjasmplus SLD or a z88dk `-debug` `.map` (told

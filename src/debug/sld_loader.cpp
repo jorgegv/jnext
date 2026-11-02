@@ -199,6 +199,7 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path, SymbolTabl
     if (std::string why = source_file_problem(path); !why.empty()) return failed(why);
     std::ifstream input(path);
     if (!input.is_open()) return failed("could not open SLD file");
+    skip_utf8_bom(input);
 
     std::string line;
     if (!read_line(input, line) || line != "|SLD.data.version|1")
