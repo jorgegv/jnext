@@ -22,7 +22,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|dot_c|dutil_c|vars_c|other_c|bk_c|bkmain_c|fc_c|ext_use_c|ext_def_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" '
@@ -59,6 +59,7 @@ BAD=0
 #          dot:<subtype> : dot.c dutil.c as a NextZXOS dot command (-subtype=dot|dotx|dotn, GH #351)
 #          banked:<SEG>[:kw] : banked.c -c --codeseg<SEG>, then bmain.c bankin.asm banked.o
 #          cvars  : vars.c other.c (GH #431: C variables of every type, -debug records)
+#          extern : ext_use.c ext_def.c (GH #433: `extern int g;` in one module, `int g` in the other)
 #          cbanked: bk.c -c with code, const and data in PAGE_20, then bkmain.c bk.o (GH #431)
 #          (GH #431: the fc builds use single:fc.c, a __z88dk_fastcall and a __z88dk_callee function)
 build() {
@@ -75,6 +76,7 @@ build() {
         dot:*)  files=(dot.c dutil.c); link=(-m --list "-subtype=${kind#dot:}" -o prog -create-app) ;;
         subdir) mkdir -p "$b/game"; mv "$b/util.c" "$b/game/util.c"; files=(main.c game/util.c asmfn.asm); set -- "$@" -I. ;;
         cvars)  files=(vars.c other.c) ;;
+        extern) files=(ext_use.c ext_def.c) ;;
         cbanked) echo "+ zcc +zxn $* --codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20 --list -c bk.c -o bk.o"
                  (cd "$b" && "${zcc[@]}" "$@" --codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20 --list -c bk.c -o bk.o) || rc=$?
                  files=(bkmain.c bk.o) ;;
@@ -185,6 +187,8 @@ build "$ZM" master 80cc-cvars          cvars   -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-cvars-banked cbanked -clib=new -debug $RUN
 build "$ZM" master sdcc-cvars-banked   cbanked -clib=sdcc_iy -debug $RUN
 build "$ZM" master 80cc-cvars-banked   cbanked -clib=new -compiler=80cc -debug $RUN
+build "$ZM" master sccz80-extern     extern  -clib=new -debug
+build "$ZM" master sdcc-extern       extern  -clib=sdcc_iy -debug
 build "$ZM" master sccz80-fc           single:fc.c -clib=new -debug
 build "$ZM" master sdcc-fc             single:fc.c -clib=sdcc_iy -debug
 build "$ZM" master 80cc-fc             single:fc.c -clib=new -compiler=80cc -debug
