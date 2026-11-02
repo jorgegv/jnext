@@ -9,23 +9,23 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # GH #360 -- the debugger window's default-size / grow rows under a REAL window
 # manager. The offscreen QPA platform has no window manager: it applies every
 # resize() as asked and has no title bar. Under X11 a manager answers the
-# opening fit's requests in ways only a real one does, and a real user is on X11:
-#   - the REVERT: the first (pre-map) request is answered by the map with the
-#     size the window had before it. The fit asks again from there, once the
-#     window is managed and its frame is known (REVOFF, NOREVSKIP kill it);
-#   - the late ECHO: openbox applies the first request after later ones. That
-#     stale size is the manager's, not the user's, and must not end the fit or be
-#     the final size (the size test's DW-11/DW-12, frame taller than the work area);
-#   - a USER resize during the fit still ends it (Q131-05; NOUSER, NOUSERREV);
+# opening fit's requests late and out of order, and a real user is on X11:
+#   - the map answers the first (pre-map) request with the size the window had
+#     before it, and openbox applies the first request after later ones. Those
+#     stale sizes are the manager's, not the user's: while the fit runs, a resize
+#     to a size the fit asked for (or started a pass from) is asked again, and the
+#     fit ends for good 1 s after its last pass (the unit suite's GR-06, GR-07,
+#     GR-08 pin both sides deterministically; NOECHO, NOECHOPASS, NOEND are their
+#     mutants); under openbox the size test's DW-11/DW-12 and the grow test's
+#     GR-02/03/05 are what the race breaks;
+#   - a USER resize during the fit still ends it (Q131-05; NOUSER);
 #   - the height decoration is the manager's real one, not the style's estimate
 #     (OLDDECO: DW-12 `frame 771 tall`).
 # This row runs the same test binaries with JNEXT_TEST_KEEP_QPA set (they keep
 # QT_QPA_PLATFORM=xcb instead of forcing offscreen) inside xvfb-run + openbox:
-#   3000x2200: debugger_window_grow_test (GR-05, 3 runs: the manager's timing is
+#   3000x2200: debugger_window_grow_test (3 runs: the manager's timing is
 #              probabilistic) and quit_cleanup_test (Q131-05);
 #   1366x768:  debugger_window_size_test (DW-11, DW-12 and the rest).
-# NOUSER and NOUSERREV race the user's resize against the first pass, so the
-# unit suite's Q131-05 (offscreen) is what kills NOUSER deterministically.
 # openbox, Xvfb and the three binaries are required: absent = FAIL, never SKIP.
 if want debugger-window-wm-func; then
     begin_func debugger-window-wm-func
