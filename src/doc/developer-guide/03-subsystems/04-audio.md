@@ -99,8 +99,11 @@ one: it prebuffers 50 ms, plays silence on an underrun and prebuffers again, and
 trims a backlog past 300 ms back to 100 ms. NR 0xA2 bit 0 sends the Pi's audio
 to EAR instead: `I2s::fe_ear()` is the hardware's comparator with hysteresis
 (`zxnext.vhd:2361-2373`), and `Emulator::audio_ear_in` folds it into the port
-0xFE bit 6 read and the MIC output through the board's `ear_relax`. The chapter
-on peripherals describes how NextPi itself runs.
+0xFE bit 6 read and the MIC output through the board's `ear_relax`. While it
+does (`I2s::ear_routed`), `PiAudio` runs in tape mode: a 250 ms prebuffer, and
+drift taken out one frame at a time, because a tape loader cannot survive the
+refill's gap or a trim. The chapter on peripherals describes how NextPi itself
+runs.
 
 ## The mixer
 

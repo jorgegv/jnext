@@ -886,6 +886,281 @@ static void g_pi_audio() {
                   opened && wrote && got == 10,
                   fmt("opened=%d wrote=%d available=%u (want 10)", opened ? 1 : 0, wrote ? 1 : 0, got));
         }
+
+        // MX-54..57 — TAPE MODE: while NR 0xA2 sends the Pi's audio to EAR
+        // (I2s::ear_routed), the emulator puts PiAudio in tape mode: a 250 ms
+        // prebuffer, and drift corrected by single-frame skips and repeats
+        // instead of the 50 ms refill and 100 ms trim that cut tape pulses.
+        // Literal numbers, like MX-31/32: the rows pin the promised behaviour.
+        // jnext-only, no VHDL counterpart (except ear_routed, zxnext.vhd:2361-2373).
+        auto put = [](int w, const std::string& b) {
+            std::size_t off = 0;
+            while (w >= 0 && off < b.size()) {
+                const ssize_t n = ::write(w, b.data() + off, b.size() - off);
+                if (n <= 0) return false;
+                off += static_cast<std::size_t>(n);
+            }
+            return w >= 0;
+        };
+
+        // MX-54 — tape mode prebuffers 11025 frames (250 ms) before playing.
+        // (I2s::ear_routed, which turns it on, is MX-58 in audio_test.)
+        {
+            const std::string fifo = (dir / "mx54.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            a.set_tape_mode(true);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool w1 = put(w, header() + frames_bytes(11024, 0));
+            wait_available(a, 11024);
+            int16_t l = -1, r = -1;
+            const bool waits = !a.pop(l, r);                                   // one short
+            const bool w2 = put(w, frames_bytes(1, 11024));
+            wait_available(a, 11025);
+            const bool plays = a.pop(l, r) && l == 0 && r == 0;
+            if (w >= 0) ::close(w);
+            check("MX-54", "in tape mode the Pi I2S source prebuffers 11025 frames (250 ms) before "
+                  "playing (jnext-only buffering)",
+                  opened && w1 && w2 && a.tape_mode() && waits && plays,
+                  fmt("opened=%d tape=%d waits=%d plays=%d first L=%d", opened ? 1 : 0,
+                      a.tape_mode() ? 1 : 0, waits ? 1 : 0, plays ? 1 : 0, l));
+        }
+
+        // MX-55 — tape mode, level above 11025 + 3308: drift is taken out by
+        // skipping ONE frame every 500th pop, exactly, and nothing is trimmed
+        // (30000 frames is under the 44100-frame tape limit, and still above
+        // the band after 6001 pops, so all 12 skips happen).
+        {
+            const std::string fifo = (dir / "mx55.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            a.set_tape_mode(true);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool wrote = put(w, header() + frames_bytes(30000, 0));
+            wait_available(a, 30000);
+            int16_t l = 0, r = 0, prev = -1;
+            int pops = 0, twos = 0, first_two = -1, last_two = -1000, closest = 1 << 30;
+            bool steps_ok = true;
+            // One pop past 6000: a skip decided on the last pop shows only in
+            // the frame after it (and cannot recur so soon, 500 pops apart).
+            while (pops < 6001 && a.pop(l, r)) {
+                const int step = l - prev;
+                if (step == 2) {
+                    if (twos++ == 0) first_two = pops;
+                    closest = std::min(closest, pops - last_two);
+                    last_two = pops;
+                } else if (step != 1) {
+                    steps_ok = false;
+                }
+                prev = l;
+                ++pops;
+            }
+            if (w >= 0) ::close(w);
+            const unsigned long long skipped = a.frames_skipped();
+            check("MX-55", "in tape mode a Pi audio level above 14333 frames is brought down by "
+                  "skipping single frames, one every 500 pops exactly (12 in 6001, the first seen "
+                  "at pop 500), with nothing trimmed below the 44100-frame tape limit (jnext-only "
+                  "buffering)",
+                  opened && wrote && pops == 6001 && steps_ok && twos == 12 && first_two == 500 &&
+                      static_cast<unsigned long long>(twos) == skipped && closest == 500 &&
+                      a.frames_dropped() == 0 && a.frames_repeated() == 0,
+                  fmt("opened=%d wrote=%d pops=%d steps_ok=%d skips=%d (want 12) first=%d (want 500) "
+                      "counted=%llu closest=%d dropped=%llu repeated=%llu",
+                      opened ? 1 : 0, wrote ? 1 : 0, pops, steps_ok ? 1 : 0, twos, first_two, skipped,
+                      closest, static_cast<unsigned long long>(a.frames_dropped()),
+                      static_cast<unsigned long long>(a.frames_repeated())));
+        }
+
+        // MX-56 — tape mode, level below 11025 - 3308 = 7717: drift is made up
+        // by repeating ONE frame every 500th pop instead of running dry and
+        // refilling. Pop k reads 11025 - k frames, so pop 3309 is the first
+        // below the band; its repeat shows at 3310, then 3810, 4310, 4810.
+        {
+            const std::string fifo = (dir / "mx56.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            a.set_tape_mode(true);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool wrote = put(w, header() + frames_bytes(11025, 0));
+            wait_available(a, 11025);
+            int16_t l = 0, r = 0, prev = -1;
+            int pops = 0, zeros = 0, first_zero = -1, last_zero = -1000, closest = 1 << 30;
+            bool steps_ok = true;
+            // One pop past 5000, for the same reason as MX-55: a repeat decided
+            // on the last pop shows only in the frame after it.
+            while (pops < 5001 && a.pop(l, r)) {
+                const int step = l - prev;
+                if (pops > 0 && step == 0) {
+                    if (zeros++ == 0) first_zero = pops;
+                    closest = std::min(closest, pops - last_zero);
+                    last_zero = pops;
+                } else if (step != 1) {
+                    steps_ok = false;
+                }
+                prev = l;
+                ++pops;
+            }
+            if (w >= 0) ::close(w);
+            const unsigned long long repeated = a.frames_repeated();
+            check("MX-56", "in tape mode a Pi audio level below 7717 frames is made up by repeating "
+                  "single frames, one every 500 pops exactly (the first seen at pop 3310, 4 in "
+                  "5001), without an underrun (jnext-only buffering)",
+                  opened && wrote && pops == 5001 && steps_ok && zeros == 4 && first_zero == 3310 &&
+                      static_cast<unsigned long long>(zeros) == repeated && closest == 500 &&
+                      a.underruns() == 0 && a.frames_skipped() == 0,
+                  fmt("opened=%d wrote=%d pops=%d steps_ok=%d repeats=%d (want 4) first=%d (want 3310) "
+                      "counted=%llu closest=%d underruns=%llu skipped=%llu",
+                      opened ? 1 : 0, wrote ? 1 : 0, pops, steps_ok ? 1 : 0, zeros, first_zero, repeated,
+                      closest, static_cast<unsigned long long>(a.underruns()),
+                      static_cast<unsigned long long>(a.frames_skipped())));
+        }
+
+        // MX-57 — switching: entering tape mode while playing prebuffers again
+        // to 11025 frames; leaving it drops the oldest frames beyond 4410 once.
+        {
+            const std::string fifo = (dir / "mx57.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool w1 = put(w, header() + frames_bytes(3000, 0));
+            wait_available(a, 3000);
+            int16_t l = -1, r = -1;
+            const bool music = a.pop(l, r) && l == 0;                          // 2205 prebuffer met
+            a.set_tape_mode(true);
+            const bool refills = !a.pop(l, r);                                 // 2999 < 11025
+            const bool w2 = put(w, frames_bytes(8100, 3000));
+            wait_available(a, 11099);
+            const bool tape = a.pop(l, r) && l == 1;
+            const unsigned long long before = a.frames_dropped();
+            a.set_tape_mode(false);
+            const uint32_t left = a.available();
+            const unsigned long long dropped = a.frames_dropped() - before;
+            const bool resumes = a.pop(l, r) && l == 2 + 6688;
+            if (w >= 0) ::close(w);
+            check("MX-57", "entering tape mode while playing prebuffers the Pi audio again to 11025 "
+                  "frames, and leaving it drops the oldest frames beyond 4410 once, so music "
+                  "latency returns to 100 ms (jnext-only buffering)",
+                  opened && w1 && w2 && music && refills && tape && left == 4410 &&
+                      dropped == 6688 && resumes,
+                  fmt("music=%d refills=%d tape=%d left=%u (want 4410) dropped=%llu (want 6688) "
+                      "resumes=%d L=%d (want 6690)",
+                      music ? 1 : 0, refills ? 1 : 0, tape ? 1 : 0, left, dropped,
+                      resumes ? 1 : 0, l));
+        }
+
+        // MX-59 — the tape trim: in tape mode a backlog of 44100 frames (1 s)
+        // is kept, and 44101 is cut to 11025 by dropping the oldest.
+        {
+            auto trial = [&](const char* name, int frames, int16_t& first, uint32_t& left,
+                             unsigned long long& dropped) {
+                const std::string fifo = (dir / name).string();
+                PiAudio a;
+                std::string err;
+                if (!a.open(fifo, err)) return false;
+                a.set_tape_mode(true);
+                const int w = ::open(fifo.c_str(), O_WRONLY);
+                const bool wrote = put(w, header() + frames_bytes(frames, 0));
+                wait_available(a, static_cast<uint32_t>(frames));
+                int16_t r = 0;
+                const bool popped = a.pop(first, r);
+                left = a.available();
+                dropped = a.frames_dropped();
+                if (w >= 0) ::close(w);
+                return wrote && popped;
+            };
+            int16_t f_keep = -1, f_trim = -1;
+            uint32_t l_keep = 0, l_trim = 0;
+            unsigned long long d_keep = 1, d_trim = 0;
+            const bool ok_keep = trial("mx59a.fifo", 44100, f_keep, l_keep, d_keep);
+            const bool ok_trim = trial("mx59b.fifo", 44101, f_trim, l_trim, d_trim);
+            check("MX-59", "in tape mode a Pi audio backlog of 44100 frames (1 s) is kept, and one of "
+                  "44101 is trimmed to 11025 by dropping the oldest (jnext-only buffering)",
+                  ok_keep && ok_trim && f_keep == 0 && l_keep == 44099 && d_keep == 0 &&
+                      // frame 33076's sample wraps in int16, as frames_bytes writes it
+                      f_trim == static_cast<int16_t>(44101 - 11025) && l_trim == 11024 &&
+                      d_trim == 44101 - 11025,
+                  fmt("keep: ok=%d first=%d left=%u dropped=%llu (want 0/44099/0); trim: ok=%d "
+                      "first=%d left=%u dropped=%llu (want -32460 i.e. frame 33076/11024/33076)",
+                      ok_keep ? 1 : 0, f_keep, l_keep, d_keep, ok_trim ? 1 : 0, f_trim, l_trim, d_trim));
+        }
+
+        // MX-60 — the band's upper edge: pop 500 is the first that may skip,
+        // and it reads (frames - 499). With 14832 frames that is 14333, on the
+        // edge (11025 + 3308): no skip in 1000 pops. With 14833 it is 14334:
+        // exactly one skip, seen at pop 500. (MX-56 pins the lower edge.)
+        {
+            auto skips_in_1000 = [&](const char* name, int frames, int& first) {
+                const std::string fifo = (dir / name).string();
+                PiAudio a;
+                std::string err;
+                first = -1;
+                if (!a.open(fifo, err)) return -1;
+                a.set_tape_mode(true);
+                const int w = ::open(fifo.c_str(), O_WRONLY);
+                const bool wrote = put(w, header() + frames_bytes(frames, 0));
+                wait_available(a, static_cast<uint32_t>(frames));
+                int16_t l = 0, r = 0, prev = -1;
+                int twos = 0;
+                for (int pops = 0; pops < 1000 && a.pop(l, r); ++pops) {
+                    if (l - prev == 2 && twos++ == 0) first = pops;
+                    prev = l;
+                }
+                if (w >= 0) ::close(w);
+                return wrote && static_cast<unsigned long long>(twos) == a.frames_skipped() ? twos : -1;
+            };
+            int first_in = 0, first_out = 0;
+            const int in_band  = skips_in_1000("mx60a.fifo", 14832, first_in);
+            const int out_band = skips_in_1000("mx60b.fifo", 14833, first_out);
+            check("MX-60", "in tape mode a Pi audio level of 14333 frames (the band's upper edge, "
+                  "11025 + 3308) is left alone, and 14334 gets exactly one skip, at pop 500 "
+                  "(jnext-only buffering)",
+                  in_band == 0 && out_band == 1 && first_out == 500,
+                  fmt("skips at 14333=%d (want 0); at 14334=%d (want 1) first=%d (want 500)",
+                      in_band, out_band, first_out));
+        }
+        // MX-61 — the adjust timer restarts with each playback: a stream that
+        // played out (600 pops in the band, then the repeats down to dry, so the
+        // timer is left part-way) and refilled to 14833 frames (one over the
+        // band's upper edge at pop 500) gets its first skip at pop 500 of the
+        // NEW playback, not sooner.
+        {
+            const std::string fifo = (dir / "mx61.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            a.set_tape_mode(true);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool w1 = put(w, header() + frames_bytes(11025, 0));
+            wait_available(a, 11025);
+            int16_t l = 0, r = 0;
+            int played = 0;
+            while (played < 600 && a.pop(l, r)) ++played;           // in the band: timer fills to 500
+            int guard = 0;
+            while (a.pop(l, r) && ++guard < 20000) {}               // run dry (repeats included)
+            const bool dry = a.underruns() == 1 && a.available() == 0;
+            const bool w2 = put(w, frames_bytes(14833, 0));
+            wait_available(a, 14833);
+            const unsigned long long skipped_before = a.frames_skipped();
+            int16_t prev = -1;
+            int first = -1, twos = 0;
+            for (int pops = 0; pops < 1000 && a.pop(l, r); ++pops) {
+                if (l - prev == 2 && twos++ == 0) first = pops;
+                prev = l;
+            }
+            if (w >= 0) ::close(w);
+            check("MX-61", "in tape mode the drift-correction timer restarts with each playback: "
+                  "after a refill to 14833 frames (one above the band's upper edge at pop 500) the "
+                  "first skip is seen at pop 500, even when the previous playback ended with the "
+                  "timer part-way (jnext-only buffering)",
+                  opened && w1 && w2 && played == 600 && dry && skipped_before == 0 && twos == 1 &&
+                      first == 500,
+                  fmt("opened=%d played=%d dry=%d skips=%d (want 1) first=%d (want 500)",
+                      opened ? 1 : 0, played, dry ? 1 : 0, twos, first));
+        }
         fs::remove_all(dir, ec);
     }
 }
