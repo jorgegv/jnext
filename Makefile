@@ -1358,7 +1358,7 @@ docs-userguide:
 	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to doc/user-guide\n"
 	@printf "        it is committed: commit the regenerated files alongside your change\n"
 
-# Regenerate the user guide's 14 Qt screenshots from the running product
+# Regenerate the user guide's 20 Qt screenshots from the running product
 docs-screenshots: unit-test-build
 	@# WHAT THIS IS FOR. src/doc/user-guide/img/debugger-*.png are pictures of
 	@# the debugger, and docs-check cannot see inside a PNG — it proves the

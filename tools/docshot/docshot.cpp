@@ -40,6 +40,14 @@
 //      not actually have, and the panel crops line up with debugger-window.png
 //      by construction.
 //
+// THE SOURCE-DEBUGGING SHOTS (GH #426)
+//
+// Group 4, last, loads a committed z88dk fixture (test/fixtures/z88dk, the
+// program the user guide's source-debugging section is written on) through the
+// production load and sidecar path, runs it to a `file:line` breakpoint and
+// captures the Source tab, the Breakpoints tab, the coverage tint, the Borland
+// scheme and a banked stop. See load_and_stop().
+//
 // THE CONTENT FIXTURE, AND WHY IT IS HONEST
 //
 // NextZXOS at its welcome screen drives no sprites, no Copper program and no
@@ -128,6 +136,7 @@
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/script_panel.h"
+#include "debugger/source_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/video_panel.h"
 #include "debugger/watch_panel.h"
@@ -136,6 +145,8 @@
 #include "gui/main_window.h"
 #include "gui/desktop_color_scheme.h"
 #include "gui/preferences_dialog.h"
+#include "platform/emulator_boot.h"
+#include "platform/source_scheme.h"
 #include "port/nextreg.h"
 #include "script/script_host.h"
 #include "video/sprites.h"
@@ -521,6 +532,7 @@ bool apply_debug_fixture(DebuggerManager* mgr, DebuggerWindow* dbg) {
 struct Options {
     QString out_dir = QStringLiteral("src/doc/user-guide/img");
     QString sdcard;
+    QString fixtures = QStringLiteral("test/fixtures/z88dk");   // GH #426: the z88dk fixtures of Group 4
     std::vector<std::string> only;   // empty = every image
 };
 
@@ -637,22 +649,109 @@ void capture_gui_shots(Emulator& emu, jnext::dbg::Debugger& backend, const Optio
     }
 }
 
+// ── Group 4: a z88dk program under the Source tab (GH #426) ───────────
+
+/// Copy the files of a committed z88dk fixture (the build's outputs) and the
+/// sources it was built from into `into`, load the program the way a user does
+/// and run it to a breakpoint on `bp` (a `file:line`).
+///
+/// The load is the production one: the format dispatch every frontend shares
+/// (emulator_apply_load), then Debugger::load_program_sidecars(), which is what
+/// attaches `prog.map`, checks its identity against the section binaries and
+/// reads the listings; DebuggerManager::report_sidecars() is what QtApp calls
+/// next. The breakpoint goes through BreakpointModel::add_source_line(), the
+/// call the Add dialog makes for a `file:line`. The run is the F5 Continue
+/// (DebuggerManager::on_run). Nothing is drawn by hand: the Source tab shows what
+/// its own refresh puts there, and the label text is checked against `expect`
+/// so a toolchain or UI change that moves the stop fails the run instead of
+/// writing a picture of another place.
+bool load_and_stop(Emulator& emu, jnext::dbg::Debugger& backend, DebuggerManager* mgr,
+                   DebuggerWindow* dbg, const QString& fixtures, const char* fixture,
+                   const QStringList& sources, const QString& bp, const QString& expect,
+                   bool coverage, QTemporaryDir& into) {
+    const QDir fx(fixtures + QStringLiteral("/") + QString::fromLatin1(fixture));
+    const QDir src(fixtures + QStringLiteral("/src"));
+    if (!into.isValid() || !fx.exists("prog.nex") || !src.exists()) {
+        note("  FAIL %s: fixture %s not found under %s (run from the repository root, or give --fixtures)\n",
+             fixture, fixture, qPrintable(fixtures));
+        return false;
+    }
+    for (const QString& f : fx.entryList(QDir::Files)) {
+        if (f == QLatin1String("build.log")) continue;
+        QFile::copy(fx.filePath(f), into.filePath(f));
+    }
+    for (const QString& f : sources) {
+        if (!QFile::copy(src.filePath(f), into.filePath(f))) {
+            note("  FAIL %s: cannot copy the source %s\n", fixture, qPrintable(f));
+            return false;
+        }
+    }
+    const std::string nex = into.filePath(QStringLiteral("prog.nex")).toStdString();
+
+    mgr->breakpoints().clear_all();
+    mgr->on_pause();
+    if (!emulator_apply_load(emu, nex, false)) {
+        note("  FAIL %s: the load of prog.nex failed\n", fixture);
+        return false;
+    }
+    const auto sidecars = backend.load_program_sidecars(nex);
+    mgr->report_sidecars(sidecars);
+    if (sidecars.sources <= 0 || !sidecars.problem.empty() || sidecars.sources_pending) {
+        note("  FAIL %s: the source map did not attach verified (sources %d, pending %d, problem '%s')\n",
+             fixture, sidecars.sources, sidecars.sources_pending ? 1 : 0, sidecars.problem.c_str());
+        return false;
+    }
+    note("docshot: %s: %d source lines, %d symbols\n", fixture, sidecars.sources, sidecars.symbols);
+    if (coverage && backend.mem_coverage_enable(true) != jnext::dbg::Result::Ok) {
+        note("  FAIL %s: memory coverage did not switch on\n", fixture);
+        return false;
+    }
+    if (mgr->breakpoints().add_source_line(bp) == jnext::dbg::GROUP_NONE) {
+        note("  FAIL %s: no breakpoint on %s\n", fixture, qPrintable(bp));
+        return false;
+    }
+    mgr->on_run();
+    for (int i = 0; i < 600 && !backend.state().paused; ++i) {
+        emu.run_frame();
+        backend.pump(jnext::dbg::PumpBudget{});
+    }
+    if (!backend.state().paused) {
+        note("  FAIL %s: the program never stopped on %s\n", fixture, qPrintable(bp));
+        return false;
+    }
+    mgr->on_pause();
+    mgr->refresh_panels();
+    settle();
+    const QString where = dbg->source_panel() ? dbg->source_panel()->location_text() : QString();
+    if (!where.startsWith(expect)) {
+        note("  FAIL %s: the Source tab reads '%s', want it to start '%s'\n", fixture,
+             qPrintable(where), qPrintable(expect));
+        return false;
+    }
+    note("docshot: stopped: %s\n", qPrintable(where.left(where.indexOf(QLatin1Char('\n')))));
+    return true;
+}
+
 void usage() {
     std::printf(
         "docshot — regenerate the user guide's Qt screenshots\n"
         "\n"
-        "Usage: docshot [--out DIR] [--sdcard IMAGE] [NAME ...]\n"
+        "Usage: docshot [--out DIR] [--sdcard IMAGE] [--fixtures DIR] [NAME ...]\n"
         "\n"
         "  --out DIR       where to write the PNGs (default src/doc/user-guide/img)\n"
         "  --sdcard IMAGE  NextZXOS SD image to boot; defaults to $JNEXT_TEST_SD_IMAGE,\n"
         "                  then the location jnext itself falls back to\n"
+        "  --fixtures DIR  the z88dk fixtures the source-debugging shots load\n"
+        "                  (default test/fixtures/z88dk, relative to the working directory)\n"
         "  NAME ...        capture only these images (bare names, no .png)\n"
         "\n"
         "Images: debugger-window debugger-cpu-mmu debugger-disassembly\n"
         "        debugger-video debugger-nextreg debugger-memory debugger-stack\n"
         "        debugger-watches debugger-breakpoints\n"
-        "        debugger-sprites debugger-copper debugger-audio\n"
-        "        gui-main-window preferences-startup\n");
+        "        debugger-sprites debugger-copper debugger-audio debugger-script\n"
+        "        gui-main-window preferences-startup\n"
+        "        debugger-source debugger-source-breakpoints debugger-source-coverage\n"
+        "        debugger-source-borland debugger-source-banked\n");
 }
 
 } // namespace
@@ -665,6 +764,7 @@ int main(int argc, char** argv)
         if (a == "--help" || a == "-h") { usage(); return 0; }
         else if (a == "--out" && i + 1 < argc)    opt.out_dir = QString::fromLocal8Bit(argv[++i]);
         else if (a == "--sdcard" && i + 1 < argc) opt.sdcard  = QString::fromLocal8Bit(argv[++i]);
+        else if (a == "--fixtures" && i + 1 < argc) opt.fixtures = QString::fromLocal8Bit(argv[++i]);
         else if (!a.empty() && a[0] == '-')       { usage(); return 2; }
         else                                      opt.only.push_back(a);
     }
@@ -1004,6 +1104,76 @@ int main(int argc, char** argv)
         settle();
         shoot_tab(left_tabs, "Script", "debugger-script");
         mgr->set_script_host(nullptr);
+    }
+
+    // ── Group 4: a z88dk program under the Source tab (GH #426) ───────
+    //
+    // Last of all, and for the reason Group 3 is: it replaces the machine's
+    // program, so every earlier shot has to be taken first (the header's
+    // byte-identity check: the twelve other debugger images come out the same
+    // with this block present and removed). The program is the committed z88dk
+    // fixture the guide's walkthrough is written on (test/fixtures/z88dk), so
+    // the picture, the text and the tests are one program. The GUI's own
+    // breakpoints and watches are cleared first: they belong to the NextZXOS
+    // shots above and one of them sits at $8000.
+    if (wanted(opt, "debugger-source") || wanted(opt, "debugger-source-breakpoints") ||
+        wanted(opt, "debugger-source-coverage") || wanted(opt, "debugger-source-borland") ||
+        wanted(opt, "debugger-source-banked")) {
+        note("capturing (a z88dk program under the Source tab):\n");
+        const QStringList main_sources = {QStringLiteral("main.c"), QStringLiteral("util.c"),
+                                          QStringLiteral("util.h"), QStringLiteral("asmfn.asm")};
+        BreakpointModel* bpm = &mgr->breakpoints();
+
+        if (wanted(opt, "debugger-source") || wanted(opt, "debugger-source-breakpoints")) {
+            QTemporaryDir dir;
+            if (!load_and_stop(emu, backend, mgr, dbg, opt.fixtures, "v2.4/sccz80-debug",
+                               main_sources, QStringLiteral("main.c:19"),
+                               QStringLiteral("main.c:19  $8CB5  P04"), false, dir))
+                return 1;
+            shoot_tab(left_tabs, "Source", "debugger-source");
+            if (wanted(opt, "debugger-source-breakpoints")) {
+                // A Write watchpoint on `counter`, by its C name: the symbol is
+                // resolved the way the Add dialog resolves the text.
+                const auto key = backend.symbols().resolve_key("counter");
+                if (!key) {
+                    note("  FAIL debugger-source-breakpoints: the map has no 'counter'\n");
+                    return 1;
+                }
+                bpm->add(BreakpointModel::Write, key->addr);
+                mgr->refresh_panels();
+                settle();
+                shoot_tab(bottom_tabs, "Breakpoints", "debugger-source-breakpoints");
+            }
+        }
+
+        if (wanted(opt, "debugger-source-coverage") || wanted(opt, "debugger-source-borland")) {
+            QTemporaryDir dir;
+            if (!load_and_stop(emu, backend, mgr, dbg, opt.fixtures, "v2.4/sccz80-debug",
+                               main_sources, QStringLiteral("main.c:26"),
+                               QStringLiteral("main.c:26"), true, dir))
+                return 1;
+            shoot_tab(left_tabs, "Source", "debugger-source-coverage");
+            if (wanted(opt, "debugger-source-borland")) {
+                mgr->set_source_scheme(SourceScheme::Borland);
+                mgr->refresh_panels();
+                settle();
+                shoot_tab(left_tabs, "Source", "debugger-source-borland");
+                mgr->set_source_scheme(SourceScheme::Auto);
+            }
+            (void)backend.mem_coverage_enable(false);
+        }
+
+        if (wanted(opt, "debugger-source-banked")) {
+            QTemporaryDir dir;
+            if (!load_and_stop(emu, backend, mgr, dbg, opt.fixtures, "v2.4/sccz80-banked-run",
+                               {QStringLiteral("bmain.c"), QStringLiteral("banked.c"),
+                                QStringLiteral("banked.h"), QStringLiteral("bankin.asm")},
+                               QStringLiteral("banked.c:9"),
+                               QStringLiteral("banked.c:9  $C"), false, dir))
+                return 1;
+            shoot_tab(left_tabs, "Source", "debugger-source-banked");
+        }
+        bpm->clear_all();
     }
 
     // Leave the machine running, the way closing the debugger does, so nothing

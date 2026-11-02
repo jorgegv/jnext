@@ -45,6 +45,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-page20, sccz80-bank10 | `-clib=new -debug`, `PAGE_20` / `BANK_10` | ok | G8 |
 | v2.4/sccz80-banked, sdcc-banked | `-DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
 | v2.4/sccz80-banked-run | `-clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000`, `PAGE_20` | ok | G9 runnable: Into/Over/Out across `banked_call` (GH #345) |
+| v2.4/sccz80-banked-crt, master/sccz80-banked-crt | the `-run` flags, `KEEP_CRT` | ok | `code_crt_init` shared with the banking driver (GH #426 F4) |
 | v2.4/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic bank prefix; keeps the classic CRT listing (G19-G21) |
 | v2.4/classic-debug | `-clib=classic -debug` | **fails rc=1** | Z1 |
 | v2.4/sccz80-subdir | `-clib=new -debug -I.`, `game/util.c` | ok | G10 |

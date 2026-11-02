@@ -19,7 +19,8 @@ $ zcc +zxn -vn -startup=31 -clib=sdcc_ix -SO3 mygame.c -o mygame \
 
 That writes `mygame.map` next to `mygame.nex`. (With `-debug` as well, JNEXT's own
 Source tab steps through the C source too: see
-[Debugging z88dk C programs](14-source-level-debugging.md#debugging-z88dk-c-programs).)
+[Building programs with z88dk](../source-debugger/02-building-with-z88dk.md); sessions are in
+[Scripts and remote debuggers](../source-debugger/09-scripts-and-remote-debuggers.md).)
 
 ## Start JNEXT, then connect
 

@@ -137,7 +137,7 @@ staleness check guarding it:
 | `docs-userguide` | `doc/user-guide` from `src/doc/user-guide` | `docs-userguide-check` |
 | `docs-devguide` | `doc/developer-guide` from `src/doc/developer-guide` | `docs-devguide-check` |
 | `docs-devguide-diagrams` | the guide's committed SVGs from Graphviz `.dot` sources | (same check) |
-| `docs-screenshots` | the user guide's twelve `img/debugger-*.png` from the running debugger | none — see below |
+| `docs-screenshots` | the user guide's Qt screenshots (`img/debugger-*.png`, the main window, Preferences) from the running debugger | none — see below |
 
 `make docs-check` runs the first three guards and aggregates their results, so
 one stale document never hides another behind it. It is a prerequisite of both test

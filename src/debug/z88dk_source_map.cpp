@@ -282,8 +282,11 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         bins.push_back(std::move(bin));
     }
     // The binary that holds [value, value + length) of `space`: its group must put both
-    // ends of the range in that space.
-    const auto bin_for = [&](uint64_t value, uint32_t length, FetchSource space) -> const Bin* {
+    // ends of the range in that space. With `more` given, every binary is scanned and
+    // *more says whether a second one covers it too (overlay sections at one ORG).
+    const auto bin_for = [&](uint64_t value, uint32_t length, FetchSource space,
+                             bool* more = nullptr) -> const Bin* {
+        const Bin* found = nullptr;
         for (const Bin& bin : bins) {
             if (value < bin.head || value + length > bin.head + bin.bytes.size()) continue;
             const auto group_space = [&](uint64_t v) {
@@ -296,9 +299,14 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             if (space_key(group_space(value)) != space_key(space)
                 || space_key(group_space(value + length - 1)) != space_key(space))
                 continue;
-            return &bin;
+            if (!more) return &bin;
+            if (found) {
+                *more = true;
+                return found;
+            }
+            found = &bin;
         }
-        return nullptr;
+        return found;
     };
 
     // The listings (GH #348): each one a module's lines, or a note why not.
@@ -347,8 +355,10 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             return out;
         };
         view.byte_at = [&](uint64_t value, FetchSource space) -> std::optional<uint8_t> {
-            const Bin* bin = bin_for(value, 1, space);
-            if (!bin) return std::nullopt;
+            // A byte two section binaries both claim is unknown, never one of them.
+            bool more = false;
+            const Bin* bin = bin_for(value, 1, space, &more);
+            if (!bin || more) return std::nullopt;
             return bin->bytes[static_cast<size_t>(value - bin->head)];
         };
 
