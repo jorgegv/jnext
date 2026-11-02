@@ -54,8 +54,10 @@ without a word (it does that to any label that is not at the start of a line).
 A page you labelled in two windows (for example `$4000` and `$C000`) gets a file for each; the
 labels of one window do not appear in the other's.
 
-A label that belongs to no particular memory is repeated in every exported window that covers its address. At an address that no exported window covers (a page with no labels and no
-coverage there) it has no file to land in, and `sna2skool -c DIR` leaves it out.
+A label that belongs to no particular memory is written once, in `0000-0CPU.ctl`. Every exported window
+that covers its address also gets a split there, which is what lets skoolkit keep the label. At an address
+that no exported window covers (a page with no labels and no coverage there) it has no window to split in,
+and `sna2skool -c DIR` leaves it out.
 
 ## Ghidra
 

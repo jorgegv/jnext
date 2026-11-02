@@ -3675,14 +3675,23 @@ static void test_reexport_ui() {
         fx.backend->set_user_label(P10, 0xC100, "keep");
         const auto before = fx.backend->annotations();
         const uint64_t rev = fx.backend->annotations_revision();
-        QMenu* imp = submenu_named(menu_named(fx.dbg()->menuBar(), "Map"), "Import");
+        QMenu* map = menu_named(fx.dbg()->menuBar(), "Map");
+        QMenu* imp = submenu_named(map, "Import");
+        QMenu* exp = submenu_named(map, "Export");
+        const QStringList tree_before = QDir(g_tmp->path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name);
         Modals m;
         m.cancel_files = true;
         if (QAction* a = item_named(imp, "skoolkit Control Files...")) a->trigger();
         if (QAction* a = item_named(imp, "Ghidra Symbols...")) a->trigger();
+        if (QAction* a = item_named(exp, "skoolkit Control Files...")) a->trigger();
+        if (QAction* a = item_named(exp, "Ghidra Symbols...")) a->trigger();
         m.timer.stop();
-        check("QREX-07", "cancelling either Import dialog shows no box and leaves the store and its revision as they were",
-              m.first("file") && m.boxes() == 0 && fx.backend->annotations() == before && fx.backend->annotations_revision() == rev,
+        int file_dialogs = 0;
+        for (const auto& sn : m.seen) file_dialogs += sn.kind == "file";
+        check("QREX-07", "cancelling any of the four Import and Export dialogs shows no box, writes no file and leaves the store and its "
+                         "revision as they were",
+              file_dialogs == 4 && m.boxes() == 0 && fx.backend->annotations() == before && fx.backend->annotations_revision() == rev &&
+                  QDir(g_tmp->path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name) == tree_before,
               m.describe());
     }
 }
