@@ -253,6 +253,8 @@ forwarding stays at the five instruction-level keys.
 
 ## Symbols
 
+The Map menu also imports and exports skoolkit control files and Ghidra symbol files (GH #389): see [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
+
 The Map menu loads into the backend's one table with `load_map()`, and the Disassembly, Call Stack and
 Breakpoints panels read `symbols()`. A breakpoint set on a symbol keeps its name in the list, and a symbol
 any other client loads shows in the panels too. What each loader reads is

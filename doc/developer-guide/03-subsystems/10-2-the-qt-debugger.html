@@ -3252,6 +3252,7 @@ windows cannot disagree. The five source-step actions are keymap actions too
 (<code>source_step_into</code> and the rest), but they are debugger-window only: the
 forwarding stays at the five instruction-level keys.</p>
 <h2 id="symbols">Symbols<a class="headerlink" href="#symbols" title="Permanent link">&para;</a></h2>
+<p>The Map menu also imports and exports skoolkit control files and Ghidra symbol files (GH #389): see <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>.</p>
 <p>The Map menu loads into the backend's one table with <code>load_map()</code>, and the Disassembly, Call Stack and
 Breakpoints panels read <code>symbols()</code>. A breakpoint set on a symbol keeps its name in the list, and a symbol
 any other client loads shows in the panels too. What each loader reads is

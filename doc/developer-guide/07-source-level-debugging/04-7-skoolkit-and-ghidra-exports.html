@@ -2738,6 +2738,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#qt-map-import-and-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Qt: Map ▸ Import and Export
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3092,6 +3103,31 @@ in the writers' files:</p>
   <code>Input::comments</code> (<code>annotations</code> (<code>debugger_reinterop.cpp:180</code>)),
   and <code>symbols()</code> is the composed table, so a user label already shadows the toolchain's in both exports
   (SRCDBG-REX-14).</li>
+</ul>
+<h3 id="qt-map-import-and-export">Qt: Map ▸ Import and Export<a class="headerlink" href="#qt-map-import-and-export" title="Permanent link">&para;</a></h3>
+<p>The Qt debugger offers the four verbs in its Map menu, after the annotation entries of 7.4.6:
+<code>import_menu</code> (<code>debugger_window.cpp:898</code>) and
+<code>export_menu</code> (<code>debugger_window.cpp:903</code>), each with
+<code>&amp;skoolkit Control Files...</code> and <code>&amp;Ghidra Symbols...</code> (<code>I</code> and <code>E</code> are free in the Map popup, <code>S</code> and <code>G</code>
+are unique in each submenu; <code>DACC-05</code> pins the new popups and mnemonics). The slots are
+<code>on_import_skoolkit</code> (<code>debugger_manager.cpp:852</code>),
+<code>on_import_ghidra</code> (<code>debugger_manager.cpp:853</code>),
+<code>on_export_skoolkit</code> (<code>debugger_manager.cpp:854</code>) and
+<code>on_export_ghidra</code> (<code>debugger_manager.cpp:855</code>), which share
+<code>import_re_files</code> (<code>debugger_manager.cpp:812</code>) and
+<code>export_re_files</code> (<code>debugger_manager.cpp:835</code>):</p>
+<ul>
+<li><strong>Import</strong> asks for one or more files with <code>QFileDialog::getOpenFileNames</code> (<code>*.ctl</code> or <code>*.txt</code>), calls
+  the backend verb once with all of them, and shows the report (counts, then each note) in an
+  <code>Import Done</code> box, or an <code>Import Failed</code> warning with the verb's <code>why</code> (the file and the line) and
+  nothing changed. A success refreshes the panels, so the Disassembly's Label column shows the new names
+  at once; the verb's one revision bump is what makes the quit question of 7.4.6 ask about unsaved
+  annotations.</li>
+<li><strong>Export</strong> asks for a directory with <code>QFileDialog::getExistingDirectory</code>, calls the verb and shows the
+  report in an <code>Export Done</code> box, or an <code>Export Failed</code> warning with <code>why</code>.</li>
+<li><strong>Tests:</strong> <code>QREX-01..04</code> in <code>debugger_verbs_test</code> drive the real file dialogs through <code>Modals</code>
+  (a quoted file list or a directory typed into the dialog's name field) and compare the exported files
+  with what the verb writes.</li>
 </ul>
 <h2 id="4-the-frontends">4. The frontends<a class="headerlink" href="#4-the-frontends" title="Permanent link">&para;</a></h2>
 <p><code>write_re_exports_at_exit()</code> (<code>re_export_at_exit.h:39</code>)

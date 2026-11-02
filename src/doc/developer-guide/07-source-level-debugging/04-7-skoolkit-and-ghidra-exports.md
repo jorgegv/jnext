@@ -167,6 +167,32 @@ in the writers' files:
   and `symbols()` is the composed table, so a user label already shadows the toolchain's in both exports
   (SRCDBG-REX-14).
 
+### Qt: Map ▸ Import and Export
+
+The Qt debugger offers the four verbs in its Map menu, after the annotation entries of 7.4.6:
+`import_menu` (`debugger_window.cpp:898`) and
+`export_menu` (`debugger_window.cpp:903`), each with
+`&skoolkit Control Files...` and `&Ghidra Symbols...` (`I` and `E` are free in the Map popup, `S` and `G`
+are unique in each submenu; `DACC-05` pins the new popups and mnemonics). The slots are
+`on_import_skoolkit` (`debugger_manager.cpp:852`),
+`on_import_ghidra` (`debugger_manager.cpp:853`),
+`on_export_skoolkit` (`debugger_manager.cpp:854`) and
+`on_export_ghidra` (`debugger_manager.cpp:855`), which share
+`import_re_files` (`debugger_manager.cpp:812`) and
+`export_re_files` (`debugger_manager.cpp:835`):
+
+- **Import** asks for one or more files with `QFileDialog::getOpenFileNames` (`*.ctl` or `*.txt`), calls
+  the backend verb once with all of them, and shows the report (counts, then each note) in an
+  `Import Done` box, or an `Import Failed` warning with the verb's `why` (the file and the line) and
+  nothing changed. A success refreshes the panels, so the Disassembly's Label column shows the new names
+  at once; the verb's one revision bump is what makes the quit question of 7.4.6 ask about unsaved
+  annotations.
+- **Export** asks for a directory with `QFileDialog::getExistingDirectory`, calls the verb and shows the
+  report in an `Export Done` box, or an `Export Failed` warning with `why`.
+- **Tests:** `QREX-01..04` in `debugger_verbs_test` drive the real file dialogs through `Modals`
+  (a quoted file list or a directory typed into the dialog's name field) and compare the exported files
+  with what the verb writes.
+
 ## 4. The frontends
 
 `write_re_exports_at_exit()` (`re_export_at_exit.h:39`)

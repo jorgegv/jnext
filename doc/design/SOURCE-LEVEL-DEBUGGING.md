@@ -390,7 +390,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Dot commands | DONE (E23-21 (#351)): rule 5, `peek(DivMmcRam)`, a map judged at the command's entry, `--source-map` without `--load` | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
 | Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
-| skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
+| skoolkit / ghidra | DONE (E23-26 (#389)): `Debugger::export_skoolkit()` / `export_ghidra()` and `import_skoolkit()` / `import_ghidra()` (CAP-REX, `debug/debugger_reinterop.cpp`) over the pure writers and readers `debug/skoolkit_ctl.h` and `debug/ghidra_symbols.h`; `--export-skoolkit`, `--export-ghidra` (at exit), `--import-skoolkit`, `--import-ghidra` (at start, after `--annotations`); in Qt, Map > Import and Export; the writers are proved by running SkoolKit 10.1 and Ghidra 12.2 (`make skoolkit`, `make ghidra`) | 11.2 | E23-26 (#389) |
 
 Done: E23-01, E23-03 and E23-04 (v1.1.64: the backend capability, the SLD and `Memory.txt`
 adapters, the Source tab, ownership, the sidecar refusal reasons, a clock-based
@@ -1791,6 +1791,15 @@ source breakpoint and the steps inside the command, the same bytes in RAM and un
 judgement at the entry, a hand load, landings, dotx, a rewind), QDOT-01/02
 (`debugger_source_panel_test`) and the functional row `z88dk-dot-source-func` (real NextZXOS, the dot on the
 card with `--sdcard-file-add`, typed, in headless, SDL and Qt).
+
+E23-26 (#389) added SKCTL-01 to SKCTL-17, GHSYM-01 to GHSYM-06, SRCDBG-REX-01 to SRCDBG-REX-16 (`reexport_test`: the
+classifier, the control-file and symbol-file writers and readers, the file set and window rule, comments, the Z80N split,
+unpaged labels, the export and import verbs on a real Next machine, and the readers against skool2ctl.py's own output),
+CLI-REX-01 and CLI-REX-02 (`cli_options_test`), QREX-01 to QREX-04 (`debugger_verbs_test`: the Map > Import and Export menus
+and their dialogs), HS-100 and HS-101 (`harness-selftest`: the two provisioners refuse a wrong checksum) and the functional
+rows `skoolkit-foreign-func` (sna2skool.py and skool2asm.py on the exports, skool2ctl.py's output imported back, the Qt and
+SDL owners) and `ghidra-foreign-func` (Ghidra's own ImportSymbolsScript.py on the files, and the abort it makes on a missing
+overlay as its control). DACC-05's pinned menu shape grew by the two submenus.
 
 E23-24 (#387) stage 2 added QANN-01 to QANN-13 (`debugger_panels_test`, `debugger_verbs_test`, `debugger_source_panel_test`: the Label column and comment, the copies unchanged, the Call Stack and Breakpoints names, the menus per place, the dialogs, a refused name, the Map menu, the unsaved-changes question), QG-ANN-01 to QG-ANN-03 (`debugger_quit_gate_test`, `quit_cleanup_test`: the quit question and its veto), SRCDBG-UANN-21 (a verb that changes nothing bumps neither revision) and QMAP-10; QSRC-119 now lists the three new entries of the Disassembly menu.
 
