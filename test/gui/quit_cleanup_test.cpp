@@ -309,12 +309,13 @@ void test_annotations_unattended() {
     // discarded unsaved changes, once, and log nothing of the kind when there were none.
     std::ostringstream cap;
     auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
-    sink->set_pattern("%v");
+    sink->set_pattern("%l %v");   // the level is part of the line: the warning must be a WARNING
     Log::platform()->sinks().push_back(sink);
     const auto discarded = [&cap]() {
         const std::string t = cap.str();
         size_t n = 0;
-        for (size_t at = t.find("were discarded"); at != std::string::npos; at = t.find("were discarded", at + 1)) ++n;
+        static const std::string line = "warning unattended exit: the unsaved debugger labels and comments were discarded";
+        for (size_t at = t.find(line); at != std::string::npos; at = t.find(line, at + 1)) ++n;
         return n;
     };
     // One unattended close; `unsaved` says whether a label was added first. Returns {modal title, closed, log count}.
