@@ -990,7 +990,8 @@ public:
     /// two by the file's first line. Returns the number of symbols loaded. A
     /// refused file (not a regular file, over the size cap; for `Z88dkOrSjasmplus`,
     /// which reads a pipe too, more than the cap arriving) sets `why` to the
-    /// reason; a file that simply cannot be opened leaves it empty.
+    /// reason; a file that simply cannot be opened leaves it empty, except for
+    /// `NextBuild`, which says "could not open Memory.txt file".
     Expected<int> load_map(const std::string& path, MapFormat format,
                            std::string* why = nullptr);
 

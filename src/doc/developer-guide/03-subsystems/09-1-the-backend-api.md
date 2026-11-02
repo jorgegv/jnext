@@ -279,7 +279,7 @@ server's `monitor sym` and `--map` all read it, so a symbol loaded by one client
 
 | Verb | Does |
 |---|---|
-| `load_map(path, format, why)` | loads a symbol file into the table: `MapFormat::Z88dk`, `Simple` (`SYMBOL = $ADDR`), `NextBuild` (`Memory.txt`), `SjasmplusEqu` (`--sym` / `--exp`), or `Z88dkOrSjasmplus` (`--map`: the first line decides, one read, a pipe works). Returns the symbol count, or `RefusedUnavailable` (value 0) with the table and its owner untouched when refused; `why` says why a file was refused, and stays empty for a file that cannot be opened |
+| `load_map(path, format, why)` | loads a symbol file into the table: `MapFormat::Z88dk`, `Simple` (`SYMBOL = $ADDR`), `NextBuild` (`Memory.txt`), `SjasmplusEqu` (`--sym` / `--exp`), or `Z88dkOrSjasmplus` (`--map`: the first line decides, one read, a pipe works). Returns the symbol count, or `RefusedUnavailable` (value 0) with the table and its owner untouched when refused; `why` says why a file was refused; for a file that cannot be opened it stays empty, except `NextBuild`, which says "could not open Memory.txt file" ([7.3](../07-source-level-debugging/03-loaders.md)) |
 | `clear_symbols()` | forgets them all |
 | `lookup(addr)` | the name of `addr` in the memory mapped there now (`source_page(addr)`); a label is paged or unpaged |
 | `lookup_name(name)` | the address of a name; a name-only value (a size, a section bound) resolves here and never names an address |

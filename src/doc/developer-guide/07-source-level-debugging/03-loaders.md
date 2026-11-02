@@ -57,7 +57,7 @@ Every adapter keeps the same promises, and a new one must too
   picked, so it does call `source_file_problem()`, like the Map menu's other loaders;
   the menu shows the reason in its "Load Failed" box. `load_z88dk_map()` and `load_simple_map()` refuse
   such a file with the table untouched and say why through their optional `why` argument; the cap refusal is row
-  `Z88MAP-27`. A file that merely fails to open returns `-1` with `why` left empty, and the table is
+  `Z88MAP-27`. A file that merely fails to open returns `-1` with `why` left empty (`load_nextbuild_memory()` alone sets "could not open Memory.txt file"), and the table is
   untouched there too (`if (!file.is_open()) return -1;` comes before `clear()`).
 - **Emit only qualified ranges.** Every `SourceRange` carries a `FetchSource`
   ([7.1](01-which-memory.md)); the adapter decides it, and `SourceMap` never

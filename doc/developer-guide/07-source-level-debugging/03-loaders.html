@@ -2891,7 +2891,7 @@ user's (<code>User</code>) and is never touched by a sidecar.</em></p>
   picked, so it does call <code>source_file_problem()</code>, like the Map menu's other loaders;
   the menu shows the reason in its "Load Failed" box. <code>load_z88dk_map()</code> and <code>load_simple_map()</code> refuse
   such a file with the table untouched and say why through their optional <code>why</code> argument; the cap refusal is row
-  <code>Z88MAP-27</code>. A file that merely fails to open returns <code>-1</code> with <code>why</code> left empty, and the table is
+  <code>Z88MAP-27</code>. A file that merely fails to open returns <code>-1</code> with <code>why</code> left empty (<code>load_nextbuild_memory()</code> alone sets "could not open Memory.txt file"), and the table is
   untouched there too (<code>if (!file.is_open()) return -1;</code> comes before <code>clear()</code>).</li>
 <li><strong>Emit only qualified ranges.</strong> Every <code>SourceRange</code> carries a <code>FetchSource</code>
   (<a href="01-which-memory.html">7.1</a>); the adapter decides it, and <code>SourceMap</code> never

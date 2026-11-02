@@ -3401,7 +3401,7 @@ server's <code>monitor sym</code> and <code>--map</code> all read it, so a symbo
 <tbody>
 <tr>
 <td><code>load_map(path, format, why)</code></td>
-<td>loads a symbol file into the table: <code>MapFormat::Z88dk</code>, <code>Simple</code> (<code>SYMBOL = $ADDR</code>), <code>NextBuild</code> (<code>Memory.txt</code>), <code>SjasmplusEqu</code> (<code>--sym</code> / <code>--exp</code>), or <code>Z88dkOrSjasmplus</code> (<code>--map</code>: the first line decides, one read, a pipe works). Returns the symbol count, or <code>RefusedUnavailable</code> (value 0) with the table and its owner untouched when refused; <code>why</code> says why a file was refused, and stays empty for a file that cannot be opened</td>
+<td>loads a symbol file into the table: <code>MapFormat::Z88dk</code>, <code>Simple</code> (<code>SYMBOL = $ADDR</code>), <code>NextBuild</code> (<code>Memory.txt</code>), <code>SjasmplusEqu</code> (<code>--sym</code> / <code>--exp</code>), or <code>Z88dkOrSjasmplus</code> (<code>--map</code>: the first line decides, one read, a pipe works). Returns the symbol count, or <code>RefusedUnavailable</code> (value 0) with the table and its owner untouched when refused; <code>why</code> says why a file was refused; for a file that cannot be opened it stays empty, except <code>NextBuild</code>, which says "could not open Memory.txt file" (<a href="../07-source-level-debugging/03-loaders.html">7.3</a>)</td>
 </tr>
 <tr>
 <td><code>clear_symbols()</code></td>
