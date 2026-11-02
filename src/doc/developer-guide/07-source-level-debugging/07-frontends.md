@@ -59,7 +59,8 @@ the stamp carries a flag for "the loaded file changed on disk",
    `source_search::resolve()` finds the file (below); no file gives "source file not found"
    and enables Locate File. A file is reloaded when its modification time changes, so an
    edit-and-rebuild never highlights a line of the old text (`:690-703`). A line past the end
-   of the file found gives "has only N lines; it is not the text the build used" (`:711`).
+   of the file found gives "has only N lines; it is not the text the build used" (`:711`; the line
+   count ignores the final newline, `file_line_count()`, `:59`). The label's tooltip is the path found.
 6. The label ends with `SourcePanel::also_text()` (`:574`): `lookup_all()` for the address,
    minus the primary and any entry with the same `file:line`, as `  also: f:l, ...`; then the
    browse text `(browsing; the PC is at f:l, $addr)`; then the pending note.
@@ -127,9 +128,12 @@ the log, and the main window's status bar for ten seconds.
   Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment); Text is the editor
   palette's text colour and never a format. Punctuation and operators (`kKeywordPunct`, `:280`)
   are Keyword, tested at each scanner's fall-through point after comment, string, char, number
-  and word detection, so those win. A sign is part of a number only inside an exponent; C and
-  Boriel numbers have their own scanners. Formats set the foreground colour and nothing else, so
-  the line geometry and the gutter alignment equal Plain's.
+  and word detection, so those win; Qt merges adjacent equal formats, so `->` or `<<=` is one Keyword
+  range. A sign is part of a number only inside an exponent (`-5` is a Keyword and an Integer). C and
+  Boriel numbers have their own scanners: Float is a point or an exponent, including the C hex-float
+  `p` exponent; Boriel's `t_HEXA`, `t_OCTAL` and `t_BIN` are tried before `t_NUMBER`, and a `$` or `%`
+  suffix belongs to its identifier. The scanners are allocation-free per word. Formats set the
+  foreground colour and nothing else, so the line geometry and the gutter alignment equal Plain's.
 - **Entering a text.** `SourcePanel::set_source_text()` (`source_panel.cpp:513`) is the one way:
   the language first, then the text, so a load is highlighted once with its own language.
 - **Schemes.** `SourceScheme` (`platform/source_scheme.h`) is the order of the words of the
@@ -175,7 +179,7 @@ gutter widget in a left viewport margin and a header strip above it (`setViewpor
   `breakpoint_glyph.h` paints the glyph for both panels.
 - **The PC wedge** (GH #347): `paint_pc_marker()` (`breakpoint_glyph.h:46`), the amber wedge
   `paint_gutter()` draws on `highlighted_line()` only, in the 5-px strip after the number cell
-  (`x` in `[width-6, width-2]`); the colour goes through `palette_tint::ink()`, and the text
+  (`x` in `[width-6, width-2]`, which no pinned pixel reading uses); the colour goes through `palette_tint::ink()`, and the text
   highlight stays the palette's own.
 - **A click** calls `SourcePanel::toggle_breakpoint_at_line()` (`:1012`), the one toggle: it
   removes what the line shows plus a hidden group tied to an unmapped memory, else
