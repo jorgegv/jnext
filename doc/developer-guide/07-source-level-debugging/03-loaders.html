@@ -3009,8 +3009,9 @@ page <code>predict_fetch</code> says is mapped (<code>SymbolTable::bind()</code>
 on failure (<code>-1</code>) the table and its owner are as they were.</p>
 <h3 id="-source-map"><code>--source-map</code><a class="headerlink" href="#-source-map" title="Permanent link">&para;</a></h3>
 <p><code>EmulatorConfig::source_map_file</code> is set from <code>--source-map FILE</code>
-(<code>main.cpp:880</code>, <code>:2171</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:288</code>),
-set at <code>main.cpp:2182</code>, says which of three cases it is: <code>0</code> a program loads and the map
+(<code>source_map_file = v[0]</code> at <code>main.cpp:885</code>,
+<code>cfg.source_map_file</code> at <code>main.cpp:2191</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:298</code>),
+set by <code>cfg.source_map_no_program</code> at <code>main.cpp:2205</code>, says which of three cases it is: <code>0</code> a program loads and the map
 follows it; <code>1</code> there is no <code>--load</code>; <code>2</code> an RZX replay is the program (<code>--rzx-play</code>, or
 <code>--load R.rzx</code>, told by the extension).</p>
 <p><strong>With a program</strong> (<code>0</code>). Each loop owner (<code>headless_app.cpp</code>, <code>sdl_app.cpp</code>,

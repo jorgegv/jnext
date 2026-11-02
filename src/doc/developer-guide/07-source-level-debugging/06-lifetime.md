@@ -223,7 +223,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (`replay_mode()` is the rewind replay's flag, `emulator.cpp:14127`, not RZX's). What the row
   `z88dk-dot-source-rzx-func` pins is the attach and the refusal, not a verdict reached during playback.
-- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1143`, set at `debugger_source.cpp:591`) tells the Source tab to word its pending note
+- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1204`, set at `debugger_source.cpp:591`) tells the Source tab to word its pending note
   *...when the dot command runs* ([7.7](07-frontends.md)).
 
 ## What the backend cannot see

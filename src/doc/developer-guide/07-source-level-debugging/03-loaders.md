@@ -120,8 +120,9 @@ on failure (`-1`) the table and its owner are as they were.
 ### `--source-map`
 
 `EmulatorConfig::source_map_file` is set from `--source-map FILE`
-(`main.cpp:880`, `:2171`). `EmulatorConfig::source_map_no_program` (`emulator_config.h:288`),
-set at `main.cpp:2182`, says which of three cases it is: `0` a program loads and the map
+(`source_map_file = v[0]` at `main.cpp:885`,
+`cfg.source_map_file` at `main.cpp:2191`). `EmulatorConfig::source_map_no_program` (`emulator_config.h:298`),
+set by `cfg.source_map_no_program` at `main.cpp:2205`, says which of three cases it is: `0` a program loads and the map
 follows it; `1` there is no `--load`; `2` an RZX replay is the program (`--rzx-play`, or
 `--load R.rzx`, told by the extension).
 

@@ -9,8 +9,8 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 ## 1. The producer
 
 JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
-loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:884` and copies
-it to the configuration at `src/main.cpp:2176`, and `ScriptHost::start()` loads it at
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:888` and copies
+it to the configuration at `src/main.cpp:2192`, and `ScriptHost::start()` loads it at
 `src/script/script_host.cpp:201-215`, after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
@@ -199,7 +199,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
   SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3827`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`src/gui/qt_app.cpp:391`), makes that file
+  (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`src/gui/qt_app.cpp:394`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.
