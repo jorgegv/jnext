@@ -243,6 +243,12 @@ struct EmulatorConfig {
     // debugger backend (platform/coverage_startup.h).
     bool coverage = false;
 
+    // GH #389 (--export-skoolkit, --export-ghidra): directories the loop owners
+    // fill with the debugger's labels and code/data map when jnext exits
+    // (platform/re_export_at_exit.h). Not Preferences fields, like --coverage.
+    std::string export_skoolkit_dir;
+    std::string export_ghidra_dir;
+
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 

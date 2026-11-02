@@ -97,6 +97,8 @@ enum class OptId {
     Map,
     SourceMap,
     SourceDir,
+    ExportSkoolkit,
+    ExportGhidra,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -875,6 +877,23 @@ inline constexpr Option OPTIONS[] = {
       "repeat it for more; a path-list separator is rejected.\n"
       "Tried after the map's own directory and its parents.\n"
       "The same as --set paths.source_dirs=DIRS." },
+    // GH #389 (E23-26): the reverse-engineering exports, written when jnext exits.
+    { "--export-skoolkit", 1, Doc::Documented, OptId::ExportSkoolkit,
+      "DIR",
+      "At exit, write the debugger's labels and the code/data map of\n"
+      "--coverage into DIR as skoolkit control files: one\n"
+      "WWWW-TAG.ctl and WWWW-TAG.bin per memory page and window\n"
+      "(sna2skool.py -o 0xWWWW WWWW-TAG.bin, or -c DIR), and\n"
+      "0000-CPU.ctl for the unpaged labels. DIR is created; a\n"
+      "previous export's files in it are replaced, other files are\n"
+      "never touched. A failure exits 1" },
+    { "--export-ghidra", 1, Doc::Documented, OptId::ExportGhidra,
+      "DIR",
+      "At exit, write the debugger's labels into DIR as Ghidra symbol\n"
+      "files for ImportSymbolsScript.py: TAG.ghidra.txt per memory\n"
+      "page (an overlay named TAG), CPU.ghidra.txt for the unpaged\n"
+      "labels and view.ghidra.txt for the memory as mapped at exit.\n"
+      "A failure exits 1" },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

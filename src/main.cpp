@@ -417,6 +417,8 @@ int main(int argc, char* argv[]) {
     int         rewind_buffer_frames = 0;
     bool        trace_enabled = false;
     bool        coverage_enabled = false;
+    std::string export_skoolkit_dir;       // GH #389
+    std::string export_ghidra_dir;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
     bool        compositor_trace_frame_set = false;
@@ -1323,6 +1325,12 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Coverage:
                 coverage_enabled = true;
                 break;
+            case cli::OptId::ExportSkoolkit:
+                export_skoolkit_dir = v[0];
+                break;
+            case cli::OptId::ExportGhidra:
+                export_ghidra_dir = v[0];
+                break;
             case cli::OptId::CompositorTrace:
                 compositor_trace_path = v[0];
                 break;
@@ -2197,6 +2205,8 @@ int main(int argc, char* argv[]) {
         cfg.rewind_buffer_frames = rewind_buffer_frames;
         cfg.trace = trace_enabled;
         cfg.coverage = coverage_enabled;
+        cfg.export_skoolkit_dir = export_skoolkit_dir;
+        cfg.export_ghidra_dir   = export_ghidra_dir;
         cfg.compositor_trace_path  = compositor_trace_path;
         cfg.compositor_trace_frame = compositor_trace_frame;
         cfg.profile                = profile_enabled;

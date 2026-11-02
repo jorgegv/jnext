@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=243  # 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=245  # 243 -> 245: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2180,6 +2180,38 @@ out=$(Z88DK_GDB="$T/no-such-client" bash "$PROJECT_DIR/test/provision-z88dk-gdb.
 check "HS-81a" "provision-z88dk-gdb.sh --print-path with Z88DK_GDB set to a non-executable exits 2, naming it" 2 $rc "$out" "Z88DK_GDB=" "not an executable file"
 out=$(Z88DK_GDB="$T/no-such-client" bash "$PROJECT_DIR/test/provision-z88dk-gdb.sh" 2>&1); rc=$?
 check "HS-81b" "...and so does the provisioning run itself (it does not go and build another one)" 2 $rc "$out" "not an executable file"
+
+# ---------------- the foreign-reader provisioners (GH #389) ----------------
+# skoolkit and Ghidra are provisioned like z88dk-gdb: a pinned sha256, verified BEFORE
+# anything is unpacked. The fake archives below are COMPLETE installs (a sna2skool.py that
+# reports its version; a Ghidra tree with analyzeHeadless and the Jython script), so a
+# provisioner that unpacked first and checked later would install them. With the wrong
+# pin each must refuse, name the mismatch, and leave the cache empty.
+PV="$T/prov-fake"; mkdir -p "$PV/skoolkit-10.1" "$PV/ghidra_12.2_PUBLIC/support" "$PV/ghidra_12.2_PUBLIC/Extensions/Ghidra"
+printf 'import sys\nprint("SkoolKit 10.1")\n' > "$PV/skoolkit-10.1/sna2skool.py"
+tar -czf "$PV/skoolkit.tgz" -C "$PV" skoolkit-10.1
+printf '#!/bin/sh\n' > "$PV/ghidra_12.2_PUBLIC/support/analyzeHeadless"; chmod +x "$PV/ghidra_12.2_PUBLIC/support/analyzeHeadless"
+python3 - "$PV" <<'PYEOF'
+import sys, zipfile
+d = sys.argv[1]
+with zipfile.ZipFile(d + "/ghidra_12.2_PUBLIC/Extensions/Ghidra/fake_Jython.zip", "w") as z:
+    z.writestr("Jython/ghidra_scripts/ImportSymbolsScript.py", "# fake\n")
+with zipfile.ZipFile(d + "/ghidra.zip", "w") as z:
+    z.write(d + "/ghidra_12.2_PUBLIC/support/analyzeHeadless", "ghidra_12.2_PUBLIC/support/analyzeHeadless")
+    z.write(d + "/ghidra_12.2_PUBLIC/Extensions/Ghidra/fake_Jython.zip", "ghidra_12.2_PUBLIC/Extensions/Ghidra/fake_Jython.zip")
+PYEOF
+BADSHA=0000000000000000000000000000000000000000000000000000000000000000
+XC1="$T/prov-cache-sk"; XC2="$T/prov-cache-gh"
+out=$(XDG_CACHE_HOME="$XC1" JNEXT_SKOOLKIT_URL="file://$PV/skoolkit.tgz" JNEXT_SKOOLKIT_SHA256=$BADSHA \
+      bash "$PROJECT_DIR/test/provision-skoolkit.sh" 2>&1); rc=$?
+left=$(find "$XC1" -mindepth 3 2>/dev/null | head -3)
+check "HS-100" "provision-skoolkit.sh with a wrong JNEXT_SKOOLKIT_SHA256 refuses (exit 1), names the mismatch and installs nothing, scratch removed (GH #389)" 1 $([[ $rc -eq 1 && -z "$left" ]] && echo 1 || echo 99) \
+    "$out"$'\n'"left:[$left]" "SHA-256 MISMATCH" "expected $BADSHA" "left:[]"
+out=$(XDG_CACHE_HOME="$XC2" JNEXT_GHIDRA_URL="file://$PV/ghidra.zip" JNEXT_GHIDRA_SHA256=$BADSHA \
+      bash "$PROJECT_DIR/test/provision-ghidra.sh" 2>&1); rc=$?
+left=$(find "$XC2" -mindepth 3 2>/dev/null | head -3)
+check "HS-101" "provision-ghidra.sh with a wrong JNEXT_GHIDRA_SHA256 refuses (exit 1), names the mismatch and installs nothing, scratch removed (GH #389)" 1 $([[ $rc -eq 1 && -z "$left" ]] && echo 1 || echo 99) \
+    "$out"$'\n'"left:[$left]" "SHA-256 MISMATCH" "expected $BADSHA" "left:[]"
 
 # ---------------- the harness's git keeps the user's own config (GH #295) ----------------
 # The suite points XDG_CONFIG_HOME at a scratch dir for Qt, and git resolves

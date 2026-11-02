@@ -163,7 +163,7 @@ jobs:
             mtools dosfstools rpm-build \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
             perl-interpreter perl-FindBin perl-File-Temp perl-PathTools \
-            mesa-dri-drivers mesa-libGL
+            mesa-dri-drivers mesa-libGL java-25-openjdk-devel
           # mtools + dosfstools are the FOREIGN validators the GH #269
           # sdcard-file-add-func row reads the SD image back with (mdir,
           # mcopy, fsck.vfat). They are not a convenience: jnext writes FAT32
@@ -175,6 +175,11 @@ jobs:
           # Without it they printed SKIP — hidden, because the contract wrapper read
           # only the exit status. A SKIP now fails the run, and the package job
           # installs the same package, so it is not a new tool.
+          # java-25-openjdk-devel runs Ghidra (ghidra-foreign-func, GH #389), which needs
+          # a JDK 25 or newer to launch. Ghidra and skoolkit themselves are not packaged
+          # by Fedora and are not installed here: `make regression` provisions them
+          # (`make ghidra`, `make skoolkit`; test/provision-ghidra.sh, provision-skoolkit.sh)
+          # with the curl, sha256sum, unzip, tar and python3 this image already has.
           # z88dk-gdb (gdb-z88dk-func's client) is not packaged by Fedora and is not
           # installed here: `make regression` provisions it (`make z88dk-gdb`,
           # test/provision-z88dk-gdb.sh) with the curl, sha256sum, tar, make and cc
@@ -323,6 +328,17 @@ jobs:
           # misleading) here. Bump with the container image, not just with
           # kDistroUrl.
           key: sdcard-image-distro-24.11-recipe2-fedora44
+
+      # Ghidra 12.2 (GH #389): 570 MB, provisioned by `make regression` itself
+      # (test/provision-ghidra.sh) into this directory, pinned by its sha256, so a
+      # hit only skips the download. The key carries the pinned sha256: a version
+      # bump changes it and a stale entry is never reused.
+      - name: Cache Ghidra
+        if: matrix.leg == 'regression'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/jnext/tools/ghidra-12.2
+          key: ghidra-12.2-2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67-fedora44
 
       # Mirrors the merge-to-main protocol in CLAUDE.md: `make clean` then
       # `make gui-release` first, so regression.sh (which prefers

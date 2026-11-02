@@ -261,6 +261,16 @@ public:
     virtual bool peer_connected() const = 0;
 };
 
+/// CAP-REX - what an export reports (GH #389): the files it wrote (control files and
+/// their `.bin` images, or symbol files), the labels and comments in them, and what
+/// the user should know about (a name skipped, a space whose bytes cannot be read).
+struct ReReport {
+    size_t files = 0;
+    size_t labels = 0;
+    size_t comments = 0;
+    std::vector<std::string> notes;
+};
+
 /// The frontend sequences the backend cannot reach (SES-07).
 ///
 /// Both live in `src/platform/`, the layer ABOVE the backend, so the loop owner
@@ -1007,6 +1017,38 @@ public:
     /// CAP-SYM — the table itself, for `disasm_text::apply_symbols()` and for a
     /// frontend that lists symbols.
     const SymbolTable& symbols() const;
+
+    // =======================================================================
+    // CAP-REX - skoolkit and Ghidra exports (GH #389, E23-26;
+    // doc/design/SOURCE-LEVEL-DEBUGGING.md section 11.2)
+    //
+    // Both write a DIRECTORY (created when missing) with what the disassembly
+    // shows: every label of `symbols()` under the name `lookup()` gives, and for
+    // skoolkit the code/data map the coverage recorded (`mem_coverage()`, so run
+    // with `--coverage` or Debug > Coverage; with it off the control files carry
+    // labels and one code run per window). Read-only: peek, coverage and the
+    // symbol table are side-effect free, so no machine state changes and no
+    // generation moves; allowed while the machine runs.
+    //
+    // Each file is written to `<name>.part` and renamed. A previous export's files
+    // this one does not write are removed (a `*.ctl` whose first line is
+    // `# jnext space ` and its `.bin`; every `*.ghidra.txt`), so a stale space never
+    // reaches `sna2skool.py -c DIR`. A `.ctl` or `.bin` the export would write that
+    // exists and is not jnext's refuses the export before anything is written.
+    //
+    // `Unsupported`: such a file in the way. `RefusedUnavailable`: DIR is not a
+    // directory or cannot be created, or a file cannot be written. `why` says which.
+    // =======================================================================
+
+    /// CAP-REX - one control file and one `.bin` per (space, window), plus
+    /// `0000-CPU.ctl` for the unpaged labels (skoolkit_ctl.h).
+    Result export_skoolkit(const std::string& dir, ReReport* report = nullptr,
+                           std::string* why = nullptr) const;
+
+    /// CAP-REX - one `<TAG>.ghidra.txt` per space, `CPU.ghidra.txt` and `view.ghidra.txt`
+    /// (ghidra_symbols.h).
+    Result export_ghidra(const std::string& dir, ReReport* report = nullptr,
+                         std::string* why = nullptr) const;
 
     // =======================================================================
     // CAP-SRC — source-level debugging (doc/design/SOURCE-LEVEL-DEBUGGING.md)

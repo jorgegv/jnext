@@ -2,6 +2,7 @@
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
 #include "platform/coverage_startup.h"   // GH #388
+#include "platform/re_export_at_exit.h"   // GH #389
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
 #include "platform/recording_info.h"   // GH #26 WP6
@@ -1067,6 +1068,8 @@ void HeadlessApp::run() {
 
 void HeadlessApp::shutdown() {
     if (debugger_) log_coverage_summary(*debugger_);   // GH #388
+    // GH #389: --export-skoolkit / --export-ghidra, after the coverage they map is final.
+    if (debugger_ && !write_re_exports_at_exit(*debugger_, config_) && exit_code_ == 0) exit_code_ = 1;
     // Same contract as the two GUI frontends: a screenshot that was asked for
     // and never taken is a failure. The countdown ticks whether or not the
     // machine is paused, so the only way to land in this first branch is a

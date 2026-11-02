@@ -5,6 +5,7 @@
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
 #include "platform/coverage_startup.h"   // GH #388
+#include "platform/re_export_at_exit.h"   // GH #389
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/quit_signal.h"   // GH #364
@@ -814,6 +815,8 @@ void SdlApp::run() {
 
 void SdlApp::shutdown() {
     if (debugger_) log_coverage_summary(*debugger_);   // GH #388
+    // GH #389: --export-skoolkit / --export-ghidra, after the coverage they map is final.
+    if (debugger_ && !write_re_exports_at_exit(*debugger_, config_) && exit_code_ == 0) exit_code_ = 1;
     // A requested screenshot that was never written is a failure, not a
     // footnote — same contract as QtApp::shutdown(). Reachable here if the
     // capture was still deferred (no frame rendered on its tick) when

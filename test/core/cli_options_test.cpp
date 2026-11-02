@@ -162,6 +162,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
@@ -1014,6 +1015,8 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-COV-01", "--coverage reaches the loop owner",
                  "jnext binary not built at " + bin);
+            skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -1056,6 +1059,8 @@ int main() {
             skip("CLI-SET-14", "`--help` names every debugger action id",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-COV-01", "--coverage reaches the loop owner",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-REX-01", "--export-skoolkit and --export-ghidra write at exit",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -1593,6 +1598,47 @@ int main() {
                       arity0 && with && !without,
                       std::string("arity0=") + (arity0 ? "1" : "0") + " with=" + (with ? "1" : "0") +
                           " without=" + (without ? "1" : "0"));
+            }
+
+            // CLI-REX-01: --export-skoolkit DIR and --export-ghidra DIR (GH #389) write their files
+            // when jnext exits and log what they wrote; with a file where DIR should be, the run
+            // exits 1 naming it. The label comes from an sjasmplus --sym (an unpaged label).
+            {
+                const std::string rex = bin + tag + ".rex";
+                const std::string symf = rex + ".sym", dsk = rex + ".sk", dgh = rex + ".gh", bad_dir = rex + ".file";
+                std::error_code ec;
+                std::filesystem::remove_all(dsk, ec);
+                std::filesystem::remove_all(dgh, ec);
+                { std::ofstream f(symf); f << "rexlabel: EQU 0x00000010\n"; }
+                { std::ofstream f(bad_dir); f << "x"; }
+                const std::string base = "--headless --machine 48k" + sd_arg + " --coverage --map \"" + symf +
+                                         "\" --delayed-automatic-exit-frames 20";
+                const std::string both = base + " --export-skoolkit \"" + dsk + "\" --export-ghidra \"" + dgh + "\"";
+                const int rc = run(both);
+                run_split(both);
+                const std::string all = slurp(out_path) + slurp(err_path);
+                const bool logs = all.find("--export-skoolkit " + dsk + ": ") != std::string::npos &&
+                                  all.find("--export-ghidra " + dgh + ": 1 files, 1 labels, 0 comments") != std::string::npos;
+                const std::string cpu_ctl = slurp(dsk + "/0000-CPU.ctl");
+                const bool files = cpu_ctl.find("@ $0010 label=rexlabel\n") != std::string::npos &&
+                                   slurp(dsk + "/0000-ROM0.ctl").find("# jnext space ROM0\n") == 0 &&
+                                   slurp(dgh + "/CPU.ghidra.txt") == "rexlabel 0x0010 l\n";
+                const std::string refuse = base + " --export-skoolkit \"" + bad_dir + "\"";
+                const int rc_bad = run(refuse);
+                run_split(refuse);
+                const bool names_it = slurp(err_path).find(bad_dir) != std::string::npos ||
+                                      slurp(out_path).find(bad_dir) != std::string::npos;
+                const bool arity = cli::find("--export-skoolkit") && cli::find("--export-skoolkit")->arity == 1 &&
+                                   cli::find("--export-ghidra") && cli::find("--export-ghidra")->arity == 1;
+                std::filesystem::remove_all(dsk, ec);
+                std::filesystem::remove_all(dgh, ec);
+                std::remove(symf.c_str());
+                std::remove(bad_dir.c_str());
+                check("CLI-REX-01", "--export-skoolkit DIR and --export-ghidra DIR write their files when jnext "
+                                    "exits and log the counts; a file where DIR should be exits 1 naming it",
+                      arity && rc == 0 && logs && files && rc_bad == 1 && names_it,
+                      std::string("rc=") + std::to_string(rc) + " logs=" + (logs ? "1" : "0") + " files=" +
+                          (files ? "1" : "0") + " rc_bad=" + std::to_string(rc_bad) + " names=" + (names_it ? "1" : "0"));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

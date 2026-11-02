@@ -203,7 +203,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb
+       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb skoolkit ghidra
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -550,8 +550,24 @@ z88dk-gdb:
 	@# in seconds into ~/.cache/jnext/tools (test/provision-z88dk-gdb.sh).
 	bash test/provision-z88dk-gdb.sh
 
+# Provide the skoolkit 10.1 tools for skoolkit-foreign-func: a sha256-pinned PyPI sdist in the user cache
+skoolkit:
+	@# GH #389: the skoolkit control-file export is proved by running skoolkit
+	@# itself (sna2skool.py, skool2asm.py), which Fedora does not package. A SKIP
+	@# fails the run, so the suite provisions it like z88dk-gdb: no-op once cached,
+	@# else a 1.3 MB download into ~/.cache/jnext/tools (test/provision-skoolkit.sh).
+	bash test/provision-skoolkit.sh
+
+# Provide Ghidra 12.2 (+ Jython extension) for ghidra-foreign-func: a sha256-pinned zip in the user cache
+ghidra:
+	@# GH #389: the Ghidra symbol export is proved by running Ghidra's own
+	@# ImportSymbolsScript.py headless. Not packaged by Fedora; a 570 MB download
+	@# once per machine into ~/.cache/jnext/tools (test/provision-ghidra.sh), and a
+	@# JDK 25 (java-25-openjdk-devel) to run it, which the row checks.
+	bash test/provision-ghidra.sh
+
 # Run the full regression test suite (screenshot + functional tests)
-regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb
+regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb skoolkit ghidra
 	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
 	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
@@ -576,7 +592,7 @@ regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc
 	JNEXT_REGRESSION_STAMP=1 bash test/00regression/regression.sh
 
 # Run named regression rows (ROWS="a-func b-func") on the non-PGO Release build; ROWS_PGO=1 for the PGO one
-regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb
+regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb skoolkit ghidra
 	@# GH #295: the targeted run a reviewer, a mutation or a diagnosis uses
 	@# instead of a full one. The three prerequisites are the binaries rows
 	@# execute (the Qt jnext, build/sdl-release/jnext for sdl-keypress-func,
@@ -596,7 +612,7 @@ regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb
 	JNEXT=$(CURDIR)/build/$(ROWS_BUILD)/jnext bash test/00regression/regression.sh $(ROWS)
 
 # Re-run SOLO the rows a full run failed on a loaded host; stamp the run if all pass
-regression-confirm: unit-test-build gui-release sdl-release z88dk-gdb
+regression-confirm: unit-test-build gui-release sdl-release z88dk-gdb skoolkit ghidra
 	@# GH #295, the owner's rule: a timing row that fails under load and passes
 	@# SOLO counts as a pass. A full `make regression` whose only FAILs were
 	@# functional rows failing at a 1-minute load >= nproc records them as

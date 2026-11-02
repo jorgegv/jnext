@@ -20,6 +20,10 @@ DisasmLine disasm_one(uint16_t addr, DisasmReadFn read_fn);
 /// Get instruction length at addr without full disassembly (faster).
 int instruction_length(uint16_t addr, DisasmReadFn read_fn);
 
+/// Returns true if the instruction at addr is a Z80N extension (`ED` + one of the opcodes
+/// the Next adds: NEXTREG, MUL, PUSH nn, ...). A plain Z80 (skoolkit's) does not decode these.
+bool is_z80n_extension(uint16_t addr, DisasmReadFn read_fn);
+
 /// Returns true if the instruction at addr is CALL-like (CALL nn, CALL cc,nn, RST n, DJNZ).
 /// Used by step-over to decide whether to set a one-shot breakpoint.
 bool is_call_like(uint16_t addr, DisasmReadFn read_fn);
