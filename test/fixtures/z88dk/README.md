@@ -228,12 +228,15 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
   `push ix` in every function; 80cc mixes the two per function (`vars.c`: `sum` and `main` `push ix`,
   `other.c`: `other` calls `l_debug_push_frame`). Whether `fp = SP at entry - 2` for all three was
   measured by the planner of #353 with z88dk-ticks and is not re-run by this fixture.
-- `C_LINE` block scope, `sum()` in `vars.c` (the scope string of the `__C_LINE_<n>_vars_c`
-  map lines): sccz80 `vars.c::sum::<level>::<block>`: lines 30-36 `sum::1::1`, 37-40 `sum::2::2`,
+- `C_LINE` block scope, `sum()` in `vars.c` (the scope string of the `__C_LINE_<n>_...` map
+  lines of module `vars_c`): sccz80 `vars.c::sum::<level>::<block>`: lines 30-36 `sum::1::1`, 37-40 `sum::2::2`,
   41 `sum::1::2` (the level is right, the block is the last one opened, not the current one);
-  80cc `vars.c::sum::0::2` for every body line, 33-44 (no level, no block structure); zsdcc
-  `vars.c::x::<level*10000>::<block><TAB>`: 33-35 and 41 `10000::10`, 36 `20000::11`, 38-39
+  80cc `vars.c::sum::0::2` for every body line, 33-41 (no level, no block structure); zsdcc
+  `vars.c::x::<level*10000>::<block><TAB>`: 33-35 and 41-42 `10000::10`, 36 `20000::11`, 38-39
   `30000::12` (function field `x`, the block is the current one, a TAB ends the field).
+  Upstream gap: line 44 is `int main(void)`, and sccz80 and 80cc scope it `sum::0::2`
+  (`__C_LINE_44` sits at `_main`: $8D54 sccz80, $8CD8 80cc, the address of `main::0::3` line 45);
+  zsdcc gets it right, `x::10000::14`.
 - `fc.c`: sccz80 (both installs) records the `__z88dk_fastcall` parameter `x` at `B,1,4`, its
   nominal slot, and that record is WRONG: a fastcall caller pushes nothing, and the listing
   (`master/sccz80-fc/fc.c.lis`: `parameter 'unsigned int x' at sp+4`, then `call l_debug_push_frame`
