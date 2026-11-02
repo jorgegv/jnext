@@ -2615,6 +2615,46 @@ int main()
         }
     }
 
+    // --- WINV: SdlInput reports a window whose contents went stale (GH #428) --
+    // Oracle: the GH #428 plan, section 2.4. The SDL loop no longer presents an
+    // unchanged frame, so every window event that invalidates what is on screen
+    // (exposed, resized, pixel size / display scale changed, fullscreen entered
+    // or left, restored, shown) must reach SdlApp, which then forces a present;
+    // input and focus events must not.
+    {
+        const bool sdl_ok = SDL_Init(SDL_INIT_EVENTS);
+        auto count_for = [&](std::vector<SDL_EventType> types) {
+            SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+            SdlInput in;
+            int n = 0;
+            in.on_window_invalidated = [&n]() { ++n; };
+            bool pushed = true;
+            for (SDL_EventType t : types) {
+                SDL_Event ev{};
+                ev.type = t;
+                pushed = SDL_PushEvent(&ev) && pushed;
+            }
+            in.poll();
+            in.poll();
+            return pushed ? n : -1;
+        };
+        const int stale = sdl_ok ? count_for({SDL_EVENT_WINDOW_EXPOSED, SDL_EVENT_WINDOW_RESIZED,
+                                              SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED,
+                                              SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED,
+                                              SDL_EVENT_WINDOW_ENTER_FULLSCREEN,
+                                              SDL_EVENT_WINDOW_LEAVE_FULLSCREEN,
+                                              SDL_EVENT_WINDOW_RESTORED, SDL_EVENT_WINDOW_SHOWN})
+                                : -2;
+        const int quiet = sdl_ok ? count_for({SDL_EVENT_MOUSE_MOTION, SDL_EVENT_WINDOW_FOCUS_LOST,
+                                              SDL_EVENT_KEY_DOWN, SDL_EVENT_WINDOW_MOUSE_ENTER})
+                                 : -2;
+        check("WINV-01", "each of the eight window events that invalidate the picture raises "
+                         "on_window_invalidated once", stale == 8, "n=" + std::to_string(stale));
+        check("WINV-02", "mouse motion, focus loss, a key and a mouse-enter raise nothing",
+              quiet == 0, "n=" + std::to_string(quiet));
+        if (sdl_ok) SDL_Quit();
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

@@ -5671,6 +5671,39 @@ int main() {
                       " fwd=" + std::to_string(int(fwd)) + " before=" + std::to_string(at_before) +
                       " after=" + std::to_string(m.dbg->source_map().size()));
         }
+        {   // Z88-36 (GH #428 x epic): the drop a rewind causes is a change the panels must see
+            const fs::path d = z / "d36";
+            z88_copy("v2.4/sccz80-debug", d);
+            std::vector<uint8_t> code;
+            {
+                std::ifstream in(d / "prog_CODE.bin", std::ios::binary);
+                code.assign(std::istreambuf_iterator<char>(in), {});
+            }
+            Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
+            const auto frames = [&](int n) {
+                m.dbg->run(m.a);
+                for (int i = 0; i < n; ++i) m.emu.run_frame();
+                m.dbg->pause(m.a);
+            };
+            frames(1);
+            const uint32_t before_load = m.dbg->time().frame;
+            m.dbg->poke(m.a, MemSpace::page(4), 0, code.size(), code.data());
+            write_text(d / "game.nex", "");
+            fs::copy_file(d / "prog.map", d / "game.map");
+            fs::copy_file(d / "prog_CODE.bin", d / "game_CODE.bin");
+            (void)m.dbg->load_program_sidecars((d / "game.nex").string());
+            frames(2);
+            const Result back = m.dbg->rewind_to_frame(m.a, before_load);
+            // No reader has run since the rewind: the map is dropped by the first one (recheck).
+            const uint64_t rev0 = m.dbg->state_revision();
+            const size_t at_before = m.dbg->source_map().size();
+            const uint64_t rev1 = m.dbg->state_revision();
+            check("SRCDBG-Z88-36", "the state revision advances when the first reader after a rewind drops "
+                                   "the program's z88dk map (a paused panel redraws on the revision, not the clock)",
+                  back == Result::Ok && at_before == 0 && rev1 > rev0,
+                  "back=" + std::to_string(int(back)) + " size=" + std::to_string(at_before) +
+                      " rev " + std::to_string(rev0) + " -> " + std::to_string(rev1));
+        }
     }
 
     // ── GH #344 stage 3: a tape program's maps ───────────────────────────────

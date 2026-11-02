@@ -524,6 +524,7 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     // A z88dk map fills the source half only (D10): it leaves the symbols alone, an
     // earlier hand SLD's labels included, and reports none.
     out.labels = sld ? impl_->attach_hand_labels(std::move(labels), parsed.labels) : 0;
+    impl_->bump_revision();   // GH #428
     return out;
 }
 
@@ -553,6 +554,7 @@ Result Debugger::clear_source_map() {
     impl_->user_sources_stale = false;
     impl_->pause_verify_user  = false;
     impl_->source_reason.clear();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -640,6 +642,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     const uint64_t drops = impl_->source_drops;
     impl_->recheck();
     const uint64_t gen = impl_->begin_generation();
+    impl_->bump_revision();   // GH #428: symbols / source map may change below
     if (impl_->sources_owner == Owner::User) impl_->user_sources_gen = gen;
     // The reason the previous program's map went (just now) outlives the load
     // of a program with no map of its own; anything older does not.
@@ -1096,6 +1099,7 @@ void Debugger::Impl::recheck() {
     sync_verify_window();
     std::vector<std::string> lines;
     lines.swap(pending_log);
+    if (!lines.empty()) bump_revision();   // GH #428: a store was dropped / restored / marked stale
     for (const auto& l : lines) self->log(CLIENT_NONE, LogLevel::Info, l);
 }
 

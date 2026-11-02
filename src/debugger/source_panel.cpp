@@ -542,6 +542,22 @@ void SourcePanel::set_colour_scheme(SourceScheme scheme)
 {
     highlighter_->set_scheme(scheme);
     apply_scheme_();   // at once: a Preferences Apply does not wait for a paused tick
+    // GH #428: the tint and the bar are selections built by refresh_(); a paused tick redraws only
+    // when the machine moved, so a scheme change repaints them here instead of waiting for one.
+    if (dbg_) refresh_();
+}
+
+bool SourcePanel::file_changed_on_disk() const
+{
+    if (loaded_source_.isEmpty()) return false;
+    return QFileInfo(loaded_source_).lastModified().toMSecsSinceEpoch() != loaded_mtime_;
+}
+
+void SourcePanel::follow_pc()
+{
+    placed_ = false;
+    browse_addr_.reset();
+    if (dbg_) refresh();
 }
 
 void SourcePanel::refresh()

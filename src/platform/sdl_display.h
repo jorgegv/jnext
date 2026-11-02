@@ -22,6 +22,13 @@ public:
     void toggle_fullscreen();
     bool is_fullscreen() const { return fullscreen_; }
     void set_scale(int scale);
+
+    /// GH #428 — the window needs the current frame drawn again although the
+    /// emulator wrote no new one (exposed, resized, fullscreen, scale).
+    /// Set by SdlInput's window events and by toggle_fullscreen()/set_scale();
+    /// SdlApp::run() consumes it with take_redraw_request().
+    void request_redraw() { redraw_requested_ = true; }
+    bool take_redraw_request() { const bool r = redraw_requested_; redraw_requested_ = false; return r; }
     int  get_scale() const { return scale_; }
     void shutdown();
 
@@ -36,4 +43,5 @@ private:
     int display_h_ = 0;  ///< Logical display height (NATIVE_H × 2 = 512).
     int scale_    = 2;
     bool fullscreen_ = false;
+    bool redraw_requested_ = false;
 };

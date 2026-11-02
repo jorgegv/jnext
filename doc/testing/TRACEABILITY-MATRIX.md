@@ -38,7 +38,7 @@ mentions them, so a test can no longer be absent from this document.
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
-| Rewind                                     |   366 |  366 |    0 |    0 |       0 |          0 |
+| Rewind                                     |   369 |  369 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
 | Contention                                 |   178 |  178 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    88 |   88 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6087 | 6087 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6090 | 6090 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6087**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5608**. Rows the 174 suites declared in `test/unit-tests.conf` run live: **14889**.
+Rows the sections above carry: **6090**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5611**. Rows the 174 suites declared in `test/unit-tests.conf` run live: **14981**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 127 suites (9365 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 127 suites (9454 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -111,9 +111,9 @@ These 127 suites (9365 live rows) have no VHDL-derived plan row to map, so they 
 | `audio_gain_test` | 11 | host output-gain control (a user setting, not a core register) |
 | `subsystem_gain_test` | 26 | host per-subsystem gain control (a user setting) |
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
-| `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
+| `render_policy_test` | 14 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 125 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 129 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `fullscreen_sync_test` | 11 | macOS full-screen state sync and window size lock (GH #404, host GUI, no VHDL oracle) |
 | `recent_files_test` | 17 | File > Recent Files list logic and load-dialog seed (GH #406, host GUI, no VHDL oracle) |
@@ -124,7 +124,7 @@ These 127 suites (9365 live rows) have no VHDL-derived plan row to map, so they 
 | `frame_sequencer_test` | 116 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
-| `host_key_latch_test` | 180 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `host_key_latch_test` | 182 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
@@ -152,9 +152,9 @@ These 127 suites (9365 live rows) have no VHDL-derived plan row to map, so they 
 | `source_map_test` | 107 | source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger |
 | `z88dk_map_test` | 65 | z88dk -debug map source adapter (sections to pages, extents, identity; jnext-internal); the T80N core has no debugger |
 | `z88dk_lis_test` | 34 | z88dk --list listing source adapter (relocation by labels, every occurrence of a C line, the start-up code, cross-check; jnext-internal); the T80N core has no debugger |
-| `source_debug_test` | 329 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
+| `source_debug_test` | 330 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
 | `source_debug_posix_test` | 8 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1513 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1567 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
@@ -172,7 +172,7 @@ These 127 suites (9365 live rows) have no VHDL-derived plan row to map, so they 
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
 | `mouse_release_test` | 17 | captured-mouse release gesture in the Qt window (host UI, GH #365) |
-| `present_count_test` | 21 | host present accounting (wall-clock, not core timing) |
+| `present_count_test` | 27 | host present accounting (wall-clock, not core timing) |
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
@@ -189,7 +189,7 @@ These 127 suites (9365 live rows) have no VHDL-derived plan row to map, so they 
 | `joystick_menu_test` | 14 | joystick controller picker: Input menu, Preferences (host GUI) |
 | `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |
 | `window_scale_test` | 12 | main-window scale/fullscreen geometry (host GUI) |
-| `crt_shader_widget_test` | 42 | OpenGL CRT shader widget, settings and menu (host GUI) |
+| `crt_shader_widget_test` | 43 | OpenGL CRT shader widget, settings and menu (host GUI) |
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `color_scheme_test` | 28 | GUI light/dark scheme from the desktop portal (host GUI, GH #363) |
 | `color_scheme_linux_test` | 2 | GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart |
@@ -203,14 +203,14 @@ These 127 suites (9365 live rows) have no VHDL-derived plan row to map, so they 
 | `debugger_persistent_bp_test` | 14 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
 | `debugger_inspect_watchpoint_test` | 18 | debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus |
 | `debugger_window_size_test` | 42 | debugger window geometry (host GUI) |
-| `debugger_window_grow_test` | 6 | debugger window geometry (host GUI) |
+| `debugger_window_grow_test` | 8 | debugger window geometry (host GUI) |
 | `debugger_accel_test` | 8 | debugger keyboard accelerators (host GUI) |
 | `debugger_keymap_test` | 44 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
 | `debugger_menu_test` | 68 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 44 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
 | `debugger_panels_test` | 104 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
-| `debugger_verbs_test` | 81 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
-| `debugger_source_panel_test` | 258 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_verbs_test` | 95 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_source_panel_test` | 259 | debugger Source panel, page-qualified breakpoints and symbol address fields (CAP-SRC, host GUI, jnext-internal); the T80N core has no debugger |
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->
@@ -3941,6 +3941,9 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | RWLOAD-10 | a resize after a pause is recorded as running: the load keeps it enabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8097 |
 | RWLOAD-11 | control: a tape load re-inits nothing, so ring and history are kept | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8106 |
 | RWLOAD-12 | pause then resume then load: rewind comes back running, not paused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8120 |
+| FBG-PRE-05 | rewind buffer exists | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8146 |
+| FBG-05 | rewind_to_frame() re-renders the framebuffer and advances the generation | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8150 |
+| FBG-06 | rewind_to_cycle() re-renders the framebuffer and advances the generation | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8158 |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 

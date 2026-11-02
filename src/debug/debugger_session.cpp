@@ -134,6 +134,7 @@ Expected<ClientId> Debugger::attach(const ClientInfo& info) {
     c.info = info;
     impl_->clients.push_back(c);
     impl_->clients_changed();
+    impl_->bump_revision();   // GH #428
 
     // SES-06 — an attach is a host-initiated lifecycle event, which the level
     // policy puts at `info`: one line per user action.
@@ -225,6 +226,7 @@ Result Debugger::detach(ClientId cid) {
     // client's listener in the middle of a fan-out, which is the one moment a
     // tombstoned row is still walked.
     c->detached = true;
+    impl_->bump_revision();   // GH #428
     impl_->events.erase_client(cid);
     // PER-CLIENT STATE DIES WITH THE CLIENT (GH #276 B5, carried from B4's
     // reviews). Client ids are never reused, so anything keyed by one that a

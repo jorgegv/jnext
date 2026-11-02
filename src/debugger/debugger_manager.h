@@ -77,9 +77,21 @@ public:
     /// cannot be declined) and the disable always succeeds and returns true.
     bool set_enabled(bool enabled, bool prompt_on_corrupt = true);
 
-    /// Refresh all visible panels with current emulator state.
-    /// Called from on_frame_tick() — does nothing when debugger is disabled.
+    /// The per-TICK refresh, called from QtApp's post-frames step. Does nothing
+    /// when the debugger is disabled. Running: every REFRESH_INTERVAL-th tick.
+    /// Paused (GH #428): the panels are redrawn only when something they show
+    /// may have changed since the last refresh (paused_stamp()); the actions
+    /// are re-derived every tick.
     void refresh_panels();
+
+    /// GH #428 — calls of DebuggerWindow::refresh_panels() made by this manager
+    /// (whatever the reason) since the last take. The `ticks:` debug line
+    /// reports it; the paused-idle rows pin it at 0 for an idle machine.
+    uint64_t take_panel_refresh_count() {
+        const uint64_t n = panel_refresh_count_;
+        panel_refresh_count_ = 0;
+        return n;
+    }
 
     /// Once per frame tick, after the loop owner's pump: read the backend's
     /// pause state and bring the window to it. A pause the window has not shown
@@ -196,6 +208,41 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    /// GH #428 — everything a paused panel can show that a tick can see
+    /// change: the CPU register file (a direct core write, as the tests and host
+    /// actions make), the master clock (steps, run-to, rewinds), the backend's state
+    /// revision (writes from any client, metadata verbs, cold boots), the
+    /// host-input epoch (a key / mouse button / wheel event anywhere in the
+    /// app: the generic catch-all for host-side changes made on user input,
+    /// e.g. the CPU-speed menu writing NR 0x07), and the loaded source file
+    /// changing on disk.
+    struct PausedStamp {
+        uint64_t cycle = 0, revision = 0, input_epoch = 0;
+        bool source_file_changed = false;
+        Z80Registers regs{};   // the whole register file: a direct core write behind the backend
+        static bool same(const Z80Registers& a, const Z80Registers& b) {
+            return a.AF == b.AF && a.BC == b.BC && a.DE == b.DE && a.HL == b.HL &&
+                   a.AF2 == b.AF2 && a.BC2 == b.BC2 && a.DE2 == b.DE2 && a.HL2 == b.HL2 &&
+                   a.IX == b.IX && a.IY == b.IY && a.SP == b.SP && a.PC == b.PC &&
+                   a.MEMPTR == b.MEMPTR && a.I == b.I && a.R == b.R && a.IFF1 == b.IFF1 &&
+                   a.IFF2 == b.IFF2 && a.IM == b.IM && a.Q == b.Q && a.halted == b.halted &&
+                   a.IncDecZ == b.IncDecZ;
+        }
+        bool operator==(const PausedStamp& o) const {
+            return same(regs, o.regs) && cycle == o.cycle && revision == o.revision &&
+                   input_epoch == o.input_epoch &&
+                   source_file_changed == o.source_file_changed;
+        }
+    };
+    PausedStamp paused_stamp() const;
+    /// Redraw the window and remember what it was drawn from.
+    void refresh_window();
+
+    PausedStamp last_stamp_;
+    bool last_stamp_valid_ = false;
+    uint64_t input_epoch_ = 0;
+    uint64_t panel_refresh_count_ = 0;
+
     /// The five source steps share one body: the corruption gate, the verb,
     /// and the refusal / pause bookkeeping `on_step_back()` does.
     void run_source_step(jnext::dbg::Debugger::SourceStep kind, const QString& name);

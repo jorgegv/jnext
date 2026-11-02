@@ -43,7 +43,9 @@ public:
     /// The machine stopped (a breakpoint, a step, a Pause, a rewind): the next
     /// refresh puts the view on the current line even when the line and the PC
     /// are the ones it last showed and the user has scrolled away since.
-    void follow_pc() { placed_ = false; browse_addr_.reset(); }
+    /// Back to following the PC. GH #428: repaints at once - a paused tick redraws only when the
+    /// machine moved, and this changes what the tab shows without moving it.
+    void follow_pc();
     /// Enable the step buttons for this state, without re-reading anything.
     void update_buttons(bool paused);
 
@@ -124,6 +126,10 @@ public:
     QString location_tooltip() const;
     /// One-based line highlighted in the editor, 0 when none.
     int highlighted_line() const { return highlighted_line_; }
+    /// GH #428 — the file shown has changed on disk since it was loaded, which
+    /// refresh() would answer with a reload. The paused refresh gate asks, so
+    /// an edit-and-rebuild still shows while nothing else changes.
+    bool file_changed_on_disk() const;
 
     /// GH #360 - Friendly (`P04`) or Physical (`$048000`) wherever the tab names the
     /// memory of an address: the label, the place lists, the tooltips, the menus.
