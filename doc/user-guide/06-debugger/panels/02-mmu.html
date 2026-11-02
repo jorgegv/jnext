@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3863,7 +3863,10 @@ actually mapped where right now".</p>
 <p><strong>Next MMU Mappings</strong> lists all eight 8K slots with the physical page number in
 use and the slot type — <code>ROM</code> in orange, or <code>B</code><em>n</em> naming the 16K bank the page
 belongs to. The page shown is the one really in effect, whether it came from
-NextREG <code>0x50</code>–<code>0x57</code> or from legacy 128K paging.</p>
+NextREG <code>0x50</code>–<code>0x57</code> or from legacy 128K paging. A fourth column, <strong>Memory</strong>,
+names what a read of the slot returns <em>now</em> — its own page (<code>P0A</code>), or a ROM, the
+DivMMC, the Multiface or Layer 2 when one of them is switched over it
+(<a href="../index.html#which-memory-an-address-is-in">which memory an address is in</a>).</p>
 <p><strong>128K Bank Mappings</strong> shows the port <code>0x7FFD</code> state: the selected RAM <code>Bank</code>,
 the <code>ROM</code> select bit, and whether paging is <code>Lock</code>ed (red when it is — a locked
 <code>0x7FFD</code> is a classic cause of "my bank switch does nothing").</p>

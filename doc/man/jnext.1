@@ -1312,7 +1312,17 @@ Attach a source map, an sjasmplus SLD or a z88dk \f[CR]\-debug\f[R]
 > Load Source Map\&...\f[R].
 A z88dk map gives source lines only (and reads the \f[CR]\-\-list\f[R]
 listings beside it); its symbols stay with \f[B]\-\-map\f[R].
-Requires \f[B]\-\-load\f[R].
+Requires \f[B]\-\-load\f[R], unless \f[I]FILE\f[R] is the map of a z88dk
+dot command (\f[CR]\-subtype=dot\f[R], \f[CR]dotx\f[R]; built with
+\f[CR]\-debug\f[R]): that map is attached at once, before any script
+loads, and stays pending until the guest runs the command, when it is
+checked (the command is loaded into DivMMC RAM by NextZXOS, which jnext
+does not know until it runs; see the User Guide).
+Any other map without \f[B]\-\-load\f[R] is refused (exit status 1).
+An RZX replay (\f[B]\-\-rzx\-play\f[R] \f[I]R\f[R], or
+\f[B]\-\-load\f[R] \f[I]R\f[R]\f[CR].rzx\f[R]) is the same case: a dot
+command\(cqs map attaches pending, any other map is refused at start\-up
+naming RZX (exit status 1).
 A map whose binary identity does not match the program, or that cannot
 be loaded, is a startup error (exit status 1).
 With a tape program (\f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R])
@@ -1508,6 +1518,13 @@ holds (unless the same command line frees it), is refused with exit
 status 1 before the window opens.
 The Qt window with the debugger.
 .TP
+\f[CR]source.colour_scheme\f[R] \f[I]auto|light|dark|borland\f[R]
+The colour scheme of the debugger\(cqs Source tab, like the
+\f[B]Preferences\f[R] Debugger tab: \f[CR]auto\f[R] (the default) is
+light or dark after the application, \f[CR]borland\f[R] is Borland C++
+3.1 (yellow on blue).
+The Qt window with the debugger.
+.TP
 \f[CR]esp.enabled\f[R] \f[I]true|false\f[R]
 The emulated ESP\-01 WiFi module; \f[B]\-\-esp\f[R] and
 \f[B]\-\-no\-esp\f[R].
@@ -1536,6 +1553,16 @@ All frontends.
 Whether the debugger window follows the emulator window.
 The window opens as told for this run; the file keeps its value until
 the \f[B]Attach to Emulator Window\f[R] menu item is toggled.
+The Qt window with the debugger.
+.TP
+\f[CR]debugger.physical_addresses\f[R] \f[I]true|false\f[R]
+Whether the debugger names an address\(cqs memory by where it sits in
+the Next\(cqs memory (\f[CR]$060000\f[R], \f[CR]BRAM7+$0000\f[R])
+instead of by page and ROM name (\f[CR]P0E\f[R], \f[CR]ROM1\f[R],
+\f[CR]DIVROM\f[R]).
+The window opens as told for this run; the file keeps its value until
+the \f[B]Physical Addresses\f[R] item of the \f[B]Debug\f[R] menu is
+toggled.
 The Qt window with the debugger.
 .SH MACHINES
 .TP

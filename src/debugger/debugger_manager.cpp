@@ -22,6 +22,7 @@
 #include <QStyle>
 #include <QTimer>
 #include <QEvent>
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QStatusBar>
@@ -138,7 +139,7 @@ void DebuggerManager::apply_pause_state(bool paused) {
         emit this->paused();
         if (debugger_window_) {
             debugger_window_->activate_follow_pc();
-            debugger_window_->refresh_panels();
+            refresh_window();
         }
     } else {
         emit resumed();
@@ -147,6 +148,23 @@ void DebuggerManager::apply_pause_state(bool paused) {
 }
 
 bool DebuggerManager::eventFilter(QObject* obj, QEvent* event) {
+    // GH #428 — host input anywhere in the app (installed on qApp while the
+    // debugger is enabled). MouseMove is deliberately not counted: hover and
+    // Kempston mouse capture must not redraw a paused window.
+    switch (event->type()) {
+    case QEvent::KeyPress:
+    case QEvent::KeyRelease:
+    case QEvent::ShortcutOverride:   // a shortcut consumes the KeyPress itself
+    case QEvent::Shortcut:
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::Wheel:
+        ++input_epoch_;
+        break;
+    default:
+        break;
+    }
     if (obj == main_window_) {
         if (event->type() == QEvent::Move || event->type() == QEvent::Resize) {
             reposition_debugger_window();
@@ -196,7 +214,8 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
         set_panels_paused(dbg_.state().paused);
 
         // Refresh panels immediately.
-        debugger_window_->refresh_panels();
+        refresh_window();
+        qApp->installEventFilter(this);   // GH #428: the input epoch
     } else {
         // Resume if paused, then deactivate.
         if (dbg_.state().paused) {
@@ -236,6 +255,7 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
             emit resumed();
         }
         shown_paused_ = false;
+        qApp->removeEventFilter(this);
 
         // GH #278 WP4c — nothing else to clear. The legacy `active()` bit this
         // used to clear (set by the magic-breakpoint hook and, before WP3, by
@@ -287,6 +307,12 @@ void DebuggerManager::set_source_dirs(const QStringList& configured) {
     if (source_dirs() != before) push_source_dirs(true);
 }
 
+void DebuggerManager::set_source_scheme(SourceScheme scheme) {
+    source_scheme_ = scheme;
+    if (debugger_window_ && debugger_window_->source_panel())
+        debugger_window_->source_panel()->set_colour_scheme(scheme);
+}
+
 void DebuggerManager::on_source_dir_located(const QString& dir) {
     if (dir.isEmpty() || located_source_dirs_.contains(dir)) return;
     located_source_dirs_ << dir;
@@ -297,7 +323,7 @@ void DebuggerManager::ensure_window() {
     if (debugger_window_)
         return;
 
-    debugger_window_ = new DebuggerWindow(dbg_, nullptr, attach_override_);
+    debugger_window_ = new DebuggerWindow(dbg_, nullptr, attach_override_, physical_override_);
     debugger_window_->set_debugger_manager(this);
     // GH #1 — BEFORE anything else touches the window. The window is created
     // lazily (the first time the debugger is enabled, from the menu, a magic
@@ -313,6 +339,8 @@ void DebuggerManager::ensure_window() {
                 &DebuggerManager::source_dir_save_requested);
     }
     push_source_dirs(false);
+    // GH #422 stage 2 - and its colour scheme.
+    if (auto* sp = debugger_window_->source_panel()) sp->set_colour_scheme(source_scheme_);
 
     // Closing the debugger window disables the debugger.
     connect(debugger_window_, &DebuggerWindow::window_closed, this, [this]() {
@@ -729,7 +757,7 @@ void DebuggerManager::report_sidecars(const jnext::dbg::Debugger::SidecarLoad& r
         dbg_.log(client_, jnext::dbg::LogLevel::Warn, "load: " + result.problem);
     if (!result.problem.empty() && main_window_->statusBar())
         main_window_->statusBar()->showMessage(QString::fromStdString(result.problem), 10000);
-    if (debugger_window_) debugger_window_->refresh_panels();
+    if (debugger_window_) refresh_window();   // GH #428: also takes the paused stamp
 }
 
 void DebuggerManager::run_source_step(jnext::dbg::Debugger::SourceStep kind,
@@ -779,6 +807,26 @@ void DebuggerManager::on_source_reverse_continue() {
 // Panel refresh
 // ---------------------------------------------------------------------------
 
+void DebuggerManager::refresh_window() {
+    ++panel_refresh_count_;
+    debugger_window_->refresh_panels();
+    // Taken AFTER the redraw: a panel may itself touch the backend, and that
+    // must not read as a change at the next tick.
+    last_stamp_ = paused_stamp();
+    last_stamp_valid_ = true;
+}
+
+DebuggerManager::PausedStamp DebuggerManager::paused_stamp() const {
+    PausedStamp s;
+    s.cycle = dbg_.time().master_cycle;
+    s.revision = dbg_.state_revision();
+    s.input_epoch = input_epoch_;
+    s.regs = dbg_.registers();
+    if (debugger_window_ && debugger_window_->source_panel())
+        s.source_file_changed = debugger_window_->source_panel()->file_changed_on_disk();
+    return s;
+}
+
 void DebuggerManager::refresh_panels() {
     if (!enabled_ || !debugger_window_)
         return;
@@ -789,18 +837,24 @@ void DebuggerManager::refresh_panels() {
     // Buffer Size... = 0. Recomputed only by the verbs, Step Back and Jump Here
     // stayed enabled over them until the next verb, and the click was then
     // refused. (While running every such action is off whatever those inputs
-    // are, and the verb that resumed has already said so.)
+    // are, and the verb that resumed has already said so.) So update_actions()
+    // runs on every paused tick; it is cheap.
     if (dbg_.state().paused) {
+        // GH #428 — the PANELS are redrawn only when something they show may
+        // have changed (paused_stamp()). A paused machine with nothing
+        // happening used to redraw everything, the Video tab's composited
+        // frame included, fifty times a second.
         // The raster the panels show is the backend's (INS-06), which takes a
         // paused machine's snapshot at the query itself (GH #278 WP7).
-        debugger_window_->refresh_panels();
+        if (!last_stamp_valid_ || !(paused_stamp() == last_stamp_))
+            refresh_window();
         update_actions();
     } else {
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;
         if (refresh_counter_ >= REFRESH_INTERVAL) {
             refresh_counter_ = 0;
-            debugger_window_->refresh_panels();
+            refresh_window();
         }
     }
 }

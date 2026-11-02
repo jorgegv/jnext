@@ -666,6 +666,8 @@ static std::array<jnext::dbg::SlotInfo, 8> next_slots(int rom) {
         s[static_cast<std::size_t>(i)].is_rom         = true;
         s[static_cast<std::size_t>(i)].nr_page        = 0xFF;
         s[static_cast<std::size_t>(i)].effective_page = static_cast<std::uint8_t>(rom * 2 + i);
+        // A Next at reset reads the boot ROM there (zxnext.vhd:1856-1857).
+        s[static_cast<std::size_t>(i)].now            = jnext::dbg::MemSpace::boot_rom();
     }
     for (int i = 0; i < 6; ++i) {
         s[static_cast<std::size_t>(i + 2)].nr_page        = ram[i];
@@ -772,6 +774,106 @@ static void format_rows() {
                                   "End: FFFFH\n\n"),
               esc(verb, 400));
 
+    {
+        // ZRCP-FMT-15 (GH #360): ZEsarUX's names, from what each slot reads. TBBlue `O<n>` is the
+        // 8 KB ROM page 2*image + half (debug.c:7114-7130, tbblue.c:3171-3179); config mode is
+        // `SR<n>` with the full NR 0x04, here 39 (debug.c:7240-7256; ZEsarUX masks it to 7);
+        // the boot ROM is `RO`.
+        using jnext::dbg::MemSpace;
+        auto s1 = next_slots(1);
+        s1[0].now = MemSpace::rom(1);
+        s1[1].now = MemSpace::rom(1);
+        auto cfg = next_slots(0);
+        for (auto& sl : cfg) sl.now = MemSpace::config(0x27);
+        const std::string rom1  = memory_pages(s1, false, MachineType::ZXN_ISSUE2);
+        const std::string rom1v = memory_pages(s1, true, MachineType::ZXN_ISSUE2);
+        const std::string cfgp  = memory_pages(cfg, false, MachineType::ZXN_ISSUE2);
+        const std::string cfgv  = memory_pages(cfg, true, MachineType::ZXN_ISSUE2);
+        const std::string boot  = memory_pages(next_slots(0), false, MachineType::ZXN_ISSUE2);
+        check("ZRCP-FMT-15", "get-memory-pages on the Next: ROM image 1 is O2 O3 (verbose \"ROM 2\"), "
+                             "config mode NR 0x04 = 0x27 is SR39 in every slot (\"SRAM 39\"), the "
+                             "boot ROM is RO RO",
+              rom1 == "O2 O3 A10 A11 A4 A5 A0 A1 " &&
+                  rom1v.find("Segment 1\nLong name: ROM 2\nShort name: O2\n") != std::string::npos &&
+                  cfgp == "SR39 SR39 SR39 SR39 SR39 SR39 SR39 SR39 " &&
+                  cfgv.find("Long name: SRAM 39\nShort name: SR39\n") != std::string::npos &&
+                  boot == "RO RO A10 A11 A4 A5 A0 A1 ",
+              rom1 + " / " + cfgp + " / " + boot);
+    }
+    {
+        // ZRCP-FMT-16 (GH #360): `DIV` whenever DivMMC is paged over the slot (the VHDL overlays
+        // a RAM-mapped slot 0/1 too, zxnext.vhd:3037-3043); on a legacy machine segment 0 is
+        // `DIV` while DivMMC is paged in (debug.c:7915-7946).
+        using jnext::dbg::MemSpace;
+        auto d = next_slots(0);
+        d[0].now = MemSpace::divmmc_rom();
+        d[1].now = MemSpace::divmmc_ram(2);
+        auto ramslot = next_slots(0);
+        ramslot[0].is_rom         = false;
+        ramslot[0].nr_page        = 0x10;
+        ramslot[0].effective_page = 0x10;
+        ramslot[0].space          = MemSpace::page(0x10);
+        ramslot[0].now            = MemSpace::divmmc_rom();
+        std::array<jnext::dbg::SlotInfo, 8> l48{};
+        l48[0].is_rom = true;
+        l48[0].now    = MemSpace::divmmc_rom();
+        const std::string dp = memory_pages(d, false, MachineType::ZXN_ISSUE2);
+        const std::string dv = memory_pages(d, true, MachineType::ZXN_ISSUE2);
+        const std::string rp = memory_pages(ramslot, false, MachineType::ZXN_ISSUE2);
+        const std::string lp = memory_pages(l48, false, MachineType::ZX48K);
+        check("ZRCP-FMT-16", "get-memory-pages: DivMMC ROM and RAM bank 2 are DIV DIV (verbose "
+                             "\"Diviface\"), DivMMC over a RAM-mapped slot 0 is DIV, and a legacy "
+                             "48K with DivMMC paged is \"DIV RAM \"",
+              dp == "DIV DIV A10 A11 A4 A5 A0 A1 " &&
+                  dv.find("Segment 1\nLong name: Diviface\nShort name: DIV\n") != std::string::npos &&
+                  rp.rfind("DIV RO ", 0) == 0 && lp == "DIV RAM ",
+              dp + " / " + rp + " / " + lp);
+    }
+    {
+        // ZRCP-FMT-17 (GH #360): the overlays ZEsarUX has no spelling for (Multiface, Layer 2,
+        // alt ROM, floating) print what the slot's own mapping is.
+        using jnext::dbg::MemSpace;
+        auto m = next_slots(1);
+        m[0].now = MemSpace::multiface_rom();
+        m[1].now = MemSpace::multiface_ram();
+        auto l2 = next_slots(0);
+        l2[2].space = MemSpace::page(10);
+        l2[2].now   = MemSpace::layer2(0x12);
+        auto fl = next_slots(0);
+        fl[2].nr_page        = 0xE5;
+        fl[2].effective_page = 0;
+        fl[2].space          = MemSpace::page(0xE5);
+        fl[2].now            = MemSpace::floating();
+        auto alt = next_slots(1);
+        alt[0].now = MemSpace::alt_rom(0);
+        alt[1].now = MemSpace::alt_rom(0);
+        const std::string mp = memory_pages(m, false, MachineType::ZXN_ISSUE2);
+        const std::string lp = memory_pages(l2, false, MachineType::ZXN_ISSUE2);
+        const std::string fp = memory_pages(fl, false, MachineType::ZXN_ISSUE2);
+        const std::string ap = memory_pages(alt, false, MachineType::ZXN_ISSUE2);
+        check("ZRCP-FMT-17", "get-memory-pages: the Multiface over ROM 1 is O2 O3, Layer 2 over "
+                             "page 10 is A10, a floating slot 2 with NR 0xE5 is A229, the alt ROM "
+                             "over ROM 1 is O2 O3",
+              mp == "O2 O3 A10 A11 A4 A5 A0 A1 " && lp == "RO RO A10 A11 A4 A5 A0 A1 " &&
+                  fp == "RO RO A229 A11 A4 A5 A0 A1 " && ap == "O2 O3 A10 A11 A4 A5 A0 A1 ",
+              mp + " / " + lp + " / " + fp + " / " + ap);
+    }
+
+    {
+        // ZRCP-FMT-18 (GH #360): on a legacy machine segment 0 is `DIV` for DivMMC RAM as well as
+        // ROM (debug.c:7915-7936 tests only that DivMMC is paged in): here MAPRAM bank 3.
+        using jnext::dbg::MemSpace;
+        std::array<jnext::dbg::SlotInfo, 8> l48{};
+        l48[0].is_rom = true;
+        l48[0].now    = MemSpace::divmmc_ram(3);
+        std::array<jnext::dbg::SlotInfo, 8> l128{};
+        l128[0].now = MemSpace::divmmc_ram(3);
+        const std::string p48  = memory_pages(l48, false, MachineType::ZX48K);
+        const std::string p128 = memory_pages(l128, false, MachineType::ZX128K);
+        check("ZRCP-FMT-18", "get-memory-pages on a legacy machine with DivMMC RAM (MAPRAM bank 3) "
+                             "at slot 0: segment 0 is DIV on the 48K (\"DIV RAM \") and on the 128K",
+              p48 == "DIV RAM " && p128.rfind("DIV ", 0) == 0, p48 + " / " + p128);
+    }
     std::uint32_t n = 0;
     const bool nums =
         parse_number("38h", n) && n == 0x38 && parse_number("0FFH", n) && n == 0xFF &&
@@ -999,6 +1101,17 @@ static void pages_stack_time_rows() {
               gmp == "ROM RAM \ncommand> " &&
                   v == reply_of(memory_pages(rig.dbg->mmu_slots(), true, rig.dbg->machine().type)),
               esc(gmp));
+    }
+    {
+        // ZRCP-PG-02 (GH #360): the server reports what the slots read now. With DivMMC paged in
+        // (conmem, bank 2) slots 0 and 1 are DIV (zxnext.vhd:3084-3098).
+        Rig rig(MachineType::ZXN_ISSUE2);
+        rig.emu.port().out(0x00E3, 0x82);
+        Zc c(rig);
+        const std::string gmp = c.cmd("get-memory-pages");
+        check("ZRCP-PG-02", "get-memory-pages on a live Next with DivMMC conmem reads "
+                            "\"DIV DIV A10 A11 A4 A5 A0 A1 \" over the socket",
+              gmp == "DIV DIV A10 A11 A4 A5 A0 A1 \ncommand> ", esc(gmp));
     }
     {
         Rig rig;
@@ -1300,6 +1413,61 @@ static void control_rows() {
               after_ret == 0x1234 && is_stop_shape(ret, 0x1234) && rig.pc() == 0x5678 &&
                   is_stop_shape(jp, 0x5678),
               esc(ret) + " / " + esc(jp));
+    }
+    {
+        // GH #360 F1: at a DivMMC instant entry the CPU fetches the DivMMC ROM's JP while
+        // the data view is RAM NOPs (divmmc.vhd:124-148, zxnext.vhd:3084). cpu-step-over
+        // reads the opcode as fetched: a JP is a plain step, answered in the same pump.
+        // Read from the data view it would run to $0003 and never answer.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        static const std::uint8_t boot[0x2000] = {};
+        rig.emu.mmu().set_boot_rom(boot, sizeof(boot));
+        rig.emu.mmu().set_boot_rom_enabled(false);
+        rig.dbg->nextreg_write(1, 0x50, 10);
+        rig.dbg->nextreg_write(1, 0x0A, 0x10);   // automap enable
+        rig.dbg->nextreg_write(1, 0xB8, 0x01);
+        rig.dbg->nextreg_write(1, 0xB9, 0x01);
+        rig.dbg->nextreg_write(1, 0xBA, 0x01);   // instant entry at $0000
+        rig.emu.divmmc().rom_data()[0]     = 0xC3;   // JP $0100
+        rig.emu.divmmc().rom_data()[1]     = 0x00;
+        rig.emu.divmmc().rom_data()[2]     = 0x01;
+        rig.emu.divmmc().rom_data()[0x100] = 0x18;   // JR $
+        rig.emu.divmmc().rom_data()[0x101] = 0xFE;
+        rig.load({}, 0x0000);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string out = c.send_once("cpu-step-over\n");
+        check("LADDR-21", "cpu-step-over at a DivMMC instant entry whose ROM holds a JP is a plain "
+                          "step, answered at once (the opcode is read as the CPU fetches it)",
+              rig.pc() == 0x0100 && is_stop_shape(out, 0x0100) && rig.dbg->state().paused,
+              esc(out));
+    }
+    {
+        // GH #360 F1, the RET half: the DivMMC ROM holds RET at the instant entry while the data
+        // view is RAM NOPs (divmmc.vhd:124-148, zxnext.vhd:3084). A RET is a plain step (ZEsarUX:
+        // nothing to run to), answered in the same pump; read as a NOP it would run to $0001.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        static const std::uint8_t boot[0x2000] = {};
+        rig.emu.mmu().set_boot_rom(boot, sizeof(boot));
+        rig.emu.mmu().set_boot_rom_enabled(false);
+        rig.dbg->nextreg_write(1, 0x50, 10);
+        rig.dbg->nextreg_write(1, 0x0A, 0x10);   // automap enable
+        rig.dbg->nextreg_write(1, 0xB8, 0x01);
+        rig.dbg->nextreg_write(1, 0xB9, 0x01);
+        rig.dbg->nextreg_write(1, 0xBA, 0x01);   // instant entry at $0000
+        rig.emu.divmmc().rom_data()[0] = 0xC9;   // RET
+        rig.emu.mmu().write(0xFF00, 0x00);       // the return address $9000
+        rig.emu.mmu().write(0xFF01, 0x90);
+        rig.emu.mmu().write(0x9000, 0x18);       // JR $
+        rig.emu.mmu().write(0x9001, 0xFE);
+        rig.load({}, 0x0000);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string out = c.send_once("cpu-step-over\n");
+        check("LADDR-22", "cpu-step-over at a DivMMC instant entry whose ROM holds a RET is a plain "
+                          "step to the return address, answered at once",
+              rig.pc() == 0x9000 && is_stop_shape(out, 0x9000) && rig.dbg->state().paused,
+              esc(out));
     }
     {
         // JR $: the step-over target is never reached. ZEsarUX hangs there;

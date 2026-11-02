@@ -82,7 +82,8 @@ struct MemSpace {
 
         // ---- identity-only kinds (GH #339): the arbiter names them, `peek` and
         // ---- `poke` refuse them with `Result::Unsupported` until a consumer
-        // ---- (E23-21 for DivMmcRam) adds the access with its own rows.
+        // ---- adds the access with its own rows (GH #351: `peek(DivMmcRam)`
+        // ---- reads; `poke(DivMmcRam)` is still refused).
 
         /// The 8 KB boot ROM (`bootrom_en`), mirrored through 0x0000-0x3FFF.
         /// `cpu_di <= bootrom_do` sits ABOVE the whole SRAM arbiter

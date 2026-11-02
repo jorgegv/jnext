@@ -403,7 +403,7 @@ useful set, each mapped to a CAP:
 | `help` | the list below | — |
 | `regs` | `I=xx R=xx IFF1=n IFF2=n IM=n HALT=n MEMPTR=xxxx` (+ `PC/SP/…` for completeness) | CAP-INS-01 |
 | `set <i\|r\|iff1\|iff2\|im> <val>` | `OK` | CAP-INS-01 `set_register` |
-| `mmu` | 8 lines `slot n: page pp (effective ee) [ROM]` + `7FFD/1FFD/DFFD` | CAP-INS-03 |
+| `mmu` | 8 lines `slot n: page pp (effective ee) [ROM]  TAG [PHYS]` (E23-22: the memory the slot reads now; PHYS on the Next only) + `7FFD/1FFD/DFFD` | CAP-INS-03 |
 | `mmu <slot> <page>` | `OK` | CAP-INS-03 `set_mmu_slot` |
 | `nextreg` / `nextreg <reg>` / `nextreg <reg> <val>` | 256-entry dump / one value / `OK` | CAP-INS-04 `nextreg_peek` (side-effect free) / `nextreg_write` |
 | `page <n> <off> [len]` | hex dump of physical 8 K page `n` (default 16 bytes) | CAP-INS-02 `peek(Page{n})` |

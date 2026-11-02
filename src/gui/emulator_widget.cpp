@@ -1,5 +1,6 @@
 #include "gui/emulator_widget.h"
 #include "core/log.h"
+#include "platform/render_policy.h"
 #include <QCoreApplication>
 #include <QEvent>
 #include <QPainter>
@@ -33,7 +34,7 @@ EmulatorWidget::EmulatorWidget(QWidget* parent)
 }
 
 void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h,
-                                  bool new_content) {
+                                  bool new_content, uint64_t generation) {
     if (!framebuffer || w <= 0 || h <= 0) return;
 
     // On the first frame the widget is visible and devicePixelRatioF()
@@ -43,6 +44,28 @@ void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h,
         dpr_valid_ = true;
         set_scale(scale_);
         emit scale_changed();
+    }
+
+    // GH #428 — the frame on screen is already this one, drawn into this
+    // target: nothing to copy, scale or repaint. (A paused machine used to
+    // redo all three fifty times a second.)
+    {
+        const qreal dpr = devicePixelRatioF();
+        UploadTarget target;
+        target.pw = qRound(width() * dpr);
+        target.ph = qRound(height() * dpr);
+        target.w = w;
+        target.h = h;
+        target.dpr = dpr;
+        target.fullscreen = fullscreen_mode_;
+        const bool target_changed = !(target == last_target_);
+        const bool unknown = (generation == NO_GENERATION);
+        if (!unknown &&
+            !render_policy::upload_needed(generation, last_uploaded_gen_, target_changed))
+            return;
+        last_target_ = target;
+        last_uploaded_gen_ = generation;   // NO_GENERATION == "nothing uploaded": the next call uploads
+        ++upload_count_;
     }
 
 #ifdef JNEXT_HAVE_CRT_GL

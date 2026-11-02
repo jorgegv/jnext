@@ -3,7 +3,9 @@
 ![Memory panel](../../img/debugger-memory.png)
 
 A hex editor over the address space: address, sixteen bytes in two groups of
-eight, and the ASCII rendering.
+eight, the ASCII rendering and, after it, the tag of the memory the row's bytes
+come from (`P0A`, `ROM0`, `DIVROM`; the physical address in
+[the physical style](../index.md#which-memory-an-address-is-in)).
 
 - The **Addr** box takes a hex address (`5800`, `$5800` or `0x5800`) or a
   loaded symbol (`@name` when the name looks like a number) and centres the
@@ -11,7 +13,7 @@ eight, and the ASCII rendering.
 - The **page selector** chooses the window. `CPU View` shows the whole 64K as
   the CPU sees it — paged-in DivMMC, Multiface or Layer 2 memory included.
   `Slot 0`–`Slot 7` show the 8K **page** mapped in that slot (its label names
-  it, and follows the program's paging) — the page itself, so a DivMMC,
+  it as `Slot 6 (P14)` or `Slot 0 (ROM0)`, and follows the program's paging) — the page itself, so a DivMMC,
   Multiface or Layer 2 overlay switched on over the slot does not show there;
   a ROM slot shows the ROM. `Page...` asks for a page number (hex, `00`–`DF`,
   the numbering of `NEXTREG $50`–`$57`) and shows that page whether any slot

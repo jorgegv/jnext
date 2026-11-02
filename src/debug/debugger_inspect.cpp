@@ -38,6 +38,7 @@
 
 #include "debug/debugger_impl.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -88,9 +89,10 @@ std::string space_name(MemSpace space, uint32_t addr) {
     return buf;
 }
 
-/// Kinds the read arbiter NAMES (`Mmu::route()`, GH #339) that no verb accesses
-/// yet: `peek` and `poke` refuse them with `Result::Unsupported` until a
-/// consumer adds the access with its own rows (E23-21 adds DivMmcRam). One total
+/// Kinds the read arbiter NAMES (`Mmu::route()`, GH #339) that `poke` does not
+/// write: it refuses them with `Result::Unsupported` until a consumer adds the
+/// access with its own rows. `peek` reads `DivMmcRam` (GH #351) and refuses the
+/// rest the same way; `poke(DivMmcRam)` stays refused. One total
 /// switch, no `default`, so `-Werror=switch` makes a new kind a compile error
 /// here instead of a silent fall-through into a store it does not address.
 bool identity_only(MemSpace::Kind kind) {
@@ -302,6 +304,17 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
                 buf[done] = p[addr + done];
             return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
         }
+        // GH #351 (E23-21): a DivMMC RAM bank, read-only here (`poke` refuses it). Bank
+        // b is SRAM page 0x10 + b on the Next (zxnext.vhd:3092-3098), the page
+        // `DivMmc::ram_page()` returns whatever E3 selects now. Side-effect free.
+        case MemSpace::Kind::DivMmcRam: {
+            if (space.index >= static_cast<unsigned>(DivMmc::kRamPages)) return make_refused<size_t>(Result::InvalidPage);
+            const uint8_t* p = emu.divmmc().ram_page(space.index);
+            size_t done = 0;
+            for (; done < n && addr + done < static_cast<size_t>(DivMmc::kRamPageSize); ++done)
+                buf[done] = p[addr + done];
+            return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
+        }
         // The identity-only kinds (GH #339): named by the read arbiter, accessed
         // by no verb yet. Listed one by one (no `default`) so `-Werror=switch`
         // flags the next kind added to `MemSpace::Kind`.
@@ -309,7 +322,6 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
         case MemSpace::Kind::MultifaceRom:
         case MemSpace::Kind::MultifaceRam:
         case MemSpace::Kind::DivMmcRom:
-        case MemSpace::Kind::DivMmcRam:
         case MemSpace::Kind::AltRom:
         case MemSpace::Kind::Layer2:
         case MemSpace::Kind::Config:
@@ -456,6 +468,7 @@ std::array<SlotInfo, 8> Debugger::mmu_slots() const {
             si.space        = MemSpace::page(si.nr_page);
             si.space_offset = 0;
         }
+        si.now = mmu.route(static_cast<uint16_t>(s << 13)).space;
     }
     return out;
 }
@@ -816,13 +829,33 @@ Result Debugger::set_audio_mute_mask(ClientId by, uint8_t mask) {
 // INS-11 — disassembly
 //
 // All four read guest memory through `memory_reader()`, i.e. through
-// `Mmu::peek()`: a disassembly is an observation, and before F1 the panel's own
-// read was the one that latched the floating bus.
+// `Mmu::peek()` (no floating-bus latch): a disassembly is an observation, and
+// before F1 the panel's own read was the one that latched the floating bus. The
+// instruction at the PC is the exception (GH #360): its bytes are the ones the
+// CPU will fetch, which differ from a peek at a DivMMC instant entry.
 // ---------------------------------------------------------------------------
 
 DisasmReadFn Debugger::memory_reader() const {
     Emulator* emu = &impl_->emu;
-    return [emu](uint16_t addr) -> uint8_t { return emu->mmu().peek(addr); };
+    // GH #360 F1: the instruction at the PC is read as the CPU WILL fetch it, not
+    // as the data view shows it. At a DivMMC instant entry the M1 itself maps
+    // DivMMC (design 4.4), so a peek of the PC line shows the bytes of the map
+    // before the M1 while the CPU executes others. Every other address is a peek.
+    const uint16_t pc = emu->cpu().get_registers().PC;
+    uint8_t b[4];
+    emu->predict_instruction_bytes(pc, b);
+    auto peek = [emu](uint16_t a) -> uint8_t { return emu->mmu().peek(a); };
+    const auto mixed = [pc, b, peek](uint16_t a) -> uint8_t {
+        const uint16_t off = static_cast<uint16_t>(a - pc);
+        return off < 4 ? b[off] : peek(a);
+    };
+    // Only the bytes of the PC instruction itself are predicted; what follows it
+    // is the next instruction, which the CPU fetches after the M1 has run.
+    const int n = std::min(4, ::instruction_length(pc, mixed));
+    return [pc, b, n, peek](uint16_t addr) -> uint8_t {
+        const uint16_t off = static_cast<uint16_t>(addr - pc);
+        return off < n ? b[off] : peek(addr);
+    };
 }
 
 std::vector<DisasmLine> Debugger::disassemble(uint16_t addr, size_t n,
@@ -875,6 +908,7 @@ Result Debugger::set_call_stack_enabled(bool enabled) {
     // GH #276 B3 — client intent, re-applied across a reconstruct
     // (`Impl::want_call_stack`).
     impl_->want_call_stack = enabled;
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -885,17 +919,20 @@ Result Debugger::set_trace_enabled(bool enabled) {
     // GH #276 B3 — client intent, re-applied across a reconstruct
     // (`Impl::want_trace`).
     impl_->want_trace = enabled;
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 Result Debugger::trace_clear() {
     impl_->emu.trace_log().clear();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 Result Debugger::trace_resize(size_t entries) {
     if (entries == 0) return Result::RefusedUnavailable;
     impl_->emu.trace_log().resize(entries);
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -939,6 +976,7 @@ Result Debugger::coverage_enable(bool enabled) {
     impl_->coverage_on = enabled;
     if (!enabled) impl_->coverage.reset();
     impl_->publish_coverage();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -946,6 +984,7 @@ bool Debugger::coverage_enabled() const { return impl_->coverage_on; }
 
 Result Debugger::coverage_clear() {
     impl_->coverage.reset();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -968,6 +1007,7 @@ Result Debugger::mem_coverage_enable(bool enabled) {
     impl_->mem_cov_on = enabled;
     if (!enabled && impl_->mem_cov) impl_->mem_cov->clear();
     impl_->publish_mem_coverage();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
@@ -975,6 +1015,7 @@ bool Debugger::mem_coverage_enabled() const { return impl_->mem_cov_on; }
 
 Result Debugger::mem_coverage_clear() {
     if (impl_->mem_cov) impl_->mem_cov->clear();
+    impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 

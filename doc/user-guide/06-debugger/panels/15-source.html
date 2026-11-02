@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2216,6 +2216,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#following-the-disassembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Following the disassembly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#right-click-menu" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3914,16 +3925,44 @@ or NextBuild symbols by hand, and <strong>Locate File...</strong>, enabled while
 <em>source file not found</em>. The steps are available while the machine is
 paused and a source map is loaded; <strong>Back</strong> and <strong>Reverse</strong> also need the trace
 log and rewind. The same steps and loads are also in <strong>Debug ▸ Source</strong>.</p>
-<p>Under them, a line naming the position — <code>main.bas:120  $8A3C  page 2E</code>, or
-<code>ROM or overlay</code> when no RAM page supplies the address — and
+<p>Under them, a line naming the position — <code>main.bas:120  $8A3C  P2E</code>, ending in the tag of the memory the
+opcode comes from (<code>ROM0</code>, <code>DIVROM</code> when it is not a RAM page; the physical
+address in <a href="../index.html#which-memory-an-address-is-in">the physical style</a>) — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there. The start-up code of a z88dk program built with <code>--list</code>
 shows its m4 text from the listing, the label ending <code>(m4 output, from prog.lis)</code>;
 <strong>Locate File...</strong> does not apply to it.</p>
+<p>The text is coloured by its language: C (<code>.c</code>, <code>.h</code>), Z80 and Z80N assembly (<code>.asm</code>, <code>.s</code>,
+<code>.z80</code>, <code>.inc</code>; the sjasmplus and z88dk z80asm directives are recognised) and Boriel ZX Basic
+(<code>.bas</code>). A file with another extension is recognised by its first lines, and shown plain when
+they do not decide. Assembly written inside C (<code>#asm</code>, <code>__asm</code>) or inside Boriel Basic (<code>asm</code> ...
+<code>end asm</code>) is coloured as assembly.</p>
+<p>Ten classes are coloured: <em>Text</em> (identifiers and everything else), <em>Keyword</em>, <em>Instruction</em>,
+<em>Preprocessor</em>, <em>Label</em>, <em>String</em>, <em>Char</em>, <em>Integer</em>, <em>Float</em> and <em>Comment</em>. In C, a keyword is a
+Keyword, a <code>#</code> line is Preprocessor and a character constant is Char; a number is Integer, or Float
+when it has a point or an exponent (<code>1.5</code>, <code>1e-3</code>, <code>0x1p-3</code>). In assembly, a directive (<code>defb</code>,
+<code>section</code>, <code>include</code>, ...) is a Keyword, a mnemonic or a register is an Instruction, a label at the
+start of the line is a Label and every number is an Integer. In Boriel ZX Basic, a Basic keyword is
+a Keyword, a <code>#</code> line is Preprocessor, a line number is a Label and a number is Integer or Float. The
+punctuation and operators (<code>: , ; ( ) [ ] { } + - * / = &lt; &gt; &amp; | ! ~ ^ % ? .</code>, a multi-character one
+such as <code>-&gt;</code> or <code>&lt;&lt;=</code> as a whole) are coloured as keywords; a comment, string, character or number
+keeps its own colour.</p>
+<p>The colours come from a scheme, chosen in <strong>Settings &gt; Preferences… &gt; Debugger</strong> or for one run with
+<code>--set source.colour_scheme=WORD</code>: <strong>Auto</strong> (the default) is Light or Dark after the application's
+theme, <strong>Light</strong> and <strong>Dark</strong> are the two fixed schemes, and <strong>Borland</strong> is Borland C++ 3.1, yellow
+text on a blue background. A scheme sets the Source tab's background, text colour and syntax colours
+and the colours of the current-line bar, and applies at once. The current line keeps its bar in every
+scheme, and the gutter (line numbers and breakpoint marks) is not affected.</p>
 <p>With <a href="../functions/15-memory-coverage.html">memory coverage</a> on, every line of the
-shown file that ran has a pale green background (the current line keeps its
-highlight).</p>
+shown file that ran has a tinted background that follows the colour scheme (pale
+green in Light, a dark green in Dark, a dark teal in Borland; the current line keeps
+its highlight).</p>
+<p>A small amber arrow at the right edge of the gutter marks the line the CPU is on. The
+highlight alone can also mean a line you selected by right-clicking; the arrow is only ever
+on the CPU's line. When a toolchain
+attributes the same address to more than one source line, the position line names the
+primary one and lists the others, <code>main.bas:11  $8002  page 2E  also: util.bas:7</code>.</p>
 <p>Left of the text is a gutter, like the disassembly's: a <strong>BP</strong> column and the file's
 own <strong>Line</strong> numbers. A line carrying a breakpoint shows the same red mark as the
 disassembly gutter: a filled dot for a breakpoint that can fire, a hollow ring for a
@@ -3941,20 +3980,48 @@ tooltip says <em>not mapped now</em>. The column shows and edits only the debugg
 disassembly does; those of GDB, ZRCP, DeZog or a script are in the Breakpoints list only, and a click
 never removes them (<a href="08-breakpoints.html#whose-breakpoints-the-gutters-show-and-change">whose breakpoints the gutters show and change</a>). It works
 while the machine runs.</p>
+<h3 id="following-the-disassembly">Following the disassembly<a class="headerlink" href="#following-the-disassembly" title="Permanent link">&para;</a></h3>
+<p>The Source tab and the <a href="03-disassembly.html">Disassembly</a> follow each other's selection. They are
+two views of the same code, and a selection in one lights what it covers in the other:</p>
+<ul>
+<li>Click a source line, or select several, and every instruction compiled from it is tinted pale
+  violet in the Disassembly: all the places of a line that compiled to several (<code>main.c:18</code> of a
+  z88dk program has two). A line that is only in a page not mapped now tints nothing, and a line
+  without code tints nothing. The Disassembly scrolls to the first of those addresses only when none
+  of them is in view, and only for a click you made in the Source tab; a stop never scrolls it.
+  The PC row keeps its yellow.</li>
+<li>Click an instruction, or drag over several, in the Disassembly and the Source cursor goes to the
+  source line of the instruction you clicked, and the lines of every instruction in the range are
+  tinted the same violet. An address with no source line (the ROM, a library) leaves the Source tab
+  as it was.</li>
+</ul>
+<p>When the line you clicked is not the line the CPU is on, the tab is <strong>browsing</strong>: the label describes
+the address you clicked, not the PC, and ends <code>(browsing; the PC is at main.bas:10, $8000)</code> (or
+<code>the PC is in no source line</code>), and the Source tab shows that line's file, which may be another one
+than the PC's. The arrow stays on the CPU's own line, and the highlight too, when that line is in
+the file shown. The view stays where you put it through the refreshes while paused. If the clicked line's file cannot be found, the tab says so and <strong>Locate File...</strong> and <strong>Go to PC Line</strong> stay available. Browsing ends at
+the next stop (a breakpoint, a step, a Pause, a rewind), when the machine runs, when the source
+map is cleared or another is loaded, and when you press <strong>Go to PC Line</strong>, which is enabled only while browsing and shows
+the CPU's line again. A click on an instruction of the CPU's own line is not browsing.</p>
+<p>While the machine runs, neither tab follows the other.</p>
+<p>The tint is a pale violet in Light and a dark violet in Dark and Borland; it differs from the
+current-line bar and the coverage tint in every scheme. Nothing is configurable: the two views always
+follow each other.</p>
 <h3 id="right-click-menu">Right-click menu<a class="headerlink" href="#right-click-menu" title="Permanent link">&para;</a></h3>
 <p>Right-click in the text, or in the gutter, for the same actions the disassembly offers,
 on the line under the pointer. A right-click outside the selection first selects that line;
 inside it, the selection stays (so a dragged range can be copied).</p>
 <ul>
 <li><strong>Copy</strong> (Ctrl+C), <strong>Copy with Addresses</strong> and <strong>Select All</strong> (Ctrl+A). Copy with Addresses
-  puts each selected line on the clipboard as <code>main.bas:11  $8002 @05, $9000 @06  REM line 11</code>:
+  puts each selected line on the clipboard as <code>main.bas:11  $8002 P05, $9000 P06  REM line 11</code>:
   every address the line compiled to, with its page, or <code>-</code> for a line with no code.</li>
 <li><strong>Toggle Breakpoint</strong>: the gutter click.</li>
 <li><strong>Run to Here</strong>, also <strong>Enter</strong> in the text: run until the first place of the line is reached
   (see <a href="../functions/14-source-level-debugging.html#running-to-a-source-line">Running to a source line</a>).</li>
 <li><strong>Show in Disassembly</strong>: the disassembly moves to the line's address and selects it. A line
   that compiled to several places has a submenu, one item per place; a place whose page is not
-  mapped now is disabled.</li>
+  mapped now is disabled. (The disassembly's own right-click menu has the counterpart, <strong>Show in
+  Source</strong>, while a source map is loaded.)</li>
 <li><strong>Watch</strong> and <strong>Break on Read / Write</strong> entries, as in the disassembly menu, for the labels at
   the line's address, and for what is under the pointer: a symbol (a label or a name of the
   map; a z88dk C variable or function is offered under its C name, <code>counter</code>, whether the source

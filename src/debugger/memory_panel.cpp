@@ -3,6 +3,7 @@
 #include "debugger/coverage_colors.h"   // GH #388
 #include "debug/debugger.h"
 #include "debug/symbol_table.h"
+#include "debugger/memory_text.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -149,12 +150,21 @@ void MemoryPanel::update_coverage_legend() {
 }
 
 QSize MemoryPanel::sizeHint() const {
-    return QSize(620, 550);
+    return QSize(760, 550);   // GH #360: the memory tag after the ASCII column
 }
 
 // ---------------------------------------------------------------------------
 // Memory access helpers
 // ---------------------------------------------------------------------------
+
+// GH #360: the space a Slot view shows, as SlotInfo names it; a RAM-page index at or
+// above 0xE0 (a slot paged to nothing) is `floating()`, never a page the tag grammar
+// refuses (design 4.6).
+static jnext::dbg::MemSpace own_space(const jnext::dbg::SlotInfo& si) {
+    if (si.space.kind == jnext::dbg::MemSpace::Kind::Page && si.space.index >= 0xE0)
+        return jnext::dbg::MemSpace::floating();
+    return si.space;
+}
 
 MemoryPanel::Where MemoryPanel::locate(uint16_t addr) const {
     int mode = page_selector_ ? page_selector_->currentIndex() : 0;
@@ -244,13 +254,13 @@ void MemoryPanel::update_page_selector() {
 
     const auto slot_info = dbg_->mmu_slots();   // INS-03
     for (int i = 0; i < 8; ++i) {
-        // effective_page: physical page in use (explicit NR 0x50-0x57 or
-        // derived legacy page). nr_page would show 0xFF for legacy ROM slots.
-        uint8_t page = slot_info[i].effective_page;
-        // The HEX is upper case, the words are not (GH #278 WP0): this used to
-        // upper-case the whole label, "SLOT 3 (PAGE 0B)" beside "CPU View".
+        // GH #360: the slot's own space through the formatter ("ROM0", "P0A"). The
+        // old "page %02X" printed effective_page, which for a ROM slot is the
+        // un-shifted ROM page and read as RAM page 00. A slot paged to nothing
+        // (NR >= 0xE0) is FLOAT. The words are not upper-cased (GH #278 WP0).
         page_selector_->setItemText(i + 1,
-            QString("Slot %1 (page %2)").arg(i).arg(QString::asprintf("%02X", page)));
+            QString("Slot %1 (%2)").arg(i).arg(QString::fromStdString(
+                jnext::dbg::space_tag(own_space(slot_info[i])))));
     }
 }
 
@@ -354,7 +364,10 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
 
     if (!dbg_ || vis <= 0) return;
 
-    bool cpu_view = (page_selector_ ? page_selector_->currentIndex() : 0) == 0;
+    const int  mode_sel  = page_selector_ ? page_selector_->currentIndex() : 0;
+    const bool cpu_view  = mode_sel == 0;
+    const int  mode_slot = (mode_sel >= 1 && mode_sel < PAGE_ITEM) ? mode_sel : 0;   // GH #360
+    const auto sinfo     = dbg_->mmu_slots();                                        // GH #360
     uint16_t sp = dbg_->registers().SP;
     const bool cov_on = dbg_->mem_coverage_enabled();   // GH #388
 
@@ -465,6 +478,17 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
         p.setPen(palette_tint::ink(palette(), QColor(Qt::darkBlue)));
         int asc_x = ascii_area_left();
         p.drawText(asc_x, y + fm.ascent(), QString("|%1|").arg(ascii_buf));
+
+        // GH #360 - which memory the row's bytes came from: the slot's live data route
+        // in the CPU view, the space shown in a Slot or Page view; its own address in the
+        // physical style. After the ASCII item, so nothing before it moves.
+        const Where tw = locate(static_cast<uint16_t>(base_addr));
+        const jnext::dbg::MemSpace tag_space =
+            cpu_view ? memtext::now_of(sinfo, static_cast<uint16_t>(base_addr))
+                     : (mode_slot > 0 ? own_space(sinfo[mode_slot - 1]) : tw.space);
+        p.setPen(palette_tint::ink(palette(), QColor(Qt::darkMagenta)));
+        p.drawText(asc_x + 19 * char_w_, y + fm.ascent(),
+                   memtext::text(dbg_, style_, tag_space, static_cast<uint16_t>(tw.addr)));
     }
 }
 

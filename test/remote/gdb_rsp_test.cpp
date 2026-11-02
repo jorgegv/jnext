@@ -1673,10 +1673,15 @@ static void monitor_rows() {
         const auto  slots = rig.dbg->mmu_slots();
         bool        ok    = lines.size() == 9;
         for (std::size_t s = 0; ok && s < 8; ++s) {
-            char want[64];
-            std::snprintf(want, sizeof(want), "slot %u: page %02X (effective %02X)%s\n",
+            // The memory each slot reads now, per the VHDL (zxnext.vhd:2964, :3052, :6558-6578):
+            // ROM 0 in slots 0/1, the bank-5 block RAM for pages 10/11, SRAM page n + 0x20 above.
+            static const char* const kMem[8] = {"ROM0 $000000", "ROM0 $002000", "P0A BRAM5+$0000",
+                                                "P0B BRAM5+$2000", "P04 $048000", "P05 $04A000",
+                                                "P00 $040000", "P01 $042000"};
+            char want[96];
+            std::snprintf(want, sizeof(want), "slot %u: page %02X (effective %02X)%s  %s\n",
                           static_cast<unsigned>(s), slots[s].nr_page, slots[s].effective_page,
-                          slots[s].is_rom ? " ROM" : "");
+                          slots[s].is_rom ? " ROM" : "", kMem[s]);
             ok = lines[s] == want;
         }
         ok = ok && lines.size() == 9 && lines[8].rfind("7FFD=", 0) == 0;
@@ -1818,8 +1823,8 @@ static void monitor_rows() {
                             "its address, an address to the symbol at or below it (+offset), "
                             "an exact address to the name, an unknown name said so",
               wrote && loaded.value == 2 && byname.size() == 1 && byname[0] == "_main = $816A\n" &&
-                  near.size() == 1 && near[0] == "$8170 = _main+6\n" && exact.size() == 1 &&
-                  exact[0] == "$8200 = _helper\n" && none.size() == 1 &&
+                  near.size() == 1 && near[0] == "$8170 P04 = _main+6\n" && exact.size() == 1 &&
+                  exact[0] == "$8200 P04 = _helper\n" && none.size() == 1 &&
                   none[0] == "no symbol _nope\n" && f1 == "OK" && f2 == "OK" && f4 == "OK",
               join(byname) + join(near) + join(exact));
     }
@@ -1908,11 +1913,108 @@ static void monitor_rows() {
         const auto in21 = c.monitor("sym $C004", f);
         check("GDB-MON-13", "monitor sym names an address by the SLD label of the page mapped there now "
                             "(banked, other_bank, else the page-4 label below it)",
-              loaded.labels == 12 && premise && byname.size() == 1 && byname[0] == "banked = $C000\n" &&
-                  in20.size() == 1 && in20[0] == "$C004 = banked+4\n" && in30.size() == 1 &&
-                  in30[0] == "$C004 = other_bank+4\n" && in21.size() == 1 &&
-                  in21[0] == "$C004 = gfx.draw.loop+16364\n",
+              loaded.labels == 12 && premise && byname.size() == 1 && byname[0] == "banked = $C000 P14\n" &&
+                  in20.size() == 1 && in20[0] == "$C004 P14 = banked+4\n" && in30.size() == 1 &&
+                  in30[0] == "$C004 P1E = other_bank+4\n" && in21.size() == 1 &&
+                  in21[0] == "$C004 P15 = gfx.draw.loop+16364\n",
               join(byname) + join(in20) + join(in30) + join(in21));
+    }
+    {
+        // GDB-MON-40 (GH #360): the memory each slot reads NOW, with DivMMC paged in (conmem,
+        // bank 2): divmmc.vhd:94-96, zxnext.vhd:3084-3098 (ROM 0x010000, RAM 0x020000 + bank *
+        // 0x2000), the bank-5 block RAM for pages 10/11 (:6558-6578), SRAM page n + 0x20 (:2964).
+        Rig rig(MachineType::ZXN_ISSUE2);
+        rig.emu.port().out(0x00E3, 0x82);
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        const auto  l = c.monitor("mmu", f);
+        check("GDB-MON-40", "monitor mmu under DivMMC conmem bank 2 names the memory each slot "
+                            "reads now: DIVROM $010000, DIVRAM2 $024000, P0A BRAM5+$0000, P0B "
+                            "BRAM5+$2000, P04 $048000, P00 $040000",
+              l.size() == 9 && l[0] == "slot 0: page FF (effective 00) ROM  DIVROM $010000\n" &&
+                  l[1] == "slot 1: page FF (effective 01) ROM  DIVRAM2 $024000\n" &&
+                  l[2] == "slot 2: page 0A (effective 0A)  P0A BRAM5+$0000\n" &&
+                  l[3] == "slot 3: page 0B (effective 0B)  P0B BRAM5+$2000\n" &&
+                  l[4] == "slot 4: page 04 (effective 04)  P04 $048000\n" &&
+                  l[6] == "slot 6: page 00 (effective 00)  P00 $040000\n",
+              join(l));
+    }
+    {
+        // GDB-MON-41 (GH #360): the tag of `monitor sym ADDR` is the memory the lookup used
+        // (source_page), not the label's; the name form tags a label only when it is paged.
+        // (A user MAP and an SLD cannot share the table, so two rigs.)
+        Rig    sld(MachineType::ZXN_ISSUE2);
+        const auto loaded = sld.dbg->load_source_map(JNEXT_SJASMEQU_DIR "/equlabels.sld", false);
+        Client c(sld);
+        open_session(c);
+        std::string f;
+        sld.dbg->set_mmu_slot(sld.gdb->client(), 6, 20);
+        const auto in20   = c.monitor("sym $C004", f);
+        const auto byname = c.monitor("sym banked", f);
+        sld.dbg->set_mmu_slot(sld.gdb->client(), 6, 30);
+        const auto in30 = c.monitor("sym $C004", f);
+        const auto other = c.monitor("sym other_bank", f);
+
+        Rig    plain(MachineType::ZXN_ISSUE2);
+        char path[] = "/tmp/gdb_rsp_test_map41_XXXXXX";
+        const int fd = mkstemp(path);
+        const std::string map = "_plain = $8100\n";
+        const bool wrote = fd >= 0 && write(fd, map.data(), map.size()) ==
+                                          static_cast<ssize_t>(map.size());
+        if (fd >= 0) close(fd);
+        const auto mapped = plain.dbg->load_map(path, jnext::dbg::MapFormat::Simple);
+        std::remove(path);
+        Client c2(plain);
+        open_session(c2);
+        plain.dbg->set_mmu_slot(plain.gdb->client(), 4, 0x20);
+        const auto plain_addr = c2.monitor("sym $8104", f);
+        const auto plain_name = c2.monitor("sym _plain", f);
+        check("GDB-MON-41", "monitor sym ADDR tags the lookup's memory (P14 for page 20, P1E for "
+                            "page 30; an unpaged label read through page 0x20 is P20); the name form "
+                            "tags a paged label and leaves an unpaged one as NAME = $ADDR",
+              loaded.labels == 12 && wrote && mapped.value == 1 && in20.size() == 1 &&
+                  in20[0] == "$C004 P14 = banked+4\n" && byname.size() == 1 &&
+                  byname[0] == "banked = $C000 P14\n" && in30.size() == 1 &&
+                  in30[0] == "$C004 P1E = other_bank+4\n" && other.size() == 1 &&
+                  other[0] == "other_bank = $C000 P1E\n" && plain_addr.size() == 1 &&
+                  plain_addr[0] == "$8104 P20 = _plain+4\n" && plain_name.size() == 1 &&
+                  plain_name[0] == "_plain = $8100\n",
+              join(in20) + join(byname) + join(in30) + join(other) + join(plain_addr) + join(plain_name));
+    }
+    {
+        // GDB-MON-42 (GH #360, D3): a non-Next machine has no SRAM layout, so its slot lines end
+        // with the tag only: no physical address, no BRAM text.
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        const auto  l = c.monitor("mmu", f);
+        bool        tags = l.size() == 9;
+        for (std::size_t s = 0; tags && s < 8; ++s)
+            tags = l[s].find('$') == std::string::npos && l[s].find("BRAM") == std::string::npos;
+        check("GDB-MON-42", "monitor mmu on a 48K machine ends every slot line with the tag alone "
+                            "(ROM0 for the ROM slots, no physical text)",
+              tags && l[0] == "slot 0: page FF (effective 00) ROM  ROM0\n" &&
+                  l[1] == "slot 1: page FF (effective 01) ROM  ROM0\n" &&
+                  l[2].rfind("slot 2:", 0) == 0 && l[2].find("  P") != std::string::npos,
+              join(l));
+    }
+    {
+        // GDB-MON-43 (GH #360): a floating slot (MMU2 = 0xE5, zxnext.vhd:3061) ends in the tag
+        // alone: its physical text is the same word, printed once.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        rig.dbg->nextreg_write(rig.gdb->client(), 0x52, 0xE5);
+        Client c(rig);
+        open_session(c);
+        std::string f;
+        const auto  l  = c.monitor("mmu", f);
+        const auto  s2 = rig.dbg->mmu_slots()[2];
+        char        want[96];
+        std::snprintf(want, sizeof(want), "slot 2: page E5 (effective %02X)  FLOAT\n", s2.effective_page);
+        check("GDB-MON-43", "monitor mmu with MMU2 = 0xE5 ends the slot line exactly in \"  FLOAT\" "
+                            "(the tag, the same word not repeated as physical text)",
+              l.size() == 9 && s2.now == jnext::dbg::MemSpace::floating() && l[2] == want, join(l));
     }
     {
         // GDB-MON-14 (GH #424): a z88dk map's C symbol answers to its C name and is named by it. Oracle: the
@@ -1930,11 +2032,11 @@ static void monitor_rows() {
         const auto inside = c.monitor("sym $8F5B", f);
         const auto by_asm = c.monitor("sym _counter", f);
         const auto not_c = c.monitor("sym asm_bump", f);
-        check("GDB-MON-14", "monitor sym takes a z88dk C name and names an address by it: counter = $8F59, "
-                            "$8F59 = counter, $8F5B = table+1, _counter still works, asm_bump (asm module) is no symbol",
-              loaded.status == Result::Ok && premise && by_c.size() == 1 && by_c[0] == "counter = $8F59\n" &&
-                  by_addr.size() == 1 && by_addr[0] == "$8F59 = counter\n" && inside.size() == 1 &&
-                  inside[0] == "$8F5B = table+1\n" && by_asm.size() == 1 && by_asm[0] == "_counter = $8F59\n" &&
+        check("GDB-MON-14", "monitor sym takes a z88dk C name and names an address by it: counter = $8F59 P04, "
+                            "$8F59 P04 = counter, $8F5B P04 = table+1, _counter still works, asm_bump (asm module) is no symbol",
+              loaded.status == Result::Ok && premise && by_c.size() == 1 && by_c[0] == "counter = $8F59 P04\n" &&
+                  by_addr.size() == 1 && by_addr[0] == "$8F59 P04 = counter\n" && inside.size() == 1 &&
+                  inside[0] == "$8F5B P04 = table+1\n" && by_asm.size() == 1 && by_asm[0] == "_counter = $8F59 P04\n" &&
                   not_c.size() == 1 && not_c[0] == "no symbol asm_bump\n",
               join(by_c) + join(by_addr) + join(inside) + join(by_asm) + join(not_c));
     }

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1537,6 +1537,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#get-memory-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get-memory-pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#breakpoints-history-loading" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2369,6 +2380,15 @@ run. <code>run n</code> is a loop of <code>step_into</code> in time slices, so a
 holds one pump. <code>hard-reset-cpu</code> is a cold boot completed inside the reply,
 through the loop owner's <code>LoopDriver</code> (the reconstruct contract of <a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a>): the session
 and its subscriptions survive it, and a stopped machine stays stopped.</p>
+<h2 id="get-memory-pages"><code>get-memory-pages</code><a class="headerlink" href="#get-memory-pages" title="Permanent link">&para;</a></h2>
+<p>On the Next <code>memory_pages()</code> names each slot from <code>SlotInfo::now</code>, with ZEsarUX's
+spellings: <code>O&lt;2*image + half&gt;</code> for ROM, <code>A&lt;page&gt;</code>, <code>SR&lt;NR 0x04&gt;</code> (the full value) in
+config mode, <code>RO</code> for the boot ROM, <code>DIV</code> for either DivMMC memory (also over a RAM-mapped
+slot: the VHDL overlays it too). The Multiface, Layer 2, alt ROM and a floating slot have no
+ZEsarUX spelling and print the slot's own mapping (<code>O&lt;n&gt;</code> / <code>A&lt;nr_page&gt;</code>). On the legacy
+machines segment 0 is <code>DIV</code> while slot 0 reads DivMMC. <code>MMU=</code> stays the DeZog projection
+(ROM half &gt;= 0x8000) and does not use <code>now</code>. <code>cpu-step-over</code> reads the opcode at the PC
+through <code>memory_reader()</code>, the instruction the CPU will fetch.</p>
 <h2 id="breakpoints-history-loading">Breakpoints, history, loading<a class="headerlink" href="#breakpoints-history-loading" title="Permanent link">&para;</a></h2>
 <p>The 100 condition slots of <code>set-breakpoint</code> are one backend subscription each,
 owned by the client. A <code>PC=</code> first term is the fast path (an <code>Execute</code>

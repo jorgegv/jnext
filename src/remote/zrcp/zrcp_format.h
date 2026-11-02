@@ -93,10 +93,12 @@ std::string hexdump(std::uint16_t addr, const std::uint8_t* bytes, std::size_t n
 std::uint32_t crc32_ieee(const std::uint8_t* bytes, std::size_t n);
 
 /// `get-memory-pages`, as ZEsarUX's `debug_get_memory_pages_extended()` spells
-/// each machine: on the Next `RO` for a ROM slot and `A<page>` for RAM, eight
-/// 8 K segments ([T1]); on 128K / +3 four 16 K segments `RO<rom>` / `RA<bank>`
-/// (`%X`); on 48K two, `ROM` and `RAM`. Each followed by one space. `verbose`:
-/// one `Segment` block per segment ([T3]).
+/// each machine: on the Next eight 8 K segments named from what each slot reads
+/// NOW (`SlotInfo::now`, GH #360): `RO` the boot ROM, `O<n>` ROM page 2*image+half,
+/// `A<page>` RAM, `SR<n>` config-mode SRAM, `DIV` DivMMC ([T1], debug.c); on 128K /
+/// +3 four 16 K segments `RO<rom>` / `RA<bank>` (`%X`); on 48K two, `ROM` and `RAM`;
+/// on those three segment 0 is `DIV` while DivMMC is paged in. Each followed by one
+/// space. `verbose`: one `Segment` block per segment ([T3]).
 std::string memory_pages(const std::array<jnext::dbg::SlotInfo, 8>& slots, bool verbose,
                          MachineType type);
 

@@ -113,6 +113,7 @@ bool SdlApp::init(int argc, char* argv[]) {
     };
 
     input_.on_quit = [this]() { running_ = false; };
+    input_.on_window_invalidated = [this]() { display_.request_redraw(); };   // GH #428
 
     // Issue #122 — bind the key router to this machine's Keyboard BEFORE the
     // callback below can fire (SDL_PollEvent only runs inside run(), so the
@@ -244,6 +245,21 @@ bool SdlApp::init(int argc, char* argv[]) {
     // GH #26 WP5 — Alt+1..Alt+8 are the script host keys (host_key_wiring.h),
     // as in the Qt window: the backend exists now, the Router was bound above.
     wire_script_keys(key_router_, *debugger_);
+    // GH #351 - --source-map without --load (or with an RZX replay): the map of a z88dk dot command, attached
+    // now (before the scripts, so a `file:line` rule resolves) and pending until the
+    // guest runs the command. Any other map needs a program: refused.
+    if (!config_.source_map_file.empty() && config_.source_map_no_program != 0) {
+        const auto sm = emulator_attach_cli_source_map(
+            *debugger_, config_.source_map_file, /*deferred=*/false, /*dot_only=*/true,
+            /*rzx=*/config_.source_map_no_program == 2);
+        if (!sm.ok) {
+            Log::platform()->error("{}", sm.line);
+            return false;
+        }
+        Log::platform()->info("{}", sm.line);
+        source_map_watch_ = sm.pending;
+        config_.source_map_file.clear();
+    }
     // GH #26 WP4 — the scripts, after the servers and before the machine runs:
     // a script that does not load is a startup failure (exit 1, §6.5).
     {
@@ -690,8 +706,25 @@ void SdlApp::run() {
         const int fb_w = emulator_.get_framebuffer_width();
         const int fb_h = emulator_.get_framebuffer_height();
         if (present_this_tick) {
-            display_.upload_frame(fb, fb_w, fb_h);
-            display_.present();
+            // GH #428 — a frame the display already shows is not drawn again:
+            // a paused machine used to re-upload and present it every tick.
+            // take_redraw_request() is read unconditionally so it is consumed.
+            const bool redraw = display_.take_redraw_request();
+            ++present_ticks_;
+            if (render_policy::upload_needed(emulator_.framebuffer_generation(),
+                                             last_uploaded_gen_, redraw)) {
+                display_.upload_frame(fb, fb_w, fb_h);
+                display_.present();
+                last_uploaded_gen_ = emulator_.framebuffer_generation();
+                ++present_uploads_;
+            }
+            const uint64_t now_ms = SDL_GetTicks();
+            if (now_ms - present_window_start_ms_ >= 1000) {
+                Log::platform()->debug("sdl present: ticks={} uploads={}",
+                                       present_ticks_, present_uploads_);
+                present_ticks_ = present_uploads_ = 0;
+                present_window_start_ms_ = now_ms;
+            }
         }
 
         // Delayed screenshot: the OUTCOME. This tick's pump (above) has written

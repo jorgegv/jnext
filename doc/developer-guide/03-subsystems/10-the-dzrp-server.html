@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2446,6 +2446,11 @@ compare a ROM bank byte against:</p>
   (<code>PAGE_ANY</code>) — one that never fired would be worse;</li>
 <li>the <code>NTF_PAUSE</code> bank byte of a stop in a ROM slot is 0xFF for slot 0 (what
   DeZog 3.7.4 matches) and 0 for slot 1, where 3.8's 0xFF + 1 does not fit;</li>
+<li><code>CMD_GET_REGISTERS</code> sends 0xFF for every slot with <code>SlotInfo::is_rom</code>, not the raw
+  NR value: MMU0/1 = 0xE0..0xFE read ROM (zxnext.vhd:2964, :3052) and DeZog has no bank
+  for them. A floating slot (NR &gt;= 0xE0 in slots 2-7) and an overlay have no DZRP value
+  and keep the NR value (GH #360). DeZog's long address is <code>((bank + 1) &lt;&lt; 16) | addr</code>,
+  so a RAM page <code>n</code> is bank <code>n</code>, and ROM is 0xFF;</li>
 <li><code>READ_BANK_MEM</code> bank 0xFF is DeZog 3.8's 16 KB ROM bank: offsets
   0x0000-0x1FFF are slot 0's half, 0x2000-0x3FFF slot 1's. While a slot holds
   ROM the half is read through the space the backend reports for it

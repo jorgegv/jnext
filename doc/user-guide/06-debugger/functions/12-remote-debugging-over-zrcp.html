@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4052,6 +4052,12 @@ discarded, not executed: pressing Enter on an empty line is the way to stop
 the machine by hand.</p>
 <h2 id="what-to-expect">What to expect<a class="headerlink" href="#what-to-expect" title="Permanent link">&para;</a></h2>
 <ul>
+<li><strong><code>get-memory-pages</code> names what each slot reads now</strong>, in ZEsarUX's spelling: <code>O&lt;n&gt;</code>
+  for a ROM page (<code>O0</code> and <code>O1</code> are ROM 0's two halves), <code>A&lt;n&gt;</code> for a RAM page, <code>SR&lt;n&gt;</code>
+  in config mode, <code>RO</code> for the boot ROM, and <code>DIV</code> while the DivMMC is paged in over
+  the slot. The Multiface, Layer 2 and the alternate ROM have no ZEsarUX spelling, so
+  their slot shows the page or ROM it covers. The <code>MMU=</code> field of <code>get-registers</code>
+  is unchanged.</li>
 <li><strong>Connecting does not stop the machine</strong>; <code>enter-cpu-step</code> does. Leaving
   (or <code>quit</code>) resumes it if the stop was the client's own and nothing else is
   attached; with JNEXT's debugger window open, or another remote debugger

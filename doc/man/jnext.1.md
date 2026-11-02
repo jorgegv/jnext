@@ -1056,7 +1056,14 @@ naming the option and the value, and exits with status 1.
 :   Attach a source map, an sjasmplus SLD or a z88dk `-debug` `.map` (told apart
     by its contents), to the program **\--load** loads, as if loaded by hand with
     **Debug > Source > Load Source Map...**. A z88dk map gives source lines only
-    (and reads the `--list` listings beside it); its symbols stay with **\--map**. Requires **\--load**. A map whose binary
+    (and reads the `--list` listings beside it); its symbols stay with **\--map**. Requires **\--load**, unless *FILE* is the
+    map of a z88dk dot command (`-subtype=dot`, `dotx`; built with `-debug`): that map is attached
+    at once, before any script loads, and stays pending until the guest runs the
+    command, when it is checked (the command is loaded into DivMMC RAM by
+    NextZXOS, which jnext does not know until it runs; see the User Guide). Any
+    other map without **\--load** is refused (exit status 1). An RZX replay (**\--rzx-play** *R*, or
+    **\--load** *R*`.rzx`) is the same case: a dot command's map attaches pending, any other map is
+    refused at start-up naming RZX (exit status 1). A map whose binary
     identity does not match the program, or that cannot be loaded, is a startup
     error (exit status 1). With a tape program (`.tap`, `.tzx`, `.wav`) the map
     attaches at once and is checked the first time the program runs its code; a
@@ -1215,6 +1222,12 @@ The entries say which frontends use the key: the Qt window, the SDL-only build
     same command line frees it), is refused with exit status 1 before the
     window opens. The Qt window with the debugger.
 
+`source.colour_scheme` *auto|light|dark|borland*
+:   The colour scheme of the debugger's Source tab, like the **Preferences**
+    Debugger tab: `auto` (the default) is light or dark after the application,
+    `borland` is Borland C++ 3.1 (yellow on blue). The Qt window with the
+    debugger.
+
 `esp.enabled` *true|false*
 :   The emulated ESP-01 WiFi module; **\--esp** and **\--no-esp**. All
     frontends.
@@ -1238,6 +1251,13 @@ The entries say which frontends use the key: the Qt window, the SDL-only build
 :   Whether the debugger window follows the emulator window. The window opens
     as told for this run; the file keeps its value until the **Attach to
     Emulator Window** menu item is toggled. The Qt window with the debugger.
+
+`debugger.physical_addresses` *true|false*
+:   Whether the debugger names an address's memory by where it sits in the
+    Next's memory (`$060000`, `BRAM7+$0000`) instead of by page and ROM name
+    (`P0E`, `ROM1`, `DIVROM`). The window opens as told for this run; the file
+    keeps its value until the **Physical Addresses** item of the **Debug** menu
+    is toggled. The Qt window with the debugger.
 
 # MACHINES
 

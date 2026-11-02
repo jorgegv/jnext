@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.106</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4979,12 +4979,21 @@ is a startup error.</dd>
 (told apart by its contents), to the program <strong>--load</strong> loads, as if
 loaded by hand with <strong>Debug &gt; Source &gt; Load Source Map…</strong>. A z88dk
 map gives source lines only (and reads the <code>--list</code> listings beside
-it); its symbols stay with <strong>--map</strong>. Requires <strong>--load</strong>. A map
-whose binary identity does not match the program, or that cannot be
-loaded, is a startup error (exit status 1). With a tape program
-(<code>.tap</code>, <code>.tzx</code>, <code>.wav</code>) the map attaches at once and is checked the
-first time the program runs its code; a mismatch then drops it, and
-the run exits with status 1.</dd>
+it); its symbols stay with <strong>--map</strong>. Requires <strong>--load</strong>, unless
+<em>FILE</em> is the map of a z88dk dot command (<code>-subtype=dot</code>, <code>dotx</code>;
+built with <code>-debug</code>): that map is attached at once, before any
+script loads, and stays pending until the guest runs the command,
+when it is checked (the command is loaded into DivMMC RAM by
+NextZXOS, which jnext does not know until it runs; see the User
+Guide). Any other map without <strong>--load</strong> is refused (exit status 1).
+An RZX replay (<strong>--rzx-play</strong> <em>R</em>, or <strong>--load</strong> <em>R</em><code>.rzx</code>) is the
+same case: a dot command’s map attaches pending, any other map is
+refused at start-up naming RZX (exit status 1). A map whose binary
+identity does not match the program, or that cannot be loaded, is a
+startup error (exit status 1). With a tape program (<code>.tap</code>, <code>.tzx</code>,
+<code>.wav</code>) the map attaches at once and is checked the first time the
+program runs its code; a mismatch then drops it, and the run exits
+with status 1.</dd>
 <dt><strong>--source-dir</strong> <em>DIR</em></dt>
 <dd>Also search <em>DIR</em> for the source files a source map names, in the
 Source tab of the debugger (the Qt window with the debugger;
@@ -5116,6 +5125,11 @@ it. A combination that is not legal there, or that another action
 already holds (unless the same command line frees it), is refused
 with exit status 1 before the window opens. The Qt window with the
 debugger.</dd>
+<dt><code>source.colour_scheme</code> <em>auto|light|dark|borland</em></dt>
+<dd>The colour scheme of the debugger’s Source tab, like the
+<strong>Preferences</strong> Debugger tab: <code>auto</code> (the default) is light or dark
+after the application, <code>borland</code> is Borland C++ 3.1 (yellow on
+blue). The Qt window with the debugger.</dd>
 <dt><code>esp.enabled</code> <em>true|false</em></dt>
 <dd>The emulated ESP-01 WiFi module; <strong>--esp</strong> and <strong>--no-esp</strong>. All
 frontends.</dd>
@@ -5136,6 +5150,13 @@ Surrounding blanks are removed. All frontends.</dd>
 opens as told for this run; the file keeps its value until the
 <strong>Attach to Emulator Window</strong> menu item is toggled. The Qt window
 with the debugger.</dd>
+<dt><code>debugger.physical_addresses</code> <em>true|false</em></dt>
+<dd>Whether the debugger names an address’s memory by where it sits in
+the Next’s memory (<code>$060000</code>, <code>BRAM7+$0000</code>) instead of by page and
+ROM name (<code>P0E</code>, <code>ROM1</code>, <code>DIVROM</code>). The window opens as told for
+this run; the file keeps its value until the <strong>Physical Addresses</strong>
+item of the <strong>Debug</strong> menu is toggled. The Qt window with the
+debugger.</dd>
 </dl>
 
 

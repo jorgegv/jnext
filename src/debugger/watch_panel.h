@@ -2,6 +2,8 @@
 
 #include <QWidget>
 #include <QTableWidget>
+
+#include "debug/long_address.h"
 #include <vector>
 #include <cstdint>
 #include <string>
@@ -23,6 +25,9 @@ public:
     /// The backend the values are read through. Until one is set the Value
     /// column stays as it is. Set by DebuggerManager when it builds the window.
     void set_backend(const jnext::dbg::Debugger* dbg) { dbg_ = dbg; }
+
+    /// GH #360 - Friendly or Physical in the Memory column.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
 
     /// Refresh all watch values from current emulator memory state.
     void refresh();
@@ -50,6 +55,7 @@ private:
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
     QTableWidget* table_ = nullptr;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
 
     enum WatchType { BYTE = 0, WORD = 1, LONG = 2 };
 

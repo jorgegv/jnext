@@ -236,7 +236,7 @@ int main() {
             config_keys::word_index("audio|video", "vide") != -1 || config_keys::word_index("audio|video", "") != -1)
             bad += "word_index ";
         check("SETK-10", "for every Word and Machine key each listed word is accepted in upper case and canonicalises to itself; nonsense is refused",
-              bad.empty() && n == 6, bad + " keys=" + std::to_string(n));
+              bad.empty() && n == 7, bad + " keys=" + std::to_string(n));
     }
 
     // SETK-11
@@ -344,6 +344,26 @@ int main() {
             why.find("--source-dir") == std::string::npos) bad += "separator(" + why + ") ";
         check("SETK-19", "append_list_entry appends in order; an empty directory or one holding the separator is refused, naming --source-dir, and the list is unchanged",
               bad.empty(), bad);
+    }
+
+    // SETK-20 (GH #422 stage 2)
+    {
+        std::string bad, why;
+        const Key* k = config_keys::find("source", "colour_scheme");
+        if (!k) bad += "missing ";
+        else {
+            if (k->type != Type::Word || std::string(k->values) != "auto|light|dark|borland") bad += "type/words ";
+            if (k->frontends != config_keys::QT || !k->needs_debugger || k->owner != config_keys::Owner::AppConfig) bad += "scope ";
+            if (k->flag != nullptr || k->not_setting != nullptr) bad += "flag/setting ";
+        }
+        if (canon("source.colour_scheme=Borland") != "borland") bad += "canon ";
+        if (canon("source.colour_scheme=solarized", &why) != "<refused>") bad += "accepts solarized ";
+        for (const char* w : {"auto", "light", "dark", "borland"})
+            if (why.find(w) == std::string::npos) bad += std::string("why lacks ") + w + " ";
+        check("SETK-20", "source.colour_scheme is a settable Word key (auto|light|dark|borland) of the Qt debugger, "
+                         "owned by AppConfig with no dedicated flag; Borland canonicalises to borland and solarized "
+                         "is refused naming the four words",
+              bad.empty(), bad + " " + why);
     }
 
     // SETK-16

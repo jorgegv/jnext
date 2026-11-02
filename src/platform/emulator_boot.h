@@ -104,13 +104,26 @@ struct CliSourceMapResult {
 /// `deferred`: the program is a tape, not in memory yet (`program_loads_later()`), so a
 /// map with an identity attaches pending and is judged where the CPU first runs its code
 /// (stage 3); the frontend then watches it with emulator_poll_cli_source_map().
+/// `dot_only` (GH #351): there is no `--load`, so only a z88dk dot command's map is
+/// accepted; it attaches pending (the guest loads the command when it is typed) and is
+/// judged when the command starts. Any other map is refused: no program to judge it by.
+/// `rzx`: the refusal names the RZX replay (--rzx-play, --load R.rzx).
 template <typename Dbg>
 inline CliSourceMapResult emulator_attach_cli_source_map(Dbg& dbg, const std::string& file,
-                                                         bool deferred = false) {
-    const auto r = dbg.load_source_map(file, /*accept_identity_mismatch=*/false, deferred);
+                                                         bool deferred = false,
+                                                         bool dot_only = false,
+                                                         bool rzx = false) {
+    const auto r = dbg.load_source_map(file, /*accept_identity_mismatch=*/false, deferred, dot_only);
     CliSourceMapResult out;
     out.ok = r.count >= 0;
     out.pending = out.ok && r.pending;
+    if (r.not_dot) {
+        out.line = rzx ? "--source-map with an RZX replay accepts only the map of a z88dk dot command: '" +
+                             file + "' is not one"
+                       : "--source-map requires --load FILE, or the map of a z88dk dot command: '" +
+                             file + "' is not one";
+        return out;
+    }
     out.line = "--source-map '" + file + "': " +
                (out.ok ? std::to_string(r.count) + " source lines" +
                              (r.listings > 0 ? " (" + std::to_string(r.listings) +
@@ -277,6 +290,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // carried across, so the exit status still reports it.
     emu.end_rzx_at_reset("the power-on reset");
     auto saved_rzx_failed      = emu.rzx_failed_outputs();
+    const uint64_t saved_fb_generation = emu.framebuffer_generation();   // GH #428
 
     const uint8_t saved_mute   = emu.audio_mute_mask();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
@@ -375,6 +389,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // restore here would now be a second owner, so it is gone (qt-frontend.md
     // §7, B3 obligation 1).
     // ────────────────────────────────────────────────────────────────────────
+    emu.carry_framebuffer_generation(saved_fb_generation);
     emu.set_audio_mute_mask(saved_mute);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
     emu.restore_rzx_failed_outputs(std::move(saved_rzx_failed));

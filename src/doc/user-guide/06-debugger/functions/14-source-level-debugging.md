@@ -84,7 +84,8 @@ has no source lines and is refused, saying so.
 
 **On the command line.** `--source-map FILE` does the same load of a source map
 (an SLD or a z88dk map) right after the program given with `--load` is in memory,
-in every frontend. It needs `--load`; a map whose binary identity does not match
+in every frontend. It needs `--load`, unless the map is a z88dk dot command's (see
+**Dot commands** below); a map whose binary identity does not match
 the program is refused, and the run exits with status 1 (the log says why). The
 map is yours, like one loaded by hand. With a tape program the map attaches at
 once and is checked when the program first runs its code (see **Tapes** above); a
@@ -247,6 +248,14 @@ rewind, like **Step Back**
 ([Backward execution (rewind)](07-backward-execution-rewind.md)); they look for
 their target in the instructions the trace has kept.
 
+## Moving between the source and the disassembly
+
+The Source tab and the Disassembly follow each other's selection: click a source line and its
+instructions are tinted in the Disassembly; click an instruction and the Source cursor goes to its
+line, in its own file if that is not the CPU's, until the next stop or **Go to PC Line**. The
+disassembly's right-click menu has **Show in Source**, the counterpart of **Show in Disassembly**
+([Following the disassembly](../panels/15-source.md#following-the-disassembly)).
+
 ## Running to a source line
 
 **Run to Here** in the Source tab's right-click menu (or **Enter** on the line) runs the machine
@@ -323,8 +332,9 @@ specific to how the map is read:
   the `-debug` helpers; **Out** lands on the calling line at the return address
   (mid-statement), as gdb's `finish` does. The build commands are in
   [Building programs with z88dk](../source-debugger/02-building-with-z88dk.md#banked-code).
-- **DivMMC sections** (`DIV_n`) are not supported yet: a map with a line in one
-  is refused, with the line named, rather than attached half.
+- **DivMMC sections** (`DIV_n`) have no fixed bank (the program, or a dotn command's
+  allocator, chooses it when it runs): a line in one is refused, with the line named,
+  rather than attached half. NextZXOS dot commands are the exception, below.
 - **`--list` listings beside the map**: JNEXT reads the z80asm listings z88dk
   writes with `--list` (`main.c.lis`, `prog.lis`) by itself; the log says `and 4
   listings` and **Load Source Map...** says `with 4 z88dk listings`. What they
@@ -340,6 +350,42 @@ specific to how the map is read:
 - Code in a section that names no page (`CODE`, `code_compiler`, the program
   itself) is tied to the RAM page the MMU maps at that address when the program
   is in memory (page 4 at $8000 for a NEX).
+
+## Dot commands
+
+A NextZXOS dot command (`.ls`, `.prog`) is not loaded by JNEXT: NextZXOS copies the file into
+DivMMC RAM when you type the command and runs it from `$2000` there. JNEXT debugs one from
+its map, built with `-debug`:
+
+```
+zcc +zxn -subtype=dot -clib=new -debug -m --list -create-app -o prog dot.c dutil.c
+```
+
+1. Put `PROG` on the card: `jnext --sdcard-file-add PROG --sdcard-file-dest /DOT/PROG`.
+2. Start JNEXT with the map and **no** `--load`: `jnext --source-map prog.map` (or **Load
+   Source Map...** in the debugger). The map attaches at once and says *Source map not
+   verified yet: it is checked when the dot command runs*.
+3. Set `dot.c:8` in the Breakpoints panel (or in a script), and type `.prog` at the NextZXOS
+   prompt. The machine stops inside the command, and the Source tab, **Into / Over / Out**
+   and the Call Stack work in `dot.c` as for any program.
+
+JNEXT checks the map against the command when it starts (the CPU about to execute `$2000` in
+DivMMC RAM bank 2): the log says `Verified z88dk source map ...: the dot command in DivMMC
+RAM bank 2 matches its binary identity`. NextZXOS puts every dot command in that same bank,
+so another command that runs there does not match: the map stays pending, nothing is
+dropped, and the log says *The dot command started in DivMMC RAM bank 2 is not the one source
+map ... describes; it stays pending*. A reset does not drop it either (NextZXOS resets the
+machine while it boots). A breakpoint on the dot's lines is a breakpoint on that bank, so it
+also stops a different dot command that runs code at the same address; the map then shows as
+pending again.
+
+`-subtype=dotx` works: the part in DivMMC RAM is the same, and the main part (`$8000`, loaded
+from `extra/PROG.X` by the command) is checked when it first runs (the crt needs `CLEAR
+32767` first). `-subtype=dotn` is not supported: its main bank is a set of pages NextZXOS
+allocates when the command runs, so the map cannot place them; build it as a dotx to debug it.
+Any other map without `--load` is refused (exit status 1). The same holds for an RZX replay
+(`--rzx-play R` or `--load R.rzx`): a dot command's map attaches pending as above, any other map is
+refused at start-up, saying so (exit status 1).
 
 ## From scripts and z88dk-gdb
 

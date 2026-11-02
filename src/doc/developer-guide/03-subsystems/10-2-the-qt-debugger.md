@@ -96,6 +96,21 @@ reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
+**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()`
+redraws the window on every 12th tick (~4 Hz). Paused, it redraws only when a
+*stamp* changed since the last redraw, and re-derives the actions on every tick
+(cheap, and their inputs have no verb). The stamp is: the CPU register file
+(a direct core write), the master clock (steps, run-to, rewinds), the backend's
+`state_revision()` (every MUTATE from any client, a cold boot, and the metadata
+verbs: symbols, source map, subscriptions, trace / coverage / rewind settings,
+attach / detach), a host-input epoch (key, mouse-button and wheel events
+anywhere in the app, counted by an event filter on `qApp` while the debugger is
+enabled; mouse movement is not counted), and the loaded source file's
+modification time. The map and SLD loads need no special call: they bump the
+revision, so the tick redraws; so do memory coverage on / clear and the
+subscription-group verbs. A change of the Source tab's own view that moves
+nothing in the machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the redraws; the `ticks:` line reports it as `panel-refreshes=`.
+
 **The breakpoint views follow the model.** The Breakpoints list and the
 disassembly gutter follow `BreakpointModel::changed(kinds)`, so a breakpoint
 appears the instant it is set. `kinds` is the set of event kinds whose *listed*
@@ -155,6 +170,27 @@ each labelled with the VHDL signal it mirrors; `cvc` is labelled as what NR
 0x1E/0x1F report. The derivation lives in `src/debug/raster_state.*` and takes
 the live `VideoTiming` by reference, so there is no second table of raster
 constants in `src/debugger/`.
+
+**Which memory an address is in (GH #360).** Every view names the memory behind
+an address through `debug/long_address.h` ([3.9.1](09-1-the-backend-api.md)), and
+nowhere else: `src/debugger/memory_text.h` is the one Qt-side wrapper
+(`memtext::text(dbg, style, space, addr)`, with the Next-layout test the Physical
+style needs). `DebuggerWindow` holds one `AddressStyle` and hands it to each panel
+(`set_address_style()`, `apply_address_style()`) and to the `BreakpointModel`, whose
+rows are spelled in it; a toggle refreshes them all. The view rules follow design
+10.3: the line at `PC` and the Source tab show the fetch prediction
+(`source_page()`); the other Disassembly lines, the MMU panel, the Memory panel's
+CPU view, Watches and Stack show the live data route of the address's slot
+(`SlotInfo::now`), the memory the bytes beside the tag came from; the Memory panel's
+Slot and Page views show the space shown (a slot paged to nothing, NR >= 0xE0, is
+`FLOAT`, never a page the tag grammar refuses); the Call Stack and the Breakpoints
+list show the recorded identity. Where a qualifier was already printed the tag
+replaces it in place; elsewhere a column was added (Disassembly **Mem**, MMU
+**Memory**, Watches/Stack **Memory**, Call Stack **Caller/Target memory**), and the
+Memory panel paints its tag as the item after the ASCII column, so `dump_row()`
+and the coverage underline never move. The legacy page qualifier of another client
+keeps its `@NN` (a different thing). The style is `debugger.physical_addresses`
+(Debug > Physical Addresses, `--set`, a run override like `debugger.attached`).
 
 ## The key bindings are data
 
@@ -228,11 +264,12 @@ paused machine (rows QMAP-05 and QMAP-06).
 The Source tab (`source_panel.*`) shows the PC's line from the backend's source
 map and carries the source-step buttons; it holds no state of its own beyond
 the loaded file and its modification time, where the view was last put, and the
-sidecar reason `report_sidecars()` gave it. `refresh()` runs on every tick while
-the machine is paused, so it moves the cursor and centres only when the line or
+sidecar reason `report_sidecars()` gave it. `refresh()` runs while the machine
+is paused whenever the paused stamp changes (the loaded file's modification
+time is part of it, so an edit on disk still shows), so it moves the cursor and centres only when the line or
 the PC changed or the text was loaded since (a user who scrolled stays put).
-`follow_pc()` forces the next one: `DebuggerWindow::activate_follow_pc()` calls
-it, and `apply_pause_state(true)` runs that at every stop and every step, as it
+`follow_pc()` repaints the tab at once (it changes what the tab shows without moving the machine, so the paused stamp cannot see it):
+`DebuggerWindow::activate_follow_pc()` calls it, and `apply_pause_state(true)` runs that at every stop and every step, as it
 does for the disassembly, so a stop at the very PC and line already shown still
 puts the view back. While the machine runs the tab says "Running" and drops the
 highlight. The Source tab's **Load Source Map...** button and the Debug > Source > Load
@@ -242,6 +279,42 @@ map loads as source lines only. Its mismatch box and failure title do not name a
 `source_map_status().pending` is set (a tape program's map, waiting for its program) the panel
 appends a note line, *Source map not verified yet: it is checked when the program first runs its
 code*, to whatever it shows.
+The text is coloured by `SourceHighlighter` (`source_highlighter.*`, a `QSyntaxHighlighter` that exists only in
+`jnext_debugger`; GH #422). `source_language_for(file, text)` picks the language: the extension, case-insensitive,
+with a trailing `.m4` dropped (z88dk's `zxn_crt.asm.m4` is assembly), then the first 200 lines by content (a line is
+evidence for a language when its first word is in that language's set alone, a column-0 label skipped; the winner
+needs three lines and strictly more than the others), else Plain. The Z80/Z80N mnemonics and the register words are
+not listed anywhere: they are enumerated once from `disasm_one()` over the seven opcode pages, so a new Z80N opcode is
+coloured the day the disassembler names it. The directive, C and Boriel tables are committed with the upstream file
+and commit they were read from (z80asm `scan_def.h` and `keyword.def`, sjasmplus `directives.cpp`, ISO C11 6.4.1,
+Boriel `keywords.py`). The scanners are hand-written, linear per line, allocation-free per word, and carry multi-line
+comments and embedded assembly in the block state. The classes are the owner's ten (`Role`: Text, Keyword,
+Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment); Text is the editor palette's text colour
+and never a format. Punctuation, grouping and operators (the one literal `kKeywordPunct`) are Keyword, tested at each
+scanner's fall-through point after comment, string, char, number and word detection, so those win; Qt merges adjacent
+equal formats, so `->` or `<<=` is one Keyword range. A sign is part of a number only inside an exponent (`-5` is a
+Keyword and an Integer); C and Boriel numbers have their own scanners (Float = a point or an exponent, including
+the C hex-float `p` exponent; Boriel's `t_HEXA`/`t_OCTAL`/`t_BIN` before `t_NUMBER`, and a `$`/`%` suffix belongs to
+its identifier). Formats set the foreground colour and nothing else (the line geometry and the gutter alignment equal
+Plain's). `SourcePanel::set_source_text()` is the one way a text enters the editor: the language first, then the text,
+so a load is highlighted once with its own language.
+The colours are a scheme (`SourceScheme` in `platform/source_scheme.h`, the order of the words of the
+`source.colour_scheme` key: Auto, Light, Dark, Borland; `static_assert`ed in `app_config.cpp` and
+`source_highlighter.cpp`). `SourceHighlighter::scheme_colours()` holds one table per concrete scheme: background, text,
+the current-line bar's two colours, and a colour per class. Dark is not hand-kept: it is `palette_tint::ink()` of the
+Light colours over a fixed dark palette (Base `#242424`, Text `#F0F0F0`), so it does not depend on the application's own
+dark palette. Every scheme must meet one legibility rule, which `QSRC-195` checks for all of them: text and classes
+4.5:1 against the background (WCAG 1.4.3), bar text 4.5:1, bar against background 3:1, and any two colours at least
+CIE76 12 apart unless the scheme declares them shared (Borland's owner-given groups). `SourcePanel::apply_scheme_()`
+takes the PANEL's palette (the application's, never the editor's) in, resolves Auto against it, hands the classes to
+the highlighter (`apply_palette()` rehighlights only when a class colour changed, never on a paused tick or a repeat)
+and puts the background, text and the bar colours on the EDITOR's palette (`Base`, `Text`, `Highlight`,
+`HighlightedText`): the background is a palette role, not a format, so it fills the whole viewport. `set_colour_scheme()`
+applies at once (Preferences Apply while the machine runs). The current-line marker is the same `ExtraSelection` as
+before, reading the editor's `Highlight`, and Qt draws a selection's colours over the layout's formats, so no syntax
+colour shows on that line. The gutter and its header paint from the panel's palette, so a scheme never reaches
+them, and the breakpoint marks stay as they are. The setting is `DebuggerManager::set_source_scheme()` (held there
+and pushed by `ensure_window()`, because the window is created lazily), fed by `MainWindow::apply_startup_config()`.
 The editor is a private `QPlainTextEdit` subclass (`SourceEdit`) with a gutter widget in a left
 viewport margin and a header strip above it (`setViewportMargins`; objects `source_gutter` and
 `source_gutter_header`), because the visible blocks' geometry is protected. The gutter
@@ -251,7 +324,7 @@ cache): this GUI's own Execute breakpoints (`BreakpointModel::pc_breakpoints()`)
 Disassembly would draw (a logical one, or one tied to `source_page(addr)`) and that sit on a start
 the memory mapped now supplies (`source_map().resolve(file:line)`, so an alias line is marked) or on
 any instruction whose primary line (`lookup`) is the line. Every start of the line armed (by a breakpoint at its address, logical or tied to its memory, mapped now or not)
-is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. `breakpoint_glyph.h` paints the glyph for both panels. A click calls
+is the full glyph, some is the left half; a line is drawn at all only while a breakpoint is drawn on it. `breakpoint_glyph.h` paints the glyph for both panels. It also holds `paint_pc_marker()` (GH #347), the amber wedge `SourceEdit::paint_gutter()` draws on `highlighted_line()` only, in the 5-px strip after the number cell (`x` in `[width-6, width-2]`), which no pinned pixel reading uses; the colour goes through `palette_tint::ink()`, and the text highlight stays the palette's own. The position label ends with `SourcePanel::also_text()`: `lookup_all()` for the PC, minus the primary and any entry with its `file:line` (or a repeat), as `  also: f:l, ...`. A click calls
 `SourcePanel::toggle_breakpoint_at_line()`, the one toggle: it removes what the line shows plus a
 hidden group tied to an unmapped page, else `add_source_line()` (not idempotent, hence the check);
 the context menu of GH #423 calls the same function.
@@ -300,6 +373,52 @@ draws a location only while its `FetchSource` supplies the address
 Stack's last column looks up each frame's caller with its recorded
 `FetchSource` (`CallFrame::caller_space`).
 
+### Selection sync between the Source tab and the Disassembly (GH #347)
+
+`DebuggerWindow::create_panels()` wires the two panels with three connections, and nothing else
+couples them. Each carries only what the USER did in its sender, so no move echoes.
+
+- **Source to Disassembly.** `SourcePanel::source_lines_selected(file, first, last, reveal)` is
+  emitted by `emit_lines_()`, only when the file or the lines changed (`lines_file_`, `lines_first_`,
+  `lines_last_`; a message and Running emit an empty file, and `none = true` says the text stays but
+  nothing of it is selected). The lines are `selected_blocks_()`'s, the same rule as Copy with
+  Addresses (a selection ending at a block start does not take that block). The editor's
+  `cursorPositionChanged` / `selectionChanged` slot passes `reveal = true`; a move the panel makes
+  itself (the PC placement of `refresh_()`, a text load, `set_disasm_selection()`) runs under a
+  `SyncScope` (`syncing_`), so the slot stays silent, and ends with `emit_lines_(false, ...)`, so a stop
+  tints the PC statement's other instructions without scrolling. `DisasmPanel::set_source_lines()`
+  stores the range; a row is linked (`source_linked()`, `linked_at_()`) when `lookup_all()` in its own
+  space has a location on a selected line of that file, the primary or not. `paintEvent` fills a linked
+  row with `source_sync_colors::linked()` BEFORE the PC row, the selection and the coverage bar. With
+  `reveal` and no linked row in view, the view centres on the first start of `resolve(file:line)`
+  that is mapped now; otherwise it never moves.
+- **Disassembly to Source.** `DisasmPanel::selection_changed(lo, hi, caret)` comes from the user
+  paths only (`notify_selection_()`: a press, a drag, a navigation key, Select All, the menu's
+  collapse), when the triple differs from the last one sent. `show_address()` and a refresh do not
+  emit; `set_source_lines()` forgets the last triple, so the next click on the same lines is a
+  change again. `SourcePanel::set_disasm_selection()` is ignored while running or without a map,
+  stores the range (`disasm_range_`, dropped when the machine runs, so a stop shows no tint of it), and sets `browse_addr_` unless the caret's primary line is the
+  PC's own. `refresh_()` then describes `browse_addr_` instead of the PC: its file is loaded
+  through the same text paths, the label ends `(browsing; the PC is at f:l, $addr)` after `also:`
+  and before the pending note, the highlight and the wedge are on the PC's line only when the PC's
+  primary location is in the file shown, and the cursor is centred only when the line is out of
+  view. The lines of the instructions in the range (`linked_lines_()`, walking `instruction_length`
+  over `memory_reader()`; a full 64K range costs about 3.5 ms, and `refresh()` runs on every paused tick, about 50 times a second, so such a selection keeps about a fifth of a core busy; no cache yet) get an `ExtraSelection` in
+  the scheme's `linked_line` (`SchemeColours`), after #388's coverage tints and before the PC's.
+- **Show in Source.** `DisasmPanel::show_source_requested(addr)`, from a menu item present only
+  while a map is loaded and enabled only where `lookup()` finds a line. The window raises the
+  Source tab and calls `SourcePanel::show_address()`.
+
+Browsing ends at `follow_pc()` (every stop), `show_running()`, the map going away (the None and Stale branches of
+`refresh_()`), another loaded map (`browse_map_`), an address with no line now, and **Go to PC Line**. A message about the
+browsed line itself (file not found, a `.m4` line without a listing) does NOT end it, so the message and Locate File...
+stay usable, and Go to PC Line stays enabled. Every accepted Disassembly selection places the cursor on the caret's line
+(`place_now_`, cleared by the placement itself, so the next ticks leave the cursor and scroll alone); the view is centred only when that line is out of view. A Source move made while the machine runs
+announces nothing. The gutter, the menu, Copy with
+Addresses and Run to Cursor act on `shown_file_`, so they act on the file browsed. Rows
+QSRC-176..189 and QSRC-201..208 pin the behaviour; `source_sync_colors.h` is the one definition of the linked colour
+for both views (the Source tab keeps one per scheme, tested for legibility like the coverage tint).
+
 ## Memory coverage
 
 **Debug ▸ Coverage** (`Enable Coverage`, `Clear Coverage`) drives INS-21
@@ -307,12 +426,14 @@ Stack's last column looks up each frame's caller with its recorded
 the backend on every `refresh_panels()` and at construction, so a window built over
 a backend that `--coverage` already switched on shows it ticked. All colours come
 from `coverage_colors.h` (X green, R blue, W orange-red, the Source tint a pale
-green), each through `palette_tint`. The Disassembly paints a 3 px bar right of the
+green), each through `palette_tint`; the Source tab alone takes its tint from the scheme
+(`SchemeColours::coverage_line`: Light is `coverage_colors::exec_line()` of a light palette, Dark and
+Borland their own dark greens, so every class colour reads on it, QSRC-195 clause 5, QSRC-200). The Disassembly paints a 3 px bar right of the
 gutter separator on a line where `mem_coverage_fetch(addr)` has X, after the PC and
 selection fills; the Memory panel asks `mem_coverage()` for each row through the
 same `locate()` as the bytes and underlines each covered byte in thirds, X | R | W,
 with a legend label in its top bar; the Source tab adds a full-width
-`ExtraSelection` for each line in `executed_source_lines(file)` before the
+`ExtraSelection`, in the scheme's tint, for each line in `executed_source_lines(file)` before the
 current-line selection, so that one wins on its own line. Nothing is drawn while
 coverage is off.
 
