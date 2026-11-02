@@ -1,6 +1,7 @@
 #include "debugger/callstack_panel.h"
 #include "debug/debugger.h"
 #include "debug/ram_page.h"
+#include "debugger/memory_text.h"
 #include "debug/symbol_table.h"
 
 #include <QVBoxLayout>
@@ -21,11 +22,12 @@ void CallStackPanel::create_ui() {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
 
-    table_ = new QTableWidget(0, 5, this);
+    table_ = new QTableWidget(0, 7, this);
     table_->setFont(mono);
     // CAP-SRC — "Called from": the caller's source line, looked up on the page
     // the caller ran from, when a source map is loaded.
-    table_->setHorizontalHeaderLabels({"#", "Type", "Caller", "Target", "Called from"});
+    table_->setHorizontalHeaderLabels({"#", "Type", "Caller", "Target", "Called from",
+                                         "Caller memory", "Target memory"});   // GH #360
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -36,6 +38,8 @@ void CallStackPanel::create_ui() {
     table_->setColumnWidth(1, 50);   // type
     table_->setColumnWidth(2, 70);   // caller PC
     table_->setColumnWidth(3, 70);   // target PC
+    table_->setColumnWidth(4, 130);  // called from
+    table_->setColumnWidth(5, 120);  // caller memory (GH #360)
     table_->horizontalHeader()->setStretchLastSection(true);
 
     layout->addWidget(table_);
@@ -94,6 +98,13 @@ void CallStackPanel::refresh() {
         }
         set_cell(3, target_text);
 
+        // GH #360 - the memory each end ran in, as recorded when the frame was
+        // pushed (a live page change since does not move it). An unrecorded
+        // target shows the prediction, the rule its symbol lookup above uses.
+        const jnext::dbg::MemSpace target_space =
+            f.target_space != jnext::dbg::MemSpace::cpu() ? f.target_space
+                                                          : dbg_->source_page(f.target_pc);
+
         QString source_text;
         if (const SourceLocation* src =
                 f.caller_space == jnext::dbg::MemSpace::cpu()
@@ -101,6 +112,8 @@ void CallStackPanel::refresh() {
                     : dbg_->source_map().lookup(f.caller_space, f.caller_pc))
             source_text = QString::fromStdString(src->file) + ":" + QString::number(src->line);
         set_cell(4, source_text);
+        set_cell(5, memtext::text(dbg_, style_, f.caller_space, f.caller_pc));
+        set_cell(6, memtext::text(dbg_, style_, target_space, f.target_pc));
 
         table_->setRowHeight(i, 20);
     }

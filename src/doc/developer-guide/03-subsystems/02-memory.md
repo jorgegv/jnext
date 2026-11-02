@@ -118,6 +118,18 @@ split (`Emulator::predict_instruction_()`: each M1 byte under the overlay its ow
 M1 selects, the DivMMC hold chained from one M1 to the next with
 `DivMmc::active_on_m1()` / `hold_after_m1()`, the rest under
 `DivMmc::active_with_hold()`), pure, through `route_with()`.
+`Debugger::memory_reader()` reads the instruction at the PC through that
+prediction (`Emulator::predict_instruction_bytes()`), and every other address
+through `peek()`: at a DivMMC instant entry the M1 itself maps DivMMC, so a peek
+of the PC line shows the bytes of the map before the M1 while the CPU executes
+others. The Disassembly, Step Over and the ZRCP step logic all read this way.
+
+Identity to physical address, as `physical_text()` prints it (a Next's SRAM space,
+21 bits): `Page{n}` is SRAM page `n + 0x20` (`n << 13` plus 0x040000), except
+pages 0x0A/0x0B (the bank-5 block RAM) and 0x0E (the bank-7 block RAM); `Rom{i}`
+`i << 14`; DivMMC ROM 0x010000; DivMMC RAM `0x020000 + bank * 0x2000`; Multiface
+0x014000 / 0x016000; alt ROM `0x018000 + i * 0x4000`; config `bank << 14`; Layer
+2 the SRAM copy `(p + 0x20) << 13`; the boot ROM an 8 KB block RAM of its own.
 
 The identity of a slot's own source is cached beside the pointer: `slot_space_[8]`
 is written wherever `read_ptr_[slot]` is (`rebuild_ptr_body_()` and

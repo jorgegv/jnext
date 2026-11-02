@@ -1,4 +1,5 @@
 #include "debugger/breakpoint_model.h"
+#include "debugger/memory_text.h"
 
 #include <algorithm>
 
@@ -91,13 +92,12 @@ int type_of(const SubscriptionInfo& si) {
 }
 
 // The Address column's qualifier, after "$ADDR": nothing for a logical
-// breakpoint, "@pp" for a RAM page (QBPM-02), "@kk:ii" (kind:index, the trace
-// export's FETCH= spelling) for any other fetch source.
-QString space_suffix(jnext::dbg::MemSpace sp) {
+// breakpoint, otherwise the memory the location is qualified with, through the
+// long-address formatter (GH #360: `P04`, `ROM1`, `DIVROM`, or the physical
+// text). Another client's legacy page qualifier is spelled apart, "@pp".
+QString space_suffix(jnext::dbg::MemSpace sp, uint16_t addr, jnext::dbg::AddressStyle st, bool next) {
     if (sp == jnext::dbg::MemSpace::cpu()) return QString();
-    if (sp.kind == jnext::dbg::MemSpace::Kind::Page)
-        return QString::asprintf(" @%02X", sp.index);
-    return QString::asprintf(" @%02X:%02X", static_cast<unsigned>(sp.kind), sp.index);
+    return QStringLiteral(" ") + QString::fromStdString(jnext::dbg::space_text(sp, addr, st, next));
 }
 
 // The Type column for a row the Add dialog could not have made.
@@ -172,7 +172,7 @@ void BreakpointModel::publish_() {
                 if (r.addr < g->addr) {
                     g->addr      = r.addr;
                     g->space     = r.space;
-                    g->addr_text = address_text(r.addr, r.space);
+                    g->addr_text = address_text(r.addr, r.space, style_, memtext::next_layout(&dbg_));
                 }
                 seen.push_back(Seen{si.id, si.kind, si.enabled, si.live});
                 continue;
@@ -181,7 +181,7 @@ void BreakpointModel::publish_() {
         }
         if (r.type >= 0) {
             r.type_text = QString::fromLatin1(kTypeNames[r.type]);
-            r.addr_text = address_text(r.addr, r.space);
+            r.addr_text = address_text(r.addr, r.space, style_, memtext::next_layout(&dbg_));
         } else {
             r.type_text = kind_text(si);
             if (port)
@@ -195,7 +195,7 @@ void BreakpointModel::publish_() {
             // Another client's legacy page qualifier (DZRP, the DSL) reads as it did.
             if (si.kind == EventKind::Execute && si.filter.page != jnext::dbg::PAGE_ANY)
                 r.addr_text += QString::asprintf(" @%02X", si.filter.page);
-            if (si.kind == EventKind::Execute) r.addr_text += space_suffix(si.filter.space);
+            if (si.kind == EventKind::Execute) r.addr_text += space_suffix(si.filter.space, r.addr, style_, memtext::next_layout(&dbg_));
         }
         // REQ-qt-13d — another client's row is listed, read-only, and says
         // whose it is: the id is the one the backend's ATTACH log line names.
@@ -327,7 +327,18 @@ std::vector<BreakpointModel::PcBreakpoint> BreakpointModel::pc_breakpoints() con
 }
 
 QString BreakpointModel::address_text(uint16_t addr, jnext::dbg::MemSpace space) {
-    return QString::asprintf("$%04X", addr) + space_suffix(space);
+    return address_text(addr, space, jnext::dbg::AddressStyle::Friendly, false);
+}
+
+QString BreakpointModel::address_text(uint16_t addr, jnext::dbg::MemSpace space,
+                                      jnext::dbg::AddressStyle style, bool next_layout) {
+    return QString::asprintf("$%04X", addr) + space_suffix(space, addr, style, next_layout);
+}
+
+void BreakpointModel::set_address_style(jnext::dbg::AddressStyle style) {
+    if (style_ == style) return;
+    style_ = style;
+    publish_();
 }
 
 bool BreakpointModel::master_enabled() const { return dbg_.master_enabled(); }

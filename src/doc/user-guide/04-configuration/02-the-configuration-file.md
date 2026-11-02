@@ -44,6 +44,10 @@ with `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`, and
 invalid value falls back to 0 dB. An explicit matching `--audio-gain-...-db`
 value overrides the saved setting for that run.
 
+The Source tab's colour scheme is stored in the `[source]` section as `colour_scheme`: `auto`, `light`,
+`dark` or `borland`. Anything else in that key keeps `auto`. It is the persistent form of the
+Preferences **Debugger** setting and of `--set source.colour_scheme`.
+
 Redefined debugger keys are stored in the `[debugger_keys]` section, one line
 per action, for example `step_over=F10`. **Only the keys you have changed
 appear** — a configuration file in which you have never touched a debugger key

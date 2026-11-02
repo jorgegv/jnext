@@ -61,8 +61,10 @@ public:
     /// `z88dk_section_space()` (design 9.4): a `BANK_n` / `PAGE_n` symbol is a
     /// paged label, 24-bit classic values included (the page head comes from
     /// `z88dk_page_head()`, whatever the order of the file); a symbol of a section
-    /// that names no page is `bind_at_load`, unpaged until `bind()`; a DivMMC
-    /// section, a head-less PAGE section or a number out of range is unpaged
+    /// that names no page is `bind_at_load`, unpaged until `bind()`; in a z88dk
+    /// dot command's map (`z88dk_dot_command()`) the symbols of $2000-$3FFF are
+    /// labels of `DivMmcRam{kNextZxosDotBank}` and a dotn's main bank is skipped; a
+    /// DivMMC section, a head-less PAGE section or a number out of range is unpaged
     /// (when the value fits 16 bits); a 24-bit value in a section that names no
     /// page, or past 24 bits, is skipped.
     /// A "; addr" symbol named `_` + a non-`_` character, of a module ending `_c`

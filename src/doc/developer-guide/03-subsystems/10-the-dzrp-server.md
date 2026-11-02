@@ -86,6 +86,11 @@ compare a ROM bank byte against:
   (`PAGE_ANY`) — one that never fired would be worse;
 - the `NTF_PAUSE` bank byte of a stop in a ROM slot is 0xFF for slot 0 (what
   DeZog 3.7.4 matches) and 0 for slot 1, where 3.8's 0xFF + 1 does not fit;
+- `CMD_GET_REGISTERS` sends 0xFF for every slot with `SlotInfo::is_rom`, not the raw
+  NR value: MMU0/1 = 0xE0..0xFE read ROM (zxnext.vhd:2964, :3052) and DeZog has no bank
+  for them. A floating slot (NR >= 0xE0 in slots 2-7) and an overlay have no DZRP value
+  and keep the NR value (GH #360). DeZog's long address is `((bank + 1) << 16) | addr`,
+  so a RAM page `n` is bank `n`, and ROM is 0xFF;
 - `READ_BANK_MEM` bank 0xFF is DeZog 3.8's 16 KB ROM bank: offsets
   0x0000-0x1FFF are slot 0's half, 0x2000-0x3FFF slot 1's. While a slot holds
   ROM the half is read through the space the backend reports for it

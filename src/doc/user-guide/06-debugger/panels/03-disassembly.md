@@ -3,8 +3,11 @@
 ![Disassembly panel](../../img/debugger-disassembly.png)
 
 Z80 plus all 26 Z80N instructions, disassembled live from memory as the CPU
-sees it. Columns are the breakpoint gutter, the address, the raw opcode bytes
-and the mnemonic. The line at `PC` is highlighted in yellow and set in bold;
+sees it. Columns are the breakpoint gutter, the address, the **Mem** column
+(which memory the line's bytes come from: `P04`, `ROM0`, `DIVROM`, or the
+physical address; [details](../index.md#which-memory-an-address-is-in)), the raw
+opcode bytes and the mnemonic. At a DivMMC entry the line at `PC` shows the
+DivMMC ROM's instruction, the one the CPU is about to run, with `DIVROM` beside it. The line at `PC` is highlighted in yellow and set in bold;
 the lines you select are highlighted in blue — over the top of the yellow, so
 the `PC` line stays recognisable inside a selection, and clear of the gutter,
 so breakpoint dots stay visible.
@@ -26,6 +29,12 @@ so breakpoint dots stay visible.
   symbol and press Enter to centre the view there. A number wins over a symbol
   spelled like one; write `@name` to mean the symbol.
 - **Go to PC** re-centres on the current instruction.
+- With a source map loaded, a selection here moves the [Source](15-source.md) tab (the cursor goes
+  to the line of the instruction you clicked, and the lines of the whole range are tinted), and the
+  instructions of the Source tab's selected lines are tinted pale violet here. The right-click menu
+  adds **Show in Source**, which raises the Source tab on the line of that instruction; it is
+  disabled, with the tooltip *no source line at $A000*, where no line covers the address, and not
+  offered without a source map.
 - The scrollbar spans the whole `$0000`–`$FFFF` address space. **↑ ↓**,
   **Page Up/Down**, **Home** and **End** navigate; **Enter** runs to the
   selected line.

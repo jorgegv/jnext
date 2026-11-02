@@ -83,7 +83,7 @@ if want cli-set-func; then
     # --- Q1 ---
     printf '[startup]\ncpu_speed=0\ntape_fast_load=true\n[paths]\nlast_load_dir=/saved/dir\n' > "$cs_conf"
     cs_qt "$cs_dir/q1.log" --set startup.cpu_speed=3 --set startup.tape_fast_load=false \
-        --set paths.last_load_dir=/cli/dir --set debugger_keys.run=Shift+F9 --set debugger.attached=false \
+        --set paths.last_load_dir=/cli/dir --set debugger_keys.run=Shift+F9 --set debugger.attached=false --set debugger.physical_addresses=true \
         --load "$cs_tap" || cs_faults+=("Q1: the Qt run failed")
     # The debugger entries reach the window (this build has the debugger unless it says otherwise).
     if ! grep -qF "in a build without the debugger" "$cs_dir/q1.log"; then
@@ -91,6 +91,9 @@ if want cli-set-func; then
             || cs_faults+=("Q1: --set debugger_keys.run did not reach the window")
         grep -qF "debugger window: attached=false for this run" "$cs_dir/q1.log" \
             || cs_faults+=("Q1: --set debugger.attached=false did not reach the debugger manager")
+        grep -qF "debugger window: physical_addresses=true for this run" "$cs_dir/q1.log" \
+            || cs_faults+=("Q1: --set debugger.physical_addresses=true did not reach the debugger manager")
+        grep -q "physical_addresses=true" "$cs_conf" && cs_faults+=("Q1: the physical_addresses override was written to the file")
         grep -q "debugger_keys\]" "$cs_conf" && cs_faults+=("Q1: a [debugger_keys] section was written to the file")
     fi
     # A clash is refused before the window opens (run=F7 is Step Over's default).

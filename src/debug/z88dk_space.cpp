@@ -112,11 +112,52 @@ Z88dkSpace paged(int page, uint16_t addr16)
     return out;
 }
 
+Z88dkSpace paged_in(jnext::dbg::FetchSource space, uint16_t addr16)
+{
+    Z88dkSpace out;
+    out.kind = Z88dkSpace::Kind::Paged;
+    out.space = space;
+    out.addr16 = addr16;
+    return out;
+}
+
+Z88dkSpace refused_dotn(const std::string& section)
+{
+    Z88dkSpace out;
+    out.kind = Z88dkSpace::Kind::Refused;
+    out.why = "section '" + section + "': a dotn command's main bank and PAGE / DIV sections are "
+              "pages NextZXOS allocates when it runs (__z_page_table); a dotn map cannot place "
+              "them (build it as a dotx to debug it)";
+    return out;
+}
+
 } // namespace
+
+std::optional<Z88dkDot> z88dk_dot_command(const std::map<std::string, uint64_t>& consts,
+                                          std::string* why)
+{
+    if (why) why->clear();
+    const auto offset = consts.find("startupoffset");
+    if (offset == consts.end()) return std::nullopt;
+    Z88dkDot dot;
+    switch (offset->second) {
+    case 0x100: dot.variant = Z88dkDot::Variant::Dot; break;
+    case 0x200: dot.variant = Z88dkDot::Variant::Dotx; break;
+    case 0x300: dot.variant = Z88dkDot::Variant::Dotn; break;
+    default: return std::nullopt;
+    }
+    const auto head = consts.find("__CODE_head");
+    if (head == consts.end() || head->second != 0x2000) {
+        if (why) *why = "a dot command's CODE must start at $2000";
+        return std::nullopt;
+    }
+    return dot;
+}
 
 Z88dkSpace z88dk_section_space(
     std::string_view section, uint32_t value,
-    const std::function<std::optional<uint16_t>(int)>& page_head)
+    const std::function<std::optional<uint16_t>(int)>& page_head,
+    const Z88dkDot* dot)
 {
     const uint16_t addr16 = static_cast<uint16_t>(value & 0xFFFF);
     const SectionName name = classify(section);
@@ -132,11 +173,21 @@ Z88dkSpace z88dk_section_space(
                     + hex + " cannot be placed";
             return out;
         }
+        if (dot) {
+            // Design 9.4 rule 5: NextZXOS runs the command's $2000-$3FFF from a DivMMC bank.
+            if (addr16 >= 0x2000 && addr16 < 0x4000)
+                return paged_in(MemSpace::divmmc_ram(kNextZxosDotBank), addr16);
+            if (dot->variant == Z88dkDot::Variant::Dotn)
+                return refused_dotn(text);
+        }
         Z88dkSpace out;
         out.kind = Z88dkSpace::Kind::BindAtLoad;
         out.addr16 = addr16;
         return out;
     }
+    if (dot && dot->variant == Z88dkDot::Variant::Dotn
+        && (name.family == Family::Page || name.family == Family::Div))
+        return refused_dotn(text);
 
     const int limit = name.family == Family::Page ? kMaxPage
                     : name.family == Family::Bank ? kMaxBank
@@ -154,7 +205,8 @@ Z88dkSpace z88dk_section_space(
 
     switch (name.family) {
     case Family::Div:
-        return unpaged(addr16, "DivMMC sections are not supported yet (section '" + text + "')");
+        return unpaged(addr16, "section '" + text + "': a DIV_n bank is the one the program, or "
+                               "a dotn command's allocator, chooses when it runs");
     case Family::Bank: {
         const int page = name.half == 'L' ? 2 * name.number
                        : name.half == 'H' ? 2 * name.number + 1

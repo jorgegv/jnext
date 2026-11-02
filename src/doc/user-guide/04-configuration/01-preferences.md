@@ -1,6 +1,6 @@
 # Preferences
 
-**Settings > Preferences…** (Alt+P) opens a dialog with seven tabs (six in a build without the debugger).
+**Settings > Preferences…** (Alt+P) opens a dialog with eight tabs (six in a build without the debugger).
 
 ![The Preferences dialog, Startup tab](../img/preferences-startup.png)
 
@@ -59,9 +59,15 @@ quick capture always lands in the same place. It also sets how many Quick Save s
 (**Unlimited** at 0); `--quick-snapshot-keep` overrides it. In a build with the
 debugger it also holds the **Source search path**: the directories, one per line,
 where the Source tab looks for the files a source map names when they are not
-beside the map ([6.1.14](../06-debugger/functions/14-source-level-debugging.md));
+beside the map ([where the Source tab finds the files](../06-debugger/source-debugger/05-loading-a-source-map.md#where-the-source-tab-finds-the-files));
 a list given with `--source-dir` or `--set paths.source_dirs` replaces it for that run (the
 file is not changed).
+
+**Debugger** holds **Source tab colours**: the colour scheme of the Source tab's text, background and
+current-line bar ([the Source tab](../06-debugger/panels/15-source.md)), either **Auto (follow the application)**
+(the default), **Light**, **Dark** or **Borland C++ 3.1**. `--set source.colour_scheme=auto|light|dark|borland`
+gives it for one run (the file is not changed). The tab is only present in a build with the debugger
+compiled in.
 
 **Debugger Keys** rebinds the debugger's own keys — see
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md). The tab is only

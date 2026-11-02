@@ -1,5 +1,7 @@
 #include "debug/trace.h"
 
+#include "debug/long_address.h"
+
 #include <cstdio>
 #include <fstream>
 
@@ -310,7 +312,7 @@ bool TraceLog::export_to_file(const std::string& path) const
             "  AF'=%04X BC'=%04X DE'=%04X HL'=%04X"
             "  IX=%04X IY=%04X SP=%04X"
             "  (SP)=%04X I=%02X R=%02X IM%u IFF1=%u IFF2=%u"
-            "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=%02X FETCH=%02X:%02X  [%s]  %s\n",
+            "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=%02X FETCH=%s  [%s]  %s\n",
             static_cast<unsigned long long>(e.cycle),
             e.pc, e.af, e.bc, e.de, e.hl,
             e.af2, e.bc2, e.de2, e.hl2,
@@ -319,7 +321,7 @@ bool TraceLog::export_to_file(const std::string& path) const
             static_cast<unsigned>(e.iff1), static_cast<unsigned>(e.iff2),
             e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3],
             e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7], e.rom_slots,
-            e.fetch_kind, e.fetch_index, flags, bytes_str);
+            jnext::dbg::space_tag(e.fetch_space()).c_str(), flags, bytes_str);
 
         ofs << line;
     }

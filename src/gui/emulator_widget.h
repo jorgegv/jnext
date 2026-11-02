@@ -35,8 +35,22 @@ public:
     ///        a frame reaching the screen. The widget cannot determine this
     ///        itself without a per-frame pixel compare, which would cost more
     ///        than the diagnostic is worth.
+    ///
+    /// GH #428 — @param generation  Emulator::framebuffer_generation() at this
+    ///        call. When the framebuffer is the one already displayed (same
+    ///        generation) and the target it is drawn into is unchanged (physical
+    ///        size, pixel ratio, fullscreen, source size), the call does
+    ///        nothing: no copy, no prescale, no repaint (render_policy::
+    ///        upload_needed). NO_GENERATION (the default) means "unknown":
+    ///        always upload.
     void update_frame(const uint32_t* framebuffer, int w, int h,
-                      bool new_content = true);
+                      bool new_content = true, uint64_t generation = NO_GENERATION);
+
+    static constexpr uint64_t NO_GENERATION = ~uint64_t{0};
+
+    /// GH #428 — update_frame() calls that did the work (copy + prescale +
+    /// repaint, or the overlay's submit) since the last take.
+    uint64_t take_upload_count() { const uint64_t n = upload_count_; upload_count_ = 0; return n; }
 
     /// Set the integer scale factor (2-4).  Resizes the widget to NATIVE_W*s x DISPLAY_H*s.
     void set_scale(int factor);
@@ -206,6 +220,24 @@ private:
     void sync_crt_overlay();
     /// Software-scale native_ into scaled_ at the current scale factor.
     void prescale();
+
+public:
+    /// GH #428 — what the last upload was drawn into; a difference means the
+    /// same framebuffer has to be drawn again. Public so a test can compare
+    /// targets field by field (present_count_test PC-IDLE-07).
+    struct UploadTarget {
+        int pw = -1, ph = -1, w = -1, h = -1;
+        qreal dpr = 0;
+        bool fullscreen = false;
+        bool operator==(const UploadTarget& o) const {
+            return pw == o.pw && ph == o.ph && w == o.w && h == o.h &&
+                   dpr == o.dpr && fullscreen == o.fullscreen;
+        }
+    };
+private:
+    UploadTarget last_target_;
+    uint64_t last_uploaded_gen_ = ~uint64_t{0};   ///< render_policy::NOTHING_UPLOADED
+    uint64_t upload_count_ = 0;
 
     QImage native_;   ///< Original framebuffer (640×256 ARGB32).
     QImage scaled_;   ///< Pre-scaled framebuffer (drawn 1:1, no painter scaling).

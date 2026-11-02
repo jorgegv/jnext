@@ -8,6 +8,7 @@
 
 #include "debug/events.h"   // jnext::dbg::ClientId
 #include "debug/inspect.h"  // jnext::dbg::MemSpace
+#include "debug/long_address.h"
 
 namespace jnext { namespace dbg { class Debugger; } }
 
@@ -27,6 +28,9 @@ public:
     /// manager sets the debugger window's client while the window is open;
     /// CLIENT_NONE otherwise.
     void set_client(jnext::dbg::ClientId by) { client_ = by; }
+
+    /// GH #360 - Friendly (`P0E`) or Physical (`$060000`) in the tag after the ASCII column.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
 
     /// Update display with current memory and MMU state.
     void refresh();
@@ -93,6 +97,7 @@ private:
 
     jnext::dbg::Debugger* dbg_;
     jnext::dbg::ClientId  client_ = jnext::dbg::CLIENT_NONE;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
 
     // Top bar widgets
     QLineEdit* addr_input_ = nullptr;

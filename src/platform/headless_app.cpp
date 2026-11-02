@@ -70,6 +70,21 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
     // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
     if (!debug_servers_.start(*debugger_, config_)) return false;
+    // GH #351 - --source-map without --load (or with an RZX replay): the map of a z88dk dot command, attached
+    // now (before the scripts, so a `file:line` rule resolves) and pending until the
+    // guest runs the command. Any other map needs a program: refused.
+    if (!config_.source_map_file.empty() && config_.source_map_no_program != 0) {
+        const auto sm = emulator_attach_cli_source_map(
+            *debugger_, config_.source_map_file, /*deferred=*/false, /*dot_only=*/true,
+            /*rzx=*/config_.source_map_no_program == 2);
+        if (!sm.ok) {
+            Log::platform()->error("{}", sm.line);
+            return false;
+        }
+        Log::platform()->info("{}", sm.line);
+        source_map_watch_ = sm.pending;
+        config_.source_map_file.clear();
+    }
     // GH #26 WP4 — the scripts, after the servers and before the machine runs:
     // a script that does not load is a startup failure (exit 1, §6.5).
     {
@@ -813,9 +828,7 @@ void HeadlessApp::run() {
             // emulator.cpp render_this_frame gate) so get_framebuffer() is
             // stale except right before a requested screenshot. Force a
             // render here so every probed frame's hash is real.
-            emulator_.renderer().render_frame(emulator_.get_framebuffer(),
-                emulator_.mmu(), emulator_.ram(), emulator_.palette(),
-                emulator_.layer2(), &emulator_.sprites(), &emulator_.tilemap());
+            emulator_.render_framebuffer_now();
             uint64_t fb_hash = 1469598103934665603ull;  // FNV-1a 64-bit offset basis
             const uint32_t* fb = emulator_.get_framebuffer();
             const size_t fb_pixels = static_cast<size_t>(emulator_.get_framebuffer_width()) *

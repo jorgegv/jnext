@@ -45,6 +45,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-page20, sccz80-bank10 | `-clib=new -debug`, `PAGE_20` / `BANK_10` | ok | G8 |
 | v2.4/sccz80-banked, sdcc-banked | `-DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
 | v2.4/sccz80-banked-run | `-clib=new -debug -DUSE_BANKED_KW -pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000`, `PAGE_20` | ok | G9 runnable: Into/Over/Out across `banked_call` (GH #345) |
+| v2.4/sccz80-banked-crt, master/sccz80-banked-crt | the `-run` flags, `KEEP_CRT` | ok | `code_crt_init` shared with the banking driver (GH #426 F4) |
 | v2.4/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic bank prefix; keeps the classic CRT listing (G19-G21) |
 | v2.4/classic-debug | `-clib=classic -debug` | **fails rc=1** | Z1 |
 | v2.4/sccz80-subdir | `-clib=new -debug -I.`, `game/util.c` | ok | G10 |
@@ -55,8 +56,16 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | master/80cc-debug | `-clib=new -compiler=80cc -debug` | ok | 80cc map |
 | master/sdcc-banked | `-clib=sdcc_iy -debug -DUSE_BANKED_KW`, `PAGE_20` | ok | G9 |
 | master/sdcc-banked-run | `-clib=sdcc_iy -debug -DUSE_BANKED_KW` + the same two pragmas, `PAGE_20` | ok | G9 runnable (GH #345) |
+| v2.4/sccz80-dot, sccz80-dotx, sdcc-dot; v2.4-dotn/sccz80 | `dot.c dutil.c`, `-subtype=dot` / `dotx` / `dotn`, `-clib=new -debug` (sdcc-dot: `-clib=sdcc_iy -SO2 --c-code-in-asm`: lines in the `.lis` only) | ok, `PROG` (`PROG.X` for dotx) | GH #351 dot commands; dotn lives in `v2.4-dotn/` so that Z88CN-10's walk over `v2.4/` and `master/` (every map shows a C name) is not tripped by its refused C symbols |
+| master/sccz80-dot, sccz80-dotx, sdcc-dot, 80cc-dot | `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #351 |
 | master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix; keeps the classic CRT listing (G19-G21) |
 | master/classic-debug | `-clib=classic -debug`, `BANK_10` | **fails rc=1** | Z1 |
+
+The dot builds (`dot:<subtype>` in `generate.sh`) compile `dot.c dutil.c` with `-subtype=dot|dotx|dotn`
+instead of `-subtype=nex`. Classic dot is not built: `-debug` fails (Z1) and without it there are no lines.
+They also keep `PROG` / `PROG.X` (the file NextZXOS runs), and their trimmed map keeps `startupoffset`,
+`__crt_org_code` and the `__<G>_head/_tail/_size` of every group that has a `prog_<G>.bin` (a dotx's
+`__MAIN_head` has size 0 and the old rule dropped it).
 
 `sccz80-tape` is the one `+zx` build (a 48K tape: `prog.tap` holds a BASIC loader and one
 CODE block at $8000 that equals `prog_CODE.bin`; link flags without `-subtype=nex`).
@@ -119,6 +128,24 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
   (`game_util_c`) in `sccz80-subdir`.
 - Classic `BANK_10`: `_banked_add` is `$AC000` on 2.4 and `$14C000` on master
   (`memory_map.asm`: `ORG 0x140000 + CRT_ORG_BANK_10`; commit 72ea9d221b).
+- G23 (GH #351) dot commands. `startupoffset` is `$0100` (dot), `$0200` (dotx) or `$0300` (dotn): the
+  `-startupoffset=` of `lib/config/zxn.cfg` (:34-39 on master, :35-40 on 2.4), in the map as a `const`
+  of the crt module, absent from a `-subtype=nex` map; in newlib and classic alike. `__CODE_head` is
+  `$2000`. A plain dot is one `PROG` equal to `prog_CODE.bin` (4690 B here, everything in the CODE group,
+  no main-RAM part); a dotx is `PROG` (the CODE group, `$2000`-`$267C`: crt and library) plus
+  `PROG.X` (= `prog_MAIN.bin`, at `CRT_ORG_MAIN` `$8000`, where `dot.c` is: `code_compiler` at `$87xx`;
+  `__MAIN_size` is 0 though it has content); a dotn is `PROG` of 16384 B whose main bank and
+  `PAGE` / `DIV` sections are LOGICAL pages that NextZXOS maps at run time (`__z_page_table`, appmake
+  `zxn_dotn_command`). `CRT_ORG_DIV_<n>` and `__DIV_<n>_head` are in every newlib map: not a signal.
+  The 2.4 sdcc `-SO2 --c-code-in-asm` dot has no line record in its map (G12): lines only in the `.lis`.
+- G24 (GH #351, measured in jnext booting NextZXOS from the cached card, `--rtc 2026-07-30T12:00:00`,
+  `.prog` typed at the prompt, a script logging port 0xE3 writes and executions): the file is copied
+  into DivMMC RAM bank 2 (E3 alternates $02 / $00 during the copy), then `E3 <- $82` (conmem + bank 2)
+  and the CPU executes `$2000` with the file's bytes; inside the command E3 toggles $80 (bank 0, the
+  RST $08 hook) and back. The same for dotx (after `CLEAR 32767`, which the crt requires; the main part
+  runs from `Page{4}`/`Page{5}`) and dotn (the main part runs from pages NextZXOS allocates: $DC $DB $DE $DD
+  in the run). The machine resets while NextZXOS boots, so a map attached at start-up meets a reset
+  before the command can be typed. Not measured: NextZXOS's 48K personality, esxDOS proper.
 - Z3 (candidate upstream bug, GH #345): newlib `+zxn` `__banked` programs built with the
   defaults cannot run. `CRT_ORG_PAGE_20` is 16-bit ($C000), but `banked_call` reads the page
   from bits 16-23, so `defq _banked_add` is `00 C0 00 00` and it pages in page 0; and the

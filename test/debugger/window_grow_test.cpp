@@ -53,12 +53,14 @@
 #include <QDataStream>
 #include <QDir>
 #include <QEventLoop>
+#include <QResizeEvent>
 #include <QFile>
 #include <QMainWindow>
 #include <QScreen>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -128,6 +130,26 @@ bool build_next_emulator(Emulator& emu) {
     return emu.init(cfg);
 }
 
+// GR-08: on the resize event of the fit's SECOND request, put the window back to its FIRST request's
+// size, before the pass that request queued runs: the window manager's late answer to an earlier request.
+struct EchoFilter : QObject {
+    std::vector<QSize> seen;   // the sizes of the window's resize events, in order
+    bool fired = false;
+    bool eventFilter(QObject* o, QEvent* e) override {
+        if (e->type() != QEvent::Resize || !o->inherits("DebuggerWindow")) return false;
+        const QSize z = static_cast<QResizeEvent*>(e)->size();
+        if (!seen.empty() && seen.back() == z) return false;
+        seen.push_back(z);
+        if (seen.size() == 3 && !fired) {   // [0] the show, [1] the first request, [2] the second
+            fired = true;
+            QWidget* w = static_cast<QWidget*>(o);
+            const QSize first = seen[1];
+            QTimer::singleShot(0, w, [w, first]() { w->resize(first); });
+        }
+        return false;
+    }
+};
+
 struct Fixture {
     Emulator         emu;
     // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
@@ -138,14 +160,28 @@ struct Fixture {
     DebuggerWindow*  dbg = nullptr;
     bool             ok  = false;
 
-    Fixture() {
+    // `wait` = false returns right after the window is shown, for the rows that act while the fit runs.
+    explicit Fixture(bool wait = true) {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
+        if (!wait) return;
         settle();
+        // The fit is a chain of queued passes; on a loaded host 300 ms can end between two of them
+        // (GR-05 read Video 599<600 in `make unit-test` with the host at load 16). Keep waiting until
+        // the size has not changed for two consecutive 100 ms polls (bounded at 5 s).
+        if (ok) {
+            QSize last = dbg->size();
+            int stable = 0;
+            for (int i = 0; i < 50 && stable < 2; ++i) {
+                settle(100);
+                stable = (dbg->size() == last) ? stable + 1 : 0;
+                last = dbg->size();
+            }
+        }
     }
     ~Fixture() {
         if (mgr) mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
@@ -168,6 +204,7 @@ void write_saved_size(const QString& dir, int w, int h) {
 
 void clear_saved_geometry(const QString& dir) {
     QFile::remove(dir + QStringLiteral("/Debugger.conf"));
+    QFile::remove(dir + QStringLiteral("/jnext.conf"));   // where the window saves its size now (a restored size is not "default")
 }
 
 } // namespace
@@ -199,8 +236,11 @@ int main(int argc, char** argv)
                 "  ]\n"
                 "}\n");
     }
-    qputenv("QT_QPA_PLATFORM",
-            QStringLiteral("offscreen:configfile=%1").arg(qpa_config).toUtf8());
+    // JNEXT_TEST_KEEP_QPA (set by the debugger-window-wm-func row): keep the platform the
+    // environment names (xcb under a real window manager) instead of forcing offscreen.
+    if (qgetenv("JNEXT_TEST_KEEP_QPA").isEmpty())
+        qputenv("QT_QPA_PLATFORM",
+                QStringLiteral("offscreen:configfile=%1").arg(qpa_config).toUtf8());
     // Isolate the config file: this suite writes saved geometries, and the real
     // ~/.jnext/jnext.conf belongs to the user.
     qputenv("JNEXT_CONFIG_DIR", dir.path().toUtf8());
@@ -251,6 +291,131 @@ int main(int argc, char** argv)
                   fmt("opened %dx%d, default height %d",
                       fx.dbg->width(), fx.dbg->height(), kDefaultHeight));
         }
+    }
+
+    // GR-05 (GH #360) — the default window opens wide enough for its left column. With no saved
+    // geometry the window asks for 1170 px (kDefaultWidth) and grows to its natural size on a roomy
+    // (3000x2200) screen. At 1170 the left tab widget was 506 px and the Video panel (sizeHint 600)
+    // lost its raster labels, palette strip and preview. Oracle: after the opening fit, every page of
+    // the left column of tabs is at least as wide as its own sizeHint().width(), with no tolerance.
+    {
+        clear_saved_geometry(dir.path());
+        Fixture fx;
+        std::string bad;
+        int pages = 0;
+        if (fx.ok) {
+            for (QTabWidget* tw : fx.dbg->findChildren<QTabWidget*>()) {
+                bool left = false;
+                for (int i = 0; i < tw->count(); ++i)
+                    if (tw->tabText(i) == QLatin1String("Video")) left = true;
+                if (!left) continue;
+                for (int i = 0; i < tw->count(); ++i) {
+                    QWidget* page = tw->widget(i);
+                    ++pages;
+                    if (page->width() < page->sizeHint().width())
+                        bad += fmt("%s %d<%d ", tw->tabText(i).toStdString().c_str(), page->width(),
+                                   page->sizeHint().width());
+                    // ... and not wider by more than a few px: the widest page that lacked ends at its
+                    // sizeHint, so a window that overshoots (33 px with the stretch factors swapped) fails.
+                    if (tw->tabText(i) == QLatin1String("Video") && page->width() > page->sizeHint().width() + 4)
+                        bad += fmt("Video overshoots %d>%d+4 ", page->width(), page->sizeHint().width());
+                }
+            }
+        }
+        check("GR-05",
+              "at the default window size, grown to natural on a 3000x2200 screen, every page of the left "
+              "column of tabs is at least as wide as its sizeHint (no tolerance) and the Video page at most 4 px wider",
+              fx.ok && pages == 7 && bad.empty(),
+              fx.ok ? bad + fmt("pages=%d window %dx%d", pages, fx.dbg->width(), fx.dbg->height())
+                    : std::string("fixture failed"));
+    }
+
+    // GR-06 (GH #360 review) -- a window manager can answer a request of the opening fit LATE (the map
+    // answers the pre-map request with the size from before it; openbox applies the first request after
+    // later ones). For the fit's own lifetime that stale size is the manager's, not the user's, and must
+    // not be the final size: the fit asks its current request again. The window is put back to the size
+    // the fit started from (1170 x 900, a size the fit knows) while the fit is still in its grace window,
+    // and must return to the size the fit settles on (a plain run's, B).
+    QSize B;
+    {
+        clear_saved_geometry(dir.path());
+        Fixture base;
+        if (base.ok) B = base.dbg->size();
+    }
+    {
+        clear_saved_geometry(dir.path());
+        const QSize echo(1170, kDefaultHeight);
+        Fixture fx(false);
+        bool returned = false;
+        if (fx.ok) {
+            QSize last = fx.dbg->size();
+            int stable = 0;
+            for (int i = 0; i < 100 && stable < 3; ++i) {   // the fit's passes are done: 60 ms unchanged
+                settle(20);
+                stable = (fx.dbg->size() == last) ? stable + 1 : 0;
+                last = fx.dbg->size();
+            }
+            if (fx.dbg->size() != echo) {
+                fx.dbg->resize(echo);
+                settle(400);
+                returned = fx.dbg->size() == B;
+            }
+        }
+        check("GR-06",
+              "a stale answer of the window manager to an earlier request of the opening fit (the window put "
+              "back to the size the fit started from, inside the grace window) is asked again: the window "
+              "returns to the size the fit settles on",
+              fx.ok && B.isValid() && returned,
+              fmt("settled B %dx%d, echo %dx%d, now %dx%d", B.width(), B.height(), echo.width(), echo.height(),
+                  fx.ok ? fx.dbg->width() : 0, fx.ok ? fx.dbg->height() : 0));
+    }
+
+    // GR-07 (GH #360 review) -- the manager-answer handling has an END. Once the fit is over, every size is
+    // the user's: a resize to 1170 x 900 (the size the fit started from) and to the two widths just below
+    // the settled one (sizes of the fit's last passes) stands, instead of being undone as a late answer.
+    {
+        clear_saved_geometry(dir.path());
+        Fixture fx;
+        bool stands = fx.ok && B.isValid();
+        std::string seen;
+        if (fx.ok) {
+            settle(1500);   // the grace window (1 s) is over
+            const QSize settled = fx.dbg->size();
+            for (const QSize& want : {QSize(1170, kDefaultHeight), QSize(settled.width() - 3, settled.height()),
+                                      QSize(settled.width() - 53, settled.height())}) {
+                fx.dbg->resize(want);
+                settle(300);
+                const bool ok1 = fx.dbg->size() == want;
+                stands = stands && ok1;
+                seen += fmt("%dx%d->%dx%d ", want.width(), want.height(), fx.dbg->width(), fx.dbg->height());
+            }
+        }
+        check("GR-07",
+              "after the fit's grace window every size is the user's: a resize to 1170x900 and to the widths 3 and "
+              "53 px below the settled one stands",
+              stands, seen);
+    }
+
+    // GR-08 (GH #360 review) -- the manager's late answer lands while a pass is QUEUED: on the resize event
+    // of the second request the window is put back to the first request's size before the pass that request
+    // queued runs. That pass must treat it as the manager's (ask again, measure again), not as the user's
+    // (end the fit and leave the stale size): the window ends at B.
+    {
+        clear_saved_geometry(dir.path());
+        EchoFilter filter;
+        qApp->installEventFilter(&filter);
+        QSize now;
+        {
+            Fixture fx;
+            if (fx.ok) now = fx.dbg->size();
+        }
+        qApp->removeEventFilter(&filter);
+        check("GR-08",
+              "an earlier request's size landing while a pass is queued is asked again by that pass: the window "
+              "ends at the size a plain run settles on",
+              filter.fired && B.isValid() && now == B,
+              fmt("fired %d, B %dx%d, now %dx%d, events %zu", int(filter.fired), B.width(), B.height(),
+                  now.width(), now.height(), filter.seen.size()));
     }
 
     // GR-04 — the gate on the other side: a size the user saved is NOT grown,

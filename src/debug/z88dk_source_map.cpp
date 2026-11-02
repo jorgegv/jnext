@@ -184,10 +184,11 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         }
         if (!parsed) continue;
         if (parsed->is_const) {
-            if (starts_with(parsed->name, "__")
-                && (parsed->name.size() > 7)
-                && (parsed->name.compare(parsed->name.size() - 5, 5, "_head") == 0
-                    || parsed->name.compare(parsed->name.size() - 5, 5, "_tail") == 0))
+            if (parsed->name == "startupoffset"   // a dot command's (design 9.4 rule 5)
+                || (starts_with(parsed->name, "__")
+                    && (parsed->name.size() > 7)
+                    && (parsed->name.compare(parsed->name.size() - 5, 5, "_head") == 0
+                        || parsed->name.compare(parsed->name.size() - 5, 5, "_tail") == 0)))
                 bounds.emplace(parsed->name, parsed->value);
         } else if (parsed->is_addr && !starts_with(parsed->name, "__CDBINFO__")) {
             symbols.push_back(*parsed);
@@ -195,6 +196,12 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     }
 
     const auto page_head = [&](int n) { return z88dk_page_head(bounds, n); };
+
+    // A dot command (GH #351): the DivMMC part of the map is placed by rule 5.
+    std::string dot_why;
+    const std::optional<Z88dkDot> dot_command = z88dk_dot_command(bounds, &dot_why);
+    if (!dot_why.empty()) return failed(dot_why);
+    const Z88dkDot* dot = dot_command ? &*dot_command : nullptr;
 
     // Pass 2: place every line record, in file order, so the first refusal is
     // the first bad line.
@@ -210,7 +217,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         const auto loc = parse_location(m.location);
         if (!loc) return failed(where + "invalid location '" + m.location + "'");
         const Z88dkSpace placed = z88dk_section_space(m.section, static_cast<uint32_t>(m.value),
-                                                      page_head);
+                                                      page_head, dot);
         Record r;
         r.value = m.value;
         r.module = m.module;
@@ -276,13 +283,16 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         bins.push_back(std::move(bin));
     }
     // The binary that holds [value, value + length) of `space`: its group must put both
-    // ends of the range in that space.
-    const auto bin_for = [&](uint64_t value, uint32_t length, FetchSource space) -> const Bin* {
+    // ends of the range in that space. With `more` given, every binary is scanned and
+    // *more says whether a second one covers it too (overlay sections at one ORG).
+    const auto bin_for = [&](uint64_t value, uint32_t length, FetchSource space,
+                             bool* more = nullptr) -> const Bin* {
+        const Bin* found = nullptr;
         for (const Bin& bin : bins) {
             if (value < bin.head || value + length > bin.head + bin.bytes.size()) continue;
             const auto group_space = [&](uint64_t v) {
                 const Z88dkSpace g = z88dk_section_space(bin.group, static_cast<uint32_t>(v),
-                                                         page_head);
+                                                         page_head, dot);
                 if (g.kind == Z88dkSpace::Kind::Paged) return g.space;
                 if (g.kind == Z88dkSpace::Kind::BindAtLoad) return space_of(g.addr16);
                 return MemSpace::floating();
@@ -290,9 +300,14 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             if (space_key(group_space(value)) != space_key(space)
                 || space_key(group_space(value + length - 1)) != space_key(space))
                 continue;
-            return &bin;
+            if (!more) return &bin;
+            if (found) {
+                *more = true;
+                return found;
+            }
+            found = &bin;
         }
-        return nullptr;
+        return found;
     };
 
     // The listings (GH #348): each one a module's lines, or a note why not.
@@ -319,7 +334,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         view.place = [&](const std::string& section, uint64_t value) {
             Z88dkPlacement out;
             const Z88dkSpace placed = z88dk_section_space(section, static_cast<uint32_t>(value),
-                                                          page_head);
+                                                          page_head, dot);
             out.lo = placed.addr16;
             switch (placed.kind) {
             case Z88dkSpace::Kind::Paged:
@@ -341,8 +356,10 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
             return out;
         };
         view.byte_at = [&](uint64_t value, FetchSource space) -> std::optional<uint8_t> {
-            const Bin* bin = bin_for(value, 1, space);
-            if (!bin) return std::nullopt;
+            // A byte two section binaries both claim is unknown, never one of them.
+            bool more = false;
+            const Bin* bin = bin_for(value, 1, space, &more);
+            if (!bin || more) return std::nullopt;
             return bin->bytes[static_cast<size_t>(value - bin->head)];
         };
 
@@ -450,7 +467,7 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     for (const Z88dkMapLine& s : symbols) {
         if (s.section.empty() || s.value > 0xFFFFFF) continue;
         const Z88dkSpace placed = z88dk_section_space(s.section, static_cast<uint32_t>(s.value),
-                                                      page_head);
+                                                      page_head, dot);
         Symbol out;
         out.name = s.name;
         out.module = s.module;
@@ -578,6 +595,6 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
     result.listing_disagreements = disagreements;
     result.listing_notes = std::move(notes);
     map.replace(std::move(ranges), std::move(aliases), std::move(identity), loaded, "z88dk",
-                std::move(listed_texts));
+                std::move(listed_texts), dot != nullptr);
     return result;
 }

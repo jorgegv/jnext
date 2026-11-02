@@ -49,7 +49,7 @@ A file that is over 64 MiB, or is not a regular file (a named pipe, say), is
 refused, and the box says why. A z88dk `.map` that sits beside a program you load
 (`<name>.map` next to a `.nex`, `.tap` or `.sna`) is loaded for you, with the
 program's source lines: see
-[Source-level debugging](14-source-level-debugging.md).
+[Loading a source map](../source-debugger/05-loading-a-source-map.md).
 
 Once loaded, symbols appear wherever an address is shown and a name is known:
 the disassembly replaces a matching 16-bit immediate with the symbol name, the
@@ -71,5 +71,5 @@ load: see
 
 NextBuild / Boriel ZX Basic programs come with a `Memory.txt` instead, which
 JNEXT loads by itself when the program is loaded: see
-[Source-level debugging](14-source-level-debugging.md). So do the labels of an
+[Loading a source map](../source-debugger/05-loading-a-source-map.md). So do the labels of an
 sjasmplus SLD source map, which come with it.

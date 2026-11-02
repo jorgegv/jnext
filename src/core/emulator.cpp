@@ -106,6 +106,13 @@ Emulator::~Emulator()
 // Public interface
 // ---------------------------------------------------------------------------
 
+void Emulator::render_framebuffer_now()
+{
+    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                           layer2_, &sprites_, &tilemap_);
+    ++framebuffer_generation_;   // GH #428
+}
+
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
@@ -152,8 +159,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // not on a soft reset, which does not interrupt the video output: the
     // frame on screen stays there until the next one is drawn (GH #263
     // follow-up; with the debugger paused, F4 used to show black).
-    if (!preserve_memory || framebuffer_.size() != FRAMEBUFFER_PIXELS)
+    if (!preserve_memory || framebuffer_.size() != FRAMEBUFFER_PIXELS) {
         framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
+        ++framebuffer_generation_;   // GH #428: never reset, only advanced
+    }
 
     // Clear any stale scheduler events. Preserved across soft reset so
     // events scheduled before the reset (e.g. the current frame's ULA
@@ -10359,8 +10368,7 @@ void Emulator::end_of_frame(uint64_t frame_end)
         debug_state_.capture_render();
     if (!replay_mode_) {
         if (render_this_frame) {
-            renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                                   layer2_, &sprites_, &tilemap_);
+            render_framebuffer_now();
             ++rendered_frames_;
         } else {
             // C6 review BLOCKER fix: sprite collision + line-budget overtime
@@ -14124,8 +14132,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     refresh_tape_capture_live();
 
     // Re-render the frame so the main window framebuffer reflects the rewound state.
-    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                           layer2_, &sprites_, &tilemap_);
+    render_framebuffer_now();
 
     uint64_t reached = clock_.get();
     Log::emulator()->debug("rewind_to_cycle: reached cycle {} after {} replay frames",
@@ -14251,8 +14258,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
     rewind_buffer_->unmark_from(snap);   // §4.2a: changes after the landing are undone
 
     // Re-render so the main window framebuffer reflects the restored state.
-    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                           layer2_, &sprites_, &tilemap_);
+    render_framebuffer_now();
 
     // Pause the debugger at the current position. GH #278 WP3 (B3 obligation
     // 3): NOT `set_active(true)` any more — the caller's arm holds the pause.
@@ -14476,6 +14482,12 @@ Emulator::PredictedInstr Emulator::predict_instruction_(uint16_t pc) const
     p.data_divmmc = divmmc_.active_with_hold(hold);
     p.mf = mf;
     return p;
+}
+
+void Emulator::predict_instruction_bytes(uint16_t pc, uint8_t out[4]) const
+{
+    const PredictedInstr p = predict_instruction_(pc);
+    for (int i = 0; i < 4; ++i) out[i] = p.b[i];
 }
 
 void Emulator::debug_after_machine_transition_(bool discard_ring)

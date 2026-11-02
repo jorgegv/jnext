@@ -126,7 +126,8 @@ int title_bar_height(const QWidget* w) {
 } // namespace
 
 DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
-                               std::optional<bool> attach_override)
+                               std::optional<bool> attach_override,
+                               std::optional<bool> physical_override)
     : QMainWindow(parent)
     , dbg_(dbg)
 {
@@ -179,6 +180,12 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
 
     attach_saved_   = settings.value(config_key(config_keys::KeyId::DebuggerAttached), true).toBool();
     attach_enabled_ = attach_override.value_or(attach_saved_);
+
+
+    physical_saved_ = settings.value(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), false).toBool();
+    address_style_  = physical_override.value_or(physical_saved_) ? jnext::dbg::AddressStyle::Physical
+                                                                  : jnext::dbg::AddressStyle::Friendly;
+    apply_address_style();
 
     if (!attach_enabled_ || !attach_supported_) {
         // Detached (by choice or by platform): honour the saved position so a
@@ -240,6 +247,9 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
         connect(source_panel_, &SourcePanel::load_symbols_requested,
                 mgr, &DebuggerManager::on_load_nextbuild_memory);
     }
+
+    // GH #360: the GUI's breakpoint model exists from here on.
+    apply_address_style();
 
     // Create the menu bar with debug actions.
     create_menus();
@@ -460,6 +470,31 @@ void DebuggerWindow::changeEvent(QEvent* event) {
     }
 }
 
+bool DebuggerWindow::fit_known_size_(const QSize& s) const {
+    return s == fit_prev_size_ || std::find(fit_sizes_.begin(), fit_sizes_.end(), s) != fit_sizes_.end();
+}
+
+// The fit's explicit end: from now on every size is the user's.
+void DebuggerWindow::end_fit_() {
+    fit_over_ = true;
+    fit_sizes_.clear();
+    fit_prev_size_ = QSize();
+    fit_set_size_ = QSize();
+}
+
+void DebuggerWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    // While the opening fit runs (see fit_sizes_), a resize to a size the fit knows but did not just ask
+    // for is the window manager's late answer: a pass is queued, which asks the current request again
+    // and measures again (bounded). Any other size is the user's; the pass ends the fit on it.
+    if (fit_over_ || !size_is_default_ || !fit_set_size_.isValid())
+        return;
+    if (size() != fit_set_size_ && fit_known_size_(size()) && fit_echoes_ < kMaxFitEchoes) {
+        ++fit_echoes_;
+        QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+    }
+}
+
 void DebuggerWindow::grow_default_size_to_natural() {
     // GH #114: a window opening at its DEFAULT size still opens at the size
     // where nothing has to scroll, whenever the screen has room for it. That
@@ -482,24 +517,93 @@ void DebuggerWindow::grow_default_size_to_natural() {
     if (!size_is_default_ || !scroll)
         return;
 
-    const int hidden_w = scroll->horizontalScrollBar()->maximum();
-    const int hidden_h = scroll->verticalScrollBar()->maximum();
-    if (hidden_w <= 0 && hidden_h <= 0)
-        return;   // nothing is out of view; the window is already big enough
+    if (fit_over_)
+        return;
+    // The fit ends kFitGraceMs after its last pass started (every pass restarts the wait).
+    const unsigned generation = ++fit_generation_;
+    QTimer::singleShot(kFitGraceMs, this, [this, generation]() {
+        if (generation == fit_generation_) end_fit_();
+    });
+    if (fit_set_size_.isValid() && size() != fit_set_size_) {
+        if (fit_known_size_(size()) && fit_echoes_ < kMaxFitEchoes) {
+            // The manager's late answer to an earlier request: ask again, then measure again.
+            ++fit_echoes_;
+            resize(fit_set_size_);
+            QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+            return;
+        }
+        // Not a size of the fit's own: the user's. The fit is over, their size stands.
+        end_fit_();
+        return;
+    }
 
+    const int scroll_w = scroll->horizontalScrollBar()->maximum();
+    const int hidden_h = scroll->verticalScrollBar()->maximum();
+
+    // GH #360: nothing scrolling sideways does not mean the left column of tabs is wide enough: it
+    // only has to fit its panels' MINIMUMS to avoid a scrollbar, yet the Video panel asks for more
+    // (its sizeHint) and is clipped at 1170 px. Measure what its pages lack and widen the window.
+    // The share of a widening the splitter gives that column is MEASURED, from what the previous
+    // width pass gained (the stretch factors, set in create_panels(), are only the first guess), so
+    // this converges on its own bound whatever the style, font or DPI.
+    int add_w = scroll_w;
+    int lacking = 0;
+    if (tab_widget_ && top_splitter_ && initial_fit_width_passes_ < kMaxWidthFitPasses) {
+        for (int i = 0; i < tab_widget_->count(); ++i) {
+            QWidget* page = tab_widget_->widget(i);
+            lacking = std::max(lacking, page->sizeHint().width() - page->width());
+        }
+        if (lacking > 0) {
+            const int left  = top_splitter_->widget(0)->sizePolicy().horizontalStretch();
+            const int right = top_splitter_->widget(1)->sizePolicy().horizontalStretch();
+            double share = (left + right) > 0 ? double(left) / (left + right) : 1.0;
+            if (fit_last_add_ > 0 && fit_last_lacking_ > lacking)
+                share = double(fit_last_lacking_ - lacking) / fit_last_add_;
+            share = std::min(1.0, std::max(0.2, share));
+            add_w = std::max(add_w, static_cast<int>(std::ceil(lacking / share)));
+        }
+    }
+
+    if (add_w <= 0 && hidden_h <= 0)
+        return;   // nothing is out of view and the left column has its width: leave the window alone
+
+    // The FRAME must fit the screen: the side borders come off the width as the title bar comes off the height.
+    const int deco_w = std::max(0, frameGeometry().width() - width());
+    // The height decoration is what the window manager really added now that the window is mapped; the
+    // style's title bar height is only the estimate for before that (it is smaller than some managers').
+    const int real_deco_h = frameGeometry().height() - height();
+    const int deco_h = real_deco_h > 0 ? real_deco_h : title_bar_height(this);
     const jnext::WindowSize fit = jnext::clamp_window_size_to_screen(
-        width() + hidden_w, height() + hidden_h,
-        work_area_of(this), title_bar_height(this));
+        width() + add_w, height() + hidden_h,
+        work_area_of(this), deco_h, deco_w);
     if (fit.w == width() && fit.h == height())
-        return;   // the screen has no more room to give
+        return;   // nothing to grow, or the screen has no more room to give
+    const int old_w = width();
+    fit_prev_size_ = size();
+    fit_set_size_ = QSize(fit.w, fit.h);
+    fit_sizes_.push_back(fit_prev_size_);
+    fit_sizes_.push_back(fit_set_size_);
     resize(fit.w, fit.h);
+
+    const bool width_pass = lacking > 0 && add_w > scroll_w;
+    if (width_pass) {
+        ++initial_fit_width_passes_;
+        fit_last_add_ = fit.w - old_w;
+        fit_last_lacking_ = lacking;
+    } else {
+        fit_last_add_ = 0;
+    }
 
     // A panel's minimum can itself change as the window grows (a wider panel
     // may need more height), so one pass lands close but not always exactly.
     // Repeat while it keeps helping, with a hard bound: each pass either grows
     // the window or returns above, so this terminates on its own — the bound is
-    // there so a pathological layout cannot ping-pong forever.
-    if (++initial_fit_passes_ < kMaxInitialFitPasses)
+    // there so a pathological layout cannot ping-pong forever. The scroll-range
+    // passes (GH #114) and the width passes (GH #360) have a bound each.
+    const bool scroll_pass = scroll_w > 0 || hidden_h > 0;
+    if (scroll_pass) ++initial_fit_passes_;
+    if ((scroll_pass && initial_fit_passes_ < kMaxInitialFitPasses) ||
+        (width_pass && initial_fit_width_passes_ < kMaxWidthFitPasses))
         QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
 }
 
@@ -653,6 +757,19 @@ void DebuggerWindow::create_menus() {
         refresh_panels();
     });
     sync_coverage_action();                  // a backend already recording (--coverage)
+
+    // GH #360: Physical Addresses (A is free in the Debug popup; DACC-05 pins the count).
+    physical_action_ = debug_menu->addAction(tr("Physical &Addresses"));
+    physical_action_->setCheckable(true);
+    physical_action_->setChecked(address_style_ == jnext::dbg::AddressStyle::Physical);
+    connect(physical_action_, &QAction::triggered, this, [this](bool checked) {
+        // The toggle IS a change of the saved setting, written at once (as Attach is).
+        physical_saved_ = checked;
+        QDir().mkpath(jnext_config_dir());
+        QSettings settings(debugger_config_path(), QSettings::IniFormat);
+        settings.setValue(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), checked);
+        set_address_style(checked ? jnext::dbg::AddressStyle::Physical : jnext::dbg::AddressStyle::Friendly);
+    });
 
     // Rewind submenu
     debug_menu->addSeparator();
@@ -914,6 +1031,7 @@ void DebuggerWindow::save_geometry() {
     // GH #417: the saved value, not this run's: a closed window must not write a
     // command-line override into the file.
     settings.setValue(config_key(config_keys::KeyId::DebuggerAttached), attach_saved_);
+    settings.setValue(config_key(config_keys::KeyId::DebuggerPhysicalAddresses), physical_saved_);   // GH #360
 
     // Issue #39: only a DETACHED window owns its position. An attached one
     // derives it from the emulator window, so saving it would pin a stale
@@ -1344,6 +1462,19 @@ void DebuggerWindow::create_panels() {
     connect(source_panel_, &SourcePanel::show_address_requested, disasm_panel_,
             &DisasmPanel::show_address);
 
+    // GH #347 - selection sync, both ways, and the Disassembly menu's Show in Source. The
+    // Disassembly tells the Source tab only of selections the user made; the Source tab tells it
+    // only of cursor moves, and asks it to scroll only for a move the user made there.
+    connect(disasm_panel_, &DisasmPanel::selection_changed, source_panel_, &SourcePanel::set_disasm_selection);
+    connect(source_panel_, &SourcePanel::source_lines_selected, disasm_panel_,
+            [this](const QString& file, int first, int last, bool reveal) {
+                disasm_panel_->set_source_lines(file.toStdString(), first, last, reveal);
+            });
+    connect(disasm_panel_, &DisasmPanel::show_source_requested, this, [this](uint16_t addr) {
+        source_panel_->show_address(addr);
+        tab_widget_->setCurrentWidget(source_panel_);
+    });
+
     mmu_panel_ = new MmuPanel(&dbg_);
 
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
@@ -1531,6 +1662,25 @@ void DebuggerWindow::show_add_exec_bp_dialog() {
 void DebuggerWindow::sync_coverage_action() {
     if (coverage_enable_action_)
         coverage_enable_action_->setChecked(dbg_.mem_coverage_enabled());
+}
+
+void DebuggerWindow::set_address_style(jnext::dbg::AddressStyle style) {
+    address_style_ = style;
+    if (physical_action_) physical_action_->setChecked(style == jnext::dbg::AddressStyle::Physical);
+    apply_address_style();
+    refresh_panels();
+}
+
+// GH #360: one style, held here, handed to every panel that names a memory.
+void DebuggerWindow::apply_address_style() {
+    if (disasm_panel_) disasm_panel_->set_address_style(address_style_);
+    if (memory_panel_) memory_panel_->set_address_style(address_style_);
+    if (mmu_panel_) mmu_panel_->set_address_style(address_style_);
+    if (watch_panel_) watch_panel_->set_address_style(address_style_);
+    if (stack_panel_) stack_panel_->set_address_style(address_style_);
+    if (callstack_panel_) callstack_panel_->set_address_style(address_style_);
+    if (source_panel_) source_panel_->set_address_style(address_style_);
+    if (BreakpointModel* m = breakpoint_model()) m->set_address_style(address_style_);
 }
 
 void DebuggerWindow::refresh_panels() {

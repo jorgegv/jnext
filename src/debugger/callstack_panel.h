@@ -3,6 +3,8 @@
 #include <QWidget>
 #include <QTableWidget>
 
+#include "debug/long_address.h"
+
 class SymbolTable;
 namespace jnext { namespace dbg { class Debugger; } }
 
@@ -17,6 +19,9 @@ public:
 
     void refresh();
     void set_paused(bool paused);
+
+    /// GH #360 - Friendly or Physical in the two memory columns.
+    void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
     void set_symbol_table(const SymbolTable* st) { symbol_table_ = st; }
 
     QSize sizeHint() const override { return QSize(400, 300); }
@@ -27,5 +32,6 @@ private:
     const jnext::dbg::Debugger* dbg_;
     const SymbolTable* symbol_table_ = nullptr;
     bool paused_ = false;
+    jnext::dbg::AddressStyle style_ = jnext::dbg::AddressStyle::Friendly;
     QTableWidget* table_ = nullptr;
 };

@@ -646,7 +646,9 @@ public:
     /// INS-11 — is the instruction at `addr` CALL-like? What CTL-04 asks.
     bool is_call_like(uint16_t addr) const;
 
-    /// INS-11 — a reader over `peek(Cpu)`, so `disasm_text::collect_range()` and
+    /// INS-11 — a reader over `peek(Cpu)`, except that the instruction at the PC
+    /// is read as the CPU will FETCH it (GH #360 F1: at a DivMMC instant entry
+    /// the M1 itself maps DivMMC), so `disasm_text::collect_range()` and
     /// `disasm_text::apply_symbols()` (already published, already Qt-free) can be
     /// driven with no `Emulator*`. Without this the INS-11 promise of
     /// "`disasm_text::*`" is unreachable from a frontend.
@@ -1040,6 +1042,8 @@ public:
         /// Attached, its identity not yet judged: it was loaded with
         /// `verify_at_first_execution` and carries one (see `load_source_map`).
         bool pending = false;
+        /// `dot_only` was given and the map is not a z88dk dot command's (`error` says so).
+        bool not_dot = false;
     };
 
     /// CAP-SRC - load a source map, an sjasmplus SLD file or a z88dk `-debug` map
@@ -1059,8 +1063,18 @@ public:
     /// stays armed for the spaces not run yet. A space that does not match drops the
     /// map (`source_map_status()` is then `None`, with the reason, and the error is
     /// logged). A map with no identity attaches unverified, not pending.
+    ///
+    /// GH #351 - a z88dk dot command's map (`SourceMap::dot()`) is deferred whatever
+    /// `verify_at_first_execution` says (NextZXOS loads the command into DivMMC RAM when it
+    /// is typed), so it attaches pending, unless the CPU is already running the command from
+    /// bank 2 with its bytes in place: a load made there judges like a landing there and is
+    /// verified (`pending` false, `identity_note` says so). It is judged where the command starts ($2000 fetched from
+    /// DivMMC RAM bank 2); an entry that does not match is another dot command and
+    /// keeps it pending, and a landing (reset, state load, rewind) never drops or
+    /// stales it. `dot_only` refuses a map that is not a dot command's (`--source-map`
+    /// without `--load`: there is no program to judge any other map against).
     SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch,
-                                  bool verify_at_first_execution = false);
+                                  bool verify_at_first_execution = false, bool dot_only = false);
 
     /// CAP-SRC — forget the source map.
     Result clear_source_map();
@@ -1084,6 +1098,9 @@ public:
         /// Attached, its identity is judged the first time the CPU runs the code it
         /// describes, space by space (a tape program's map). `state` stays `Attached`.
         bool pending = false;
+        /// The attached map is a z88dk dot command's: `pending` then waits for the
+        /// command to run, not for a program to load.
+        bool dot = false;
     };
     SourceMapStatus source_map_status() const;
 
@@ -1284,6 +1301,15 @@ public:
     /// it too. After `on_cold_boot_begin()` it re-applies that capture; without
     /// one it re-applies the REBUILT machine's own pause state, unowned.
     Result on_cold_boot_done();
+
+    /// GH #428 — a counter that advances on every change a panel could show
+    /// that does not move the master clock: each MUTATE (every write verb),
+    /// a cold boot, and each metadata verb (symbols, source map, subscriptions,
+    /// trace / coverage / rewind settings, attach / detach). Read-only queries
+    /// and pump() leave it alone, and so does a refused verb. A paused
+    /// frontend compares it (with the clock) between ticks to redraw only
+    /// when something changed.
+    uint64_t state_revision() const;
 
 private:
     // ── The ONE thing B1 added to this frozen header ────────────────────────

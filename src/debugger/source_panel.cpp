@@ -1,15 +1,16 @@
 #include "debugger/source_panel.h"
 
 #include "debugger/breakpoint_glyph.h"
-#include "debugger/coverage_colors.h"   // GH #388
 #include "debugger/breakpoint_model.h"
 #include "qt/palette_tint_qt.h"
 #include "debug/debugger.h"
-#include "debug/ram_page.h"
+#include "debugger/memory_text.h"
 #include "debug/source_search.h"
+#include "debug/disasm.h"
 #include "debug/disasm_text.h"
 #include "debug/symbol_table.h"
 #include "debugger/operand_menu.h"
+#include "debugger/source_highlighter.h"
 #include "debugger/watch_panel.h"
 
 #include <QAction>
@@ -45,6 +46,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <set>
 #include <utility>
 
 // GH #421 - the Source tab's editor: the stock read-only text view with a gutter
@@ -58,6 +60,15 @@ int file_line_count(const QTextDocument* doc)
 {
     return doc->blockCount() - (doc->lastBlock().length() <= 1 ? 1 : 0);
 }
+
+// GH #347 - the panel's own cursor moves (a placement, a load) are not the user's: while one of
+// these is alive the editor's cursor signals announce nothing.
+struct SyncScope {
+    bool& flag;
+    bool old;
+    explicit SyncScope(bool& f) : flag(f), old(f) { flag = true; }
+    ~SyncScope() { flag = old; }
+};
 
 class SourceEdit;
 
@@ -143,7 +154,7 @@ public:
     void paint_gutter(QPaintEvent* ev)
     {
         QPainter p(gutter_);
-        const QPalette pal = palette();
+        const QPalette pal = panel_->palette();   // GH #422: the scheme sits on the editor's palette, not here
         p.fillRect(ev->rect(), palette_tint::surface(pal, QColor(255, 255, 255)));
         p.setPen(palette_tint::surface(pal, QColor(200, 200, 200)));
         p.drawLine(kBreakpointColumnWidth, ev->rect().top(), kBreakpointColumnWidth, ev->rect().bottom());
@@ -167,6 +178,10 @@ public:
                 p.drawText(QRect(kBreakpointColumnWidth + 4, int(top),
                                  gutter_->width() - kBreakpointColumnWidth - 4 - 6, int(h)),
                            Qt::AlignRight | Qt::AlignVCenter, QString::number(line));
+                // GH #347 - the PC's line, apart from a selected one: the strip after the numbers.
+                if (line == panel_->highlighted_line())
+                    paint_pc_marker(p, QRect(gutter_->width() - 6, int(top), 5, int(h)),
+                                    palette_tint::ink(pal, pc_marker_light()));
             }
             top += h;
             block = block.next();
@@ -176,7 +191,7 @@ public:
     void paint_header()
     {
         QPainter p(header_);
-        const QPalette pal = palette();
+        const QPalette pal = panel_->palette();
         p.fillRect(header_->rect(), palette_tint::surface(pal, QColor(255, 255, 255)));
         p.setFont(header_font());
         p.setPen(palette_tint::ink(pal, QColor(80, 80, 80)));
@@ -337,6 +352,13 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     locate_btn_->setEnabled(false);
     connect(locate_btn_, &QPushButton::clicked, this, &SourcePanel::locate_file);
     loads->addWidget(locate_btn_);
+    // GH #347 - after the Disassembly led the view away from the PC. The caption is not the
+    // Disassembly's "Go to PC" (the window's buttons are found by caption).
+    goto_pc_btn_ = new QPushButton(tr("Go to PC Line"), this);
+    goto_pc_btn_->setToolTip(tr("Show the line the PC is on again"));
+    goto_pc_btn_->setEnabled(false);
+    connect(goto_pc_btn_, &QPushButton::clicked, this, &SourcePanel::go_to_pc_line);
+    loads->addWidget(goto_pc_btn_);
     loads->addStretch();
     layout->addLayout(loads);
 
@@ -354,6 +376,9 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     mono.setStyleHint(QFont::Monospace);
     editor_->setFont(mono);
     layout->addWidget(editor_, 1);
+    // GH #422 - colours the text by language; a child of the panel, so tests find it.
+    highlighter_ = new SourceHighlighter(this);
+    highlighter_->setDocument(editor_->document());
 
     // GH #423 - the clipboard commands are QActions on the editor, as the
     // Disassembly's are on its widget: the menu shows the chord, and the chord
@@ -374,6 +399,13 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     select_all_action_->setShortcutContext(Qt::WidgetShortcut);
     connect(select_all_action_, &QAction::triggered, this, [this]() { editor_->selectAll(); });
     editor_->addAction(select_all_action_);
+
+    // GH #347 - a cursor or selection move the USER made tells the Disassembly (see emit_lines_()).
+    auto user_move = [this]() {
+        if (!syncing_ && !shown_file_.empty() && dbg_ && dbg_->state().paused) emit_lines_(true);
+    };
+    connect(editor_, &QPlainTextEdit::cursorPositionChanged, this, user_move);
+    connect(editor_, &QPlainTextEdit::selectionChanged, this, user_move);
 
     update_buttons(false);
 }
@@ -433,13 +465,17 @@ void SourcePanel::show_message(const QString& message)
     location_label_->setText(message);
     location_label_->setToolTip(QString());
     shown_file_.clear();
+    place_now_ = false;
     if (!loaded_source_.isEmpty()) {
+        SyncScope sync(syncing_);
+        highlighter_->set_language(SourceLanguage::Plain);
         editor_->clear();
         loaded_source_.clear();
         loaded_mtime_ = -1;
     }
     editor_->setExtraSelections({});
     highlighted_line_ = 0;
+    emit_lines_(false);
 }
 
 void SourcePanel::show_running()
@@ -448,6 +484,10 @@ void SourcePanel::show_running()
     location_label_->setToolTip(QString());
     editor_->setExtraSelections({});
     highlighted_line_ = 0;
+    browse_addr_.reset();     // GH #347: the stop that follows shows the PC
+    place_now_ = false;
+    disasm_range_.reset();
+    emit_lines_(false, /*none=*/true);   // the text stays, but nothing of it is selected now
 }
 
 void SourcePanel::update_buttons(bool paused)
@@ -466,10 +506,84 @@ void SourcePanel::update_buttons(bool paused)
     reverse_btn_->setEnabled(backward);
 }
 
+SourceLanguage SourcePanel::source_language() const { return highlighter_->language(); }
+
+// GH #422 - THE way a text enters the editor: the language is chosen first, so the
+// text is highlighted once, with its own language.
+void SourcePanel::set_source_text(const QString& text, const std::string& file)
+{
+    SyncScope sync(syncing_);   // GH #347: a load puts the cursor at the top; that is nobody's selection
+    highlighter_->set_language(source_language_for(file, text));
+    editor_->setPlainText(text);
+}
+
+// GH #422 stage 2 - the scheme in force: resolved against the PANEL's palette (the
+// application's; never the editor's, which carries the scheme), its class colours go to
+// the highlighter and its background, text and current-line bar to the editor's palette.
+// The gutter and its header read the panel's palette, so no scheme reaches them.
+void SourcePanel::apply_scheme_()
+{
+    highlighter_->apply_palette(palette());   // rehighlights only when a class colour changed
+    const SourceHighlighter::SchemeColours& c = highlighter_->colours_in_force();
+    QPalette p = editor_->palette();
+    if (p.color(QPalette::Base) == c.background && p.color(QPalette::Text) == c.text &&
+        p.color(QPalette::Highlight) == c.pc_background && p.color(QPalette::HighlightedText) == c.pc_text)
+        return;
+    for (auto g : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
+        p.setColor(g, QPalette::Base, c.background);
+        p.setColor(g, QPalette::Text, c.text);
+        p.setColor(g, QPalette::Highlight, c.pc_background);
+        p.setColor(g, QPalette::HighlightedText, c.pc_text);
+    }
+    editor_->setPalette(p);
+}
+
+void SourcePanel::set_colour_scheme(SourceScheme scheme)
+{
+    highlighter_->set_scheme(scheme);
+    apply_scheme_();   // at once: a Preferences Apply does not wait for a paused tick
+    // GH #428: the tint and the bar are selections built by refresh_(); a paused tick redraws only
+    // when the machine moved, so a scheme change repaints them here instead of waiting for one.
+    if (dbg_) refresh_();
+}
+
+bool SourcePanel::file_changed_on_disk() const
+{
+    if (loaded_source_.isEmpty()) return false;
+    return QFileInfo(loaded_source_).lastModified().toMSecsSinceEpoch() != loaded_mtime_;
+}
+
+void SourcePanel::follow_pc()
+{
+    placed_ = false;
+    browse_addr_.reset();
+    if (dbg_) refresh();
+}
+
 void SourcePanel::refresh()
 {
+    apply_scheme_();
     refresh_();
+    goto_pc_btn_->setEnabled(browse_addr_.has_value());
     update_gutter();   // the marks follow the memory mapped now
+}
+
+// GH #347 (OD-7) - the other places the toolchain attributes `address` to, after the
+// primary one the label names: "  also: f:l, f:l" in lookup_all() order, without the
+// primary's own file:line (a column-only difference) or a repeat.
+QString SourcePanel::also_text(uint16_t address) const
+{
+    const auto all = dbg_->source_map().lookup_all(dbg_->source_page(address), address);
+    std::vector<std::pair<std::string, int>> seen;
+    QStringList others;
+    for (size_t i = 0; i < all.size(); ++i) {
+        const auto key = std::make_pair(all[i]->file, all[i]->line);
+        if (i == 0) { seen.push_back(key); continue; }
+        if (std::find(seen.begin(), seen.end(), key) != seen.end()) continue;
+        seen.push_back(key);
+        others << QStringLiteral("%1:%2").arg(QString::fromStdString(key.first)).arg(key.second);
+    }
+    return others.isEmpty() ? QString() : tr("  also: %1").arg(others.join(QStringLiteral(", ")));
 }
 
 void SourcePanel::refresh_()
@@ -485,6 +599,7 @@ void SourcePanel::refresh_()
 
     const auto status = dbg_->source_map_status();
     if (status.state == jnext::dbg::Debugger::SourceMapStatus::State::Stale) {
+        browse_addr_.reset();   // GH #347: the map is gone
         show_message(tr("Source map '%1' does not match the program in memory: %2. "
                         "Load it again to use it.")
                          .arg(QString::fromStdString(status.file),
@@ -492,6 +607,7 @@ void SourcePanel::refresh_()
         return;
     }
     if (status.state == jnext::dbg::Debugger::SourceMapStatus::State::None) {
+        browse_addr_.reset();   // GH #347: the map is gone
         show_message(status.reason.empty()
                          ? tr("No source map loaded")
                          : tr("No source map loaded: %1")
@@ -501,17 +617,33 @@ void SourcePanel::refresh_()
 
     // GH #344 stage 3 - a tape program's map is attached and works, but its identity is
     // judged where the program first runs its code: say so until it is.
+    // GH #351 - a dot command's is judged when the command starts.
     const QString note = status.pending
-        ? tr("\nSource map not verified yet: it is checked when the program first runs its code")
+        ? (status.dot ? tr("\nSource map not verified yet: it is checked when the dot command runs")
+                      : tr("\nSource map not verified yet: it is checked when the program first runs its code"))
         : QString();
 
     const uint16_t pc = dbg_->registers().PC;
-    const uint8_t page = ram_page_of(dbg_->source_page(pc));
+    const SourceLocation* const pc_loc = dbg_->source_location(pc);
+    // GH #347 - the label and the view describe the address the Disassembly led to while
+    // browsing, else the PC's. A browse ends with its map, or when its address has no line now.
+    if (browse_addr_ && dbg_->source_map().loaded_file() != browse_map_) browse_addr_.reset();
+    const SourceLocation* location = pc_loc;
+    uint16_t addr = pc;
+    if (browse_addr_) {
+        if (const SourceLocation* b = dbg_->source_location(*browse_addr_)) {
+            location = b;
+            addr = *browse_addr_;
+        } else {
+            browse_addr_.reset();
+        }
+    }
+    const bool browsing = browse_addr_.has_value();
     // Upper-case hex, as the rest of the debugger and the user guide print it.
-    const QString pc_text = QString::asprintf("%04X", pc);
-    const QString where = page == NOT_RAM_PAGE ? tr("ROM or overlay")
-                                               : tr("page %1").arg(QString::asprintf("%02X", page));
-    const SourceLocation* location = dbg_->source_location(pc);
+    const QString pc_text = QString::asprintf("%04X", addr);
+    // GH #360 - the memory that supplies the opcode at that address, through the formatter
+    // (`P04`, `DIVROM`, or the physical text), not "ROM or overlay".
+    const QString where = memtext::text(dbg_, style_, dbg_->source_page(addr), addr);
     if (!location) {
         show_message(tr("$%1 (%2): no source mapping; use the disassembly")
                          .arg(pc_text).arg(where) + note);
@@ -532,7 +664,7 @@ void SourcePanel::refresh_()
             QStringList lines;
             lines.reserve(static_cast<int>(embedded->lines.size()));
             for (const std::string& l : embedded->lines) lines << QString::fromUtf8(l.c_str());
-            editor_->setPlainText(lines.join(QLatin1Char('\n')));
+            set_source_text(lines.join(QLatin1Char('\n')), location->file);
             loaded_source_ = source_path;
             loaded_mtime_ = -1;
             placed_ = false;
@@ -564,7 +696,7 @@ void SourcePanel::refresh_()
                 show_message(tr("Could not open %1").arg(source_path));
                 return;
             }
-            editor_->setPlainText(QString::fromUtf8(file.readAll()));
+            set_source_text(QString::fromUtf8(file.readAll()), location->file);
             loaded_source_ = source_path;
             loaded_mtime_ = mtime;
             placed_ = false;   // a new text, or another file, starts at its top
@@ -584,6 +716,12 @@ void SourcePanel::refresh_()
         highlighted_line_ = 0;
         return;
     }
+    QString browse_text;
+    if (browsing)
+        browse_text = pc_loc ? tr("  (browsing; the PC is at %1:%2, $%3)")
+                                   .arg(QString::fromStdString(pc_loc->file)).arg(pc_loc->line)
+                                   .arg(QString::asprintf("%04X", pc))
+                             : tr("  (browsing; the PC is in no source line)");
     location_label_->setText(
         (embedded ? tr("%1:%2  $%3  %4 (m4 output, from %5)")
                         .arg(QString::fromStdString(location->file))
@@ -595,7 +733,7 @@ void SourcePanel::refresh_()
                         .arg(QString::fromStdString(location->file))
                         .arg(location->line)
                         .arg(pc_text)
-                        .arg(where)) + note);
+                        .arg(where)) + also_text(addr) + browse_text + note);
     const QTextBlock block = editor_->document()->findBlockByNumber(location->line - 1);
     if (!block.isValid()) {
         editor_->setExtraSelections({});
@@ -610,7 +748,7 @@ void SourcePanel::refresh_()
     // appended LAST so it wins on its own line.
     QList<QTextEdit::ExtraSelection> selections;
     if (dbg_->mem_coverage_enabled()) {
-        const QColor tint = coverage_colors::exec_line(editor_->palette());
+        const QColor tint = highlighter_->colours_in_force().coverage_line;   // the scheme's (GH #422)
         for (const uint32_t line : dbg_->executed_source_lines(location->file)) {
             const QTextBlock b = doc->findBlockByNumber(static_cast<int>(line) - 1);
             if (line == 0 || !b.isValid()) continue;
@@ -623,25 +761,132 @@ void SourcePanel::refresh_()
         }
     }
 
-    QTextEdit::ExtraSelection selection;
-    selection.cursor = QTextCursor(block);
-    selection.cursor.clearSelection();
-    selection.format.setBackground(editor_->palette().highlight());
-    selection.format.setForeground(editor_->palette().highlightedText());
-    selection.format.setProperty(QTextFormat::FullWidthSelection, true);
-    selections.append(selection);
+    // GH #347 - the lines of the Disassembly's selection, then the PC's line LAST so it wins on
+    // its own: the PC's own line is the highlighted one only when the file shown is the PC's.
+    if (disasm_range_) {
+        const QColor linked = highlighter_->colours_in_force().linked_line;   // the scheme's
+        for (const int line : linked_lines_(location->file)) {
+            const QTextBlock b = doc->findBlockByNumber(line - 1);
+            if (line < 1 || line > file_lines || !b.isValid()) continue;
+            QTextEdit::ExtraSelection t;
+            t.cursor = QTextCursor(b);
+            t.cursor.clearSelection();
+            t.format.setBackground(linked);
+            t.format.setProperty(QTextFormat::FullWidthSelection, true);
+            selections.append(t);
+        }
+    }
+    int pc_line = 0;
+    if (pc_loc && pc_loc->file == location->file && pc_loc->line >= 1 && pc_loc->line <= file_lines &&
+        doc->findBlockByNumber(pc_loc->line - 1).isValid()) {
+        pc_line = pc_loc->line;
+        QTextEdit::ExtraSelection selection;
+        selection.cursor = QTextCursor(doc->findBlockByNumber(pc_line - 1));
+        selection.cursor.clearSelection();
+        selection.format.setBackground(editor_->palette().highlight());
+        selection.format.setForeground(editor_->palette().highlightedText());
+        selection.format.setProperty(QTextFormat::FullWidthSelection, true);
+        selections.append(selection);
+    }
     editor_->setExtraSelections(selections);
     // Placed only when something moved. This runs on every tick while paused,
     // and centring again each time would snap the view back to the line
     // whenever the user scrolled away from it.
-    if (!placed_ || location->line != placed_line_ || pc != placed_pc_) {
-        editor_->setTextCursor(selection.cursor);
-        editor_->centerCursor();
+    if (!placed_ || place_now_ || location->line != placed_line_ || addr != placed_pc_) {
+        place_now_ = false;
+        QTextCursor at(block);
+        at.clearSelection();
+        {
+            SyncScope sync(syncing_);
+            // A browse (GH #347) centres only a line out of view: the user is looking at the text.
+            const bool fresh = !placed_;
+            const bool in_view = editor_->viewport()->rect().contains(editor_->cursorRect(at));   // before the cursor scrolls it in
+            editor_->setTextCursor(at);
+            if (fresh || !browsing || !in_view) editor_->centerCursor();
+        }
         placed_ = true;
         placed_line_ = location->line;
-        placed_pc_ = pc;
+        placed_pc_ = addr;
     }
-    highlighted_line_ = location->line;
+    highlighted_line_ = pc_line;
+    emit_lines_(false);   // a stop put the cursor on the PC's line: the Disassembly tints it
+}
+
+// GH #347 - the Disassembly's selection leads the view.
+void SourcePanel::set_disasm_selection(uint16_t lo, uint16_t hi, uint16_t caret)
+{
+    if (!dbg_ || !dbg_->state().paused || dbg_->source_map().empty()) return;
+    disasm_range_ = DisasmRange{lo, hi, caret};
+    if (const SourceLocation* loc = dbg_->source_location(caret)) {
+        const SourceLocation* pc_loc = dbg_->source_location();
+        if (pc_loc && pc_loc->file == loc->file && pc_loc->line == loc->line) {
+            browse_addr_.reset();   // the PC's own statement
+        } else {
+            browse_addr_ = caret;
+            browse_map_ = dbg_->source_map().loaded_file();
+        }
+        place_now_ = true;   // the cursor goes to the caret's line, whatever it was on
+        refresh();
+    } else {
+        refresh();   // only the tint follows the range
+    }
+}
+
+void SourcePanel::show_address(uint16_t addr)
+{
+    placed_ = false;   // centred, even when the view is on the line already
+    set_disasm_selection(addr, addr, addr);
+}
+
+void SourcePanel::go_to_pc_line()
+{
+    browse_addr_.reset();
+    placed_ = false;
+    refresh();
+}
+
+void SourcePanel::selected_blocks_(QTextBlock& first, QTextBlock& last) const
+{
+    const QTextCursor cur = editor_->textCursor();
+    const QTextDocument* doc = editor_->document();
+    first = doc->findBlock(cur.selectionStart());
+    last = doc->findBlock(cur.selectionEnd());
+    // A selection that ends at the very start of a block (a line selected through
+    // its newline) does not take that block.
+    if (last.position() == cur.selectionEnd() && last != first) last = last.previous();
+}
+
+void SourcePanel::emit_lines_(bool reveal, bool none)
+{
+    QString file;
+    int first_line = 0, last_line = 0;
+    const int lines = file_line_count(editor_->document());
+    if (!none && !shown_file_.empty() && lines > 0) {
+        QTextBlock first, last;
+        selected_blocks_(first, last);
+        first_line = std::min(first.blockNumber() + 1, lines);
+        last_line = std::min(last.blockNumber() + 1, lines);
+        file = QString::fromStdString(shown_file_);
+    }
+    if (file == lines_file_ && first_line == lines_first_ && last_line == lines_last_) return;
+    lines_file_ = file;
+    lines_first_ = first_line;
+    lines_last_ = last_line;
+    emit source_lines_selected(file, first_line, last_line, reveal && !file.isEmpty());
+}
+
+std::vector<int> SourcePanel::linked_lines_(const std::string& file) const
+{
+    std::set<int> lines;
+    if (!disasm_range_ || !dbg_) return {};
+    const DisasmReadFn read = dbg_->memory_reader();   // a peek
+    for (uint32_t a = disasm_range_->lo; a <= disasm_range_->hi;) {
+        const uint16_t addr = static_cast<uint16_t>(a);
+        for (const SourceLocation* l : dbg_->source_map().lookup_all(dbg_->source_page(addr), addr))
+            if (l->file == file) lines.insert(l->line);
+        a += static_cast<uint32_t>(std::max(1, instruction_length(addr, read)));
+    }
+    return std::vector<int>(lines.begin(), lines.end());
 }
 
 // ── GH #421: the gutter ──────────────────────────────────────────────────
@@ -737,9 +982,9 @@ QString SourcePanel::line_tooltip(int line) const
     const LineState st = line_state(line);
     if (st.file.empty()) return QString();
     const QString where = QString::fromStdString(st.file) + QLatin1Char(':') + QString::number(line);
-    auto list = [](const std::vector<BreakpointModel::PcBreakpoint>& v) {
+    auto list = [this](const std::vector<BreakpointModel::PcBreakpoint>& v) {
         QStringList parts;
-        for (const auto& m : v) parts << BreakpointModel::address_text(m.addr, m.space);
+        for (const auto& m : v) parts << BreakpointModel::address_text(m.addr, m.space, style_, memtext::next_layout(dbg_));
         return parts.join(QStringLiteral(", "));
     };
     const LineMark mark = line_mark(line);
@@ -759,7 +1004,8 @@ QString SourcePanel::line_tooltip(int line) const
     if (st.placed.empty())
         return where + QStringLiteral(": ") +
                tr("code at %1, not mapped now; click to set")
-                   .arg(BreakpointModel::address_text(st.starts[0].address, st.starts[0].space));
+                   .arg(BreakpointModel::address_text(st.starts[0].address, st.starts[0].space, style_,
+                                                 memtext::next_layout(dbg_)));
     return where + QStringLiteral(": ") + tr("no breakpoint; click to set");
 }
 
@@ -814,11 +1060,8 @@ QString SourcePanel::selection_text_with_addresses() const
     const QTextCursor cur = editor_->textCursor();
     if (!cur.hasSelection() || shown_file_.empty()) return QString();
     const QTextDocument* doc = editor_->document();
-    const QTextBlock first = doc->findBlock(cur.selectionStart());
-    QTextBlock last = doc->findBlock(cur.selectionEnd());
-    // A selection that ends at the very start of a block (a line selected through
-    // its newline) does not take that block.
-    if (last.position() == cur.selectionEnd() && last != first) last = last.previous();
+    QTextBlock first, last;
+    selected_blocks_(first, last);
     const int lines = file_line_count(doc);
     QString out;
     for (QTextBlock b = first; b.isValid() && b.blockNumber() <= last.blockNumber(); b = b.next()) {
@@ -826,7 +1069,7 @@ QString SourcePanel::selection_text_with_addresses() const
         if (line > lines) break;
         QStringList places;
         for (const SourceAddress& s : line_state(line).starts)
-            places << BreakpointModel::address_text(s.address, s.space);
+            places << BreakpointModel::address_text(s.address, s.space, style_, memtext::next_layout(dbg_));
         out += QString::fromStdString(shown_file_) + QLatin1Char(':') + QString::number(line) +
                QStringLiteral("  ") + (places.isEmpty() ? QStringLiteral("-") : places.join(QStringLiteral(", "))) +
                QStringLiteral("  ") + b.text() + QLatin1Char('\n');
@@ -929,7 +1172,9 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
     connect(run_to, &QAction::triggered, this, [this, where]() { emit run_to_line_requested(where); });
 
     menu.addSeparator();
-    auto place_text = [](const SourceAddress& s) { return BreakpointModel::address_text(s.address, s.space); };
+    auto place_text = [this](const SourceAddress& s) {
+        return BreakpointModel::address_text(s.address, s.space, style_, memtext::next_layout(dbg_));
+    };
     auto mapped = [this](const SourceAddress& s) { return dbg_->source_page(s.address) == s.space; };
     if (st.starts.size() > 1) {
         QMenu* sub = menu.addMenu(tr("Show in Disassembly"));

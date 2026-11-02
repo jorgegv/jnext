@@ -459,6 +459,7 @@ int main(int argc, char* argv[]) {
     std::vector<config_keys::Assignment> qt_assignments;        // the keys only the Qt window has
     std::vector<std::pair<std::string, std::string>> debug_key_assignments;   // debugger_keys.ID=COMBO
     std::optional<bool> debugger_attached_opt;                  // debugger.attached
+    std::optional<bool> debugger_physical_opt;                  // debugger.physical_addresses
     std::optional<std::string> source_dirs_text;                // paths.source_dirs / --source-dir (GH #420)
     // How each key was spelled on the command line, for the "has no effect" warnings.
     std::vector<std::pair<config_keys::KeyId, std::string>> given_as;
@@ -512,6 +513,7 @@ int main(int argc, char* argv[]) {
         case KeyId::PathsScreenshotDir:
         case KeyId::ScreenshotQuickDir:
         case KeyId::ScreenshotQuickFormat:
+        case KeyId::SourceColourScheme:
             qt_assignments.push_back(a);   // merged into the Qt session's copy (merge_cli_assignments)
             break;
         case KeyId::StartupSilent:
@@ -591,6 +593,9 @@ int main(int argc, char* argv[]) {
         case KeyId::NextpiQemuArgs:   nextpi_cli.qemu_args = t; break;
         case KeyId::DebuggerAttached:
             debugger_attached_opt = on;
+            break;
+        case KeyId::DebuggerPhysicalAddresses:
+            debugger_physical_opt = on;
             break;
         // Not settings (parse_assignment refuses them before they get here):
         // history, derived names, the file format version, remembered geometry.
@@ -1564,8 +1569,6 @@ int main(int argc, char* argv[]) {
               "--delayed-pok-frames N FILE" },
             { pok_frames_count > 0,         "--delayed-pok-frames",        pok_trainers_count > 0,
               "--pok-trainers LIST" },
-            { !source_map_file.empty(),     "--source-map",                !load_file.empty(),
-              "--load FILE" },
         };
         for (const Needs& n : needs) {
             if (n.given && !n.base) {
@@ -2166,6 +2169,18 @@ int main(int argc, char* argv[]) {
         cfg.script_keys  = script_keys;
         cfg.map_file     = map_file;
         cfg.source_map_file = source_map_file;
+        // GH #351: with no program to load (no --load, or an RZX replay: --rzx-play R or
+        // --load R.rzx) only a z88dk dot command's map is accepted; the frontend attaches it
+        // at start-up, pending, and refuses any other map.
+        {
+            std::string ext;
+            if (const auto dot = load_file.rfind('.'); dot != std::string::npos) {
+                ext = load_file.substr(dot);
+                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            const bool rzx = !rzx_play_file.empty() || ext == ".rzx";
+            cfg.source_map_no_program = source_map_file.empty() ? 0 : rzx ? 2 : load_file.empty() ? 1 : 0;
+        }
         cfg.record_script_file = record_script_file;   // GH #26 WP6
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;
@@ -2546,6 +2561,7 @@ int main(int argc, char* argv[]) {
                 if (session_debug_keys_given) mw->set_session_debug_keys(session_debug_keys);
 #ifdef ENABLE_DEBUGGER
                 if (debugger_attached_opt) mw->set_debugger_attach_override(*debugger_attached_opt);
+                if (debugger_physical_opt) mw->set_debugger_physical_override(*debugger_physical_opt);
 #endif
             }
         }

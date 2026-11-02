@@ -110,6 +110,12 @@ the machine by hand.
 
 ## What to expect
 
+- **`get-memory-pages` names what each slot reads now**, in ZEsarUX's spelling: `O<n>`
+  for a ROM page (`O0` and `O1` are ROM 0's two halves), `A<n>` for a RAM page, `SR<n>`
+  in config mode, `RO` for the boot ROM, and `DIV` while the DivMMC is paged in over
+  the slot. The Multiface, Layer 2 and the alternate ROM have no ZEsarUX spelling, so
+  their slot shows the page or ROM it covers. The `MMU=` field of `get-registers`
+  is unchanged.
 - **Connecting does not stop the machine**; `enter-cpu-step` does. Leaving
   (or `quit`) resumes it if the stop was the client's own and nothing else is
   attached; with JNEXT's debugger window open, or another remote debugger

@@ -8129,6 +8129,36 @@ static int test_rewind_setting_survives_load()
     return 0;
 }
 
+// ── GH #428: a rewind's re-render advances the framebuffer generation ─────
+//
+// Oracle: the GH #428 plan, section 2.1. The display uploads the framebuffer
+// only when Emulator::framebuffer_generation() changed; a rewind writes the
+// framebuffer with no frame running, so it has to advance it, or a paused
+// frontend would keep showing the pre-rewind picture.
+static void test_gh428_rewind_advances_fb_generation()
+{
+    printf("\n--- GH #428: rewind re-renders advance framebuffer_generation() ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 20);
+    for (int i = 0; i < 5; ++i) emu.run_frame();
+    auto* rb = emu.rewind_buffer();
+    if (!require("FBG-PRE-05", rb != nullptr, "rewind buffer exists")) return;
+
+    const uint64_t g_before_frame = emu.framebuffer_generation();
+    const bool ok_frame = emu.rewind_to_frame(rb->oldest_frame_num() + 1);
+    check("FBG-05", ok_frame && emu.framebuffer_generation() > g_before_frame,
+          "rewind_to_frame() re-renders the framebuffer and advances the generation");
+
+    emu.debug_state().resume();
+    for (int i = 0; i < 3; ++i) emu.run_frame();
+    rb = emu.rewind_buffer();
+    const uint64_t g_before_cycle = emu.framebuffer_generation();
+    const uint64_t reached = emu.rewind_to_cycle(rb->newest_frame_cycle());
+    check("FBG-06", reached != UINT64_MAX && emu.framebuffer_generation() > g_before_cycle,
+          "rewind_to_cycle() re-renders the framebuffer and advances the generation");
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -8161,6 +8191,7 @@ int main()
     test_gh401_tape_path();
     test_gh402_tape_reattach();
     test_rewind_setting_survives_load();
+    test_gh428_rewind_advances_fb_generation();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

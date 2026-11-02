@@ -370,7 +370,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
 | Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The breakpoint gate, the Breakpoints panel and the disassembly gutter use the `FetchSource` itself (E23-09 (#341)); only the Source tab's display string still reduces it to a RAM page through `ram_page_of()` (`debug/ram_page.h`), which is E23-22's | 4.1, 4.2, 4.4 | E23-07 (#339) |
-| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=kind:index` | 4.3 | E23-08 (#340) |
+| Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=<tag>` (E23-22, 4.6) | 4.3 | E23-08 (#340) |
 | Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
 | Breakpoint qualifier | DONE (E23-09 (#341)): `EventFilter::space` (a `FetchSource`, compared exactly with `Event::space`) is the canonical qualifier, `EventFilter::page` stays as the legacy protocol one; ONE predicate, `EventFilter::matches(ev)`, called by `EventTable::filter_matches()`, `Debugger::probe_execute()` and `history_stop_at()`; source breakpoints are groups (`subscribe_source_line()`, `unsubscribe_group()`, `set_group_enabled()`, `SubscriptionInfo::group`) | 4.5, 8.1 | E23-09 (#341) |
@@ -380,11 +380,11 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
-| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); no location list or selection sync | 8.2 | E23-16 (#347) |
+| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); syntax highlighting done in E23-29 (#422); the amber current-line wedge and the "also:" list done in E23-16 (#347) stage 1; selection sync both ways, browsing, Show in Source and Go to PC Line done in E23-16 (#347) stage 2 | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line, a symbol unknown at start or a load-bound symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
-| The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
+| The identity in every view; remote vocabularies | DONE (E23-22 (#360)): `debug/long_address.h` (`space_tag()`, `parse_space_tag()`, `physical_text()`, `long_address()`), `SlotInfo::now`, `memory_reader()` reads the PC instruction as the CPU fetches it, the trace export prints `FETCH=<tag>`; GDB `monitor mmu` / `monitor sym`, DZRP slot bytes and ZRCP `get-memory-pages` (4.6); the Qt views name the memory in the Disassembly, Memory, MMU, Stack, Watches, Call Stack, Breakpoints and Source tab, with a physical style (4.6) | 4.6 | E23-22 (#360) |
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
-| Dot commands | none | 9.4 | E23-21 (#351) |
+| Dot commands | DONE (E23-21 (#351)): rule 5, `peek(DivMmcRam)`, a map judged at the command's entry, `--source-map` without `--load` | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
 | Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
 | skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
@@ -429,8 +429,10 @@ the index each carries:
 | `Floating` (11) | 0 | nothing: the read returns the floating bus (jnext: 0xFF) |
 
 The kinds 3 to 11 are identity-only: `peek` and `poke` refuse them with `Result::Unsupported`
-(one total switch, so `-Werror=switch` makes a future kind a compile error there); E23-21
-(#351) adds `peek(DivMmcRam)` with its own rows. Every route result has `kind <= 15` and
+(one total switch, so `-Werror=switch` makes a future kind a compile error there), except that
+E23-21 (#351) made `peek(DivMmcRam{b})` read bank b (`InvalidPage` above 15, a short read at the
+end of the 8K bank is `RefusedUnavailable` with the count, INS-02-31/32); `poke(DivMmcRam)` is
+still refused. Every route result has `kind <= 15` and
 `index <= 0xFF` (mmu_integration_test FSRC-09 and static_asserts), which leaves room for the 12-bit packing
 that E23-08 needs.
 
@@ -526,8 +528,8 @@ interrupted PC: the interrupted instruction has not been fetched, and will be on
 return. The per-instruction prediction of the post-instruction PC is gone.
 
 Back and Reverse Continue look the source map up with the entry's recorded identity, and the
-trace export prints it as ` FETCH=kk:ii` (hex kind and index) after `ROM=`; E23-22 (#360)
-replaces that column's text with its formatter. ZRCP `cpu-history` and DZRP history are not
+trace export prints it as ` FETCH=<tag>` after `ROM=` (E23-22 (#360): `space_tag()` of the
+recorded identity, 4.6; it was `kk:ii`, hex kind and index). ZRCP `cpu-history` and DZRP history are not
 affected.
 
 ### 4.4 The current-PC prediction (E23-07 (#339))
@@ -625,6 +627,45 @@ split at the last `:`; skoolkit file names). E23-22 fixes them. The list on #360
 `ROM0` to `ROM3`, `ALTROM0`, `ALTROM1`, `DIVROM`, `DIVRAM3`, `MFROM`, `MFRAM`, `BOOT`, `L2P12`,
 `CFG` plus the page) is provisional until E23-08 has landed; E23-07 fixed the kinds and indices
 (4.1).
+
+As built (E23-22 stage 1, `debug/long_address.{h,cpp}`): `Page{n}` `P%02X`, `Rom{i}` `ROM%u`,
+`BootRom` `BOOT`, `MultifaceRom` `MFROM`, `MultifaceRam` `MFRAM`, `DivMmcRom` `DIVROM`,
+`DivMmcRam{b}` `DIVRAM%u` (decimal, 0 to 15), `AltRom{i}` `ALTROM%u`, `Layer2{p}` `L2P%02X`,
+`Config{b}` `CFG%02X`, `Floating` `FLOAT`, `Cpu` `CPU`. The parser is case-insensitive, strict
+about digits (no leading zero on a decimal index, a page is 0 to 0xDF, a ROM 0 to 3). The physical
+form is `$` plus six hex digits of the SRAM address (`Page{n}` is SRAM page `n + 0x20`), or
+`BRAM5+$XXXX` (pages 0x0A/0x0B), `BRAM7+$XXXX` (page 0x0E), `BOOT+$XXXX`; page 0x0F (the upper
+half of bank 7) is SRAM, and Layer 2 always shows the SRAM copy. A non-Next machine shows the
+friendly form in either style. The trace export prints the tag whatever the GUI style (an export
+must not depend on a view setting).
+
+A slot 2 to 7 holding NR 0x50+ >= 0xE0 reads nothing (zxnext.vhd:3061): its `SlotInfo::now` is
+`Floating` (`FLOAT`), but its own `SlotInfo::space` is `Page{0xE5}`, which `space_tag()` would spell
+`PE5`, a tag the parser refuses. Decision (E23-22 stage 2): a view names a slot by `now`; no
+protocol output tags `space`; a view that must show the slot's own source (the Memory panel's Slot
+view, stage 3) shows `FLOAT` for a `Page` index >= 0xE0, never `PE5`. `parse_space_tag()` keeps
+refusing pages >= 0xE0.
+
+As built, remote (stage 2): GDB `monitor mmu` ends each slot line with `space_tag(now)` and, on the
+Next, the physical text of the slot's first byte (`slot 0: page FF (effective 00) ROM  DIVROM
+$010000`; the tag alone on other machines); `monitor sym ADDR` is `$C004 P14 = banked+4` (the tag of
+the memory the lookup used) and `monitor sym NAME` is `banked = $C000 P14` for a paged label.
+DZRP sends 0xFF for every ROM slot in `CMD_GET_REGISTERS` (a floating slot and an overlay keep the
+NR value). ZRCP `get-memory-pages` is named from `now`: `RO`, `O<2*image+half>`, `A<page>`,
+`SR<NR 0x04>`, `DIV` (also over a RAM-mapped slot; segment 0 on the legacy machines); overlays with no
+ZEsarUX spelling print the slot's own mapping; `MMU=` is unchanged. ZRCP `cpu-step-over` reads the
+opcode at the PC as the CPU fetches it.
+
+As built, Qt (stage 3): one `AddressStyle` held by `DebuggerWindow` (Debug > Physical Addresses,
+`debugger.physical_addresses`, `--set` as a run override) and handed to every panel. The line at
+`PC` and the Source tab show the fetch prediction; the other Disassembly lines, the MMU panel, the
+Memory panel's CPU view, Watches and Stack show `SlotInfo::now`; the Memory panel's Slot and Page
+views show the space shown (`FLOAT` for a page index >= 0xE0); the Call Stack and the Breakpoints
+list show the recorded identity (an unrecorded call target: the prediction). Layout: a qualifier
+already printed is replaced in place (Breakpoints, Source tab, the Memory selector); otherwise a
+column is added (Disassembly **Mem**, MMU **Memory**, Watches and Stack **Memory**, Call Stack
+**Caller memory** and **Target memory**) and the Memory panel's tag follows its ASCII item. Another
+client's legacy page qualifier keeps `@NN`.
 
 **Remote protocols** (owner decision on #360, 2026-10-18). Each carries as much of the identity
 as its existing vocabulary allows, and none is extended: no new commands, codes or fields on a
@@ -834,6 +875,25 @@ bind at the attach with the same function as its source records (E23-23 (#375) s
 D17): they are live while the check is pending, and a deferred mismatch in any space drops them
 with the map. The user's map (`--map`, Load MAP) is bound again at the tape load call.
 
+**Dot commands (E23-21 (#351)).** A z88dk dot command's map (9.4 rule 5) is not a tape's, but it
+shares the pending machinery: the guest loads the command into DivMMC RAM bank 2 when the user
+types it, after any number of resets, and every dot command shares that bank. So a dot map with
+an identity is deferred whatever the caller passes for `verify_at_first_execution` (the hand load,
+`--source-map`, with or without `--load`, or with an RZX replay), so it attaches pending and its log line ends
+`(identity check pending: the dot command loads when it runs)`; the one exception is a hand load made while
+the CPU is already running the command from bank 2 with its bytes in place, which judges like a landing there
+(6.5(3)) and is verified. The DivMMC unit is judged at the command's ENTRY,
+when the CPU is about to execute $2000 fetched from `DivMmcRam{2}`, with the bytes about to run,
+not at the first run of a span. A match verifies it (`Verified ... the dot command in DivMMC RAM
+bank 2 matches its binary identity`) and arms the other units (a dotx's main part, `Page{4}`) for
+the tape rule: judged at their first execution, a mismatch drops the map, since the same run's
+dot matched. A mismatch at the entry means another dot command is in the shared bank: nothing is
+dropped, the map stays (or goes back to) pending, and one Info line says so (`The dot command
+started in DivMMC RAM bank 2 is not the one source map '...' describes; it stays pending`), not
+repeated while it stays pending. A later mismatching entry puts a verified map back to pending.
+The check is never finished while the map is attached. The Source tab says `Source map not
+verified yet: it is checked when the dot command runs`.
+
 ### 6.3 Ownership
 
 Each store is the user's (a map loaded by hand, `--map`, and `--source-map` by the same rule),
@@ -866,6 +926,25 @@ Two tiers. (The clock-based model, `sidecar_attach_cycle`, is gone.)
    is kept, marked **stale** and matching nothing, and the Source tab says why, so the user can
    reload it or accept it. A map with no identity is detached on a generation change (sidecar)
    or marked stale (user).
+
+3. **Dot commands (E23-21 (#351)).** A landing never drops or stales a dot map (6.2): a reset puts
+   the CPU elsewhere and NextZXOS's own boot resets the machine long before the user types the
+   command. A FRESH landing (reset, state load, program load, cold boot) leaves the map pending until the next entry
+   (its earlier records are kept). A RING landing reads back what the original run
+   showed at that instant: the check records its state (entry verdict, units still to judge) with
+   the clock cycle and load generation at each change, and a landing to cycle T takes the last
+   record of that generation strictly before T (a verdict at C applies to the instruction about to
+   run at C, which a landing at C has not run), else pending. So a rewind into a dotx's main part, or
+   into a plain dot's code outside bank 2, shows the map verified, as it was, and one to before
+   the entry shows it pending. A hand load of a dot map made while the CPU is already running
+   inside the command (paused in bank 2 with the bytes matching) judges like a landing at that
+   point: verified. Every entry judgement in bank 2, matching or foreign, is recorded, and a record erases those at or after
+   its cycle, so a re-run that enters the bank replaces what the first run recorded from there on. The records of
+   earlier generations are kept (a rewind back across a reset reads them; the ring cannot rewind across a state load, and SRCLIFE-08 refuses Back across one; the generation key is for the state load, which restores an earlier clock, so a new run's cycles can fall below the old run's records); the cap of 256 covers all
+   generations together, the oldest going first, and a landing older than the oldest record reads pending. The
+   limit that remains: a re-run that makes no entry judgement in bank 2 and judges no unit leaves the abandoned
+   run's later records in place, so a rewind to a cycle past the divergence reads the abandoned run's state until
+   a later judgement replaces it.
 
 How it is built:
 
@@ -930,6 +1009,11 @@ writes inside its own image; SRCLIFE-20 pins it). A sibling NEX run under
 `--esxdos-stub` (`.RUN`) is a load like any other: the loop owner cold-boots with it, which
 drops the old sidecars, and attaches the new program's.
 
+The one thing the backend cannot see about a DOT command is which command is in the shared DivMMC
+bank 2. A source breakpoint on a dot map's lines is a subscription on `DivMmcRam{2}` (8.1), so it
+also stops another dot command that runs code at that address; the map then reports itself pending
+again (6.2), which is the visible sign. Not gated (E23-21 (#351), 351-D9).
+
 ### 6.7 Remote load and Reload
 
 `Debugger::load()` (the DZRP and ZRCP servers; File > Reload program, #374, is planned as a
@@ -972,7 +1056,10 @@ breakpoint) ends the step too. The step also ends, and logs why, at a HALT with 
 disabled (only an NMI or a reset can end it), after `SOURCE_STEP_LIMIT` (one million)
 instructions, or after `SOURCE_STEP_FRAME_LIMIT` (100) frames of machine time, so a statement
 that waits never holds the frontend. Steps stay synchronous and bounded (OD-11); E23-16
-(#347) measures the worst case on the Release build.
+(#347) measured the worst of its five scenarios on the Release build (non-PGO, LTO, 2026-10-31,
+pinned core, load under 1.0): 275 ms median (call stack, trace, rewind and a subscription on;
+100 frames of a HALT loop), 147 ms with none of them, so the bound stays synchronous. Not
+measured: a step that meets both bounds together, and a frame with Layer 2 and sprites on.
 
 **Call depth** is the call-stack tracker's (`set_call_stack_enabled`), which the Qt debugger
 runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) fixed it
@@ -1033,6 +1120,12 @@ location is; a `space` on a kind other than `Execute` is refused.
   glyphs from one header (`breakpoint_glyph.h`); a click toggles the line's group through
   `SourcePanel::toggle_breakpoint_at_line()`; a half glyph marks a line only some of whose places
   carry a breakpoint. Rows QSRC-79..98.
+- **Syntax highlighting** (E23-29 (#422)): `source_highlighter.*` colours C, Z80/Z80N assembly and Boriel ZX Basic,
+  chosen by extension (`.m4` stripped) and then by the first 200 lines; assembly inside C and Boriel is coloured as
+  assembly. Colour only, and the current-line selection stays on top. Rows QSRC-120..137, 139 and 145..149. Stage 2 gave it the
+  owner's ten classes (Text, Keyword, Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment; punctuation and
+  operators are Keyword) and four schemes, Auto, Light, Dark and Borland C++ 3.1 (`source.colour_scheme`, Preferences > Debugger),
+  the background and the current-line bar being the editor's palette. Rows QSRC-190..199.
 - **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
   Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
   Settings > Preferences... > Debugger Keys like the other debugger actions
@@ -1043,7 +1136,14 @@ location is; a `space` on a kind other than `Execute` is refused.
   transient group at every start, then a run), reached by Run to Here and Enter. Done.
 - **Source tab completion** (E23-16 (#347)): the current-line marker; the
   "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab
-  and the disassembly.
+  and the disassembly. Stage 1 built the marker (an amber wedge in the gutter's trailing 5-px
+  strip, `paint_pc_marker()`, D1) and the "also:" suffix of the position label (D3). Stage 2 built
+  the selection sync as tints in both views (D5, one pale violet from `source_sync_colors.h`, a
+  line's instructions being those with ANY location on it, D6), the Disassembly's reveal only for a
+  move the user made in the Source tab (D7), browsing (D8: any Disassembly selection whose primary
+  line is not the PC's shows that line, in its file, with `(browsing; the PC is at f:l, $addr)`,
+  until a stop, a run, another map, a cleared or stale map or **Go to PC Line**), and **Show in Source** in the
+  Disassembly's menu while a map is loaded (D10).
 - **Address fields**: a number first, `@` forces a symbol, `$` or `0x` force hex (OD-12; done).
   `file:line` is accepted wherever an Execute address is (done). Call Stack "Called from" uses
   the caller's recorded identity (E23-08). E23-22 (#360) shows the identity in every view, and
@@ -1182,11 +1282,36 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    space must be a `Page`: an address the MMU maps to ROM refuses the half. The symbol half is
    lenient: a rule-4 symbol is stored unbound (`bind_at_load`), `SymbolTable::bind()` gives it
    the RAM page `source_page()` names at its address, and any other space leaves it unpaged. For the symbol half an empty section (z80asm's default section) is rule 4 too; only the source half drops such G2 lines.
-5. A DivMMC dot command (org $2000), and the `DIV_<n>` and `<KIND>_DIV_<n>` sections of the
-   memory maps: `DivMmcRam{bank}` (E23-21 (#351), OD-14). E23-21 establishes how a dot
-   command's sections map to a bank. Until then a record in such a section refuses the source
-   half (there is no unqualified record, D3), as does a `PAGE_<n>` section with no
-   `__PAGE_<n>_head` and a section number out of range.
+5. A z88dk DOT COMMAND (E23-21 (#351), OD-14), checked before rule 4. A map is a dot command's
+   when its const `startupoffset` is $0100 (`-subtype=dot`), $0200 (`dotx`) or $0300 (`dotn`):
+   zcc defines it only for those subtypes (`lib/config/zxn.cfg`, `-startupoffset=0x100|0x200|
+   0x300`, the same on 2.4 and at 39421a01cd), newlib and classic alike, and a `-subtype=nex`
+   map has none. Its `__CODE_head` must then be $2000 (the file is assembled to run at $2000);
+   otherwise the half is refused saying so. Not the address range ($2000-$3FFF is ROM, or
+   whatever a NEX maps there, at the attach) and not `__crt_org_code` (newlib only).
+   NextZXOS copies the file into a DivMMC RAM bank and runs it from $2000 there, with
+   port 0xE3 = $82 (VHDL `divmmc.vhd:89-96`: `conmem` makes the bank `port_e3_reg(3:0)` the
+   $2000-$3FFF page; SRAM page 0x10 + bank, `zxnext.vhd:3092-3098`). The bank is not in the map.
+   **Measured** (jnext booting NextZXOS, 2026-10-31, scratch runs in the issue): for a plain dot,
+   a dotx and a dotn, the file lands in bank 2 (E3 alternates $02 and $00 during the copy,
+   then `E3 <- $82` and the CPU executes $2000 with the file's bytes); dotx and dotn need the
+   crt's `CLEAR 32767` first. This agrees with the NextZXOS API document (a dot command is
+   assembled at $2000 and loaded into DivMMC RAM; NextZXOS reserves the first six DivMMC banks).
+   NextZXOS's 48K personality and esxDOS proper were not measured. In a dot or dotx, a section
+   that names no page with an address in $2000-$3FFF is `DivMmcRam{2}` (`kNextZxosDotBank`,
+   `z88dk_space.h`); a dotx's other such sections (its main part, at `CRT_ORG_MAIN` $8000) are
+   rule 4: the MMU's page, `Page{4}`/`Page{5}` under NextZXOS (measured). A dotn is REFUSED
+   (owner decision 351-D3, 2026-10-31): its main bank and its `PAGE_<n>` / `DIV_<n>` sections are
+   pages NextZXOS allocates when the command runs (`__z_page_table`, `__z_div_table`;
+   measured $DC $DB $DE $DD), so a map cannot place them; the source half is refused with that
+   reason (build it as a dotx to debug it), and the symbol half skips what it cannot place.
+   `DIV_<n>` and `<KIND>_DIV_<n>` outside a dotn stay `Unpaged`: z88dk's `appmake` only writes
+   them as raw `prog_DIV_<n>.bin` files for the program to load wherever it chooses, so the
+   number is a logical bank, never `DivMmcRam{n}`. A `PAGE_<n>` section with no `__PAGE_<n>_head`
+   and a section number out of range refuse the source half (there is no unqualified record,
+   D3). The detection is ONE function (`z88dk_dot_command()`), and every consumer of
+   `z88dk_section_space()` passes its result: the source half's records, extents and section
+   binaries, the symbol half, and the `.lis` placement (10.4).
 
 **Zero-width lines** (G3). A line whose address equals the next line's start is an alias of
 that line if both are in the same function: sccz80 and 80cc give the function; for sdcc, which
@@ -1225,7 +1350,13 @@ a disagreement is a warning.
   attributes nothing.
 
 Relocation is one offset per (module, section piece), from the labels whose map symbol is defined at that very
-line; all must agree, and a label-less piece that is its section's whole content starts at `__<s>_head`. Every
+line; all must agree. A label-less piece that is its section's whole content starts at `__<s>_head`. A smaller one is
+placed by its bytes, as follows. A start from `__<s>_head` to `__<s>_tail` minus its size is excluded when a section
+binary holds a byte other than the listing's at a row 9.7 checks (the first byte of a mnemonic row outside PHASE, not
+in a data section). One start left, with every such byte held by exactly one section binary (a byte two binaries over the same addresses both claim, overlay
+sections at one ORG, is unknown, here and in the 9.7 check): the piece starts there. None left: the
+listing is dropped. Otherwise its lines are not placed. z80asm never patches an opcode byte, so a listing of this
+build is never excluded at its true start (GH #426 F4). Every
 byte row is a range of its length, capped at its 8K page. The line source is `C_LINE` when the listing has it, the
 `;file:line:` comments for a C module otherwise (sdcc 2.4), z80asm's own file and line for assembly.
 
@@ -1350,7 +1481,7 @@ toolchain layer's by-name read also answers to the C name of a z88dk C symbol (1
   sidecar attach (a tape too) and, for the user's store, at every program load. Unpaged (DIV, a
   head-less PAGE, a number out of range): an unpaged label when the value fits 16 bits. Refused
   (24 bits in a section that names no page) and a value past 24 bits are skipped. `; const` stays
-  name-only, 16 bits (a wider constant is no name). A symbol with an empty section is rule 4 (BindAtLoad); only the source half drops those lines (G2).
+  name-only, 16 bits (a wider constant is no name). A symbol with an empty section is rule 4 (BindAtLoad); only the source half drops those lines (G2). A dot command's map (9.4 rule 5, E23-21 (#351)) gives its $2000-$3FFF symbols `DivMmcRam{2}` and a dotn's main-bank symbols are skipped (Refused), by the same `z88dk_dot_command()` as its source half.
 - **Simple map, `Memory.txt`, sjasmplus `--sym` and `--exp` files (#390)**: unpaged. A
   `--sym` or `--exp` value above 0xFFFF is settled by #390; the SLD rule above (name-only) is
   the precedent.
@@ -1534,7 +1665,7 @@ and in history, sidecar ownership and failure paths, the lifetime rows, every st
 `debugger_source_panel_test` (the Source tab, page-qualified model rows and gutter, the Call
 Stack column, symbol address fields), `rewind_call_stack_test` (the tracker across rewind),
 `debugger_backend_test` (SYM-14 to SYM-18, the `-debug` map symbols; INS-13-15, the 56-byte
-`TraceEntry`; INS-02-30, `peek`/`poke` refuse the identity-only kinds), and the functional rows
+`TraceEntry`; INS-02-30, `poke` of every identity-only kind and `peek` of all but `DivMmcRam` are refused; INS-02-31/32, `peek(DivMmcRam)`), and the functional rows
 `nextbuild-symbols-func` and `source-map-func`. E23-07 (#339) added FSRC-01 to FSRC-16 (the
 arbiter's order, one row per arm, and `read()` equal to its route; `mmu_test` and
 `mmu_integration_test`), MF-M1G-07 (`multiface_test`), DM-PRED-01 (`divmmc_test`) and
@@ -1547,6 +1678,15 @@ SRCDBG-BACK-12 (`source_debug_test`: steps by range, Back to the statement's fir
 instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
 (`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
 column of a logical breakpoint).
+
+E23-21 (#351) added Z88DOT-01 to Z88DOT-08 (`z88dk_map_test`: the dot / dotx / dotn / master fixtures'
+spaces, detection by the map and not the address, the symbol half, the identity units, the `.lis`
+route), INS-02-31/32 (`debugger_backend_test`: `peek(DivMmcRam)`; INS-02-30 now keeps `divmmc_ram(3)`
+in its `poke` half only, owner-approved 2026-10-31), SRCDOT-01 to SRCDOT-09 (`source_debug_test`: a
+source breakpoint and the steps inside the command, the same bytes in RAM and under the ROM, the
+judgement at the entry, a hand load, landings, dotx, a rewind), QDOT-01/02
+(`debugger_source_panel_test`) and the functional row `z88dk-dot-source-func` (real NextZXOS, the dot on the
+card with `--sdcard-file-add`, typed, in headless, SDL and Qt).
 
 E23-23 (#375) stage 3 added SYMPG-13 (`source_map_test`: `bind()`), Z88SYM-01 to Z88SYM-09
 (`z88dk_map_test`: the symbol loader's pages, the rule-4 bind, the Unpaged and Refused table, two
@@ -1568,6 +1708,14 @@ any store, the offsets, and the hook per arm, direction, scope and gate), INS-21
 and HOST-COV-01 (`debugger_backend_test`), SRCDBG-COV-01/02 (`source_debug_test`), CLI-COV-01
 (`cli_options_test`) and QCOV-01 to QCOV-07 (`debugger_menu_test`, `debugger_panels_test`,
 `debugger_source_panel_test`).
+
+E23-22 (#360) added LADDR-01 to LADDR-22 (`debugger_backend_test`, `source_debug_test`, `zrcp_adapter_test`: the formatter and
+parser, `SlotInfo::now` per overlay, the PC instruction read as the CPU fetches it, step over, the trace
+export), GDB-MON-40 to GDB-MON-43, DZRP-REG-08, ZRCP-FMT-15 to ZRCP-FMT-18 and ZRCP-PG-02 (the remote
+vocabularies), QLADDR-01 to QLADDR-10 (`debugger_panels_test`, `debugger_source_panel_test`: every view's text
+in both styles), QLADDR-11 (`debugger_menu_test`: Debug > Physical Addresses) and DWK-04
+(`debugger_window_size_test`: the `--set` run override). QBPM-02, QBPM-17, QSRC-24, QSRC-44, QSRC-87,
+QSRC-90, QSRC-97, QMP-03 and DWK-01 changed their spelling or count only (owner, 2026-10-31).
 
 E23-09 (#341) added SRCBP-01 to SRCBP-04 and SRCBP-06 to SRCBP-10 (`source_debug_test`: the live gate,
 the probe and Reverse Continue on the exact fetch source, the DivMMC RAM and ROM cases, the group
@@ -1612,6 +1760,8 @@ E23-17 (#348) added `z88dk_lis_test` (Z88LIS-01 to Z88LIS-34: relocation, every 
 zero-width lines, the cross-check, dropped listings, the classic CRT, MACRO/REPT/PHASE and the guard),
 SRCTXT-01 (`source_map_test`), Z88MAP-30, SRCDBG-LIS-01 to 04 (`source_debug_test`) and QSRC-140/141
 (`debugger_source_panel_test`).
+
+GH #426 (F4) added Z88LIS-36 to 43 and 45, 46 and 47 (review rounds 1 and 2: overlapping section binaries, a ROM-area piece, a labelled piece over overlapping binaries) and re-specified Z88LIS-19 (owner-approved 2026-11-01).
 
 Z88SYM-03 (E23-23) pins the classic fixtures' symbol count; it went from 6 to 22 when E23-17 made the two
 `classic-bank10` builds keep the classic CRT's 16 `addr` symbols (`KEEP_CRT`). The owner approved the new pin on
@@ -1663,7 +1813,16 @@ text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRC
 the tree.
 
 
+E23-29 (#422) added QSRC-120 to QSRC-137, QSRC-139 and QSRC-145 to QSRC-149 (`debugger_source_panel_test`: language by extension and content, the assembly, C
+and Boriel rules, colour-only formats, light and dark, the current line and the gutter marks, one highlighting pass per
+load) and DASM-Z80N-01 (`debugger_backend_test`: the disassembler names ED B6 LDIRSCALE and no longer names ED C6).
+E23-29 (#422) stage 2 added QSRC-138, QSRC-190 to QSRC-199 (`debugger_source_panel_test`), MWSRC-07 to MWSRC-09
+(`debugger_menu_test`), SETK-20 and AC-101; QSRC-124 to QSRC-131, QSRC-133, QSRC-137, QSRC-146 to QSRC-149 were re-expressed in the
+owner's classes (owner request 2026-10-31).
 E23-30 (#423) added QSRC-99 to QSRC-119 (`debugger_source_panel_test`: the Source tab's context menu, Run to Here, Show in
 Disassembly, the copy forms, the operand entries and the Disassembly's menu pinned across the shared builder),
 SRCRUN-01 to SRCRUN-07 (`source_debug_test`: `run_to_source_line`) and CTL-06-04 (`debugger_backend_test`: a run-to on
 a running machine drops the caller's earlier transient target, not another client's).
+E23-16 (#347) added QSRC-170 to QSRC-189 and QSRC-201 to QSRC-208 (`debugger_source_panel_test`: the current-line wedge, the `also:` list, selection sync
+both ways, the reveal and browse rules, Go to PC Line, Show in Source, the real z88dk map's two-start line, and the tint in
+every colour scheme).

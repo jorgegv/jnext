@@ -611,6 +611,58 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
         p.offset = static_cast<int64_t>(head->second);
     }
 
+    // A label-less piece smaller than its section (another module put code in the
+    // same section, e.g. the banking driver in code_crt_init) is placed by its
+    // bytes (design 9.5, GH #426). A start from head to tail minus the piece's size
+    // is excluded when the section binary holds another byte than the listing's at
+    // a row 9.7 checks. z80asm patches operands, never an instruction's first byte,
+    // so a listing of this build is never excluded at its true start: exactly one
+    // surviving start, with every checked byte present in a binary, is the true one.
+    for (auto& [sec, p] : pieces) {
+        if (p.has_offset || !p.has_bytes || sec.empty()) continue;
+        const auto head = view.bounds->find("__" + sec + "_head");
+        const auto tail = view.bounds->find("__" + sec + "_tail");
+        if (head == view.bounds->end() || tail == view.bounds->end() || tail->second < head->second
+            || static_cast<int64_t>(tail->second - head->second) <= p.pc)
+            continue;
+        std::vector<const Item*> checked;
+        for (const Item& it : items)
+            if (it.section == sec && !it.phased && it.opcode && !is_data_section(sec))
+                checked.push_back(&it);
+        int survivors = 0;
+        bool verified = false;
+        int64_t at = 0;
+        for (int64_t c = static_cast<int64_t>(head->second);
+             c + p.pc <= static_cast<int64_t>(tail->second) && survivors < 2; ++c) {
+            bool excluded = false;
+            bool unknown = false;
+            for (const Item* it : checked) {
+                const uint64_t value = static_cast<uint64_t>(c + it->addr);
+                const Z88dkPlacement pl = view.place(sec, value);
+                const auto have = pl.ok && view.byte_at ? view.byte_at(value, pl.space) : std::nullopt;
+                if (!have) {
+                    unknown = true;
+                } else if (*have != it->row->bytes.front()) {
+                    excluded = true;
+                    break;
+                }
+            }
+            if (excluded) continue;
+            ++survivors;
+            at = c;
+            verified = !unknown;
+        }
+        if (survivors == 0) {
+            note("section '" + sec + "': its label-less lines match no place in the section binary; "
+                 "this is not the listing of this build");
+            return result;
+        }
+        if (survivors == 1 && verified) {
+            p.has_offset = true;
+            p.offset = at;
+        }
+    }
+
     // Placement.
     std::vector<int> range_of(items.size(), -1);
     std::vector<Z88dkListedRange> ranges;
@@ -668,7 +720,8 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
     result.ranges = std::move(ranges);
     if (unplaced > 0)
         note(std::to_string(unplaced) + " listed lines could not be placed (no label of their "
-             "section piece is in the map, or inside PHASE)");
+             "section piece is in the map and its bytes do not fit exactly one place in the section "
+             "binary, or inside PHASE)");
 
     // Zero-width lines (design 9.5): the owner of a marker with no bytes of its
     // own is the next byte row of its section.

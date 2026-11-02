@@ -644,6 +644,25 @@ public:
     /// Contents are updated by run_frame().
     uint32_t* get_framebuffer() { return framebuffer_.data(); }
 
+    /// GH #428 — counts every write of the framebuffer (end-of-frame render,
+    /// rewind re-renders, render_framebuffer_now()). Monotonic for the life of
+    /// the object and never reset, not even by init(): a cold boot must not
+    /// reproduce a generation a frontend has already uploaded. A frontend
+    /// uploads the framebuffer only when this (or its own target) changed.
+    /// Anything that renders into the buffer must go through
+    /// render_framebuffer_now() or bump it (the non-const get_framebuffer()
+    /// is kept for test scaffolding that renders with its own twin state).
+    uint64_t framebuffer_generation() const { return framebuffer_generation_; }
+
+    /// Composite the current machine state into the framebuffer and bump the
+    /// generation (GH #428).
+    void render_framebuffer_now();
+
+    /// GH #428 — a cold boot placement-news the Emulator, which restarts the
+    /// counter at 0; emulator_cold_boot() calls this after init() with the
+    /// old machine's value, so the new generation exceeds every earlier one.
+    void carry_framebuffer_generation(uint64_t prior) { framebuffer_generation_ += prior; }
+
     /// Framebuffer width in pixels (canonical 640 post-G104).
     int get_framebuffer_width()  const { return FRAMEBUFFER_WIDTH; }
 
@@ -880,6 +899,12 @@ public:
     /// do the trace's bytes and the call stack's opcode capture; what the
     /// trace and the call frames RECORD is `Mmu::last_m1()` itself (GH #340).
     jnext::dbg::MemSpace predict_fetch(uint16_t pc) const;
+
+    /// The first four bytes of the instruction at `pc` as the CPU will fetch
+    /// them (`predict_instruction_()`, the M1 overlays included): pure. The
+    /// debugger's Disassembly, Step Over and ZRCP step logic read the code at
+    /// the PC through this (GH #360 F1).
+    void predict_instruction_bytes(uint16_t pc, uint8_t out[4]) const;
     Renderer&     renderer()  { return renderer_; }
     Profiler&     profiler()  { return profiler_; }
     const Profiler& profiler() const { return profiler_; }
@@ -2060,6 +2085,9 @@ private:
 
     /// GH #276 B4 — see rendered_frames().
     uint64_t rendered_frames_ = 0;
+
+    /// GH #428 — see framebuffer_generation().
+    uint64_t framebuffer_generation_ = 0;
 
     /// Boot ROM (8K FPGA bootloader, embedded into the jnext binary at
     /// link time — see core/embedded_nextboot_rom.h).
