@@ -3020,8 +3020,9 @@ the SDL-only and Windows trees test it): an absolute name; then the map's direct
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading <code>..</code> is dropped.
 <code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:304</code>) takes the
-configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3125</code>: the command line's,
-else the saved one), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:437</code>)
+configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3125</code>, fed by
+<code>apply_startup_config()</code>, <code>:2907</code>: the saved list with the command line's <code>--source-dir</code> or
+<code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:437</code>)
 adds to a second, session-only list through <code>on_source_dir_located()</code> (<code>:316</code>). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
 <code>push_source_dirs()</code> (<code>:296</code>) on every change and again in <code>ensure_window()</code>, since the window is
@@ -3069,7 +3070,7 @@ the log, and the main window's status bar for ten seconds.</p>
   the language first, then the text, so a load is highlighted once with its own language.</li>
 <li><strong>Schemes.</strong> <code>SourceScheme</code> (<code>platform/source_scheme.h</code>) is the order of the words of the
   <code>source.colour_scheme</code> key: Auto, Light, Dark, Borland (<code>static_assert</code>s in <code>app_config.cpp</code>
-  and <code>source_highlighter.cpp:473</code>). <code>scheme_colours()</code> (<code>:587</code>) holds one table per concrete
+  and <code>source_highlighter.cpp:470</code>). <code>scheme_colours()</code> (<code>:587</code>) holds one table per concrete
   scheme. Dark is derived, not kept: <code>palette_tint::ink()</code> of each Light colour over a fixed dark
   palette (<code>#242424</code> and <code>#F0F0F0</code>, <code>make_dark()</code>, <code>:531</code>). Every scheme meets one legibility rule,
   which row <code>QSRC-195</code> checks: text and classes 4.5:1 against the background (WCAG 1.4.3), bar
@@ -3097,7 +3098,7 @@ gutter widget in a left viewport margin and a header strip above it (<code>setVi
 <ul>
 <li><strong>Columns.</strong> <code>BP | Line</code> (GH #421): the number is <code>blockNumber() + 1</code> (<code>paint_gutter()</code>, <code>:154</code>).</li>
 <li><strong>The mark of a line</strong> is computed at paint time, for the visible lines only
-  (<code>SourcePanel::line_mark()</code>, <code>:969</code>, over <code>line_state()</code>, <code>:919</code>), so it is never stale and needs
+  (<code>SourcePanel::line_mark()</code>, <code>:969</code>, over <code>line_state()</code>, <code>:924</code>), so it is never stale and needs
   no cache. <code>line_state()</code> derives, for line L of the file shown: <code>starts</code> (where the map says L
   begins, from <code>resolve(file:line)</code>, so an alias line is marked), <code>placed</code> (those starts the
   memory mapped <em>now</em> supplies), <code>drawn</code> (this GUI's Execute breakpoints, from

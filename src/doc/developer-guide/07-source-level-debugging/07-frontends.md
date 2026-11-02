@@ -85,8 +85,9 @@ the SDL-only and Windows trees test it): an absolute name; then the map's direct
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
 `DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:304`) takes the
-configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3125`: the command line's,
-else the saved one), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:437`)
+configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3125`, fed by
+`apply_startup_config()`, `:2907`: the saved list with the command line's `--source-dir` or
+`paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:437`)
 adds to a second, session-only list through `on_source_dir_located()` (`:316`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
 `push_source_dirs()` (`:296`) on every change and again in `ensure_window()`, since the window is
@@ -138,7 +139,7 @@ the log, and the main window's status bar for ten seconds.
   the language first, then the text, so a load is highlighted once with its own language.
 - **Schemes.** `SourceScheme` (`platform/source_scheme.h`) is the order of the words of the
   `source.colour_scheme` key: Auto, Light, Dark, Borland (`static_assert`s in `app_config.cpp`
-  and `source_highlighter.cpp:473`). `scheme_colours()` (`:587`) holds one table per concrete
+  and `source_highlighter.cpp:470`). `scheme_colours()` (`:587`) holds one table per concrete
   scheme. Dark is derived, not kept: `palette_tint::ink()` of each Light colour over a fixed dark
   palette (`#242424` and `#F0F0F0`, `make_dark()`, `:531`). Every scheme meets one legibility rule,
   which row `QSRC-195` checks: text and classes 4.5:1 against the background (WCAG 1.4.3), bar
@@ -167,7 +168,7 @@ gutter widget in a left viewport margin and a header strip above it (`setViewpor
 
 - **Columns.** `BP | Line` (GH #421): the number is `blockNumber() + 1` (`paint_gutter()`, `:154`).
 - **The mark of a line** is computed at paint time, for the visible lines only
-  (`SourcePanel::line_mark()`, `:969`, over `line_state()`, `:919`), so it is never stale and needs
+  (`SourcePanel::line_mark()`, `:969`, over `line_state()`, `:924`), so it is never stale and needs
   no cache. `line_state()` derives, for line L of the file shown: `starts` (where the map says L
   begins, from `resolve(file:line)`, so an alias line is marked), `placed` (those starts the
   memory mapped *now* supplies), `drawn` (this GUI's Execute breakpoints, from
