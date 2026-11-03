@@ -310,9 +310,11 @@ int main() {
         std::vector<uint8_t> ints(40);
         for (size_t i = 0; i < 20; ++i) ints[2 * i] = static_cast<uint8_t>(i);
         const CFormatted d = c_format_value(plain, ty("{40}DA20x,SI:S"), ints.data(), ints.size());
-        check("CVALF-16", "at most 16 elements are shown, then `...`; a char array reads up to its NUL (`\"hi\"`), and a 4-byte array with no NUL shows all four",
+        check("CVALF-16", "at most 16 elements are shown, then `...`; a char array reads up to its NUL (`\"hi\"`), a 4-byte array with no NUL shows all four, and an array of "
+                          "non-text bytes ({10, 20, 30, 40}) is a list of numbers",
               d.ok && d.text == "{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, ...}" && c.ok && c.text == "\"\"" &&
-                  text_of(plain, "{3}DA3x,SC:S", {'h', 'i', 0}) == "\"hi\"" && text_of(plain, "{4}DA4x,SC:S", {'a', 'b', 'c', 'd'}) == "\"abcd\"");
+                  text_of(plain, "{3}DA3x,SC:S", {'h', 'i', 0}) == "\"hi\"" && text_of(plain, "{4}DA4x,SC:S", {'a', 'b', 'c', 'd'}) == "\"abcd\"" &&
+                  text_of(plain, "{4}DA4x,SC:U", {10, 20, 30, 40}) == "{10, 20, 30, 40}");
     }
 
     // ── CVALF-17: struct nesting ───────────────────────────────────────────────
@@ -345,7 +347,7 @@ int main() {
         check("CVALF-19", "sccz80's overlapping members of struct flags are marked `bitfield layout unknown (z88dk U2)` with their storage unit's value; "
                           "a union (every member at offset 0) is not marked",
               f.ok && f.text.find("lo = 51341 [bitfield layout unknown (z88dk U2)]") != std::string::npos && f.notes.size() == 1 &&
-                  f.notes[0] == "bitfield layout unknown (z88dk U2)" && u.ok && u.text == "{w = 513, b = \"\\x01\\x02\"}" && u.notes.empty());
+                  f.notes[0] == "bitfield layout unknown (z88dk U2)" && u.ok && u.text == "{w = 513, b = {1, 2}}" && u.notes.empty());
     }
 
     // ── CVALF-20..21: the struct type lookup ───────────────────────────────────

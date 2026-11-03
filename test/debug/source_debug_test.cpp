@@ -7180,6 +7180,90 @@ int main() {
                 }
                 ok = ok && good;
             }
+        // the banked programs: bk_sum (bk.c, in Page{20}) called from bkmain.c's main
+        const auto bk_entry = [](const Machine& m, const char* fn) -> std::optional<SourceAddress> {
+            const auto vs = m.dbg->variables();
+            for (const auto& f : vs ? vs->functions() : std::vector<jnext::dbg::CFunction>{})
+                if (f.name == fn && f.entry.resolved) return f.entry.at;
+            return std::nullopt;
+        };
+        // run to bk.c:10 of the fixture, clearing the interrupts at bk_sum's entry (this machine has no ROM: a RST 38 runs away)
+        const auto at_bk10 = [&](Machine& m, const char* fixture, const char* tag) {
+            cv_load(m, fixture, tag);
+            const auto entry = bk_entry(m, "bk_sum");
+            const auto l10 = m.dbg->source_map().resolve("bk.c:10");
+            if (!entry || l10.starts.empty() || !(l10.starts[0].space == MemSpace::page(20))) return false;
+            if (!cv_run_to(m, entry->address)) return false;
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.IFF1 = r.IFF2 = 0;
+            m.emu.cpu().set_registers(r);
+            return cv_run_to(m, l10.starts[0].address);
+        };
+        {   // SRCDBG-CVAL-37
+            bool ok = true;
+            std::string seen;
+            for (const char* fx : {"v2.4/sccz80-cvars-banked", "master/sccz80-cvars-banked", "master/sdcc-cvars-banked", "master/80cc-cvars-banked"}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = at_bk10(m, fx, fx[0] == 'v' ? "c37a" : fx[7] == 's' && fx[8] == 'c' ? "c37b" : fx[7] == 's' ? "c37c" : "c37d");
+                const Dbg::CValueResult bt = m.dbg->read_c_value(0, "btable");
+                const bool zsdcc = std::string(fx).find("sdcc") != std::string::npos;
+                bool good = at && cvv(m, 0, "a") == "3" && cvv(m, 0, "b") == "2" && cvv(m, 0, "s") == "103 'g'" && cvv(m, 0, "j") == "4";
+                if (zsdcc) {
+                    // zsdcc writes no record for the const array btable (z88dk U4) but does for bdata
+                    good = good && !bt.ok && cvv(m, 0, "bdata") == "77 'M'";
+                } else {
+                    good = good && bt.ok && bt.value == "{10, 20, 30, 40}" && bt.where.kind == Dbg::CWhere::Kind::Page &&
+                           bt.where.source.space == MemSpace::page(20) && !has_note(bt, "not mapped") && cvv(m, 0, "bdata") == "77 'M'";
+                }
+                if (!good) {
+                    ok = false;
+                    seen += std::string(" ") + fx;
+                }
+            }
+            check("SRCDBG-CVAL-37", "in bk_sum at bk.c:10 (every compiler): a=3 b=2 s=103 'g' j=4 (a uint8_t prints as a char: the CDB has no typedef names); btable = {10, 20, 30, 40} read from Page{20}, which is mapped at $C000 now (no "
+                                    "'not mapped' note), and bdata = 77 'M'; zsdcc writes no btable record (z88dk U4)",
+                  ok, seen);
+        }
+        {   // SRCDBG-CVAL-38
+            // back in main's while (1) bank 20 is unmapped again: btable is still read from its own page, with a note, and the CPU view at $C000 shows something else
+            bool ok = true;
+            std::string seen;
+            for (const char* fx : {"master/sccz80-cvars-banked", "master/sdcc-cvars-banked", "master/80cc-cvars-banked"}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at10 = at_bk10(m, fx, fx[7] == 's' && fx[8] == 'c' ? "c38a" : fx[7] == 's' ? "c38b" : "c38c");
+                const auto loop = m.dbg->source_map().resolve("bkmain.c:8");
+                bool at = at10 && !loop.starts.empty();
+                // single-stepped with the interrupts off (banked_call enables them and this machine has no ROM)
+                for (int i = 0; at && i < 2000 && m.dbg->registers().PC != loop.starts[0].address; ++i) {
+                    Z80Registers r = m.emu.cpu().get_registers();
+                    r.IFF1 = r.IFF2 = 0;
+                    m.emu.cpu().set_registers(r);
+                    m.emu.execute_single_instruction();
+                }
+                at = at && m.dbg->registers().PC == loop.starts[0].address;
+                const bool zsdcc = std::string(fx).find("sdcc") != std::string::npos;
+                const Dbg::CValueResult bt = m.dbg->read_c_value(0, "btable");
+                const Dbg::CValueResult loc = m.dbg->read_c_value(0, "loc");
+                uint8_t cpu = 0;
+                m.dbg->peek(MemSpace::cpu(), 0xC000, 1, &cpu);
+                bool good = at;
+                if (zsdcc) {
+                    good = good && !bt.ok && cvv(m, 0, "bdata") == "77 'M'" && has_note(m.dbg->read_c_value(0, "bdata"), "page 20 is not mapped at $C028 now");
+                } else {
+                    good = good && bt.ok && bt.value == "{10, 20, 30, 40}" && has_note(bt, "page 20 is not mapped at $C000 now") && cpu != 10;
+                }
+                // main's `loc` (3): a stack variable on sccz80 and zsdcc; 80cc writes no record for it (z88dk U5)
+                if (fx[7] == '8') good = good && !loc.ok && loc.why.find("unknown name") != std::string::npos;
+                else good = good && (loc.ok ? loc.value == "3" : std::string(fx).find("sdcc") != std::string::npos);
+                if (!good) {
+                    ok = false;
+                    seen += std::string(" ") + fx;
+                }
+            }
+            check("SRCDBG-CVAL-38", "in main's loop after bk_sum returned: btable is read from Page{20} with the note `page 20 is not mapped at $C000 now`, and the CPU view at $C000 "
+                                    "is not its bytes; bdata = 77 (zsdcc: with its own note at $C028); main's loc = 3 on sccz80, no record on 80cc (U5)",
+                  ok, seen);
+        }
             check("SRCDBG-CVAL-36", "a real mid-run attach (main in its while (1), no tracked frame): lp = {3, 4, 5}, i = 4, arr = {467, 471, 475, 479} on sccz80 and zsdcc, and "
                                     "on sccz80 also c = 120 'x', big = 100000 and pp == &lp",
                   ok);

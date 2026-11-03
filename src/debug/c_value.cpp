@@ -212,14 +212,26 @@ struct Formatter {
             const size_t esz = static_cast<size_t>(size / e.count);
             if (avail < static_cast<size_t>(size)) return fail("the object is shorter than its type");
             if (is_char(ch, i + 1)) {
-                out = string_of(b, static_cast<size_t>(size), true);
-                return true;
+                // a char array reads as a string when what comes before its NUL (or all of it) is text; an unsigned char array of
+                // numbers (`uint8_t btable[4] = {10, 20, 30, 40}`, a union's byte view) is a list of numbers, as the CDB cannot tell them apart
+                bool text = true;
+                for (size_t k = 0; k < static_cast<size_t>(size) && b[k] != 0; ++k)
+                    text = text && ((b[k] >= 0x20 && b[k] < 0x7F) || b[k] == '\t' || b[k] == '\n' || b[k] == '\r');
+                if (text) {
+                    out = string_of(b, static_cast<size_t>(size), true);
+                    return true;
+                }
             }
             out = "{";
             const size_t n = static_cast<size_t>(e.count);
             for (size_t k = 0; k < n && k < kMaxElements; ++k) {
                 std::string one;
-                if (!fmt(ch, i + 1, static_cast<int>(esz), b + k * esz, esz, depth + 1, one)) return false;
+                if (is_char(ch, i + 1)) {   // numbers, without the 'c' of a printable one: it is a list of bytes here
+                    const uint8_t byte = b[k * esz];
+                    one = num(ch[i + 1].is_unsigned ? static_cast<long long>(byte) : static_cast<long long>(static_cast<int8_t>(byte)));
+                } else if (!fmt(ch, i + 1, static_cast<int>(esz), b + k * esz, esz, depth + 1, one)) {
+                    return false;
+                }
                 out += (k ? ", " : "") + one;
             }
             if (n > kMaxElements) out += ", ...";
