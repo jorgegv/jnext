@@ -746,6 +746,77 @@ int main() {
         check("CVALF-34", "a zsdcc padding member (__00000000) of a struct is skipped: bytes 01 FF 03 print {a = 1, b = 3}", f.ok && f.text == "{a = 1, b = 3}");
     }
 
+    // ── CVALF-35: a plain struct with no declared object is still readable ───────────────────────────────────────
+    {
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});
+        mem.put(0xB000, {3, 0, 4, 0, 9, 9, 9, 9});
+        // struct pt { int x; int y; }: no variable of this type, no member declared as it: its size is its members' extent
+        const VariableStore plain_st({}, {}, {rec("T:Fz.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "z_c")}, {}, {});
+        CFormatCtx pctx;
+        pctx.store = &plain_st;
+        pctx.module = "z_c";
+        pctx.read = mem.reader();
+        CLoc p;
+        p.type = ty("{2}DG,STpt:S");
+        p.addr = 0xA000;
+        const CEval ey = c_eval_path(pctx, p, false, c_parse_path("p->y").steps);
+        const CEval ew = c_eval_path(pctx, p, true, {});
+        const CFormatted fy = ey.ok ? c_read_loc(pctx, ey.loc) : CFormatted{};
+        const CFormatted fw = ew.ok ? c_read_loc(pctx, ew.loc) : CFormatted{};
+        // struct in { char a; char b; } (extent 2) whose only declared object is the member `m` of struct outer ({4}STin: padded to 4)
+        const VariableStore member_st({}, {},
+                                      {rec("T:Fz.h$in[({0}S:S$a$0_0$0({1}SC:U),Z,0,0)({1}S:S$b$0_0$0({1}SC:U),Z,0,0)]", "z_c"),
+                                       rec("T:Fz.h$outer[({0}S:S$m$0_0$0({4}STin:S),Z,0,0)({4}S:S$n$0_0$0({1}SC:U),Z,0,0)]", "z_c")},
+                                      {}, {});
+        CFormatCtx mctx = pctx;
+        mctx.store = &member_st;
+        CLoc q;
+        q.type = ty("{2}DG,STin:S");
+        q.addr = 0xA000;
+        const CEval e1 = c_eval_path(mctx, q, false, c_parse_path("q[1]").steps);
+        check("CVALF-35", "a struct no variable is declared as: through a pointer `p->y` reads 4 and `*p` is {x = 3, y = 4} (the size is its members' extent, "
+                          "as no member overlaps another); one declared only as a member of another struct has THAT size (q[1] is at +4, not the members' +2)",
+              ey.ok && fy.ok && fy.text == "4" && ew.ok && fw.ok && fw.text == "{x = 3, y = 4}" && e1.ok && e1.loc.addr == 0xB004);
+    }
+
+    // ── CVALF-36: a U2 member of a nested struct is clamped to its own struct ────────────────────────────────
+    {
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        // struct flags (sccz80: lo and mid are ints at 0, hi an int at 1: hi sticks out of the 2-byte struct); struct o { struct flags f; char c; }
+        const VariableStore st({}, {},
+                               {rec("T:Ft.h$flags[({0}S:S$lo$0_0$0({2}SI:U),Z,0,0)({0}S:S$mid$0_0$0({2}SI:U),Z,0,0)({1}S:S$hi$0_0$0({2}SI:U),Z,0,0)]", "t_c"),
+                                rec("T:Ft.h$o[({0}S:S$f$0_0$0({2}STflags:S),Z,0,0)({2}S:S$c$0_0$0({1}SC:U),Z,0,0)]", "t_c")},
+                               {}, {});
+        Mem mem;
+        mem.put(0xB000, {0x8D, 0xC8, 0x55});   // f = 8D C8, c = $55: a read of hi past f would pick up $55
+        CFormatCtx ctx;
+        ctx.store = &st;
+        ctx.module = "t_c";
+        ctx.read = mem.reader();
+        CLoc root;
+        root.type = ty("{3}STo:S");
+        root.addr = 0xB000;
+        const CEval e = c_eval_path(ctx, root, false, c_parse_path("s.f.hi").steps);
+        const CFormatted f = e.ok ? c_read_loc(ctx, e.loc) : CFormatted{};
+        check("CVALF-36", "struct o { struct flags f; char c; } holding 8D C8 55: s.f.hi is 200, read inside f (the clamp is the immediately enclosing struct's end), "
+                          "not 21960 from the next member's byte",
+              e.ok && f.ok && f.text == "200");
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }

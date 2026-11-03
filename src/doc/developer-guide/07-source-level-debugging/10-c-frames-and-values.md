@@ -102,7 +102,7 @@ ostream (QApplication runs `setlocale(LC_ALL, "")`, and on a Spanish host `%g` p
 |---|---|
 | `SC` | `65 'A'` for 0x20..0x7E, else the number; signed or unsigned by `:S` / `:U` |
 | `SI`, `SL`, bare `:S`/`:U` | little-endian, `{size}` bytes (1, 2, 4, 8), decimal |
-| `SF` `{6}` | z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by `$80`; 12 significant digits (`c_format_float48()`, `c_value.cpp:370`). Oracle: the bytes z88dk compiled in `*-floats` |
+| `SF` `{6}` | z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by `$80`; 12 significant digits (`c_format_float48()`, `c_value.cpp:381`). Oracle: the bytes z88dk compiled in `*-floats` |
 | `SF` `{4}` | IEEE 754 binary32, shortest text that reads back. The SIZE decides, not the noun |
 | `S6` | IEEE 754 binary16 through float |
 | `SQ` | `<fixed-point $xxxx: layout not decoded>` |
@@ -112,28 +112,30 @@ ostream (QApplication runs `setlocale(LC_ALL, "")`, and on a Spanish host `%g` p
 | zsdcc bitfield `SB<s>$<w>` | `(value >> s) & mask` |
 | sccz80 / 80cc overlapping members | the storage unit's value with `bitfield layout unknown (z88dk U2)`: in a struct whose members are not all at offset 0, a member sharing bytes with another (a union is not one) |
 
-`c_find_type()` (`c_value.cpp:457`) finds a struct's `T:` record: the records of the variable's own scope first (zsdcc's
+`c_find_type()` (`c_value.cpp:468`) finds a struct's `T:` record: the records of the variable's own scope first (zsdcc's
 copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
 header). Different definitions at the deciding step are ambiguous, never first-wins. `c_type_text()`
-(`c_value.cpp:450`) prints `char`, `unsigned int`, `struct node *`, `int [2][3]`, `int (*)()`; the CDB has no
+(`c_value.cpp:461`) prints `char`, `unsigned int`, `struct node *`, `int [2][3]`, `int (*)()`; the CDB has no
 union marker, so a union is `struct word`, and no typedef name survives. A zsdcc padding member (`__00000000`) is
 not shown.
 
-**A struct's size is a declared object's**: an `S:` record, or a struct member, whose chain is exactly `ST<tag>`
-(`{2}STflags` for `g_flags`), never the extent of its members. sccz80 and 80cc write a bitfield as an int that
-sticks out of the struct (z88dk U2): `struct flags` is 2 bytes but its member `hi` is an int at offset 1. A struct
-no declared object has is refused as `size unknown (z88dk U2)`. Every view of such a member (the whole struct, a
-member path, a pointer, an element `p[1]`) clamps its read to the enclosing object and zero-fills the overhang, so
-`hi` is 200 for the bytes `8D C8` whichever way it is reached, and no read goes past the object.
+**A struct's size** is a declared object's when there is one: an `S:` record, or a struct member, whose chain is
+exactly `ST<tag>` (`{2}STflags` for `g_flags`). With none, it is the members' extent, provided no member shares bytes
+with another (a union is fine). sccz80 and 80cc write a bitfield as an int that sticks out of the struct (z88dk U2):
+`struct flags` is 2 bytes but its member `hi` is an int at offset 1, so for such a struct the members' extent
+overstates the size and is not used: with no declared object it is refused as `size unknown (z88dk U2)`. Every view of
+such a member (the whole struct, a member path, a pointer, an element `p[1]`, a member of a nested struct) clamps its
+read to the struct that holds it and zero-fills the overhang, so `hi` is 200 for the bytes `8D C8` whichever way it is
+reached, and no read goes past that struct.
 
-`c_parse_path()` (`c_value.cpp:540`) parses the C paths: `['*'] primary {'.' name | '->' name | '[' index ']'}`,
+`c_parse_path()` (`c_value.cpp:551`) parses the C paths: `['*'] primary {'.' name | '->' name | '[' index ']'}`,
 the primary a name, `fn::name` or `file.c::name`, the index decimal, `0x<hex>` or `$<hex>` with no sign. As in C the
 postfix operators bind tighter than the `*`: `*x[1]` is `*(x[1])` and `*head->next` is `*(head->next)`.
-`c_eval_path()` (`c_value.cpp:628`) walks the steps over a typed location (an array index is checked against its
+`c_eval_path()` (`c_value.cpp:639`) walks the steps over a typed location (an array index is checked against its
 count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
 refused), then applies the `*`, and `c_read_loc()` reads and formats it. Every refusal says why.
 
-`c_visible_locals()` (`c_value.cpp:724`) lists which locals show at a PC: the parameters (ordered by stack position),
+`c_visible_locals()` (`c_value.cpp:735`) lists which locals show at a PC: the parameters (ordered by stack position),
 the locals, the static locals. A parameter is a record of level 0 (sccz80, 80cc), at a stack offset >= 4, or (zsdcc) in
 a block below the body's first block (the entry scope's), where its register and fastcall parameters sit. Parameters
 and level-1 locals are always visible; a local of level >= 2 is visible iff its block is the open block or one of its
@@ -143,9 +145,9 @@ block just opened is the last opened one). The open block is the greatest known 
 the scope's block, which turns sccz80's "last opened block" into the block that is open and keeps a closed sibling's
 locals hidden; its ancestors are found over the same set. With no block data (80cc) or an unknown scope, every block
 local is shown, marked.
-`c_read_register_local()` (`c_value.cpp:805`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
+`c_read_register_local()` (`c_value.cpp:816`) reads an `R` local of frame 0 (`[c,b]` is C | B << 8, with a note
 that it may be stale), refuses `[]` as optimised out and an outer frame as not available.
-`c_param_location_unknown()` (`c_value.cpp:845`) marks a listed `__z88dk_fastcall` parameter recorded at an offset
+`c_param_location_unknown()` (`c_value.cpp:856`) marks a listed `__z88dk_fastcall` parameter recorded at an offset
 >= 0 (z88dk U1).
 
 ## Fixtures and rows
@@ -153,6 +155,6 @@ that it may be stale), refuses `[]` as optimised out and an outer frame as not a
 `Z88CDB-41` to `-50` in `z88dk_map_test` (the extents against a golden that `derive-scopes.py --extents`
 derives from the raw map lines, the `*-cross` fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of `Z88CDB-40`), and
-`CVALF-01` to `-34` in `c_value_test` (with `-27a` and `-28a` to `-28d`), and `SRCDBG-CVAL-01` to `-27` in `source_debug_test` (the tracker policy, and the frames of each compiler on a
+`CVALF-01` to `-36` in `c_value_test` (with `-27a` and `-28a` to `-28d`), and `SRCDBG-CVAL-01` to `-27` in `source_debug_test` (the tracker policy, and the frames of each compiler on a
 running fixture: tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, and a
 function that crosses a slot).

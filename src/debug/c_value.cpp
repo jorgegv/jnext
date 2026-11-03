@@ -273,9 +273,10 @@ struct Formatter {
     }
 };
 
-// A struct's size is a declared object's: an `S:` record, or a struct member, whose chain is exactly `ST<tag>`. It is NOT
-// taken from the members: sccz80 and 80cc write a bitfield as an int that sticks out of the struct (z88dk U2), so
-// the members' extent overstates it. -1: no such object.
+// A struct's size is a declared object's when there is one: an `S:` record, or a struct member, whose chain is exactly
+// `ST<tag>`. Else it is the members' extent, provided no member shares bytes with another (a union is fine): sccz80 and
+// 80cc write a bitfield as an int that sticks out of the struct (z88dk U2), so the extent of THOSE overstates the size
+// and is not used. -1: unknown.
 int struct_size(const CFormatCtx& ctx, const std::string& tag)
 {
     if (!ctx.store) return -1;
@@ -287,7 +288,15 @@ int struct_size(const CFormatCtx& ctx, const std::string& tag)
     for (const CRecord& r : ctx.store->types())
         for (const CdbMember& m : r.record.members)
             if (exact(m.var.type)) return m.var.type.size;
-    return -1;
+    const CTypeLookup lk = c_find_type(*ctx.store, tag, ctx.scope_name, ctx.module);
+    if (!lk.record) return -1;
+    const CdbRecord& rec = lk.record->record;
+    int end = 0;
+    for (size_t m = 0; m < rec.members.size(); ++m) {
+        if (rec.members[m].hidden == CdbHidden::None && overlaps_other(rec, m)) return -1;
+        end = std::max(end, rec.members[m].offset + std::max(0, rec.members[m].var.type.size));
+    }
+    return end > 0 ? end : -1;
 }
 
 CdbType sliced(const CdbType& t, size_t n, int size)
@@ -355,7 +364,9 @@ bool member_loc(const CFormatCtx& ctx, const CLoc& in, const std::string& name, 
         if (mem.var.name != name || mem.hidden != CdbHidden::None) continue;
         out->type = mem.var.type;
         out->addr = in.addr + static_cast<uint32_t>(mem.offset);
-        out->end = in.end ? in.end : in.addr + static_cast<uint32_t>(std::max(0, in.type.size));   // a member read stays inside the object
+        // a member read stays inside the struct that holds it (the immediately enclosing object, and any outer limit)
+        out->end = in.addr + static_cast<uint32_t>(std::max(0, in.type.size));
+        if (in.end && in.end < out->end) out->end = in.end;
         out->note = overlaps_other(rec, m) ? kU2 : "";
         return true;
     }
