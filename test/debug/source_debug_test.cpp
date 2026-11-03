@@ -7011,6 +7011,109 @@ int main() {
                   s && !tracked.empty() && !fr.empty() && fn_name(m, fr[0]) == "main" && fr[0].how == FrameBase::Prologue &&
                       fr[0].fp == tracked[0].fp && fr[0].fp != static_cast<uint16_t>(m.dbg->registers().SP - 2));
         }
+
+        // ── GH #434 stage 3: the C variables of a frame, read on a running machine ──
+        // Oracle: vars.c / other.c / bk.c / fc.c / cross.c semantics (sum(i, -5, &lp, 'x') at line 41 on its first call: t = i + 115 + 7,
+        // acc = 3 (i + 115)); the maps' addresses (each stop is asserted against the map's own line record).
+        using Dbg = Debugger;
+        const auto cvv = [&](const Machine& m, size_t k, const char* path) {
+            const Dbg::CValueResult r = m.dbg->read_c_value(k, path);
+            return r.ok ? r.value : "!" + r.why;
+        };
+        const auto cv_starts_at = [&](const Machine& m, const char* line, uint16_t addr) {
+            const auto r = m.dbg->source_map().resolve(line);
+            for (const auto& a : r.starts)
+                if (a.address == addr) return true;
+            return false;
+        };
+        const auto row_of = [](const std::vector<Dbg::CValueRow>& rows, const char* name) -> const Dbg::CValueRow* {
+            for (const auto& r : rows)
+                if (r.name == name) return &r;
+            return nullptr;
+        };
+        const auto has_note = [](const Dbg::CValueResult& r, const char* part) {
+            for (const auto& n : r.notes)
+                if (n.find(part) != std::string::npos) return true;
+            return false;
+        };
+        // sum's first call at vars.c:41 on the three compilers
+        struct SumAt { const char* fixture; const char* tag; uint16_t pc; };
+        const auto at41 = [&](const SumAt& c, Machine& m) {
+            cv_load(m, c.fixture, c.tag);
+            return cv_starts_at(m, "vars.c:41", c.pc) && cv_run_to(m, c.pc);
+        };
+        const auto sccz80_41 = [&](const SumAt& c) {
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41(c, m);
+            const auto loc = m.dbg->c_locals(0);
+            const auto* pp = row_of(loc.rows, "p");
+            const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
+            const Dbg::CValueResult p = m.dbg->read_c_value(0, "p");
+            const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
+            return at && loc.ok && pp && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "t") == "122" &&
+                   cvv(m, 0, "acc") == "345" && cvv(m, 0, "calls") == "1" && cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && lp.ok &&
+                   lp.where.kind == Dbg::CWhere::Kind::Cpu && p.ok && p.integer && *p.integer == lp.where.cpu && !inner.ok &&
+                   inner.why == "out of scope at vars.c:41" && !row_of(loc.rows, "inner") && cvv(m, 0, "p->y") == "4";
+        };
+        check("SRCDBG-CVAL-28", "v2.4 sccz80-cvars at vars.c:41 (first call of sum): a=0 b=-5 k=120 'x' t=122 acc=345 calls=1, *p = {x = 3, y = 4, tag = 5}, p is "
+                                "frame 1's &lp, and `inner` (block 2) is not listed and read_c_value says out of scope at vars.c:41",
+              sccz80_41({"v2.4/sccz80-cvars", "c28", 0x8D3E}));
+        check("SRCDBG-CVAL-29", "the same on master sccz80-cvars", sccz80_41({"master/sccz80-cvars", "c29", 0x8D3E}));
+        {   // SRCDBG-CVAL-30
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master/sdcc-cvars", "c30", 0x8C97}, m);
+            const Dbg::CValueResult t = m.dbg->read_c_value(0, "t");
+            const Dbg::CValueResult acc = m.dbg->read_c_value(0, "acc");
+            const Dbg::CValueResult inner = m.dbg->read_c_value(0, "inner");
+            const auto loc = m.dbg->c_locals(0);
+            check("SRCDBG-CVAL-30", "master sdcc-cvars at vars.c:41: a=0 b=-5 k=120 'x' calls=1 *p as on sccz80; t is 122 read from BC with the stale note; acc is "
+                                    "optimised out; `inner` is hidden (out of scope); the parameters (block 9) are visible",
+                  at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "calls") == "1" &&
+                      cvv(m, 0, "*p") == "{x = 3, y = 4, tag = 5}" && t.ok && t.value == "122" && t.where.kind == Dbg::CWhere::Kind::Register &&
+                      has_note(t, "in BC; may be stale") && !acc.ok && acc.why == "optimised out" && !inner.ok &&
+                      inner.why == "out of scope at vars.c:41" && loc.ok && row_of(loc.rows, "a") && row_of(loc.rows, "k") && !row_of(loc.rows, "inner"));
+        }
+        {   // SRCDBG-CVAL-31
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const bool at = at41({"master/80cc-cvars", "c31", 0x8CCA}, m);
+            const auto loc = m.dbg->c_locals(0);
+            const auto* inner = row_of(loc.rows, "inner");
+            bool marked = false;
+            if (inner)
+                for (const auto& n : inner->notes) marked = marked || n.find("scope unknown") != std::string::npos;
+            check("SRCDBG-CVAL-31", "master 80cc-cvars at vars.c:41: a=0 b=-5 k=120 'x' t=122 acc=345 calls=1 as on sccz80; 80cc writes no block structure, so `inner` is "
+                                    "shown, marked scope unknown",
+                  at && cvv(m, 0, "a") == "0" && cvv(m, 0, "b") == "-5" && cvv(m, 0, "k") == "120 'x'" && cvv(m, 0, "t") == "122" && cvv(m, 0, "acc") == "345" &&
+                      cvv(m, 0, "calls") == "1" && inner && marked);
+        }
+        {   // SRCDBG-CVAL-32
+            bool ok = true;
+            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c32a", 0x8D2B}, SumAt{"master/sdcc-cvars", "c32b", 0x8C94}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fixture, c.tag);
+                ok = ok && cv_starts_at(m, "vars.c:39", c.pc) && cv_run_to(m, c.pc) && cvv(m, 0, "inner") == "7";
+            }
+            check("SRCDBG-CVAL-32", "at vars.c:39 (block 2 open) `inner` is 7 (p->x + p->y) on sccz80 and zsdcc", ok);
+        }
+        {   // SRCDBG-CVAL-33
+            bool ok = true;
+            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c33a", 0x8D3E}, SumAt{"master/80cc-cvars", "c33b", 0x8CCA}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = at41(c, m);
+                const Dbg::CValueResult lp = m.dbg->read_c_value(1, "lp");
+                const Dbg::CValueResult pp = m.dbg->read_c_value(1, "pp");
+                ok = ok && at && cvv(m, 1, "lp") == "{x = 3, y = 4, tag = 5}" && cvv(m, 1, "i") == "0" && cvv(m, 1, "c") == "120 'x'" &&
+                     cvv(m, 1, "big") == "100000" && lp.ok && pp.ok && pp.integer && *pp.integer == lp.where.cpu;
+            }
+            Machine z(false, MachineType::ZXN_ISSUE2);
+            const bool zat = at41({"master/sdcc-cvars", "c33c", 0x8C97}, z);
+            const Dbg::CValueResult big = z.dbg->read_c_value(1, "big");
+            const Dbg::CValueResult cc = z.dbg->read_c_value(1, "c");
+            const Dbg::CValueResult pp = z.dbg->read_c_value(1, "pp");
+            check("SRCDBG-CVAL-33", "frame 1 (main) at the vars.c:41 stop: lp = {3, 4, 5}, i = 0, c = 120 'x', big = 100000 and pp == &lp on sccz80 and 80cc; on zsdcc big, c and pp "
+                                    "are registers of an outer frame (optimised out) while lp and i are read from the stack",
+                  ok && zat && cvv(z, 1, "lp") == "{x = 3, y = 4, tag = 5}" && cvv(z, 1, "i") == "0" && !big.ok && big.why == "optimised out" && !cc.ok && !pp.ok);
+        }
         {   // SRCDBG-CVAL-20
             // GH #434 review F7 (R12): zsdcc `push ix; ld ix,0; add ix,sp`: after the push (entry+2) and after the ld (entry+6)
             // SP = E - 2 already, so the base is SP.

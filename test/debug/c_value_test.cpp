@@ -818,6 +818,86 @@ int main() {
               e.ok && f.ok && f.text == "200");
     }
 
+    // ── CVALF-37: a declared object of the context's own module sets a struct's size ──────────────────────────────
+    {
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        const auto var = [](const char* text, const char* module) {
+            CVariable v;
+            v.record = cdb_decode(text).record;
+            v.text = text;
+            v.module = module;
+            v.c_name = v.record.var.name;
+            return v;
+        };
+        // two modules define DIFFERENT structs under the tag `s`: a_c's is 4 bytes, b_c's 6; each module declares one object of its own
+        const VariableStore st({},
+                               {var("S:G$ga$0_0$0({4}STs:S),E,0,0", "a_c"), var("S:G$gb$0_0$0({6}STs:S),E,0,0", "b_c")},
+                               {rec("T:Fa.h$s[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "a_c"),
+                                rec("T:Fb.h$s[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)({4}S:S$z$0_0$0({2}SI:S),Z,0,0)]", "b_c")},
+                               {}, {});
+        const auto size_in = [&](const char* module, const char* scope) {
+            CFormatCtx c;
+            c.store = &st;
+            c.module = module;
+            c.scope_name = scope;
+            return c_leaf_size(c, ty("{2}DG,STs:S").chain, 1);
+        };
+        check("CVALF-37", "two modules with different structs under one tag: the size is the declared object of the context's own module or scope (4 in a_c, 6 in "
+                          "b_c, by scope too), not the first object in the store",
+              size_in("a_c", "") == 4 && size_in("b_c", "") == 6 && size_in("zz", "b.h") == 6 && size_in("zz", "a.h") == 4);
+    }
+
+    // ── CVALF-38: the integer and the real a value holds ───────────────────────────────────────────────────────
+    {
+        const uint8_t f48[6] = {0, 0, 0, 0, 0xA0, 0x82};
+        const uint8_t b8[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        const uint8_t bf[2] = {0x8D, 0xC8};
+        const auto i = [&](const char* chain, const uint8_t* b, size_t n) { return c_integer_value(ty(chain), b, n); };
+        check("CVALF-38", "c_integer_value: signed and unsigned chars and ints, a pointer's address, a zsdcc bitfield (mid of 8D C8 is 17), 8 bytes as the 64-bit pattern, and "
+                          "nothing for a float, a struct or a short buffer; c_float_value: the 48-bit -2.5, binary32, binary16",
+              i("{1}SC:S", b8, 1) == std::optional<int64_t>(-1) && i("{1}SC:U", b8, 1) == std::optional<int64_t>(255) &&
+                  i("{2}SI:S", bf, 2) == std::optional<int64_t>(static_cast<int16_t>(0xC88D)) && i("{2}SI:U", bf, 2) == std::optional<int64_t>(0xC88D) &&
+                  i("{2}DG,SC:S", bf, 2) == std::optional<int64_t>(0xC88D) && i("{1}SB3$5:U", bf, 1) == std::optional<int64_t>(17) &&
+                  i("{8}SL:S", b8, 8) == std::optional<int64_t>(-1) && !i("{6}SF:S", f48, 6) && !i("{5}STpoint:S", b8, 5) && !i("{4}SL:S", b8, 2) &&
+                  c_float_value(ty("{6}SF:S"), f48, 6) == std::optional<double>(-2.5) && c_float_value(ty("{4}SF:S"), reinterpret_cast<const uint8_t*>("\x00\x00\xC0\x3F"), 4) == std::optional<double>(1.5) &&
+                  c_float_value(ty("{2}S6:S"), reinterpret_cast<const uint8_t*>("\x00\x3E"), 2) == std::optional<double>(1.5) && !c_float_value(ty("{2}SI:S"), bf, 2));
+    }
+
+    // ── CVALF-39: a root object is read through its own reader, what a pointer points at through the CPU's ─────
+    {
+        // g_head (a `node_t *`) is in a page: its value comes from `read_root`; the node it points at is read from `read`, and the same address
+        // holds different bytes in the two views
+        Mem page, cpu;
+        page.put(0x8000, {0x00, 0x90});                           // g_head = $9000 (in the page)
+        page.put(0x9000, {0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE});   // what the PAGE holds at $9000
+        cpu.put(0x9000, {0x00, 0x00, 0x2A, 0x00, 0x00, 0x00});    // what the CPU sees at $9000: next = NULL, val = 42
+        CFormatCtx ctx = csc;
+        ctx.read = cpu.reader();
+        ctx.read_root = page.reader();
+        CLoc head;
+        head.type = ty("{2}DG,STnode:S");
+        head.addr = 0x8000;
+        head.rooted = true;
+        const CPath p = c_parse_path("g_head->val");
+        const CEval e = c_eval_path(ctx, head, false, p.steps);
+        const CFormatted v = e.ok ? c_read_loc(ctx, e.loc) : CFormatted{};
+        CLoc node;
+        node.type = ty("{6}STnode:S");
+        node.addr = 0x9000;
+        node.rooted = true;   // a root object: its OWN bytes are the page's
+        const CEval e2 = c_eval_path(ctx, node, false, c_parse_path("n.val").steps);
+        const CFormatted v2 = e2.ok ? c_read_loc(ctx, e2.loc) : CFormatted{};
+        check("CVALF-39", "a rooted location reads its own bytes from read_root and a followed pointer clears it: g_head->val is 42 from the CPU view, while the root "
+                          "node itself reads the page's bytes (an 4-byte $EEEEEEEE = -286331154)",
+              e.ok && !e.loc.rooted && v.ok && v.text == "42" && e2.ok && e2.loc.rooted && v2.ok && v2.text == "-286331154");
+    }
+
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }

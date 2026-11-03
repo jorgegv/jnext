@@ -283,15 +283,17 @@ int struct_size(const CFormatCtx& ctx, const std::string& tag)
     const auto exact = [&](const CdbType& t) {
         return t.chain.size() == 1 && t.chain[0].kind == CdbTypeKind::Struct && t.chain[0].tag == tag && t.size > 0;
     };
-    // a declared object of the context's own module or scope first, as c_find_type() prefers its copy, then any in the store
+    // a declared object of the context's own module first (and of the module whose `T:` record of this scope defines the tag), as
+    // c_find_type() prefers its copy, then any in the store
+    std::set<std::string> modules{ctx.module};
+    for (const CRecord& r : ctx.store->types())
+        if (r.record.var.name == tag && !ctx.scope_name.empty() && r.record.scope_name == ctx.scope_name) modules.insert(r.module);
     for (int pass = 0; pass < 2; ++pass) {
-        const auto mine = [&](const std::string& module, const std::string& scope) {
-            return pass == 1 || module == ctx.module || (!ctx.scope_name.empty() && scope == ctx.scope_name);
-        };
+        const auto mine = [&](const std::string& module) { return pass == 1 || modules.count(module) != 0; };
         for (const CVariable& v : ctx.store->variables())
-            if (mine(v.module, v.record.scope_name) && exact(v.record.var.type)) return v.record.var.type.size;
+            if (mine(v.module) && exact(v.record.var.type)) return v.record.var.type.size;
         for (const CRecord& r : ctx.store->types())
-            if (mine(r.module, r.record.scope_name))
+            if (mine(r.module))
                 for (const CdbMember& m : r.record.members)
                     if (exact(m.var.type)) return m.var.type.size;
     }
