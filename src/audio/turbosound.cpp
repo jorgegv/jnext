@@ -141,17 +141,13 @@ uint8_t TurboSound::reg_read(bool reg_mode) const
 
 void TurboSound::tick()
 {
-    // Always tick AY#0
+    // VHDL turbosound.vhd:162/217/272: all three ym2149 instances run on the
+    // ungated clock_en_i (zxnext.vhd:6385, i_CLK_PSG_EN). TurboSound enable and
+    // ay_select gate only each chip's contribution to the mix (:197/:252/:307),
+    // which compute_chip_stereo() applies. GH #442.
     bool changed = ay_[0].tick();
-
-    // Tick AY#1 and AY#2 only if TurboSound is enabled,
-    // or if that AY is currently selected
-    if (enabled_ || ay_select_ == 2) {
-        changed |= ay_[1].tick();
-    }
-    if (enabled_ || ay_select_ == 1) {
-        changed |= ay_[2].tick();
-    }
+    changed |= ay_[1].tick();
+    changed |= ay_[2].tick();
 
     // GH #440: the mix only moves when a chip's output or a mix input did.
     if (changed || mix_dirty_) {

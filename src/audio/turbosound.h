@@ -37,7 +37,8 @@ public:
     /// match the VHDL ym2149 reset that fires alongside audio_ay_reset.
     void reset_ay_only();
 
-    /// Enable/disable TurboSound (when disabled, only AY#0 is active).
+    /// Enable/disable TurboSound (when disabled, only the selected chip reaches the mix,
+    /// turbosound.vhd:197/252/307; all three keep running).
     void set_enabled(bool en) { enabled_ = en; mix_dirty_ = true; }
     bool enabled() const { return enabled_; }
 
@@ -71,7 +72,8 @@ public:
     /// Port 0xBFFD read: read from selected register on active AY.
     uint8_t reg_read(bool reg_mode = false) const;
 
-    /// Advance all active AY chips by one PSG clock-enable tick.
+    /// Advance all three AY chips by one PSG clock-enable tick; every ym2149 runs on
+    /// clock_en_i (turbosound.vhd:162/217/272).
     void tick();
 
     /// Debugger-only per-chip mute (AudioMute::AY0/AY1/AY2; bit i = chip i).
@@ -111,7 +113,7 @@ private:
     // Default: both channels enabled (0b11)
     std::array<uint8_t, 3> pan_{};
 
-    bool enabled_ = false;        // TurboSound enable (false = only AY#0)
+    bool enabled_ = false;        // TurboSound enable (false = only the selected AY is output)
     bool stereo_mode_ = false;    // false=ABC, true=ACB
     uint8_t mono_mode_ = 0;      // Per-chip mono flags
 
