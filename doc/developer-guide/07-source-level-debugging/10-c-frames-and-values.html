@@ -3039,7 +3039,7 @@ the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.
   The IX form: at the entry <code>fp = SP - 2</code>, after the <code>push ix</code> and after the <code>ld ix,0</code> <code>fp = SP</code>, right after
   <code>pop ix</code> <code>fp = SP - 2</code>, otherwise IX. "Right after" is tested from the bytes before the PC, so a long function costs nothing. Between the restore of
   the caller's base and the <code>ret</code> (found by walking the function's code from its entry, <code>in_epilogue()</code>; a <code>ret</code> closes
-  the window), any other PC is <code>Unknown</code> with a note, and so is a PC the walk could not reach.</li>
+  the window), any other PC is <code>Unknown</code> with a note. The code is <code>Unknown</code> too when it cannot be read (<code>Epi::Unsure</code>, a defensive state that no fixture reaches and no row covers); a walk that steps over the PC without landing on it is taken as outside the window.</li>
 <li><strong>Chain</strong> (older frames): <code>ret = peek16(fp + 2)</code>, the next PC is <code>ret - 1</code>, and the next <code>fp</code> is <code>peek16(fp)</code>
   only when the next function keeps its frame in the same style, and that style is a push-frame or an IX frame (a function with neither saves no frame pointer). A change of style ends the walk, the frame
   listed <code>Unknown</code> with a note (80cc mixes both styles); a next PC in no C function is listed as assembly and stops
@@ -3070,7 +3070,7 @@ an attach or detach, <code>recheck()</code>, a source map loaded or cleared, the
 <p><code>Z88CDB-41</code> to <code>-50</code> in <code>z88dk_map_test</code> (the extents against a golden that <code>derive-scopes.py --extents</code>
 derives from the raw map lines, the <code>*-cross</code> fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of <code>Z88CDB-40</code>), and
-<code>SRCDBG-CVAL-01</code> to <code>-25</code> in <code>source_debug_test</code> (the tracker policy, and the frames of each compiler on a
+<code>SRCDBG-CVAL-01</code> to <code>-27</code> in <code>source_debug_test</code> (the tracker policy, and the frames of each compiler on a
 running fixture: tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, and a
 function that crosses a slot).</p>
 

@@ -6937,6 +6937,80 @@ int main() {
                   lr.count > 0 && !fr.empty() && fr[0].how == FrameBase::Prologue && fr[0].fp == m.dbg->registers().IX &&
                       fr[0].fp == static_cast<uint16_t>(m.dbg->registers().SP));
         }
+        {   // SRCDBG-CVAL-26
+            // GH #434 review 3 (R3-1): "right after the restore" needs ALL its bytes. Synthetic map: l_debug_pop_frame $8100,
+            // l_debug_push_frame $8110, __debug_framepointer $9000 (holding $9ABC); a push-frame function fp1 at $8000 stopped
+            // right after `call $8200` (the low byte of the pop helper's address, not the high one); an IX function fx at $8300
+            // stopped right after a `pop hl` ($E1 not preceded by $DD). Neither is a restore: the base is the variable's / IX.
+            Bare m(MachineType::ZXN_ISSUE2);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "t";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            m.dbg->attach(ci);
+            const auto esc = [](const std::string& t) {
+                std::string o;
+                for (const unsigned char c : t) {
+                    if (std::isalpha(c)) {
+                        o += static_cast<char>(c);
+                    } else {
+                        char b[8];
+                        std::snprintf(b, sizeof b, "_%02x", c);
+                        o += b;
+                    }
+                }
+                return o;
+            };
+            const auto fn_rec = [&](const char* n) {
+                return "__CDBINFO__" + esc(std::string("F:G$") + n + "$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
+                       " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n";
+            };
+            const std::string map = (z / "c26.map").string();
+            write_text(map, "_fp1 = $8000 ; addr, public, , t_c, code_compiler, t.c::fp1::0::0:1\n"
+                            "_fx = $8300 ; addr, public, , t_c, code_compiler, t.c::fx::0::0:5\n"
+                            "l_debug_pop_frame = $8100 ; addr, public, , lib, code_l_sccz80, l.asm:1\n"
+                            "l_debug_push_frame = $8110 ; addr, public, , lib, code_l_sccz80, l.asm:2\n"
+                            "__debug_framepointer = $9000 ; addr, public, , lib, bss_clib, v.asm:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fp1::0::0:1\n"
+                            "__C_LINE_5_t_2ec = $8300 ; addr, local, , t_c, code_compiler, t.c::fx::0::0:5\n"
+                            "__code_compiler_tail = $8320 ; const, public, def, , ,\n" + fn_rec("fp1") + fn_rec("fx"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            const uint8_t push_fn[] = {0xCD, 0x10, 0x81, 0xCD, 0x00, 0x82, 0xCD, 0x01, 0x81, 0x00, 0x18, 0xFE};
+            const uint8_t ix_fn[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0xE1, 0x00, 0x18, 0xFE};
+            for (size_t i = 0; i < sizeof push_fn; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), push_fn[i]);
+            for (size_t i = 0; i < sizeof ix_fn; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8300 + i), ix_fn[i]);
+            m.emu.mmu().write(0x9000, 0xBC);
+            m.emu.mmu().write(0x9001, 0x9A);
+            m.start(0x8006);   // right after `call $8200`
+            const auto a = m.dbg->c_frames();
+            m.start(0x8009);   // right after `call $8101` (the pop helper's high byte, another low byte)
+            const auto a2 = m.dbg->c_frames();
+            m.start(0x8300);
+            for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // push ix; ld ix,0; add ix,sp
+            m.start(0x8309);   // right after the `pop hl`
+            const auto b = m.dbg->c_frames();
+            check("SRCDBG-CVAL-26", "right after `call` of an address that only shares the pop helper's low byte or only its high byte, or after a `pop hl`, is not "
+                                    "right after the restore: the push-frame function's base is the variable ($9ABC), the IX function's is IX",
+                  lr.count > 0 && !a.empty() && !a2.empty() && !b.empty() && a[0].how == FrameBase::Prologue && a[0].fp == 0x9ABC &&
+                      a2[0].how == FrameBase::Prologue && a2[0].fp == 0x9ABC &&
+                      b[0].how == FrameBase::Prologue && b[0].fp == m.dbg->registers().IX &&
+                      b[0].fp != static_cast<uint16_t>(m.dbg->registers().SP - 2));
+        }
+        {   // SRCDBG-CVAL-27
+            // GH #434 review 3: the real-fixture case: main right after `call _sum` returned, tracker emptied: its base is the
+            // tracked one (main keeps locals, so it is not SP - 2).
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sccz80-cvars", "c27");
+            cv_run_to(m, 0x8CB9);
+            const unsigned ret = peek16(m, m.dbg->registers().SP);   // main's return address after the call
+            const bool s = cv_run_to(m, static_cast<uint16_t>(ret));
+            const auto tracked = m.dbg->c_frames();
+            m.emu.call_stack().clear();
+            const auto fr = m.dbg->c_frames();
+            check("SRCDBG-CVAL-27", "master sccz80-cvars main right after `call _sum` returned, tracker emptied: Prologue, fp == the tracked fp "
+                                    "(not SP - 2, which only a restore leaves)",
+                  s && !tracked.empty() && !fr.empty() && fn_name(m, fr[0]) == "main" && fr[0].how == FrameBase::Prologue &&
+                      fr[0].fp == tracked[0].fp && fr[0].fp != static_cast<uint16_t>(m.dbg->registers().SP - 2));
+        }
         {   // SRCDBG-CVAL-20
             // GH #434 review F7 (R12): zsdcc `push ix; ld ix,0; add ix,sp`: after the push (entry+2) and after the ld (entry+6)
             // SP = E - 2 already, so the base is SP.

@@ -58,7 +58,7 @@ the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1226`) has its function (
   The IX form: at the entry `fp = SP - 2`, after the `push ix` and after the `ld ix,0` `fp = SP`, right after
   `pop ix` `fp = SP - 2`, otherwise IX. "Right after" is tested from the bytes before the PC, so a long function costs nothing. Between the restore of
   the caller's base and the `ret` (found by walking the function's code from its entry, `in_epilogue()`; a `ret` closes
-  the window), any other PC is `Unknown` with a note, and so is a PC the walk could not reach.
+  the window), any other PC is `Unknown` with a note. The code is `Unknown` too when it cannot be read (`Epi::Unsure`, a defensive state that no fixture reaches and no row covers); a walk that steps over the PC without landing on it is taken as outside the window.
 - **Chain** (older frames): `ret = peek16(fp + 2)`, the next PC is `ret - 1`, and the next `fp` is `peek16(fp)`
   only when the next function keeps its frame in the same style, and that style is a push-frame or an IX frame (a function with neither saves no frame pointer). A change of style ends the walk, the frame
   listed `Unknown` with a note (80cc mixes both styles); a next PC in no C function is listed as assembly and stops
@@ -93,6 +93,6 @@ an attach or detach, `recheck()`, a source map loaded or cleared, the program si
 `Z88CDB-41` to `-50` in `z88dk_map_test` (the extents against a golden that `derive-scopes.py --extents`
 derives from the raw map lines, the `*-cross` fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of `Z88CDB-40`), and
-`SRCDBG-CVAL-01` to `-25` in `source_debug_test` (the tracker policy, and the frames of each compiler on a
+`SRCDBG-CVAL-01` to `-27` in `source_debug_test` (the tracker policy, and the frames of each compiler on a
 running fixture: tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, and a
 function that crosses a slot).
