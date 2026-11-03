@@ -2951,8 +2951,7 @@ command are ignored and the outputs stay 0, but the generators keep running. The
 emulator applies <code>reset_ay_only()</code> when the hold starts and re-derives the level from
 NR 0x06 after <code>init()</code> and after a state load; it is not serialised. The PSG
 clock-enable phase (<code>psg_accum_</code>) is a free-running divider and also survives a soft
-reset. At power-on the PSG mode is YM, and <code>init()</code> derives AY or YM from the NR 0x06
-value like the other NR 0x06 shadows.</p>
+reset.</p>
 <p><strong>DAC</strong> — <code>src/audio/dac.*</code>. Where an AY synthesises a waveform, a DAC simply
 plays back: write a byte, get a voltage, and the program is responsible for
 feeding it fast enough. Several third-party Spectrum peripherals did exactly
