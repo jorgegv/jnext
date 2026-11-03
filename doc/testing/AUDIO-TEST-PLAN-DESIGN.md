@@ -335,7 +335,7 @@ VHDL ref: `turbosound.vhd` lines 186-205 (psg0), similar for psg1/psg2
 
 ### 2.4 PSG Enable/Disable
 
-VHDL ref: `turbosound.vhd` lines 194-205, 249-260, 304-315
+VHDL ref: `turbosound.vhd` lines 162, 194-205, 217, 249-260, 272, 304-315; `zxnext.vhd` line 6385
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
@@ -344,7 +344,11 @@ VHDL ref: `turbosound.vhd` lines 194-205, 249-260, 304-315
 | TS-32  | PSG0 active when `ay_select="11"` or ts enabled   | PSG0 zeroed only when not selected AND ts disabled         |
 | TS-33  | PSG1 active when `ay_select="10"` or ts enabled   | Same logic for PSG1                                        |
 | TS-34  | PSG2 active when `ay_select="01"` or ts enabled   | Same logic for PSG2                                        |
-| TS-60  | `TurboSound::reset()` clears only `ay_select` + `psg{0,1,2}_pan` | `enabled` / `stereo_mode` / `mono_mode` are external NR-driven inputs; reset must NOT touch them. skip — `turbosound.cpp:10-20` over-clears (see G115). Note: TS-35..59 reserved for future TS work |
+| TS-35  | TurboSound off, AY#0 selected: unselected AY#1 keeps running | AY#1 `output_a` equals AY#0's on every tick (identical ym2149 on one `clock_en_i`, `:162,217`); mix carries AY#0 only (`:252`); re-enable adds AY#1 (`:334`) |
+| TS-36  | TurboSound off, AY#0 selected: unselected AY#2 keeps running | Same for AY#2 (`:162,272,307,334`) |
+| TS-37  | TurboSound off, AY#1 selected: all three chips run, only AY#1 reaches the mix | Lockstep of all three; `pcm_left` = AY#1 alone (`:197,307` zero AY#0/AY#2); re-enable gives 3x |
+| TS-38  | Noise and envelope generators of unselected chips run | R6/R7/R9/R11/R13 program on all three; A and B outputs equal across chips for 3112 off ticks and 64 on ticks (`ym2149.vhd:281-300,334-462`) |
+| TS-60  | `TurboSound::reset()` clears only `ay_select` + `psg{0,1,2}_pan` | `enabled` / `stereo_mode` / `mono_mode` are external NR-driven inputs; reset must NOT touch them. skip — `turbosound.cpp:10-20` over-clears (see G115). Note: TS-39..59 reserved for future TS work |
 | TS-61  | psg_mode=11 → `audio_ay_reset` does not clobber NR 0x08/0x09 | After psg_mode 11 strobe, NR 0x08 b1 (turbosound_en), b5 (stereo_mode), and NR 0x09 mono bits stay as-set. skip — split needed: full reset (power-on) vs ay-only reset (audio_ay_reset) (see G115) |
 
 ### 2.5 Panning and Final Sum
@@ -677,7 +681,7 @@ Z80 test programs (built with z88dk) that produce known audio patterns:
 | Component      | Test IDs    | Count |
 |----------------|-------------|------:|
 | YM2149 core    | AY-01..128  |   ~62 |
-| Turbosound     | TS-01..52, TS-60/61 |   ~30 (+G115) |
+| Turbosound     | TS-01..52, TS-35..38, TS-60/61 |   ~30 (+G115) |
 | Soundrive DAC  | SD-01..23, SD-19   |   ~19 (+G111) |
 | Beeper/Tape    | BP-01..23   |   ~14 |
 | Audio Mixer    | MX-01..22, MX-23   |   ~15 (+G110) |

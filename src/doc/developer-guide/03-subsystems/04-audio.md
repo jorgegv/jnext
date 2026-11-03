@@ -43,8 +43,12 @@ nine tone channels available where a 128K has three, plus per-chip stereo
 placement. `src/audio/turbosound.*` owns the three chips and everything around
 them — the chip selection, per-chip panning, the ABC/ACB stereo mode (NR 0x08
 b5), the per-chip mono flags (NR 0x09 b7:5), the TurboSound enable (NR 0x08 b1)
-and AY-vs-YM mode (NR 0x06 b0). It recomputes a 12-bit stereo pair on every PSG
-tick, and the mixer only ever reads that latched pair.
+and AY-vs-YM mode (NR 0x06 b0). All three chips advance on every PSG tick, whether or not
+TurboSound is on or the chip is selected, as in the VHDL (every ym2149 runs on the
+ungated `clock_en_i`). The enable and the selection decide only which chips reach the
+mix: with TurboSound off, the selected one. The latched 12-bit stereo pair is
+recomputed only when a chip output or a mix input changed (GH #440), and the mixer
+only ever reads that latched pair.
 
 The two resets are distinct and the difference is load-bearing. `reset()` is
 power-on and clears everything; `reset_ay_only()` models the VHDL
