@@ -33,10 +33,13 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
+#include "save/state_desc_json.h"
 
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 #include "../row_id.h"
@@ -1090,6 +1093,210 @@ static void test_nr_dac_gate(Emulator& emu) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+
+// ══════════════════════════════════════════════════════════════════════
+// Group Reset-scope (GH #442): the AY reset level and what a reset keeps
+// ══════════════════════════════════════════════════════════════════════
+//
+// VHDL zxnext.vhd:6379 `audio_ay_reset <= '1' when reset = '1' or nr_06_psg_mode = "11"`
+// is a LEVEL. nr_06_psg_mode has a declared initial value and no reset clause
+// (zxnext.vhd:1112), so it survives a soft reset. ym2149.vhd RESET_H clears addr, the
+// register file and the outputs only (:170-171,184-186,525-528); the generators have no
+// reset clause (:258-519). The PSG clock enable comes from clk_28_div, which has no reset
+// (zxnext_top_issue2.vhd:1158-1177); a hard reset is a reconfiguration (:1195).
+
+static void ay_port_write(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0xFFFD, reg);
+    emu.port().out(0xBFFD, val);
+}
+
+// The value text of `"key":value` in a JsonWriteDesc document.
+static std::string json_val(const std::string& doc, const std::string& key) {
+    const std::string needle = "\"" + key + "\":";
+    const size_t at = doc.find(needle);
+    if (at == std::string::npos) return "<absent:" + key + ">";
+    size_t b = at + needle.size();
+    while (b < doc.size() && (doc[b] == ' ' || doc[b] == '\n')) ++b;
+    size_t e = b;
+    if (doc[b] == '"') { ++b; e = doc.find('"', b); }
+    else { while (e < doc.size() && doc[e] != ',' && doc[e] != '}' && doc[e] != '\n') ++e; }
+    return doc.substr(b, e - b);
+}
+
+static std::string ts_doc(Emulator& emu) {
+    jnext::save::JsonWriteDesc jw;
+    emu.turbosound().describe_state(jw);
+    return jw.str();
+}
+
+static const char* const kGenKeys[] = {
+    "cnt_div", "noise_div", "ena_div", "ena_div_noise", "tone_cnt_a", "tone_cnt_b",
+    "tone_cnt_c", "tone_op_a", "tone_op_b", "tone_op_c", "noise_cnt", "poly17", "noise_op",
+    "env_cnt", "env_ena", "env_vol", "env_inc", "env_hold", "ay_mode"
+};
+
+// Keys of every generator field of all three chips, joined: equal text = equal state.
+static std::string gen_fingerprint(Emulator& emu) {
+    const std::string d = ts_doc(emu);
+    std::string out;
+    for (int n = 0; n < 3; ++n)
+        for (const char* k : kGenKeys)
+            out += json_val(d, "ay" + std::to_string(n) + "_" + k) + ";";
+    return out;
+}
+
+static uint64_t psg_accum_of(Emulator& emu) {
+    jnext::save::JsonWriteDesc jw;
+    emu.describe_state(jw);
+    return std::strtoull(json_val(jw.str(), "psg_accum").c_str(), nullptr, 10);
+}
+
+// Three chips playing: tone + noise + envelope on every chip, then some frames.
+static void play_three_chips(Emulator& emu) {
+    nr_write(emu, 0x06, 0x01);
+    nr_write(emu, 0x08, 0x12);       // turbosound_en (b1), keep the reset default b4
+    for (uint8_t sel : {uint8_t(0xFF), uint8_t(0xFE), uint8_t(0xFD)}) {
+        emu.port().out(0xFFFD, sel);
+        ay_port_write(emu, 0, 0x03);  ay_port_write(emu, 6, 0x01);
+        ay_port_write(emu, 7, 0x30);  ay_port_write(emu, 8, 0x0F);
+        ay_port_write(emu, 9, 0x10);  ay_port_write(emu, 11, 0x05);
+        ay_port_write(emu, 13, 0x0E);
+    }
+    emu.port().out(0xFFFD, 0xFF);
+    for (int i = 0; i < 3; ++i) emu.run_frame();
+}
+
+static void test_reset_scope(Emulator& emu) {
+    set_group("Reset-scope");
+
+    // AUD-NR-07 - zxnext.vhd:6379,6387: psg_mode = "11" HOLDS the AY reset.
+    {
+        fresh(emu);
+        nr_write(emu, 0x06, 0x03);
+        ay_port_write(emu, 0x00, 0x55);
+        const uint8_t held = emu.turbosound().ay(0).read_register(0);
+        nr_write(emu, 0x06, 0x01);
+        ay_port_write(emu, 0x00, 0x55);
+        const uint8_t released = emu.turbosound().ay(0).read_register(0);
+        check("AUD-NR-07", "NR 0x06 psg_mode=11 holds the AY reset; leaving it accepts writes "
+              "[zxnext.vhd:6379]", held == 0x00 && released == 0x55,
+              fmt("held R0=0x%02X released R0=0x%02X (want 0x00 / 0x55)", held, released));
+    }
+
+    // AUD-NR-08 - zxnext.vhd:1112 (init-only), :6379: the hold survives a soft reset.
+    {
+        fresh(emu);
+        nr_write(emu, 0x06, 0x03);
+        emu.soft_reset();
+        ay_port_write(emu, 0x00, 0x55);
+        const uint8_t r0 = emu.turbosound().ay(0).read_register(0);
+        const uint8_t mode = emu.nextreg().cached(0x06) & 0x03;
+        check("AUD-NR-08", "the AY reset hold survives a soft reset [zxnext.vhd:1112,6379]",
+              r0 == 0x00 && mode == 0x03, fmt("R0=0x%02X psg_mode=%u (want 0x00 / 3)", r0, mode));
+    }
+
+    // AUD-NR-09 - zxnext.vhd:6379: a state load restores the hold (the NR 0x06 value).
+    {
+        fresh(emu);
+        nr_write(emu, 0x06, 0x03);
+        StateWriter m;
+        emu.save_state(m);
+        std::vector<uint8_t> held_img(m.position(), 0);
+        StateWriter w(held_img.data(), held_img.size());
+        emu.save_state(w);
+
+        fresh(emu);
+        nr_write(emu, 0x06, 0x01);
+        StateWriter m2;
+        emu.save_state(m2);
+        std::vector<uint8_t> free_img(m2.position(), 0);
+        StateWriter w2(free_img.data(), free_img.size());
+        emu.save_state(w2);
+
+        StateReader r1(held_img.data(), held_img.size());
+        const bool l1 = emu.load_state(r1);
+        ay_port_write(emu, 0x00, 0x55);
+        const uint8_t a = emu.turbosound().ay(0).read_register(0);
+
+        StateReader r2(free_img.data(), free_img.size());
+        const bool l2 = emu.load_state(r2);
+        ay_port_write(emu, 0x00, 0x55);
+        const uint8_t b = emu.turbosound().ay(0).read_register(0);
+        check("AUD-NR-09", "a state load restores the AY reset hold from NR 0x06 [zxnext.vhd:6379]",
+              l1 && l2 && a == 0x00 && b == 0x55,
+              fmt("loads %d/%d held-load R0=0x%02X free-load R0=0x%02X (want 0x00 / 0x55)",
+                  l1, l2, a, b));
+    }
+
+    // AUD-NR-30 - ym2149.vhd:170-171,184-186,525-528; no reset clause at :258-519;
+    // zxnext_top_issue2.vhd:840: a soft reset clears RESET_H fields and keeps the generators.
+    {
+        fresh(emu);
+        play_three_chips(emu);
+        for (int i = 0; i < 64; ++i) {
+            const std::string d = ts_doc(emu);
+            if (json_val(d, "ay0_poly17") != "0" && json_val(d, "ay0_cnt_div") != "0") break;
+            emu.execute_single_instruction();
+        }
+        const std::string before = ts_doc(emu);
+        const std::string gen_before = gen_fingerprint(emu);
+        Emulator fresh_emu;
+        build_next_emulator(fresh_emu);
+        const bool nonvac = gen_before != gen_fingerprint(fresh_emu) &&
+                            json_val(before, "ay0_poly17") != "0" &&
+                            json_val(before, "ay1_poly17") != "0" &&
+                            json_val(before, "ay2_poly17") != "0";
+        emu.soft_reset();
+        const std::string after = ts_doc(emu);
+        const bool gens_kept = gen_before == gen_fingerprint(emu);
+        bool cleared = true;
+        for (int n = 0; n < 3; ++n) {
+            const std::string p = "ay" + std::to_string(n) + "_";
+            if (json_val(after, p + "addr") != "0") cleared = false;
+            for (const char* o : {"out_a", "out_b", "out_c"})
+                if (json_val(after, p + o) != "0") cleared = false;
+        }
+        check("AUD-NR-30", "a soft reset keeps every AY generator field and clears only addr, "
+              "registers and outputs [ym2149.vhd:170-171,184-186,258-519,525-528]",
+              nonvac && gens_kept && cleared,
+              fmt("nonvac=%d gens_kept=%d cleared=%d", nonvac, gens_kept, cleared));
+    }
+
+    // AUD-NR-31 - zxnext_top_issue2.vhd:1158-1177: a soft reset keeps the PSG enable phase.
+    {
+        fresh(emu);
+        uint64_t before = 0;
+        for (int i = 0; i < 64 && before == 0; ++i) {
+            emu.execute_single_instruction();
+            before = psg_accum_of(emu);
+        }
+        emu.soft_reset();
+        const uint64_t after = psg_accum_of(emu);
+        check("AUD-NR-31", "a soft reset keeps the PSG clock-enable phase "
+              "[zxnext_top_issue2.vhd:1158-1177]", before != 0 && after == before,
+              fmt("before=%llu after=%llu", (unsigned long long)before, (unsigned long long)after));
+    }
+
+    // AUD-NR-32 - zxnext_top_issue2.vhd:1195, ym2149.vhd:105-125: init(cfg) is power-on.
+    {
+        fresh(emu);
+        play_three_chips(emu);
+        for (int i = 0; i < 64 && psg_accum_of(emu) == 0; ++i) emu.execute_single_instruction();
+        const std::string used = gen_fingerprint(emu);
+        const uint64_t acc_used = psg_accum_of(emu);
+        fresh(emu);
+        Emulator ref;
+        build_next_emulator(ref);
+        check("AUD-NR-32", "init() without preserve_memory is power-on: generators and PSG phase "
+              "at their initial values [zxnext_top_issue2.vhd:1195, ym2149.vhd:105-125]",
+              used != gen_fingerprint(ref) && gen_fingerprint(emu) == gen_fingerprint(ref) &&
+              acc_used != 0 && psg_accum_of(emu) == psg_accum_of(ref),
+              fmt("used==ref(nonvac)=%d emu==ref=%d acc_used=%llu",
+                  used == gen_fingerprint(ref), gen_fingerprint(emu) == gen_fingerprint(ref),
+                  (unsigned long long)acc_used));
+    }
+}
+
 int main() {
     std::printf("Audio + NextREG Integration Tests\n");
     std::printf("===============================================\n\n");
@@ -1109,6 +1316,7 @@ int main() {
     test_nr_mixer(emu);     std::printf("  Group: NR-MIXER -- done\n");
     test_nr_dac_gate(emu);  std::printf("  Group: NR-DAC-GATE -- done\n");
     test_nr_a2(emu);        std::printf("  Group: NR-0xA2 -- done\n");
+    test_reset_scope(emu);  std::printf("  Group: Reset-scope -- done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
