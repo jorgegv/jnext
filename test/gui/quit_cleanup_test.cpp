@@ -39,9 +39,10 @@
 // close() returns true and the quit proceeds; the `if` guards a future veto,
 // not a current one.
 //
-// THE RECORDING ROW NEEDS NO REAL FFMPEG. VideoRecorder::start() consults
-// ffmpeg only through ffmpeg_available(), and stop() with no captured frames
-// removes its temp files and returns before building any encode command. A
+// THE RECORDING ROW NEEDS NO REAL FFMPEG. VideoRecorder::start() looks for
+// ffmpeg only through ffmpeg_available_fresh() (a PATH lookup, no process), and
+// stop() with no captured frames removes its temp files and returns before
+// building any encode command. A
 // stub `ffmpeg` placed first on PATH is therefore enough to make the row
 // hermetic — the same idiom video_recorder_cmd_test's SF group uses.
 //
@@ -163,8 +164,8 @@ public:
 
 fs::path g_dir;   // scratch dir: holds the stub ffmpeg and the recording paths
 
-// Stub `ffmpeg` first on PATH. Only `-version` is ever reached by these rows
-// (see the header note on stop()), so the stub does nothing else.
+// Stub `ffmpeg` first on PATH. The lookup only needs an executable file of that
+// name; nothing ever runs it in these rows (see the header note on stop()).
 bool install_ffmpeg_stub() {
     g_dir = fs::temp_directory_path() / ("jnext_quit_cleanup_" + std::to_string(::getpid()));
     std::error_code ec;
@@ -595,6 +596,76 @@ void test_no_veto_on_corrupt_quit() {
           " accepted=" + (dbg_close_accepted ? "1" : "0") + " (expect 1,1,1)");
 }
 
+// ---------------------------------------------------------------------------
+// GH #446 - File > Record asks for ffmpeg afresh, not from the startup cache
+// ---------------------------------------------------------------------------
+
+// Dismisses whichever modal opens (the "FFmpeg is not installed" box, or the
+// file dialog a stale cached answer would let through) and records which.
+struct RecordModalWatcher {
+    bool        saw_not_installed = false;
+    bool        saw_other_modal   = false;
+    QTimer      timer;
+
+    RecordModalWatcher() {
+        QObject::connect(&timer, &QTimer::timeout, [this]() {
+            QWidget* m = QApplication::activeModalWidget();
+            if (!m) return;
+            if (auto* mb = qobject_cast<QMessageBox*>(m)) {
+                if (mb->text().contains(QStringLiteral("FFmpeg is not installed")))
+                    saw_not_installed = true;
+                else
+                    saw_other_modal = true;
+                mb->done(QMessageBox::Ok);
+            } else {
+                saw_other_modal = true;   // the QFileDialog of a recording that would start
+                if (auto* d = qobject_cast<QDialog*>(m)) d->reject(); else m->close();
+            }
+        });
+        timer.start(1);
+    }
+    void stop() { timer.stop(); }
+};
+
+QAction* record_action(MainWindow& w) {
+    for (QAction* a : w.findChildren<QAction*>())
+        if (a->text().section(QLatin1Char('\t'), 0, 0).contains(QStringLiteral("Record MPEG&4 Video")))
+            return a;
+    return nullptr;
+}
+
+void test_record_fresh_check() {
+    Fixture fx;   // built with the stub ffmpeg on PATH: the startup answer is "present"
+    if (!fx.ok) {
+        check("QREC-01", "fixture: Next emulator + MainWindow", false, "emulator init unavailable");
+        check("QREC-02", "fixture: Next emulator + MainWindow", false, "emulator init unavailable");
+        return;
+    }
+    QAction* rec = record_action(fx.win);
+    const bool enabled_at_start = rec && rec->isEnabled();
+
+    // ffmpeg "removed since startup": PATH now names an empty directory.
+    const fs::path none = g_dir / "no-ffmpeg-here";
+    std::error_code ec;
+    fs::create_directories(none, ec);
+    const std::string old_path = std::getenv("PATH") ? std::getenv("PATH") : "";
+    ::setenv("PATH", none.c_str(), 1);
+
+    RecordModalWatcher watch;
+    if (rec) rec->trigger();
+    watch.stop();
+    QApplication::processEvents();
+    ::setenv("PATH", old_path.c_str(), 1);
+
+    check("QREC-01", "the record action was enabled at startup (the cached answer said ffmpeg is present)",
+          enabled_at_start, "record action missing or disabled");
+    check("QREC-02", "triggering it after ffmpeg vanished shows the 'not installed' box and opens no file dialog "
+                     "(on_record_start looks afresh)",
+          enabled_at_start && watch.saw_not_installed && !watch.saw_other_modal,
+          std::string("not_installed=") + (watch.saw_not_installed ? "1" : "0") +
+          " other_modal=" + (watch.saw_other_modal ? "1" : "0") + " (expect 1,0)");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -625,6 +696,9 @@ int main(int argc, char** argv) {
 
     test_no_veto_on_corrupt_quit();
     std::printf("  Group: Q139           - done\n");
+
+    test_record_fresh_check();
+    std::printf("  Group: QREC           - done\n");
 
     std::error_code ec;
     fs::remove_all(g_dir, ec);

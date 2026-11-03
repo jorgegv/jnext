@@ -662,7 +662,7 @@ naming the option and the value, and exits with status 1.
 :   Record video and audio to an MP4. Requires **ffmpeg**(1) on the PATH.
     If the recording cannot be produced (encoder failure, no usable
     output), **jnext** reports the error and exits non-zero. If the
-    recording cannot even be started (no usable **ffmpeg**), **jnext**
+    recording cannot even be started (no **ffmpeg** on the PATH), **jnext**
     exits non-zero immediately, without running the emulation.
 
 **\--wav-record** *FILE*

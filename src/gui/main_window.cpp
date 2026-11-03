@@ -2460,7 +2460,7 @@ void MainWindow::update_esp_status() {
 void MainWindow::on_record_start() {
     if (!emulator_) return;
 
-    if (!VideoRecorder::ffmpeg_available()) {
+    if (!VideoRecorder::ffmpeg_available_fresh()) {
         QMessageBox::warning(this, tr("Recording Error"),
             tr("FFmpeg is not installed or not found in PATH.\n\n"
                "Video recording needs the ffmpeg command available on your "
