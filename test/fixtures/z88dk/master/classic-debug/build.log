@@ -1,5 +1,5 @@
-# z88dk 39421a01cdfc9cb2011dbe3da38ef8fd1f5500b7 (master)
+# z88dk 97731e4e2988543e2c849cd1ae1d0aeddf372fcd (master)
 + zcc +zxn -clib=classic -debug  --codesegBANK_10 --list -c banked.c -o banked.o
-Unknown option2 --hardware-keyboard
-Cannot open source file: --hardware-keyboard
-rc=1
++ zcc +zxn -clib=classic -debug -m --list -subtype=nex -o prog -create-app bmain.c bankin.asm banked.o
+Bank 10, 16346 tail bytes free
+rc=0

@@ -618,14 +618,15 @@ banked.c::banked_add::1::1:
      8  0018  d1                	pop	de
      8  0019  7d                	ld	a,l
      8  001a  12                	ld	(de),a
+     8  001b  2600              	ld	h,0
      8                          	C_LINE	9,"banked.c::banked_add::1::1"
      9                          	C_LINE	9,"banked.c::banked_add::1::1"
-     9  001b  e1                	pop	hl
-     9  001c  e5                	push	hl
-     9  001d  2600              	ld	h,0
-     9  001f  33                	inc	sp
-     9  0020  cd0000            	call	l_debug_pop_frame
-     9  0023  c9                	ret
+     9  001d  e1                	pop	hl
+     9  001e  e5                	push	hl
+     9  001f  2600              	ld	h,0
+     9  0021  33                	inc	sp
+     9  0022  cd0000            	call	l_debug_pop_frame
+     9  0025  c9                	ret
      9                          
      9                          
      9                          	SECTION	bss_compiler

@@ -62,7 +62,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-dot, sccz80-dotx, sdcc-dot; v2.4-dotn/sccz80 | `dot.c dutil.c`, `-subtype=dot` / `dotx` / `dotn`, `-clib=new -debug` (sdcc-dot: `-clib=sdcc_iy -SO2 --c-code-in-asm`: lines in the `.lis` only) | ok, `PROG` (`PROG.X` for dotx) | GH #351 dot commands; dotn lives in `v2.4-dotn/` so that Z88CN-10's walk over `v2.4/` and `master/` (every map shows a C name) is not tripped by its refused C symbols |
 | master/sccz80-dot, sccz80-dotx, sdcc-dot, 80cc-dot | `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #351 |
 | master/classic-bank10 | `-clib=classic`, `BANK_10` | ok, no C lines | classic page prefix; keeps the classic CRT listing (G19-G21) |
-| master/classic-debug | `-clib=classic -debug`, `BANK_10` | **fails rc=1** | Z1 |
+| master/classic-debug | `-clib=classic -debug`, `BANK_10` | ok (z88dk v2.4-2883; failed with Z1 on v2.4-2695) | Z1 fixed on master, GH #445 |
 | v2.4/sccz80-cvars, master/sccz80-cvars, master/sdcc-cvars, master/80cc-cvars | `vars.c other.c` (+ `types.h`): `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #431: C variable records of every type (section "C variables") |
 | v2.4/sdcc-cvars | `-clib=sdcc_iy -debug`, `vars.c other.c` | **fails rc=1** | z88dk#3172, as `v2.4/sdcc-debug` |
 | v2.4/sccz80-cvars-banked, master/{sccz80,sdcc,80cc}-cvars-banked | `bk.c` compiled with `--codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20`, then `bkmain.c bk.o`, the compiler flags of the line above + `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` | ok | GH #431: banked code AND data (runnable, as the `-run` builds) |
@@ -88,7 +88,7 @@ listing, 12-18K lines) is kept for exactly four builds, `v2.4/sdcc-SO2`, `master
 - `v2.4/sdcc-debug` (G12): `defc Gcounter0_00==.` syntax errors in 2.4's sdcc `-debug`
   (z88dk issue 3172; fixed on master).
 - `v2.4/sdcc-cvars` (GH #431): the same z88dk issue 3172 failure as `v2.4/sdcc-debug`, on `vars.c other.c`.
-- `v2.4/classic-debug`, `master/classic-debug` (Z1): `Unknown option2 --hardware-keyboard`.
+- `v2.4/classic-debug` (Z1): `Unknown option2 --hardware-keyboard`. `master/classic-debug` failed the same way until z88dk v2.4-2883 (GH #445) and is now built.
   "Classic +zxn banked -debug: not producible."
 
 ## Findings (evidence in this tree)

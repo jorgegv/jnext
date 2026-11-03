@@ -572,25 +572,26 @@ bk.c::bk_sum::0::1:
      9                          L_f1_bb_1:
      9  0018  dd7eff            	ld	a,(ix-1)
      9  001b  fe04              	cp	4
-     9  001d  3017              	jr	nc,L_f1_bb_5
+     9  001d  3018              	jr	nc,L_f1_bb_5
      9                          L_f1_bb_3:
-     9  001f  dd7eff            	ld	a,(ix-1)
-     9  0022  010000            	ld	bc,_btable
-     9  0025  6069              	ld	hl,bc
-     9  0027  ed31              	add	hl,a
-     9  0029  7e                	ld	a,(hl)
-     9  002a  dd86fe            	add	a,(ix-2)
-     9  002d  dd77fe            	ld	(ix-2),a
-     9  0030  dd34ff            	inc	(ix-1)
-     9  0033  c31800            	jp	L_f1_bb_1
+     9  001f  dd5eff            	ld	e,(ix-1)
+     9  0022  1600              	ld	d,0
+     9  0024  010000            	ld	bc,_btable
+     9  0027  6069              	ld	hl,bc
+     9  0029  19                	add	hl,de
+     9  002a  7e                	ld	a,(hl)
+     9  002b  dd86fe            	add	a,(ix-2)
+     9  002e  dd77fe            	ld	(ix-2),a
+     9  0031  dd34ff            	inc	(ix-1)
+     9  0034  c31800            	jp	L_f1_bb_1
      9                          L_f1_bb_5:
      9                          	C_LINE	10,"bk.c::bk_sum::0::1"
-    10  0036  dd7efe            	ld	a,(ix-2)
-    10  0039  dd8604            	add	a,(ix+4)
-    10  003c  6f                	ld	l,a
-    10  003d  ddf9              	ld	sp,ix
-    10  003f  dde1              	pop	ix
-    10  0041  c9                	ret
+    10  0037  dd7efe            	ld	a,(ix-2)
+    10  003a  dd8604            	add	a,(ix+4)
+    10  003d  6f                	ld	l,a
+    10  003e  ddf9              	ld	sp,ix
+    10  0040  dde1              	pop	ix
+    10  0042  c9                	ret
     10                          	SECTION	bss_compiler
     10                          	SECTION	PAGE_20
     10                          ; --- Start of Optimiser additions ---

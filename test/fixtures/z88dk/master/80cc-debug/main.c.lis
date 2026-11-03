@@ -594,74 +594,71 @@ main.c::main::0::5:
     20                          	C_LINE	18,"main.c::main::0::5"
     18  0026  dd7eff            	ld	a,(ix-1)
     18  0029  fe08              	cp	8
-    18  002b  3032              	jr	nc,L_f3_bb_5
+    18  002b  302f              	jr	nc,L_f3_bb_5
     18                          L_f3_bb_3:
     18                          	C_LINE	19,"main.c::main::0::5"
-    19  002d  dd7eff            	ld	a,(ix-1)
-    19  0030  5f                	ld	e,a
-    19  0031  1600              	ld	d,0
-    19  0033  210100            	ld	hl,_table
-    19  0036  19                	add	hl,de
-    19  0037  444d              	ld	bc,hl
-    19  0039  c5                	push	bc
-    19  003a  dd7eff            	ld	a,(ix-1)
-    19  003d  6f                	ld	l,a
-    19  003e  2600              	ld	h,0
-    19  0040  e5                	push	hl
-    19  0041  cd0000            	call	_square
-    19  0044  c1                	pop	bc
-    19  0045  c1                	pop	bc
-    19  0046  7d                	ld	a,l
-    19  0047  02                	ld	(bc),a
+    19  002d  dd5eff            	ld	e,(ix-1)
+    19  0030  1600              	ld	d,0
+    19  0032  210100            	ld	hl,_table
+    19  0035  19                	add	hl,de
+    19  0036  444d              	ld	bc,hl
+    19  0038  dd7eff            	ld	a,(ix-1)
+    19  003b  6f                	ld	l,a
+    19  003c  c5                	push	bc
+    19  003d  e5                	push	hl
+    19  003e  cd0000            	call	_square
+    19  0041  c1                	pop	bc
+    19  0042  7d                	ld	a,l
+    19  0043  c1                	pop	bc
+    19  0044  02                	ld	(bc),a
     19                          	C_LINE	20,"main.c::main::0::5"
-    20  0048  3a0000            	ld	a,(_counter)
-    20  004b  47                	ld	b,a
-    20  004c  dd7eff            	ld	a,(ix-1)
-    20  004f  210100            	ld	hl,_table
-    20  0052  ed31              	add	hl,a
-    20  0054  7e                	ld	a,(hl)
-    20  0055  80                	add	a,b
-    20  0056  320000            	ld	(_counter),a
+    20  0045  dd5eff            	ld	e,(ix-1)
+    20  0048  1600              	ld	d,0
+    20  004a  210100            	ld	hl,_table
+    20  004d  19                	add	hl,de
+    20  004e  7e                	ld	a,(hl)
+    20  004f  210000            	ld	hl,_counter
+    20  0052  86                	add	a,(hl)
+    20  0053  320000            	ld	(_counter),a
     20                          	C_LINE	18,"main.c::main::0::5"
-    18  0059  dd34ff            	inc	(ix-1)
+    18  0056  dd34ff            	inc	(ix-1)
     18                          	C_LINE	21,"main.c::main::0::5"
-    21  005c  c32600            	jp	L_f3_bb_1
+    21  0059  c32600            	jp	L_f3_bb_1
     21                          L_f3_bb_5:
     21                          	C_LINE	22,"main.c::main::0::5"
-    22  005f  3a0000            	ld	a,(_counter)
-    22  0062  fe65              	cp	101
-    22  0064  380c              	jr	c,L_f3_bb_7
-    22  0066  3a0000            	ld	a,(_counter)
-    22  0069  fe65              	cp	101
-    22  006b  381e              	jr	c,L_f3_bb_9
+    22  005c  3a0000            	ld	a,(_counter)
+    22  005f  fe65              	cp	101
+    22  0061  380c              	jr	c,L_f3_bb_7
+    22  0063  3a0000            	ld	a,(_counter)
+    22  0066  fe65              	cp	101
+    22  0068  381c              	jr	c,L_f3_bb_9
     22                          L_f3_bb_8:
     22                          	C_LINE	22,"main.c::main::0::5"
-    22  006d  3e64              	ld	a,100
-    22  006f  c38e00            	jp	L_f3_bb_10
+    22  006a  3e64              	ld	a,100
+    22  006c  c38900            	jp	L_f3_bb_10
     22                          L_f3_bb_7:
     22                          	C_LINE	23,"main.c::main::0::5"
-    23  0072  cd0000            	call	_asm_bump
+    23  006f  cd0000            	call	_asm_bump
     23                          	C_LINE	24,"main.c::main::0::5"
-    24  0075  3a0000            	ld	a,(_counter)
-    24  0078  6f                	ld	l,a
-    24  0079  2600              	ld	h,0
-    24  007b  e5                	push	hl
-    24  007c  cd0000            	call	_util_twice
-    24  007f  c1                	pop	bc
-    24  0080  7d                	ld	a,l
+    24  0072  3a0000            	ld	a,(_counter)
+    24  0075  6f                	ld	l,a
+    24  0076  e5                	push	hl
+    24  0077  cd0000            	call	_util_twice
+    24  007a  c1                	pop	bc
+    24  007b  7d                	ld	a,l
     24                          L_f3_tm_1:
-    24  0081  320000            	ld	(_counter),a
+    24  007c  320000            	ld	(_counter),a
     24                          	C_LINE	27,"main.c::main::0::5"
     27                          L_f3_bb_11:
     27                          	C_LINE	26,"main.c::main::0::5"
-    26  0084  3a0000            	ld	a,(_counter)
-    26  0087  3c                	inc	a
-    26  0088  c38100            	jp	L_f3_tm_1
+    26  007f  3a0000            	ld	a,(_counter)
+    26  0082  3c                	inc	a
+    26  0083  c37c00            	jp	L_f3_tm_1
     26                          L_f3_bb_9:
-    26  008b  3a0000            	ld	a,(_counter)
+    26  0086  3a0000            	ld	a,(_counter)
     26                          L_f3_bb_10:
-    26  008e  320000            	ld	(_counter),a
-    26  0091  c37200            	jp	L_f3_bb_7
+    26  0089  320000            	ld	(_counter),a
+    26  008c  c36f00            	jp	L_f3_bb_7
     26                          	SECTION	bss_compiler
     26                          	SECTION	code_compiler
     26                          ; --- Start of Optimiser additions ---
