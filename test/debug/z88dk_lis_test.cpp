@@ -324,28 +324,28 @@ int main() {
         const auto rm = load(mm, master / "sdcc-debug" / "prog.map");
         const SourceText* tx = so2.embedded_text(CRT24);
         const SourceText* txm = mm.embedded_text(CRTM);
-        check("Z88LIS-10", "prog.lis gives the CRT its lines on 2.4 and master: $8000 is the .inc's :3, $8001 the m4's :9470, :9462 resolves to $8000, $800C (code_crt_init, no label) :9148, $8032 :9524, $8036 the exit .inc's :3; the m4 text has 9689 lines (9470 is exactly the listing's \"      push iy\", 9462 \"__Start:\") from prog.lis; the .inc has none",
+        check("Z88LIS-10", "prog.lis gives the CRT its lines on 2.4 and master: $8000 is the .inc's :3, $8001 the m4's :9470, :9462 resolves to $8000, $800C (code_crt_init, no label) :9148, $8032 :9524, $8036 the exit .inc's :3; the m4 text has 9689 lines (9470 is exactly the listing's \"      push iy\", 9462 \"__Start:\") from prog.lis; the .inc has none (GH #445: master's m4 moved +12 with z88dk v2.4-2883: $8001 :9482, $800C :9160, $8032 :9536, 9701 lines)",
               so2_r && rm &&
                   is_at(so2.lookup(P4, 0x8000), DI24, 3) && is_at(so2.lookup(P4, 0x8001), CRT24, 9470) &&
                   is_at(so2.lookup(P4, 0x8002), CRT24, 9470) &&
                   starts_are(so2.resolve("zxn_crt.asm.m4:9462"), {{P4, 0x8000}}) &&
                   is_at(so2.lookup(P4, 0x800C), CRT24, 9148) && is_at(so2.lookup(P4, 0x8032), CRT24, 9524) &&
-                  is_at(mm.lookup(P4, 0x8000), DIM, 3) && is_at(mm.lookup(P4, 0x8001), CRTM, 9470) &&
-                  is_at(mm.lookup(P4, 0x800C), CRTM, 9148) && is_at(mm.lookup(P4, 0x8032), CRTM, 9524) &&
+                  is_at(mm.lookup(P4, 0x8000), DIM, 3) && is_at(mm.lookup(P4, 0x8001), CRTM, 9482) &&
+                  is_at(mm.lookup(P4, 0x800C), CRTM, 9160) && is_at(mm.lookup(P4, 0x8032), CRTM, 9536) &&
                   is_at(mm.lookup(P4, 0x8036), EXITM, 3) &&
                   tx && tx->lines.size() == 9689 && tx->lines[9469] == "      push iy" &&
                   tx->lines[9461] == "__Start:" &&
                   tx->origin.size() >= 8 && tx->origin.compare(tx->origin.size() - 8, 8, "prog.lis") == 0 &&
-                  txm && txm->lines.size() == 9689 && !so2.embedded_text(DI24));
+                  txm && txm->lines.size() == 9701 && !so2.embedded_text(DI24));
     }
 
     // ── Z88LIS-11: a label in a false IF branch is not an anchor ──
     {
         SourceMap mm;
         load(mm, master / "sdcc-debug" / "prog.map");
-        check("Z88LIS-11", "__stdio_closed_file_list is listed at m4 :9207 (bytes) and :9266 (a false IF branch, no bytes): $8EC4 is :9207 and prog.lis has no unplaced line; master has it at $8EB5",
+        check("Z88LIS-11", "__stdio_closed_file_list is listed at m4 :9207 (bytes) and :9266 (a false IF branch, no bytes): $8EC4 is :9207 and prog.lis has no unplaced line; master has it at $8EB5 (GH #445: listed at :9219 there since z88dk v2.4-2883)",
               so2_r && is_at(so2.lookup(P4, 0x8EC4), CRT24, 9207) && !any_note_has(so2_r, "prog.lis") &&
-                  is_at(mm.lookup(P4, 0x8EB5), CRTM, 9207));
+                  is_at(mm.lookup(P4, 0x8EB5), CRTM, 9219));
     }
 
     // ── Z88LIS-12: a section switch ends a C attribution ──
@@ -483,9 +483,9 @@ int main() {
         const bool edited = edit_file(d / "prog.map", "__code_crt_init_tail            = $8032", "__code_crt_init_tail            = $8033");
         SourceMap m;
         const auto r = load(m, d / "prog.map");
-        check("Z88LIS-19", "code_crt_init one byte longer in the map than in prog.lis (owner-approved 2026-11-01, was: not placed): only $800C of the two starts holds the 17 opcode bytes, so its lines are placed ($800C is m4:9148, no note counts 17) and $8001 is still :9470",
-              edited && r && is_in(m.lookup(P4, 0x800C), "newlib/target/zxn/zxn_crt.asm.m4", 9148) &&
-                  !any_note_has(r, "17 listed lines") && is_at(m.lookup(P4, 0x8001), CRTM, 9470));
+        check("Z88LIS-19", "code_crt_init one byte longer in the map than in prog.lis (owner-approved 2026-11-01, was: not placed): only $800C of the two starts holds the 17 opcode bytes, so its lines are placed ($800C is m4:9148, no note counts 17) and $8001 is still :9470 (GH #445: master's m4 is +12 since z88dk v2.4-2883: $800C :9160, $8001 :9482)",
+              edited && r && is_in(m.lookup(P4, 0x800C), "newlib/target/zxn/zxn_crt.asm.m4", 9160) &&
+                  !any_note_has(r, "17 listed lines") && is_at(m.lookup(P4, 0x8001), CRTM, 9482));
     }
 
     // ── Z88LIS-20: sccz80 zero-width lines ──
@@ -554,6 +554,7 @@ int main() {
         bool ok24 = true;
         for (const char* install : {"v2.4", "master"}) {
             const fs::path d = (std::string(install) == "v2.4" ? v24 : master) / "classic-bank10";
+            const int crt0_line = std::string(install) == "v2.4" ? 25 : 45;   // GH #445: master's ram_crt0.asm grew 20 lines
             const std::vector<uint8_t> prog = read_bytes(d / "prog");
             SourceMap m;
             SourceMap without;
@@ -563,13 +564,13 @@ int main() {
             const auto rw = load(without, dc / "prog.map");
             ok23 = ok23 && r && rw && prog.size() > 0x42 && r.listings == 4 && r.listing_notes.empty() &&
                    r.count - rw.count == 47 && prog[0] == 0xFD && prog[0x41] == 0xAF &&
-                   is_in(m.lookup(P4, 0x8000), "classic/ram_crt0.asm", 25) &&
+                   is_in(m.lookup(P4, 0x8000), "classic/ram_crt0.asm", crt0_line) &&
                    is_in(m.lookup(P4, 0x8041), "crt_initialise_bss.inc", 5) &&
                    is_at(m.lookup(P20, 0xC000), "banked.c", 6);
             ok24 = ok24 && r && is_in(m.lookup(P4, 0x8041), "crt_initialise_bss.inc", 5) &&
                    !is_in(m.lookup(P4, 0x8010), "crt_initialise_bss.inc", 5);
         }
-        check("Z88LIS-23", "classic CRT (2.4 and master): prog.lis is used as module zxn_crt0 (the LAST MODULE line; zcc's zxn_crt0_asm comes first): 4 listings, no note, 47 placed rows, $8000 is ram_crt0.asm:25 over prog's $FD, $8041 crt_initialise_bss.inc:5 over prog's $AF, and the 24-bit BANK_10 code is banked.c:6 in page 20",
+        check("Z88LIS-23", "classic CRT (2.4 and master): prog.lis is used as module zxn_crt0 (the LAST MODULE line; zcc's zxn_crt0_asm comes first): 4 listings, no note, 47 placed rows, $8000 is ram_crt0.asm:25 (master :45, GH #445) over prog's $FD, $8041 crt_initialise_bss.inc:5 over prog's $AF, and the 24-bit BANK_10 code is banked.c:6 in page 20",
               ok23);
         check("Z88LIS-24", "the classic CRT's '; Macro to allow ...' comment is not a MACRO definition: the code after it is still placed ($8041, not the $8010 a swallowed or obeyed macro body gives)",
               ok24);
@@ -901,17 +902,17 @@ int main() {
             const auto r = load(m, d / "prog.map");
             const NexMemory nex(d / "prog.nex");
             const bool is36 = c.root == v24;
-            bool ok = r && nex.ok && r.listings == 4 && r.count == 193 && !any_note_has(r, "could not be placed") &&
-                      is_in(m.lookup(P4, 0x800C), c.crt, 9164) &&
+            bool ok = r && nex.ok && r.listings == 4 && r.count == (is36 ? 193 : 194) && !any_note_has(r, "could not be placed") &&
+                      is_in(m.lookup(P4, 0x800C), c.crt, is36 ? 9164 : 9176) &&
                       is_in(m.lookup(P4, 0x8011), c.vars, 39) &&
                       is_in(m.lookup(P4, 0x802F), c.vars, 81) && is_in(m.lookup(P4, 0x8031), c.vars, 81) &&
-                      !m.lookup(P4, 0x8032) && is_in(m.lookup(P4, 0x8048), c.crt, 9540) &&
+                      !m.lookup(P4, 0x8032) && is_in(m.lookup(P4, 0x8048), c.crt, is36 ? 9540 : 9552) &&
                       m.verify_program(logical_junk, nex.reader()) == std::optional<bool>(true);
             if (is36)
                 check("Z88LIS-36", "v2.4 sccz80 banked build (code_crt_init $3C, the CRT piece $26, the driver's 22 bytes after it): no 'could not be placed' note, 4 listings, 193 lines; $800C is the m4 :9164, $8011 clib_variables.inc:39, $802F and $8031 :81, $8032 (the driver) has no line, $8048 is the m4 :9540; the program's identity verifies against prog.nex",
                       ok);
             else
-                check("Z88LIS-37", "master sccz80 banked build: the same values at the same addresses, in master's paths",
+                check("Z88LIS-37", "master sccz80 banked build: the same values at the same addresses, in master's paths (GH #445: z88dk v2.4-2883 adds a line, 194, and moves the m4 to :9176 and :9552)",
                       ok);
         }
     }
