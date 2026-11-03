@@ -12,7 +12,8 @@
 - Source-level debugging of z88dk C programs, banked code and dot commands; Source tab gutter, syntax colours, context menu
 - Debugger views name the memory behind every address (P0E, ROM0, DIVROM); optional physical addresses
 - Your own labels and comments, saved in a .jdp project file; z88dk C names (counter for _counter)
-- Memory coverage by execute, read and write; skoolkit and Ghidra export and import of labels, comments and code/data map
+- Memory coverage by execute, read and write; skoolkit and Ghidra export and import of labels
+- skoolkit export also carries your comments and the code/data map; its import reads labels and comments back
 - Debugger Watches panel shows every integer watch in hex and decimal, e.g. $D0 (208d)
 
 ### Bug Fixes

@@ -14,7 +14,7 @@ inline constexpr uint8_t NOT_RAM_PAGE = 0xFF;
 /// fetch came from `MemSpace::Page`, else NOT_RAM_PAGE. The panels and the
 /// breakpoint gate, the source map, the trace and the call frames are all keyed
 /// by the full `MemSpace` now (epic #23); nothing in `src/` calls this any more,
-/// only tests do. It is the one place that derives "is it RAM" from the kind.
+/// only tests do. It turns a `MemSpace` into the old page number for the tests.
 constexpr uint8_t ram_page_of(jnext::dbg::MemSpace s) {
     return s.kind == jnext::dbg::MemSpace::Kind::Page ? static_cast<uint8_t>(s.index)
                                                       : NOT_RAM_PAGE;
