@@ -7114,6 +7114,76 @@ int main() {
                                     "are registers of an outer frame (optimised out) while lp and i are read from the stack",
                   ok && zat && cvv(z, 1, "lp") == "{x = 3, y = 4, tag = 5}" && cvv(z, 1, "i") == "0" && !big.ok && big.why == "optimised out" && !cc.ok && !pp.ok);
         }
+        {   // SRCDBG-CVAL-34
+            // vars.c's globals at the stop of CVAL-28 (g_float is `{6}SF` on sccz80/80cc and `{4}SF` on zsdcc; the enum colour BLUE is 6)
+            bool ok = true;
+            std::string seen;
+            for (const SumAt& c : {SumAt{"master/sccz80-cvars", "c34a", 0x8D3E}, SumAt{"master/sdcc-cvars", "c34b", 0x8C97}, SumAt{"master/80cc-cvars", "c34c", 0x8CCA}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const bool at = at41(c, m);
+                const std::string want_float = "1.5";
+                const std::string got =
+                    "g_int=" + cvv(m, 0, "g_int") + " g_uint=" + cvv(m, 0, "g_uint") + " g_schar=" + cvv(m, 0, "g_schar") + " g_char=" + cvv(m, 0, "g_char") +
+                    " g_long=" + cvv(m, 0, "g_long") + " g_ulong=" + cvv(m, 0, "g_ulong") + " g_float=" + cvv(m, 0, "g_float") + " g_str=" + cvv(m, 0, "g_str") +
+                    " g_cptr=" + cvv(m, 0, "g_cptr").substr(cvv(m, 0, "g_cptr").find(' ') + 1) + " g_matrix=" + cvv(m, 0, "g_matrix") +
+                    " g_pt=" + cvv(m, 0, "g_pt") + " g_colour=" + cvv(m, 0, "g_colour") + " g_byte=" + cvv(m, 0, "g_byte") + " s_file=" + cvv(m, 0, "s_file") +
+                    " vs=" + cvv(m, 0, "vars.c::s_dup") + " os=" + cvv(m, 0, "other.c::s_dup");
+                const std::string want = "g_int=-5 g_uint=40000 g_schar=-3 g_char=65 'A' g_long=305419896 g_ulong=3405691582 g_float=" + want_float +
+                                         " g_str=\"hi\" g_cptr=\"abc\" g_matrix={{1, 2, 3}, {4, 5, 6}} g_pt={x = 1, y = 2, tag = 3} g_colour=6 g_byte=7 s_file=9 vs=0 os=4";
+                if (!at || got != want) {
+                    ok = false;
+                    seen += std::string(" [") + c.fixture + "] " + got;
+                }
+            }
+            check("SRCDBG-CVAL-34", "the globals of vars.c at the vars.c:41 stop, on sccz80, zsdcc and 80cc: g_int=-5 g_uint=40000 g_schar=-3 g_char=65 'A' g_long=305419896 "
+                                    "g_ulong=3405691582 g_float 1.5 g_str=\"hi\" g_cptr=\"abc\" g_matrix g_pt g_colour=6 g_byte=7 s_file=9, and the two file statics s_dup "
+                                    "told apart by file: vars.c::s_dup=0 and other.c::s_dup=4",
+                  ok, seen);
+        }
+        {   // SRCDBG-CVAL-35
+            // in main's while (1): everything main stored has happened (arr = {467, 471, 475, 479}; s_file = 479 + 120; other(599) = 1202, as uint8_t 178)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sccz80-cvars", "c35");
+            const bool at = cv_starts_at(m, "vars.c:64", 0x8E1F) && cv_run_to(m, 0x8E1F);
+            const Dbg::CValueResult head = m.dbg->read_c_value(0, "g_head");
+            const Dbg::CValueResult node = m.dbg->read_c_value(0, "g_node");
+            const Dbg::CValueResult fn = m.dbg->read_c_value(0, "g_fnptr2");
+            check("SRCDBG-CVAL-35", "in main's loop: g_head shows ` <g_node>` (the label of what it points at), g_head->val is 100000, g_node.next is NULL, s_file is 599, "
+                                    "vars.c::s_dup is 178 and g_fnptr2 shows ` <other>`",
+                  at && head.ok && head.value.find(" <g_node>") != std::string::npos && cvv(m, 0, "g_head->val") == "100000" &&
+                      cvv(m, 0, "g_node.next") == "$0000 (NULL)" && node.ok && cvv(m, 0, "s_file") == "599" && cvv(m, 0, "vars.c::s_dup") == "178" && fn.ok &&
+                      fn.value.find(" <other>") != std::string::npos && cvv(m, 0, "g_head->next->val").find("null pointer") != std::string::npos);
+        }
+        {   // SRCDBG-CVAL-36
+            // a real mid-run attach (the program ran with no client, so nothing was tracked): the fallback bases give main's locals
+            bool ok = true;
+            for (const char* fx : {"master/sccz80-cvars", "master/sdcc-cvars"}) {
+                Bare m(MachineType::ZXN_ISSUE2);
+                const fs::path d = var_dir(fx[7] == 's' && fx[8] == 'c' ? "c36a" : "c36b", fx);
+                emulator_apply_load(m.emu, (d / "prog.nex").string(), false);
+                m.dbg->load_program_sidecars((d / "prog.nex").string());
+                m.frames(3);
+                jnext::dbg::ClientInfo ci;
+                ci.name = "late";
+                ci.kind = jnext::dbg::ClientKind::Test;
+                const ClientId c = m.dbg->attach(ci).value;
+                m.dbg->pause(c);
+                const auto str = [&](const char* path) {
+                    const Dbg::CValueResult r = m.dbg->read_c_value(0, path);
+                    return r.ok ? r.value : "!" + r.why;
+                };
+                const Dbg::CValueResult lp = m.dbg->read_c_value(0, "lp");
+                bool good = str("lp") == "{x = 3, y = 4, tag = 5}" && str("i") == "4" && str("arr") == "{467, 471, 475, 479}";
+                if (fx[7] == 's' && fx[8] == 'c') {   // sccz80 keeps c, big and pp on the stack
+                    const Dbg::CValueResult pp = m.dbg->read_c_value(0, "pp");
+                    good = good && str("c") == "120 'x'" && str("big") == "100000" && lp.ok && pp.ok && pp.integer && *pp.integer == lp.where.cpu;
+                }
+                ok = ok && good;
+            }
+            check("SRCDBG-CVAL-36", "a real mid-run attach (main in its while (1), no tracked frame): lp = {3, 4, 5}, i = 4, arr = {467, 471, 475, 479} on sccz80 and zsdcc, and "
+                                    "on sccz80 also c = 120 'x', big = 100000 and pp == &lp",
+                  ok);
+        }
         {   // SRCDBG-CVAL-20
             // GH #434 review F7 (R12): zsdcc `push ix; ld ix,0; add ix,sp`: after the push (entry+2) and after the ld (entry+6)
             // SP = E - 2 already, so the base is SP.
