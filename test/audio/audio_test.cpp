@@ -33,6 +33,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
+#include <set>
+#include <utility>
 #include <string>
 #include <vector>
 #include "../row_id.h"
@@ -2353,6 +2356,149 @@ static void g_ts_stereo() {
     }
 }
 
+// GH #442 helpers. Selects a chip (pan 11) and writes the given register values.
+static void ts_prog(TurboSound& ts, uint8_t sel_cmd,
+                    std::initializer_list<std::pair<int, int>> regs) {
+    ts.reg_addr(sel_cmd);
+    for (const auto& rv : regs) {
+        ts.reg_addr(static_cast<uint8_t>(rv.first));
+        ts.reg_write(static_cast<uint8_t>(rv.second));
+    }
+}
+
+// Tone on A, period 0 (toggles on every ena_div), fixed level 15 (ym2149.vhd:310-312, 151-155).
+static const std::initializer_list<std::pair<int, int>> kTsToneSet =
+    {{7, 0x3E}, {8, 0x0F}, {9, 0}, {10, 0}};
+
+// TS-35..37 window: every chip in `locked` has the same A output as AY#0 on every
+// tick, and pcm_left == mult * A(AY#0) (mult chips in the mix, each in lockstep).
+static bool ts_window(TurboSound& ts, int ticks, const int* locked, int nlocked,
+                      int mult, bool& saw_lo, bool& saw_hi, std::string& why) {
+    for (int t = 0; t < ticks; ++t) {
+        ts.tick();
+        const unsigned a0 = ts.ay(0).output_a();
+        if (a0 == 0x00) saw_lo = true;
+        if (a0 == 0xFF) saw_hi = true;
+        for (int k = 0; k < nlocked; ++k) {
+            if (ts.ay(locked[k]).output_a() != a0) {
+                why = fmt("tick %d: ay(%d).A=%u ay(0).A=%u", t, locked[k],
+                          ts.ay(locked[k]).output_a(), a0);
+                return false;
+            }
+        }
+        if (ts.pcm_left() != static_cast<unsigned>(mult) * a0) {
+            why = fmt("tick %d: pcm_left=%u expected %u", t, ts.pcm_left(), mult * a0);
+            return false;
+        }
+    }
+    return true;
+}
+
+static void g_ts_clock() {
+    set_group("TS-clock");
+
+    // TS-35 / TS-36: an unselected AY#1 / AY#2 keeps running with TurboSound off.
+    // All identical ym2149 instances share clock_en_i (turbosound.vhd:162,217,272;
+    // zxnext.vhd:6385), so each is in lockstep with AY#0, which always ticked.
+    // TurboSound off gates only the output (:252, :307), which sends 0 for the
+    // unselected chip; the on window adds it back (:334).
+    for (int chip = 1; chip <= 2; ++chip) {
+        TurboSound ts;
+        ts.set_enabled(true);
+        ts.set_ay_mode(true);
+        ts.set_stereo_mode(false);
+        ts_prog(ts, 0xFF, kTsToneSet);
+        ts_prog(ts, chip == 1 ? 0xFE : 0xFD, kTsToneSet);
+        ts.reg_addr(0xFF);
+        ts.set_enabled(false);
+        const int locked[1] = {chip};
+        bool lo = false, hi = false, lo2 = false, hi2 = false;
+        std::string why1, why2;
+        const bool off_ok = ts_window(ts, 104, locked, 1, 1, lo, hi, why1);
+        ts.set_enabled(true);
+        const bool on_ok = ts_window(ts, 32, locked, 1, 2, lo2, hi2, why2);
+        const bool nonvac = lo && hi && lo2 && hi2;
+        if (chip == 1)
+            check("TS-35", "TurboSound off: unselected AY#1 stays in lockstep with AY#0, mix gated",
+                  off_ok && on_ok && nonvac,
+                  fmt("%s%s nonvac=%d VHDL turbosound.vhd:162,217,252,334 zxnext.vhd:6385",
+                      why1.c_str(), why2.c_str(), nonvac));
+        else
+            check("TS-36", "TurboSound off: unselected AY#2 stays in lockstep with AY#0, mix gated",
+                  off_ok && on_ok && nonvac,
+                  fmt("%s%s nonvac=%d VHDL turbosound.vhd:162,272,307,334 zxnext.vhd:6385",
+                      why1.c_str(), why2.c_str(), nonvac));
+    }
+
+    // TS-37: TurboSound off with AY#1 selected. All three chips run; only AY#1
+    // reaches the mix (:197 zeroes AY#0, :307 zeroes AY#2).
+    {
+        TurboSound ts;
+        ts.set_enabled(true);
+        ts.set_ay_mode(true);
+        ts.set_stereo_mode(false);
+        ts_prog(ts, 0xFF, kTsToneSet);
+        ts_prog(ts, 0xFE, kTsToneSet);
+        ts_prog(ts, 0xFD, kTsToneSet);
+        ts.reg_addr(0xFE);
+        ts.set_enabled(false);
+        const int locked[2] = {1, 2};
+        bool lo = false, hi = false, lo2 = false, hi2 = false;
+        std::string why1, why2;
+        const bool off_ok = ts_window(ts, 104, locked, 2, 1, lo, hi, why1);
+        ts.set_enabled(true);
+        const bool on_ok = ts_window(ts, 32, locked, 2, 3, lo2, hi2, why2);
+        const bool nonvac = lo && hi && lo2 && hi2;
+        check("TS-37", "TurboSound off, AY#1 selected: all chips run, only AY#1 reaches the mix",
+              off_ok && on_ok && nonvac,
+              fmt("%s%s nonvac=%d VHDL turbosound.vhd:129,162,197,217,252,272,307",
+                  why1.c_str(), why2.c_str(), nonvac));
+    }
+
+    // TS-38: noise and envelope generators of unselected chips run too.
+    {
+        TurboSound ts;
+        ts.set_enabled(true);
+        ts.set_ay_mode(true);
+        ts.set_stereo_mode(false);
+        const std::initializer_list<std::pair<int, int>> ne =
+            {{6, 0x01}, {7, 0x37}, {8, 0x0F}, {9, 0x10}, {10, 0},
+             {11, 0x03}, {12, 0}, {13, 0x0E}};
+        ts_prog(ts, 0xFF, ne);
+        ts_prog(ts, 0xFE, ne);
+        ts_prog(ts, 0xFD, ne);
+        ts.reg_addr(0xFF);
+        ts.set_enabled(false);
+        bool ok = true, lo = false, hi = false;
+        std::set<unsigned> bvals;
+        std::string why;
+        for (int t = 0; t < 3112 + 64 && ok; ++t) {
+            if (t == 3112) ts.set_enabled(true);
+            ts.tick();
+            if (t < 3112) {
+                const unsigned a0 = ts.ay(0).output_a();
+                if (a0 == 0) lo = true;
+                if (a0 == 0xFF) hi = true;
+                bvals.insert(ts.ay(0).output_b());
+            }
+            for (int i = 1; i <= 2; ++i) {
+                if (ts.ay(i).output_a() != ts.ay(0).output_a() ||
+                    ts.ay(i).output_b() != ts.ay(0).output_b()) {
+                    ok = false;
+                    why = fmt("tick %d: ay(%d) A/B %u/%u vs ay(0) %u/%u", t, i,
+                              ts.ay(i).output_a(), ts.ay(i).output_b(),
+                              ts.ay(0).output_a(), ts.ay(0).output_b());
+                    break;
+                }
+            }
+        }
+        check("TS-38", "TurboSound off: noise and envelope of unselected chips run in lockstep",
+              ok && lo && hi && bvals.size() >= 8,
+              fmt("%s lo=%d hi=%d distinctB=%zu VHDL ym2149.vhd:281-300,334-462 turbosound.vhd:217,272",
+                  why.c_str(), lo, hi, bvals.size()));
+    }
+}
+
 static void g_ts_enable() {
     set_group("TS-enable");
 
@@ -2483,7 +2629,7 @@ static void g_ts_enable() {
     // G115 closure: TurboSound::reset_ay_only() splits the partial reset
     // out of the full power-on reset(). This row exercises the
     // turbosound_en preservation (NR 0x08 b1 → set_enabled).
-    // Reserved range: TS-35..59 left unused for future expansion.
+    // Reserved range: TS-39..59 left unused for future expansion.
     {
         TurboSound ts;
         ts.set_enabled(true);                   // NR 0x08 b1 = 1
@@ -3511,6 +3657,7 @@ int main() {
     g_ts_routing();    std::printf("  2.2 TS routing -- done\n");
     g_ts_stereo();     std::printf("  2.3 TS stereo -- done\n");
     g_ts_enable();     std::printf("  2.4 TS enable -- done\n");
+    g_ts_clock();      std::printf("  2.4 TS clock -- done\n");
     g_ts_panning();    std::printf("  2.5 TS panning -- done\n");
     g_ts_ids();        std::printf("  2.6 TS ids -- done\n");
     g_dac();           std::printf("  3   DAC -- done\n");

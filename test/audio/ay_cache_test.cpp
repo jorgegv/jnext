@@ -40,6 +40,8 @@
 //     17 pan command (reg_addr)  18 state load
 //   AYC-19  reset() and reset_ay_only() leave both paths equal. They are not
 //           observable on their own: both zero every output the mix reads.
+//   AYC-22  An unselected chip keeps ticking with TurboSound off (GH #442); the cached
+//           mix follows when it is re-enabled.
 //   AYC-20  Golden hash: three TurboSound chips running 200000 ticks. The value
 //           was recorded from the tree BEFORE the caches (7b245c86d), so it does
 //           not depend on any reference written for the caches.
@@ -493,6 +495,33 @@ int main() {
         g.tick(50);
         check("AYC-19", "reset_ay_only() and reset() leave the cached and reference paths equal",
               a && g.ok, g.why);
+    }
+
+    {
+        // An unselected chip keeps playing while TurboSound is off (GH #442): its output
+        // moves, and the cached mix follows when it is re-enabled (turbosound.vhd:162/217/272).
+        Rig g;
+        g.tune();
+        bool moved1 = false, moved2 = false;
+        for (int sel : {0, 2}) {   // AY#0 selected, then AY#1 selected
+            g.select_chip(sel);
+            g.both([](auto& t) { t.set_enabled(false); });
+            const int u = sel == 0 ? 1 : 0, v = 2;
+            uint8_t pu = g.r.ay(u).output_c(), pv = g.r.ay(v).output_c();
+            bool mu = false, mv = false;
+            for (int i = 0; i < 2000; ++i) {
+                g.tick();
+                const uint8_t nu = g.r.ay(u).output_c(), nv = g.r.ay(v).output_c();
+                if (nu != pu) mu = true;
+                if (nv != pv) mv = true;
+                pu = nu; pv = nv;
+            }
+            (sel == 0 ? moved1 : moved2) = mu && mv;
+            g.both([](auto& t) { t.set_enabled(true); });
+            g.tick(200);
+        }
+        check("AYC-22", "unselected chips keep ticking with TurboSound off; the cached mix follows on re-enable",
+              g.ok && moved1 && moved2, g.ok ? "an unselected chip's output never moved: row is vacuous" : g.why);
     }
 
     {
