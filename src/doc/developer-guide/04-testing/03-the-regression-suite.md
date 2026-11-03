@@ -179,7 +179,9 @@ all pass the run is stamped, and the stamp names them. Targeted rows run through
 `make regression-rows ROWS="..."`, which builds the binaries they need. Its Qt
 `jnext` is the non-PGO Release build (`build/gui-release-non-pgo`): a branch trains
 no PGO profile, and the same code gives the same pixels. `ROWS_PGO=1` runs the PGO
-`build/gui-release` instead; `make regression` and `regression-confirm` always do.
+`build/gui-release` instead; `make regression` and `regression-confirm` always do. A row
+name that neither manifest declares (or an empty one) is a harness fault, exit 2, in every
+mode, so a mistyped name can never run nothing and pass.
 
 ## A failure on a loaded host
 
