@@ -79,6 +79,11 @@ public:
     /// Both dialects are testable from either platform.
     static bool ffmpeg_in_path_list(const std::string& path_list, CmdStyle style);
 
+    /// The list this process searches: ffmpeg_search_list() fed from the real
+    /// environment (PATH, confstr(_CS_PATH), jnext.exe's directory, the
+    /// Windows system directories).
+    static std::string native_search_list();
+
     /// The directory list the spawn would search, as a pure function of its
     /// inputs (so the order is testable from any host).
     ///

@@ -197,8 +197,10 @@ namespace {
 
 std::atomic<int> g_probe_count{0};
 
+}  // namespace
+
 /// The search list for this platform, from the real environment.
-std::string native_search_list()
+std::string VideoRecorder::native_search_list()
 {
     const char* env = std::getenv("PATH");
 #ifdef _WIN32
@@ -210,7 +212,7 @@ std::string native_search_list()
     if (n > 0 && n < MAX_PATH) system_dir = buf;
     n = GetWindowsDirectoryA(buf, MAX_PATH);
     if (n > 0 && n < MAX_PATH) windows_dir = buf;
-    return VideoRecorder::ffmpeg_search_list(VideoRecorder::NATIVE_STYLE, env, exe_dir,
+    return ffmpeg_search_list(NATIVE_STYLE, env, exe_dir,
                                              system_dir, windows_dir, "");
 #else
     // PATH unset: sh uses its own default; confstr(_CS_PATH) is the standard
@@ -222,11 +224,10 @@ std::string native_search_list()
         confstr(_CS_PATH, tmp.data(), need);
         def = tmp.c_str();
     }
-    return VideoRecorder::ffmpeg_search_list(VideoRecorder::NATIVE_STYLE, env, "", "", "", def);
+    return ffmpeg_search_list(NATIVE_STYLE, env, "", "", "", def);
 #endif
 }
 
-}  // namespace
 
 bool VideoRecorder::ffmpeg_available_fresh()
 {

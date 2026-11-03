@@ -41,7 +41,9 @@
 #include <fstream>
 #include <string>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/stat.h>
 #endif
 
@@ -470,6 +472,34 @@ int main()
             check("FFL-22", "native lookup: the current directory is searched on Windows only",
                   ok && got == want, std::string("got ") + (got ? "1" : "0"));
         }
+        // The real list, each part computed here independently of the product.
+        {
+            const char* pe = std::getenv("PATH");
+            const std::string p = pe ? pe : "";
+            std::string want;
+#ifdef _WIN32
+            char buf[MAX_PATH] = {};
+            std::string exe_dir, sys, win;
+            DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
+            if (n > 0 && n < MAX_PATH) exe_dir = fs::path(buf).parent_path().string();
+            n = GetSystemDirectoryA(buf, MAX_PATH);
+            if (n > 0 && n < MAX_PATH) sys = buf;
+            n = GetWindowsDirectoryA(buf, MAX_PATH);
+            if (n > 0 && n < MAX_PATH) win = buf;
+            want = exe_dir + ";.;" + sys + ";" + win + "\\System;" + win + ";" + p;
+#else
+            want = p;   // PATH is set here, so it is used as given
+#endif
+            const std::string got = VideoRecorder::native_search_list();
+            check("FFL-24", "native_search_list() is the platform's exact list (Windows: exe dir, '.', system dir, "
+                            "<windir>\\System, windir, PATH; POSIX: PATH as given)",
+                  ok && got == want, got_want(got, want));
+        }
+        // The documented Windows contract: an empty entry names nothing (it is NOT read as '.').
+        check("FFL-23", "Windows dialect: empty entries are skipped, not read as the current directory",
+              ok && !stand_in((root / "exe").string(),
+                              [] { return VideoRecorder::ffmpeg_in_path_list(";", Style::Windows) ||
+                                          VideoRecorder::ffmpeg_in_path_list("", Style::Windows); }));
         jtp::set_env("PATH", old_path.c_str());
         std::error_code ec;
         fs::remove_all(root, ec);
