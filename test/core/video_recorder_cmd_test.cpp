@@ -381,8 +381,18 @@ int main()
               ok && !in(empty + sep + (root / "nonexistent").string()));
         check("FFL-04", "an empty PATH finds nothing",
               ok && !in(""));
-        check("FFL-05", "empty entries (\"::\") are skipped, not read as the current directory",
-              ok && !in(std::string(1, sep)) && !in(std::string(2, sep)));
+        {
+            // Standing IN the directory that holds ffmpeg: an empty entry read
+            // as "." would find it.
+            std::error_code cec;
+            const fs::path saved = fs::current_path(cec);
+            fs::current_path(good, cec);
+            const bool cd_ok = !cec;
+            const bool none = !in(std::string(1, sep)) && !in(std::string(2, sep));
+            fs::current_path(saved, cec);
+            check("FFL-05", "empty entries (\"::\") are skipped, not read as the current directory",
+                  ok && cd_ok && none);
+        }
         check("FFL-06", "a DIRECTORY named ffmpeg (and ffmpeg.exe) is not an executable",
               ok && !in(dirdir));
         // The Windows dialect, from any host.
