@@ -4091,8 +4091,10 @@ static void test_disasm_columns() {
         SymbolTable st;
         const std::string longname = "abcdefghijklmnopqrstuvwxyz0123";   // 30 characters
         st.add_label(longname, 0x1234, std::nullopt);
+        dbg.set_user_comment(MemSpace::page(0x04), 0x8000, "note");
         DisasmPanel dis(&dbg);
         dis.set_symbol_table(&st);
+        dis.set_annotation_backend(&dbg);
         dis.resize(900, 400);
         dis.set_paused(true);
         view_disasm_at(&dis, 0x8000);
@@ -4111,13 +4113,16 @@ static void test_disasm_columns() {
         const bool pushed = by0 > dis.mnemonic_x() + dis.mnemonic_width() && by0 == dis.bytes_x(0) &&
                             by0 == dis.mnemonic_x() + adv + 8;
         const bool next = by1 == dis.mnemonic_x() + dis.mnemonic_width() && by1 == dis.bytes_x(1);
+        // the line's comment follows its own pushed bytes (bytes_x + 100), not the column's end
+        const double cm = dcol_x(row0, "; note");
+        const bool comment = cm == dis.bytes_x(0) + 100 && cm > dis.mnemonic_x() + dis.mnemonic_width() + 100;
         check("QDCOL-04",
               "Disassembly: a 36-character mnemonic (LD HL, plus a 30-character label) is painted whole and "
-              "equal to the copied text, its own bytes sit after it (past the 20-character column), and "
-              "the next line's bytes stay at the column",
-              built && whole && pushed && next,
-              fmt("mn=%.0f by0=%.0f by1=%.0f col_end=%d whole=%d pushed=%d next=%d", mn, by0, by1,
-                  dis.mnemonic_x() + dis.mnemonic_width(), whole, pushed, next));
+              "equal to the copied text, its own bytes sit after it (past the 20-character column), its "
+              "comment 100 px after those pushed bytes, and the next line's bytes stay at the column",
+              built && whole && pushed && next && comment,
+              fmt("mn=%.0f by0=%.0f by1=%.0f col_end=%d cm=%.0f whole=%d pushed=%d next=%d comment=%d", mn, by0, by1,
+                  dis.mnemonic_x() + dis.mnemonic_width(), cm, whole, pushed, next, comment));
     }
 
     {   // QDCOL-05: the BP column is where the clicks toggle
@@ -4187,12 +4192,19 @@ static void test_disasm_columns() {
         const auto at = [&](int x, int row) { return img.pixel(x, 52 + row * 18 + 2); };
         const bool bp_bare = at(158, 0) == at(158, 3) && at(158, 2) == at(158, 3);
         const bool mem_tint = at(2, 0) != at(2, 3) && at(2, 2) != at(2, 3);
+        // the Addr column (a blank pixel just left of the BP column) and the area right of the separator
+        // (past every text column) are tinted too, on the selected row and on the PC row
+        const int ax = dis.breakpoint_x() - 2, rx = 500;
+        const bool addr_tint = at(ax, 0) != at(ax, 3) && at(ax, 2) != at(ax, 3);
+        const bool right_tint = at(rx, 0) != at(rx, 3) && at(rx, 2) != at(rx, 3);
         check("QDCOL-06",
               "Disassembly: the breakpoint disc is centred in the BP column (within a pixel of Addr x + 48 + 10 = breakpoint_x() + "
               "10, nothing red left of the column); the selected row and the PC row are tinted from x=0 (Mem "
-              "column) but not in the BP column, which stays the plain background",
-              built && glyph && bp_bare && mem_tint,
-              fmt("cx=%d addr_x=%.0f left=%d bp_bare=%d mem_tint=%d", cx, addr_x, left_of_bp, bp_bare, mem_tint));
+              "and Addr columns) and from the separator to the right edge, but not in the BP column, which "
+              "stays the plain background",
+              built && glyph && bp_bare && mem_tint && addr_tint && right_tint,
+              fmt("cx=%d addr_x=%.0f left=%d bp_bare=%d mem_tint=%d addr_tint=%d right_tint=%d", cx, addr_x, left_of_bp,
+                  bp_bare, mem_tint, addr_tint, right_tint));
     }
 
     {   // QDCOL-07: the coverage bar sits right of the BP separator
