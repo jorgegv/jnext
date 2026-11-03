@@ -793,6 +793,67 @@ void DebuggerManager::on_open_annotations()
     refresh_panels();
 }
 
+namespace {
+
+/// The report box text of an import or an export: the counts, then each note on its own line.
+QString re_report_text(const jnext::dbg::ReReport& rep, const QString& where)
+{
+    const auto count = [](size_t n, const char* one, const char* many) {
+        return QStringLiteral("%1 %2").arg(n).arg(QString::fromLatin1(n == 1 ? one : many));
+    };
+    QString t = count(rep.files, "file", "files") + QStringLiteral(", ") + count(rep.labels, "label", "labels") +
+                QStringLiteral(", ") + count(rep.comments, "comment", "comments") + QStringLiteral("\n") + where;
+    for (const std::string& n : rep.notes) t += QStringLiteral("\n- ") + QString::fromStdString(n);
+    return t;
+}
+
+}  // namespace
+
+void DebuggerManager::import_re_files(bool skoolkit)
+{
+    const QString title = skoolkit ? QObject::tr("Import skoolkit Control Files") : QObject::tr("Import Ghidra Symbols");
+    const QStringList paths = QFileDialog::getOpenFileNames(
+        main_window_, title, QString(),
+        skoolkit ? QObject::tr("skoolkit control files (*.ctl);;All Files (*)")
+                 : QObject::tr("Ghidra symbol files (*.txt);;All Files (*)"));
+    if (paths.isEmpty()) return;
+    std::vector<std::string> files;
+    for (const QString& p : paths) files.push_back(p.toStdString());
+    jnext::dbg::ReReport rep;
+    std::string why;
+    const jnext::dbg::Result r = skoolkit ? dbg_.import_skoolkit(files, &rep, &why) : dbg_.import_ghidra(files, &rep, &why);
+    if (r != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(main_window_, QObject::tr("Import Failed"),
+            QObject::tr("Nothing was imported:\n%1").arg(QString::fromStdString(why.empty() ? jnext::dbg::result_name(r) : why)));
+        return;
+    }
+    QMessageBox::information(main_window_, QObject::tr("Import Done"),
+        re_report_text(rep, QObject::tr("imported into the labels and comments (Save Annotations keeps them)")));
+    refresh_panels();
+}
+
+void DebuggerManager::export_re_files(bool skoolkit)
+{
+    const QString title = skoolkit ? QObject::tr("Export skoolkit Control Files") : QObject::tr("Export Ghidra Symbols");
+    const QString dir = QFileDialog::getExistingDirectory(main_window_, title, QString());
+    if (dir.isEmpty()) return;
+    jnext::dbg::ReReport rep;
+    std::string why;
+    const jnext::dbg::Result r = skoolkit ? dbg_.export_skoolkit(dir.toStdString(), &rep, &why)
+                                          : dbg_.export_ghidra(dir.toStdString(), &rep, &why);
+    if (r != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(main_window_, QObject::tr("Export Failed"),
+            QObject::tr("Could not export to:\n%1\n\n%2").arg(dir, QString::fromStdString(why.empty() ? jnext::dbg::result_name(r) : why)));
+        return;
+    }
+    QMessageBox::information(main_window_, QObject::tr("Export Done"), re_report_text(rep, QObject::tr("written to %1").arg(dir)));
+}
+
+void DebuggerManager::on_import_skoolkit() { import_re_files(true); }
+void DebuggerManager::on_import_ghidra() { import_re_files(false); }
+void DebuggerManager::on_export_skoolkit() { export_re_files(true); }
+void DebuggerManager::on_export_ghidra() { export_re_files(false); }
+
 void DebuggerManager::on_load_sld() {
     QString path = QFileDialog::getOpenFileName(
         main_window_, QObject::tr("Load Source Map"), QString(),

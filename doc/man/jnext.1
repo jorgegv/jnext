@@ -1375,6 +1375,87 @@ Annotations As\&...\f[R] read and write the file (Save writes back to
 A file that cannot be read, or does not parse (the message names the
 line), is a startup error (exit status 1).
 .TP
+\f[B]\-\-import\-skoolkit\f[R] \f[I]FILE\f[R]
+At start, after \f[B]\-\-annotations\f[R], read \f[I]FILE\f[R], a
+skoolkit control file (your own, or one made by
+\f[CR]skool2ctl.py \-k \-h\f[R] from a disassembly), into the
+debugger\(cqs labels and comments.
+Taken: the \f[CR]\(at ADDR label=NAME\f[R] lines (a leading \f[CR]*\f[R]
+is dropped) and the text of the \f[CR]B\f[R], \f[CR]C\f[R],
+\f[CR]S\f[R], \f[CR]T\f[R] and \f[CR]W\f[R] sub\-blocks, with their
+\f[CR].\f[R] and \f[CR]:\f[R] continuation lines, as the instruction
+comment at that address.
+Counted in the log, not imported: block titles (sna2skool writes its
+own), \f[CR]D\f[R] descriptions and the other directives.
+The memory of a file is its \f[CR]# jnext space TAG\f[R] first line,
+else its name (\f[CR]TAG.ctl\f[R] or \f[CR]WWWW\-TAG.ctl\f[R], as
+\f[B]\-\-export\-skoolkit\f[R] writes them), else the memory that
+supplies the address when the file is read, which is before
+\f[B]\-\-load\f[R] runs (the page mapped at start, the ROM at
+\f[CR]$0000\f[R]).
+An imported label or comment replaces the one at the same address; all
+the files of the option are read first, so a failure changes nothing.
+Repeatable.
+A file that cannot be read, or that skoolkit would only warn about (an
+address that is not decimal, \f[CR]$hex\f[R] or \f[CR]%binary\f[R], or
+above 65535; an unknown directive; a label name that is not a name; one
+name at two addresses), is a startup error (exit status 1) naming the
+line.
+.TP
+\f[B]\-\-import\-ghidra\f[R] \f[I]FILE\f[R]
+As \f[B]\-\-import\-skoolkit\f[R] for a Ghidra symbol file: lines
+\f[CR]NAME ADDRESS l\f[R] (\f[CR]l\f[R] or \f[CR]f\f[R] or anything
+else, ignored), the address \f[CR]0xHHHH\f[R] or \f[CR]TAG:0xHHHH\f[R]
+with a jnext memory tag, as \f[B]\-\-export\-ghidra\f[R] writes them.
+A blank line is skipped.
+A \f[CR]#\f[R] line, an address prefix that is not a jnext memory tag
+(\f[CR]ram:0x8000\f[R]), an expression, or a name that is not a name is
+a startup error (exit status 1).
+Repeatable.
+There are no comments in the format.
+.TP
+\f[B]\-\-export\-skoolkit\f[R] \f[I]DIR\f[R]
+When jnext exits, write the debugger\(cqs labels and the code/data map
+that \f[B]\-\-coverage\f[R] recorded into \f[I]DIR\f[R] as skoolkit
+control files (\f[I]DIR\f[R] is created).
+One \f[CR]WWWW\-TAG.ctl\f[R] and \f[CR]WWWW\-TAG.bin\f[R] pair per
+memory and window: \f[I]TAG\f[R] names the memory as the debugger does
+(\f[CR]P0A\f[R], \f[CR]ROM0\f[R], \f[CR]DIVRAM3\f[R]), \f[I]WWWW\f[R] is
+the hex base of the 8 KB window (16 KB for ROM) the labels sit in, and
+the \f[CR].bin\f[R] holds that window\(cqs bytes, so
+\f[CR]sna2skool.py \-o 0xWWWW WWWW\-TAG.bin\f[R] picks its control file
+by itself and \f[CR]sna2skool.py \-c DIR\f[R] combines them.
+Unpaged labels are in \f[CR]0000\-0CPU.ctl\f[R].
+Executed bytes become \f[CR]c\f[R] blocks, read or written ones
+\f[CR]b\f[R], the rest \f[CR]u\f[R]; without \f[B]\-\-coverage\f[R] each
+window is one \f[CR]c\f[R] block.
+skoolkit has no Z80N support, so Z80N instructions are written as
+\f[CR]DEFB\f[R] sub\-blocks.
+sna2skool drops without a word a label that is not at the start of a
+line it writes, so every window file also splits
+(\f[CR]B\f[R]/\f[CR]C\f[R] sub\-blocks) at each unpaged label that falls
+in it, and the labels survive \f[CR]sna2skool.py \-c DIR\f[R].
+A previous export\(cqs files in \f[I]DIR\f[R] are replaced; any other
+file there is never touched, and a \f[CR].ctl\f[R] or \f[CR].bin\f[R] of
+the same name that is not jnext\(cqs makes the export fail.
+A failed export is logged and jnext exits with status 1.
+.TP
+\f[B]\-\-export\-ghidra\f[R] \f[I]DIR\f[R]
+When jnext exits, write the debugger\(cqs labels into \f[I]DIR\f[R]
+(created) as symbol files for Ghidra\(cqs
+\f[CR]ImportSymbolsScript.py\f[R], one line \f[CR]NAME ADDRESS l\f[R]
+per label: \f[CR]TAG.ghidra.txt\f[R] for each memory
+(\f[CR]P0A:0x8000\f[R], the address in the overlay address space
+\f[I]TAG\f[R] that you create for that page), \f[CR]CPU.ghidra.txt\f[R]
+for the unpaged labels (\f[CR]0x8000\f[R]) and
+\f[CR]view.ghidra.txt\f[R] for the memory as mapped when jnext exits
+(\f[CR]0x8000\f[R], no overlay needed).
+A previous export\(cqs \f[CR]CPU.ghidra.txt\f[R],
+\f[CR]view.ghidra.txt\f[R] and \f[CR]TAG.ghidra.txt\f[R] files in
+\f[I]DIR\f[R] are replaced or removed; any other file there, any other
+\f[CR]*.ghidra.txt\f[R] included, is never touched.
+A failed export is logged and jnext exits with status 1.
+.TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, \f[CR]0x\f[R] prefix
 optional, for example \f[CR]0x00FF\f[R]).

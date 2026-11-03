@@ -95,7 +95,6 @@ private:
     enum class AsmCtx { File, CHash, CSdcc, Basic };
 
     int scan_asm(const QString& t, int i, AsmCtx ctx, bool& ended, bool& in_comment);
-    int scan_c(const QString& t, int i, int& mode);
     void highlight_asm(const QString& t);
     void highlight_c(const QString& t);
     void highlight_basic(const QString& t);

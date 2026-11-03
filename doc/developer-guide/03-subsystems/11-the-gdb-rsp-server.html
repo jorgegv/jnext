@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2493,6 +2493,8 @@
       
         
       
+        
+      
     
     
     
@@ -2716,6 +2718,34 @@
     
   
     7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -2978,7 +3008,8 @@ client can never leave a stopping breakpoint behind.</p>
 <p><code>monitor src [ADDR]</code> (GH #346) answers <code>$ADDR file:line MEM</code> from
 <code>source_location()</code> and <code>source_page()</code>: the primary location only, in the memory
 mapped at ADDR now, <code>unmapped</code> when no record covers it. ADDR is a number, a
-symbol (through <code>lookup_name()</code>) or the PC. The memory spelling is the one of
+symbol (through <code>symbols().find_name()</code>; a paged symbol answers in its OWN
+memory, <code>source_location(space, addr)</code>, as <code>monitor sym</code> does, GH #349) or the PC. The memory spelling is the one of
 <code>monitor mmu</code>/GH #360 (<code>P04</code>, <code>ROM0</code>, <code>BOOT</code>).</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <ul>

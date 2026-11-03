@@ -80,7 +80,7 @@ work. A breakpoint change another client made arrives as
 | Disassembly | `disasm_one()` over `memory_reader()`, with symbols, a breakpoint gutter and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
 | Stack | the words at and above SP, through `peek` | — |
-| Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a routine that drops its return address and leaves by JP keeps its frame until a later RET ends it by SP | — |
+| Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's `EX (SP),HL` / `POP r; JP (r)` helpers and `l_case`; a `__z88dk_callee` body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP | — |
 | Watches | byte, word or long at user addresses, through `peek` | — |
 | Breakpoints | every client's subscriptions, through `BreakpointModel` | the GUI's own |
 | Video | `raster()` in all four counter domains plus the ULA fetch phase, and `render_layer()` for each of the eight views | — |
@@ -96,10 +96,10 @@ reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on `DebuggerManager`'s timer, except
 the two views of the breakpoints.
 
-**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:913`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:361`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:902`; `PausedStamp`,
-`debugger_manager.h:236`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+**Refresh cadence (GH #428).** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:974`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:370`: ~4 Hz). Paused, it
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:963`; `PausedStamp`,
+`debugger_manager.h:245`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:
 
@@ -121,7 +121,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:551`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:893`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:954`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -252,6 +252,8 @@ windows cannot disagree. The five source-step actions are keymap actions too
 forwarding stays at the five instruction-level keys.
 
 ## Symbols
+
+The Map menu also imports and exports skoolkit control files and Ghidra symbol files (GH #389): see [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
 
 The Map menu loads into the backend's one table with `load_map()`, and the Disassembly, Call Stack and
 Breakpoints panels read `symbols()`. A breakpoint set on a symbol keeps its name in the list, and a symbol

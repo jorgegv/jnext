@@ -9,8 +9,8 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 ## 1. The producer
 
 JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
-loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:877` and copies
-it to the configuration at `src/main.cpp:2178`, and `ScriptHost::start()` loads it (`annotations_file`,
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:881` and copies
+it to the configuration at `src/main.cpp:2194`, and `ScriptHost::start()` loads it (`annotations_file`,
 `src/script/script_host.cpp:201-215`), after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
@@ -128,10 +128,10 @@ and Breakpoints panels hold (`set_symbol_table(&dbg_.symbols())`) stays valid.
 
 `recompose_names()` is called after every change of either layer: the toolchain writers
 (`recompose_names` at `src/debug/debugger.cpp:270` in load_map and `:284` in clear_symbols; in `src/debug/debugger_source.cpp` at `:409` the deferred-check drop, `:542` and `:549` the
-hand SLD's labels, `:779` the program-load attach and its bind, `:943`
-drop_sidecars, `:1041` and `:1047` the ring landing) and every verb that changes a label
+hand SLD's labels, `:786` the program-load attach and its bind, `:950`
+drop_sidecars, `:1048` and `:1054` the ring landing) and every verb that changes a label
 (`recompose_names` at `src/debug/debugger_annotations.cpp:71` in set_user_label, `:80` in remove_user_label, `:116` in replace_annotations; `set_user_comment()` changes no name and does not). The attachment cache
-copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:894`),
+copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:901`),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.
 
@@ -198,7 +198,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
   SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:3827`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:391`), makes that file
+  (`debugger_manager.cpp:725`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:394`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.

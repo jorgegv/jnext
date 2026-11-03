@@ -213,6 +213,26 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
                     (a.label_count() == 1 ? " label, " : " labels, ") + std::to_string(a.comment_count()) +
                     (a.comment_count() == 1 ? " comment" : " comments"));
     }
+    // GH #389: --import-skoolkit / --import-ghidra, after --annotations (they merge into its store), one
+    // transaction per option kind. An untagged file is placed by the mapping NOW, before --load runs.
+    const auto import_all = [&](const char* flag, const std::vector<std::string>& files, bool skool) {
+        if (files.empty()) return true;
+        std::string why;
+        dbg::ReReport rep;
+        const dbg::Result r = skool ? dbg.import_skoolkit(files, &rep, &why) : dbg.import_ghidra(files, &rep, &why);
+        if (r != dbg::Result::Ok) {
+            error(std::string(flag) + " " + (why.empty() ? std::string(dbg::result_name(r)) : why));
+            return false;
+        }
+        dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
+                std::string(flag) + ": " + std::to_string(rep.files) + (rep.files == 1 ? " file, " : " files, ") +
+                    std::to_string(rep.labels) + (rep.labels == 1 ? " label, " : " labels, ") +
+                    std::to_string(rep.comments) + (rep.comments == 1 ? " comment" : " comments"));
+        for (const std::string& n : rep.notes) dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Warn, std::string(flag) + ": " + n);
+        return true;
+    };
+    if (!import_all("--import-skoolkit", opt.import_skoolkit_files, true)) return false;
+    if (!import_all("--import-ghidra", opt.import_ghidra_files, false)) return false;
     // `--script-key` reaches the recorder too (key 8 is its capture), so with
     // `--record-script` a key needs no script to be delivered to.
     if (opt.scripts.empty() && !opt.keys.empty() && opt.record_file.empty()) {

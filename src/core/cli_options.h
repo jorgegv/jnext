@@ -98,6 +98,10 @@ enum class OptId {
     SourceMap,
     SourceDir,
     Annotations,
+    ImportSkoolkit,
+    ImportGhidra,
+    ExportSkoolkit,
+    ExportGhidra,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -884,6 +888,39 @@ inline constexpr Option OPTIONS[] = {
       "toolchain's symbols. Loaded before the scripts. In the Qt\n"
       "debugger, Map > Save Annotations writes back to it. A file that\n"
       "cannot be read or does not parse is a startup error (exit 1)." },
+    // GH #389 (E23-26): the reverse-engineering imports (at start, repeatable) and exports (at exit).
+    { "--import-skoolkit", 1, Doc::Documented, OptId::ImportSkoolkit,
+      "FILE",
+      "At start, after --annotations, read FILE, a skoolkit control\n"
+      "file, into the debugger's labels and comments (the\n"
+      "`@ ADDR label=NAME` lines and the instruction comments of\n"
+      "B/C/S/T/W sub-blocks; titles and the rest are counted, not\n"
+      "imported). Repeatable. The memory is the file's `# jnext\n"
+      "space TAG` line, else its name (TAG.ctl, WWWW-TAG.ctl), else\n"
+      "the memory mapped at that address when the file is read,\n"
+      "which is before --load runs. A file that does not parse or\n"
+      "cannot be read is a startup error (exit 1) naming the line" },
+    { "--import-ghidra", 1, Doc::Documented, OptId::ImportGhidra,
+      "FILE",
+      "As --import-skoolkit for a Ghidra symbol file (lines `NAME\n"
+      "[TAG:]0xADDR l`, as --export-ghidra writes). Repeatable" },
+    // GH #389 (E23-26): the exports, written when jnext exits.
+    { "--export-skoolkit", 1, Doc::Documented, OptId::ExportSkoolkit,
+      "DIR",
+      "At exit, write the debugger's labels and the code/data map of\n"
+      "--coverage into DIR as skoolkit control files: one\n"
+      "WWWW-TAG.ctl and WWWW-TAG.bin per memory page and window\n"
+      "(sna2skool.py -o 0xWWWW WWWW-TAG.bin, or -c DIR), and\n"
+      "0000-0CPU.ctl for the unpaged labels. DIR is created; a\n"
+      "previous export's files in it are replaced, other files are\n"
+      "never touched. A failure exits 1" },
+    { "--export-ghidra", 1, Doc::Documented, OptId::ExportGhidra,
+      "DIR",
+      "At exit, write the debugger's labels into DIR as Ghidra symbol\n"
+      "files for ImportSymbolsScript.py: TAG.ghidra.txt per memory\n"
+      "page (an overlay named TAG), CPU.ghidra.txt for the unpaged\n"
+      "labels and view.ghidra.txt for the memory as mapped at exit.\n"
+      "A failure exits 1" },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

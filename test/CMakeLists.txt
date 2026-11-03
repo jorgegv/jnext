@@ -639,6 +639,12 @@ target_link_libraries(audio_test PRIVATE jnext_audio)
 target_include_directories(audio_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_tests COMMAND audio_test)
 
+# GH #440 - the AY output / TurboSound mix caches against the always-recompute reference
+add_executable(ay_cache_test audio/ay_cache_test.cpp)
+target_link_libraries(ay_cache_test PRIVATE jnext_audio)
+target_include_directories(ay_cache_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ay_cache_tests COMMAND ay_cache_test)
+
 # The Pi I2S source's rows that need a real FIFO (`# os: posix` in
 # unit-tests.conf, GH #214): PiAudio reading QEMU's WAV stream. Windows has
 # no FIFOs, so they live apart from audio_test, whose count is the same on
@@ -1205,6 +1211,16 @@ target_compile_definitions(source_map_test PRIVATE
     JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME source_map_tests COMMAND source_map_test)
 
+# GH #389 (E23-26) - the skoolkit and Ghidra exports: the pure writers (SKCTL-*, GHSYM-*) and
+# Debugger::export_skoolkit() / export_ghidra() on a real machine (SRCDBG-REX-*).
+add_executable(reexport_test debug/reexport_test.cpp)
+target_link_libraries(reexport_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(reexport_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME reexport_tests COMMAND reexport_test)
+
 # GH #344 — the z88dk -debug map adapter (pure): the committed z88dk fixtures,
 # and nodebug.map (a map with no line records).
 add_executable(z88dk_map_test debug/z88dk_map_test.cpp)
@@ -1250,6 +1266,7 @@ target_include_directories(source_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # SRCDBG-Z88-* (GH #344) load the committed z88dk fixtures and nodebug.map.
 target_compile_definitions(source_debug_test PRIVATE
     JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_SJASMCALLEE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmcallee"
     JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk"
     JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
 add_test(NAME source_debug_tests COMMAND source_debug_test)

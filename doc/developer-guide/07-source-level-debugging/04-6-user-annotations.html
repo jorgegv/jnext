@@ -14,7 +14,7 @@
         <link rel="prev" href="04-5-nextbuild-memory-txt.html">
       
       
-        <link rel="next" href="05-breakpoints-steps-history.html">
+        <link rel="next" href="04-7-skoolkit-and-ghidra-exports.html">
       
       
         
@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2391,6 +2391,8 @@
       
         
       
+        
+      
     
     
     
@@ -2795,6 +2797,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2978,8 +3008,8 @@ fills a third store, <code>UserAnnotations</code>, which sits beside the toolcha
 <code>SymbolTable</code> and wins over it when the two disagree.</p>
 <h2 id="1-the-producer">1. The producer<a class="headerlink" href="#1-the-producer" title="Permanent link">&para;</a></h2>
 <p>JNEXT. The Qt Map menu opens and saves it (section 10); <code>--annotations FILE</code>
-loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:877</code> and copies
-it to the configuration at <code>src/main.cpp:2178</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
+loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:881</code> and copies
+it to the configuration at <code>src/main.cpp:2194</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
 <code>src/script/script_host.cpp:201-215</code>), after <code>--map</code> and before the scripts, so a
 script's <code>@name</code> of the file resolves). <code>replace_annotations()</code> is the
 primitive an import builds on.</p>
@@ -3075,10 +3105,10 @@ so every consumer reads both layers with no code of its own.
 and Breakpoints panels hold (<code>set_symbol_table(&amp;dbg_.symbols())</code>) stays valid.</p>
 <p><code>recompose_names()</code> is called after every change of either layer: the toolchain writers
 (<code>recompose_names</code> at <code>src/debug/debugger.cpp:270</code> in load_map and <code>:284</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:409</code> the deferred-check drop, <code>:542</code> and <code>:549</code> the
-hand SLD's labels, <code>:779</code> the program-load attach and its bind, <code>:943</code>
-drop_sidecars, <code>:1041</code> and <code>:1047</code> the ring landing) and every verb that changes a label
+hand SLD's labels, <code>:786</code> the program-load attach and its bind, <code>:950</code>
+drop_sidecars, <code>:1048</code> and <code>:1054</code> the ring landing) and every verb that changes a label
 (<code>recompose_names</code> at <code>src/debug/debugger_annotations.cpp:71</code> in set_user_label, <code>:80</code> in remove_user_label, <code>:116</code> in replace_annotations; <code>set_user_comment()</code> changes no name and does not). The attachment cache
-copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:894</code>),
+copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:901</code>),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.</p>
 <p>The name rule against the toolchain layer is in <code>set_user_label()</code>
@@ -3141,7 +3171,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   through <code>close()</code>, which then returns false). An unattended close (<code>unattended_</code>, the delayed automatic exit and
   SIGINT/SIGTERM, tested at <code>src/gui/main_window.cpp:3827</code>) asks nothing: it logs that the unsaved changes were
   discarded and quits (<code>QG-ANN-05</code>). With nothing changed there is no dialog. <code>set_annotations_file()</code>
-  (<code>debugger_manager.cpp:725</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:391</code>), makes that file
+  (<code>debugger_manager.cpp:725</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:394</code>), makes that file
   the Save target and the starting point of "unsaved".</li>
 <li><strong>Settings.</strong> None: the store has no Preferences field, so <code>config_keys.cpp</code> has no row; the CLI is
   <code>--annotations FILE</code>.</li>

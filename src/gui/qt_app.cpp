@@ -12,6 +12,7 @@
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
 #include "platform/coverage_startup.h"   // GH #388
+#include "platform/re_export_at_exit.h"   // GH #389
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
@@ -366,6 +367,8 @@ bool QtApp::init(int argc, char* argv[]) {
         jnext::script::ScriptHostOptions so;
         so.map_file = config_.map_file;
         so.annotations_file = config_.annotations_file;
+        so.import_skoolkit_files = config_.import_skoolkit_files;
+        so.import_ghidra_files = config_.import_ghidra_files;
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
@@ -515,6 +518,8 @@ int QtApp::run() {
 
 void QtApp::shutdown() {
     if (debugger_) log_coverage_summary(*debugger_);   // GH #388
+    // GH #389: --export-skoolkit / --export-ghidra, after the coverage they map is final.
+    if (debugger_ && !write_re_exports_at_exit(*debugger_, config_) && exit_code_ == 0) exit_code_ = 1;
     // A screenshot that was asked for and never taken is a FAILURE, not a
     // footnote. The capture is deferred while no frame is rendering (debugger
     // paused), but --delayed-automatic-exit is a hard bound and must stay one,

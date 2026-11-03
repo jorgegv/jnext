@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2548,6 +2548,8 @@
       
         
       
+        
+      
     
     
     
@@ -2771,6 +2773,34 @@
     
   
     7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -3057,7 +3087,7 @@ work. A breakpoint change another client made arrives as
 </tr>
 <tr>
 <td>Call Stack</td>
-<td><code>call_stack()</code>, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a routine that drops its return address and leaves by JP keeps its frame until a later RET ends it by SP</td>
+<td><code>call_stack()</code>, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's <code>EX (SP),HL</code> / <code>POP r; JP (r)</code> helpers and <code>l_case</code>; a <code>__z88dk_callee</code> body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP</td>
 <td>—</td>
 </tr>
 <tr>
@@ -3111,10 +3141,10 @@ work. A breakpoint change another client made arrives as
 reading the register file every frame while the machine runs produces a blur,
 at real cost. Everything else refreshes on <code>DebuggerManager</code>'s timer, except
 the two views of the breakpoints.</p>
-<p><strong>Refresh cadence (GH #428).</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:913</code>)
-redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:361</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:902</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:236</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+<p><strong>Refresh cadence (GH #428).</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:974</code>)
+redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:370</code>: ~4 Hz). Paused, it
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:963</code>; <code>PausedStamp</code>,
+<code>debugger_manager.h:245</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The stamp is:</p>
 <ul>
@@ -3136,7 +3166,7 @@ everything, the Video tab's composited frame included, fifty times a second. The
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
   loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:551</code>), so an edit on disk still shows.</li>
 </ul>
-<p><code>refresh_window()</code> (<code>debugger_manager.cpp:893</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
+<p><code>refresh_window()</code> (<code>debugger_manager.cpp:954</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <code>take_panel_refresh_count()</code> counts the
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,
@@ -3252,6 +3282,7 @@ windows cannot disagree. The five source-step actions are keymap actions too
 (<code>source_step_into</code> and the rest), but they are debugger-window only: the
 forwarding stays at the five instruction-level keys.</p>
 <h2 id="symbols">Symbols<a class="headerlink" href="#symbols" title="Permanent link">&para;</a></h2>
+<p>The Map menu also imports and exports skoolkit control files and Ghidra symbol files (GH #389): see <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html">7.4.7</a>.</p>
 <p>The Map menu loads into the backend's one table with <code>load_map()</code>, and the Disassembly, Call Stack and
 Breakpoints panels read <code>symbols()</code>. A breakpoint set on a symbol keeps its name in the list, and a symbol
 any other client loads shows in the panels too. What each loader reads is

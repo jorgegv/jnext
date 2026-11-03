@@ -1094,6 +1094,7 @@ my %NO_MATRIX_SECTION = (
     # jnext-internal contracts. `cli_options_test` is checked against the man
     # page by `make cli-check`, which is its own two-way gate.
     'cli_options_test'              => 'CLI flag table vs the man page (see `make cli-check`)',
+    'ay_cache_test'                 => 'AY output / TurboSound mix caches vs an always-recompute reference (GH #440; equivalence of two implementations, VHDL cited in the suite header)',
     'log_test'                      => 'jnext logging façade (spdlog wiring)',
     'log_gate_test'                 => 'jnext log-level gating',
     'profiler_test'                 => 'jnext profiler output format (a developer tool)',
@@ -1144,6 +1145,7 @@ my %NO_MATRIX_SECTION = (
     'cdb_record_test'           => 'z88dk CDB C-variable record decoder (un-escaping, scope split, type chain, storage, T: members, hidden classes, refusals; jnext-internal); the T80N core has no debugger',
     'source_debug_test'         => 'debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger',
     'source_debug_posix_test'   => 'source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger',
+    'reexport_test'             => 'skoolkit control-file and Ghidra symbol-file exports of debugger labels and the coverage code/data map (GH #389, jnext-internal); the T80N core has no debugger',
     'persistent_bp_test'        => 'debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger',
     'io_watchpoint_test'        => 'debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger',
     'bp_enable_test'            => 'debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger',

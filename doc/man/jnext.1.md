@@ -1103,6 +1103,64 @@ naming the option and the value, and exits with status 1.
     As...** read and write the file (Save writes back to *FILE*). A file that cannot be read, or does
     not parse (the message names the line), is a startup error (exit status 1).
 
+**\--import-skoolkit** *FILE*
+:   At start, after **\--annotations**, read *FILE*, a skoolkit control file (your
+    own, or one made by `skool2ctl.py -k -h` from a disassembly), into the
+    debugger's labels and comments. Taken: the `@ ADDR label=NAME` lines (a
+    leading `*` is dropped) and the text of the `B`, `C`, `S`, `T` and `W`
+    sub-blocks, with their `.` and `:` continuation lines, as the instruction
+    comment at that address. Counted in the log, not imported: block titles
+    (sna2skool writes its own), `D` descriptions and the other directives. The
+    memory of a file is its `# jnext space TAG` first line, else its name
+    (`TAG.ctl` or `WWWW-TAG.ctl`, as **\--export-skoolkit** writes them), else
+    the memory that supplies the address when the file is read, which is
+    before **\--load** runs (the page mapped at start, the ROM at `$0000`). An
+    imported label or comment replaces the one at the same address; all the files of
+    the option are read first, so a failure changes nothing. Repeatable. A file that
+    cannot be read, or that skoolkit would only warn about (an address that is not
+    decimal, `$hex` or `%binary`, or above 65535; an unknown directive; a label name
+    that is not a name; one name at two addresses), is a startup error (exit status
+    1) naming the line.
+
+**\--import-ghidra** *FILE*
+:   As **\--import-skoolkit** for a Ghidra symbol file: lines `NAME ADDRESS l`
+    (`l` or `f` or anything else, ignored), the address `0xHHHH` or `TAG:0xHHHH`
+    with a jnext memory tag, as **\--export-ghidra** writes them. A blank line
+    is skipped. A `#` line, an address prefix that is not a jnext memory tag
+    (`ram:0x8000`), an expression, or a name that is not a name is a startup error
+    (exit status 1). Repeatable. There are no comments in the format.
+
+**\--export-skoolkit** *DIR*
+:   When jnext exits, write the debugger's labels and the code/data map that
+    **\--coverage** recorded into *DIR* as skoolkit control files (*DIR* is
+    created). One `WWWW-TAG.ctl` and `WWWW-TAG.bin` pair per memory and
+    window: *TAG* names the memory as the debugger does (`P0A`, `ROM0`,
+    `DIVRAM3`), *WWWW* is the hex base of the 8 KB window (16 KB for ROM) the
+    labels sit in, and the `.bin` holds that window's bytes, so
+    `sna2skool.py -o 0xWWWW WWWW-TAG.bin` picks its control file by itself and
+    `sna2skool.py -c DIR` combines them. Unpaged labels are in `0000-0CPU.ctl`.
+    Executed bytes become `c` blocks, read or written ones `b`, the rest `u`;
+    without **\--coverage** each window is one `c` block. skoolkit has no Z80N
+    support, so Z80N instructions are written as `DEFB` sub-blocks. sna2skool
+    drops without a word a label that is not at the start of a line it writes,
+    so every window file also splits (`B`/`C` sub-blocks) at each unpaged label
+    that falls in it, and the labels survive `sna2skool.py -c DIR`. A previous
+    export's files in *DIR* are replaced; any other file there is never
+    touched, and a `.ctl` or `.bin` of the same name that is not jnext's makes
+    the export fail. A failed export is logged and jnext exits with status 1.
+
+**\--export-ghidra** *DIR*
+:   When jnext exits, write the debugger's labels into *DIR* (created) as symbol
+    files for Ghidra's `ImportSymbolsScript.py`, one line `NAME ADDRESS l` per
+    label: `TAG.ghidra.txt` for each memory (`P0A:0x8000`, the address in the
+    overlay address space *TAG* that you create for that page),
+    `CPU.ghidra.txt` for the unpaged labels (`0x8000`) and `view.ghidra.txt` for
+    the memory as mapped when jnext exits (`0x8000`, no overlay needed). A previous
+    export's `CPU.ghidra.txt`, `view.ghidra.txt` and `TAG.ghidra.txt` files in
+    *DIR* are replaced or removed; any other file there, any other
+    `*.ghidra.txt` included, is never touched. A failed export is
+    logged and jnext exits with status 1.
+
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for example `0x00FF`).
 

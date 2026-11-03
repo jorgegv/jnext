@@ -13,6 +13,9 @@ knows what to write.
 | [7.4.5 NextBuild `Memory.txt`](04-5-nextbuild-memory-txt.md) | `8000: ._Main` lines | Boriel ZX Basic `zxbc -M`, via NextBuild | labels |
 | [7.4.6 The annotations file](04-6-user-annotations.md) | `.jdp`: `label` and `comment` records | the user, in JNEXT | the user's labels and comments (a third store) |
 
+The reverse direction, the skoolkit control files and Ghidra symbol files jnext writes, is
+[7.4.7](04-7-skoolkit-and-ghidra-exports.md).
+
 Boriel ZX Basic writes **no** SLD. Its only output jnext reads is `Memory.txt`
 (7.4.5), a list of labels with no source positions, so a BASIC program built
 with NextBuild has symbols and no source lines unless an SLD is produced by some

@@ -344,6 +344,8 @@ int main(int argc, char* argv[]) {
     std::string                           map_file;
     std::string                           source_map_file;
     std::string                           annotations_file;
+    std::vector<std::string>              import_skoolkit_files;   // GH #389
+    std::vector<std::string>              import_ghidra_files;
     std::string                           record_script_file;   // GH #26 WP6
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
@@ -411,6 +413,8 @@ int main(int argc, char* argv[]) {
     int         rewind_buffer_frames = 0;
     bool        trace_enabled = false;
     bool        coverage_enabled = false;
+    std::string export_skoolkit_dir;       // GH #389
+    std::string export_ghidra_dir;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
     bool        compositor_trace_frame_set = false;
@@ -876,6 +880,12 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Annotations:
                 annotations_file = v[0];
                 break;
+            case cli::OptId::ImportSkoolkit:
+                import_skoolkit_files.push_back(v[0]);
+                break;
+            case cli::OptId::ImportGhidra:
+                import_ghidra_files.push_back(v[0]);
+                break;
             case cli::OptId::SourceDir: {
                 // ONE directory per occurrence, appended to the list --set may have
                 // given (the esp-allow semantics). Merged into the Qt session's copy
@@ -1319,6 +1329,12 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::Coverage:
                 coverage_enabled = true;
+                break;
+            case cli::OptId::ExportSkoolkit:
+                export_skoolkit_dir = v[0];
+                break;
+            case cli::OptId::ExportGhidra:
+                export_ghidra_dir = v[0];
                 break;
             case cli::OptId::CompositorTrace:
                 compositor_trace_path = v[0];
@@ -2176,6 +2192,8 @@ int main(int argc, char* argv[]) {
         cfg.map_file     = map_file;
         cfg.source_map_file = source_map_file;
         cfg.annotations_file = annotations_file;
+        cfg.import_skoolkit_files = import_skoolkit_files;
+        cfg.import_ghidra_files = import_ghidra_files;
         // GH #351: with no program to load (no --load, or an RZX replay: --rzx-play R or
         // --load R.rzx) only a z88dk dot command's map is accepted; the frontend attaches it
         // at start-up, pending, and refuses any other map.
@@ -2204,6 +2222,8 @@ int main(int argc, char* argv[]) {
         cfg.rewind_buffer_frames = rewind_buffer_frames;
         cfg.trace = trace_enabled;
         cfg.coverage = coverage_enabled;
+        cfg.export_skoolkit_dir = export_skoolkit_dir;
+        cfg.export_ghidra_dir   = export_ghidra_dir;
         cfg.compositor_trace_path  = compositor_trace_path;
         cfg.compositor_trace_frame = compositor_trace_frame;
         cfg.profile                = profile_enabled;

@@ -71,3 +71,6 @@ not keep them**: put a note on an address as a comment, not as a `#` line. Savin
 entries sorted, so the file compares well in a repository.
 
 If a MAP or source map loaded later uses a name you also use, yours wins.
+
+Labels and comments can also be exchanged with skoolkit and Ghidra: **Map ▸ Import** and **Export**,
+see [Disassemblies in skoolkit and Ghidra](17-skoolkit-and-ghidra.md).

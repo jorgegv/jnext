@@ -5,6 +5,7 @@
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
 #include "platform/coverage_startup.h"   // GH #388
+#include "platform/re_export_at_exit.h"   // GH #389
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/quit_signal.h"   // GH #364
@@ -266,6 +267,8 @@ bool SdlApp::init(int argc, char* argv[]) {
         jnext::script::ScriptHostOptions so;
         so.map_file = config_.map_file;
         so.annotations_file = config_.annotations_file;
+        so.import_skoolkit_files = config_.import_skoolkit_files;
+        so.import_ghidra_files = config_.import_ghidra_files;
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
         so.record_file = config_.record_script_file;   // GH #26 WP6
@@ -815,6 +818,8 @@ void SdlApp::run() {
 
 void SdlApp::shutdown() {
     if (debugger_) log_coverage_summary(*debugger_);   // GH #388
+    // GH #389: --export-skoolkit / --export-ghidra, after the coverage they map is final.
+    if (debugger_ && !write_re_exports_at_exit(*debugger_, config_) && exit_code_ == 0) exit_code_ = 1;
     // A requested screenshot that was never written is a failure, not a
     // footnote — same contract as QtApp::shutdown(). Reachable here if the
     // capture was still deferred (no frame rendered on its tick) when

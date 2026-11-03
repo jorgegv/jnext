@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2486,6 +2486,8 @@
       
         
       
+        
+      
     
     
     
@@ -2709,6 +2711,34 @@
     
   
     7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -3012,8 +3042,8 @@ page <code>predict_fetch</code> says is mapped (<code>SymbolTable::bind()</code>
 on failure (<code>-1</code>) the table and its owner are as they were.</p>
 <h3 id="-source-map"><code>--source-map</code><a class="headerlink" href="#-source-map" title="Permanent link">&para;</a></h3>
 <p><code>EmulatorConfig::source_map_file</code> is set from <code>--source-map FILE</code>
-(<code>EmulatorConfig::source_map_file</code>, <code>src/main.cpp:874</code>, <code>:2177</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:288</code>),
-set at <code>src/main.cpp:2189</code>, says which of three cases it is: <code>0</code> a program loads and the map
+(<code>EmulatorConfig::source_map_file</code>, <code>src/main.cpp:878</code>, <code>:2193</code>). <code>EmulatorConfig::source_map_no_program</code> (<code>emulator_config.h:298</code>),
+set at <code>src/main.cpp:2207</code>, says which of three cases it is: <code>0</code> a program loads and the map
 follows it; <code>1</code> there is no <code>--load</code>; <code>2</code> an RZX replay is the program (<code>--rzx-play</code>, or
 <code>--load R.rzx</code>, told by the extension).</p>
 <p><strong>With a program</strong> (<code>0</code>). Each loop owner (<code>headless_app.cpp</code>, <code>sdl_app.cpp</code>,
@@ -3027,7 +3057,7 @@ attaches pending, and the loop owner watches it once per tick with
 <p><strong>Without one</strong> (<code>1</code> and <code>2</code>). There is no program to judge a map by, so only the map of a z88dk
 dot command is accepted. Each loop owner makes the load once, at start-up, before
 <code>ScriptHost::start()</code>, so a <code>file:line</code> rule in a script resolves
-(the guard is <code>source_map_no_program</code>: <code>headless_app.cpp:76-90</code>, <code>sdl_app.cpp:251</code>, <code>gui/qt_app.cpp:351</code>). The call is
+(the guard is <code>source_map_no_program</code>: <code>headless_app.cpp:77-91</code>, <code>sdl_app.cpp:252</code>, <code>gui/qt_app.cpp:352</code>). The call is
 <code>emulator_attach_cli_source_map(dbg, file, deferred = false, dot_only = true, rzx = (case 2))</code>,
 which passes <code>dot_only</code> to <code>load_source_map()</code>. After the adapter has parsed the file,
 <code>dot_only &amp;&amp; !candidate.dot()</code> returns <code>SourceMapLoad::not_dot</code> with the error "it is not the map
@@ -3090,8 +3120,8 @@ one block, in this order, first wins on every key (<code>SymbolTable::merge()</c
 <li>the z88dk map's symbols, last, and only when <strong>no</strong> <code>Memory.txt</code> exists and its
    identity does not mismatch.</li>
 </ol>
-<p>The log says what was attached, by <code>log-&gt;info()</code>: <code>Loaded N SLD labels from '&lt;file&gt;'</code> (<code>log-&gt;info()</code>, <code>debugger_source.cpp:762</code>) and
-<code>Loaded N z88dk symbols from '&lt;file&gt;'</code> (<code>log-&gt;info()</code>, <code>:768</code>).</p>
+<p>The log says what was attached, by <code>log-&gt;info()</code>: <code>Loaded N SLD labels from '&lt;file&gt;'</code> (<code>log-&gt;info()</code>, <code>debugger_source.cpp:769</code>) and
+<code>Loaded N z88dk symbols from '&lt;file&gt;'</code> (<code>log-&gt;info()</code>, <code>:775</code>).</p>
 <p>If nothing attached, a previous program's Sidecar symbols are cleared, also when
 the new <code>Memory.txt</code> cannot be read (<code>SidecarLoad::symbols_unreadable</code>): a
 previous program's data never survives into one it does not describe.</p>

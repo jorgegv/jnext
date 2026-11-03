@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2389,6 +2389,8 @@
       
         
       
+        
+      
     
     
     
@@ -2612,6 +2614,34 @@
     
   
     7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -3069,9 +3099,9 @@ where the loader puts the bytes.</p>
   checks (<code>set_verify_window()</code>). While it is set the machine is armed (<code>verify_hold_</code>
   is an <code>armed()</code> contributor of its own, with <code>magic_hold_</code>, in <code>refresh_gates_()</code> and
   <code>SuspendScope</code>). The emulator asks <code>verify_window_hit(pc)</code>, two compares, first in
-  <code>run_frame()</code>'s armed block (<code>verify_window_hit</code>, <code>emulator.cpp:10058</code>), before <code>consume_step_off()</code>, the
+  <code>run_frame()</code>'s armed block (<code>verify_window_hit</code>, <code>emulator.cpp:10061</code>), before <code>consume_step_off()</code>, the
   legacy breakpoint test and the execute gate, and in <code>step_frame_slot()</code> for a debugger
-  Step (<code>verify_window_hit</code>, <code>emulator.cpp:11481</code>).</li>
+  Step (<code>verify_window_hit</code>, <code>emulator.cpp:11484</code>).</li>
 <li><strong>The verdict is recorded, not applied.</strong> On a hit, <code>Impl::verify_hook(pc)</code> takes
   <code>predict_fetch(pc)</code>, finds the spans of each check that contain <code>pc</code> in <em>that exact
   memory</em>, judges each unit now with <code>verify_identity_unit()</code> (through
@@ -3124,8 +3154,8 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   <code>Verified ... the dot command in &lt;space&gt; matches its binary identity</code>) and keeps the check: it is
   never finished (<code>checks.push_back</code> at <code>debugger_source.cpp:430</code>), so a later entry that does not match puts the map back
   to pending.</li>
-<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:958</code>): for a user's map that is a dot map,
-  <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:967-976</code>); the checks are
+<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:965</code>): for a user's map that is a dot map,
+  <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:974-983</code>); the checks are
   re-derived by <code>dot_landing(fresh)</code> (<code>debugger_source.cpp:233</code>). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (<code>dot_landing()</code> skips the others) to <code>dot_reset()</code>: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.</li>
@@ -3146,7 +3176,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (<code>replay_mode()</code> is the rewind replay's flag, <code>emulator.h:1180</code>, not RZX's). What the row
   <code>z88dk-dot-source-rzx-func</code> pins is the attach and the refusal, not a verdict reached during playback.</li>
-<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1144</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:597</code>) tells the Source tab to word its pending note
+<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1206</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:597</code>) tells the Source tab to word its pending note
   <em>...when the dot command runs</em> (<a href="07-frontends.html">7.7</a>).</li>
 </ul>
 <h2 id="what-the-backend-cannot-see">What the backend cannot see<a class="headerlink" href="#what-the-backend-cannot-see" title="Permanent link">&para;</a></h2>

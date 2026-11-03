@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="04-6-user-annotations.html">
+        <link rel="prev" href="04-7-skoolkit-and-ghidra-exports.html">
       
       
         <link rel="next" href="06-lifetime.html">
@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2389,6 +2389,8 @@
       
         
       
+        
+      
     
     
     
@@ -2612,6 +2614,34 @@
     
   
     7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
   
 
     
@@ -3055,10 +3085,10 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
   <code>HALT</code> with interrupts disabled (<code>Warn</code>: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1258</code>) since the start
+  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1323</code>) since the start
   (<code>Warn</code>); then the delivery below.
 - <strong>The limit.</strong> After <code>SOURCE_STEP_LIMIT</code> instructions (1,000,000,
-  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1254</code>) the step ends with a <code>Warn</code>.
+  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1319</code>) the step ends with a <code>Warn</code>.
 - <strong>The delivery.</strong> <code>debugger_step()</code> delivers no <code>Execute</code> event, because <code>run_frame()</code>
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC <code>run_frame()</code>'s treatment itself, in its
@@ -3119,8 +3149,70 @@ that SP alone is wrong for a routine that moves its own return address:</p>
   ISR that interrupted it) would pop its frame.</li>
 </ul>
 <p>The price is stated in the code: a routine that drops its return address and leaves
-by <code>JP</code> (<code>banked_call</code> looks like this) keeps its frame until a <code>RET</code> ends it by SP.
-<code>CallStack::on_slot_without_fetch()</code> handles the esxDOS shim, which returns from
+by a direct <code>JP nn</code> keeps its frame until a <code>RET</code> ends it by SP. (A routine that leaves by an
+indirect jump has its frame ended: below.)</p>
+<p><strong>A return with no <code>RET</code></strong> (GH #349). Some sccz80 runtime helpers return by an indirect jump, and
+some routines jump indirectly without returning. <code>CallStack::indirect_jump_to()</code>
+(<code>call_stack.cpp:96</code>) judges a <code>JP (HL)</code>, <code>JP (IX)</code> or <code>JP (IY)</code> when the newest frame is a
+<code>CALL</code> frame; the frame ends in two cases:</p>
+<ul>
+<li><strong>A. The jump lands on the frame's return point</strong> (<code>caller_pc + 3</code>), whatever SP is. The
+  <code>l_gintspsp</code> family (<code>l_gcharspsp</code>, <code>l_g2intspsp</code>, <code>l_g2charspsp</code>, <code>l_glong2sp</code>: sccz80's loads
+  of an <code>int</code>/<code>char</code> stack variable) swaps a value into the slot with <code>EX (SP),HL</code> and jumps with
+  SP at the slot or one <code>PUSH</code> below it. <code>l_long_sub</code>, <code>l_long_and</code>, <code>l_long_or</code>, <code>l_long_xor</code>,
+  <code>l_long_eq</code> and <code>l_long_ne</code> (<code>long</code> arithmetic and comparisons) <code>POP IX</code> the return address,
+  pop their arguments and <code>JP (IX)</code> with SP above the slot. Nothing but a return jumps to the
+  return point.</li>
+<li><strong>B. SP is above the frame's slot and the frame has no live stored copy of its return
+  address.</strong> <code>l_case</code>, <code>l_long_case</code> and <code>l_i64_case</code> (<code>switch</code>) <code>POP HL</code> the "return address" as
+  the inline case table, walk it and <code>JP (HL)</code> to a case label (or the default continuation) in
+  the caller: they store nothing back, so they have left.</li>
+</ul>
+<p>A <em>stored copy</em> is what tells a routine that has left from one that has only moved its return
+address up. A <code>__z88dk_callee</code> routine pops its return address and its arguments and pushes the
+return address back (<code>POP r; POP args; PUSH r</code>, or <code>...; EX (SP),r</code>), so SP is above its CALL's
+slot for the whole body, and its internal jumps are not returns. <code>CallStack::note_stack_store_()</code>
+(<code>call_stack.cpp:59</code>) records, in <code>CallFrame::ret_stored_at</code>, the address where a <code>PUSH qq</code>, <code>PUSH IX</code>,
+<code>PUSH IY</code>, Z80N <code>PUSH nn</code> or <code>EX (SP),HL/IX/IY</code> put <code>caller_pc + 3</code> above the slot of the newest
+<code>CALL</code> frame; the latest store wins. The copy is live (<code>CallStack::ret_copy_live_()</code>,
+<code>call_stack.cpp:69</code>) while it sits at or above SP and still holds that value. The words are read
+through a stack reader that <code>Emulator::Emulator()</code> (<code>emulator.cpp:42</code>) installs over <code>Mmu::peek()</code>
+(<code>mmu.h:367</code>), which has no watchpoint or latch side effect. Without a reader (the bare tracker
+rows) nothing is recorded and clause B is "SP above the slot".</p>
+<p>Then <code>pop_frames_to_sp()</code> ends the older frames whose slot is below SP. Only the newest frame is
+judged and recorded, so recursion (every deeper call is a newer frame at a lower SP) and an
+interrupt routine (its <code>INT</code> frame is the newest) cannot end an outer frame. Kept, on purpose:</p>
+<ul>
+<li><strong><code>bit_beep_raw_callee</code></strong> (<code>POP AF; POP HL; POP DE; PUSH AF; JP asm_bit_beep_raw</code>, which loops by
+  <code>JP (IX)</code> with SP four bytes above the slot) and any hand-written <code>__z88dk_callee</code> routine: the
+  copy is live.</li>
+<li><strong>The classic retrofit callee shims</strong> (<code>_clga_callee</code>, <code>_draw_callee</code>, ...: <code>LD HL,retaddr; EX
+  (SP),HL; LD (save),HL; JP (HL)</code>): SP is AT the slot, which clause B never ends.</li>
+<li><strong><code>banked_call</code></strong>: it <code>POP</code>s its return address but enters the target with <code>CALL l_jphl</code>; the
+  <code>JP (HL)</code> is in <code>l_jphl</code>'s own frame, at its slot, to a function (rows <code>SRCDBG-CS-21</code>,
+  <code>SRCSTEP-01</code> to <code>-03</code>, <code>-08</code>).</li>
+</ul>
+<p>The residuals, stated plainly. A routine that moves its return address above its slot by anything
+but <code>PUSH</code>/<code>EX (SP)</code> (<code>LD (IX+n),r</code>, <code>LDIR</code>) or holds it in a register, then jumps internally with SP
+above the slot, loses its frame early. A routine that drops its return address with SP left at or
+below its slot and jumps elsewhere keeps a stale frame until a <code>RET</code> ends it by SP (rex's
+<code>saveRegAlloc</code>; no z80 target), and so does one that pushes a value equal to <code>caller_pc + 3</code> that
+is not its return address. None of these occurs in either install's z80 libraries.</p>
+<p>The survey: every <code>JP (HL)</code>, <code>JP (IX)</code> and <code>JP (IY)</code> in both installs' <code>libsrc</code> (491 lines, 242
+distinct code windows; <code>EX (SP)</code> and <code>POP r</code> families included). G1, return by jump: clause A
+(<code>l_gintspsp</code> family, <code>l_long_*</code>, <code>l_i64_*</code>, <code>l_command_line_parse</code>, the math48 and mbf helpers,
+<code>asm_im2_push_registers</code>, the sdcc 64-bit callees and others). G2, return slot consumed with a jump
+into the caller: clause B (<code>l_case</code>, <code>l_long_case</code>, <code>l_i64_case</code>). G3, trampolines reached by
+<code>CALL</code> (<code>l_jphl</code>, <code>l_jpix</code>, <code>l_dcal</code>): SP at their own slot, kept. G4, call emulation (push a
+return label, jump to a function: FZX, cpm, <code>call_extrom</code>): SP below the slot, kept. G5, tail
+jumps to a function or state: kept, including after a callee prologue (the copy is live). G6, jumps
+within a routine's own body (<code>asm_bit_beep_raw</code>, <code>beeper</code>, SP1): kept, including with SP above
+the slot after a callee prologue. G7, other CPUs (Rabbit, GBZ80, 8080/8085): not applicable. Rows
+<code>SRCDBG-CS-16</code> to <code>-27</code>, <code>SRCSTEP-14</code> to <code>-48</code> on the <code>intarg</code>, <code>longsw</code> and <code>calleejp</code> z88dk
+fixtures and the <code>sjasmcallee</code> SLD fixture (<code>test/fixtures/z88dk/*/*-intarg</code>, <code>*-longsw</code>,
+<code>*-calleejp</code>; <code>test/fixtures/sjasmcallee</code>), <code>QCSP-04</code> to <code>-06</code> for the panel. There is no 80cc
+<code>calleejp</code> build: master's <code>-compiler=80cc</code> does not honour <code>__z88dk_callee</code> on an extern declaration.</p>
+<p><code>CallStack::on_slot_without_fetch()</code> handles the esxDOS shim, which returns from
 the <code>RST $08</code> it serviced: that frame ends, and only that one.</p>
 <p>These rules are why <code>Out</code> and <code>Over</code> cross <code>banked_call</code> and <code>l_debug_push_frame</code>
 correctly, which <code>v2.4/sccz80-banked-run</code> and <code>master/sdcc-banked-run</code>
@@ -3132,7 +3224,7 @@ correctly, which <code>v2.4/sccz80-banked-run</code> and <code>master/sdcc-banke
   <code>SRCDBG-HIST-*</code> and <code>SRCDBG-GATE-*</code> (Back, Reverse Continue and the generation
   filter), <code>SRCDBG-CS-*</code> (the call stack's frame identities; <code>SRCDBG-CS-08</code> to <code>-15</code> pin the
   frame-ending rule above: the esxDOS shim, a <code>RET</code> used as a jump, <code>__z88dk_callee</code>,
-  <code>RETI</code>/<code>RETN</code>, an <code>RST</code> frame, an <code>INT</code> that ended a <code>HALT</code>).</li>
+  <code>RETI</code>/<code>RETN</code>, an <code>RST</code> frame, an <code>INT</code> that ended a <code>HALT</code>; <code>SRCDBG-CS-16</code> to <code>-27</code> pin the jump rule).</li>
 <li><code>step_out_test</code> (the Step Out <code>RET</code> predicate, <code>check_step_out()</code>) and
   <code>rewind_call_stack_test</code> (the tracker restored across a rewind).</li>
 <li><code>script_events_test</code>: the DSL's <code>on execute FILE:LINE</code>.</li>
