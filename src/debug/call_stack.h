@@ -37,8 +37,9 @@ struct CallFrame {
 /// instruction. The post-call compares SP to detect taken calls/rets.
 /// A frame ends when a RET lands on the newest CALL's return address, else
 /// when a RET raises SP above its return slot (GH #345). A JP (HL)/(IX)/(IY)
-/// onto the newest CALL's return point with SP not above its slot also ends it
-/// (sccz80's EX (SP),HL; JP (HL) helpers, GH #349).
+/// onto the newest CALL's return point, or taken after that frame's return slot
+/// was consumed (SP above it), also ends it (sccz80's EX (SP),HL / POP r; JP (r)
+/// helpers and l_case, GH #349).
 class CallStack {
 public:
     /// Call before instruction execution to capture opcode and pre-SP.

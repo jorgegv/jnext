@@ -22,7 +22,7 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|dot_c|dutil_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|dot_c|dutil_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
     awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" '
@@ -145,6 +145,8 @@ build "$Z24" v2.4 sccz80-incmid single:incmid.c -clib=new -debug
 build "$Z24" v2.4 sccz80-tape   tape           -clib=new -debug
 # GH #349 R1: an int parameter and local, so sccz80 calls l_gintspsp (EX (SP),HL; JP (HL): a return with no RET)
 build "$Z24" v2.4 sccz80-intarg single:intarg.c -clib=new -debug
+# GH #349 R1': long arithmetic (l_long_sub: POP IX ... JP (IX)) and switch (l_case: POP HL ... JP (HL)) are returns with no RET
+build "$Z24" v2.4 sccz80-longsw single:longsw.c -clib=new -debug
 # GH #351: NextZXOS dot commands (the dot/dotx/dotn subtypes, startupoffset $100/$200/$300)
 build "$Z24" v2.4 sccz80-dot    dot:dot        -clib=new -debug
 build "$Z24" v2.4 sccz80-dotx   dot:dotx       -clib=new -debug
@@ -161,6 +163,8 @@ build "$ZM" master sccz80-incmid single:incmid.c -clib=new -debug
 build "$ZM" master 80cc-incmid  single:incmid.c -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-intarg single:intarg.c -clib=new -debug
 build "$ZM" master 80cc-intarg  single:intarg.c -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-longsw single:longsw.c -clib=new -debug
+build "$ZM" master 80cc-longsw  single:longsw.c -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-dot   dot:dot        -clib=new -debug
 build "$ZM" master sccz80-dotx  dot:dotx       -clib=new -debug
 build "$ZM" master sdcc-dot     dot:dot        -clib=sdcc_iy -debug

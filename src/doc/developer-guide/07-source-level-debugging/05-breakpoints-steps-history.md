@@ -165,23 +165,47 @@ that SP alone is wrong for a routine that moves its own return address:
   ISR that interrupted it) would pop its frame.
 
 The price is stated in the code: a routine that drops its return address and leaves
-by `JP` (`banked_call` looks like this) keeps its frame until a `RET` ends it by SP.
+by a direct `JP nn` keeps its frame until a `RET` ends it by SP. (A routine that leaves by an
+indirect jump has its frame ended: below.)
 
-**A return with no `RET`** (GH #349). sccz80's `l_gintspsp` family (`l_gcharspsp`,
-`l_g2intspsp`, `l_g2charspsp`, `l_glong2sp`: every int or long stack variable) swaps a value
-into the return slot (`EX (SP),HL`) and leaves by `JP (HL)` to `caller_pc + 3`; Step Over
-would never see the depth come back. `CallStack::indirect_jump_to()` ends the newest `CALL`
-frame when a `JP (HL)`, `JP (IX)` or `JP (IY)` lands on its return point with SP at or below
-`sp_at_call`: the slot was reused as data, which is what makes the jump a return. `POP HL;
-JP (HL)` leaves SP above the slot and still keeps its frame (the price above). Only the newest
-frame is tested, so recursion and an interrupt routine (its `INT` frame is the newest) cannot
-end an outer frame. A search of both installs' library sources (`EX (SP),r` followed within six lines by a
-`JP (HL)`/`(IX)`/`(IY)`) finds, besides those five (the `l_g2*` and `l_glong2sp` forms differ
-only by an extra `PUSH`: SP below the slot), `asm_im2_push_registers_8080` (8080 only, same shape);
-every other hit (the classic `*_callee` shims, `call_extrom`, `odd`, the FZX terminal's
-`move_left_right`) jumps to a function, not to the return point, and is not touched. Rows
-`SRCDBG-CS-16` to `-18`, `SRCSTEP-14` to `-21` on the `intarg` fixtures
-(`test/fixtures/z88dk/*/*-intarg`), `QCSP-04` for the panel.
+**A return with no `RET`** (GH #349). Some sccz80 runtime helpers return by an indirect jump.
+`CallStack::indirect_jump_to()` handles a `JP (HL)`, `JP (IX)` or `JP (IY)` when the newest frame
+is a `CALL` frame, and ends that frame in two cases:
+
+1. **The jump lands on the frame's return point** (`caller_pc + 3`), whatever SP is. The
+   `l_gintspsp` family (`l_gcharspsp`, `l_g2intspsp`, `l_g2charspsp`, `l_glong2sp`: sccz80's
+   loads of an `int`/`char` stack variable) swaps a value into the slot with `EX (SP),HL` and
+   jumps with SP at the slot or one `PUSH` below it. `l_long_sub`, `l_long_and`, `l_long_or`,
+   `l_long_xor`, `l_long_eq` and `l_long_ne` (`long` arithmetic and comparisons) `POP IX` the
+   return address, pop their arguments and `JP (IX)` with SP above the slot. Nothing but a
+   return jumps to the return point.
+2. **The slot was consumed** (`new_sp > sp_at_call`): `l_case`, `l_long_case` and `l_i64_case`
+   (`switch`) `POP HL` the "return address" as the inline case table, walk it and `JP (HL)` to a
+   case label (or the default continuation) in the caller. A routine that has taken its return
+   address off the stack and leaves by an indirect jump has left, wherever it goes.
+
+Then `pop_frames_to_sp()` ends the older frames whose slot is below SP. Only the newest frame is
+tested, so recursion (every deeper call is a newer frame at a lower SP) and an interrupt routine
+(its `INT` frame is the newest) cannot end an outer frame. **The negative is `banked_call`:** it
+`POP`s its return address too, but enters the target with `CALL l_jphl`; the `JP (HL)` is inside
+`l_jphl`, whose own frame is the newest, with SP at its slot and the target a function, so
+neither case holds and nothing ends (rows `SRCDBG-CS-21`, `SRCSTEP-01` to `-03`, `-08`). The price:
+a routine that consumes its slot and then uses an indirect jump for something other than leaving
+(none in the library) would lose its frame early.
+
+The survey. Both installs' library sources were searched twice: for `EX (SP),r` followed within
+six lines by `JP (r)`, and for files under `l/` holding both `POP r` and `JP (r)` for the same
+register (20 files per install). Called by compiled sccz80 code, and handled: the five `l_g*sp*`
+helpers, `l_long_sub/and/or/xor/eq/ne` (`sccz80/5-z80/i32`), `l_case`, `l_long_case`
+(`9-common/i32`) and `l_i64_case` (`5-z80/i64`), and `asm_im2_push_registers_8080` (8080 only).
+Not touched: `4-r2ka` (`l_long_and/asl/asr_u/or`) and `8-gbz80/l_case` are for other CPUs;
+`util/l_command_line_parse{,_in_place}`, `util/long/l_long_add/addu/sbc_stack` and
+`sdcc/__sdcc_exit_div_64_callee` are library internals or exit paths no source-step crosses; the
+classic `*_callee` shims, `call_extrom`, `odd`, the FZX `move_left_right` and `beeper` jump to a
+function with SP at or below their slot. Rows `SRCDBG-CS-16` to `-22`, `SRCSTEP-14` to `-35` on
+the `intarg` and `longsw` fixtures (`test/fixtures/z88dk/*/*-intarg`, `*-longsw`), `QCSP-04` and
+`QCSP-05` for the panel.
+
 `CallStack::on_slot_without_fetch()` handles the esxDOS shim, which returns from
 the `RST $08` it serviced: that frame ends, and only that one.
 

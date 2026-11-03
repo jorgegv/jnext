@@ -2328,6 +2328,43 @@ void test_call_stack_jump_return() {
               "/" + std::to_string(closed));
 }
 
+// ── QCSP-05 (GH #349 R1'): a helper that POPs its return slot and leaves by JP (HL) ─────
+//
+// sccz80's l_case takes the inline case table with POP HL and jumps to a case label in the
+// caller. Oracle: libsrc/l/sccz80/9-common/l_case.asm. The Call Stack lists the helper's CALL
+// while it runs and no row for it after the jump.
+
+void test_call_stack_case_jump() {
+    Fixture fx;
+    fx.enable();
+    const uint8_t helper[] = {0xE1, 0xE9};   // POP HL; JP (HL): the table holds a NOP at $8003 (HL = $8003)
+    for (size_t i = 0; i < sizeof(helper); ++i)
+        fx.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), helper[i]);
+    fx.emu.mmu().write(0x8000, 0xCD);   // CALL $9000
+    fx.emu.mmu().write(0x8001, 0x00);
+    fx.emu.mmu().write(0x8002, 0x90);
+    fx.backend->set_call_stack_enabled(true);
+    CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+    const auto rows = [&]() {
+        if (!cs) return -1;
+        cs->set_paused(true);
+        cs->refresh();
+        auto* t = cs->findChild<QTableWidget*>();
+        return t ? t->rowCount() : -1;
+    };
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $9000
+    const int open = rows();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // POP HL (the return slot is consumed)
+    const int mid = rows();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // JP (HL) to $8003
+    const int closed = rows();
+    check("QCSP-05", "the Call Stack shows the helper's CALL until its JP (HL), taken after POP HL consumed "
+                     "the return slot, leaves, then no row for it",
+          fx.pc() == 0x8003 && open == 1 && mid == 1 && closed == 0,
+          "pc " + std::to_string(fx.pc()) + " rows " + std::to_string(open) + "/" + std::to_string(mid) +
+              "/" + std::to_string(closed));
+}
+
 }  // namespace
 
 // ── GH #337: Debug > Source ───────────────────────────────────────────
@@ -7485,6 +7522,7 @@ int main(int argc, char** argv) {
     test_sld_labels_add_execute();
     test_call_stack_non_page_caller();
     test_call_stack_jump_return();
+    test_call_stack_case_jump();
     test_source_menu();
     test_z88dk_source_map();
     test_dot_command();

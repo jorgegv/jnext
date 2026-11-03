@@ -3299,12 +3299,8 @@ int main() {
                   gint && g2int && ix && iy && open);
         }
         {   // CS-17
-            // The negatives of CS-16: each keeps the frame it must not end.
-            // (a) POP HL; JP (HL): SP above the slot, the documented trade-off (CS-12's shape).
-            fresh();
-            ins(0x8000, T, 0xCD, 0x9000, T - 2, 0x00, 0x90);
-            ins(0x9000, T, 0xE9, 0x8003, T);          // after POP HL: SP = sp_at_call + 2
-            const bool above = cs.frames().size() == 1;
+            // The negatives of CS-16 and CS-19/20: each keeps the frame it must not end (a JP (HL) with SP above
+            // the slot is CS-19/20's, GH #349 R1').
             // (b) a JP (HL) elsewhere than the return point.
             fresh();
             ins(0x8000, T, 0xCD, 0x9000, T - 2, 0x00, 0x90);
@@ -3337,11 +3333,88 @@ int main() {
             ins(0x8000, T, 0xD7, 0x0010, T - 2);
             ins(0x0010, T - 2, 0xE9, 0x8003, T - 2);   // caller_pc + 3
             const bool rst = cs.frames().size() == 1;
-            check("SRCDBG-CS-17", "a JP (HL) does NOT end a frame when SP is above the slot (POP HL; "
-                                  "JP (HL)), the target is not the return point, the jump is a direct "
+            check("SRCDBG-CS-17", "a JP (HL) does NOT end a frame when its target is not the return point and "
+                                  "SP is at the slot, the jump is a direct "
                                   "JP nn, the newest frame is another call (recursion) or an INT, or "
                                   "the frame is an RST; the inner frame's own jump ends the inner only",
-                  above && elsewhere && direct && nested && inner && isr_jump && rst);
+                  elsewhere && direct && nested && inner && isr_jump && rst);
+        }
+        {   // CS-19
+            // GH #349 R1': sccz80's l_long_sub / and / or / xor / eq / ne: POP IX (the return
+            // address), POP the arguments, compute, JP (IX) to caller_pc + 3 with SP ABOVE the slot.
+            // Oracle: libsrc/l/sccz80/5-z80/i32/l_long_sub.asm (both installs). An outer CALL frame
+            // (slot $FF00-4, sp_at_call) below stays.
+            fresh();
+            ins(0x7000, T, 0xCD, 0x8000, T - 2, 0x00, 0x80);    // outer: CALL $8000
+            ins(0x8000, T - 2, 0xE5, 0x8001, T - 4);            // PUSH HL (two arguments)
+            ins(0x8001, T - 4, 0xE5, 0x8002, T - 6);
+            ins(0x8002, T - 6, 0xCD, 0x9000, T - 8, 0x00, 0x90); // CALL l_long_sub
+            ins(0x9000, T - 8, 0xDD, 0x9002, T - 6, 0xE1);      // POP IX (the return address)
+            ins(0x9002, T - 6, 0xE1, 0x9003, T - 4);            // POP HL (argument)
+            ins(0x9003, T - 4, 0xE1, 0x9004, T - 2);            // POP HL (argument)
+            const bool open = cs.frames().size() == 2;
+            ins(0x9004, T - 2, 0xDD, 0x8005, T - 2, 0xE9);      // JP (IX) to caller_pc + 3, SP above the slot
+            const bool closed = cs.frames().size() == 1 && cs.frames()[0].caller_pc == 0x7000;
+            check("SRCDBG-CS-19", "a JP (IX) onto the newest CALL's return point ends that frame with SP "
+                                  "ABOVE its slot (l_long_sub: POP IX, arguments popped), and the outer "
+                                  "frame stays",
+                  open && closed);
+        }
+        {   // CS-20
+            // GH #349 R1': l_case / l_long_case / l_i64_case: POP HL takes the inline case table,
+            // the table is walked, JP (HL) goes to a case label in the caller (not caller_pc + 3).
+            // Oracle: libsrc/l/sccz80/9-common/l_case.asm (both installs).
+            fresh();
+            ins(0x7000, T, 0xCD, 0x8000, T - 2, 0x00, 0x80);    // outer: CALL $8000
+            ins(0x8010, T - 2, 0xCD, 0x9000, T - 4, 0x00, 0x90); // CALL l_case, in the middle of $8000's function
+            ins(0x9000, T - 4, 0xEB, 0x9001, T - 4);            // EX DE,HL
+            ins(0x9001, T - 4, 0xE1, 0x9002, T - 2);            // POP HL (the case table)
+            const bool open = cs.frames().size() == 2;
+            ins(0x9002, T - 2, 0xE9, 0x8040, T - 2);            // JP (HL) to the case label $8040
+            const bool closed = cs.frames().size() == 1 && cs.frames()[0].caller_pc == 0x7000;
+            // The default case: the continuation after the table, also in the caller.
+            fresh();
+            ins(0x7000, T, 0xCD, 0x8000, T - 2, 0x00, 0x80);
+            ins(0x8010, T - 2, 0xCD, 0x9000, T - 4, 0x00, 0x90);
+            ins(0x9001, T - 4, 0xE1, 0x9002, T - 2);
+            ins(0x9002, T - 2, 0xE9, 0x8020, T - 2);
+            const bool dflt = cs.frames().size() == 1 && cs.frames()[0].caller_pc == 0x7000;
+            check("SRCDBG-CS-20", "a JP (HL) taken after the newest CALL frame's return slot was consumed "
+                                  "(l_case: POP HL as the case table) ends that frame wherever it lands, "
+                                  "and the outer frame stays",
+                  open && closed && dflt);
+        }
+        {   // CS-21
+            // The explicit negative: banked_call POPs its return address, then CALLs l_jphl; the
+            // JP (HL) is inside l_jphl (its own frame is newest, SP at its slot, the target is a
+            // function), so nothing ends. Oracle: libsrc/_DEVELOPMENT/target/zxn/.../banked_call.asm
+            // and SRCSTEP-01..03, -08 (running code).
+            fresh();
+            ins(0x8000, T, 0xCD, 0x9000, T - 2, 0x00, 0x90);    // CALL banked_call
+            ins(0x9000, T - 2, 0xE1, 0x9001, T);                // POP HL (the return address)
+            ins(0x9001, T, 0xCD, 0x9100, T - 2, 0x00, 0x91);    // CALL l_jphl
+            ins(0x9100, T - 2, 0xE9, 0xC000, T - 2);            // JP (HL) into the banked function
+            const bool both = cs.frames().size() == 2;
+            ins(0xC000, T - 2, 0xC9, 0x9004, T);                // the function's RET ends l_jphl's frame
+            check("SRCDBG-CS-21", "banked_call's POP HL; CALL l_jphl; JP (HL) ends no frame (the jump is "
+                                  "inside l_jphl at its slot, to a function), and the function's RET "
+                                  "ends l_jphl's frame only",
+                  both && cs.frames().size() == 1 && cs.frames()[0].caller_pc == 0x8000);
+        }
+        {   // CS-22
+            // After the newest frame ends by a jump, the older frames whose slot is below the new SP end
+            // by the SP rule: A's routine dropped its own return address (POP HL), then called a helper
+            // that POPs and JP (HL)s; SP is now above A's slot too.
+            fresh();
+            ins(0x7000, T, 0xCD, 0x8000, T - 2, 0x00, 0x80);    // A: CALL $8000 (slot T-2)
+            ins(0x8000, T - 2, 0xE1, 0x8001, T);                // A's routine: POP HL (its slot is gone)
+            ins(0x8001, T, 0xCD, 0x9000, T - 2, 0x00, 0x90);    // B: CALL helper (slot T-2)
+            ins(0x9000, T - 2, 0xE1, 0x9001, T);                // helper: POP HL
+            const bool both = cs.frames().size() == 2;
+            ins(0x9001, T, 0xE9, 0x8004, T);                    // JP (HL) to B's caller_pc + 3
+            check("SRCDBG-CS-22", "when a jump ends the newest frame, the older frames whose slot is below "
+                                  "the new SP end with it (the SP rule)",
+                  both && cs.frames().empty(), std::to_string(cs.frames().size()) + " frames");
         }
         {   // CS-18
             // The helper, then RETI/RETN and an interrupt around it, keep the other rules:
@@ -7002,6 +7075,144 @@ int main() {
             m.dbg->source_step(m.a, Step::Over);
             check("SRCSTEP-21", "sccz80 master: Over main's line 12, which calls l_gintspsp and then accum (a call that itself calls the helper), stops at line 13 ($8CAE) at the same depth",
                   ok && at(m, 0x8CAE, "intarg.c:13") && depth(m) == d0, log + m.where());
+        }
+
+        // GH #349 (R1'): long arithmetic (l_long_sub: POP IX ... JP (IX), SP above the slot) and switch
+        // (l_case: POP HL as the case table, JP (HL) to a case label). Oracles: test/fixtures/z88dk/
+        // {v2.4,master}/{sccz80,80cc}-longsw (map, listing, binary) and the helpers' library sources.
+        {   // SRCSTEP-22
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-longsw", "l22", 0x8CC8, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-22", "sccz80 2.4: Over lsub's line 4 (CALL l_long_sub at $8CDD: POP IX ... JP (IX)) stays in lsub and stops at line 5 ($8CE4), at the same depth",
+                  ok && at(m, 0x8CE4, "longsw.c:5") && depth(m) == d0, log + m.where());
+        }
+        {   // SRCSTEP-23
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sccz80-longsw", "l23", 0x8CC8, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-23", "sccz80 master: Over lsub's line 4 (CALL l_long_sub) stays in lsub and stops at line 5 ($8CE4), at the same depth",
+                  ok && at(m, 0x8CE4, "longsw.c:5") && depth(m) == d0, log + m.where());
+        }
+        {   // SRCSTEP-24
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/80cc-longsw", "l24", 0x8C83, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-24", "80cc master: Over lsub's line 4 stops at line 5 ($8CA7) at the same depth (80cc inlines the long subtraction: the unchanged control)",
+                  ok && at(m, 0x8CA7, "longsw.c:5") && depth(m) == d0, log + m.where());
+        }
+        {   // SRCSTEP-25
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-longsw", "l25", 0x8CC8, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Out);
+            check("SRCSTEP-25", "sccz80 2.4: Out of lsub from line 4 returns to main at $8D75 (longsw.c:28) one level up",
+                  ok && at(m, 0x8D75, "longsw.c:28") && depth(m) == d0 - 1, log + m.where());
+        }
+        {   // SRCSTEP-26
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sccz80-longsw", "l26", 0x8CC8, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Out);
+            check("SRCSTEP-26", "sccz80 master: Out of lsub from line 4 returns to main at $8D75 (longsw.c:27) one level up",
+                  ok && at(m, 0x8D75, "longsw.c:27") && depth(m) == d0 - 1, log + m.where());
+        }
+        {   // SRCSTEP-27
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-longsw", "l27", 0x8CC8, &log);
+            const size_t n0 = m.dbg->call_stack().size();
+            const bool moved = reach(m, 0x8CE0);
+            const auto& f = m.dbg->call_stack();
+            check("SRCSTEP-27", "sccz80 2.4: after l_long_sub returns by JP (IX) ($8CE0, inside lsub) the Call Stack holds the frames it held before and none for the helper (the newest is the CALL _lsub at $8D72)",
+                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D72,
+                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+        }
+        {   // SRCSTEP-28
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sccz80-longsw", "l28", 0x8CC8, &log);
+            const size_t n0 = m.dbg->call_stack().size();
+            const bool moved = reach(m, 0x8CE0);
+            const auto& f = m.dbg->call_stack();
+            check("SRCSTEP-28", "sccz80 master: after l_long_sub returns by JP (IX) ($8CE0) the Call Stack holds no frame for the helper (the newest is the CALL _lsub at $8D72)",
+                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D72,
+                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+        }
+        {   // SRCSTEP-29
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-longsw", "l29", 0x8CF4, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-29", "sccz80 2.4: Over sw's switch (CALL l_case at $8CF8 matching case 200) stays in sw and stops at the case body longsw.c:13 ($8D20), at the same depth",
+                  ok && at(m, 0x8D20, "longsw.c:13") && depth(m) == d0, log + m.where());
+        }
+        {   // SRCSTEP-30
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sccz80-longsw", "l30", 0x8CF4, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-30", "sccz80 master: Over sw's switch (CALL l_case, case 200) stops at the case body longsw.c:13 ($8D20), at the same depth",
+                  ok && at(m, 0x8D20, "longsw.c:13") && depth(m) == d0, log + m.where());
+        }
+        {   // SRCSTEP-31
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/80cc-longsw", "l31", 0x8CB4, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Over);
+            check("SRCSTEP-31", "80cc master: Over sw's switch (CALL l_case at $8CBC, case 200) stops at the case body longsw.c:13 ($8CE8), at the same depth",
+                  ok && at(m, 0x8CE8, "longsw.c:13") && depth(m) == d0, log + m.where());
+        }
+        {   // SRCSTEP-32
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-longsw", "l32", 0x8CF4, &log);
+            const size_t n0 = m.dbg->call_stack().size();
+            const bool moved = reach(m, 0x8D20);
+            const auto& f = m.dbg->call_stack();
+            check("SRCSTEP-32", "sccz80 2.4: after l_case jumps to its case label ($8D20) the Call Stack holds no frame for the helper (the newest is the CALL _sw at $8D81)",
+                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D81,
+                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+        }
+        {   // SRCSTEP-33
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sccz80-longsw", "l33", 0x8CF4, &log);
+            const size_t n0 = m.dbg->call_stack().size();
+            const bool moved = reach(m, 0x8D20);
+            const auto& f = m.dbg->call_stack();
+            check("SRCSTEP-33", "sccz80 master: after l_case jumps to its case label ($8D20) the Call Stack holds no frame for the helper (the newest is the CALL _sw at $8D81)",
+                  ok && moved && n0 > 0 && f.size() == n0 && f.back().caller_pc == 0x8D81,
+                  log + "frames " + std::to_string(f.size()) + "/" + std::to_string(n0) + " " + m.where());
+        }
+        {   // SRCSTEP-34
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "v2.4/sccz80-longsw", "l34", 0x8D20, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Out);
+            check("SRCSTEP-34", "sccz80 2.4: Out of sw from its case 200 body returns to main at $8D84 (longsw.c:29) one level up",
+                  ok && at(m, 0x8D84, "longsw.c:29") && depth(m) == d0 - 1, log + m.where());
+        }
+        {   // SRCSTEP-35
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            std::string log;
+            const bool ok = start(m, "master/sccz80-longsw", "l35", 0x8D20, &log);
+            const int d0 = depth(m);
+            m.dbg->source_step(m.a, Step::Out);
+            check("SRCSTEP-35", "sccz80 master: Out of sw from its case 200 body returns to main at $8D84 (longsw.c:28) one level up",
+                  ok && at(m, 0x8D84, "longsw.c:28") && depth(m) == d0 - 1, log + m.where());
         }
 
         // v2.4 / sccz80 `__banked`: G5 and G9 in one program.

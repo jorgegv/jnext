@@ -49,26 +49,35 @@ void CallStack::return_to(uint16_t sp, uint16_t pc) {
     pop_frames_to_sp(sp);
 }
 
-// GH #349 (R1): a routine that returns without a RET. sccz80's `l_gintspsp`
-// family (l_gcharspsp, l_g2intspsp, l_g2charspsp, l_glong2sp) loads a value,
-// swaps it into the return slot (`EX (SP),HL`, so the value is "pushed") and
-// leaves by `JP (HL)` to caller_pc + 3: no RET ever runs, and the frame would
-// stay open until the caller's own RET (Step Over never sees depth return).
-// So a JP (HL) / JP (IX) / JP (IY) that lands on the newest CALL frame's return
-// point ends that frame, provided SP is still AT OR BELOW the frame's slot
-// (new_sp <= sp_at_call): the slot was reused as data (the swap, plus the
-// helper's own pushes), which is what makes it a return rather than a coincident
-// jump. `POP HL; JP (HL)` leaves SP ABOVE the slot (sp_at_call + 2) and keeps its
-// frame until a RET ends it by SP (SRCDBG-CS-12): the documented trade-off.
-// Only the newest frame is tested, so recursion (every deeper call is newer, at
-// a lower SP) and interrupts (an INT frame is newest while its ISR runs) cannot
-// close an outer frame. The jump changes no SP, so it is never also a CALL/RET.
+// GH #349 (R1, R1'): a routine that returns without a RET. Two shapes, both
+// ending the NEWEST frame when it is a CALL frame and the instruction was a
+// JP (HL) / JP (IX) / JP (IY) (the jump moves no SP):
+//  * Lands on the frame's own return point (caller_pc + 3), whatever SP is.
+//    sccz80's `l_gintspsp` family swaps a value into the slot (`EX (SP),HL;
+//    JP (HL)`, SP at or below the slot); its `l_long_sub/and/or/xor/eq/ne` do
+//    `POP IX`, pop their arguments and `JP (IX)` (SP above the slot). Nothing
+//    but a return jumps to the return point.
+//  * Leaves with the return slot already consumed (new_sp > sp_at_call):
+//    `l_case`, `l_long_case`, `l_i64_case` `POP HL` the "return address" as
+//    their inline case table and `JP (HL)` to a case label in the caller. A
+//    routine that has taken its return address off the stack and leaves by an
+//    indirect jump has left, wherever it goes.
+// Then the older frames whose slot is below SP end by the SP rule. The
+// explicit negatives: `banked_call` pops its return address too, but enters
+// the target with `CALL l_jphl`; the JP (HL) is inside `l_jphl`, whose frame is
+// the newest one and whose slot is at SP, and the jump goes to a function, not
+// to its return point: nothing ends (SRCSTEP-01..03, -08). Recursion (every
+// deeper call is a newer frame at a lower SP) and an interrupt routine (its INT
+// frame is the newest) cannot close an outer frame.
 void CallStack::indirect_jump_to(uint16_t sp, uint16_t pc) {
     if (frames_.empty()) return;
     const CallFrame& f = frames_.back();
-    if (f.type == CallType::CALL && static_cast<uint16_t>(f.caller_pc + 3) == pc &&
-        sp <= f.sp_at_call)
-        frames_.pop_back();
+    if (f.type != CallType::CALL) return;
+    const bool to_return_point = static_cast<uint16_t>(f.caller_pc + 3) == pc;
+    const bool slot_consumed   = sp > f.sp_at_call;
+    if (!to_return_point && !slot_consumed) return;
+    frames_.pop_back();
+    pop_frames_to_sp(sp);
 }
 
 // The esxDOS shim returns from the RST $08 it serviced: that frame ends, and
