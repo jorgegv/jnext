@@ -2536,16 +2536,22 @@ static void ts_prog_all(TurboSound& ts, std::initializer_list<std::pair<int, int
 static const std::initializer_list<std::pair<int, int>> kTsNoiseEnvSet =
     {{6, 0x01}, {7, 0x37}, {8, 0x0F}, {9, 0x10}, {10, 0}, {11, 0x03}, {12, 0}, {13, 0x0E}};
 
+static const std::initializer_list<std::pair<int, int>> kTsTone3Set =
+    {{0, 3}, {7, 0x3E}, {8, 0x0F}, {9, 0}, {10, 0}};
+
 static void g_reset_scope() {
     set_group("Reset-scope");
 
     // AY-129 - ym2149.vhd:258-278,314-330 divider and tone have no RESET_H clause.
+    // Tone period 3 and a settle that leaves the tone high and its counter mid-count, so a
+    // reset that zeroed tone_cnt / tone_op would change the next toggle.
     {
         AyChip a, b;
-        for (AyChip* c : {&a, &b}) { ay_w(*c, 7, 0x3E); ay_w(*c, 8, 0x0F); }
-        settle(a, 11); settle(b, 11);
+        for (AyChip* c : {&a, &b}) { ay_w(*c, 0, 3); ay_w(*c, 7, 0x3E); ay_w(*c, 8, 0x0F); }
+        settle(a, 29); settle(b, 29);
+        const bool pre_hi = a.output_a() == 0xFF;
         b.reset();
-        for (AyChip* c : {&a, &b}) { ay_w(*c, 7, 0x3E); ay_w(*c, 8, 0x0F); }
+        for (AyChip* c : {&a, &b}) { ay_w(*c, 0, 3); ay_w(*c, 7, 0x3E); ay_w(*c, 8, 0x0F); }
         bool ok = true, lo = false, hi = false;
         int bad = -1;
         for (int t = 0; t < 200 && ok; ++t) {
@@ -2555,8 +2561,8 @@ static void g_reset_scope() {
             if (!ay_same(a, b)) { ok = false; bad = t; }
         }
         check("AY-129", "reset keeps the divider and tone generators running",
-              ok && lo && hi,
-              fmt("bad tick=%d lo=%d hi=%d VHDL ym2149.vhd:258-278,314-330", bad, lo, hi));
+              ok && lo && hi && pre_hi,
+              fmt("bad tick=%d lo=%d hi=%d pre_hi=%d VHDL ym2149.vhd:258-278,314-330", bad, lo, hi, pre_hi));
     }
 
     // AY-130 - ym2149.vhd:286-300,338-462 noise LFSR and envelope have no RESET_H clause.
@@ -2636,13 +2642,15 @@ static void g_reset_scope() {
         TurboSound ta, tb;
         for (TurboSound* t : {&ta, &tb}) {
             t->set_enabled(true); t->set_ay_mode(true); t->set_stereo_mode(false);
-            ts_prog_all(*t, kTsToneSet);
+            ts_prog_all(*t, kTsTone3Set);
         }
-        settle(ta, 11); settle(tb, 11);
+        settle(ta, 29); settle(tb, 29);
+        const bool pre_hi = ta.ay(0).output_a() == 0xFF && ta.ay(1).output_a() == 0xFF &&
+                            ta.ay(2).output_a() == 0xFF;
         tb.reset();
         for (TurboSound* t : {&ta, &tb}) {
             t->set_enabled(true);
-            ts_prog_all(*t, kTsToneSet);
+            ts_prog_all(*t, kTsTone3Set);
         }
         bool ok = true, moved = false;
         int bad = -1;
@@ -2652,8 +2660,8 @@ static void g_reset_scope() {
             if (!ts_same(ta, tb)) { ok = false; bad = i; }
         }
         check("TS-62", "TurboSound::reset() keeps all three chips' generators running",
-              ok && moved, fmt("bad tick=%d moved=%d VHDL turbosound.vhd:162/217/272 ym2149.vhd:258-519",
-                               bad, moved));
+              ok && moved && pre_hi, fmt("bad tick=%d moved=%d pre_hi=%d VHDL turbosound.vhd:162/217/272 ym2149.vhd:258-519",
+                               bad, moved, pre_hi));
     }
 
     // TS-63 - ym2149.vhd:105-125, turbosound.vhd:123-127: power_on() is the constructed state.

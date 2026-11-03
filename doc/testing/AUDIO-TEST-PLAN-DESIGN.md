@@ -550,6 +550,7 @@ VHDL ref: `zxnext.vhd` lines 5163-5170, 6379
 | AUD-NR-07 | Mode "11" holds the AY reset                        | Writes ignored while held, accepted after leaving it (`zxnext.vhd:6379,6387`) |
 | AUD-NR-08 | The hold survives a soft reset                      | `nr_06_psg_mode` is init-only (`zxnext.vhd:1112`) |
 | AUD-NR-09 | A state load restores the hold                      | The hold is the NR 0x06 value, re-derived, not serialised |
+| AUD-NR-35 | psg_mode "10" is not a hold                      | Writes land at once, after a soft reset and after a state load (`zxnext.vhd:6379`) |
 | AUD-NR-33 | Power-on PSG mode is YM until NR 0x06 is written    | `aymode_i = 0` (`zxnext.vhd:1112,6389`) |
 | AUD-NR-34 | The NR 0x06 PSG mode survives a soft reset          | `zxnext.vhd:1112,6389` |
 | AUD-NR-06 | `nr_06_internal_speaker_beep` from bit 6          | Controls speaker-exclusive mode                            |

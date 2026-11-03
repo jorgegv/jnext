@@ -224,7 +224,7 @@ static void test_nr_06(Emulator& emu) {
         emu.port().out(0xBFFD, 0x55);
         const uint8_t before = emu.turbosound().ay(0).read_register(0);
         // Assert audio_ay_reset via psg_mode=11. The handler invokes
-        // turbosound_.reset() which re-initialises the register file.
+        // turbosound_.reset_ay_only() (then holds) which re-initialises the register file.
         nr_write(emu, 0x06, 0x03);
         const uint8_t after = emu.turbosound().ay(0).read_register(0);
         check("AUD-NR-05",
@@ -1256,6 +1256,40 @@ static void test_reset_scope(Emulator& emu) {
               fmt("ay=%d after-soft=%d ym-after-soft=%d (want 1/1/1)", ay, ay_after, ym_after));
     }
 
+    // AUD-NR-35 - zxnext.vhd:6379: only psg_mode "11" holds the reset. "10" (YM alias) is
+    // not a hold: a port write lands at once, after a soft reset, and after a state load.
+    {
+        fresh(emu);
+        nr_write(emu, 0x06, 0x02);
+        ay_port_write(emu, 0x00, 0x55);
+        const uint8_t now = emu.turbosound().ay(0).read_register(0);
+
+        fresh(emu);
+        nr_write(emu, 0x06, 0x02);
+        emu.soft_reset();
+        ay_port_write(emu, 0x00, 0x66);
+        const uint8_t soft = emu.turbosound().ay(0).read_register(0);
+
+        fresh(emu);
+        nr_write(emu, 0x06, 0x02);
+        StateWriter m;
+        emu.save_state(m);
+        std::vector<uint8_t> img(m.position(), 0);
+        StateWriter w(img.data(), img.size());
+        emu.save_state(w);
+        fresh(emu);
+        nr_write(emu, 0x06, 0x03);                       // held when the load happens
+        StateReader rd(img.data(), img.size());
+        const bool loaded = emu.load_state(rd);
+        ay_port_write(emu, 0x00, 0x77);
+        const uint8_t load = emu.turbosound().ay(0).read_register(0);
+        check("AUD-NR-35", "psg_mode=10 is not a hold: writes land at once, after a soft reset "
+              "and after a state load [zxnext.vhd:6379]",
+              now == 0x55 && soft == 0x66 && loaded && load == 0x77,
+              fmt("now=0x%02X soft=0x%02X loaded=%d load=0x%02X (want 55/66/1/77)",
+                  now, soft, loaded, load));
+    }
+
     // AUD-NR-30 - ym2149.vhd:170-171,184-186,525-528; no reset clause at :258-519;
     // zxnext_top_issue2.vhd:840: a soft reset clears RESET_H fields and keeps the generators.
     {
@@ -1263,7 +1297,8 @@ static void test_reset_scope(Emulator& emu) {
         play_three_chips(emu);
         for (int i = 0; i < 64; ++i) {
             const std::string d = ts_doc(emu);
-            if (json_val(d, "ay0_poly17") != "0" && json_val(d, "ay0_cnt_div") != "0") break;
+            if (json_val(d, "ay0_poly17") != "0" && json_val(d, "ay0_cnt_div") != "0" &&
+                (json_val(d, "ay0_tone_cnt_a") != "0" || json_val(d, "ay0_tone_op_a") == "true")) break;
             emu.execute_single_instruction();
         }
         const std::string before = ts_doc(emu);
@@ -1273,7 +1308,9 @@ static void test_reset_scope(Emulator& emu) {
         const bool nonvac = gen_before != gen_fingerprint(fresh_emu) &&
                             json_val(before, "ay0_poly17") != "0" &&
                             json_val(before, "ay1_poly17") != "0" &&
-                            json_val(before, "ay2_poly17") != "0";
+                            json_val(before, "ay2_poly17") != "0" &&
+                            (json_val(before, "ay0_tone_cnt_a") != "0" ||
+                             json_val(before, "ay0_tone_op_a") == "true");
         emu.soft_reset();
         const std::string after = ts_doc(emu);
         const bool gens_kept = gen_before == gen_fingerprint(emu);
@@ -1283,6 +1320,9 @@ static void test_reset_scope(Emulator& emu) {
             if (json_val(after, p + "addr") != "0") cleared = false;
             for (const char* o : {"out_a", "out_b", "out_c"})
                 if (json_val(after, p + o) != "0") cleared = false;
+            for (int r = 0; r < 16; ++r)
+                if (emu.turbosound().ay(n).read_register(static_cast<uint8_t>(r)) !=
+                    (r == 7 ? 0xFF : 0x00)) cleared = false;
         }
         check("AUD-NR-30", "a soft reset keeps every AY generator field and clears only addr, "
               "registers and outputs [ym2149.vhd:170-171,184-186,258-519,525-528]",
