@@ -27,3 +27,8 @@ adapt unit-tests.conf counts, run generate.sh after the z88dk rebuild, docs (7.1
 gates. Plan disagreements so far: helper named z88dk_listing_functions (returns all listed functions + fastcall flag); test call sites for
 set_call_stack_enabled are 22 not 25; P4 confirmed (__code_compiler_tail present).
 Test-file concern to check: CTL-12-55 (a direct emulator write must survive an in-place load) vs sync_call_stack() at the end of recheck().
+
+## 2nd pause (fixture check failed)
+Rebuilt z88dk-latest (97731e4e2, was 39421a01c) regenerates different master/* fixtures: STOPPED per coordinator rule.
+Uncommitted-then-committed WIP: src/debug/debugger_cframes.cpp (c_frames(), uncompiled) and rows Z88CDB-41,43,44,45,46 in z88dk_map_test.cpp (uncompiled, 42 pending the cross fixtures).
+epic353 now at e18f615c7 (main v1.1.112 merged, cites re-anchored, lint 0 failed); matrix/dashboard/gates still to do. gh434 not yet rebased on it.
