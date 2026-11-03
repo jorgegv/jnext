@@ -80,36 +80,42 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
         return Style::Other;
     };
 
-    // The epilogue window of a function (GH #434 review F1): after the instruction that restores the caller's
+    // The epilogue window of a function (GH #434 review F1, R2-1): after the instruction that restores the caller's
     // frame pointer (`call l_debug_pop_frame`, or `pop ix`) and up to the function's `ret`, the variable or IX
     // already hold the CALLER's base, and a `__z88dk_callee` routine runs more instructions (pops of its
-    // arguments) before it returns. Found by walking the function's code from its entry to `pc`: true when the
-    // newest pop seen has no `ret` after it; `start` is the address right after that pop, where SP is still E.
-    const auto in_epilogue = [&](const CFunction& fn, uint16_t pc, bool ix, uint16_t* start) {
-        if (!fn.entry.resolved) return false;
+    // arguments) before it returns. `Start`: the PC is right after the restore (the two bytes the instruction
+    // leaves, tested directly, so a long function costs nothing), SP is still E. `Inside`: later in the window,
+    // found by walking the function's code from its entry to the PC. `Unsure`: the walk could not reach the
+    // PC (an unreadable byte): the base is then not known, never the variable's or IX's. `No`: not in a window.
+    enum class Epi : uint8_t { No, Start, Inside, Unsure };
+    const auto in_epilogue = [&](const CFunction& fn, uint16_t pc, bool ix) {
+        uint8_t p3 = 0, p2 = 0, p1 = 0;
+        if (cpu_byte(static_cast<uint16_t>(pc - 3), &p3) && cpu_byte(static_cast<uint16_t>(pc - 2), &p2) &&
+            cpu_byte(static_cast<uint16_t>(pc - 1), &p1)) {
+            if (ix ? (p2 == 0xDD && p1 == 0xE1)
+                   : (p3 == 0xCD && helpers.pop_frame.resolved && (p2 | (p1 << 8)) == helpers.pop_frame.at.address))
+                return Epi::Start;
+        }
+        if (!fn.entry.resolved) return Epi::Unsure;
         uint16_t a = fn.entry.at.address;
-        uint16_t pop_end = 0;
         bool open = false;
-        for (int i = 0; i < 4096 && a < pc; ++i) {
+        for (int i = 0; a < pc; ++i) {
+            if (i > 0x10000) return Epi::Unsure;   // cannot happen: every step moves up at least one byte
             uint8_t b[3] = {};
             if (!cpu_byte(a, &b[0]) || !cpu_byte(static_cast<uint16_t>(a + 1), &b[1]) ||
                 !cpu_byte(static_cast<uint16_t>(a + 2), &b[2]))
-                return false;
+                return Epi::Unsure;
             const int len = instruction_length(a);
-            if (len <= 0) return false;
+            if (len <= 0) return Epi::Unsure;
             if (ix ? (b[0] == 0xDD && b[1] == 0xE1)
                    : (b[0] == 0xCD && helpers.pop_frame.resolved &&
-                      (b[1] | (b[2] << 8)) == helpers.pop_frame.at.address)) {
+                      (b[1] | (b[2] << 8)) == helpers.pop_frame.at.address))
                 open = true;
-                pop_end = static_cast<uint16_t>(a + len);
-            } else if (b[0] == 0xC9) {
+            else if (b[0] == 0xC9)
                 open = false;
-            }
             a = static_cast<uint16_t>(a + len);
         }
-        if (a != pc || !open) return false;
-        *start = pop_end;
-        return true;
+        return a == pc && open ? Epi::Inside : Epi::No;
     };
 
     const auto describe = [&](CFrame& f) {
@@ -154,13 +160,12 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
                 f.note = "not in a C function, and no tracked frame";
             } else if (style == Style::Push) {
                 f.how = CFrame::Base::Prologue;
-                uint16_t win = 0;
-                const bool epi = in_epilogue(store->functions()[static_cast<size_t>(f.function)], regs.PC, false, &win);
-                if (loc->offset == 0 || (epi && win == regs.PC)) {
+                const Epi epi = in_epilogue(store->functions()[static_cast<size_t>(f.function)], regs.PC, false);
+                if (loc->offset == 0 || epi == Epi::Start) {
                     f.fp = static_cast<uint16_t>(regs.SP - 2);
-                } else if (epi) {
+                } else if (epi == Epi::Inside || epi == Epi::Unsure) {
                     f.how = CFrame::Base::Unknown;
-                    f.note = "in the epilogue after the frame pointer was restored: the base is not known without the call-stack tracker";
+                    f.note = "in the epilogue (or the code before it could not be read) after the frame pointer was restored: the base is not known without the call-stack tracker";
                 } else if (helpers.framepointer.resolved) {
                     const auto& at = helpers.framepointer.at;
                     uint8_t w[2] = {};
@@ -177,10 +182,9 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
                 }
             } else if (style == Style::Ix) {
                 f.how = CFrame::Base::Prologue;
-                uint16_t win = 0;
-                const bool epi = in_epilogue(store->functions()[static_cast<size_t>(f.function)], regs.PC, true, &win);
-                if (loc->offset == 0 || (epi && win == regs.PC)) f.fp = static_cast<uint16_t>(regs.SP - 2);
-                else if (epi) {
+                const Epi epi = in_epilogue(store->functions()[static_cast<size_t>(f.function)], regs.PC, true);
+                if (loc->offset == 0 || epi == Epi::Start) f.fp = static_cast<uint16_t>(regs.SP - 2);
+                else if (epi == Epi::Inside || epi == Epi::Unsure) {
                     f.how = CFrame::Base::Unknown;
                     f.note = "in the epilogue after IX was restored: the base is not known without the call-stack tracker";
                 } else if (loc->offset == 2 || loc->offset == 6) f.fp = regs.SP;

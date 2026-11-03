@@ -6764,8 +6764,24 @@ int main() {
                 ok = ok && good;
                 if (!good) seen += std::string(" ") + c.fx;
             }
+            // GH #434 review R2-1: a long function (cross(): 8192 bytes of padding) at the ret right after the restore
+            struct Cross { const char* fx; uint16_t entry, ret; const char* tag; };
+            for (const Cross& c : {Cross{"master/sccz80-cross", 0x8C6B, 0xAC80, "c18d"}, Cross{"master/sdcc-cross", 0x8C48, 0xAC5A, "c18e"},
+                                   Cross{"master/80cc-cross", 0x8C78, 0xAC96, "c18f"}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fx, c.tag);
+                cv_run_to(m, c.entry);
+                const uint16_t E = m.dbg->registers().SP;
+                const bool s1 = cv_run_to(m, c.ret);
+                m.emu.call_stack().clear();
+                const auto fr = m.dbg->c_frames();
+                const bool good = s1 && !fr.empty() && fr[0].how == FrameBase::Prologue && fr[0].fp == static_cast<uint16_t>(E - 2);
+                ok = ok && good;
+                if (!good) seen += std::string(" ") + c.fx;
+            }
             check("SRCDBG-CVAL-18", "a __z88dk_callee epilogue with no frames: right after the frame pointer is restored fp == E - 2; one "
-                                    "instruction later (arguments being popped) the base is Unknown, never the caller's, on sccz80, zsdcc and 80cc",
+                                    "instruction later (arguments being popped) the base is Unknown, never the caller's, on sccz80, zsdcc and 80cc; "
+                                    "and at the ret of cross() (8192 bytes of code before it) fp == E - 2",
                   ok, seen);
         }
         {   // SRCDBG-CVAL-19
@@ -6883,6 +6899,43 @@ int main() {
                                     "instruction of line 21 ($804B starts line 22), fa's call of fb of line 2",
                   lr.count > 0 && fr.size() == 4 && fr[3].function == -1 && name(fr[0]) == "fb" && fr[0].how == FrameBase::Tracked && name(fr[1]) == "fa" &&
                       line_no(fr[1]) == 2 && name(fr[2]) == "fo" && fr[2].how == FrameBase::Chain && line_no(fr[2]) == 21);
+        }
+        {   // SRCDBG-CVAL-25
+            // GH #434 review R2-2: a `ret` closes the epilogue window, so code after it in the same function is not in it.
+            // Synthetic IX-frame function fq: prologue, `pop ix; ret`, then more body; stopped in the body, tracker empty.
+            Bare m(MachineType::ZXN_ISSUE2);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "t";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            m.dbg->attach(ci);
+            const auto esc = [](const std::string& t) {
+                std::string o;
+                for (const unsigned char c : t) {
+                    if (std::isalpha(c)) {
+                        o += static_cast<char>(c);
+                    } else {
+                        char b[8];
+                        std::snprintf(b, sizeof b, "_%02x", c);
+                        o += b;
+                    }
+                }
+                return o;
+            };
+            const std::string map = (z / "c25.map").string();
+            write_text(map, "_fq = $8000 ; addr, public, , t_c, code_compiler, t.c::fq::0::0:1\n"
+                            "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fq::0::0:1\n"
+                            "__code_compiler_tail = $8020 ; const, public, def, , ,\n"
+                            "__CDBINFO__" + esc("F:G$fq$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n");
+            const auto lr = m.dbg->load_source_map(map, true);
+            const uint8_t code[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39, 0xDD, 0xE1, 0xC9, 0x00, 0x00, 0x18, 0xFE};
+            for (size_t i = 0; i < sizeof code; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
+            m.start(0x8000);
+            for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // push ix; ld ix,0; add ix,sp
+            m.start(0x800B);                                                  // the body after the ret
+            const auto fr = m.dbg->c_frames();
+            check("SRCDBG-CVAL-25", "code after an epilogue ret in the same function is not in the epilogue window: Prologue, fp == IX",
+                  lr.count > 0 && !fr.empty() && fr[0].how == FrameBase::Prologue && fr[0].fp == m.dbg->registers().IX &&
+                      fr[0].fp == static_cast<uint16_t>(m.dbg->registers().SP));
         }
         {   // SRCDBG-CVAL-20
             // GH #434 review F7 (R12): zsdcc `push ix; ld ix,0; add ix,sp`: after the push (entry+2) and after the ld (entry+6)
