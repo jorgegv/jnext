@@ -290,6 +290,10 @@ VHDL ref: `ym2149.vhd` lines 332-465
 | AY-126 | C=1, H=0, Al=0: sawtooth (continuous)            | One-direction hold then restart (no direction reversal)    |
 | AY-127 | Envelope steps through 32 levels (0-31)          | 5-bit counter increments/decrements by 1                   |
 | AY-128 | Envelope period counter reset on R13 write        | Counter and ena both reset                                 |
+| AY-129 | RESET_H keeps the divider and tone generators     | Twin chips in lockstep across a reset (`ym2149.vhd:258-278,314-330`, no reset clause) |
+| AY-130 | RESET_H keeps the noise LFSR and the envelope     | Twin lockstep of noise and envelope outputs across a reset (`:286-300,338-462`) |
+| AY-131 | A reset between an R13 write and the next tick keeps the envelope load | Twin lockstep; the load is applied before `reg(13)` is cleared (`:180-207,340-341,393-401`) |
+| AY-132 | `power_on()` restores the declared initial values, keeps AY/YM | Lockstep with a fresh chip; `ctrl_aymode` is an input port (`:105-125`) |
 
 ## 2. Turbosound Next (3x AY)
 
@@ -348,6 +352,12 @@ VHDL ref: `turbosound.vhd` lines 162, 194-205, 217, 249-260, 272, 304-315; `zxne
 | TS-36  | TurboSound off, AY#0 selected: unselected AY#2 keeps running | Same for AY#2 (`:162,272,307,334`) |
 | TS-37  | TurboSound off, AY#1 selected: all three chips run, only AY#1 reaches the mix | Lockstep of all three; `pcm_left` = AY#1 alone (`:197,307` zero AY#0/AY#2); re-enable gives 3x |
 | TS-38  | Noise and envelope generators of unselected chips run | R6/R7/R9/R11/R13 program on all three; A and B outputs equal across chips for 3112 off ticks and 64 on ticks (`ym2149.vhd:281-300,334-462`) |
+| TS-62  | `TurboSound::reset()` keeps all three chips' generators | Twin lockstep of 9 outputs and the mix across a reset (`turbosound.vhd:162/217/272`, `ym2149.vhd:258-519`) |
+| TS-63  | `TurboSound::power_on()` equals a freshly constructed TurboSound | Shadows cleared, hold cleared, id read 0xC0; lockstep with a fresh instance (`ym2149.vhd:105-125`, `turbosound.vhd:123-127`) |
+| TS-64  | Held in reset: register select and writes ignored | R0/R5 stay 0, addr stays 0 (`ym2149.vhd:170,184,216-250`) |
+| TS-65  | Held in reset: the select/pan command is ignored | `ay_select` stays "11", pan stays "11" (`turbosound.vhd:121-135`) |
+| TS-66  | Held in reset: outputs 0, generators keep running | Outputs 0 during the hold; twin lockstep after release (`ym2149.vhd:258-330,525-528`, `zxnext.vhd:6379`) |
+| TS-67  | Release: reset values stand, writes land again | R7 = 0xFF, R0 = 0, then a write lands (`ym2149.vhd:184-188`) |
 | TS-60  | `TurboSound::reset()` clears only `ay_select` + `psg{0,1,2}_pan` | `enabled` / `stereo_mode` / `mono_mode` are external NR-driven inputs; reset must NOT touch them. skip — `turbosound.cpp:10-20` over-clears (see G115). Note: TS-39..59 reserved for future TS work |
 | TS-61  | psg_mode=11 → `audio_ay_reset` does not clobber NR 0x08/0x09 | After psg_mode 11 strobe, NR 0x08 b1 (turbosound_en), b5 (stereo_mode), and NR 0x09 mono bits stay as-set. skip — split needed: full reset (power-on) vs ay-only reset (audio_ay_reset) (see G115) |
 
@@ -536,8 +546,21 @@ VHDL ref: `zxnext.vhd` lines 5163-5170, 6379
 | AUD-NR-02 | Mode "00": YM2149 mode                            | `aymode_i = 0` (YM volume table, full register readback)  |
 | AUD-NR-03 | Mode "01": AY-8910 mode                           | `aymode_i = 1` (AY volume table, masked readback)         |
 | AUD-NR-04 | Mode "10": YM2149 mode (bit 0 = 0)                | Same as "00" for AY chip behaviour                        |
-| AUD-NR-05 | Mode "11": AY reset (silent)                       | `audio_ay_reset = 1`; all AY output zeroed                |
+| AUD-NR-05 | Mode "11": AY reset (silent)                       | `audio_ay_reset = 1` is a level: reset held while psg_mode = "11"; all AY output zeroed |
+| AUD-NR-07 | Mode "11" holds the AY reset                        | Writes ignored while held, accepted after leaving it (`zxnext.vhd:6379,6387`) |
+| AUD-NR-08 | The hold survives a soft reset                      | `nr_06_psg_mode` is init-only (`zxnext.vhd:1112`) |
+| AUD-NR-09 | A state load restores the hold                      | The hold is the NR 0x06 value, re-derived, not serialised |
 | AUD-NR-06 | `nr_06_internal_speaker_beep` from bit 6          | Controls speaker-exclusive mode                            |
+
+### 6.6 Reset scope
+
+VHDL ref: `ym2149.vhd` lines 105-125, 170-186, 258-519, 525-528; `zxnext_top_issue2.vhd` lines 840, 1158-1177, 1195
+
+| ID     | Test                                             | Verification                                               |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AUD-NR-30 | A soft reset keeps every AY generator field     | Only addr, registers and outputs are cleared              |
+| AUD-NR-31 | A soft reset keeps the PSG clock-enable phase   | `clk_28_div` has no reset                                 |
+| AUD-NR-32 | `init()` without `preserve_memory` is power-on  | Generators and PSG phase at their initial values (hard reset = flashboot) |
 
 ### 6.2 Audio Config (NextREG 0x08)
 
@@ -680,8 +703,8 @@ Z80 test programs (built with z88dk) that produce known audio patterns:
 
 | Component      | Test IDs    | Count |
 |----------------|-------------|------:|
-| YM2149 core    | AY-01..128  |   ~62 |
-| Turbosound     | TS-01..52, TS-35..38, TS-60/61 |   ~30 (+G115) |
+| YM2149 core    | AY-01..132  |   ~66 |
+| Turbosound     | TS-01..52, TS-35..38, TS-62..67, TS-60/61 |   ~36 (+G115) |
 | Soundrive DAC  | SD-01..23, SD-19   |   ~19 (+G111) |
 | Beeper/Tape    | BP-01..23   |   ~14 |
 | Audio Mixer    | MX-01..22, MX-23   |   ~15 (+G110) |

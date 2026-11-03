@@ -50,11 +50,23 @@ mix: with TurboSound off, the selected one. The latched 12-bit stereo pair is
 recomputed only when a chip output or a mix input changed (GH #440), and the mixer
 only ever reads that latched pair.
 
-The two resets are distinct and the difference is load-bearing. `reset()` is
-power-on and clears everything; `reset_ay_only()` models the VHDL
-`audio_ay_reset` fired by an NR 0x06 `psg_mode = 11` write, which must *not*
-clear the NR-driven enable, stereo and mono inputs, because in hardware those
-are external signals into the chip rather than state inside it.
+There are four entry points, and the differences are load-bearing. `power_on()`
+(construction and a hard reset, which on hardware reconfigures the FPGA) puts every
+chip at its declared initial values. `reset()` is the VHDL `reset` pulse, which is what
+a soft reset is: RESET_H on the chips clears the address, the register file (R7 =
+0xFF) and the outputs, and nothing else, so the tone, noise and envelope generators
+and the divider keep running; it also clears the NR-driven enable, stereo and mono
+inputs, which `Emulator::init` re-derives from the NextReg shadows.
+`reset_ay_only()` is the same RESET_H effect without touching those NR-driven inputs,
+because in hardware they are external signals into the chip rather than state inside
+it. `set_reset_held()` is the NR 0x06 `psg_mode = 11` level (`audio_ay_reset` is a
+level in the VHDL, not a pulse): while it is set, port writes and the select/pan
+command are ignored and the outputs stay 0, but the generators keep running. The
+emulator applies `reset_ay_only()` when the hold starts and re-derives the level from
+NR 0x06 after `init()` and after a state load; it is not serialised. The PSG
+clock-enable phase (`psg_accum_`) is a free-running divider and also survives a soft
+reset. At power-on the PSG mode is YM, and `init()` derives AY or YM from the NR 0x06
+value like the other NR 0x06 shadows.
 
 **DAC** — `src/audio/dac.*`. Where an AY synthesises a waveform, a DAC simply
 plays back: write a byte, get a voltage, and the program is responsible for

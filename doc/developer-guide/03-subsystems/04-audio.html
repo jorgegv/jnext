@@ -2936,11 +2936,23 @@ ungated <code>clock_en_i</code>). The enable and the selection decide only which
 mix: with TurboSound off, the selected one. The latched 12-bit stereo pair is
 recomputed only when a chip output or a mix input changed (GH #440), and the mixer
 only ever reads that latched pair.</p>
-<p>The two resets are distinct and the difference is load-bearing. <code>reset()</code> is
-power-on and clears everything; <code>reset_ay_only()</code> models the VHDL
-<code>audio_ay_reset</code> fired by an NR 0x06 <code>psg_mode = 11</code> write, which must <em>not</em>
-clear the NR-driven enable, stereo and mono inputs, because in hardware those
-are external signals into the chip rather than state inside it.</p>
+<p>There are four entry points, and the differences are load-bearing. <code>power_on()</code>
+(construction and a hard reset, which on hardware reconfigures the FPGA) puts every
+chip at its declared initial values. <code>reset()</code> is the VHDL <code>reset</code> pulse, which is what
+a soft reset is: RESET_H on the chips clears the address, the register file (R7 =
+0xFF) and the outputs, and nothing else, so the tone, noise and envelope generators
+and the divider keep running; it also clears the NR-driven enable, stereo and mono
+inputs, which <code>Emulator::init</code> re-derives from the NextReg shadows.
+<code>reset_ay_only()</code> is the same RESET_H effect without touching those NR-driven inputs,
+because in hardware they are external signals into the chip rather than state inside
+it. <code>set_reset_held()</code> is the NR 0x06 <code>psg_mode = 11</code> level (<code>audio_ay_reset</code> is a
+level in the VHDL, not a pulse): while it is set, port writes and the select/pan
+command are ignored and the outputs stay 0, but the generators keep running. The
+emulator applies <code>reset_ay_only()</code> when the hold starts and re-derives the level from
+NR 0x06 after <code>init()</code> and after a state load; it is not serialised. The PSG
+clock-enable phase (<code>psg_accum_</code>) is a free-running divider and also survives a soft
+reset. At power-on the PSG mode is YM, and <code>init()</code> derives AY or YM from the NR 0x06
+value like the other NR 0x06 shadows.</p>
 <p><strong>DAC</strong> — <code>src/audio/dac.*</code>. Where an AY synthesises a waveform, a DAC simply
 plays back: write a byte, get a voltage, and the program is responsible for
 feeding it fast enough. Several third-party Spectrum peripherals did exactly
