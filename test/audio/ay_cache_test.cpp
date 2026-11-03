@@ -14,10 +14,9 @@
 // Every row drives the real TurboSound and an INDEPENDENT reference (struct Ref
 // below) with identical inputs. The reference shares no TurboSound code: it is
 // three standalone AyChips, marked dirty before every tick (so each recomputes
-// its output every tick, the old behaviour), ticked by turbosound.cpp's rule
-// (AY#0 always, AY#1/#2 when enabled or selected; this is jnext's own gating, NOT
-// the VHDL's: there all three chips run on an ungated clock_en_i, turbosound.vhd:
-// 162/217/272, and enable/select gate only the output; tracked as GH #442) and
+// its output every tick, the old behaviour), all three ticked on every tick as the
+// VHDL does (every ym2149 runs on the ungated clock_en_i, turbosound.vhd:162/217/272;
+// enable/select gate only the output; GH #442) and
 // mixed by the VHDL formula written out again here, every tick. A mutation in TurboSound (a skipped chip
 // tick, a lost dirty flag) therefore moves only the side under test. After every
 // tick the PCM mix, every per-chip PCM and every chip output are compared, and
@@ -40,6 +39,8 @@
 //     17 pan command (reg_addr)  18 state load
 //   AYC-19  reset() and reset_ay_only() leave both paths equal. They are not
 //           observable on their own: both zero every output the mix reads.
+//   AYC-22  An unselected chip keeps ticking with TurboSound off (GH #442); the cached
+//           mix follows when it is re-enabled.
 //   AYC-20  Golden hash: three TurboSound chips running 200000 ticks. The value
 //           was recorded from the tree BEFORE the caches (7b245c86d), so it does
 //           not depend on any reference written for the caches.
@@ -107,7 +108,7 @@ struct Ref {
     bool chip_active(int i) const { return en || sel == (i == 0 ? 3 : i == 1 ? 2 : 1); }
     void tick() {
         for (int i = 0; i < 3; ++i)
-            if (i == 0 || chip_active(i)) { ay_[i].mark_dirty(); ay_[i].tick(); }
+            { ay_[i].mark_dirty(); ay_[i].tick(); }
         uint16_t tl = 0, tr = 0;
         for (int i = 0; i < 3; ++i) {
             cl[i] = cr[i] = 0;
@@ -493,6 +494,33 @@ int main() {
         g.tick(50);
         check("AYC-19", "reset_ay_only() and reset() leave the cached and reference paths equal",
               a && g.ok, g.why);
+    }
+
+    {
+        // An unselected chip keeps playing while TurboSound is off (GH #442): its output
+        // moves, and the cached mix follows when it is re-enabled (turbosound.vhd:162/217/272).
+        Rig g;
+        g.tune();
+        bool moved1 = false, moved2 = false;
+        for (int sel : {0, 2}) {   // AY#0 selected, then AY#1 selected
+            g.select_chip(sel);
+            g.both([](auto& t) { t.set_enabled(false); });
+            const int u = sel == 0 ? 1 : 0, v = 2;
+            uint8_t pu = g.r.ay(u).output_c(), pv = g.r.ay(v).output_c();
+            bool mu = false, mv = false;
+            for (int i = 0; i < 2000; ++i) {
+                g.tick();
+                const uint8_t nu = g.r.ay(u).output_c(), nv = g.r.ay(v).output_c();
+                if (nu != pu) mu = true;
+                if (nv != pv) mv = true;
+                pu = nu; pv = nv;
+            }
+            (sel == 0 ? moved1 : moved2) = mu && mv;
+            g.both([](auto& t) { t.set_enabled(true); });
+            g.tick(200);
+        }
+        check("AYC-22", "unselected chips keep ticking with TurboSound off; the cached mix follows on re-enable",
+              g.ok && moved1 && moved2, g.ok ? "an unselected chip's output never moved: row is vacuous" : g.why);
     }
 
     {

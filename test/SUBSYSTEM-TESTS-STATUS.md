@@ -62,10 +62,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | VideoTiming           |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      178 |      178 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (AY+DAC+Beeper) |      163 |      163 |      0 |       0 |    100% | 🟢 All tests pass. |
-| AY/TurboSound caches  |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (AY+DAC+Beeper) |      177 |      177 |      0 |       0 |    100% | 🟢 All tests pass. |
+| AY/TurboSound caches  |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (Pi I2S source, POSIX) |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (NextREG)       |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (pacing)        |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (device fill)   |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -182,6 +182,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |      110 |      110 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      270 |      270 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15217**| **15217**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **15241**| **15241**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
