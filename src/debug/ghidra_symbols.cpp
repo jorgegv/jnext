@@ -42,7 +42,8 @@ reexport::Output build(const std::vector<reexport::Label>& labels,
     std::map<std::string, std::vector<Line>> by_file;   // file name -> lines
     std::map<std::string, std::string> prefix_of;       // file name -> address prefix
     std::set<std::tuple<std::string, uint16_t, std::string>> seen;
-    for (const reexport::Label& l : labels) {
+    // One name, one key (GH #349): z88dk's module-local labels repeat across routines.
+    for (const reexport::Label& l : reexport::unique_names(labels, out.notes)) {
         if (!reexport::name_exportable(l.name)) {
             out.notes.push_back("label '" + l.name + "' at " + hex4(l.addr) +
                                 " skipped: its name holds whitespace or a control character");
@@ -54,8 +55,11 @@ reexport::Output build(const std::vector<reexport::Label>& labels,
         prefix_of[tag + ".ghidra.txt"] = l.space ? tag + ":" : std::string();
         ++out.labels;
     }
+    // The view file is imported on its own, so its names are made unique among themselves.
+    std::vector<reexport::Label> view_in;
+    for (const ViewLabel& v : view) view_in.push_back({std::nullopt, v.addr, v.name});
     std::vector<Line> view_lines;
-    for (const ViewLabel& v : view) {
+    for (const reexport::Label& v : reexport::unique_names(view_in, out.notes)) {
         if (!reexport::name_exportable(v.name)) continue;   // noted once above if it was a label
         view_lines.push_back({v.addr, v.name});
     }

@@ -528,6 +528,66 @@ static void pure_rows() {
                   none.files.empty() && clean,
               names_of(a) + " | " + names_of(b));
     }
+
+    // SKCTL-18 / GHSYM-07 (GH #349 R2): z88dk's module-local labels repeat (`end_x` at $80CA and
+    // $8103, both in P04's window). Both importers refuse a name at two addresses, and skool2asm
+    // refuses a duplicate label, so a name is written once per export: the first by (unpaged,
+    // memory, address), the rest reported. Oracles: SkoolKit's skool2asm ("Duplicate label") and
+    // the importers' own rule, proved on the real tools by skoolkit-foreign-func / ghidra-foreign-func.
+    {
+        const MemSpace p4 = MemSpace::page(4), p5 = MemSpace::page(5);
+        sk::Input in;
+        in.labels = {{p4, 0x8103, "end_x"}, {p4, 0x80CA, "end_x"}, {p4, 0x80D0, "other"},
+                     {p5, 0x80CA, "end_x"}, {p4, 0x8200, "ws bad"}, {std::nullopt, 0x0100, "rom_x"},
+                     {p4, 0x8000, "rom_x"}, {p4, 0x80CA, "end_x"}};
+        in.stores.push_back(sk::Store{p4, std::vector<uint8_t>(0x2000, 0), {}});
+        const reexport::Output out = sk::build(in);
+        std::string all;
+        size_t ends = 0;
+        for (const reexport::File& f : out.files)
+            if (f.name.size() > 4 && f.name.compare(f.name.size() - 4, 4, ".ctl") == 0) {
+                all += f.content;
+                for (size_t at = 0; (at = f.content.find("label=end_x", at)) != std::string::npos; ++at) ++ends;
+            }
+        const std::string p4ctl = text_of(out, "8000-P04.ctl");
+        reexport::Imported back;
+        std::string why;
+        const bool parsed = sk::parse_ctl(p4ctl, "8000-P04", back, why);
+        const std::string notes = join(out.notes);
+        check("SKCTL-18", "a name at several keys is written once: end_x stays at P04:$80CA (the lowest "
+                          "key), the P04:$8103, P05:$80CA ones are reported and absent; an unpaged rom_x beats "
+                          "the paged one; the written control file imports back; whitespace names are still "
+                          "reported their own way",
+              ends == 1 && has(p4ctl, "@ $80CA label=end_x") && !has(p4ctl, "$8103 label=end_x") &&
+                  !has(all, "$8000 label=rom_x") && has(text_of(out, "0000-0CPU.ctl"), "@ $0100 label=rom_x") &&
+                  has(notes, "label 'end_x' at P04:$8103 skipped: the name is already used at P04:$80CA") &&
+                  has(notes, "label 'end_x' at P05:$80CA skipped: the name is already used at P04:$80CA") &&
+                  has(notes, "label 'rom_x' at P04:$8000 skipped: the name is already used at $0100") &&
+                  has(notes, "'ws bad'") && parsed && back.labels.size() == 2,
+              all + "|" + notes + "|" + why);
+    }
+    {
+        const MemSpace p4 = MemSpace::page(4), p5 = MemSpace::page(5);
+        const reexport::Output out = gh::build(
+            {{p4, 0x8103, "end_x"}, {p4, 0x80CA, "end_x"}, {p5, 0x80CA, "end_x"}, {p4, 0x80D0, "other"},
+             {std::nullopt, 0x0100, "rom_x"}, {p4, 0x8000, "rom_x"}},
+            {{0x8103, "end_x"}, {0x80CA, "end_x"}, {0x80D0, "other"}});
+        reexport::Imported back_p4, back_view;
+        std::string w1, w2;
+        const bool a = gh::parse_symbols(text_of(out, "P04.ghidra.txt"), back_p4, w1);
+        const bool b = gh::parse_symbols(text_of(out, "view.ghidra.txt"), back_view, w2);
+        const std::string notes = join(out.notes);
+        check("GHSYM-07", "a name at several keys is written once in the Ghidra files too (P04.ghidra.txt "
+                          "and view.ghidra.txt each keep end_x at $80CA, the lowest, the unpaged rom_x beats "
+                          "the paged one), each duplicate is reported, and every written file imports back",
+              text_of(out, "P04.ghidra.txt") == "end_x P04:0x80CA l\nother P04:0x80D0 l\n" &&
+                  text_of(out, "view.ghidra.txt") == "end_x 0x80CA l\nother 0x80D0 l\n" &&
+                  text_of(out, "CPU.ghidra.txt") == "rom_x 0x0100 l\n" && names_of(out).find("P05") == std::string::npos &&
+                  has(notes, "label 'end_x' at P04:$8103 skipped") && has(notes, "label 'end_x' at P05:$80CA skipped") &&
+                  has(notes, "label 'rom_x' at P04:$8000 skipped") && a && b && back_p4.labels.size() == 2 &&
+                  back_view.labels.size() == 2,
+              names_of(out) + "|" + notes + "|" + w1 + w2);
+    }
 }
 
 // ---------------------------------------------------------------------------
