@@ -324,7 +324,7 @@ int main() {
         const auto rm = load(mm, master / "sdcc-debug" / "prog.map");
         const SourceText* tx = so2.embedded_text(CRT24);
         const SourceText* txm = mm.embedded_text(CRTM);
-        check("Z88LIS-10", "prog.lis gives the CRT its lines on 2.4 and master: $8000 is the .inc's :3, $8001 the m4's :9470, :9462 resolves to $8000, $800C (code_crt_init, no label) :9148, $8032 :9524, $8036 the exit .inc's :3; the m4 text has 9689 lines (9470 is exactly the listing's \"      push iy\", 9462 \"__Start:\") from prog.lis; the .inc has none (GH #445: master's m4 moved +12 with z88dk v2.4-2883: $8001 :9482, $800C :9160, $8032 :9536, 9701 lines)",
+        check("Z88LIS-10", "prog.lis gives the CRT its lines on 2.4 and master: $8000 is the .inc's :3, $8001 the m4's :9470 (master :9482), :9462 resolves to $8000 (2.4), $800C (code_crt_init, no label) :9148 (master :9160), $8032 :9524 (master :9536), $8036 the exit .inc's :3; the m4 text has 9689 lines (master 9701; 2.4's 9470 is exactly the listing's \"      push iy\", 9462 \"__Start:\") from prog.lis; the .inc has none (GH #445: master's m4 moved +12 with z88dk v2.4-2883)",
               so2_r && rm &&
                   is_at(so2.lookup(P4, 0x8000), DI24, 3) && is_at(so2.lookup(P4, 0x8001), CRT24, 9470) &&
                   is_at(so2.lookup(P4, 0x8002), CRT24, 9470) &&
@@ -483,7 +483,7 @@ int main() {
         const bool edited = edit_file(d / "prog.map", "__code_crt_init_tail            = $8032", "__code_crt_init_tail            = $8033");
         SourceMap m;
         const auto r = load(m, d / "prog.map");
-        check("Z88LIS-19", "code_crt_init one byte longer in the map than in prog.lis (owner-approved 2026-11-01, was: not placed): only $800C of the two starts holds the 17 opcode bytes, so its lines are placed ($800C is m4:9148, no note counts 17) and $8001 is still :9470 (GH #445: master's m4 is +12 since z88dk v2.4-2883: $800C :9160, $8001 :9482)",
+        check("Z88LIS-19", "code_crt_init one byte longer in the map than in prog.lis (owner-approved 2026-11-01, was: not placed): only $800C of the two starts holds the 17 opcode bytes, so its lines are placed ($800C is m4:9160, no note counts 17) and $8001 is still :9482 (GH #445: master's m4 is +12 since z88dk v2.4-2883; was :9148 and :9470)",
               edited && r && is_in(m.lookup(P4, 0x800C), "newlib/target/zxn/zxn_crt.asm.m4", 9160) &&
                   !any_note_has(r, "17 listed lines") && is_at(m.lookup(P4, 0x8001), CRTM, 9482));
     }
