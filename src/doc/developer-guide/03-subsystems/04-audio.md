@@ -65,7 +65,8 @@ command are ignored and the outputs stay 0, but the generators keep running. The
 emulator applies `reset_ay_only()` when the hold starts and re-derives the level from
 NR 0x06 after `init()` and after a state load; it is not serialised. The PSG
 clock-enable phase (`psg_accum_`) is a free-running divider and also survives a soft
-reset.
+reset. At power-on the PSG mode is YM, and `init()` derives AY or YM from the NR 0x06
+value like the other NR 0x06 shadows.
 
 **DAC** — `src/audio/dac.*`. Where an AY synthesises a waveform, a DAC simply
 plays back: write a byte, get a voltage, and the program is responsible for

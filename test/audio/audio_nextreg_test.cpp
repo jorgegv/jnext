@@ -1132,7 +1132,7 @@ static std::string ts_doc(Emulator& emu) {
 static const char* const kGenKeys[] = {
     "cnt_div", "noise_div", "ena_div", "ena_div_noise", "tone_cnt_a", "tone_cnt_b",
     "tone_cnt_c", "tone_op_a", "tone_op_b", "tone_op_c", "noise_cnt", "poly17", "noise_op",
-    "env_cnt", "env_ena", "env_vol", "env_inc", "env_hold", "ay_mode"
+    "env_cnt", "env_ena", "env_vol", "env_inc", "env_hold"
 };
 
 // Keys of every generator field of all three chips, joined: equal text = equal state.
@@ -1228,6 +1228,32 @@ static void test_reset_scope(Emulator& emu) {
               l1 && l2 && a == 0x00 && b == 0x55,
               fmt("loads %d/%d held-load R0=0x%02X free-load R0=0x%02X (want 0x00 / 0x55)",
                   l1, l2, a, b));
+    }
+
+    // AUD-NR-33 - zxnext.vhd:1112,6389: psg_mode powers on at "00", so aymode_i = 0 (YM)
+    // until NR 0x06 is written.
+    {
+        Emulator pristine;
+        build_next_emulator(pristine);
+        check("AUD-NR-33", "power-on PSG mode is YM until NR 0x06 is written "
+              "[zxnext.vhd:1112,6389]", !pristine.turbosound().ay_mode(),
+              fmt("ay_mode=%d (want 0 = YM)", pristine.turbosound().ay_mode() ? 1 : 0));
+    }
+
+    // AUD-NR-34 - zxnext.vhd:1112,6389: an NR 0x06 write sets the mode, and it survives a
+    // soft reset (psg_mode is not in the reset block); a write of 00 goes back to YM.
+    {
+        fresh(emu);
+        nr_write(emu, 0x06, 0x01);
+        const bool ay = emu.turbosound().ay_mode();
+        emu.soft_reset();
+        const bool ay_after = emu.turbosound().ay_mode();
+        nr_write(emu, 0x06, 0x00);
+        emu.soft_reset();
+        const bool ym_after = !emu.turbosound().ay_mode();
+        check("AUD-NR-34", "the NR 0x06 PSG mode survives a soft reset [zxnext.vhd:1112,6389]",
+              ay && ay_after && ym_after,
+              fmt("ay=%d after-soft=%d ym-after-soft=%d (want 1/1/1)", ay, ay_after, ym_after));
     }
 
     // AUD-NR-30 - ym2149.vhd:170-171,184-186,525-528; no reset clause at :258-519;

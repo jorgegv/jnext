@@ -5538,6 +5538,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // psg_mode is not in the reset block (zxnext.vhd:1112): a hold in force
         // before a soft reset is still in force after it.
         turbosound_.set_reset_held((cached_06 & 0x03) == 0x03);
+        // aymode_i <= nr_06_psg_mode(0) (zxnext.vhd:6389), and psg_mode powers on at "00"
+        // (zxnext.vhd:1112): YM until NR 0x06 is written. The write handler sets the same
+        // input; init() derives it from the preserved value, as for the other NR 0x06 shadows.
+        turbosound_.set_ay_mode((cached_06 & 0x01) != 0);
     }
     // G110 — refresh Mixer's exc_i now that the NR 0x06 b6 shadow has been
     // cleared (and `nr_08_stored_low_ = 0x10` earlier in init() set the b4
