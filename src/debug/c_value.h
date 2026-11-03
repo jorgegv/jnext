@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -67,7 +68,10 @@ struct CFormatCtx {
     const VariableStore* store = nullptr;
     std::string scope_name;   ///< the variable record's scope text (`vars`, `vars.c`)
     std::string module;       ///< the variable's CDB module
-    CReader read;             ///< the CPU view: pointer targets, strings
+    CReader read;             ///< the CPU view: pointer targets, strings, and a location that is no longer inside its root object
+    /// How the ROOT object's own bytes are read (a global lives in a page, not in the CPU view); unset: `read`. Used while a
+    /// location is `CLoc::rooted`, that is until a pointer is followed.
+    CReader read_root;
     /// ` <name>` of a resolved variable or function at that address, mapped now; empty when none.
     std::function<std::string(uint16_t)> name_at;
 };
@@ -117,6 +121,7 @@ struct CLoc {
     uint32_t addr = 0;
     std::string note;   ///< e.g. a member of a bitfield-like struct (z88dk U2)
     uint32_t end = 0;   ///< exclusive end of the enclosing object (0: none); a read is clamped to it and zero-extended
+    bool rooted = false;   ///< `addr` is in the root object's own view (`CFormatCtx::read_root`); a followed pointer clears it
 };
 struct CEval {
     bool ok = false;
@@ -127,8 +132,14 @@ struct CEval {
 /// (checked against its count) or a pointer (scaled by the element size), `*` on a pointer. Pointers are read
 /// through `ctx.read`.
 CEval c_eval_path(const CFormatCtx& ctx, const CLoc& root, bool deref, const std::vector<CPathStep>& steps);
+/// The integer a Char, Int, Long, Scalar, Bitfield or Pointer holds (the sign from `:S`/`:U`; a pointer's address), from
+/// `type`'s own bytes; nullopt for anything else or a short buffer. 8-byte values are the 64-bit pattern.
+std::optional<int64_t> c_integer_value(const CdbType& type, const uint8_t* bytes, size_t avail);
+/// The value of a 48-bit, binary32 or binary16 float; nullopt for anything else.
+std::optional<double> c_float_value(const CdbType& type, const uint8_t* bytes, size_t avail);
+
 /// Read `loc.type.size` bytes at `loc.addr` and format them, with `loc.note` among the notes.
-CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc);
+CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_t>* bytes = nullptr);
 
 // -- scope, registers, fastcall ----------------------------------------------
 

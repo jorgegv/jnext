@@ -60,8 +60,10 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "debug/c_value.h"
 #include "debug/events.h"
 #include "debug/inspect.h"
 #include "debug/result.h"
@@ -1245,6 +1247,73 @@ public:
     /// pointers of the older ones, which stops at a change of frame style). Empty without a live
     /// source map store. Runs `recheck()` first, like every CAP-SRC reader.
     std::vector<CFrame> c_frames() const;
+
+    /// CAP-SRC (GH #434 stage 3) - where a C value lives, structured so a frontend formats it its own way.
+    struct CWhere {
+        enum class Kind : uint8_t {
+            None,       ///< no place: the value could not be located
+            Page,       ///< `source`: a page-aware address (a global, a static)
+            Cpu,        ///< `cpu`: the live CPU view (a stack slot, what a pointer points at)
+            Register,   ///< `regs`: register names, e.g. "BC"
+        };
+        Kind kind = Kind::None;
+        SourceAddress source;   ///< Page (also DivMmcRam): the space and the 16-bit logical address
+        uint16_t cpu = 0;       ///< Cpu
+        std::string regs;       ///< Register
+    };
+
+    /// One C variable with its value, or why it has none. `value` is empty when `ok` is false: a failed read is never `0`.
+    struct CValueRow {
+        std::string name;
+        std::string path;       ///< round-trips through `read_c_value(frame, path)`
+        std::string file;       ///< the source file (`vars.c`) of a file-level or static variable, else the function's
+        std::string type;       ///< `c_type_text()` of the variable
+        enum class Kind : uint8_t { Param, Local, StaticLocal, FileStatic, Global };
+        Kind kind = Kind::Local;
+        CWhere where;
+        bool ok = false;
+        std::string value;      ///< ok: the formatted value
+        std::string why;        ///< !ok: "optimised out", "not allocated", "out of scope at vars.c:41", ...
+        bool aggregate = false; ///< a struct or an array
+        std::vector<std::string> notes;   ///< "in BC; may be stale outside its live range", "page 20 is not mapped at $C000 now", ...
+    };
+
+    /// `read_c_value()`: the object a C path names in frame `frame`, typed and read. `loc` is the (peeled) location the path
+    /// ended at; `integer` is set for Char, Int, Long, Scalar, Bitfield and Pointer (a pointer's address), `real` for the floats.
+    struct CValueResult {
+        bool ok = false;
+        std::string why;
+        std::string type;           ///< the type text of the object the path ended at
+        std::string value;
+        std::vector<std::string> notes;
+        CLoc loc;                   ///< valid when `where` is Page or Cpu
+        CWhere where;
+        std::optional<int64_t> integer;
+        std::optional<double> real;
+        bool aggregate = false;
+    };
+
+    struct CLocalsResult {
+        bool ok = false;
+        std::string why;            ///< !ok: "no frame 3 (there are 2)", "frame 1 is not in a C function", "no source map is attached", ...
+        std::vector<CValueRow> rows;
+    };
+
+    /// Whether C variables can be shown, and if not why (the texts of plan 2.8).
+    struct CVariablesStatus {
+        bool available = false;
+        std::string why;
+    };
+
+    /// CAP-SRC (GH #434 stage 3) - the C variables of frame `frame` (an index into `c_frames()`, newest first): its parameters
+    /// (by stack position), the locals visible at its PC, then its static locals. A row that cannot be read says why.
+    CLocalsResult c_locals(size_t frame) const;
+    /// All the globals, file statics and static locals, ordered by file then name, each with a path qualified so no local can
+    /// shadow it (`vars.c::s_dup`, `sum::calls`).
+    std::vector<CValueRow> c_globals() const;
+    /// A C path (`['*'] name | fn::name | file.c::name`, then `.m`, `->m`, `[i]`) read in frame `frame`.
+    CValueResult read_c_value(size_t frame, std::string_view path) const;
+    CVariablesStatus c_variables_status() const;
 
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
     /// `source_page(addr)` says supplies it), or of the current PC. Null when

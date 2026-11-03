@@ -283,11 +283,18 @@ int struct_size(const CFormatCtx& ctx, const std::string& tag)
     const auto exact = [&](const CdbType& t) {
         return t.chain.size() == 1 && t.chain[0].kind == CdbTypeKind::Struct && t.chain[0].tag == tag && t.size > 0;
     };
-    for (const CVariable& v : ctx.store->variables())
-        if (exact(v.record.var.type)) return v.record.var.type.size;
-    for (const CRecord& r : ctx.store->types())
-        for (const CdbMember& m : r.record.members)
-            if (exact(m.var.type)) return m.var.type.size;
+    // a declared object of the context's own module or scope first, as c_find_type() prefers its copy, then any in the store
+    for (int pass = 0; pass < 2; ++pass) {
+        const auto mine = [&](const std::string& module, const std::string& scope) {
+            return pass == 1 || module == ctx.module || (!ctx.scope_name.empty() && scope == ctx.scope_name);
+        };
+        for (const CVariable& v : ctx.store->variables())
+            if (mine(v.module, v.record.scope_name) && exact(v.record.var.type)) return v.record.var.type.size;
+        for (const CRecord& r : ctx.store->types())
+            if (mine(r.module, r.record.scope_name))
+                for (const CdbMember& m : r.record.members)
+                    if (exact(m.var.type)) return m.var.type.size;
+    }
     const CTypeLookup lk = c_find_type(*ctx.store, tag, ctx.scope_name, ctx.module);
     if (!lk.record) return -1;
     const CdbRecord& rec = lk.record->record;
@@ -307,10 +314,15 @@ CdbType sliced(const CdbType& t, size_t n, int size)
     return out;
 }
 
-bool read16(const CFormatCtx& ctx, uint32_t addr, uint16_t* v)
+const CReader& reader_for(const CFormatCtx& ctx, bool rooted)
+{
+    return rooted && ctx.read_root ? ctx.read_root : ctx.read;
+}
+
+bool read16(const CReader& read, uint32_t addr, uint16_t* v)
 {
     uint8_t b[2] = {0, 0};
-    if (!ctx.read || !ctx.read(addr, 2, b)) return false;
+    if (!read || !read(addr, 2, b)) return false;
     *v = static_cast<uint16_t>(b[0] | b[1] << 8);
     return true;
 }
@@ -322,7 +334,7 @@ bool deref_loc(const CFormatCtx& ctx, const CLoc& in, CLoc* out, std::string* wh
         return false;
     }
     uint16_t p = 0;
-    if (!read16(ctx, in.addr, &p)) {
+    if (!read16(reader_for(ctx, in.rooted), in.addr, &p)) {
         *why = "unreadable memory at $" + hexw(in.addr, 4);
         return false;
     }
@@ -339,6 +351,7 @@ bool deref_loc(const CFormatCtx& ctx, const CLoc& in, CLoc* out, std::string* wh
     }
     out->type = sliced(in.type, 1, sz);
     out->addr = p;
+    out->rooted = false;   // the target is reached through the CPU view
     out->note.clear();
     return true;
 }
@@ -368,6 +381,7 @@ bool member_loc(const CFormatCtx& ctx, const CLoc& in, const std::string& name, 
         out->end = in.addr + static_cast<uint32_t>(std::max(0, in.type.size));
         if (in.end && in.end < out->end) out->end = in.end;
         out->note = overlaps_other(rec, m) ? kU2 : "";
+        out->rooted = in.rooted;
         return true;
     }
     *why = "no member '" + name + "'";
@@ -680,6 +694,7 @@ CEval c_eval_path(const CFormatCtx& ctx, const CLoc& root, bool deref, const std
                 const int esz = cur.type.size / e.count;
                 next.type = sliced(cur.type, 1, esz);
                 next.addr = cur.addr + st.index * static_cast<uint32_t>(esz);
+                next.rooted = cur.rooted;
             } else if (e.kind == CdbTypeKind::Pointer) {
                 CLoc target;
                 if (!deref_loc(ctx, cur, &target, &why)) {
@@ -710,7 +725,7 @@ CEval c_eval_path(const CFormatCtx& ctx, const CLoc& root, bool deref, const std
     return out;
 }
 
-CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc)
+CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc, std::vector<uint8_t>* bytes)
 {
     CFormatted out;
     if (loc.type.size <= 0) {
@@ -720,10 +735,12 @@ CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc)
     std::vector<uint8_t> buf(static_cast<size_t>(loc.type.size));
     size_t want = buf.size();
     if (loc.end > loc.addr && loc.addr + want > loc.end) want = loc.end - loc.addr;   // the overhang of a U2 member is zeros
-    if (!ctx.read || !ctx.read(loc.addr, want, buf.data())) {
+    const CReader& rd = reader_for(ctx, loc.rooted);
+    if (!rd || !rd(loc.addr, want, buf.data())) {
         out.why = "unreadable memory at $" + hexw(loc.addr, 4);
         return out;
     }
+    if (bytes) *bytes = buf;
     out = c_format_value(ctx, loc.type, buf.data(), buf.size());
     if (out.ok && !loc.note.empty() && std::find(out.notes.begin(), out.notes.end(), loc.note) == out.notes.end())
         out.notes.push_back(loc.note);
@@ -858,6 +875,70 @@ std::string c_param_location_unknown(CConv conv, const CdbVar& var)
     if (conv == CConv::ListedFastcall && var.space == 'B' && var.stack_offset() >= 0)
         return "location unknown (z88dk U1: sccz80 records a fastcall parameter at its nominal slot)";
     return "";
+}
+
+}  // namespace dbg
+}  // namespace jnext
+
+namespace jnext {
+namespace dbg {
+
+std::optional<int64_t> c_integer_value(const CdbType& type, const uint8_t* b, size_t avail)
+{
+    if (type.chain.empty()) return std::nullopt;
+    const CdbTypeElem& e = type.chain[0];
+    size_t n = 0;
+    switch (e.kind) {
+    case CdbTypeKind::Char: n = 1; break;
+    case CdbTypeKind::Int: n = type.size > 0 ? static_cast<size_t>(type.size) : 2; break;
+    case CdbTypeKind::Long:
+    case CdbTypeKind::Scalar: n = type.size > 0 ? static_cast<size_t>(type.size) : 0; break;
+    case CdbTypeKind::Pointer: n = 2; break;
+    case CdbTypeKind::Bitfield: n = static_cast<size_t>(std::max(1, type.size)); break;
+    default: return std::nullopt;
+    }
+    if (n == 0 || n > 8 || avail < n) return std::nullopt;
+    unsigned long long u = 0;
+    for (size_t k = n; k-- > 0;) u = (u << 8) | b[k];
+    if (e.kind == CdbTypeKind::Bitfield) {
+        const unsigned long long mask = e.bit_width >= 64 ? ~0ull : ((1ull << e.bit_width) - 1);
+        return static_cast<int64_t>((u >> e.bit_start) & mask);
+    }
+    if (e.kind == CdbTypeKind::Pointer || e.is_unsigned || n == 8) return static_cast<int64_t>(u);
+    const unsigned shift = 64u - 8u * static_cast<unsigned>(n);
+    return static_cast<int64_t>(u << shift) >> shift;
+}
+
+std::optional<double> c_float_value(const CdbType& type, const uint8_t* b, size_t avail)
+{
+    if (type.chain.empty()) return std::nullopt;
+    const CdbTypeElem& e = type.chain[0];
+    if (e.kind == CdbTypeKind::Float && type.size == 6 && avail >= 6) {
+        const int ex = b[5];
+        if (ex == 0) return 0.0;
+        const unsigned long long low = static_cast<unsigned long long>(b[0]) | static_cast<unsigned long long>(b[1]) << 8 |
+                                       static_cast<unsigned long long>(b[2]) << 16 | static_cast<unsigned long long>(b[3]) << 24 |
+                                       static_cast<unsigned long long>(b[4] & 0x7F) << 32;
+        double v = std::ldexp(static_cast<double>((1ull << 39) | low), ex - 0x80 - 40);
+        return (b[4] & 0x80) ? -v : v;
+    }
+    if (e.kind == CdbTypeKind::Float && type.size == 4 && avail >= 4) {
+        const uint32_t u = static_cast<uint32_t>(b[0]) | static_cast<uint32_t>(b[1]) << 8 | static_cast<uint32_t>(b[2]) << 16 |
+                           static_cast<uint32_t>(b[3]) << 24;
+        float f;
+        std::memcpy(&f, &u, sizeof f);
+        return static_cast<double>(f);
+    }
+    if (e.kind == CdbTypeKind::Float16 && avail >= 2) {
+        const int h = b[0] | b[1] << 8;
+        const int e5 = (h >> 10) & 0x1F, frac = h & 0x3FF;
+        double v;
+        if (e5 == 0) v = std::ldexp(static_cast<double>(frac), -24);
+        else if (e5 == 31) v = frac ? std::nan("") : HUGE_VAL;
+        else v = std::ldexp(static_cast<double>(1024 + frac), e5 - 25);
+        return (h >> 15) ? -v : v;
+    }
+    return std::nullopt;
 }
 
 }  // namespace dbg

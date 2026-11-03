@@ -216,6 +216,8 @@ build "$ZM" master sdcc-cross          single:cross.c -clib=sdcc_iy -debug
 build "$ZM" master 80cc-cross          single:cross.c -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-floats       single:floats.c -clib=new -debug
 build "$ZM" master sdcc-floats         single:floats.c -clib=sdcc_iy -debug
+# GH #434 stage 3 (P1): zcc -O0 keeps zsdcc's C_LINE records but drops every __CDBINFO__ record
+build "$ZM" master sdcc-cvars-O0       cvars   -clib=sdcc_iy -debug -O0
 
 # every file the rows hash: sources, this script, derive-scopes.py, the outputs (README.md and the manifest itself excluded)
 (cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
