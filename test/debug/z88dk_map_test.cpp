@@ -1296,6 +1296,25 @@ int main() {
               ok);
     }
 
+    // ── Z88MAP-31 (GH #445): the classic compiler's -debug build, producible since z88dk v2.4-2883 ──
+    // Oracle: master/classic-debug/prog.map (banked.c compiled into BANK_10, __BANK_10_head = $14C000,
+    // banked.c:6 at $14C000, :7 and :8 at $14C003, :9 at $14C01D; CRT_ORG_BANK_10 = $C000 in this CRT)
+    // and README "banked_add is the only function in the bank".
+    {
+        SourceMap m;
+        const auto r = load(m, master / "classic-debug" / "prog.map");
+        const VariableStore* s = store_of(m);
+        const CFunction* f = s ? fn_named(*s, "banked_add") : nullptr;
+        check("Z88MAP-31", "master classic-debug (-clib=classic -debug, BANK_10): the map attaches with its section binary, "
+                           "banked.c:6 starts at page 20 $C000, :8 at $C003 (:7 is its alias), :9 at $C01D, and the "
+                           "C store has banked_add resolved at page 20 $C000",
+              r && starts_are(m.resolve("banked.c:6"), {{P20, 0xC000}}) &&
+                  starts_are(m.resolve("banked.c:8"), {{P20, 0xC003}}) &&
+                  starts_are(m.resolve("banked.c:7"), {{P20, 0xC003}}) &&
+                  starts_are(m.resolve("banked.c:9"), {{P20, 0xC01D}}) &&
+                  is_at(m.lookup(P20, 0xC01D), "banked.c", 9) && f && stored_at(f->entry, P20, 0xC000));
+    }
+
     // ── Z88DOT-*: z88dk dot commands (GH #351, design 9.4 rule 5) ───────────────
     // Oracle: the committed dot / dotx / dotn fixtures (what zcc +zxn -subtype=dot|dotx|dotn
     // produced) and NextZXOS's measured behaviour (the README, "dot / dotx / dotn"): the
