@@ -6324,9 +6324,9 @@ int main() {
             bool total = false;
             for (const auto& v : vs ? vs->variables() : std::vector<jnext::dbg::CVariable>{})
                 total = total || (v.record.var.name == "total" && v.storage.resolved &&
-                                  v.storage.at.space == MemSpace::divmmc_ram(2) && v.storage.at.address == 0x3251);
+                                  v.storage.at.space == MemSpace::divmmc_ram(2) && v.storage.at.address == 0x3253);
             check("SRCDBG-VAR-08", "a dot command's map loaded by hand (pending, dot): its store has total at "
-                                   "DivMmcRam{2}:$3251",
+                                   "DivMmcRam{2}:$3253 (GH #445: z88dk v2.4-2883 moved it)",
                   r.count > 0 && r.pending && vs && total);
         }
         {   // SRCDBG-VAR-09
@@ -7472,8 +7472,8 @@ int main() {
             const bool ok = start(m, "master/80cc-intarg", "i16", 0x8C66, &log);
             const int d0 = depth(m);
             m.dbg->source_step(m.a, Step::Over);
-            check("SRCSTEP-16", "80cc master: Over accum's line 4 stops at line 5 ($8C7E) at the same depth (80cc emits no l_gintspsp call for this program: the unchanged control)",
-                  ok && at(m, 0x8C7E, "intarg.c:5") && depth(m) == d0, log + m.where());
+            check("SRCSTEP-16", "80cc master: Over accum's line 4 stops at line 5 ($8C7D; GH #445: was $8C7E before z88dk v2.4-2883) at the same depth (80cc emits no l_gintspsp call for this program: the unchanged control)",
+                  ok && at(m, 0x8C7D, "intarg.c:5") && depth(m) == d0, log + m.where());
         }
         {   // SRCSTEP-17
             Machine m(false, MachineType::ZXN_ISSUE2);
