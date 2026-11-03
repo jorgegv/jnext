@@ -3067,9 +3067,9 @@ where the loader puts the bytes.</p>
   checks (<code>set_verify_window()</code>). While it is set the machine is armed (<code>verify_hold_</code>
   is an <code>armed()</code> contributor of its own, with <code>magic_hold_</code>, in <code>refresh_gates_()</code> and
   <code>SuspendScope</code>). The emulator asks <code>verify_window_hit(pc)</code>, two compares, first in
-  <code>run_frame()</code>'s armed block (<code>verify_window_hit</code>, <code>emulator.cpp:10058</code>), before <code>consume_step_off()</code>, the
+  <code>run_frame()</code>'s armed block (<code>verify_window_hit</code>, <code>emulator.cpp:10061</code>), before <code>consume_step_off()</code>, the
   legacy breakpoint test and the execute gate, and in <code>step_frame_slot()</code> for a debugger
-  Step (<code>verify_window_hit</code>, <code>emulator.cpp:11481</code>).</li>
+  Step (<code>verify_window_hit</code>, <code>emulator.cpp:11484</code>).</li>
 <li><strong>The verdict is recorded, not applied.</strong> On a hit, <code>Impl::verify_hook(pc)</code> takes
   <code>predict_fetch(pc)</code>, finds the spans of each check that contain <code>pc</code> in <em>that exact
   memory</em>, judges each unit now with <code>verify_identity_unit()</code> (through
