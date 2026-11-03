@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2231,6 +2231,8 @@
       
         
       
+        
+      
     
     
     
@@ -2374,6 +2376,8 @@
   
     
     
+      
+        
       
         
       
@@ -2741,6 +2745,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2861,6 +2893,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2907,19 +2967,19 @@ which is why the sidecar search tries both <code>&lt;stem&gt;.sld</code> and <co
 <p>All in <code>sjasmplus</code>:</p>
 <ul>
 <li><code>sjasm/sjio.cpp:1587</code> writes the first line, <code>|SLD.data.version|1</code>. An optional
-  <code>||K|KEYWORDS|...</code> line follows (<code>:1588-1597</code>).</li>
+  <code>||K|KEYWORDS|...</code> line follows (<code>sjasm/sjio.cpp:1588-1597</code>).</li>
 <li><code>sjasm/sjio.cpp:1629-1687</code>, <code>WriteToSldFile()</code>, writes every record. Its own
-  comment (<code>:1630-1666</code>) documents the layout; the <code>snprintf</code> is at <code>:1683</code>:
+  comment (<code>sjasm/sjio.cpp:1630-1666</code>) documents the layout; the <code>snprintf</code> is at <code>sjasm/sjio.cpp:1683</code>:
   <code>"%s|%s|%s|%s|%d|%d|%c|%s\n"</code>. The position is <code>line[:colBegin[:colEnd]]</code>
-  (<code>WriteToSldFile_TextFilePos()</code>, <code>:1573-1578</code>).</li>
+  (<code>WriteToSldFile_TextFilePos()</code>, <code>sjasm/sjio.cpp:1573-1578</code>).</li>
 <li>The device record: <code>sjasm/devices.cpp:275-291</code> builds
   <code>pages.size:%d,pages.count:%d,slots.count:%d,slots.adr:A,B,...</code> and writes it as a
   <code>Z</code> record with page and value <code>-1</code>.</li>
 <li>The <code>L</code> record's data, <code>module,main,local[,+trait...]</code>, is built by
   <code>ExportLabelToSld()</code> (<code>sjasm/tables.cpp:135-185</code>); the module markers
-  <code>module,,,+module</code> and <code>module,,,+endmod</code> by <code>ExportModuleToSld()</code> (<code>:187</code>). The
+  <code>module,,,+module</code> and <code>module,,,+endmod</code> by <code>ExportModuleToSld()</code> (<code>sjasm/tables.cpp:187</code>). The
   traits written are <code>+local</code>, <code>+equ</code>, <code>+macro</code>, <code>+smc</code>, <code>+reloc</code>, <code>+reloc_high</code>,
-  <code>+used</code>, <code>+struct_def</code>, <code>+struct_data</code> and <code>+sizeof</code> (<code>:174-183</code>).</li>
+  <code>+used</code>, <code>+struct_def</code>, <code>+struct_data</code> and <code>+sizeof</code> (<code>sjasm/tables.cpp:174-183</code>).</li>
 </ul>
 <h2 id="3-the-grammar">3. The grammar<a class="headerlink" href="#3-the-grammar" title="Permanent link">&para;</a></h2>
 <p>A line is either the version line, a comment, or a record of eight
@@ -3068,9 +3128,9 @@ line 22 (the next distinct start in the page is <code>32774</code>, which is lin
 <code>point</code>, <code>point.x</code> and <code>point.y</code> are name-only values (sizes and offsets), and
 <code>SCREEN</code> is unpaged (page <code>-1</code>).</p>
 <p>The identity records are <strong>synthetic</strong>: no public producer writes them, and
-there is no committed fixture. This is the SLD that <code>test/debug/source_map_test.cpp</code>
-(lines 138-148) builds in code, to exercise the identity check; <code>kNextDevice</code> is
-the <code>Z</code> record's tail (<code>source_map_test.cpp:79-81</code>):</p>
+there is no committed fixture. This is the SLD that <code>write_text</code> builds in code in
+<code>test/debug/source_map_test.cpp:144-154</code>, to exercise the identity check; <code>kNextDevice</code> is
+the <code>Z</code> record's tail (<code>kNextDevice</code>, <code>source_map_test.cpp:85-87</code>):</p>
 <pre><code>|SLD.data.version|1
 ||program.name:game.bin
 ||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a

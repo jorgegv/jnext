@@ -14,7 +14,7 @@
         <link rel="prev" href="04-4-z88dk-listings.html">
       
       
-        <link rel="next" href="05-breakpoints-steps-history.html">
+        <link rel="next" href="04-6-user-annotations.html">
       
       
         
@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2231,6 +2231,8 @@
       
         
       
+        
+      
     
     
     
@@ -2374,6 +2376,8 @@
   
     
     
+      
+        
       
         
       
@@ -2741,6 +2745,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2861,6 +2893,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2901,10 +2961,10 @@ produced it.</p>
 label memory map" (<code>boriel-basic/zxbasic</code>, <code>src/zxbc/args_parser.py:151</code>, read on
 <code>main</code> at <code>29f0b2f0ce</code>, 2026-11-01). NextBuild (<code>em00k/NextBuild</code>, read at
 <code>364b2d13c5</code>) runs <code>zxbc</code> in-process from <code>Scripts/nextbuild.py</code>, after
-<code>os.chdir()</code> to the program's source folder (<code>:70</code>), with the argument pair
-<code>'-M','Memory.txt'</code> in each of its three compile calls: headerless (<code>:400</code>), tape
-(<code>:404</code>) and the default <code>.bin</code> (<code>:406</code>). The call that writes assembly
-(<code>'-A'</code>, <code>:409</code>) has no <code>-M</code>. So the file lands as <code>Memory.txt</code> in the source
+<code>os.chdir()</code> to the program's source folder (<code>Scripts/nextbuild.py:70</code>), with the argument pair
+<code>'-M','Memory.txt'</code> in each of its three compile calls: headerless (<code>Scripts/nextbuild.py:400</code>), tape
+(<code>Scripts/nextbuild.py:404</code>) and the default <code>.bin</code> (<code>Scripts/nextbuild.py:406</code>). The call that writes assembly
+(<code>'-A'</code>, <code>Scripts/nextbuild.py:409</code>) has no <code>-M</code>. So the file lands as <code>Memory.txt</code> in the source
 folder, next to the <code>.nex</code> NextBuild goes on to make.</p>
 <p>The URLs of both are in <code>doc/REFERENCES.md</code>.</p>
 <h2 id="2-the-producers-writer">2. The producer's writer<a class="headerlink" href="#2-the-producers-writer" title="Permanent link">&para;</a></h2>
@@ -2959,12 +3019,12 @@ does not fit 16 bits, an empty label, and a label that is empty once its leading
 <p><strong>Synthetic.</strong> There is no committed <code>Memory.txt</code> produced by <code>zxbc</code>, and no
 Boriel install on the development machine to make one. The format above is read
 from the producer's code, and the tests use hand-written files in that format:</p>
-<p><code>test/debug/source_debug_test.cpp:481</code>, beside a <code>game.nex</code>:</p>
+<p><code>write_text()</code> at <code>test/debug/source_debug_test.cpp:484</code>, beside a <code>game.nex</code>:</p>
 <pre><code>8000: ._Main
 9000: ._Sub
 </code></pre>
-<p>and <code>test/00regression/scripts/nextbuild-symbols-func.sh:24</code>, which writes the file
-with <code>printf</code> for the functional row:</p>
+<p>and <code>printf</code> at <code>test/00regression/scripts/nextbuild-symbols-func.sh:24</code>, which writes the file
+for the functional row:</p>
 <pre><code>8000: ._Main
 8123: ._PlayerTick
 </code></pre>

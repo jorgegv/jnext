@@ -19,13 +19,13 @@ README finding G18).
 
 ## 2. The producer's writer
 
-`z80asm` `src/z80asm/src/cpp/lstfile.cpp` (`list_open()`: 2.4 `:202`, master
-`:213`). The layout is `LstFile::out_line()` (master `:131-177`, 2.4 `:126-168`) with the widths at
-`:26-29` (identical in both trees): a 6-wide line-number column, 2 blanks, a
+`z80asm` `src/z80asm/src/cpp/lstfile.cpp` (`list_open()`: 2.4 `src/z80asm/src/cpp/lstfile.cpp:202`, master
+`src/z80asm/src/cpp/lstfile.cpp:213`). The layout is `LstFile::out_line()` (master `src/z80asm/src/cpp/lstfile.cpp:131-177`, 2.4 `src/z80asm/src/cpp/lstfile.cpp:126-168`) with the widths at
+`src/z80asm/src/cpp/lstfile.cpp:26-29` (identical in both trees): a 6-wide line-number column, 2 blanks, a
 4-digit hex address (the section-relative or phased pc), 2 blanks, 16 characters
 for at most 8 bytes, 2 blanks, and the source text from column 32. Bytes beyond the
 eighth continue on rows that repeat only the bytes. `LstFile::out_filename()`
-(master `:122-129`, 2.4 `:117-124`) writes `<name>:` on its own line whenever the file changes, which
+(master `src/z80asm/src/cpp/lstfile.cpp:122-129`, 2.4 `src/z80asm/src/cpp/lstfile.cpp:117-124`) writes `<name>:` on its own line whenever the file changes, which
 includes the files `z80asm` is reading through `INCLUDE`, a `C_LINE`'s file operand
 and a macro's source (the `.m4` text of the start-up code).
 
@@ -98,14 +98,14 @@ binaries' bytes). In order:
    `offset = map value - listed address` for its section. All anchors of one section
    piece must agree, or the listing is dropped ("this is not the listing of this
    build"). A piece with no anchor falls back to `__<section>_head` when
-   `tail - head` equals the piece's byte count (`z88dk_lis.cpp:603-612`). A smaller piece is
+   `tail - head` equals the piece's byte count (`p.pc`, `z88dk_lis.cpp:603-612`). A smaller piece is
    placed by its bytes (5b below). A piece with none of these, and anything inside `PHASE`,
    cannot be placed; those rows are counted and reported as "N listed lines could not be
    placed".
    **5b. A label-less piece smaller than its section is placed by its bytes** (GH #426 F4;
    design 9.5). Another module can put code in the same section: the banking driver shares
    `code_crt_init` with the CRT in the banked-CRT fixtures, so the CRT's own piece has no label in
-   the map and is smaller than the section. `place_z88dk_listing()` (`z88dk_lis.cpp:614-664`, the "no start" note at `:655`) tries
+   the map and is smaller than the section. `place_z88dk_listing()` (`z88dk_lis.cpp:396`) tries
    every start `c` from `__<s>_head` to `__<s>_tail` minus the piece's size and excludes it when,
    at any *checked row*, the section binary holds a byte other than the listing's first byte. A
    checked row is the first byte of a mnemonic row, outside `PHASE`, in a non-data section; the
@@ -113,9 +113,9 @@ binaries' bytes). In order:
    patches an opcode, so a listing of this build is never excluded at its true start. The byte at
    `c + row address` comes from `view.byte_at(value, space)`, where `place()` gave the space; it is
    *unknown* (`nullopt`) when no section binary covers the byte, **when two or more do** (overlay
-   sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:288`, and the `byte_at` lambda, `:358-363`), and when `place()` fails (a ROM area: the memory is not a RAM
+   sections at one ORG: `bin_for(..., &more)`, `z88dk_source_map.cpp:613`, and the `byte_at` lambda, `:683-688`), and when `place()` fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:
-   - **no start survives:** the listing is dropped, with "section '<s>': its label-less lines match no
+   - **no start survives** (`survivors`, `z88dk_lis.cpp:655`; the search loop over `survivors`, `z88dk_lis.cpp:614-664`): the listing is dropped, with "section '<s>': its label-less lines match no
      place in the section binary; this is not the listing of this build" (row `Z88LIS-42`);
    - **exactly one survives and every checked byte was known:** the piece starts there (`Z88LIS-36`
      and `-37` on the banked-CRT fixtures: the CRT piece is placed and the driver's bytes after it
@@ -245,7 +245,7 @@ resolves through line 17's first byte row.
 ```
 
 The `prog.lis` of the same build has a header `z88dk/lib/config/../..//libsrc/_DEVELOPMENT/target/zxn/zxn_crt.asm.m4:`
-(file line 4): the text kept as an embedded file, so `zxn_crt.asm.m4:9462`
+(the `zxn_crt` header, `test/fixtures/z88dk/v2.4/sdcc-SO2/prog.lis:4`): the text kept as an embedded file, so `zxn_crt.asm.m4:9462`
 resolves to `$8000` (row `Z88LIS-10`).
 
 ## 9. The rows

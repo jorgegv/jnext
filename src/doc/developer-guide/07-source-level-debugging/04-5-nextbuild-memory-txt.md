@@ -15,10 +15,10 @@ The Boriel ZX Basic compiler, `zxbc`, option `-M FILE` / `--mmap FILE`, "Generat
 label memory map" (`boriel-basic/zxbasic`, `src/zxbc/args_parser.py:151`, read on
 `main` at `29f0b2f0ce`, 2026-11-01). NextBuild (`em00k/NextBuild`, read at
 `364b2d13c5`) runs `zxbc` in-process from `Scripts/nextbuild.py`, after
-`os.chdir()` to the program's source folder (`:70`), with the argument pair
-`'-M','Memory.txt'` in each of its three compile calls: headerless (`:400`), tape
-(`:404`) and the default `.bin` (`:406`). The call that writes assembly
-(`'-A'`, `:409`) has no `-M`. So the file lands as `Memory.txt` in the source
+`os.chdir()` to the program's source folder (`Scripts/nextbuild.py:70`), with the argument pair
+`'-M','Memory.txt'` in each of its three compile calls: headerless (`Scripts/nextbuild.py:400`), tape
+(`Scripts/nextbuild.py:404`) and the default `.bin` (`Scripts/nextbuild.py:406`). The call that writes assembly
+(`'-A'`, `Scripts/nextbuild.py:409`) has no `-M`. So the file lands as `Memory.txt` in the source
 folder, next to the `.nex` NextBuild goes on to make.
 
 The URLs of both are in `doc/REFERENCES.md`.
@@ -94,15 +94,15 @@ does not fit 16 bits, an empty label, and a label that is empty once its leading
 Boriel install on the development machine to make one. The format above is read
 from the producer's code, and the tests use hand-written files in that format:
 
-`test/debug/source_debug_test.cpp:481`, beside a `game.nex`:
+`write_text()` at `test/debug/source_debug_test.cpp:484`, beside a `game.nex`:
 
 ```
 8000: ._Main
 9000: ._Sub
 ```
 
-and `test/00regression/scripts/nextbuild-symbols-func.sh:24`, which writes the file
-with `printf` for the functional row:
+and `printf` at `test/00regression/scripts/nextbuild-symbols-func.sh:24`, which writes the file
+for the functional row:
 
 ```
 8000: ._Main

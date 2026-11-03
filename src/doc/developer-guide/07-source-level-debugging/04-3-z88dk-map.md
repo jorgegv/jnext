@@ -3,7 +3,8 @@
 The z88dk linker map is the one file that feeds both stores, by two separate
 loads. Its `addr` lines are the symbols. A build with `-debug` adds two kinds of
 marker symbol, `__C_LINE_` and `__ASM_LINE_`, whose names and addresses are the
-source lines, and a third kind, `__CDBINFO__`, which JNEXT does not interpret.
+source lines, and a third kind, `__CDBINFO__`, the C debug information, which the variable store
+reads ([7.9](09-c-variables.md)).
 The map carries no length for a line and no page for an address: both have to be
 derived from the section a symbol lives in.
 
@@ -30,24 +31,24 @@ classic `+zxn` banked `-debug` is not producible (`Unknown option2
 In z88dk:
 
 - **The map line.** `z80asm` `src/z80asm/src/c/symtab1.c:598-616` (master; the
-  same line is `:641` in 2.4): `name` padded, then ` = $%04lX `, then
+  same line is `src/z80asm/src/c/symtab1.c:641` in 2.4): `name` padded, then ` = $%04lX `, then
   `; type, scope, def, module, section, file:line`, then `strstrip()`. The `def`
   field is the word `def` or empty. An empty section shows as `, ,`, and a symbol
   with no file ends after the section: the trailing blanks are stripped
   (`const, public, def, , ,`).
 - **`__C_LINE_<n>_<enc>`.** `Preproc::do_c_line()`, `src/z80asm/src/cpp/preproc.cpp`
-  (master `:1721-1755`, the symbol built at `:1746-1747`; 2.4 `:1309-1310`). Only
+  (master `src/z80asm/src/cpp/preproc.cpp:1721-1755`, the symbol built at `src/z80asm/src/cpp/preproc.cpp:1746-1747`; 2.4 `src/z80asm/src/cpp/preproc.cpp:1309-1310`). Only
   `if (g_options.debug)`. `<n>` is the directive's line operand (`C_LINE 17,...` gives `__C_LINE_17_`) and `<enc>`
   is `url_encode()` of the *string operand* (`main.c::main::1::3`): master
-  `preproc.cpp:1706`, 2.4 `:1272`. It keeps `isalnum()` characters and writes
+  `preproc.cpp:1706`, 2.4 `preproc.cpp:1272`. It keeps `isalnum()` characters and writes
   every other byte as `_` and two lower-case hex digits.
 - **One symbol per (line, scope).** `if (!find_local_symbol(...))`
-  (master `preproc.cpp:1748`, 2.4 `:1311`): only the first occurrence of an
+  (master `preproc.cpp:1748`, 2.4 `preproc.cpp:1311`): only the first occurrence of an
   identical name is defined. That is why sccz80 emits one `__C_LINE_18_` where
   `main.c.lis` has four `C_LINE 18,` (README finding G1).
 - **`__ASM_LINE_<n>_<enc>`.** `asm_cond_LABEL()`, `src/z80asm/src/c/directives.c`
-  (master `:76-95`; the encoder `url_encode()` is at `:35-53`; 2.4 `:88` and
-  `:35`). Defined at a label, `if (option_debug() && !sfile_is_c_source())`, so a
+  (master `src/z80asm/src/c/directives.c:76-95`; the encoder `url_encode()` is at `src/z80asm/src/c/directives.c:35-53`; 2.4 `src/z80asm/src/c/directives.c:88` and
+  `src/z80asm/src/c/directives.c:35`). Defined at a label, `if (option_debug() && !sfile_is_c_source())`, so a
   label in assembler that came from C gets no `ASM_LINE`. In sdcc builds these
   numbers are lines of the generated assembly, not of `main.c` (README G14).
 
@@ -176,13 +177,13 @@ as an unpaged label, and the source half refuses a line record in it.
    `$0200` (dotx) or `$0300` (dotn) and `__CODE_head` is `$2000`. No `startupoffset`, or another
    value, is not a dot and has no reason; a dot whose `__CODE_head` is not `$2000` is not a dot
    and its reason ("a dot command's CODE must start at $2000") refuses the source half
-   (`z88dk_source_map.cpp:201-203`), while the symbol half places the map as any other
-   (`symbol_table.cpp:82`, no reason asked). Both halves read `startupoffset` and the
-   `__<s>_head`/`_tail` constants (`z88dk_source_map.cpp:187`; the symbol half keeps every constant). For a dot,
+   (`dot_why`, `z88dk_source_map.cpp:520-522`), while the symbol half places the map as any other
+   (`z88dk_dot_command()`, `symbol_table.cpp:82`, no reason asked). Both halves read the
+   `__<s>_head`/`_tail` constants and `startupoffset` (`z88dk_source_map.cpp:506`; the symbol half keeps every constant). For a dot,
    `z88dk_section_space()` takes it as a last argument, after rules 1 to 3 (a value above `0xFFFF` in
    an unnumbered section is still refused) and before rule 4, for unnumbered sections only:
    - an unnumbered section at `$2000`-`$3FFF` is `DivMmcRam{kNextZxosDotBank}`, bank 2
-     (`z88dk_space.cpp:176-181`), whatever the MMU maps there when the map is loaded;
+     (`kNextZxosDotBank`, `z88dk_space.cpp:176-181`), whatever the MMU maps there when the map is loaded;
    - a dotx's other unnumbered sections are rule 4: its main part (`PROG.X`, `prog_MAIN.bin`
      at `CRT_ORG_MAIN` `$8000`) is main RAM;
    - in a dotn those sections, and every `PAGE_<n>` / `DIV_<n>` section, are *refused*
@@ -249,19 +250,19 @@ line markers:
 - **Encoding.** Only `isalpha()` characters are kept; every other character,
   digits included, is `_` and two lower-case hex digits. Writers: sccz80
   `src/sccz80/cdbfile.c:13-24` (both trees, `defc __CDBINFO__<enc> = 1` at
-  `:85-87`), 80cc `src/80cc/cdbfile.c:7-18` (master only). For sdcc, zcc folds the
+  `src/sccz80/cdbfile.c:85-87`), 80cc `src/80cc/cdbfile.c:7-18` (master only). For sdcc, zcc folds the
   temporary `.adb` file into the assembly (`zsdcc_embed_adb()`, master
   `src/zcc/zcc.c:2041-2072`, called when `peepholeopt` is non-zero: zcc's `-O`,
-  `:588`, `:1551`), with a variant encoder that
+  `src/zcc/zcc.c:588`, `src/zcc/zcc.c:1551`), with a variant encoder that
   also keeps whitespace (`zcc.c:2026-2038`). The value is always `1`, so the line
   is `const`.
 - **Content.** After decoding `_hh`, a record starts `M:` (module), `F:`
   (function), `S:` (symbol) or `T:` (type). The reference decoder is z88dk's own
   `debug_add_info_encoded()` (`src/ticks/debug.c:656`), called from `src/ticks/syms.c:173`.
 - **Duplicates.** `z80asm` ignores a second definition (`symtab1.c:117`).
-- **In JNEXT.** The symbol loader skips them (`symbol_table.cpp`, rule 1 above) and
-  so does the source half (`z88dk_source_map.cpp`, pass 1, `!starts_with(name,
-  "__CDBINFO__")`). Nothing else in `src/` reads them. Only a test does: it decodes
+- **In JNEXT.** The symbol loader skips them (`symbol_table.cpp`, rule 1 above). The
+  source half keeps the `const` lines that start `__CDBINFO__` and decodes them into
+  the C variable store ([7.9](09-c-variables.md)); it takes no symbol from them. A test also decodes
   the names of the C identifiers to check the C names above (`Z88CN-01`).
 
 ## 8. Excerpts

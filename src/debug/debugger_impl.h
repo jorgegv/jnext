@@ -30,6 +30,7 @@
 #include "debug/mem_coverage.h"
 #include "debug/resume_guard.h"
 #include "debug/symbol_table.h"
+#include "debug/user_annotations.h"
 
 namespace jnext {
 namespace dbg {
@@ -48,9 +49,24 @@ struct Debugger::Impl {
     /// hand the subscriber the facade — and the drain lives here.
     Debugger* self = nullptr;
 
-    /// CAP-SYM — THE symbol table: the panels' `@name`, the servers' lookups
-    /// and `--map` all read this one, per §4.7. There is no other.
-    SymbolTable symbols;
+    /// CAP-SYM — the TOOLCHAIN layer (design 10.2): what a sidecar, Load MAP,
+    /// `--map` or a hand SLD loaded. Written only by those loads and their
+    /// lifetime drops, each followed by `recompose_names()`; read only by those,
+    /// the attachment cache and the load-count messages. Everything else reads
+    /// `names`.
+    SymbolTable toolchain_symbols;
+    /// GH #387 (E23-24) - the USER layer (design 10.2): labels and comments, kept
+    /// across loads, resets, state loads and rewinds; not part of `.jns`, the ring
+    /// or the attachment cache (6.8). Changed only by the CAP-ANN verbs.
+    UserAnnotations annotations;
+    /// +1 per successful change of `annotations` (the unsaved-changes test).
+    uint64_t annotations_revision = 0;
+    /// THE reader (design 10.3): the user labels first, then the toolchain layer,
+    /// so by address and by name the user layer wins. Rebuilt by
+    /// `recompose_names()` after every change of either layer, and assigned in
+    /// place, so a `const SymbolTable*` a panel holds stays valid.
+    SymbolTable names;
+    void recompose_names();
     /// CAP-SRC — the source map, and who filled each store: a program's
     /// sidecar (the program's, replaced or cleared when the next program
     /// loads) or the user (a MAP or SLD loaded by hand, `--map`: never

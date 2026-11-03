@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2231,6 +2231,8 @@
       
         
       
+        
+      
     
     
     
@@ -2372,6 +2374,8 @@
   
     
     
+      
+        
       
         
       
@@ -2580,6 +2584,34 @@
     
   
     7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
   
 
     
@@ -2876,6 +2908,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2970,13 +3030,13 @@ and its modification time (<code>loaded_source_</code>, <code>loaded_mtime_</cod
 placed (<code>placed_</code>), the Disassembly's selection (<code>disasm_range_</code>), the address being
 browsed (<code>browse_addr_</code>) and the reason <code>report_sidecars()</code> gave it.</p>
 <h3 id="what-one-refresh-does">What one refresh does<a class="headerlink" href="#what-one-refresh-does" title="Permanent link">&para;</a></h3>
-<p><code>SourcePanel::refresh_()</code> (<code>source_panel.cpp:589</code>) runs while the machine is paused,
+<p><code>SourcePanel::refresh_()</code> (<code>source_panel.cpp:590</code>) runs while the machine is paused,
 whenever the window's paused stamp changed (<a href="../03-subsystems/10-2-the-qt-debugger.html">3.10.2</a>:
 the stamp carries a flag for "the loaded file changed on disk",
-<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:820</code>; the flag is
-<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:550</code>). In order:</p>
+<code>DebuggerManager::paused_stamp()</code>, <code>debugger_manager.cpp:902</code>; the flag is
+<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:551</code>). In order:</p>
 <ol>
-<li><code>update_buttons(paused)</code> (<code>:493</code>): the forward steps need a paused machine and a
+<li><code>update_buttons(paused)</code> (<code>source_panel.cpp:494</code>): the forward steps need a paused machine and a
    non-empty map; Back and Reverse Continue also need <code>rewind_blocked()</code> empty and the
    trace on. It emits <code>steps_available(forward, backward)</code>, so the Debug &gt; Source menu
    items and the buttons share one predicate.</li>
@@ -2984,10 +3044,10 @@ the stamp carries a flag for "the loaded file changed on disk",
 <li><code>source_map_status()</code> says Stale or None: a message and nothing else
    (<code>show_message()</code>). A pending status appends a note to whatever is shown:
    <em>Source map not verified yet: it is checked when the program first runs its code</em>, or
-   for a dot command <em>...when the dot command runs</em> (<code>:621</code>).</li>
+   for a dot command <em>...when the dot command runs</em> (<code>status.dot</code>, <code>source_panel.cpp:623</code>).</li>
 <li>The location is <code>source_location(pc)</code>, or, while browsing, <code>source_location(browse_addr_)</code>
-   (the browse ends if that address has no line now, or another map is loaded, <code>:630-640</code>).
-   The memory shown in the label is <code>memtext::text(dbg_, style_, source_page(addr), addr)</code> (<code>:646</code>).</li>
+   (the browse ends if that address has no line now, or another map is loaded, <code>source_panel.cpp:631-641</code>).
+   The memory shown in the label is <code>memtext::text(dbg_, style_, source_page(addr), addr)</code> (<code>source_panel.cpp:647</code>).</li>
 <li>The text. A file the map carries as embedded text (<code>SourceMap::embedded_text()</code>, the
    m4 output of the CRT from <code>prog.lis</code>, <a href="02-the-source-map.html">7.2</a>) is shown from the map
    and labelled <code>(m4 output, from &lt;listing&gt;)</code>. Otherwise a z88dk record in a <code>.m4</code> file with
@@ -2995,10 +3055,10 @@ the stamp carries a flag for "the loaded file changed on disk",
    the m4 <em>output</em>, which the build does not keep). Otherwise
    <code>source_search::resolve()</code> finds the file (below); no file gives "source file not found"
    and enables Locate File. A file is reloaded when its modification time changes, so an
-   edit-and-rebuild never highlights a line of the old text (<code>:690-703</code>). A line past the end
-   of the file found gives "has only N lines; it is not the text the build used" (<code>:711</code>; the line
-   count ignores the final newline, <code>file_line_count()</code>, <code>:59</code>). The label's tooltip is the path found.</li>
-<li>The label ends with <code>SourcePanel::also_text()</code> (<code>:574</code>): <code>lookup_all()</code> for the address,
+   edit-and-rebuild never highlights a line of the old text (<code>lastModified()</code>, <code>source_panel.cpp:691-704</code>). A line past the end
+   of the file found gives "has only N lines; it is not the text the build used" (<code>file_lines</code>, <code>source_panel.cpp:711-713</code>; the line
+   count ignores the final newline, <code>file_line_count()</code>, <code>source_panel.cpp:60</code>). The label's tooltip is the path found.</li>
+<li>The label ends with <code>SourcePanel::also_text()</code> (<code>source_panel.cpp:575</code>): <code>lookup_all()</code> for the address,
    minus the primary and any entry with the same <code>file:line</code>, as <code>also: f:l, ...</code>; then the
    browse text <code>(browsing; the PC is at f:l, $addr)</code>; then the pending note.</li>
 <li>The extra selections, in this order so a later one wins on its own line: memory coverage
@@ -3006,12 +3066,12 @@ the stamp carries a flag for "the loaded file changed on disk",
    (<code>linked_lines_()</code>, tint <code>linked_line</code>), the PC's line (the editor's <code>Highlight</code>, only
    when the file shown is the PC's file).</li>
 <li>Placement. The cursor moves and the view centres only when something moved: the line,
-   the address, <code>placed_</code> cleared or <code>place_now_</code> set (<code>:795-810</code>). A browse centres only a
+   the address, <code>placed_</code> cleared or <code>place_now_</code> set (<code>place_now_</code>, <code>source_panel.cpp:796-811</code>). A browse centres only a
    line that is out of view. A user who scrolled away on a paused tick stays put.</li>
 </ol>
-<p><code>follow_pc()</code> (<code>:556</code>) clears <code>placed_</code> and the browse and refreshes at once. It changes what
+<p><code>follow_pc()</code> (<code>source_panel.cpp:557</code>) clears <code>placed_</code> and the browse and refreshes at once. It changes what
 the tab shows without moving the machine, so the paused stamp cannot see it;
-<code>DebuggerWindow::activate_follow_pc()</code> (<code>debugger_window.cpp:1558</code>) calls it, and
+<code>DebuggerWindow::activate_follow_pc()</code> (<code>debugger_window.cpp:1567</code>) calls it, and
 <code>apply_pause_state(true)</code> runs that at every stop and step, so a stop at the very PC and line
 already shown still puts the view back.</p>
 <h3 id="finding-the-file">Finding the file<a class="headerlink" href="#finding-the-file" title="Permanent link">&para;</a></h3>
@@ -3019,13 +3079,13 @@ already shown still puts the view back.</p>
 the SDL-only and Windows trees test it): an absolute name; then the map's directory and each
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading <code>..</code> is dropped.
-<code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:304</code>) takes the
-configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3125</code>, fed by
-<code>apply_startup_config()</code>, <code>:2907</code>: the saved list with the command line's <code>--source-dir</code> or
-<code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:437</code>)
-adds to a second, session-only list through <code>on_source_dir_located()</code> (<code>:316</code>). The effective
+<code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:305</code>) takes the
+configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3128</code>, fed by
+<code>apply_startup_config()</code>, <code>:2910</code>: the saved list with the command line's <code>--source-dir</code> or
+<code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:438</code>)
+adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:317</code>). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
-<code>push_source_dirs()</code> (<code>:296</code>) on every change and again in <code>ensure_window()</code>, since the window is
+<code>DebuggerManager::push_source_dirs()</code> (<code>debugger_manager.cpp:297</code>) on every change and again in <code>ensure_window()</code>, since the window is
 created lazily. Locate derives the directory with <code>source_search::root_for()</code>, refuses a file of
 another name, and asks whether to save it; <code>source_dir_save_requested</code> is MainWindow's, which
 appends to <code>[paths] source_dirs</code> and refuses a directory that holds the list separator, as
@@ -3036,12 +3096,12 @@ manager announces each change (<code>source_dirs_changed</code>, because <code>s
 and MainWindow logs <code>Source search path: ...</code>.</p>
 <h3 id="loading-a-map-by-hand">Loading a map by hand<a class="headerlink" href="#loading-a-map-by-hand" title="Permanent link">&para;</a></h3>
 <p>The Source tab's <strong>Load Source Map...</strong> button and the Debug &gt; Source &gt; Load Source Map... item
-are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:714</code>). Its file dialog
+are one slot, <code>DebuggerManager::on_load_sld()</code> (<code>debugger_manager.cpp:796</code>). Its file dialog
 offers <code>*.sld</code>, <code>*.sld.txt</code> and <code>*.map</code>; the backend tells the format by content
 (<a href="03-loaders.html">7.3</a>), so a z88dk map loads as source lines only, and the mismatch box and the
 failure title name no format. The Map menu's Load MAP File items load symbols through
 <code>load_map()</code>; they append the backend's reason to their failure box when a file was refused
-rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:756</code>):
+rather than unreadable. The sidecar report is <code>DebuggerManager::report_sidecars()</code> (<code>:838</code>):
 the log, and the main window's status bar for ten seconds.</p>
 <h3 id="colouring">Colouring<a class="headerlink" href="#colouring" title="Permanent link">&para;</a></h3>
 <p><code>SourceHighlighter</code> (<code>source_highlighter.*</code>, a <code>QSyntaxHighlighter</code> that exists only in
@@ -3052,7 +3112,7 @@ the log, and the main window's status bar for ten seconds.</p>
   <code>h</code> are C; <code>asm</code>, <code>s</code>, <code>z80</code> and <code>inc</code> are assembly; <code>bas</code> is Boriel. Otherwise the first 200
   lines vote: a line counts for a language when its first word is in that language's set alone
   (a column-0 label is skipped); the winner needs three votes and strictly more than the others
-  (<code>kMinVotes</code>, <code>:463</code>); else Plain.</li>
+  (<code>kMinVotes</code>, <code>source_highlighter.cpp:463</code>); else Plain.</li>
 <li><strong>The word tables.</strong> The Z80/Z80N mnemonics and register words are not listed anywhere: they
   are enumerated once from <code>disasm_one()</code> over the seven opcode pages, so a new Z80N opcode is
   coloured the day the disassembler names it. The directive, C and Boriel tables are committed
@@ -3061,7 +3121,7 @@ the log, and the main window's status bar for ten seconds.</p>
 <li><strong>The scanners</strong> are hand-written, linear per line, and carry multi-line comments and embedded
   assembly in the block state. The classes are the owner's ten (<code>Role</code>: Text, Keyword,
   Instruction, Preprocessor, Label, String, Char, Integer, Float, Comment); Text is the editor
-  palette's text colour and never a format. Punctuation and operators (<code>kKeywordPunct</code>, <code>:280</code>)
+  palette's text colour and never a format. Punctuation and operators (<code>kKeywordPunct</code>, <code>source_highlighter.cpp:280</code>)
   are Keyword, tested at each scanner's fall-through point after comment, string, char, number
   and word detection, so those win; Qt merges adjacent equal formats, so <code>-&gt;</code> or <code>&lt;&lt;=</code> is one Keyword
   range. A sign is part of a number only inside an exponent (<code>-5</code> is a Keyword and an Integer). C and
@@ -3069,7 +3129,7 @@ the log, and the main window's status bar for ten seconds.</p>
   <code>p</code> exponent; Boriel's <code>t_HEXA</code>, <code>t_OCTAL</code> and <code>t_BIN</code> are tried before <code>t_NUMBER</code>, and a <code>$</code> or <code>%</code>
   suffix belongs to its identifier. The scanners are allocation-free per word. Formats set the
   foreground colour and nothing else, so the line geometry and the gutter alignment equal Plain's.</li>
-<li><strong>Entering a text.</strong> <code>SourcePanel::set_source_text()</code> (<code>source_panel.cpp:513</code>) is the one way:
+<li><strong>Entering a text.</strong> <code>SourcePanel::set_source_text()</code> (<code>source_panel.cpp:514</code>) is the one way:
   the language first, then the text, so a load is highlighted once with its own language.</li>
 <li><strong>Schemes.</strong> <code>SourceScheme</code> (<code>platform/source_scheme.h</code>) is the order of the words of the
   <code>source.colour_scheme</code> key: Auto, Light, Dark, Borland (<code>static_assert</code>s in <code>app_config.cpp</code>
@@ -3081,15 +3141,15 @@ the log, and the main window's status bar for ten seconds.</p>
   which row <code>QSRC-195</code> checks: text and classes 4.5:1 against the background (WCAG 1.4.3), bar
   text 4.5:1, bar against background 3:1, and any two colours at least CIE76 12 apart unless the
   scheme declares them shared (Borland's owner-given groups).</li>
-<li><strong>Applying one.</strong> <code>SourcePanel::apply_scheme_()</code> (<code>:524</code>) takes the <em>panel's</em> palette (the
+<li><strong>Applying one.</strong> <code>SourcePanel::apply_scheme_()</code> (<code>source_panel.cpp:525</code>) takes the <em>panel's</em> palette (the
   application's, never the editor's) in, resolves Auto against it (<code>resolve_scheme()</code>), hands the
   classes to the highlighter (<code>apply_palette()</code> rehighlights only when a class colour changed, never on a paused tick or a repeat) and
   puts the background, text and bar colours on the <em>editor's</em> palette (<code>Base</code>, <code>Text</code>, <code>Highlight</code>,
   <code>HighlightedText</code>). The background is a palette role, not a format, so it fills the whole
-  viewport. <code>set_colour_scheme()</code> (<code>:541</code>) applies at once (Preferences Apply while the machine
+  viewport. <code>set_colour_scheme()</code> (<code>source_panel.cpp:542</code>) applies at once (Preferences Apply while the machine
   runs) and refreshes, because the tints are selections <code>refresh_()</code> builds and a paused tick
   redraws only when the machine moved. The setting is held by
-  <code>DebuggerManager::set_source_scheme()</code> (<code>debugger_manager.cpp:310</code>) and pushed by
+  <code>DebuggerManager::set_source_scheme()</code> (<code>debugger_manager.cpp:311</code>) and pushed by
   <code>ensure_window()</code>, fed by <code>MainWindow::apply_startup_config()</code>.</li>
 <li><strong>What a scheme does not reach.</strong> The gutter and its header paint from the panel's palette, so
   a scheme never colours them, and the breakpoint marks stay as they are. The current-line marker
@@ -3097,13 +3157,13 @@ the log, and the main window's status bar for ten seconds.</p>
   the layout's formats, so no syntax colour shows on that line.</li>
 </ul>
 <h3 id="the-gutter-and-breakpoints">The gutter and breakpoints<a class="headerlink" href="#the-gutter-and-breakpoints" title="Permanent link">&para;</a></h3>
-<p>The editor is a private <code>QPlainTextEdit</code> subclass, <code>SourceEdit</code> (<code>source_panel.cpp:98</code>), with a
+<p>The editor is a private <code>QPlainTextEdit</code> subclass, <code>SourceEdit</code> (<code>source_panel.cpp:99</code>), with a
 gutter widget in a left viewport margin and a header strip above it (<code>setViewportMargins</code>; objects
 <code>source_gutter</code> and <code>source_gutter_header</code>), because the visible blocks' geometry is protected.</p>
 <ul>
-<li><strong>Columns.</strong> <code>BP | Line</code> (GH #421): the number is <code>blockNumber() + 1</code> (<code>paint_gutter()</code>, <code>:154</code>).</li>
+<li><strong>Columns.</strong> <code>BP | Line</code> (GH #421): the number is <code>blockNumber() + 1</code> (<code>paint_gutter()</code>, <code>source_panel.cpp:155</code>).</li>
 <li><strong>The mark of a line</strong> is computed at paint time, for the visible lines only
-  (<code>SourcePanel::line_mark()</code>, <code>:969</code>, over <code>line_state()</code>, <code>:924</code>), so it is never stale and needs
+  (<code>SourcePanel::line_mark()</code>, <code>source_panel.cpp:970</code>, over <code>line_state()</code>, <code>source_panel.cpp:925</code>), so it is never stale and needs
   no cache. <code>line_state()</code> derives, for line L of the file shown: <code>starts</code> (where the map says L
   begins, from <code>resolve(file:line)</code>, so an alias line is marked), <code>placed</code> (those starts the
   memory mapped <em>now</em> supplies), <code>drawn</code> (this GUI's Execute breakpoints, from
@@ -3117,7 +3177,7 @@ gutter widget in a left viewport margin and a header strip above it (<code>setVi
   <code>paint_gutter()</code> draws on <code>highlighted_line()</code> only, in the 5-px strip after the number cell
   (<code>x</code> in <code>[width-6, width-2]</code>, which no pinned pixel reading uses); the colour goes through <code>palette_tint::ink()</code>, and the text
   highlight stays the palette's own.</li>
-<li><strong>A click</strong> calls <code>SourcePanel::toggle_breakpoint_at_line()</code> (<code>:1012</code>), the one toggle: it
+<li><strong>A click</strong> calls <code>SourcePanel::toggle_breakpoint_at_line()</code> (<code>source_panel.cpp:1013</code>), the one toggle: it
   removes what the line shows plus a hidden group tied to an unmapped memory, else
   <code>add_source_line()</code> (not idempotent, hence the check). The context menu of GH #423 calls the same
   function. A line with no code shows the store's reason as a tooltip.</li>
@@ -3133,7 +3193,7 @@ gutter widget in a left viewport margin and a header strip above it (<code>setVi
   caller with its recorded <code>FetchSource</code> (<code>CallFrame::caller_space</code>).</li>
 </ul>
 <h3 id="the-context-menu">The context menu<a class="headerlink" href="#the-context-menu" title="Permanent link">&para;</a></h3>
-<p><code>SourcePanel::fill_context_menu()</code> (<code>:1127</code>, called from the editor's and the gutter's
+<p><code>SourcePanel::fill_context_menu()</code> (<code>source_panel.cpp:1128</code>, called from the editor's and the gutter's
 <code>contextMenuEvent</code>) offers the Disassembly's actions on the source line: Copy, Copy with Addresses,
 Select All; Toggle Breakpoint; Run to Here (<code>run_to_line_requested</code>, which <code>DebuggerManager</code> runs as
 <code>Debugger::run_to_source_line</code> behind its corruption gate; Enter in the editor and the bindable Run to
@@ -3142,47 +3202,53 @@ Cursor, while the tab has the focus, are the same request); Show in Disassembly
 Those entries come from <code>operand_menu.{h,cpp}</code> (<code>add_operand_actions()</code>), shared with the
 Disassembly's own menu so the two cannot differ. The Source tab fills a <code>MenuOperands</code> from the
 labels at the line's places and the word under the pointer. A word is classified as a register in
-parentheses, a number or a name, and a name goes through <code>SourcePanel::symbol_for_word()</code> (<code>:1037</code>),
+parentheses, a number or a name, and a name goes through <code>SourcePanel::symbol_for_word()</code> (<code>source_panel.cpp:1038</code>),
 the single seam for the C names (<code>resolve_key("@" + word)</code>; <code>@</code> forces a symbol).</p>
+<p>After the Show in Disassembly entry the menu carries the user-annotation entries (GH #387): Add / Rename
+Label…, Remove Label and Add / Edit Comment…, from <code>add_annotation_actions()</code>
+(<code>src/debugger/annotation_menu.cpp:77</code>), once per place the line compiled to
+(<code>SourcePanel::fill_context_menu()</code> calls <code>add_annotation_actions</code>, <code>src/debugger/source_panel.cpp:1208</code>). The Disassembly
+shows the labels and comments; the Source tab does not. How they are stored, saved and drawn is
+<a href="04-6-user-annotations.html">7.4.6</a>, section 10.</p>
 <h3 id="selection-sync-with-the-disassembly-gh-347">Selection sync with the Disassembly (GH #347)<a class="headerlink" href="#selection-sync-with-the-disassembly-gh-347" title="Permanent link">&para;</a></h3>
-<p><code>DebuggerWindow::create_panels()</code> wires the two panels with three connections
-(<code>debugger_window.cpp:1458-1475</code>), and nothing else couples them. Each carries only what the <em>user</em>
+<p><code>DebuggerWindow::create_panels()</code> wires the two panels with four <code>connect()</code> calls
+(<code>connect()</code>, <code>debugger_window.cpp:1471-1485</code>), and nothing else couples them. Each carries only what the <em>user</em>
 did in its sender, so no move echoes.</p>
 <ul>
 <li><strong>Source to Disassembly.</strong> <code>SourcePanel::source_lines_selected(file, first, last, reveal)</code> is
-  emitted by <code>emit_lines_()</code> (<code>:859</code>), only when the file or the lines changed (<code>lines_file_</code>,
+  emitted by <code>emit_lines_()</code> (<code>source_panel.cpp:860</code>), only when the file or the lines changed (<code>lines_file_</code>,
   <code>lines_first_</code>, <code>lines_last_</code>; a message and Running emit an empty file, and <code>none = true</code> says the
   text stays but nothing of it is selected). The lines are <code>selected_blocks_()</code>'s, the same rule as
   Copy with Addresses (a selection ending at a block start does not take that block). The editor's
-  <code>cursorPositionChanged</code> / <code>selectionChanged</code> slot passes <code>reveal = true</code> (<code>:403-408</code>); a move the
+  <code>cursorPositionChanged</code> / <code>selectionChanged</code> slot passes <code>reveal = true</code> (<code>selectionChanged</code>, <code>source_panel.cpp:409-414</code>); a move the
   panel makes itself (the PC placement of <code>refresh_()</code>, a text load, <code>set_disasm_selection()</code>) runs
   under a <code>SyncScope</code> (<code>syncing_</code>), so that slot stays silent, and ends with <code>emit_lines_(false, ...)</code>,
   so a stop tints the PC statement's other instructions without scrolling.
-  <code>DisasmPanel::set_source_lines()</code> (<code>disasm_panel.cpp:437</code>) stores the range; a row is linked
-  (<code>source_linked()</code>, <code>linked_at_()</code>, <code>:424-432</code>) when <code>lookup_all()</code> in its own space has a location
+  <code>DisasmPanel::set_source_lines()</code> (<code>disasm_panel.cpp:438</code>) stores the range; a row is linked
+  (<code>source_linked()</code>, <code>linked_at_()</code>, <code>:425-433</code>) when <code>lookup_all()</code> in its own space has a location
   on a selected line of that file, the primary or not. <code>paintEvent</code> fills a linked row with
   <code>source_sync_colors::linked()</code> before the PC row, the selection and the coverage bar. With <code>reveal</code>
   and no linked row in view, the view centres on the first start of <code>resolve(file:line)</code> that is
   mapped now; otherwise it never moves.</li>
 <li><strong>Disassembly to Source.</strong> <code>DisasmPanel::selection_changed(lo, hi, caret)</code> comes from the user paths
-  only (<code>notify_selection_()</code>, <code>:412</code>: a press, a drag, a navigation key, Select All, the menu's
+  only (<code>notify_selection_()</code>, <code>disasm_panel.cpp:413</code>: a press, a drag, a navigation key, Select All, the menu's
   collapse), when the triple differs from the last one sent. <code>show_address()</code> and a refresh do not
   emit; <code>set_source_lines()</code> forgets the last triple, so the next click on the same lines is a change
-  again. <code>SourcePanel::set_disasm_selection()</code> (<code>source_panel.cpp:816</code>) is ignored while running or
+  again. <code>SourcePanel::set_disasm_selection()</code> (<code>source_panel.cpp:817</code>) is ignored while running or
   without a map, stores the range (<code>disasm_range_</code>, dropped when the machine runs, so a stop shows no
   tint of it), and sets <code>browse_addr_</code> unless the caret's primary line is the PC's own statement.
   <code>refresh_()</code> then describes <code>browse_addr_</code> instead of the PC. The lines of the instructions in the
-  range (<code>linked_lines_()</code>, <code>:878</code>, walking <code>instruction_length</code> over <code>memory_reader()</code>) get an
+  range (<code>linked_lines_()</code>, <code>:879</code>, walking <code>instruction_length</code> over <code>memory_reader()</code>) get an
   <code>ExtraSelection</code> in the scheme's <code>linked_line</code>, after the coverage tints and before the PC's. There is no cache of those lines: a full 64K
   range cost about 3.5 ms when #347 was written (a figure from its design, not re-measured here), and it is
   paid at each <code>refresh()</code>, which since #428 runs only when the paused stamp changed, not on every tick.</li>
 <li><strong>Show in Source.</strong> <code>DisasmPanel::show_source_requested(addr)</code>, from a menu item present only while
   a map is loaded and enabled only where <code>lookup()</code> finds a line. The window raises the Source tab and
-  calls <code>SourcePanel::show_address()</code> (<code>:835</code>).</li>
+  calls <code>SourcePanel::show_address()</code> (<code>source_panel.cpp:836</code>).</li>
 </ul>
 <p>Browsing ends at <code>follow_pc()</code> (every stop), <code>show_running()</code>, the map going away (the None and Stale
 branches of <code>refresh_()</code>), another loaded map (<code>browse_map_</code>), an address with no line now, and <strong>Go to
-PC Line</strong> (<code>go_to_pc_line()</code>, <code>:841</code>). A message about the browsed line itself (file not found, a <code>.m4</code>
+PC Line</strong> (<code>go_to_pc_line()</code>, <code>source_panel.cpp:842</code>). A message about the browsed line itself (file not found, a <code>.m4</code>
 line without a listing) does not end it, so the message and Locate File... stay usable, and Go to PC Line stays enabled. Every accepted
 Disassembly selection places the cursor on the caret's line (<code>place_now_</code>, cleared by the placement
 itself, so the next ticks leave the cursor and scroll alone). A Source move made while the machine runs
@@ -3193,7 +3259,7 @@ per scheme (<code>SchemeColours::linked_line</code>), tested for legibility like
 <h2 id="which-memory-a-view-names-gh-360">Which memory a view names (GH #360)<a class="headerlink" href="#which-memory-a-view-names-gh-360" title="Permanent link">&para;</a></h2>
 <p>Every Qt view names the memory behind an address through <code>debug/long_address.h</code>
 (<a href="01-which-memory.html">7.1</a>) and nowhere else. The Qt-side wrapper is <code>src/debugger/memory_text.h</code>:
-<code>memtext::text(dbg, style, space, addr)</code> (<code>:26</code>) and <code>memtext::next_layout(dbg)</code> (<code>:20</code>), which is
+<code>memtext::text(dbg, style, space, addr)</code> (<code>memory_text.h:25</code>) and <code>memtext::next_layout(dbg)</code> (<code>:20</code>), which is
 true only for the Next machine type (<code>MachineType::ZXN_ISSUE2</code>); any other machine prints the Friendly
 tag whatever the style.</p>
 <p><code>DebuggerWindow</code> holds one <code>AddressStyle</code> and hands it to each panel (<code>set_address_style()</code>,
@@ -3219,19 +3285,19 @@ a run override like <code>debugger.attached</code>).</p>
 <code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:838</code>) takes the bytes of that one instruction
 (at most four) from <code>Emulator::predict_instruction_bytes()</code> and every other address from
 <code>Mmu::peek()</code>; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
-other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:184,190</code>:
-<code>is_call_like()</code> and <code>instruction_length()</code> read through it) and ZRCP <code>cpu-step-over</code>
+other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:175</code>: <code>is_call_like()</code> at <code>:184</code> and <code>instruction_length()</code> at <code>:190</code>
+read through it) and ZRCP <code>cpu-step-over</code>
 (<code>ZrcpServer::cmd_cpu_step_over</code>) all use it (rows <code>LADDR-17</code> to <code>LADDR-20</code>).</p>
 <h2 id="gdb-zrcp-dzrp-scripts">GDB, ZRCP, DZRP, scripts<a class="headerlink" href="#gdb-zrcp-dzrp-scripts" title="Permanent link">&para;</a></h2>
 <p><strong>GDB RSP</strong> (<code>src/remote/gdb/rsp_server.cpp</code>). <code>monitor src [ADDR]</code> (<code>monitor_src()</code>, <code>:1033</code>) prints
 <code>$8CB8 main.c:19 P04</code> or <code>$8CB8 unmapped P28</code>: <code>source_location()</code> and the tag of
-<code>source_page(addr)</code>. <code>monitor sym</code> (<code>monitor_sym()</code>, <code>:996</code>) prints the tag of the memory the lookup
-used; a name prints its tag when it is paged. <code>monitor mmu</code> (<code>monitor_mmu()</code>, <code>:893</code>) prints each slot's <code>now</code> tag and,
+<code>source_page(addr)</code>. <code>monitor sym</code> (<code>monitor_sym()</code>, <code>rsp_server.cpp:996</code>) prints the tag of the memory the lookup
+used; a name prints its tag when it is paged. <code>monitor mmu</code> (<code>monitor_mmu()</code>, <code>rsp_server.cpp:893</code>) prints each slot's <code>now</code> tag and,
 on the Next, the physical text of the slot's first byte. The server's own symbol and source verbs are
 described in <a href="../03-subsystems/11-the-gdb-rsp-server.html">3.10.4</a>.</p>
 <p><strong>ZRCP.</strong> <code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2625</code>) calls
-<code>Debugger::load()</code>, which calls <code>load_program_sidecars()</code> after a successful load
-(<code>debugger_reconstruct.cpp:464</code>, <code>:527-531</code>), so a program loaded over ZRCP gets its symbols and
+<code>Debugger::load()</code> (<code>debugger_reconstruct.cpp:464</code>), which calls <code>load_program_sidecars()</code> after a successful load
+(<code>load_program_sidecars()</code>, <code>debugger_reconstruct.cpp:527-531</code>), so a program loaded over ZRCP gets its symbols and
 source map like <code>--load</code>, and a refused sidecar is logged to every client as a Warn line.
 <code>get-memory-pages</code> (<code>memory_pages()</code>, <code>zrcp_format.cpp</code>) names the eight slots of a Next from what each
 reads now (<code>SlotInfo::now</code>): <code>RO</code> the boot ROM, <code>O&lt;n&gt;</code> the 8 KB ROM page <code>2*image + half</code>, <code>A&lt;n&gt;</code> RAM,
@@ -3240,11 +3306,11 @@ mapping. On the other machines segment 0 is <code>DIV</code> while DivMMC is pag
 <p><strong>DZRP.</strong> No source surface: <code>grep</code> finds no <code>source_*</code> call in <code>src/remote/dzrp</code>. DeZog reads the SLD
 or the map itself. What DZRP shares with this chapter is the legacy <code>bank+1</code> qualifier
 (<a href="01-which-memory.html">7.1</a>). <code>CMD_GET_REGISTERS</code> reports <code>0xFF</code> for every ROM slot
-(<code>cmd_get_registers()</code>, <code>dzrp_server.cpp:549-553</code>), because DeZog has no bank for the ROM values
+(<code>is_rom</code>, <code>dzrp_server.cpp:549-553</code>), because DeZog has no bank for the ROM values
 <code>0xE0</code>-<code>0xFE</code>.</p>
-<p><strong>Scripts.</strong> <code>on execute FILE:LINE</code> resolves through <code>source_map().resolve()</code> at load time and
+<p><strong>Scripts.</strong> <code>on execute FILE:LINE</code> resolves through <code>source_map().resolve()</code> at load time (<code>source_map().resolve()</code>, <code>script_engine.cpp:330</code>) and
 subscribes one <code>Execute</code> per start, each with the <code>space</code> its place was compiled for
-(<code>script_engine.cpp:330</code>); an unknown line is a diagnostic that names the reason. <code>--map</code> loads symbols
+(<code>space</code>, <code>script_engine.cpp:346</code>); an unknown line is a diagnostic that names the reason. <code>--map</code> loads symbols
 with <code>MapFormat::Z88dkOrSjasmplus</code> (<code>script_host.cpp:187</code>, <a href="03-loaders.html">7.3</a>). Held scripts and the
 rest of the language are in <a href="../03-subsystems/13-the-debugger-scripting-language.html">3.10.6</a>.</p>
 <p><strong>Headless, SDL, Qt loops.</strong> <code>--source-map</code> is attached by <code>emulator_attach_cli_source_map()</code> after the

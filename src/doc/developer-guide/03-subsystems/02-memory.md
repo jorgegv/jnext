@@ -41,8 +41,8 @@ back 0xFF, which is the floating bus.
 
 That fast path is the *last* arm of one arbiter, `Mmu::route(addr)`: the single
 function that decides what supplies a CPU read, transcribing the VHDL decode
-order (`zxnext.vhd:2937-2945`, the SRAM arbiter `:3029-3132` and the `cpu_di` mux
-`:1856-1870`). Its order is load-bearing: boot-ROM overlay (above the whole SRAM
+order (`zxnext.vhd:2937-2945`, the SRAM arbiter `zxnext.vhd:3029-3132` and the `cpu_di` mux
+`zxnext.vhd:1856-1870`). Its order is load-bearing: boot-ROM overlay (above the whole SRAM
 arbiter), Multiface window, DivMMC ROM and RAM, Layer 2 read-over, alt-ROM
 override, config-mode routing (NR 0x03 / NR 0x04), and only then the slot's own
 pointer. It returns a `Route`: the `MemSpace` that supplied the byte, the offset
@@ -63,15 +63,15 @@ a debugger predicts the source of the next opcode fetch
 Writes use the **same body**, given the access direction
 (`route_bits_<Live, Write>`, public as `write_route(addr)`): the VHDL's SRAM
 arbiter is one process for both (`zxnext.vhd:3081-3132`) and the direction enters
-in three places (`:3077`, `:3078`, `:3154`), and the code spells them differently: the
-Layer 2 mapping tests its write enable instead of its read enable (`:3077`) and the alt
-ROM takes a write only with en+rw (`:3078`), both as ternaries on `Write` in
-`route_bits_()`; a write lands only where `sram_rdonly` is clear (`:3154`), which is the
+in three places (`zxnext.vhd:3077`, `zxnext.vhd:3078`, `zxnext.vhd:3154`), and the code spells them differently: the
+Layer 2 mapping tests its write enable instead of its read enable (`zxnext.vhd:3077`) and the alt
+ROM takes a write only with en+rw (`zxnext.vhd:3078`), both as ternaries on `Write` in
+`route_bits_()`; a write lands only where `sram_rdonly` is clear (`zxnext.vhd:3154`), which is the
 null byte pointer of the Multiface ROM half (an `if constexpr (Write)` block), of the
 DivMMC ROM and a read-only DivMMC RAM page (`divmmc_route_(addr, write)` reading
 `DivMmc::Overlay::rdonly`, `divmmc.vhd:100`, which `DivMmc::is_read_only()` shares) and of
 a ROM or unmapped slot (the slot arm's own `if constexpr (Write)`). The boot ROM is in the
-read data mux only (`:1856-1857`), so its arm is skipped for a write by a third
+read data mux only (`zxnext.vhd:1856-1857`), so its arm is skipped for a write by a third
 `if constexpr (!Write)`. Such writes come back with a null byte
 pointer: dropped, still *naming* their space. `write_landed()` is that route plus
 a store by the space's kind (the SRAM log and the attribute-mux record for the

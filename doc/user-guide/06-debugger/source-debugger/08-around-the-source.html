@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2226,6 +2226,8 @@
       
         
       
+        
+      
     
     
     
@@ -2682,6 +2684,34 @@
     
   
     Memory coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/16-user-labels-and-comments.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your own labels and comments
   
 
     
@@ -3521,6 +3551,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#your-own-labels-and-comments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Your own labels and comments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#watching-and-breaking-from-the-source" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4114,6 +4155,11 @@ map (<code>_counter</code>). JNEXT shows and accepts the C name:</p>
 <p>A number wins over a symbol in an address field: <code>FE</code> or <code>B</code> is that address even
 when the program has a variable of that name. Write <code>@FE</code> to mean the symbol.</p>
 <p>See <a href="../functions/05-symbols-from-z88dk-map-files.html">Symbols from MAP files</a>.</p>
+<h2 id="your-own-labels-and-comments">Your own labels and comments<a class="headerlink" href="#your-own-labels-and-comments" title="Permanent link">&para;</a></h2>
+<p>Right-click a source line and <strong>Add Label…</strong> names the address it compiled to (a line with several
+places asks which); <strong>Add Comment…</strong> attaches a note to it. They are kept in a <code>.jdp</code> file with
+<strong>Map ▸ Save Annotations</strong>, belong to the memory the line was compiled for, and show in the
+Disassembly. See <a href="../functions/16-user-labels-and-comments.html">Your own labels and comments</a>.</p>
 <h2 id="watching-and-breaking-from-the-source">Watching and breaking from the source<a class="headerlink" href="#watching-and-breaking-from-the-source" title="Permanent link">&para;</a></h2>
 <p>In the example of <a href="01-a-first-session.html">A first session</a>, right-click <code>counter</code> on line 20
 and choose <strong>Watch</strong>: it joins the Watches panel under its C name. <strong>Break on

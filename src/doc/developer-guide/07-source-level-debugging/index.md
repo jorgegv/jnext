@@ -4,7 +4,7 @@ A program built from C, assembly or BASIC source can be debugged by `file:line`
 instead of by address: a breakpoint set on a line, a step that moves a
 statement at a time, a Source tab that follows the program counter. JNEXT does
 this from files the toolchain already writes (an sjasmplus SLD, a z88dk map and
-its listings, a NextBuild `Memory.txt`). It reads them into two stores and
+its listings, a NextBuild `Memory.txt`). It reads them into two stores (and the user's own labels and comments into a third, 7.4.6; a z88dk map's C variables ride inside the source map, 7.9) and
 answers every question about them from those stores plus one fact only the
 running machine knows: which memory supplies the instruction at an address
 right now.
@@ -33,7 +33,9 @@ loaders of `symbol_table.*`.
 tagged with the memory they came from ([7.2](02-the-source-map.md));
 `SymbolTable` (`symbol_table.*`) holds labels keyed by that memory and an
 address. Both are owned by `Debugger::Impl` and replaced only by a complete,
-successful load.
+successful load. The user's own labels and comments (`UserAnnotations`,
+`user_annotations.*`) are a third store, beside the `SymbolTable` and winning over it, that no toolchain
+fills ([7.4.6](04-6-user-annotations.md)).
 
 **Consumers** ask a question and get an answer about the machine as it is now:
 the location of an address, the addresses of a line, the name of a label, the
@@ -54,11 +56,12 @@ meaningful for one of them.
 | [7.1 Which memory supplied the instruction](01-which-memory.md) | What `MemSpace` and `FetchSource` mean, how the machine predicts and records the one that supplies a fetch, how a space is spelled (the long address and its stable tags), and how coverage is keyed by it |
 | [7.2 The source map](02-the-source-map.md) | The range store: the primary location, `lookup_all()`, `resolve()`, aliases, embedded texts, and the program identity |
 | [7.3 Loading](03-loaders.md) | The adapter contract, content dispatch, the sidecar search, and who owns what |
-| [7.4 File formats and records](04-formats.md) | One page per input: sjasmplus SLD and `--sym`/`--exp`, the z88dk map and listings, `Memory.txt`; each with the producer's code, the grammar, the rules and a real excerpt |
+| [7.4 File formats and records](04-formats.md) | One page per input: sjasmplus SLD and `--sym`/`--exp`, the z88dk map and listings, `Memory.txt`, and the user's `.jdp` annotations file; each with the producer's code, the grammar, the rules and a real excerpt |
 | [7.5 Breakpoints, steps, history and call frames](05-breakpoints-steps-history.md) | Source-line breakpoints, `source_step()`, Back and Reverse Continue, and the call stack they lean on |
 | [7.6 Lifetime](06-lifetime.md) | What happens to the stores on a reset, a snapshot, a rewind, an RZX, a tape load or a dot command |
 | [7.7 The frontends](07-frontends.md) | Who reads the stores: the Qt Source tab in full (refresh, file search, highlighter and schemes, gutter, selection sync with the Disassembly), the long address in the views, and the GDB, ZRCP, DZRP, script and command-line surfaces |
 | [7.8 Tests, fixtures and adding a producer](08-tests-and-new-producers.md) | The suites, where the fixtures come from, and the checklist for supporting another toolchain |
+| [7.9 C variables](09-c-variables.md) | The variable store a z88dk map carries: the `__CDBINFO__` records joined to the map's symbols by module, the storage of each variable, each function's scope table, and its lifetime |
 
 ## Where the code lives
 

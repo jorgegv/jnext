@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2231,6 +2231,8 @@
       
         
       
+        
+      
     
     
     
@@ -2498,6 +2500,8 @@
       
         
       
+        
+      
     
     
     
@@ -2706,6 +2710,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2826,6 +2858,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2899,67 +2959,67 @@ routes, and a debugger that shows which one answered must not collapse them.
 <td><code>Page</code></td>
 <td>NR <code>0x50</code>-<code>0x57</code> page number, 0..223</td>
 <td>An 8 KB page. On the Next it is SRAM page <code>n + 0x20</code>, except <code>n</code> = <code>0x0A</code>/<code>0x0B</code> (the bank-5 BRAM) and <code>0x0E</code> (the bank-7 BRAM)</td>
-<td><code>mem_active_page</code> <code>:2952</code>; slots 0/1 <code>:3037-3043</code>, slots 2-7 <code>:3059-3065</code>; <code>:2961-2964</code></td>
+<td><code>mem_active_page</code> <code>zxnext.vhd:2952</code>; slots 0/1 <code>zxnext.vhd:3037-3043</code>, slots 2-7 <code>zxnext.vhd:3059-3065</code>; <code>zxnext.vhd:2961-2964</code></td>
 </tr>
 <tr>
 <td><code>Rom</code></td>
 <td>0..3</td>
 <td>A 16 KB ROM image; the half is <code>cpu_a(13)</code></td>
-<td><code>sram_rom</code>, <code>:3052-3057</code></td>
+<td><code>sram_rom</code>, <code>zxnext.vhd:3052-3057</code></td>
 </tr>
 <tr>
 <td><code>BootRom</code></td>
 <td>0</td>
 <td>The 8 KB boot ROM (<code>bootrom_en</code>), mirrored through 0..<code>0x3FFF</code>; it sits above the whole SRAM arbiter</td>
-<td><code>:1856-1857</code>, <code>:3199-3204</code></td>
+<td><code>zxnext.vhd:1856-1857</code>, <code>zxnext.vhd:3199-3204</code></td>
 </tr>
 <tr>
 <td><code>MultifaceRom</code></td>
 <td>0</td>
 <td>0..<code>0x1FFF</code> while <code>mf_mem_en</code>: SRAM page <code>0x0A</code></td>
-<td><code>:2923</code>, <code>:3030-3035</code></td>
+<td><code>zxnext.vhd:2923</code>, <code>zxnext.vhd:3030-3035</code></td>
 </tr>
 <tr>
 <td><code>MultifaceRam</code></td>
 <td>0</td>
 <td><code>0x2000</code>..<code>0x3FFF</code> while <code>mf_mem_en</code>: SRAM page <code>0x0B</code></td>
-<td><code>:3030-3035</code></td>
+<td><code>zxnext.vhd:3030-3035</code></td>
 </tr>
 <tr>
 <td><code>DivMmcRom</code></td>
 <td>0</td>
 <td>The 8 KB DivMMC ROM: SRAM page <code>0x08</code></td>
-<td><code>:2921</code>, <code>:3084-3090</code>; <code>divmmc.vhd:94,98</code></td>
+<td><code>zxnext.vhd:2921</code>, <code>zxnext.vhd:3084-3090</code>; <code>divmmc.vhd:94</code>, <code>divmmc.vhd:98</code></td>
 </tr>
 <tr>
 <td><code>DivMmcRam</code></td>
 <td>bank 0..15</td>
 <td>A DivMMC RAM bank: SRAM page <code>0x10 + bank</code></td>
-<td><code>:2926</code>, <code>:3092-3098</code>; <code>divmmc.vhd:95-96,99</code></td>
+<td><code>zxnext.vhd:2926</code>, <code>zxnext.vhd:3092-3098</code>; <code>divmmc.vhd:95-96</code>, <code>divmmc.vhd:99</code></td>
 </tr>
 <tr>
 <td><code>AltRom</code></td>
 <td><code>sram_alt_128_n</code> (0 = Alt ROM0 128k, 1 = Alt ROM1 48k)</td>
 <td>The alternate-ROM read override, a 16 KB store: SRAM pages <code>0x0C + 2*index + cpu_a(13)</code></td>
-<td><code>:2924-2925</code>, <code>:3116-3122</code>, selector <code>:2981-3008</code></td>
+<td><code>zxnext.vhd:2924-2925</code>, <code>zxnext.vhd:3116-3122</code>, selector <code>zxnext.vhd:2981-3008</code></td>
 </tr>
 <tr>
 <td><code>Layer2</code></td>
 <td><code>layer2_active_page</code></td>
 <td>The Layer 2 CPU read mapping: SRAM page <code>index + 0x20</code>, never the BRAMs</td>
-<td><code>:2966-2969</code>, <code>:2971</code>, <code>:3100-3107</code></td>
+<td><code>zxnext.vhd:2966-2969</code>, <code>zxnext.vhd:2971</code>, <code>zxnext.vhd:3100-3107</code></td>
 </tr>
 <tr>
 <td><code>Config</code></td>
 <td>NR <code>0x04</code></td>
 <td>The config-mode window, a 16 KB store: SRAM pages <code>2*index + cpu_a(13)</code></td>
-<td><code>:3044-3050</code></td>
+<td><code>zxnext.vhd:3044-3050</code></td>
 </tr>
 <tr>
 <td><code>Floating</code></td>
 <td>0</td>
 <td>Nothing answers; the read returns the floating bus (<code>0xFF</code> in JNEXT)</td>
-<td><code>:3060-3061</code>, <code>:3101-3102</code></td>
+<td><code>zxnext.vhd:3060-3061</code>, <code>zxnext.vhd:3101-3102</code></td>
 </tr>
 </tbody>
 </table>
@@ -3058,21 +3118,21 @@ memory go through it (<a href="07-frontends.html">7.7</a>).</p>
   <code>MFRAM</code>, <code>DivMmcRom</code> <code>DIVROM</code>, <code>DivMmcRam{b}</code> <code>DIVRAM%u</code> (decimal), <code>AltRom{i}</code> <code>ALTROM%u</code>,
   <code>Layer2{p}</code> <code>L2P%02X</code>, <code>Config{b}</code> <code>CFG%02X</code>, <code>Floating</code> <code>FLOAT</code>, <code>Cpu</code> <code>CPU</code>. The charset
   is <code>[A-Z0-9]</code>: no whitespace and no <code>:</code>.</li>
-<li><strong>The inverse.</strong> <code>parse_space_tag()</code> (<code>:64</code>) is strict: digits only, any case, no leading zero
+<li><strong>The inverse.</strong> <code>parse_space_tag()</code> (<code>long_address.cpp:64</code>) is strict: digits only, any case, no leading zero
   on a decimal index, the hardware's ranges (a page <code>0..0xDF</code>, ROM <code>0..3</code>, DivMMC bank <code>0..15</code>,
   alt ROM <code>0..1</code>). It refuses <code>PE5</code>: a slot 2-7 that holds NR &gt;= <code>0xE0</code> reads nothing, so
   <code>SlotInfo::now</code> is <code>Floating</code> while <code>SlotInfo::space</code> is <code>Page{0xE5}</code>. A view therefore names
   a slot by <code>now</code>, no protocol output tags <code>space</code>, and a view that shows the slot's own source
   shows <code>FLOAT</code> for a page &gt;= <code>0xE0</code>.</li>
 <li><strong>The tags are a stable format.</strong> The project file and the ghidra and skoolkit exports key on
-  them, so changing a spelling is a format break, not a tidy-up (the header says so,
-  <code>long_address.h:9-11</code>). The trace export's <code>FETCH=</code> column is <code>space_tag(fetch_space())</code>
+  them, so changing a spelling is a format break, not a tidy-up (the header says so, in the
+  comment on <code>parse_space_tag</code>, <code>long_address.h:9-11</code>). The trace export's <code>FETCH=</code> column is <code>space_tag(fetch_space())</code>
   (<code>trace.cpp:324</code>), never the GUI's style (<a href="../03-subsystems/09-1-the-backend-api.html">3.9.1</a>).</li>
-<li><strong>The Next layout.</strong> <code>physical_text(space, addr)</code> (<code>:111</code>) says where the byte sits in the Next's
+<li><strong>The Next layout.</strong> <code>physical_text(space, addr)</code> (<code>long_address.cpp:111</code>) says where the byte sits in the Next's
   memory: <code>$</code> and six hex digits of the SRAM address (<code>Page{n}</code> and <code>Layer2{n}</code> are
-  <code>(n + 0x20) &lt;&lt; 13 | offset</code>, <code>zxnext.vhd:2964,2971</code>; <code>Rom{i}</code> <code>i &lt;&lt; 14 | offset</code>, <code>:3052-3057</code>;
-  alt ROM <code>0x018000 + 0x4000 * i</code>, <code>:2924-2925</code>; Multiface <code>0x014000</code> / <code>0x016000</code>; DivMMC ROM
-  <code>0x010000</code> (SRAM page 8) and DivMMC RAM <code>0x020000 + 0x2000 * b</code> (page <code>0x10 + b</code>), <code>zxnext.vhd:2921,2926,3085,3093</code>), or <code>BRAM5+$XXXX</code>
+  <code>(n + 0x20) &lt;&lt; 13 | offset</code>, <code>zxnext.vhd:2964</code>, <code>zxnext.vhd:2971</code>; <code>Rom{i}</code> <code>i &lt;&lt; 14 | offset</code>, <code>zxnext.vhd:3052-3057</code>;
+  alt ROM <code>0x018000 + 0x4000 * i</code>, <code>zxnext.vhd:2924-2925</code>; Multiface <code>0x014000</code> / <code>0x016000</code>; DivMMC ROM
+  <code>0x010000</code> (SRAM page 8) and DivMMC RAM <code>0x020000 + 0x2000 * b</code> (page <code>0x10 + b</code>), <code>zxnext.vhd:2921</code>, <code>zxnext.vhd:2926</code>, <code>zxnext.vhd:3085</code>, <code>zxnext.vhd:3093</code>), or <code>BRAM5+$XXXX</code>
   (pages <code>0x0A</code>, <code>0x0B</code>), <code>BRAM7+$XXXX</code> (page <code>0x0E</code>), <code>BOOT+$XXXX</code>, <code>FLOAT</code>. Banks 5 and 7 are
   block RAM, not SRAM, apart from page <code>0x0F</code>; Layer 2 always sees the SRAM copy.</li>
 <li><strong>The style.</strong> <code>space_text()</code> and <code>long_address()</code> (<code>$C000 P0E</code>) choose by <code>AddressStyle</code>:

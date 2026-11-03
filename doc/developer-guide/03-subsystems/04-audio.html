@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2322,6 +2322,8 @@
       
         
       
+        
+      
     
     
     
@@ -2463,6 +2465,8 @@
   
     
     
+      
+        
       
         
       
@@ -2684,6 +2688,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2791,6 +2823,34 @@
     
   
     7.8 Tests, fixtures and adding a producer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
   
 
     
@@ -2956,8 +3016,11 @@ one: it prebuffers 50 ms, plays silence on an underrun and prebuffers again, and
 trims a backlog past 300 ms back to 100 ms. NR 0xA2 bit 0 sends the Pi's audio
 to EAR instead: <code>I2s::fe_ear()</code> is the hardware's comparator with hysteresis
 (<code>zxnext.vhd:2361-2373</code>), and <code>Emulator::audio_ear_in</code> folds it into the port
-0xFE bit 6 read and the MIC output through the board's <code>ear_relax</code>. The chapter
-on peripherals describes how NextPi itself runs.</p>
+0xFE bit 6 read and the MIC output through the board's <code>ear_relax</code>. While it
+does (<code>I2s::ear_routed</code>), <code>PiAudio</code> runs in tape mode: a 250 ms prebuffer, and
+drift taken out one frame at a time, because a tape loader cannot survive the
+refill's gap or a trim. The chapter on peripherals describes how NextPi itself
+runs.</p>
 <h2 id="the-mixer">The mixer<a class="headerlink" href="#the-mixer" title="Permanent link">&para;</a></h2>
 <p><code>src/audio/mixer.*</code> reproduces <code>audio_mixer.vhd</code>'s 13-bit unsigned sum exactly:
 EAR contributes 512, MIC 128, the AY pair is zero-extended, the DAC pair is

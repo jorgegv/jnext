@@ -67,6 +67,7 @@
 #include "debug/result.h"
 #include "debug/source_map.h"
 #include "debug/symbol_table.h"
+#include "debug/user_annotations.h"
 
 class Emulator;
 
@@ -1010,6 +1011,45 @@ public:
     const SymbolTable& symbols() const;
 
     // =======================================================================
+    // CAP-ANN -- the user's labels and comments (GH #387, E23-24; design 10.2,
+    // 10.3, 10.5, 6.8; added to this frozen header under the #378 decision, 5.2)
+    //
+    // A second layer beside the toolchain's symbols. `symbols()`, `lookup()` and
+    // `lookup_name()` above read the COMPOSITION of the two (the user's label
+    // first, by address and by name), so no consumer merges them. The store is
+    // kept across loads, resets, state loads and rewinds and is not in `.jns`;
+    // only these verbs and a project file change it. None touches the machine,
+    // so all are allowed while it runs; each success bumps `state_revision()`.
+    //
+    // A refused argument (the Cpu space, a name outside the label grammar, a name
+    // already in use, text that is not UTF-8, a project file that does not parse)
+    // is `Unsupported`; nothing to remove, or a file that cannot be read or
+    // written, is `RefusedUnavailable`; `why`, when given, says which.
+    // =======================================================================
+
+    /// Name `addr` in `space` (a rename when it has a user label). The name must not
+    /// be one the loaded symbols give another address, or another paged memory.
+    Result set_user_label(FetchSource space, uint16_t addr, const std::string& name,
+                          std::string* why = nullptr);
+    /// Remove the user label at the key (the toolchain's is not touched).
+    Result remove_user_label(FetchSource space, uint16_t addr);
+    /// Set the user comment at the key; empty text removes it.
+    Result set_user_comment(FetchSource space, uint16_t addr, const std::string& text,
+                            std::string* why = nullptr);
+    /// The user's store, and a counter that rises with every successful change.
+    const UserAnnotations& annotations() const;
+    uint64_t annotations_revision() const;
+    /// Replace the whole store with the project file `path`, or leave it as it is.
+    Result load_annotations(const std::string& path, std::string* why = nullptr);
+    /// Write the store to `path` (through `path.part`, then renamed over it).
+    Result save_annotations(const std::string& path, std::string* why = nullptr) const;
+    /// Replace the whole store (an import builds one offline).
+    Result replace_annotations(UserAnnotations a);
+    /// The loaded layer alone: what a sidecar, Load MAP or `--map` put there.
+    const SymbolTable& toolchain_symbols() const;
+
+
+    // =======================================================================
     // CAP-SRC — source-level debugging (doc/design/SOURCE-LEVEL-DEBUGGING.md)
     //
     // A compiler-neutral `SourceMap` of (physical 8K page, logical address) ->
@@ -1104,6 +1144,13 @@ public:
         bool dot = false;
     };
     SourceMapStatus source_map_status() const;
+
+    /// CAP-SRC (GH #433, epic #353) - the C variable store of the live source map: the
+    /// __CDBINFO__ records of a z88dk -debug map, joined to its symbols by module. Null when
+    /// there is no live source map or the live one carries none (an SLD); a z88dk map carries
+    /// one, empty when it has no record. Part of the source map (`SourceMap::variables()`), so
+    /// it is attached, dropped, made stale and restored with it, by the same rules.
+    std::shared_ptr<const jnext::dbg::VariableStore> variables() const;
 
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
     /// `source_page(addr)` says supplies it), or of the current PC. Null when

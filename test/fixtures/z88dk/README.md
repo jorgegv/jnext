@@ -63,6 +63,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-cvars, master/sccz80-cvars, master/sdcc-cvars, master/80cc-cvars | `vars.c other.c` (+ `types.h`): `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #431: C variable records of every type (section "C variables") |
 | v2.4/sdcc-cvars | `-clib=sdcc_iy -debug`, `vars.c other.c` | **fails rc=1** | z88dk#3172, as `v2.4/sdcc-debug` |
 | v2.4/sccz80-cvars-banked, master/{sccz80,sdcc,80cc}-cvars-banked | `bk.c` compiled with `--codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20`, then `bkmain.c bk.o`, the compiler flags of the line above + `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` | ok | GH #431: banked code AND data (runnable, as the `-run` builds) |
+| master/sccz80-extern, master/sdcc-extern | `ext_use.c ext_def.c` (+ `ext.h`): `extern int g;` in one module, `int g = 5;` in the other; `-clib=new -debug` / `-clib=sdcc_iy -debug` | ok | GH #433: the record of an `extern` global (section "C variables") |
 | v2.4/sccz80-fc, master/{sccz80,sdcc,80cc}-fc | `fc.c` only, as the `incmid` builds | ok | GH #431: `__z88dk_fastcall` and `__z88dk_callee` |
 
 The dot builds (`dot:<subtype>` in `generate.sh`) compile `dot.c dutil.c` with `-subtype=dot|dotx|dotn`
@@ -249,9 +250,22 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
   $14C024, `_bdata` $14C028. Records are the same shape as unbanked. zsdcc writes no `S:G$btable`
   (a `const` global), and 80cc writes no record for `main`'s `loc` (sccz80 does:
   `S:Lbkmain.c.main$loc$1_0$2({1}SC:U),B,1,-1`; zsdcc `R,0,0,[]`).
+- `extern` (`ext_use.c` declares `extern int g;`, `ext_def.c` defines it; `master/*-extern`): zsdcc writes
+  `S:G$g` with `mod=ext_use_c`, the module that declared it, while `_g` is public in `ext_def_c` ($8E46
+  in the sdcc build); sccz80 writes the record in `ext_def_c`, the definer. So an `S:G` record joins
+  to the PUBLIC symbol of its name, never to the module of its line.
 
 Not producible: `v2.4/sdcc-cvars` (z88dk#3172). Not built here: zsdcc `-O0` (no records), `+zxn`
 classic `-debug` (Z1), sdcc_ix (the planner measured records identical to sdcc_iy; not re-run here).
+
+### Scope-table golden: `derive-scopes.py`
+
+Row `Z88CDB-40` (`test/debug/z88dk_map_test.cpp`) pins every function's whole scope table on 12 maps
+against a golden derived by `derive-scopes.py` from the RAW map lines only (no jnext code). Its header
+holds the rules and the command that prints one map's block. Re-derive, never paste the suite's output,
+whenever a fixture is regenerated or the equal-line rule changes. The script is hashed in `MANIFEST.sha256`
+(`generate.sh` lists it), because `Z88FIX-02` demands every file here to be in the manifest; nothing runs it
+in a gate.
 
 ## Normalisation and trimming (in `generate.sh`)
 

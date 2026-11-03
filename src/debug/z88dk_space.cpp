@@ -288,6 +288,7 @@ std::optional<Z88dkMapLine> parse_z88dk_map_line(std::string_view line)
     const std::string_view type = trim(field[0]);
     out.is_addr = type == "addr";
     out.is_const = type == "const";
+    out.is_public = trim(field[1]) == "public";
     out.module = std::string(trim(field[3]));
     out.section = std::string(trim(field[4]));
     // Leading blanks go; the trailing ones too, but a TAB inside stays.

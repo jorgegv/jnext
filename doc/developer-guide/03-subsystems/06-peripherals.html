@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.109</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2427,6 +2427,8 @@
       
         
       
+        
+      
     
     
     
@@ -2568,6 +2570,8 @@
   
     
     
+      
+        
       
         
       
@@ -2789,6 +2793,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2896,6 +2928,34 @@
     
   
     7.8 Tests, fixtures and adding a producer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
   
 
     
@@ -3120,7 +3180,7 @@ into its own RX, which matters more than it sounds; see the replay gate below.</
 stand-ins for the far end of a home-made DB9 serial cable in a joystick socket —
 the rig dezogif and DeZog use to debug a running Next. The bytes do not go
 through either UART header; they go through the NR 0x0B I/O-mode multiplexer
-(<code>zxnext.vhd:3340-3341</code>, <code>:3526-3538</code>), which the <em>guest</em> controls at run time.</p>
+(<code>zxnext.vhd:3340-3341</code>, <code>zxnext.vhd:3526-3538</code>), which the <em>guest</em> controls at run time.</p>
 <p>That is why neither of them is a <code>UartDevice</code>. A <code>UartDevice</code> is soldered to one
 channel's wire, and this cable has no channel of its own: NR 0x0B bit 0 chooses
 which channel it lands on, bit 4 chooses which socket is listened to, and bits
@@ -3141,7 +3201,7 @@ Receive is connector-selected (<code>zxnext.vhd:3538</code>). Transmit is not: t
 bit leaves the core as the single output <code>o_JOY_IO_MODE_PIN_7</code>
 (<code>zxnext.vhd:1593</code>), and the board drives it onto whichever socket <code>joysel</code>
 currently points at — which, in io mode, free-runs at 7 MHz
-(<code>md6_joystick_connector_x2.vhd:109,117</code>) while one bit at 115200 lasts 243
+(<code>md6_joystick_connector_x2.vhd:109</code>, <code>md6_joystick_connector_x2.vhd:117</code>) while one bit at 115200 lasts 243
 CLK_28 ticks. Both sockets therefore see it. Copying the receive gate onto the
 transmit path is the obvious-looking symmetry and it is wrong.</p>
 <p><code>JoyUartSource</code> (<code>--joy-uart-rx</code>) is a recording: the file is read whole at
@@ -3249,8 +3309,10 @@ while jnext runs neither starts nor stops it. Three pieces:</p>
   mixer output sample into <code>I2s</code>, whose NR 0xA2 gating and mixer sum already
   modelled the hardware. The ring prebuffers 50 ms, plays silence on an
   underrun and trims a backlog beyond 300 ms, absorbing the drift between QEMU's
-  host clock and the emulated one. RZX playback does not consume it; a rewind's
-  replay never generates audio at all.</p>
+  host clock and the emulated one. While NR 0xA2 sends the Pi's audio to EAR it
+  switches to tape mode (250 ms, single-frame drift correction), so a tape
+  loaded from the Pi is not cut by a refill or a trim. RZX playback does not
+  consume it; a rewind's replay never generates audio at all.</p>
 </li>
 </ul>
 <p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved
