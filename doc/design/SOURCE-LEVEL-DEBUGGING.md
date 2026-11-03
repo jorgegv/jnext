@@ -1,13 +1,13 @@
 # Source-level debugging: design (CAP-SRC)
 
-> Status: **partly implemented** (v1.1.64, plus E23-07 and E23-06 on the epic branch). The backend
-> capability, the SLD and `Memory.txt` adapters, the Source tab, the ownership rules, and the
-> fetch identity (one read arbiter, the current-PC prediction; section 4) exist. The rest is
-> designed here and built by the sub-issues of epic #23, named `E23-NN (#NNN)` wherever a
-> section depends on one.
-> The sections below describe the target. Section 3.3 lists, mechanism by mechanism, what the
-> tree does today and which sub-issue changes it; a symbol the tree does not have yet is
-> introduced by the sub-issue named beside it. `OD-n` are the owner decisions recorded on #23.
+> Status: **implemented** (epic #23, source-level debugging with z88dk; the epic branch, closed out by
+> E23-19 (#349)). Everything in section 3.3 is DONE except the two entries that are deliberately not
+> built: `.cdb` / `.adb` (E23-20 (#350): z88dk, with its sdcc, writes no such file; 9.6) and C variables,
+> types and scopes (the follow-up epic #353, OD-9; the C variables row of 3.3). File > Reload program (#374) is a separate issue, still
+> planned (6.7).
+> The sections below are the design the code follows; section 3.3 lists, mechanism by mechanism, what
+> the tree does and which sub-issue built it. `E23-NN (#NNN)` names the sub-issue, and `OD-n` are the
+> owner decisions recorded on #23.
 
 ## 1. Use case and scope
 
@@ -370,9 +370,9 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 
 ### 3.3 Implementation status
 
-| Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
+| Mechanism | State at the epic close | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The breakpoint gate, the Breakpoints panel and the disassembly gutter use the `FetchSource` itself (E23-09 (#341)); only the Source tab's display string still reduces it to a RAM page through `ram_page_of()` (`debug/ram_page.h`), which is E23-22's | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The breakpoint gate, the Breakpoints panel and the disassembly gutter use the `FetchSource` itself (E23-09 (#341)); every view shows it as the memory tag (E23-22 (#360), 4.6) and no view reduces it to a RAM page any more (`ram_page_of()` and `NOT_RAM_PAGE`, `debug/ram_page.h`, have no production caller; only tests use them) | 4.1, 4.2, 4.4 | E23-07 (#339) |
 | Identity in history | DONE (E23-08 (#340)): `TraceEntry` carries `fetch_kind` / `fetch_index` (taken from the old `int opcode_len`, still 56 bytes), set after `execute()` from `Mmu::last_m1()`; a slot that fetched nothing keeps the prediction for its PC. `TraceLog::fetch_not_mmu_ram()` is gone (E23-09): `history_stop_at()` builds an `Event` from the entry and asks `EventFilter::matches()`. Back and Reverse Continue look up the recorded identity; the export prints `FETCH=<tag>` (E23-22, 4.6) | 4.3 | E23-08 (#340) |
 | Identity in call frames | DONE (E23-08 (#340)): `CallFrame::caller_space` and `target_space` (`MemSpace`): the caller is the CALL's recorded fetch (for an INT / NMI frame the prediction at the interrupted PC), the target is recorded at the first fetch at `target_pc`; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
@@ -380,8 +380,9 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Lifetime | DONE (E23-10 (#342)): a load generation (`Debugger::Impl` counter, `DebugState::load_generation()`, kept per rewind slot and set before `load_state()`); a cache of the last 4 attachments; `Impl::recheck()` (readers and writers) judges a landing: ring landing = the cache, other landing = identity check (a user map goes stale); `source_map_status()`; Back filters by generation through `TraceLog::recorded()` markers | 6 | E23-10 (#342) |
 | z88dk | DONE (E23-13 (#344), stages 1 to 3; the `--list` listings E23-17 (#348)): the map gives symbols (`load_z88dk_map` skips the three debug prefixes, #352) and, through `load_z88dk_source_map()`, source lines; `<stem>.map` is a sidecar, Load Source Map... and `--source-map` take it, identity is checked from `prog_<GROUP>.bin`; tape programs attach at once and are judged per space where the CPU first runs them (6.2, stage 3) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | DONE (E23-23 (#375) stages 1 to 3): `SymbolTable` keyed by (memory, address); SLD labels reach the backend's table through the sidecar and the hand load; z88dk pages (stage 3): `z88dk_section_space()` places each symbol, rule-4 symbols are bound by `SymbolTable::bind()` | 10 | E23-23 (#375); EQU files: #390 |
+| C names | DONE (E23-31 (#424)): `SymbolLabel::c_symbol` and `SymbolTable::c_name_to_key_`, filled by the one z88dk reader; `counter` resolves and is shown wherever `_counter` does (10.6) | 10.6 | E23-31 (#424) |
 | User labels and comments | DONE (E23-24 (#387)): `UserAnnotations` (`debug/user_annotations.h`), the `.jdp` adapter (`debug/annotations_file.h`), the CAP-ANN verbs and the composed reader (`Impl::names`, 10.2, 10.3), `--annotations`; in Qt, one menu builder for the Disassembly and the Source tab (`debugger/annotation_menu.h`), the Disassembly's Label column and comment, Map > Open / Save / Save As Annotations and the unsaved-changes question | 10 | E23-24 (#387) |
-| Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
+| Coverage | DONE (E23-25 (#388)): INS-21, execute / read / write bits per byte of every `MemSpace` (`dbg::MemCoverage`, `debug/mem_coverage.h`), off by default and measured; `--coverage`, Debug > Coverage, the tint in the Disassembly, Memory and Source tabs (`executed_source_lines()`). INS-20's logical bitset (`CoverageBits`) stays beside it for the remote protocols | 11.1 | E23-25 (#388) |
 | Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; gutter with line numbers and click-to-break done in E23-28 (#421); right-click menu with Run to Here done in E23-30 (#423); syntax highlighting done in E23-29 (#422); the amber current-line wedge and the "also:" list done in E23-16 (#347) stage 1; selection sync both ways, browsing, Show in Source and Go to PC Line done in E23-16 (#347) stage 2 | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym` and `monitor src`; DSL `on execute file:line`, and `on execute @name` in its label's memory; a `--script` naming a line, a symbol unknown at start or a load-bound symbol waits for the `--load` program, still parsed at once (done in E23-15 (#346)) | 8.3 | E23-15 (#346) |
@@ -389,7 +390,8 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | C stepping on real z88dk code | DONE (E23-14 (#345)) | 7 | E23-14 (#345) |
 | Dot commands | DONE (E23-21 (#351)): rule 5, `peek(DivMmcRam)`, a map judged at the command's entry, `--source-map` without `--load` | 9.4 | E23-21 (#351) |
 | `.cdb` / `.adb` | none: no such file | 9.6 | E23-20 (#350), closed |
-| Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
+| Fixtures | DONE (E23-12 (#343)): `test/fixtures/z88dk/` (`generate.sh`, `MANIFEST.sha256`, the `v2.4`, `master` and `v2.4-dotn` build trees, rows Z88FIX-01/02); `test/fixtures/zdebugmap/` keeps the trimmed 2.4 sccz80 maps (#352) | 2.3, 13 | E23-12 (#343) |
+| C variables | NOT BUILT, deliberately: the follow-up epic #353 (OD-9); its input is the map's `__CDBINFO__` records (9.6, 12) | 12 | #353 |
 | skoolkit / ghidra | DONE (E23-26 (#389)): `Debugger::export_skoolkit()` / `export_ghidra()` and `import_skoolkit()` / `import_ghidra()` (CAP-REX, `debug/debugger_reinterop.cpp`) over the pure writers and readers `debug/skoolkit_ctl.h` and `debug/ghidra_symbols.h`; `--export-skoolkit`, `--export-ghidra` (at exit), `--import-skoolkit`, `--import-ghidra` (at start, after `--annotations`); in Qt, Map > Import and Export; the writers are proved by running SkoolKit 10.1 and Ghidra 12.2 (`make skoolkit`, `make ghidra`) | 11.2 | E23-26 (#389) |
 
 Done: E23-01, E23-03 and E23-04 (v1.1.64: the backend capability, the SLD and `Memory.txt`
