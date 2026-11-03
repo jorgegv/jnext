@@ -304,7 +304,8 @@ struct GutterView {
         if (auto* sb = panel->findChild<QScrollBar*>()) sb->setValue(0x8005);
         QApplication::processEvents();
     }
-    QPoint dot() const { return QPoint(kGutterW / 2, kPaintY + kLineH / 2); }
+    // GH #448: the Disassembly's BP column is where the panel says, no longer at the left edge.
+    QPoint dot() const { return QPoint(panel->breakpoint_x() + kGutterW / 2, kPaintY + kLineH / 2); }
     void click_gutter() {
         const QPointF pos(dot());
         QMouseEvent ev(QEvent::MouseButtonPress, pos, panel->mapToGlobal(dot()),

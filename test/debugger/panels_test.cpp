@@ -232,6 +232,7 @@ int row_count(QWidget* panel) {
 struct PaintedText {
     QPointF pos;     // baseline origin, in widget coordinates
     QString text;
+    QColor pen;      // the pen the text was drawn with (GH #448)
 };
 
 class RecordingEngine : public QPaintEngine {
@@ -262,7 +263,7 @@ public:
         // The painter's transform carries the child widgets' offsets; the
         // Memory panel draws straight onto itself, so its own items land at
         // their widget coordinates.
-        items.push_back({state->transform().map(p), ti.text()});
+        items.push_back({state->transform().map(p), ti.text(), state->pen().color()});
     }
     Type type() const override { return QPaintEngine::User; }
     std::vector<PaintedText> items;
@@ -1948,13 +1949,12 @@ static void test_coverage_panels() {
         w->render(&img);
         return img;
     };
-    // GUTTER_WIDTH is private: the bar sits one pixel past the gutter separator,
-    // which is the panel's first pixel column with the separator's colour.
-    auto gutter_x = [](const QImage& img, const QPalette& p) {
+    // The bar sits one pixel past the BP column's separator, which is the panel's own
+    // breakpoint_x() + GUTTER_WIDTH (GH #448); the separator's colour there is still checked.
+    auto gutter_x = [](const DisasmPanel& d, const QImage& img, const QPalette& p) {
         const QRgb sep = palette_tint::surface(p, QColor(200, 200, 200)).rgb();
-        for (int x = 1; x < 60; ++x)
-            if (img.pixel(x, 60) == sep && img.pixel(x, 61) == sep) return x;
-        return -1;
+        const int x = d.breakpoint_x() + 20;
+        return (img.pixel(x, 60) == sep && img.pixel(x, 61) == sep) ? x : -1;
     };
 
     Emulator emu;
@@ -1984,7 +1984,7 @@ static void test_coverage_panels() {
     dis.refresh();
     mem.refresh();
     const QImage dis_on = image_of(&dis);
-    const int gx = gutter_x(dis_on, pal);
+    const int gx = gutter_x(dis, dis_on, pal);
 
     {   // QCOV-02 (a): the bar is on the executed lines and not on the others
         const auto runs = gx > 0 ? bar_runs(dis_on, gx + 2, coverage_colors::exec(pal).rgb())
@@ -2023,7 +2023,7 @@ static void test_coverage_panels() {
         ndis.activate_follow_pc();
         ndis.refresh();
         const QImage nimg = image_of(&ndis);
-        const int ngx = gutter_x(nimg, pal);
+        const int ngx = gutter_x(ndis, nimg, pal);
         const auto nruns = ngx > 0 ? bar_runs(nimg, ngx + 2, coverage_colors::exec(pal).rgb())
                                    : std::vector<std::pair<int, int>>{};
         const bool follows_fetch = nx_ok && nruns.size() == 1 && nruns[0].second == 16 &&
@@ -2143,7 +2143,7 @@ static void test_coverage_panels() {
         go_to(&mem, "8000");
         mem.refresh();
         const QImage dimg = image_of(&dis), mimg = image_of(&mem);
-        const int dgx = gutter_x(dimg, dpal);
+        const int dgx = gutter_x(dis, dimg, dpal);
         const QColor ex = coverage_colors::exec(dpal), rd = coverage_colors::read(dpal),
                      wr = coverage_colors::write(dpal);
         const int base = dpal.color(QPalette::Base).lightness();
@@ -3560,15 +3560,17 @@ static void test_long_address() {
         const QString pc_phys = after_label(phys, "$0000");
         view_disasm_at(&dis, 0xC000);
         const QString c000 = after_label(painted(&dis), "$C000");
-        // The mnemonic column sits ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH (48 + 96 + 100) right of the
-        // address; the friendly and the physical paint put it at the same x.
+        // GH #448: the address sits MEM_WIDTH (96) right of the 4-px margin, after the Mem column, and the
+        // mnemonic ADDR_WIDTH + the BP column + 4 (48 + 20 + 4) right of the address; the friendly and the
+        // physical paint put both at the same x.
         const double ax = x_of(friendly, "$0000"), mx = x_of(friendly, "INC A");
-        const bool moved = mx - ax == 48 + 96 + 100 && x_of(phys, "INC A") == mx && x_of(phys, "$0000") == ax;
+        const bool moved = ax == 4 + 96 && mx - ax == 48 + 20 + 4 && x_of(phys, "INC A") == mx &&
+                           x_of(phys, "$0000") == ax;
         const bool fits = QFontMetrics(QFont("Monospace", 10)).horizontalAdvance("BRAM7+$1FFF") <= 96;
         check("QLADDR-02",
               "Physical style: the PC line reads $010000 (DivMMC ROM), a $C000 line over page 0x0E "
-              "reads BRAM7+$0000; the mnemonic column is MEM_WIDTH further right and the same in "
-              "both styles; the widest text fits the column",
+              "reads BRAM7+$0000; the address is MEM_WIDTH from the left margin, and address and "
+              "mnemonic sit at the same x in both styles; the widest text fits the column",
               built && pc_phys == "$010000" && c000 == "BRAM7+$0000" && moved && fits,
               s(pc_phys) + "|" + s(c000) + fmt(" ax=%.0f mx=%.0f", ax, mx));
     }
@@ -3822,19 +3824,19 @@ static void test_annotations() {
         dis.set_paused(true);
         view_disasm_at(&dis, 0xC000);
         dis.refresh();
-        const bool bare_cols = !dis.label_column_shown() && dis.mnemonic_x() == 20 + 4 + 48 + 96 + 100;
+        const bool bare_cols = !dis.label_column_shown() && dis.mnemonic_x() == 172;
         const auto bare = painted(&dis);
         const double bare_mn = x_of(bare, QStringLiteral("NOP"));
         dbg.set_user_label(P10, 0xC000, "banked");
         dis.refresh();
         const auto lab = painted(&dis);
         const bool shown = dis.label_column_shown() && dis.line_label(0) == "banked" &&
-                           x_of(lab, QStringLiteral("banked")) == 20 + 4 + 48 + 96 + 100 &&
-                           x_of(lab, QStringLiteral("Label")) == 20 + 4 + 48 + 96 + 100 &&
-                           x_of(lab, QStringLiteral("NOP")) == dis.mnemonic_x() && dis.mnemonic_x() > 20 + 4 + 48 + 96 + 100;
-        check("QANN-01", "no label in the table: no Label column and the mnemonic at the old x (268); one label: the "
-                         "column (header and 'banked' at the old mnemonic x) is there and the mnemonic moved right",
-              built && bare_cols && bare_mn == 20 + 4 + 48 + 96 + 100 && shown,
+                           x_of(lab, QStringLiteral("banked")) == 172 &&
+                           x_of(lab, QStringLiteral("Label")) == 172 &&
+                           x_of(lab, QStringLiteral("NOP")) == dis.mnemonic_x() && dis.mnemonic_x() > 172;
+        check("QANN-01", "no label in the table: no Label column and the mnemonic at the old x (172, right of the BP column); "
+                         "one label: the column (header and 'banked' at the old mnemonic x) is there and the mnemonic moved right",
+              built && bare_cols && bare_mn == 172 && shown,
               fmt("bare %d mn %.0f; shown %d mn_x %d", bare_cols, bare_mn, shown, dis.mnemonic_x()));
         const std::string at10 = s(dis.line_label(0));
         emu.nextreg().write(0x56, 0x11);
