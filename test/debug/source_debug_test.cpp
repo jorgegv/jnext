@@ -3155,14 +3155,15 @@ int main() {
                   two && reti && retn);
         }
         {   // CS-12
-            // A stale frame (CALL s; s: POP HL; JP (HL)), then the ROM idiom RST $10 whose
+            // A stale frame (CALL s; s: POP HL; JP $8003: it dropped its return address and
+            // left by a direct jump to caller_pc + 3), then the ROM idiom RST $10 whose
             // routine returns past an inline DEFW: the return point is not caller_pc + 3 for a
             // reason the frame cannot know, so an RST frame ends by SP, and the SP rule ends
             // the stale frame below it too.
             fresh();
             ins(0x8000, T, 0xCD, 0x9000, T - 2, 0x00, 0x90);
             ins(0x9000, T - 2, 0xE1, 0x9001, T);
-            ins(0x9001, T, 0xE9, 0x8003, T);
+            ins(0x9001, T, 0xC3, 0x8003, T, 0x03, 0x80);
             const bool stale = cs.frames().size() == 1;
             ins(0x8003, T, 0xD7, 0x0010, T - 2);             // RST $10
             ins(0x0010, T - 2, 0xE1, 0x0011, T);             // POP HL
