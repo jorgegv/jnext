@@ -757,7 +757,7 @@ int main() {
         };
         Mem mem;
         mem.put(0xA000, {0x00, 0xB0});
-        mem.put(0xB000, {3, 0, 4, 0, 9, 9, 9, 9});
+        mem.put(0xB000, {3, 0, 4, 0});   // only the object's 4 bytes: an over-read fails
         // struct pt { int x; int y; }: no variable of this type, no member declared as it: its size is its members' extent
         const VariableStore plain_st({}, {}, {rec("T:Fz.h$pt[({0}S:S$x$0_0$0({2}SI:S),Z,0,0)({2}S:S$y$0_0$0({2}SI:S),Z,0,0)]", "z_c")}, {}, {});
         CFormatCtx pctx;
@@ -769,6 +769,7 @@ int main() {
         p.addr = 0xA000;
         const CEval ey = c_eval_path(pctx, p, false, c_parse_path("p->y").steps);
         const CEval ew = c_eval_path(pctx, p, true, {});
+        const CEval ei = c_eval_path(pctx, p, false, c_parse_path("p[1]").steps);
         const CFormatted fy = ey.ok ? c_read_loc(pctx, ey.loc) : CFormatted{};
         const CFormatted fw = ew.ok ? c_read_loc(pctx, ew.loc) : CFormatted{};
         // struct in { char a; char b; } (extent 2) whose only declared object is the member `m` of struct outer ({4}STin: padded to 4)
@@ -782,9 +783,9 @@ int main() {
         q.type = ty("{2}DG,STin:S");
         q.addr = 0xA000;
         const CEval e1 = c_eval_path(mctx, q, false, c_parse_path("q[1]").steps);
-        check("CVALF-35", "a struct no variable is declared as: through a pointer `p->y` reads 4 and `*p` is {x = 3, y = 4} (the size is its members' extent, "
-                          "as no member overlaps another); one declared only as a member of another struct has THAT size (q[1] is at +4, not the members' +2)",
-              ey.ok && fy.ok && fy.text == "4" && ew.ok && fw.ok && fw.text == "{x = 3, y = 4}" && e1.ok && e1.loc.addr == 0xB004);
+        check("CVALF-35", "a struct no variable is declared as: through a pointer `p->y` reads 4 and `*p` is {x = 3, y = 4} (the size is its members' extent, 4, "
+                          "as no member overlaps another; p[1] is at +4); one declared only as a member of another struct has THAT size (q[1] is at +4, not the members' +2)",
+              ey.ok && fy.ok && fy.text == "4" && ew.ok && ew.loc.type.size == 4 && ei.ok && ei.loc.addr == 0xB004 && fw.ok && fw.text == "{x = 3, y = 4}" && e1.ok && e1.loc.addr == 0xB004);
     }
 
     // ── CVALF-36: a U2 member of a nested struct is clamped to its own struct ────────────────────────────────
