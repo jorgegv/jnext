@@ -2548,12 +2548,12 @@ other other_c 8D33
 sum vars_c 8C48
   8C48-8C9F +0
 )GOLD"},
-        {"master/80cc-cvars", R"GOLD(main vars_c 8CD8
-  8CD8-8DC0 +0
-other other_c 8DC0
-  8DC0-8DDB +0
+        {"master/80cc-cvars", R"GOLD(main vars_c 8CD9
+  8CD9-8DB0 +0
+other other_c 8DB0
+  8DB0-8DCB +0
 sum vars_c 8C62
-  8C62-8CD8 +0
+  8C62-8CD9 +0
 )GOLD"},
         };
         std::string bad;
@@ -2570,11 +2570,68 @@ sum vars_c 8C62
         if (!bad.empty()) std::printf("  Z88CDB-41 differs:%s\n", bad.c_str());
     }
     {
+        // GH #434 F-A: cross() is 8192 bytes of padding, so its code runs from the $8000 slot into the next 8 KB
+        // slot: two pieces (page 4, then page 5), and its records past $A000 are in its scope table with their
+        // offsets. The golden is `derive-scopes.py --extents` on the raw map; nothing here is pasted from jnext.
+        static const struct { const char* map; const char* golden; } kCrossGolden[] = {
+        {"v2.4/sccz80-cross", R"GOLD(cross cross_c 8C6B
+  8C6B-A000 +0
+  A000-AC81 +1395
+main cross_c AC81
+  AC81-AC99 +0
+)GOLD"},
+        {"master/sccz80-cross", R"GOLD(cross cross_c 8C6B
+  8C6B-A000 +0
+  A000-AC81 +1395
+main cross_c AC81
+  AC81-AC99 +0
+)GOLD"},
+        {"master/sdcc-cross", R"GOLD(cross cross_c 8C48
+  8C48-A000 +0
+  A000-AC5B +13B8
+main cross_c AC5B
+  AC5B-AC68 +0
+)GOLD"},
+        {"master/80cc-cross", R"GOLD(cross cross_c 8C78
+  8C78-A000 +0
+  A000-AC97 +1388
+main cross_c AC97
+  AC97-ACAC +0
+)GOLD"},
+        };
+        const MemSpace P5 = MemSpace::page(5);
+        std::string bad;
+        for (const auto& g : kCrossGolden) {
+            SourceMap m;
+            load(m, kFixtures / g.map / "prog.map");
+            const VariableStore* s = store_of(m);
+            const CFunction* f = s ? fn_named(*s, "cross") : nullptr;
+            bool ok = s && extent_text(*s) == g.golden && f && f->pieces.size() == 2 &&
+                      f->pieces[0].at.space == P4 && f->pieces[1].at.space == P5 && f->pieces[1].at.address == 0xA000 &&
+                      f->pieces[0].hi_excl == 0xA000;
+            // every scope record past $A000 is filed under cross, in page 5, with offset = piece offset + (address - $A000)
+            int past = 0;
+            for (const auto& c : f ? f->scopes : std::vector<jnext::dbg::CScope>{}) {
+                if (c.at.space == P5) {
+                    ++past;
+                    ok = ok && c.offset == f->pieces[1].offset + (c.at.address - 0xA000);
+                }
+            }
+            ok = ok && past == 2;   // the two lines after the padding (cross.c:20, :21)
+            if (!ok) bad += std::string(" ") + g.map;
+        }
+        check("Z88CDB-42", "a function that crosses an 8 KB slot (cross.c, 8192 bytes of padding) on the four cross maps: "
+                           "two pieces, page 4 up to $A000 and page 5 from $A000, equal to the golden derived from the raw "
+                           "map; the records past $A000 are in its scope table (page 5) with offsets across the pieces",
+              bad.empty());
+        if (!bad.empty()) std::printf("  Z88CDB-42 differs:%s\n", bad.c_str());
+    }
+    {
         bool resolved = true, absent = true;
         std::string seen;
         for (const char* map : {"v2.4/sccz80-cvars", "master/sccz80-cvars", "master/80cc-cvars", "v2.4/sccz80-fc",
                                 "master/sccz80-fc", "master/80cc-fc", "v2.4/sccz80-cvars-banked",
-                                "master/sccz80-cvars-banked", "master/80cc-cvars-banked"}) {
+                                "master/sccz80-cvars-banked"}) {
             SourceMap m;
             load(m, kFixtures / map / "prog.map");
             const VariableStore* s = store_of(m);
@@ -2593,7 +2650,7 @@ sum vars_c 8C62
         load(m, kFixtures / "master/sccz80-cvars" / "prog.map");
         const VariableStore* s = store_of(m);
         check("Z88CDB-43", "the debug-frame helpers (__debug_framepointer, l_debug_push_frame, l_debug_pop_frame) resolve on "
-                           "every sccz80 and 80cc cvars, fc and banked map ($906A, $8B64, $8B75 in page 4 on master "
+                           "every sccz80 and 80cc cvars and fc map and the sccz80 banked ones (80cc bk.c keeps an IX frame and links no helper) ($906A, $8B64, $8B75 in page 4 on master "
                            "sccz80-cvars) and stay unresolved, with a reason, on zsdcc",
               resolved && absent && s && stored_at(s->helpers().framepointer, P4, 0x906A) &&
                   stored_at(s->helpers().push_frame, P4, 0x8B64) && stored_at(s->helpers().pop_frame, P4, 0x8B75));

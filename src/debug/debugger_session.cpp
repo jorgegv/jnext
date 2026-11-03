@@ -49,6 +49,7 @@
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
+#include "debug/variable_store.h"
 
 #include <algorithm>
 #include <chrono>

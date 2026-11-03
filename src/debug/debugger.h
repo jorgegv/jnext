@@ -1228,7 +1228,7 @@ public:
         int function = -1;
         /// Frame 0: the stop PC. A tracked older frame: the CALL (`caller_pc`, `caller_space`); a
         /// frame found through the chain: the return address - 1. Always inside the call.
-        jnext::dbg::SourceAddress pc;
+        SourceAddress pc;
         std::optional<SourceLocation> line;   ///< the source map at `pc`
         /// How `fp` was found: `Tracked` from the call-stack tracker (the CALL that entered the
         /// frame's code), `Prologue` from the entry bytes at frame 0, `Chain` from the saved frame
