@@ -3,11 +3,18 @@
 #include "core/win_process.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <sstream>
 #include <system_error>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -157,9 +164,70 @@ std::string VideoRecorder::build_encode_command(const EncodeSpec& spec, CmdStyle
     return cmd.str();
 }
 
+bool VideoRecorder::ffmpeg_in_path_list(const std::string& path_list, CmdStyle style)
+{
+    const char sep = (style == CmdStyle::Windows) ? ';' : ':';
+    const char* const name = (style == CmdStyle::Windows) ? "ffmpeg.exe" : "ffmpeg";
+    std::size_t start = 0;
+    while (start <= path_list.size()) {
+        std::size_t end = path_list.find(sep, start);
+        if (end == std::string::npos) end = path_list.size();
+        std::string dir = path_list.substr(start, end - start);
+        start = end + 1;
+        if (style == CmdStyle::Windows)
+            dir.erase(std::remove(dir.begin(), dir.end(), '"'), dir.end());
+        if (dir.empty()) continue;
+        const fs::path candidate = fs::path(dir) / name;
+        std::error_code ec;
+        if (!fs::is_regular_file(candidate, ec) || ec) continue;  // follows symlinks
+#ifndef _WIN32
+        if (style == CmdStyle::Posix && ::access(candidate.c_str(), X_OK) != 0) continue;
+#endif
+        return true;
+    }
+    return false;
+}
+
+namespace {
+
+std::atomic<int> g_probe_count{0};
+
+/// The search list for this platform. POSIX: $PATH (what system()'s shell
+/// searched before GH #446). Windows: what CreateProcess searches for a bare
+/// name that matters here, i.e. the directory jnext.exe is in, then the current
+/// directory, then PATH.
+std::string native_search_list()
+{
+    const char* env = std::getenv("PATH");
+    std::string list = env ? env : "";
+#ifdef _WIN32
+    char exe[MAX_PATH] = {};
+    std::string prefix;
+    const DWORD n = GetModuleFileNameA(nullptr, exe, MAX_PATH);
+    if (n > 0 && n < MAX_PATH)
+        prefix = fs::path(exe).parent_path().string() + ";";
+    list = prefix + ".;" + list;
+#endif
+    return list;
+}
+
+}  // namespace
+
+bool VideoRecorder::ffmpeg_available_fresh()
+{
+    ++g_probe_count;
+    return ffmpeg_in_path_list(native_search_list(), NATIVE_STYLE);
+}
+
+int VideoRecorder::ffmpeg_probe_count()
+{
+    return g_probe_count;
+}
+
 bool VideoRecorder::ffmpeg_available()
 {
-    return run_native(build_probe_command(NATIVE_STYLE)) == 0;
+    static const bool available = ffmpeg_available_fresh();
+    return available;
 }
 
 bool VideoRecorder::start(const std::string& output_path)
@@ -169,7 +237,7 @@ bool VideoRecorder::start(const std::string& output_path)
         return false;
     }
 
-    if (!ffmpeg_available()) {
+    if (!ffmpeg_available_fresh()) {
         Log::emulator()->error("VideoRecorder: ffmpeg not found in PATH");
         return false;
     }

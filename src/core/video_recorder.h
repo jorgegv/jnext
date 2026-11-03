@@ -26,8 +26,20 @@ public:
     VideoRecorder(const VideoRecorder&) = delete;
     VideoRecorder& operator=(const VideoRecorder&) = delete;
 
-    /// Check if FFmpeg is available on the system.
+    /// Is an ffmpeg executable on the search path? Answered by looking, never
+    /// by starting a process (GH #446): the startup log line and the File >
+    /// Record menu greying share this one answer, computed on first use and
+    /// cached for the life of the process. A restart picks up an install.
     static bool ffmpeg_available();
+
+    /// The same lookup, done afresh (no cache). Used when a recording starts,
+    /// in case ffmpeg was removed since startup. An ffmpeg that is present
+    /// but broken is not caught here but by the encoder-failure path (GH #78).
+    static bool ffmpeg_available_fresh();
+
+    /// How many times the lookup actually ran in this process (a seam for
+    /// the cache test).
+    static int ffmpeg_probe_count();
 
     /// Command-line dialect the ffmpeg invocation is built for (GH #56).
     ///
@@ -52,6 +64,16 @@ public:
         CmdStyle::Posix;
 #endif
 
+    /// Pure lookup: does `path_list` (a PATH value: ':'-separated for Posix,
+    /// ';'-separated for Windows) name a directory holding an executable
+    /// `ffmpeg` (Posix: a regular file, symlinks followed, with an execute
+    /// bit for this user) or `ffmpeg.exe` (Windows: a regular file; the
+    /// dialect CreateProcess uses, which appends .exe and ignores PATHEXT)?
+    /// Empty entries are skipped, so an empty PATH finds nothing; Windows
+    /// entries may be double-quoted. Both dialects are testable from either
+    /// platform.
+    static bool ffmpeg_in_path_list(const std::string& path_list, CmdStyle style);
+
     /// Quote one command-line argument for `style`, so a path containing
     /// spaces (`C:\Users\Some Name\...`), quotes or shell metacharacters
     /// survives intact.
@@ -72,7 +94,9 @@ public:
     /// The ffmpeg command line stop() runs to mux the recording.
     static std::string build_encode_command(const EncodeSpec& spec, CmdStyle style);
 
-    /// The ffmpeg command line ffmpeg_available() runs to probe for ffmpeg.
+    /// The command line that used to probe for ffmpeg (`ffmpeg -version`).
+    /// No longer run (GH #446: the probe is a PATH lookup); kept with its
+    /// VREC-PR rows.
     static std::string build_probe_command(CmdStyle style);
 
     /// Start recording to `output_path` (e.g. "/tmp/recording.mp4").

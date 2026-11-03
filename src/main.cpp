@@ -1434,9 +1434,8 @@ int main(int argc, char* argv[]) {
 
     // Packaging Task 67 follow-up: warn once, in every mode (headless
     // included), when ffmpeg is not on PATH — --record / File > Record
-    // MPEG4 Video will not work without it. Probed once the command line has
-    // parsed: the probe starts an ffmpeg process (~0.1 s), which a run that
-    // exits on --help, --version or a usage error has no use for.
+    // MPEG4 Video will not work without it. A PATH lookup, no process (GH #446),
+    // done once the command line has parsed and cached for the menu greying.
     if (!VideoRecorder::ffmpeg_available()) {
         Log::emulator()->warn("ffmpeg not found in PATH; MPEG4 video recording will be unavailable.");
     }
