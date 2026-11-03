@@ -22,7 +22,8 @@
 #                     `make regression-macos`.
 #   --preflight-only  Run only the harness preflight checks and exit (no tests).
 #                     This is the seam test/harness-selftest.sh drives.
-#   test_name         Run only specified tests (default: all)
+#   test_name         Run only the named tests (default: all); a name neither manifest
+#                     declares is a harness fault (GH #443)
 #
 # Env: JNEXT_REGRESSION_CONF / JNEXT_REGRESSION_FUNC_CONF override the
 #      manifests; JNEXT_REGRESSION_SCRIPTS_DIR overrides the test-script
@@ -265,6 +266,8 @@ for arg in "$@"; do
         PREFLIGHT_ONLY=true
     elif [[ "$arg" == "--platform" ]]; then
         :   # pre-scanned above (PLATFORM_MODE)
+    elif [[ -z "$arg" ]]; then
+        harness_fault "an empty row name was given" "A name selects a row by exact match; an empty one names none."
     else
         FILTER_TESTS+=("$arg")
     fi
@@ -500,6 +503,17 @@ for name in "${DECLARED_FUNC[@]}"; do
 done
 declare -A IS_ABSENT_FUNC
 for name in "${ABSENT_FUNC[@]+"${ABSENT_FUNC[@]}"}"; do IS_ABSENT_FUNC["$name"]=1; done
+# A named row must be a declared one (GH #443): want() selects by exact name,
+# so a mistyped name selected nothing and the run passed on the lints alone.
+# Checked against every declared row, not only this OS's, so a row an os= tag
+# leaves out gets the specific refusal below.
+reg_unknown=()
+for name in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do
+    [[ -n "${IS_DECLARED_FUNC[$name]:-}" || -n "${IS_DECLARED_SCREENSHOT[$name]:-}" ]] || reg_unknown+=("$name")
+done
+[[ ${#reg_unknown[@]} -eq 0 ]] \
+    || harness_fault "row name(s) declared in neither regression_tests.conf nor functional_tests.conf: ${BOLD}${reg_unknown[*]}${RESET}" \
+                     "A name selects a row by exact match, so an unknown one would run nothing. Check the spelling."
 # A named row this OS does not run is refused, never silently dropped.
 for name in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do
     [[ -z "${IS_ABSENT_FUNC[$name]:-}" ]] \
