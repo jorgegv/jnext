@@ -7264,6 +7264,71 @@ int main() {
                                     "is not its bytes; bdata = 77 (zsdcc: with its own note at $C028); main's loc = 3 on sccz80, no record on 80cc (U5)",
                   ok, seen);
         }
+        {   // SRCDBG-CVAL-39
+            // fc.c: `ffast(uint16_t x) __z88dk_fastcall` and `fcallee(uint16_t a, uint8_t b) __z88dk_callee`; main: g = ffast(3) (= 4); g += fcallee(g, 4)
+            struct Fc { const char* fx; const char* tag; uint16_t ffast, fcallee; };
+            std::string seen;
+            bool ok = true;
+            // sccz80 (both installs): the listing marks ffast fastcall and the record puts x at its nominal slot (z88dk U1): location unknown
+            for (const Fc& c : {Fc{"v2.4/sccz80-fc", "c39a", 0x8C62, 0x8C74}, Fc{"master/sccz80-fc", "c39b", 0x8C62, 0x8C74}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const fs::path d = var_dir(c.tag, c.fx);
+                z88_copy_lis(c.fx, d);
+                z88_load(m, d / "prog.nex");
+                m.dbg->load_program_sidecars((d / "prog.nex").string());
+                const bool at = cv_run_to(m, c.ffast);
+                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+                const bool u1 = at && !x.ok && x.why.find("location unknown") != std::string::npos && x.why.find("U1") != std::string::npos;
+                const bool at2 = cv_run_to(m, c.fcallee);
+                const bool callee = at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4";
+                if (!u1 || !callee) {
+                    ok = false;
+                    seen += std::string(" ") + c.fx;
+                }
+            }
+            {   // zsdcc: x is the register HL at ffast's entry (a frameless function), fcallee's arguments are on the stack above its return address
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const fs::path d = var_dir("c39c", "master/sdcc-fc");
+                z88_copy_lis("master/sdcc-fc", d);
+                z88_load(m, d / "prog.nex");
+                m.dbg->load_program_sidecars((d / "prog.nex").string());
+                const bool at = cv_run_to(m, 0x8C48);
+                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+                const bool at2 = cv_run_to(m, 0x8C4A);
+                if (!(at && x.ok && x.value == "3" && x.where.kind == Dbg::CWhere::Kind::Register && at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4")) {
+                    ok = false;
+                    seen += " zsdcc";
+                }
+            }
+            {   // 80cc: x is pushed at fp - 2 after the four prologue instructions (push ix; ld ix,0; add ix,sp; push hl); its record is B,1,-2 (correct)
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                const fs::path d = var_dir("c39d", "master/80cc-fc");
+                z88_copy_lis("master/80cc-fc", d);
+                z88_load(m, d / "prog.nex");
+                m.dbg->load_program_sidecars((d / "prog.nex").string());
+                const bool at = cv_run_to(m, 0x8C6B);
+                const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+                const bool at2 = cv_run_to(m, 0x8C74);
+                if (!(at && x.ok && x.value == "3" && x.where.kind == Dbg::CWhere::Kind::Cpu && at2 && cvv(m, 0, "a") == "4" && cvv(m, 0, "b") == "4")) {
+                    ok = false;
+                    seen += " 80cc";
+                }
+            }
+            check("SRCDBG-CVAL-39", "fc.c: ffast's x is `location unknown (z88dk U1...)` on both sccz80 installs (a listed fastcall function whose parameter is recorded at its nominal "
+                                    "slot), 3 from HL on zsdcc and 3 at fp - 2 on 80cc; fcallee's a and b are 4 at its entry on all four",
+                  ok, seen);
+        }
+        {   // SRCDBG-CVAL-40
+            // the same sccz80 build with NO listing beside the map: nothing says ffast is fastcall, so the record is read as written (the documented limit, OD-14a)
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            const fs::path d = var_dir("c40", "master/sccz80-fc");   // z88_copy: the map, the NEX and the section binaries, no .lis
+            z88_load(m, d / "prog.nex");
+            m.dbg->load_program_sidecars((d / "prog.nex").string());
+            const bool at = cv_run_to(m, 0x8C62);
+            const Dbg::CValueResult x = m.dbg->read_c_value(0, "x");
+            check("SRCDBG-CVAL-40", "ffast's x with no listing: read from the record's slot, with no U1 marker (a value, not a refusal)",
+                  at && x.ok && x.why.find("U1") == std::string::npos);
+        }
             check("SRCDBG-CVAL-36", "a real mid-run attach (main in its while (1), no tracked frame): lp = {3, 4, 5}, i = 4, arr = {467, 471, 475, 479} on sccz80 and zsdcc, and "
                                     "on sccz80 also c = 120 'x', big = 100000 and pp == &lp",
                   ok);
