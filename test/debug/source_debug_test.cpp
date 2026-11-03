@@ -6820,6 +6820,70 @@ int main() {
                   lr.count > 0 && fr.size() == 2 && name(fr[0]) == "fb" && fr[0].how == FrameBase::Tracked && name(fr[1]) == "fa" &&
                       fr[1].how == FrameBase::Unknown && !fr[1].note.empty());
         }
+        {   // SRCDBG-CVAL-24
+            // GH #434 review R20: an older frame found through the chain is looked up INSIDE its call (return address - 1), so a
+            // call that is the last instruction of a line stays on that line. Synthetic IX-frame program fo -> fa -> fb whose return
+            // addresses ($800B, $804B) start a new line; the tracker is emptied after fo calls fa, so fo is found by the chain.
+            Bare m(MachineType::ZXN_ISSUE2);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "t";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            m.dbg->attach(ci);
+            const auto esc = [](const std::string& t) {
+                std::string o;
+                for (const unsigned char c : t) {
+                    if (std::isalpha(c)) {
+                        o += static_cast<char>(c);
+                    } else {
+                        char b[8];
+                        std::snprintf(b, sizeof b, "_%02x", c);
+                        o += b;
+                    }
+                }
+                return o;
+            };
+            const auto fn_rec = [&](const char* n) {
+                return "__CDBINFO__" + esc(std::string("F:G$") + n + "$0_0$0({0}DF,SI:S),C,0,0,0,0,0") +
+                       " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n";
+            };
+            const auto line_rec = [](int line, unsigned at, const char* fn) {
+                char b[200];
+                std::snprintf(b, sizeof b, "__C_LINE_%d_t_2ec = $%04X ; addr, local, , t_c, code_compiler, t.c::%s::0::0:%d\n", line, at, fn, line);
+                return std::string(b);
+            };
+            const std::string map = (z / "c24.map").string();
+            write_text(map, "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                            "_fb = $8020 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:10\n"
+                            "_fo = $8040 ; addr, public, , t_c, code_compiler, t.c::fo::0::0:20\n" +
+                                line_rec(1, 0x8000, "fa") + line_rec(2, 0x8008, "fa") + line_rec(3, 0x800B, "fa") +
+                                line_rec(10, 0x8020, "fb") + line_rec(20, 0x8040, "fo") + line_rec(21, 0x8048, "fo") +
+                                line_rec(22, 0x804B, "fo") + "__code_compiler_tail = $8060 ; const, public, def, , ,\n" +
+                                fn_rec("fa") + fn_rec("fb") + fn_rec("fo"));
+            const auto lr = m.dbg->load_source_map(map, true);
+            const uint8_t pro[] = {0xDD, 0xE5, 0xDD, 0x21, 0x00, 0x00, 0xDD, 0x39};
+            const auto put = [&](uint16_t at, std::initializer_list<uint8_t> tail) {
+                for (size_t i = 0; i < sizeof pro; ++i) m.emu.mmu().write(static_cast<uint16_t>(at + i), pro[i]);
+                uint16_t a = static_cast<uint16_t>(at + sizeof pro);
+                for (const uint8_t b : tail) m.emu.mmu().write(a++, b);
+            };
+            put(0x8040, {0xCD, 0x00, 0x80, 0x18, 0xFE});
+            put(0x8000, {0xCD, 0x20, 0x80, 0x18, 0xFE});
+            put(0x8020, {0x18, 0xFE});
+            m.start(0x8040);
+            for (int i = 0; i < 4; ++i) m.emu.execute_single_instruction();   // fo: prologue, call fa
+            m.emu.call_stack().clear();
+            for (int i = 0; i < 4; ++i) m.emu.execute_single_instruction();   // fa: prologue, call fb
+            for (int i = 0; i < 3; ++i) m.emu.execute_single_instruction();   // fb: prologue
+            const auto fr = m.dbg->c_frames();
+            const auto vs = m.dbg->variables();
+            const auto name = [&](const Debugger::CFrame& f) {
+                return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
+            };
+            check("SRCDBG-CVAL-24", "a frame found through the chain is looked up at return address - 1: fo's call of fa is the last "
+                                    "instruction of line 21 ($804B starts line 22), fa's call of fb of line 2",
+                  lr.count > 0 && fr.size() == 4 && fr[3].function == -1 && name(fr[0]) == "fb" && fr[0].how == FrameBase::Tracked && name(fr[1]) == "fa" &&
+                      line_no(fr[1]) == 2 && name(fr[2]) == "fo" && fr[2].how == FrameBase::Chain && line_no(fr[2]) == 21);
+        }
         {   // SRCDBG-CVAL-20
             // GH #434 review F7 (R12): zsdcc `push ix; ld ix,0; add ix,sp`: after the push (entry+2) and after the ld (entry+6)
             // SP = E - 2 already, so the base is SP.
