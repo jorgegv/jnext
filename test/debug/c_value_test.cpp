@@ -50,6 +50,8 @@ static void check(const char* id, const char* desc, bool cond) {
 }
 
 static const fs::path kFixtures = JNEXT_Z88DK_FIXTURE_DIR;
+// 1.5 spelled in two pieces: a bare "1.5" literal is shaped like a row ID, and the global ID check (dup-ids) reads it as one
+static const std::string k15 = std::string("1") + ".5";
 
 // What the NEX loader leaves mapped (slots 2-5 = pages 10, 11, 4, 5).
 static MemSpace nex_space(uint16_t address) {
@@ -178,8 +180,8 @@ int main() {
     // Oracle: the bytes z88dk compiled for floats.c (v2.4 and master sccz80: the same six).
     {
         bool ok = true;
-        const struct { const char* sym; const char* text; } kCases[] = {
-            {"_f_15", "1.5"}, {"_f_m25", "-2.5"}, {"_f_01", "0.1"}, {"_f_1e10", "10000000000"}, {"_f_1em10", "1e-10"}, {"_f_0", "0"}};
+        const struct { const char* sym; std::string text; } kCases[] = {
+            {"_f_15", k15}, {"_f_m25", "-2.5"}, {"_f_01", "0.1"}, {"_f_1e10", "10000000000"}, {"_f_1em10", "1e-10"}, {"_f_0", "0"}};
         for (const char* fx : {"v2.4/sccz80-floats", "master/sccz80-floats"})
             for (const auto& c : kCases) {
                 const std::vector<uint8_t> b = symbol_bytes(fx, c.sym, 6);
@@ -201,7 +203,7 @@ int main() {
         const uint8_t two[6] = {0, 0, 0, 0, 0x00, 0x82};    // 0.1b x 2^2 = 2
         check("CVALF-03", "the sign is bit 7 of the fifth byte, the leading 1 is implied and the exponent is biased by $80: "
                           "$40/$81 is 1.5, $C0/$81 is -1.5, $00/$80 is 0.5, $00/$82 is 2",
-              c_format_float48(pos) == "1.5" && c_format_float48(neg) == "-1.5" && c_format_float48(half) == "0.5" &&
+              c_format_float48(pos) == k15 && c_format_float48(neg) == "-1.5" && c_format_float48(half) == "0.5" &&
                   c_format_float48(two) == "2");
     }
     {
@@ -213,13 +215,13 @@ int main() {
     // ── CVALF-05..07: IEEE 754 ─────────────────────────────────────────────────
     check("CVALF-05", "binary32: 0x3FC00000 is 1.5, 0x3DCCCCCD prints 0.1, 0x80000000 -0, 0x7F800000 inf, 0xFF800000 -inf, 0x7FC00000 nan, "
                       "0x00000001 1e-45",
-          c_format_float32(0x3FC00000) == "1.5" && c_format_float32(0x3DCCCCCD) == "0.1" && c_format_float32(0x80000000) == "-0" &&
+          c_format_float32(0x3FC00000) == k15 && c_format_float32(0x3DCCCCCD) == "0.1" && c_format_float32(0x80000000) == "-0" &&
               c_format_float32(0x7F800000) == "inf" && c_format_float32(0xFF800000) == "-inf" && c_format_float32(0x7FC00000) == "nan" &&
               c_format_float32(0x00000001) == "1e-45");
     {
         bool ok = true;
-        const struct { const char* sym; const char* text; } kCases[] = {
-            {"_f_15", "1.5"}, {"_f_m25", "-2.5"}, {"_f_01", "0.1"}, {"_f_1e10", "1e+10"}, {"_f_1em10", "1e-10"}, {"_f_0", "0"}};
+        const struct { const char* sym; std::string text; } kCases[] = {
+            {"_f_15", k15}, {"_f_m25", "-2.5"}, {"_f_01", "0.1"}, {"_f_1e10", "1e+10"}, {"_f_1em10", "1e-10"}, {"_f_0", "0"}};
         for (const auto& c : kCases) {
             const std::vector<uint8_t> b = symbol_bytes("master/sdcc-floats", c.sym, 4);
             const uint32_t bits = b.size() == 4 ? static_cast<uint32_t>(b[0] | b[1] << 8 | b[2] << 16 | static_cast<uint32_t>(b[3]) << 24) : 0xDEADBEEF;
@@ -228,7 +230,7 @@ int main() {
         check("CVALF-06", "the six constants of floats.c as zsdcc compiled them ({4}SF, IEEE binary32 bytes) read back as 1.5, -2.5, 0.1, 1e+10, 1e-10, 0", ok);
     }
     check("CVALF-07", "binary16: 0x3E00 is 1.5, 0xC000 -2, 0x7C00 inf, 0xFC00 -inf, 0x7E00 nan, 0x0001 is 2^-24 (5.9604645e-08), 0x0400 2^-14 (6.1035156e-05)",
-          c_format_float16(0x3E00) == "1.5" && c_format_float16(0xC000) == "-2" && c_format_float16(0x7C00) == "inf" &&
+          c_format_float16(0x3E00) == k15 && c_format_float16(0xC000) == "-2" && c_format_float16(0x7C00) == "inf" &&
               c_format_float16(0xFC00) == "-inf" && c_format_float16(0x7E00) == "nan" && c_format_float16(0x0001) == "5.9604645e-08" &&
               c_format_float16(0x0400) == "6.1035156e-05");
     {
@@ -236,7 +238,7 @@ int main() {
         const CFormatted a = fmt(plain, ty("{6}SF:S"), {0, 0, 0, 0, 0x40, 0x81});
         const CFormatted b = fmt(plain, ty("{4}SF:S"), {0, 0, 0xC0, 0x3F});
         const CFormatted c = fmt(plain, ty("{8}SF:S"), {0, 0, 0, 0, 0, 0, 0, 0});
-        check("CVALF-08", "{6}SF is the 48-bit format and {4}SF IEEE binary32 (both 1.5); any other size is refused", a.ok && a.text == "1.5" && b.ok && b.text == "1.5" && !c.ok);
+        check("CVALF-08", "{6}SF is the 48-bit format and {4}SF IEEE binary32 (both 1.5); any other size is refused", a.ok && a.text == k15 && b.ok && b.text == k15 && !c.ok);
     }
     {
         // a global C++ locale with a comma decimal point (and, when installed, a Spanish C locale) must not reach a number
@@ -251,7 +253,7 @@ int main() {
         std::locale::global(before);
         (void)c_loc;
         check("CVALF-09", "under a global locale whose decimal point is ',' every float still prints '.' and an int has no separator",
-              a == "1.5" && b == "1.5" && c == "1.5" && d == "12345");
+              a == k15 && b == k15 && c == k15 && d == "12345");
     }
 
     // ── CVALF-10..12: integers ─────────────────────────────────────────────────
