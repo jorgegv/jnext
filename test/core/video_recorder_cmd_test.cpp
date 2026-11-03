@@ -37,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <string>
 
@@ -360,20 +361,31 @@ int main()
               ok && in(empty + sep + good));
         check("FFL-03", "a PATH whose directories hold no ffmpeg finds nothing",
               ok && !in(empty + sep + (root / "nonexistent").string()));
-        check("FFL-04", "an empty PATH finds nothing",
-              ok && !in(""));
-        {
-            // Standing IN the directory that holds ffmpeg: an empty entry read
-            // as "." would find it.
+        // sh rule (the real POSIX spawn): an empty PATH entry, and an empty
+        // PATH, mean the current directory. pdir holds an executable `ffmpeg`
+        // whatever the host; the rows stand in the directory they name.
+        const std::string pdir = (root / "pdir").string();
+        fs::create_directories(pdir);
+        touch_exe(fs::path(pdir) / "ffmpeg");
+        const auto inp = [](const std::string& l) {
+            return VideoRecorder::ffmpeg_in_path_list(l, Style::Posix);
+        };
+        const auto stand_in = [](const std::string& dir, const std::function<bool()>& f) {
             std::error_code cec;
             const fs::path saved = fs::current_path(cec);
-            fs::current_path(good, cec);
-            const bool cd_ok = !cec;
-            const bool none = !in(std::string(1, sep)) && !in(std::string(2, sep));
+            fs::current_path(dir, cec);
+            const bool r = !cec && f();
             fs::current_path(saved, cec);
-            check("FFL-05", "empty entries (\"::\") are skipped, not read as the current directory",
-                  ok && cd_ok && none);
-        }
+            return r;
+        };
+        const std::string nowhere = (root / "nonexistent").string();
+        check("FFL-04", "Posix: an empty PATH in a directory WITHOUT ffmpeg finds nothing",
+              ok && stand_in(empty, [&] { return !inp("") && !inp(":"); }));
+        check("FFL-05", "Posix: an empty PATH and empty entries (\"\", \"::\") are the current directory, as sh reads them",
+              ok && stand_in(pdir, [&] { return inp("") && inp("::"); }));
+        check("FFL-15", "Posix: a leading and a trailing ':' are empty entries, i.e. the current directory",
+              ok && stand_in(pdir, [&] { return inp(":" + nowhere) && inp(nowhere + ":"); }) &&
+                  stand_in(empty, [&] { return !inp(":" + nowhere) && !inp(nowhere + ":"); }));
         check("FFL-06", "a DIRECTORY named ffmpeg (and ffmpeg.exe) is not an executable",
               ok && !in(dirdir));
         // The Windows dialect, from any host.
@@ -389,10 +401,40 @@ int main()
                   ok && VideoRecorder::ffmpeg_in_path_list(exe_dir, Style::Windows));
             check("FFL-08", "Windows dialect: a bare `ffmpeg` is not (CreateProcess appends .exe)",
                   ok && !VideoRecorder::ffmpeg_in_path_list(bare_dir, Style::Windows));
-            check("FFL-09", "Windows dialect: entries are ';'-separated and may be double-quoted",
-                  ok && VideoRecorder::ffmpeg_in_path_list("\"" + empty + "\";\"" + exe_dir + "\"", Style::Windows));
+            check("FFL-09", "Windows dialect: ';'-separated; a double-quoted entry is NOT unquoted (CreateProcess does not strip quotes)",
+                  ok && !VideoRecorder::ffmpeg_in_path_list("\"" + exe_dir + "\"", Style::Windows) &&
+                      VideoRecorder::ffmpeg_in_path_list("\"" + empty + "\";" + exe_dir, Style::Windows));
             check("FFL-10", "Posix dialect: ffmpeg.exe alone is not ffmpeg",
                   ok && !VideoRecorder::ffmpeg_in_path_list(exe_dir, Style::Posix));
+        }
+
+        // The search list as a pure function of its inputs.
+        {
+            const auto W = [](const char* p, const std::string& e, const std::string& sy, const std::string& wi) {
+                return VideoRecorder::ffmpeg_search_list(Style::Windows, p, e, sy, wi, "");
+            };
+            const std::string got = W("P", "E", "S", "W");
+            check("FFL-16", "Windows search order: exe dir, '.', system dir, <windir>\\System, windir, PATH",
+                  got == "E;.;S;W\\System;W;P", got_want(got, "E;.;S;W\\System;W;P"));
+            const std::string got2 = W(nullptr, "E", "", "");
+            check("FFL-17", "Windows search list: empty parts are left out, unset PATH adds nothing",
+                  got2 == "E;.", got_want(got2, "E;."));
+            const auto Px = [](const char* p) {
+                return VideoRecorder::ffmpeg_search_list(Style::Posix, p, "E", "S", "W", "DEF");
+            };
+            check("FFL-18", "Posix search list: PATH verbatim when set, even empty; none of the Windows prefixes",
+                  Px("a:b") == "a:b" && Px("").empty());
+            check("FFL-19", "Posix search list: an UNSET PATH takes the default (confstr _CS_PATH in production)",
+                  Px(nullptr) == "DEF");
+            const std::string exe_dir = (root / "exe").string();
+            fs::create_directories(exe_dir);
+            std::ofstream(fs::path(exe_dir) / "ffmpeg.exe") << "x";
+            check("FFL-20", "Windows list finds ffmpeg.exe in the system directory slot, with an empty PATH",
+                  ok && VideoRecorder::ffmpeg_in_path_list(W("", "", exe_dir, ""), Style::Windows));
+            check("FFL-21", "Windows list finds ffmpeg.exe in the current directory ('.' slot), with an empty PATH",
+                  ok && stand_in(exe_dir, [&] {
+                      return VideoRecorder::ffmpeg_in_path_list(W("", "", "", ""), Style::Windows);
+                  }));
         }
 
         // The cache and the fresh check, through the real PATH.
@@ -418,6 +460,15 @@ int main()
             check("FFL-14", "start() does its own fresh check: refuses when ffmpeg vanished after startup",
                   ok && !rec.start((root / "never.mp4").string()) &&
                       VideoRecorder::ffmpeg_probe_count() == c1 + 2);
+        }
+        // The real environment, PATH = an empty directory, standing in the
+        // directory that holds the native ffmpeg: found on Windows (the '.' of
+        // CreateProcess's order), not on POSIX (PATH does not name it).
+        {
+            const bool want = (VideoRecorder::NATIVE_STYLE == Style::Windows);
+            const bool got = stand_in(good, [] { return VideoRecorder::ffmpeg_available_fresh(); });
+            check("FFL-22", "native lookup: the current directory is searched on Windows only",
+                  ok && got == want, std::string("got ") + (got ? "1" : "0"));
         }
         jtp::set_env("PATH", old_path.c_str());
         std::error_code ec;

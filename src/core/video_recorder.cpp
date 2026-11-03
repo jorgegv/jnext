@@ -154,9 +154,10 @@ bool VideoRecorder::ffmpeg_in_path_list(const std::string& path_list, CmdStyle s
         if (end == std::string::npos) end = path_list.size();
         std::string dir = path_list.substr(start, end - start);
         start = end + 1;
-        if (style == CmdStyle::Windows)
-            dir.erase(std::remove(dir.begin(), dir.end(), '"'), dir.end());
-        if (dir.empty()) continue;
+        if (dir.empty()) {
+            if (style == CmdStyle::Windows) continue;
+            dir = ".";  // sh: an empty PATH entry is the current directory
+        }
         const fs::path candidate = fs::path(dir) / name;
         std::error_code ec;
         if (!fs::is_regular_file(candidate, ec) || ec) continue;  // follows symlinks
@@ -168,27 +169,61 @@ bool VideoRecorder::ffmpeg_in_path_list(const std::string& path_list, CmdStyle s
     return false;
 }
 
+std::string VideoRecorder::ffmpeg_search_list(CmdStyle style, const char* path_env,
+                                              const std::string& exe_dir,
+                                              const std::string& system_dir,
+                                              const std::string& windows_dir,
+                                              const std::string& default_path)
+{
+    if (style == CmdStyle::Posix)
+        return path_env ? std::string(path_env) : default_path;
+
+    std::string list;
+    const auto add = [&list](const std::string& part) {
+        if (part.empty()) return;
+        if (!list.empty()) list += ';';
+        list += part;
+    };
+    add(exe_dir);
+    add(".");
+    add(system_dir);
+    if (!windows_dir.empty()) add(windows_dir + "\\System");
+    add(windows_dir);
+    add(path_env ? path_env : "");
+    return list;
+}
+
 namespace {
 
 std::atomic<int> g_probe_count{0};
 
-/// The search list for this platform. POSIX: $PATH (what system()'s shell
-/// searched before GH #446). Windows: what CreateProcess searches for a bare
-/// name that matters here, i.e. the directory jnext.exe is in, then the current
-/// directory, then PATH.
+/// The search list for this platform, from the real environment.
 std::string native_search_list()
 {
     const char* env = std::getenv("PATH");
-    std::string list = env ? env : "";
 #ifdef _WIN32
-    char exe[MAX_PATH] = {};
-    std::string prefix;
-    const DWORD n = GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    if (n > 0 && n < MAX_PATH)
-        prefix = fs::path(exe).parent_path().string() + ";";
-    list = prefix + ".;" + list;
+    char buf[MAX_PATH] = {};
+    std::string exe_dir, system_dir, windows_dir;
+    DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) exe_dir = fs::path(buf).parent_path().string();
+    n = GetSystemDirectoryA(buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) system_dir = buf;
+    n = GetWindowsDirectoryA(buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) windows_dir = buf;
+    return VideoRecorder::ffmpeg_search_list(VideoRecorder::NATIVE_STYLE, env, exe_dir,
+                                             system_dir, windows_dir, "");
+#else
+    // PATH unset: sh uses its own default; confstr(_CS_PATH) is the standard
+    // one (the shell's built-in may differ slightly).
+    std::string def;
+    const size_t need = confstr(_CS_PATH, nullptr, 0);
+    if (need > 0) {
+        std::string tmp(need, '\0');
+        confstr(_CS_PATH, tmp.data(), need);
+        def = tmp.c_str();
+    }
+    return VideoRecorder::ffmpeg_search_list(VideoRecorder::NATIVE_STYLE, env, "", "", "", def);
 #endif
-    return list;
 }
 
 }  // namespace

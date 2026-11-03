@@ -64,15 +64,39 @@ public:
         CmdStyle::Posix;
 #endif
 
-    /// Pure lookup: does `path_list` (a PATH value: ':'-separated for Posix,
-    /// ';'-separated for Windows) name a directory holding an executable
-    /// `ffmpeg` (Posix: a regular file, symlinks followed, with an execute
-    /// bit for this user) or `ffmpeg.exe` (Windows: a regular file; the
-    /// dialect CreateProcess uses, which appends .exe and ignores PATHEXT)?
-    /// Empty entries are skipped, so an empty PATH finds nothing; Windows
-    /// entries may be double-quoted. Both dialects are testable from either
-    /// platform.
+    /// Pure lookup: does `path_list` name a directory holding an executable
+    /// ffmpeg? The rule is the one the real spawn follows, per dialect.
+    ///
+    /// Posix (`system()` -> `/bin/sh`): ':'-separated; an EMPTY entry, and so
+    /// an empty list, means the current directory (POSIX XBD 8.3); the file
+    /// is `ffmpeg`, a regular file (symlinks followed) with an execute bit.
+    ///
+    /// Windows (CreateProcess): ';'-separated; `ffmpeg.exe` (CreateProcess
+    /// appends .exe, ignores PATHEXT); empty entries are skipped; a
+    /// double-quoted entry is NOT unquoted (CreateProcess does not strip the
+    /// quotes, cmd.exe does; measured under wine), so it names no directory.
+    ///
+    /// Both dialects are testable from either platform.
     static bool ffmpeg_in_path_list(const std::string& path_list, CmdStyle style);
+
+    /// The directory list the spawn would search, as a pure function of its
+    /// inputs (so the order is testable from any host).
+    ///
+    /// Posix: `path_env` verbatim when PATH is set (even empty); `nullptr`
+    /// (unset) gives `default_path`, which the caller takes from
+    /// confstr(_CS_PATH).
+    /// Windows, the CreateProcess order for a bare name: the directory of
+    /// jnext.exe, the current directory ".", the system directory, the 16-bit
+    /// system directory `<windows_dir>\System`, the Windows directory, then
+    /// PATH. Empty parts are left out. (Limit: getenv and the Get*DirectoryA
+    /// calls are ANSI, while CreateProcess searches the wide PATH, so a
+    /// directory outside the ANSI code page is missed here but found by the
+    /// spawn.)
+    static std::string ffmpeg_search_list(CmdStyle style, const char* path_env,
+                                          const std::string& exe_dir,
+                                          const std::string& system_dir,
+                                          const std::string& windows_dir,
+                                          const std::string& default_path);
 
     /// Quote one command-line argument for `style`, so a path containing
     /// spaces (`C:\Users\Some Name\...`), quotes or shell metacharacters

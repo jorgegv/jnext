@@ -7,18 +7,18 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # ffmpeg-missing-warn-func: jnext shells out to ffmpeg for --record /
-# File > Record MPEG4 Video. At startup it probes for
-# ffmpeg and, if absent, warns once (in EVERY mode, headless included) so the
+# File > Record MPEG4 Video. At startup it looks for
+# an ffmpeg executable on PATH (a lookup, no process) and, if absent, warns once (in EVERY mode, headless included) so the
 # user is not surprised only when a recording silently fails. Discriminative
 # both ways: with ffmpeg masked from PATH the warning MUST fire; with ffmpeg
 # present it MUST NOT. The masked run points PATH at a directory with no
-# executables (so `ffmpeg -version` cannot resolve); the control run uses the
+# executables (so no ffmpeg can be found); the control run uses the
 # real PATH. Both use --headless so no display is needed.
 if want ffmpeg-missing-warn-func; then
     begin_func ffmpeg-missing-warn-func
     warn_line="ffmpeg not found in PATH"
     # jnext is addressed by absolute path, so a stripped PATH does not stop it
-    # launching — only its own ffmpeg probe fails. `env` sets PATH for the jnext
+    # launching — only its own ffmpeg lookup fails. `env` sets PATH for the jnext
     # child ONLY; it must come AFTER timeout, or `env PATH=... timeout` would
     # leave `timeout` itself unresolvable on the stripped PATH.
     ff_masked=$(timeout --foreground --kill-after=5s 20s \

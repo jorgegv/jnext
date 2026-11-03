@@ -5,7 +5,6 @@
 // and nothing else, so the same stub has to exist on every OS. Behaviour is the
 // one the POSIX shell stub had, selected by JNEXT_TEST_FFMPEG_MODE:
 //
-//   `-version` as the first argument         -> exit 0 (the availability probe)
 //   encode-fail    0-byte output, exit 42
 //   partial-fail   non-empty output, exit 42
 //   empty-success  0-byte output, exit 0
@@ -27,7 +26,6 @@ static int write_out(const char* path, const char* data) {
 }
 
 int main(int argc, char** argv) {
-    if (argc > 1 && std::strcmp(argv[1], "-version") == 0) return 0;
     const char* out = argc > 1 ? argv[argc - 1] : "";
     const char* mode = std::getenv("JNEXT_TEST_FFMPEG_MODE");
     if (!mode) mode = "";

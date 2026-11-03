@@ -19,7 +19,6 @@ if want video-record-status-func; then
     vr_tool_dir=$(dirname "$(command -v timeout)")
     {
         echo '#!/bin/sh'
-        echo '[ "$1" = "-version" ] && exit 0'
         echo 'for output_path do :; done'
         echo '[ "$JNEXT_TEST_FFMPEG_MODE" = "empty-success" ] && exit 0'
         echo '[ "$JNEXT_TEST_FFMPEG_MODE" = "partial-fail" ] && { printf partial > "$output_path"; exit 42; }'
