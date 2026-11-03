@@ -2986,6 +2986,19 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   the header, <code>@ start</code> / <code>@ org</code>, the block directives (<code>block_letter()</code> (<code>skoolkit_ctl.cpp:137</code>)),
   the labels, the <code>B</code>/<code>C</code> sub-blocks and the closing <code>i</code>. A Z80N instruction or a clipped one is a <code>B</code>
   sub-block, and so is each piece of an instruction a key falls in.</li>
+<li><strong>One name, one key</strong> (GH #349). z88dk's module-local labels repeat across routines (<code>end_x</code>
+  at <code>$80CA</code> and <code>$8103</code> in <code>asm_zx_cls_wc_attr</code> / <code>asm_zx_cls_wc_pix</code>); <code>skool2asm.py</code> refuses a label
+  defined twice, and both importers (and <code>UserAnnotations</code>, one key per name) refuse a name at two keys.
+  So <code>unique_names()</code> (<code>reexport.cpp</code>) runs first in <code>build()</code> of each writer: of the exportable labels sharing
+  a name at different (memory, address) keys it keeps the first by (unpaged, memory kind and index,
+  address) and notes each other (<code>label 'N' at P04:$8103 skipped: the name is already used at
+  P04:$80CA (one name, one address)</code>). The rule is global across one export, since an import reads
+  several files into one store; the Ghidra <code>view.ghidra.txt</code> is its own import, so it is made unique
+  among its own lines. The alternatives were rejected: qualifying a name with its module (the label
+  would come back under a name nobody typed, and the module is not in the label) and refusing the
+  export (the common z88dk newlib program would export nothing). Rows <code>SKCTL-18</code>, <code>GHSYM-07</code>; the
+  foreign readers run it on <code>skool2asm.py</code>, <code>skool2ctl.py</code> and the importers (<code>skoolkit-foreign-func</code> A5,
+  <code>ghidra-foreign-func</code>).</li>
 <li><strong>Window sizes and homes.</strong> <code>window_size()</code> (<code>skoolkit_ctl.cpp:17</code>)
   is the size of the space's store: 8 KB, or 16 KB for <code>Rom</code>, <code>AltRom</code> and <code>Config</code>. A space with
   neither keys nor a current mapping goes to <code>home_window()</code> (<code>skoolkit_ctl.cpp:19</code>):
@@ -2999,11 +3012,11 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   <code>"# jnext space "</code> (<code>skoolkit_ctl.cpp:186</code>) (a control-file comment
   skoolkit ignores). The same prefix is how a later export recognises its own files:
   <code>kCtlHeader</code> (<code>debugger_reinterop.cpp:33</code>).</li>
-<li><strong>File order.</strong> <code>out.files</code> (<code>skoolkit_ctl.cpp:286</code>)
+<li><strong>File order.</strong> <code>out.files</code> (<code>skoolkit_ctl.cpp:288</code>)
   puts the unpaged file first; it is named <code>0000-0CPU.ctl</code>, not <code>0000-CPU.ctl</code>, because the <code>0</code> sorts
   before the letter every <code>0000-&lt;TAG&gt;</code> starts with (<code>0000-ALTROM0</code>, <code>0000-BOOT</code> and <code>0000-CFG00</code> would
   otherwise sort ahead of it). All files are then ordered by name with
-  <code>stable_sort()</code> (<code>skoolkit_ctl.cpp:288</code>), which is address order.
+  <code>stable_sort()</code> (<code>skoolkit_ctl.cpp:290</code>), which is address order.
   Two files that disagree at a shared boundary address are applied in command-line order, and
   <code>sna2skool.py -c DIR</code> reads <code>sorted(glob(DIR/*.ctl))</code>, so a paged label wins over an unpaged one at
   the same address, as in the disassembly.</li>
@@ -3019,16 +3032,16 @@ plain structs of <code>src/debug/reexport.h</code>.</p>
   (SRCDBG-REX-07). With coverage off the report says that too, behind
   <code>mem_coverage_enabled()</code> (<code>debugger_reinterop.cpp:184</code>).</li>
 <li><strong>Unpaged labels</strong> are also label-less keys of every window written that covers their address, added
-  by the loop over <code>by_window</code> (<code>skoolkit_ctl.cpp:251</code>), so the same
+  by the loop over <code>by_window</code> (<code>skoolkit_ctl.cpp:253</code>), so the same
   splits keep them from being dropped by sna2skool (SKCTL-08d).</li>
 <li><strong>Ghidra</strong>, <code>build()</code> (<code>ghidra_symbols.cpp:39</code>):
-  one file per space; the <code>&lt;TAG&gt;:</code> prefix is set in <code>prefix_of</code> (<code>ghidra_symbols.cpp:54</code>);
+  one file per space; the <code>&lt;TAG&gt;:</code> prefix is set in <code>prefix_of</code> (<code>ghidra_symbols.cpp:55</code>);
   <code>CPU.ghidra.txt</code> and <code>view.ghidra.txt</code> (the labels the disassembly shows now).</li>
 <li><strong>The line formats.</strong> <code>render()</code> (<code>ghidra_symbols.cpp:29</code>)
   writes <code>NAME &lt;TAG&gt;:0xHHHH l</code> for a space's file and <code>NAME 0xHHHH l</code> for <code>CPU.ghidra.txt</code> and
   <code>view.ghidra.txt</code>, sorted by address then name (the line is built by the format string <code>" l\n"</code> (<code>ghidra_symbols.cpp:33</code>)),
   with no header, comment or blank line, and only when the file has a line, as
-  <code>render()</code> (<code>ghidra_symbols.cpp:64</code>) shows.
+  <code>render()</code> (<code>ghidra_symbols.cpp:68</code>) shows.
   <code>view.ghidra.txt</code> exists because on a 48K or 128K machine every RAM label is paged, so the per-space
   files alone would need one overlay per page to import a 48K program into flat memory.</li>
 <li><strong>The Z80N table</strong>, <code>kZ80nEd</code> (<code>disasm.cpp:362</code>), is read by
@@ -3067,13 +3080,13 @@ files into a scratch copy of <code>annotations()</code> and apply it with one <c
 anywhere changes nothing and a success is one revision bump (SRCDBG-REX-12, -13). The readers are pure,
 in the writers' files:</p>
 <ul>
-<li><strong>skoolkit</strong>, <code>parse_ctl()</code> (<code>skoolkit_ctl.cpp:473</code>). It mirrors the grammar of
+<li><strong>skoolkit</strong>, <code>parse_ctl()</code> (<code>skoolkit_ctl.cpp:475</code>). It mirrors the grammar of
   <code>_parse_ctl_line()</code> (<code>skoolkit/ctlparser.py:208</code>) but is strict where skoolkit only warns
   (<code>skoolkit/ctlparser.py:119</code>, "Ignoring line"). The parameters go through <code>parse_params()</code>
   (<code>skoolkit_ctl.cpp:447</code>), a port of skoolkit's own <code>parse_params()</code>
   (<code>skoolkit/ctlparser.py:39</code>): base letters, <code>:</code> sublengths, <code>*N</code> repeats, characters like <code>"A"</code>, and the
   <code>L</code> loop rules; the numbers are read by <code>get_int_param()</code> (<code>skoolkit_ctl.cpp:349</code>),
-  skoolkit's own <code>get_int_param()</code> (<code>skoolkit/__init__.py:88</code>) without its <code>0x</code> form, in <code>py_int()</code> (<code>skoolkit_ctl.cpp:316</code>)
+  skoolkit's own <code>get_int_param()</code> (<code>skoolkit/__init__.py:88</code>) without its <code>0x</code> form, in <code>py_int()</code> (<code>skoolkit_ctl.cpp:318</code>)
   which also refuses a value past 2^40, far beyond any address or length. A line skoolkit would drop (a
   bad integer, extra parameters on a lowercase block, <code>L</code> without a length or count, an unknown
   directive, a blank directive before any block, a bad <code>@ignoreua</code> suffix) refuses the file with
@@ -3086,7 +3099,7 @@ in the writers' files:</p>
   titles (a lowercase directive with text, or the first <code>.</code> line after one without), <code>D</code> descriptions
   and the other directives are counted in <code>Imported</code> (<code>reexport.h:71</code>) and not
   imported; no store holds a code/data map.</li>
-<li><strong>Ghidra</strong>, <code>parse_symbols()</code> (<code>ghidra_symbols.cpp:81</code>), the script's grammar
+<li><strong>Ghidra</strong>, <code>parse_symbols()</code> (<code>ghidra_symbols.cpp:85</code>), the script's grammar
   (<code>line.split()</code>, <code>ImportSymbolsScript.py:38</code>; <code>toAddr()</code>, <code>ImportSymbolsScript.py:41</code>): whitespace
   split, name, address, then anything; blank lines skipped. The address is <code>0xHHHH</code> or <code>TAG:0xHHHH</code>
   (<code>CPU:</code> is untagged); a prefix that is no jnext memory tag (<code>ram:0x8000</code>), an expression, a <code>#</code> line

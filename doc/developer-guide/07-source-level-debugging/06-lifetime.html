@@ -3122,7 +3122,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   <code>Verified ... the dot command in &lt;space&gt; matches its binary identity</code>) and keeps the check: it is
   never finished (<code>checks.push_back</code> at <code>debugger_source.cpp:430</code>), so a later entry that does not match puts the map back
   to pending.</li>
-<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:952</code>): for a user's map that is a dot map,
+<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:959</code>): for a user's map that is a dot map,
   <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:961-970</code>); the checks are
   re-derived by <code>dot_landing(fresh)</code> (<code>debugger_source.cpp:233</code>). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (<code>dot_landing()</code> skips the others) to <code>dot_reset()</code>: pending until the next entry. A ring restore reads back what the

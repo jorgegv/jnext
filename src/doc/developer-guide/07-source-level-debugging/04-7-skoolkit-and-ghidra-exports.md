@@ -44,6 +44,19 @@ plain structs of `src/debug/reexport.h`.
   the header, `@ start` / `@ org`, the block directives (`block_letter()` (`skoolkit_ctl.cpp:137`)),
   the labels, the `B`/`C` sub-blocks and the closing `i`. A Z80N instruction or a clipped one is a `B`
   sub-block, and so is each piece of an instruction a key falls in.
+- **One name, one key** (GH #349). z88dk's module-local labels repeat across routines (`end_x`
+  at `$80CA` and `$8103` in `asm_zx_cls_wc_attr` / `asm_zx_cls_wc_pix`); `skool2asm.py` refuses a label
+  defined twice, and both importers (and `UserAnnotations`, one key per name) refuse a name at two keys.
+  So `unique_names()` (`reexport.cpp`) runs first in `build()` of each writer: of the exportable labels sharing
+  a name at different (memory, address) keys it keeps the first by (unpaged, memory kind and index,
+  address) and notes each other (`label 'N' at P04:$8103 skipped: the name is already used at
+  P04:$80CA (one name, one address)`). The rule is global across one export, since an import reads
+  several files into one store; the Ghidra `view.ghidra.txt` is its own import, so it is made unique
+  among its own lines. The alternatives were rejected: qualifying a name with its module (the label
+  would come back under a name nobody typed, and the module is not in the label) and refusing the
+  export (the common z88dk newlib program would export nothing). Rows `SKCTL-18`, `GHSYM-07`; the
+  foreign readers run it on `skool2asm.py`, `skool2ctl.py` and the importers (`skoolkit-foreign-func` A5,
+  `ghidra-foreign-func`).
 - **Window sizes and homes.** `window_size()` (`skoolkit_ctl.cpp:17`)
   is the size of the space's store: 8 KB, or 16 KB for `Rom`, `AltRom` and `Config`. A space with
   neither keys nor a current mapping goes to `home_window()` (`skoolkit_ctl.cpp:19`):
@@ -57,11 +70,11 @@ plain structs of `src/debug/reexport.h`.
   `"# jnext space "` (`skoolkit_ctl.cpp:186`) (a control-file comment
   skoolkit ignores). The same prefix is how a later export recognises its own files:
   `kCtlHeader` (`debugger_reinterop.cpp:33`).
-- **File order.** `out.files` (`skoolkit_ctl.cpp:286`)
+- **File order.** `out.files` (`skoolkit_ctl.cpp:288`)
   puts the unpaged file first; it is named `0000-0CPU.ctl`, not `0000-CPU.ctl`, because the `0` sorts
   before the letter every `0000-<TAG>` starts with (`0000-ALTROM0`, `0000-BOOT` and `0000-CFG00` would
   otherwise sort ahead of it). All files are then ordered by name with
-  `stable_sort()` (`skoolkit_ctl.cpp:288`), which is address order.
+  `stable_sort()` (`skoolkit_ctl.cpp:290`), which is address order.
   Two files that disagree at a shared boundary address are applied in command-line order, and
   `sna2skool.py -c DIR` reads `sorted(glob(DIR/*.ctl))`, so a paged label wins over an unpaged one at
   the same address, as in the disassembly.
@@ -77,16 +90,16 @@ plain structs of `src/debug/reexport.h`.
   (SRCDBG-REX-07). With coverage off the report says that too, behind
   `mem_coverage_enabled()` (`debugger_reinterop.cpp:184`).
 - **Unpaged labels** are also label-less keys of every window written that covers their address, added
-  by the loop over `by_window` (`skoolkit_ctl.cpp:251`), so the same
+  by the loop over `by_window` (`skoolkit_ctl.cpp:253`), so the same
   splits keep them from being dropped by sna2skool (SKCTL-08d).
 - **Ghidra**, `build()` (`ghidra_symbols.cpp:39`):
-  one file per space; the `<TAG>:` prefix is set in `prefix_of` (`ghidra_symbols.cpp:54`);
+  one file per space; the `<TAG>:` prefix is set in `prefix_of` (`ghidra_symbols.cpp:55`);
   `CPU.ghidra.txt` and `view.ghidra.txt` (the labels the disassembly shows now).
 - **The line formats.** `render()` (`ghidra_symbols.cpp:29`)
   writes `NAME <TAG>:0xHHHH l` for a space's file and `NAME 0xHHHH l` for `CPU.ghidra.txt` and
   `view.ghidra.txt`, sorted by address then name (the line is built by the format string `" l\n"` (`ghidra_symbols.cpp:33`)),
   with no header, comment or blank line, and only when the file has a line, as
-  `render()` (`ghidra_symbols.cpp:64`) shows.
+  `render()` (`ghidra_symbols.cpp:68`) shows.
   `view.ghidra.txt` exists because on a 48K or 128K machine every RAM label is paged, so the per-space
   files alone would need one overlay per page to import a 48K program into flat memory.
 - **The Z80N table**, `kZ80nEd` (`disasm.cpp:362`), is read by
@@ -130,13 +143,13 @@ files into a scratch copy of `annotations()` and apply it with one `replace_anno
 anywhere changes nothing and a success is one revision bump (SRCDBG-REX-12, -13). The readers are pure,
 in the writers' files:
 
-- **skoolkit**, `parse_ctl()` (`skoolkit_ctl.cpp:473`). It mirrors the grammar of
+- **skoolkit**, `parse_ctl()` (`skoolkit_ctl.cpp:475`). It mirrors the grammar of
   `_parse_ctl_line()` (`skoolkit/ctlparser.py:208`) but is strict where skoolkit only warns
   (`skoolkit/ctlparser.py:119`, "Ignoring line"). The parameters go through `parse_params()`
   (`skoolkit_ctl.cpp:447`), a port of skoolkit's own `parse_params()`
   (`skoolkit/ctlparser.py:39`): base letters, `:` sublengths, `*N` repeats, characters like `"A"`, and the
   `L` loop rules; the numbers are read by `get_int_param()` (`skoolkit_ctl.cpp:349`),
-  skoolkit's own `get_int_param()` (`skoolkit/__init__.py:88`) without its `0x` form, in `py_int()` (`skoolkit_ctl.cpp:316`)
+  skoolkit's own `get_int_param()` (`skoolkit/__init__.py:88`) without its `0x` form, in `py_int()` (`skoolkit_ctl.cpp:318`)
   which also refuses a value past 2^40, far beyond any address or length. A line skoolkit would drop (a
   bad integer, extra parameters on a lowercase block, `L` without a length or count, an unknown
   directive, a blank directive before any block, a bad `@ignoreua` suffix) refuses the file with
@@ -149,7 +162,7 @@ in the writers' files:
   titles (a lowercase directive with text, or the first `.` line after one without), `D` descriptions
   and the other directives are counted in `Imported` (`reexport.h:71`) and not
   imported; no store holds a code/data map.
-- **Ghidra**, `parse_symbols()` (`ghidra_symbols.cpp:81`), the script's grammar
+- **Ghidra**, `parse_symbols()` (`ghidra_symbols.cpp:85`), the script's grammar
   (`line.split()`, `ImportSymbolsScript.py:38`; `toAddr()`, `ImportSymbolsScript.py:41`): whitespace
   split, name, address, then anything; blank lines skipped. The address is `0xHHHH` or `TAG:0xHHHH`
   (`CPU:` is untagged); a prefix that is no jnext memory tag (`ram:0x8000`), an expression, a `#` line

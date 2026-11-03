@@ -3055,10 +3055,10 @@ the pause ownership and stop evidence exactly as <code>step_into()</code> sets t
   <code>HALT</code> with interrupts disabled (<code>Warn</code>: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1313</code>) since the start
+  <code>SOURCE_STEP_FRAME_LIMIT</code> frames (100, <code>SOURCE_STEP_FRAME_LIMIT</code>, <code>debugger.h:1316</code>) since the start
   (<code>Warn</code>); then the delivery below.
 - <strong>The limit.</strong> After <code>SOURCE_STEP_LIMIT</code> instructions (1,000,000,
-  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1309</code>) the step ends with a <code>Warn</code>.
+  <code>SOURCE_STEP_LIMIT</code>, <code>debugger.h:1312</code>) the step ends with a <code>Warn</code>.
 - <strong>The delivery.</strong> <code>debugger_step()</code> delivers no <code>Execute</code> event, because <code>run_frame()</code>
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC <code>run_frame()</code>'s treatment itself, in its
@@ -3119,7 +3119,22 @@ that SP alone is wrong for a routine that moves its own return address:</p>
   ISR that interrupted it) would pop its frame.</li>
 </ul>
 <p>The price is stated in the code: a routine that drops its return address and leaves
-by <code>JP</code> (<code>banked_call</code> looks like this) keeps its frame until a <code>RET</code> ends it by SP.
+by <code>JP</code> (<code>banked_call</code> looks like this) keeps its frame until a <code>RET</code> ends it by SP.</p>
+<p><strong>A return with no <code>RET</code></strong> (GH #349). sccz80's <code>l_gintspsp</code> family (<code>l_gcharspsp</code>,
+<code>l_g2intspsp</code>, <code>l_g2charspsp</code>, <code>l_glong2sp</code>: every int or long stack variable) swaps a value
+into the return slot (<code>EX (SP),HL</code>) and leaves by <code>JP (HL)</code> to <code>caller_pc + 3</code>; Step Over
+would never see the depth come back. <code>CallStack::indirect_jump_to()</code> ends the newest <code>CALL</code>
+frame when a <code>JP (HL)</code>, <code>JP (IX)</code> or <code>JP (IY)</code> lands on its return point with SP at or below
+<code>sp_at_call</code>: the slot was reused as data, which is what makes the jump a return. <code>POP HL;
+JP (HL)</code> leaves SP above the slot and still keeps its frame (the price above). Only the newest
+frame is tested, so recursion and an interrupt routine (its <code>INT</code> frame is the newest) cannot
+end an outer frame. A search of both installs' library sources (<code>EX (SP),r</code> followed within six lines by a
+<code>JP (HL)</code>/<code>(IX)</code>/<code>(IY)</code>) finds, besides those five (the <code>l_g2*</code> and <code>l_glong2sp</code> forms differ
+only by an extra <code>PUSH</code>: SP below the slot), <code>asm_im2_push_registers_8080</code> (8080 only, same shape);
+every other hit (the classic <code>*_callee</code> shims, <code>call_extrom</code>, <code>odd</code>, the FZX terminal's
+<code>move_left_right</code>) jumps to a function, not to the return point, and is not touched. Rows
+<code>SRCDBG-CS-16</code> to <code>-18</code>, <code>SRCSTEP-14</code> to <code>-21</code> on the <code>intarg</code> fixtures
+(<code>test/fixtures/z88dk/*/*-intarg</code>), <code>QCSP-04</code> for the panel.
 <code>CallStack::on_slot_without_fetch()</code> handles the esxDOS shim, which returns from
 the <code>RST $08</code> it serviced: that frame ends, and only that one.</p>
 <p>These rules are why <code>Out</code> and <code>Over</code> cross <code>banked_call</code> and <code>l_debug_push_frame</code>
