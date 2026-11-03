@@ -774,3 +774,22 @@ Z88dkListingResult place_z88dk_listing(const Z88dkListing& listing, const std::s
     result.texts = std::move(texts);
     return result;
 }
+
+std::vector<Z88dkListedFunction> z88dk_listing_functions(const Z88dkListing& listing)
+{
+    constexpr std::string_view kMarker = "; Function ";
+    std::vector<Z88dkListedFunction> out;
+    for (const Z88dkListingRow& row : listing.rows) {
+        const std::string_view text = row.text;
+        const size_t first = text.find_first_not_of(" \t");
+        if (first == std::string_view::npos || text.compare(first, kMarker.size(), kMarker) != 0) continue;
+        const std::string_view rest = text.substr(first + kMarker.size());
+        const size_t end = rest.find_first_of(" \t");
+        Z88dkListedFunction f;
+        f.name = std::string(rest.substr(0, end));
+        if (f.name.empty()) continue;
+        f.fastcall = end != std::string_view::npos && rest.find("__z88dk_fastcall", end) != std::string_view::npos;
+        out.push_back(std::move(f));
+    }
+    return out;
+}

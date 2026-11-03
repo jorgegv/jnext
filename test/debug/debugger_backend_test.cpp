@@ -7535,7 +7535,7 @@ static void gh428_rev_rows() {
     rev_row1("REV-27", "set_client_enabled advances the revision",
             [](Debugger& d, Emulator&, ClientId a) { return d.set_client_enabled(a, false) == Result::Ok; });
     rev_row1("REV-28", "set_call_stack_enabled advances the revision",
-            [](Debugger& d, Emulator&, ClientId) { return d.set_call_stack_enabled(true) == Result::Ok; });
+            [](Debugger& d, Emulator&, ClientId a) { return d.set_call_stack_enabled(a, true) == Result::Ok; });
     rev_row1("REV-29", "set_trace_enabled advances the revision",
             [](Debugger& d, Emulator&, ClientId) { return d.set_trace_enabled(true) == Result::Ok; });
     rev_row1("REV-30", "trace_clear advances the revision",
@@ -8776,8 +8776,9 @@ int main() {
         Debugger dbg(emu);
         check("INS-12-01", "call-stack tracking is off by default",
               !dbg.call_stack_enabled() && dbg.call_stack().empty());
+        const ClientId cs_by = dbg.attach(client("CS")).value;   // GH #434: the request is a client's
         check("INS-12-02", "it can be switched on",
-              dbg.set_call_stack_enabled(true) == Result::Ok && dbg.call_stack_enabled());
+              dbg.set_call_stack_enabled(cs_by, true) == Result::Ok && dbg.call_stack_enabled());
 
         check("INS-13-01", "trace_entries() refuses while the trace is off",
               !dbg.trace_enabled() &&
@@ -8816,7 +8817,7 @@ int main() {
         r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 1; r.IFF2 = 1; r.IM = 1;
         emu.cpu().set_registers(r);
         Debugger dbg(emu);
-        dbg.set_call_stack_enabled(true);
+        dbg.set_call_stack_enabled(dbg.attach(client("CS")).value, true);   // GH #434: a client's request
         emu.execute_single_instruction();                          // CALL
         emu.cpu().request_interrupt(0xFF);
         emu.execute_single_instruction();                          // INT
@@ -18622,7 +18623,7 @@ int main() {
             d.load      = [&](const std::string&) { boot(); return true; };
             dbg.set_loop_driver(d);
             if (set_intent) {
-                dbg.set_call_stack_enabled(true);
+                dbg.set_call_stack_enabled(a, true);
                 dbg.set_trace_enabled(true);
                 dbg.set_persistent_breakpoints(intent_pb);
             }
@@ -18750,7 +18751,7 @@ int main() {
             rs.action            = Action::Continue;
             rs.handler = [&](const DbgEvent&, Debugger&) { ++reset_events; return Action::Continue; };
             dbg.subscribe(a, rs);
-            dbg.set_call_stack_enabled(true);
+            dbg.set_call_stack_enabled(a, true);
             jnext::dbg::LoopDriver d;
             d.cold_boot = [&]() {
                 emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});

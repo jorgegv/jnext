@@ -665,12 +665,20 @@ public:
     /// "`disasm_text::*`" is unreachable from a frontend.
     DisasmReadFn memory_reader() const;
 
-    /// INS-12 — the shadow call stack, most recent first.
+    /// INS-12 — the shadow call stack, OLDEST first (`back()` is the newest frame).
     const std::vector<CallFrame>& call_stack() const;
 
-    /// INS-12 — tracking costs per instruction; off by default.
+    /// INS-12 — tracking costs per instruction. The EFFECTIVE state: on while any live
+    /// client asked for it (`set_call_stack_enabled`), or, with no request, while the live
+    /// source map carries C variable records and a non-observer client is attached (GH #434,
+    /// OD-2: the C frames need the tracked bases). Off otherwise.
     bool   call_stack_enabled() const;
-    Result set_call_stack_enabled(bool enabled);
+
+    /// INS-12 — `by`'s own request for call-stack tracking; the effective state is derived
+    /// from every client's request (GH #434 F-B: one client switching it off cannot take
+    /// another's tracking away). A detach drops the request with the client.
+    /// `RefusedUnavailable` for a client that is not attached.
+    Result set_call_stack_enabled(ClientId by, bool enabled);
 
     /// INS-13 — the trace log.
     bool   trace_enabled() const;
@@ -1213,6 +1221,30 @@ public:
     /// one, empty when it has no record. Part of the source map (`SourceMap::variables()`), so
     /// it is attached, dropped, made stale and restored with it, by the same rules.
     std::shared_ptr<const jnext::dbg::VariableStore> variables() const;
+
+    /// CAP-SRC (GH #434, epic #353) - one frame of the C call chain at the stop.
+    struct CFrame {
+        /// Index into `variables()->functions()`; -1: not C code (assembly, the CRT, `banked_call`).
+        int function = -1;
+        /// Frame 0: the stop PC. A tracked older frame: the CALL (`caller_pc`, `caller_space`); a
+        /// frame found through the chain: the return address - 1. Always inside the call.
+        jnext::dbg::SourceAddress pc;
+        std::optional<SourceLocation> line;   ///< the source map at `pc`
+        /// How `fp` was found: `Tracked` from the call-stack tracker (the CALL that entered the
+        /// frame's code), `Prologue` from the entry bytes at frame 0, `Chain` from the saved frame
+        /// pointer of the frame above, `Unknown` when none applies.
+        enum class Base : uint8_t { Tracked, Prologue, Chain, Unknown };
+        Base how = Base::Unknown;
+        uint16_t fp = 0;      ///< the frame base: B offsets are relative to it; meaningful unless Unknown
+        uint16_t floor = 0;   ///< the lowest stack address holding this frame's data (validity)
+        std::string note;     ///< why Unknown, or how found
+    };
+
+    /// CAP-SRC (GH #434) - the C frames at the stop, NEWEST first (frame 0 is where the CPU is).
+    /// Tracked frames first, then the fallback (the entry bytes of frame 0, the saved frame
+    /// pointers of the older ones, which stops at a change of frame style). Empty without a live
+    /// source map store. Runs `recheck()` first, like every CAP-SRC reader.
+    std::vector<CFrame> c_frames() const;
 
     /// CAP-SRC — the primary source position of `addr` as it is mapped NOW (what
     /// `source_page(addr)` says supplies it), or of the current PC. Null when

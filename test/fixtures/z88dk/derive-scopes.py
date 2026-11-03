@@ -38,6 +38,16 @@
 #     is present or the function at the address is not named "x"): level = n // 10000,
 #     sub = n % 10000, block as written, known. Otherwise (sccz80, 80cc) known only if func is
 #     the function at the address: level = n, sub 0, block as written.
+#
+# EXTENTS (GH #434, plan 2.1.1; row Z88CDB-41/42): `--extents` prints each function's extent instead.
+#   python3 -I test/fixtures/z88dk/derive-scopes.py --extents test/fixtures/z88dk/master/sccz80-cross/prog.map
+# Output: per function "name module ENTRY" (functions sorted by name, module), then one line per piece
+# "  LO-HI +OFFSET" (all hex; HI exclusive) or "  unknown" when nothing bounds the function.
+#  E1. Bound: the lowest map value above the function's entry, in the SAME section, of: the entry of
+#      another function; an `addr` symbol that is not a debug record, or a line record (rule 1), of
+#      ANOTHER module; the section's `__<section>_tail` const.
+#  E2. Pieces: [entry, bound) split at the 8 KB boundaries of the 16-bit value (every map here is
+#      unbanked, so the map value IS the logical address); OFFSET is the bytes from the entry.
 import re, sys, collections
 
 def unesc(s):
@@ -61,8 +71,8 @@ def parse_loc(t):
             d['given'] = True; d['lv'] = int(parts[1]); d['bl'] = int(parts[2])
     return d
 
-def tables(mapfile):
-    syms = []; cdb = []; recs = []
+def read(mapfile):
+    syms = []; cdb = []; recs = []; consts = {}
     for ln in open(mapfile, encoding='utf-8', errors='replace'):
         ln = ln.rstrip('\n')
         if ' ; ' not in ln: continue
@@ -70,13 +80,14 @@ def tables(mapfile):
         name = left.split()[0]; val = int(left.split('$')[1], 16)
         f = right.split(', ', 5); typ, scope, _, mod, sec = f[0], f[1], f[2], f[3], f[4]
         loc = f[5] if len(f) > 5 else ''
+        if typ == 'const': consts[name] = val
         if name.startswith('__CDBINFO__'): cdb.append((unesc(name[11:]), mod)); continue
         if name.startswith('__C_LINE_') or name.startswith('__ASM_LINE_'):
             if sec and typ == 'addr' and not re.match(r'^(data|bss|smc)', sec.lower()):
                 d = parse_loc(loc)
-                if d and d['line'] > 0: d.update(addr=val, mod=mod); recs.append(d)
+                if d and d['line'] > 0: d.update(addr=val, mod=mod, sec=sec); recs.append(d)
             continue
-        if typ == 'addr': syms.append((name, scope, mod, val))
+        if typ == 'addr': syms.append((name, scope, mod, val, sec))
     fns = []
     for t, mod in cdb:
         m = re.match(r'F:(G|F)([^$]*)\$([^$]*)\$', t)
@@ -84,7 +95,11 @@ def tables(mapfile):
         kind, name = m.group(1), m.group(3)
         c = [s for s in syms if s[0] == '_' + name and ((kind == 'G' and s[1] == 'public') or (kind == 'F' and s[2] == mod))]
         if len(c) != 1: print('FN-AMBIG', name, len(c), file=sys.stderr); continue
-        fns.append((name, c[0][2], c[0][3]))
+        fns.append((name, c[0][2], c[0][3], c[0][4]))
+    return syms, recs, consts, fns
+
+def tables(mapfile):
+    syms, recs, consts, fns = read(mapfile)
     byaddr = collections.defaultdict(list)
     for r in recs: byaddr[r['addr']].append(r)
     out = {}
@@ -110,5 +125,27 @@ def tables(mapfile):
             lines.append('  %04X L%d %s %d/%d/%d' % (a, top, 'K' if k else 'U', lv, sub, bl))
     return '\n'.join(lines) + '\n'
 
+def extents(mapfile):
+    syms, recs, consts, fns = read(mapfile)
+    lines = []
+    for name, mod, entry, sec in sorted(fns, key=lambda f: (f[0], f[1])):
+        bounds = [f[2] for f in fns if f[3] == sec and f[2] > entry]
+        bounds += [s[3] for s in syms if s[4] == sec and s[2] != mod and s[3] > entry]
+        bounds += [r['addr'] for r in recs if r['sec'] == sec and r['mod'] != mod and r['addr'] > entry]
+        tail = consts.get('__%s_tail' % sec)
+        if tail is not None and tail > entry: bounds.append(tail)
+        lines.append('%s %s %04X' % (name, mod, entry))
+        if not bounds: lines.append('  unknown'); continue
+        end = min(bounds); at = entry
+        assert end <= 0x10000, 'banked or 24-bit map: not derived here'
+        while at < end:
+            hi = min(end, (at & 0xE000) + 0x2000)
+            lines.append('  %04X-%04X +%X' % (at, hi, at - entry))
+            at = hi
+    return '\n'.join(lines) + '\n'
+
 if __name__ == '__main__':
-    for p in sys.argv[1:]: print(tables(p), end='')
+    args = sys.argv[1:]
+    fn = tables
+    if args and args[0] == '--extents': fn = extents; args = args[1:]
+    for p in args: print(fn(p), end='')

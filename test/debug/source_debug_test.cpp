@@ -216,7 +216,7 @@ struct Machine {
         ci.name = "source";
         ci.kind = jnext::dbg::ClientKind::Test;
         a = dbg->attach(ci).value;
-        dbg->set_call_stack_enabled(true);
+        dbg->set_call_stack_enabled(a, true);
         dbg->pause(a);
     }
     uint16_t pc() const { return dbg->registers().PC; }
@@ -981,7 +981,7 @@ int main() {
 
         m.dbg->unsubscribe(m.a, id);
         m.dbg->set_trace_enabled(true);
-        m.dbg->set_call_stack_enabled(true);
+        m.dbg->set_call_stack_enabled(a, true);
         m.dbg->step_into(m.a);   // CALL
         m.dbg->step_into(m.a);   // DivMMC's INC A
         const auto& t = m.emu.trace_log();
@@ -1356,7 +1356,7 @@ int main() {
             m.emu.mmu().write(0x8000, 0xCF);          // RST $08
             m.emu.mmu().write(0x8001, 0x00);
             m.dbg->set_trace_enabled(true);
-            m.dbg->set_call_stack_enabled(true);
+            m.dbg->set_call_stack_enabled(a, true);
             m.set_pc(0x8000);
             (void)step_pair(m);                                   // RST $08
             if (c.call_at != 0x0008) (void)step_pair(m);          // the NOP at $0008 (held entry)
@@ -1707,7 +1707,7 @@ int main() {
             uint8_t* drom = m.emu.divmmc().rom_data();
             drom[0x0008] = 0x00; drom[0x0009] = 0x30; drom[0x000A] = 0x00;
             m.emu.mmu().write(0x8000, 0xCF);
-            m.dbg->set_call_stack_enabled(true);
+            m.dbg->set_call_stack_enabled(a, true);
             m.set_pc(0x8000);
             (void)step_pair(m); (void)step_pair(m);
             const auto& f = m.dbg->call_stack();

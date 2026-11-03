@@ -205,6 +205,17 @@ struct Fixture {
     DebuggerWindow* dbg() const { return mgr->debugger_window_ptr(); }
     uint16_t pc() { return emu.cpu().get_registers().PC; }
     void load_map() { backend->load_source_map(sld, false); }
+    /// GH #434: call-stack tracking is a per-client request; the test's own client asks for it.
+    jnext::dbg::ClientId tracker = jnext::dbg::CLIENT_NONE;
+    void track_calls() {
+        if (tracker == jnext::dbg::CLIENT_NONE) {
+            jnext::dbg::ClientInfo ci;
+            ci.name = "tracker";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            tracker = backend->attach(ci).value;
+        }
+        backend->set_call_stack_enabled(tracker, true);
+    }
 };
 
 QPushButton* button(QWidget* root, const QString& text) {
@@ -652,7 +663,7 @@ void test_call_stack() {
     Fixture fx;
     fx.enable();
     fx.load_map();
-    fx.backend->set_call_stack_enabled(true);
+    fx.track_calls();
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // the CALL
@@ -2063,7 +2074,7 @@ void test_source_map_lifetime() {
         fx.emu.mmu().write(0x9000, 0x18);   // JR $ : the call never returns
         fx.emu.mmu().write(0x9001, 0xFE);
         fx.enable();
-        fx.backend->set_call_stack_enabled(true);
+        fx.track_calls();
         fx.backend->run(jnext::dbg::CLIENT_NONE);
         for (int i = 0; i < 2; ++i) fx.emu.run_frame();
         fx.backend->pause(jnext::dbg::CLIENT_NONE);
@@ -2104,7 +2115,7 @@ void test_call_stack_pages() {
                          "main.bas|12||0|" + a + "|32773|T|\n" +
                          "sub.bas|1||0|" + std::to_string(pc0) + "|49152|T|\n");
     fx.backend->load_source_map(path, false);
-    fx.backend->set_call_stack_enabled(true);
+    fx.track_calls();
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // the CALL
@@ -2234,7 +2245,7 @@ void test_paged_symbols() {
     ct.add_label("sub_recorded", 0x9000, MemSpace::page(static_cast<uint16_t>(fx.p90)));
     ct.add_label("sub_now", 0x9000, MemSpace::page(30));
     cs->set_symbol_table(&ct);
-    fx.backend->set_call_stack_enabled(true);
+    fx.track_calls();
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);
     fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $9000
@@ -2273,7 +2284,7 @@ void test_call_stack_non_page_caller() {
     write_text(path, std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
                          "main.bas|10||0|0|0|T|\n");
     fx.backend->load_source_map(path, false);
-    fx.backend->set_call_stack_enabled(true);
+    fx.track_calls();
     Z80Registers r = fx.emu.cpu().get_registers();
     r.PC = 0x0000;   // the bare test ROM is 0xFF: RST $38, fetched from ROM 0
     fx.emu.cpu().set_registers(r);
@@ -2305,7 +2316,7 @@ void test_call_stack_jump_return() {
     fx.emu.mmu().write(0x8000, 0xCD);   // CALL $9000
     fx.emu.mmu().write(0x8001, 0x00);
     fx.emu.mmu().write(0x8002, 0x90);
-    fx.backend->set_call_stack_enabled(true);
+    fx.track_calls();
     CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
     const auto rows = [&]() {
         if (!cs) return -1;
@@ -2343,7 +2354,7 @@ void test_call_stack_case_jump() {
     fx.emu.mmu().write(0x8000, 0xCD);   // CALL $9000
     fx.emu.mmu().write(0x8001, 0x00);
     fx.emu.mmu().write(0x8002, 0x90);
-    fx.backend->set_call_stack_enabled(true);
+    fx.track_calls();
     CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
     const auto rows = [&]() {
         if (!cs) return -1;
@@ -2379,7 +2390,7 @@ void test_call_stack_callee_jump() {
     // POP HL; POP DE; PUSH HL; LD HL,$9008; JP (HL); NOP; RET at $9008
     for (size_t i = 0; i < sizeof(caller); ++i) fx.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), caller[i]);
     for (size_t i = 0; i < sizeof(callee); ++i) fx.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), callee[i]);
-    fx.backend->set_call_stack_enabled(true);
+    fx.track_calls();
     CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
     const auto rows = [&]() {
         if (!cs) return -1;
@@ -6062,7 +6073,7 @@ void test_long_address_views() {
         fx.emu.mmu().write(0xC000, 0x00);
         fx.emu.mmu().write(0xC001, 0xC9);
         fx.emu.mmu().set_page(6, 20);
-        fx.backend->set_call_stack_enabled(true);
+        fx.track_calls();
         fx.backend->step_into(jnext::dbg::CLIENT_NONE);
         fx.backend->step_into(jnext::dbg::CLIENT_NONE);
         fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $C000, page 20 in slot 6

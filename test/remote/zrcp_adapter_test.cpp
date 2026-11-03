@@ -4517,7 +4517,10 @@ static void wp5_stack_coverage_rows() {
     }
     {
         Rig rig;
-        rig.dbg->set_call_stack_enabled(true);
+        jnext::dbg::ClientInfo other_info;   // GH #434: "another client" is a client with its own request
+        other_info.name = "other";
+        other_info.kind = jnext::dbg::ClientKind::Test;
+        rig.dbg->set_call_stack_enabled(rig.dbg->attach(other_info).value, true);
         {
             Zc c(rig);
             const std::string a = c.cmd("extended-stack enabled no");

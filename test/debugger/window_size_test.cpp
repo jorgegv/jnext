@@ -876,7 +876,12 @@ static void test_physical_override(const QString& dir)
         f.emu.mmu().write(0x8001, 0x00);
         f.emu.mmu().write(0x8002, 0x90);
         f.emu.debug_state().pause();
-        f.backend->set_call_stack_enabled(true);
+        {   // GH #434: call-stack tracking is a per-client request; the test's own client asks for it
+            jnext::dbg::ClientInfo ci;
+            ci.name = "tracker";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            f.backend->set_call_stack_enabled(f.backend->attach(ci).value, true);
+        }
         f.backend->step_into(jnext::dbg::CLIENT_NONE);
         f.backend->step_into(jnext::dbg::CLIENT_NONE);
         f.dbg->stack_panel()->set_paused(true);
