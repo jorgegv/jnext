@@ -77,7 +77,7 @@ work. A breakpoint change another client made arrives as
 |---|---|---|
 | CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()` | — |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
-| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, a breakpoint gutter and a selection you can copy as assembly | breakpoints, through the model |
+| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, columns Mem, Addr, BP column (the breakpoint gutter), [Label], mnemonic, opcode bytes, and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
 | Stack | the words at and above SP, through `peek` | — |
 | Call Stack | `call_stack()`, a shadow stack: a CALL, RST, INT or NMI opens a frame; a RET that lands on the newest CALL's return address (or the newest INT or NMI frame's interrupted PC) ends that frame, any other taken RET ends every frame whose return slot is below SP, and an esxDOS call the shim services ends its RST frame; a JP (HL)/(IX)/(IY) onto the newest CALL's return point, or taken with SP above its slot when the routine has stored no copy of its return address above SP (a callee prologue's PUSH or EX (SP)), ends that frame (sccz80's `EX (SP),HL` / `POP r; JP (r)` helpers and `l_case`; a `__z88dk_callee` body's internal jumps keep it); a routine that drops its return address and leaves by a direct JP keeps its frame until a later RET ends it by SP | — |

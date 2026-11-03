@@ -189,6 +189,10 @@ const char* const ADDR_3LINE =
     "$8003  00           NOP\n"
     "$8004  CD 00 80     CALL entry\n";
 
+// GH #448 - the panel whose geometry the helpers below read (the newest Fixture's): the BP column and
+// the mnemonic column are where the panel says they are, not where a copy of its constants says.
+DisasmPanel* g_geometry = nullptr;
+
 struct Fixture {
     Emulator     emu;
     // GH #278 WP4c — the gutter draws the GUI's breakpoints, which are debugger
@@ -218,6 +222,7 @@ struct Fixture {
         // the chord — which is exactly the part worth testing.
         panel = new DisasmPanel(backend.get());   // GH #278 WP5: reads through it
         panel->set_breakpoint_model(bps.get());
+        g_geometry = panel;
         win.setCentralWidget(panel);
         win.resize(700, PAINT_Y + VIS_LINES * LINE_H);
         win.show();
@@ -681,25 +686,24 @@ QRgb row_bg(const QImage& img, int line) {
 
 /// The centre of the breakpoint dot on line `line`, inside the gutter.
 QRgb gutter_dot(const QImage& img, int line) {
-    return img.pixel(GUTTER_W / 2, PAINT_Y + line * LINE_H + LINE_H / 2);
+    return img.pixel(g_geometry->breakpoint_x() + GUTTER_W / 2, PAINT_Y + line * LINE_H + LINE_H / 2);
 }
 
 /// A gutter pixel on line `line`, at the same place the dot would be.
 /// Sampled on a line that has NO breakpoint, this is the only honest way to
 /// ask "does the selection fill reach into the gutter?" — see GH21-27.
 QRgb gutter_bg(const QImage& img, int line) {
-    return img.pixel(GUTTER_W / 2, PAINT_Y + line * LINE_H + LINE_H / 2);
+    return img.pixel(g_geometry->breakpoint_x() + GUTTER_W / 2, PAINT_Y + line * LINE_H + LINE_H / 2);
 }
 
-/// Left edge of the mnemonic column: GUTTER_WIDTH + 4 + ADDR_WIDTH(48) +
-/// MEM_WIDTH(96, GH #360) + BYTES_WIDTH(100). The panel's own layout constants,
-/// restated because they are private — a change to either side must move both.
-constexpr int MNEMONIC_X = GUTTER_W + 4 + 48 + 96 + 100;
-constexpr int MNEMONIC_W = 260;
+/// Left edge and width of the mnemonic column, as the panel says (GH #448: the opcode bytes
+/// follow the column, so a cell of its width holds the mnemonic and nothing else).
+int mnemonic_x() { return g_geometry->mnemonic_x(); }
+int mnemonic_w() { return g_geometry->mnemonic_width(); }
 
-/// The painted mnemonic column of line `line`, as an image.
-QImage mnemonic_cell(const QImage& img, int line, int x = MNEMONIC_X) {
-    return img.copy(x, PAINT_Y + line * LINE_H, MNEMONIC_W, LINE_H);
+/// The painted mnemonic column of line `line`, as an image (x < 0: the panel's mnemonic column).
+QImage mnemonic_cell(const QImage& img, int line, int x = -1) {
+    return img.copy(x < 0 ? mnemonic_x() : x, PAINT_Y + line * LINE_H, mnemonic_w(), LINE_H);
 }
 
 /// `text` drawn the way DisasmPanel::paintEvent draws a mnemonic: the same
@@ -716,7 +720,7 @@ QImage reference_cell(const QString& text) {
     font.setPointSize(10);
     const QFontMetrics fm(font);
 
-    QImage img(MNEMONIC_W, LINE_H, QImage::Format_ARGB32);
+    QImage img(mnemonic_w(), LINE_H, QImage::Format_ARGB32);
     img.fill(QColor(255, 255, 255));
     QPainter painter(&img);
     painter.setFont(font);

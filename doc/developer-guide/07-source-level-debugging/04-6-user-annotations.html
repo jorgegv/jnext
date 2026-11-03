@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.114</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.115</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.114</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.115</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3103,7 +3103,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
 <li><strong>One menu builder.</strong> <code>add_annotation_actions()</code> (<code>src/debugger/annotation_menu.cpp:77</code>) appends, behind a
   separator, <strong>Add Label…</strong> / <strong>Rename Label…</strong>, <strong>Remove Label</strong> and <strong>Add Comment…</strong> / <strong>Edit Comment…</strong> to a
   code view's context menu. The Disassembly calls it with the one place of the line, its address and the
-  <code>entry.space</code> it was drawn with (in <code>DisasmPanel::contextMenuEvent()</code>, <code>add_annotation_actions</code> is called at <code>src/debugger/disasm_panel.cpp:983</code>); the
+  <code>entry.space</code> it was drawn with (in <code>DisasmPanel::contextMenuEvent()</code>, <code>add_annotation_actions</code> is called at <code>src/debugger/disasm_panel.cpp:986</code>); the
   Source tab calls it with the line's <code>st.starts</code> (in <code>SourcePanel::fill_context_menu()</code>, <code>add_annotation_actions</code> is called at
   <code>src/debugger/source_panel.cpp:1208</code>), so a line that compiled to several places gets a submenu per entry,
   a place not mapped now stays editable (the key does not depend on the mapping), and a line with no code
@@ -3120,11 +3120,17 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   through the non-const pointer <code>DebuggerManager</code> hands them with <code>set_annotation_backend()</code>
   (<code>src/debugger/debugger_manager.cpp:386</code> and <code>:390</code>), and each panel's <code>annotations_changed()</code> signal makes the
   manager refresh the panels.</li>
-<li><strong>The Disassembly draws it.</strong> <code>label_column_shown()</code> (<code>disasm_panel.cpp:1013</code>) is true while the symbol table
-  (the composed reader, section 9) holds any label; then the <strong>Label</strong> column sits between the bytes and the
-  mnemonic and every x after it moves by <code>label_width()</code> (16 characters), <code>mnemonic_x()</code> (<code>:1020</code>); with no
-  label the layout is the old one (<code>QANN-01</code>). <code>line_label()</code> (<code>:1025</code>) is the name the reader gives the line's
-  own address in its own memory, shortened with <code>...</code>; <code>line_comment()</code> (<code>:1035</code>) is <code>;</code> and the comment's first
+<li><strong>The Disassembly draws it.</strong> <code>label_column_shown()</code> (<code>disasm_panel.cpp:1016</code>) is true while the symbol table
+  (the composed reader, section 9) holds any label; then the <strong>Label</strong> column sits between the BP column and the
+  mnemonic and every x after it moves by <code>label_width()</code> (16 characters). The columns run Mem, Addr, BP column,
+  [Label], mnemonic, opcode bytes, <code>; comment</code> (GH #448); <code>breakpoint_x()</code> (<code>:1023</code>) is the BP column's left edge,
+  <code>mnemonic_x()</code> (<code>:1025</code>) the mnemonic's (<code>breakpoint_x() + 20 + 4</code>, plus <code>label_width()</code> with a label),
+  <code>mnemonic_width()</code> (<code>:1030</code>) the mnemonic column's 20 characters, and <code>bytes_x(line)</code> (<code>:1035</code>) where that line's
+  bytes start: after the column, or after the mnemonic itself plus a gap when that mnemonic is wider, so a long
+  line pushes only its own bytes. The comment sits 100 px (<code>BYTES_WIDTH</code>) after the bytes. The painter and the tests
+  read these accessors (<code>QDCOL-01</code>, <code>QDCOL-03</code>, <code>QDCOL-04</code>; with no label the mnemonic is at 172, <code>QANN-01</code>).
+  <code>line_label()</code> (<code>:1056</code>) is the name the reader gives the line's
+  own address in its own memory, shortened with <code>...</code>; <code>line_comment()</code> (<code>:1066</code>) is <code>;</code> and the comment's first
   line, plus <code>...</code> when it has more. Both are what the painter draws and what the tests read. The copy
   formats do not include them (<code>QANN-04</code>). The Source tab does not draw comments (it shows the user's own
   file).</li>
