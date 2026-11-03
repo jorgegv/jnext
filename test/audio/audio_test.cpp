@@ -2373,7 +2373,7 @@ static const std::initializer_list<std::pair<int, int>> kTsToneSet =
 // TS-35..37 window: every chip in `locked` has the same A output as AY#0 on every
 // tick, and pcm_left == mult * A(AY#0) (mult chips in the mix, each in lockstep).
 static bool ts_window(TurboSound& ts, int ticks, const int* locked, int nlocked,
-                      int mult, bool& saw_lo, bool& saw_hi, std::string& why) {
+                      int mult, int sel, bool& saw_lo, bool& saw_hi, std::string& why) {
     for (int t = 0; t < ticks; ++t) {
         ts.tick();
         const unsigned a0 = ts.ay(0).output_a();
@@ -2383,6 +2383,17 @@ static bool ts_window(TurboSound& ts, int ticks, const int* locked, int nlocked,
             if (ts.ay(locked[k]).output_a() != a0) {
                 why = fmt("tick %d: ay(%d).A=%u ay(0).A=%u", t, locked[k],
                           ts.ay(locked[k]).output_a(), a0);
+                return false;
+            }
+        }
+        // Per-chip gate (turbosound.vhd:197/252/307): a chip reaches the mix when it is
+        // the selected one (sel = 0, 1, 2) or when TurboSound is on (sel = -1).
+        for (int i = 0; i < 3; ++i) {
+            uint16_t l = 0, r = 0;
+            ts.chip_pcm(i, l, r);
+            const unsigned want = (sel < 0 || sel == i) ? ts.ay(i).output_a() : 0u;
+            if (l != want) {
+                why = fmt("tick %d: chip_pcm(%d).L=%u expected %u", t, i, l, want);
                 return false;
             }
         }
@@ -2414,9 +2425,9 @@ static void g_ts_clock() {
         const int locked[1] = {chip};
         bool lo = false, hi = false, lo2 = false, hi2 = false;
         std::string why1, why2;
-        const bool off_ok = ts_window(ts, 104, locked, 1, 1, lo, hi, why1);
+        const bool off_ok = ts_window(ts, 104, locked, 1, 1, 0, lo, hi, why1);
         ts.set_enabled(true);
-        const bool on_ok = ts_window(ts, 32, locked, 1, 2, lo2, hi2, why2);
+        const bool on_ok = ts_window(ts, 32, locked, 1, 2, -1, lo2, hi2, why2);
         const bool nonvac = lo && hi && lo2 && hi2;
         if (chip == 1)
             check("TS-35", "TurboSound off: unselected AY#1 stays in lockstep with AY#0, mix gated",
@@ -2445,9 +2456,9 @@ static void g_ts_clock() {
         const int locked[2] = {1, 2};
         bool lo = false, hi = false, lo2 = false, hi2 = false;
         std::string why1, why2;
-        const bool off_ok = ts_window(ts, 104, locked, 2, 1, lo, hi, why1);
+        const bool off_ok = ts_window(ts, 104, locked, 2, 1, 1, lo, hi, why1);
         ts.set_enabled(true);
-        const bool on_ok = ts_window(ts, 32, locked, 2, 3, lo2, hi2, why2);
+        const bool on_ok = ts_window(ts, 32, locked, 2, 3, -1, lo2, hi2, why2);
         const bool nonvac = lo && hi && lo2 && hi2;
         check("TS-37", "TurboSound off, AY#1 selected: all chips run, only AY#1 reaches the mix",
               off_ok && on_ok && nonvac,
