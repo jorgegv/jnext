@@ -36,7 +36,9 @@ struct CallFrame {
 /// Call on_instruction_pre() before and on_instruction_post() after each
 /// instruction. The post-call compares SP to detect taken calls/rets.
 /// A frame ends when a RET lands on the newest CALL's return address, else
-/// when a RET raises SP above its return slot (GH #345).
+/// when a RET raises SP above its return slot (GH #345). A JP (HL)/(IX)/(IY)
+/// onto the newest CALL's return point with SP not above its slot also ends it
+/// (sccz80's EX (SP),HL; JP (HL) helpers, GH #349).
 class CallStack {
 public:
     /// Call before instruction execution to capture opcode and pre-SP.
@@ -96,6 +98,7 @@ private:
                     jnext::dbg::MemSpace caller_space);
     void pop_frames_to_sp(uint16_t sp);
     void return_to(uint16_t sp, uint16_t pc);
+    void indirect_jump_to(uint16_t sp, uint16_t pc);
 
     std::vector<CallFrame> frames_;
     bool enabled_ = false;

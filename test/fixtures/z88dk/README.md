@@ -50,6 +50,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/classic-debug | `-clib=classic -debug` | **fails rc=1** | Z1 |
 | v2.4/sccz80-subdir | `-clib=new -debug -I.`, `game/util.c` | ok | G10 |
 | v2.4/sccz80-incmid, master/sccz80-incmid, master/80cc-incmid | `incmid.c` only: `-clib=new [-compiler=80cc] -debug` | ok | line-0 records in a code section (G22) |
+| v2.4/sccz80-intarg, master/sccz80-intarg, master/80cc-intarg | `intarg.c` only: `-clib=new [-compiler=80cc] -debug` | ok | GH #349: an int parameter, so sccz80 calls `l_gintspsp` (`EX (SP),HL; JP (HL)`, a return with no RET); 80cc emits no such call for it (the unchanged control) |
 | v2.4/sccz80-tape | `zcc +zx -clib=new -debug -m --list -o prog -create-app` | ok, a `.tap` | GH #344 stage 3 (tape programs) |
 | master/sccz80-debug | `-clib=new -debug` | ok | G4 fixed |
 | master/sdcc-debug | `-clib=sdcc_iy -debug` | ok | sdcc map lines, Z2; also keeps the CRT listing (G13-G15) |

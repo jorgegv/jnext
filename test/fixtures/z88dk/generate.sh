@@ -143,6 +143,8 @@ EXPECT_FAIL=1 build "$Z24" v2.4 classic-debug plain          -clib=classic -debu
 build "$Z24" v2.4 sccz80-subdir subdir         -clib=new -debug
 build "$Z24" v2.4 sccz80-incmid single:incmid.c -clib=new -debug
 build "$Z24" v2.4 sccz80-tape   tape           -clib=new -debug
+# GH #349 R1: an int parameter and local, so sccz80 calls l_gintspsp (EX (SP),HL; JP (HL): a return with no RET)
+build "$Z24" v2.4 sccz80-intarg single:intarg.c -clib=new -debug
 # GH #351: NextZXOS dot commands (the dot/dotx/dotn subtypes, startupoffset $100/$200/$300)
 build "$Z24" v2.4 sccz80-dot    dot:dot        -clib=new -debug
 build "$Z24" v2.4 sccz80-dotx   dot:dotx       -clib=new -debug
@@ -157,6 +159,8 @@ KEEP_CRT=1 build "$ZM" master sdcc-debug   plain          -clib=sdcc_iy -debug
 build "$ZM" master 80cc-debug   plain          -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-incmid single:incmid.c -clib=new -debug
 build "$ZM" master 80cc-incmid  single:incmid.c -clib=new -compiler=80cc -debug
+build "$ZM" master sccz80-intarg single:intarg.c -clib=new -debug
+build "$ZM" master 80cc-intarg  single:intarg.c -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-dot   dot:dot        -clib=new -debug
 build "$ZM" master sccz80-dotx  dot:dotx       -clib=new -debug
 build "$ZM" master sdcc-dot     dot:dot        -clib=sdcc_iy -debug

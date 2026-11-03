@@ -2290,6 +2290,44 @@ void test_call_stack_non_page_caller() {
           "frames " + std::to_string(f.size()) + " cell '" + s(cell(cs, 0, 4)) + "'");
 }
 
+// ── QCSP-04 (GH #349 R1): a helper that returns by EX (SP),HL; JP (HL) ─────
+//
+// sccz80's l_gintspsp family leaves by JP (HL) with no RET. Oracle: the library
+// source (libsrc/l/sccz80/8-8080/l_gintspsp.asm). The Call Stack lists the helper's
+// CALL while it runs and no row for it after the jump.
+
+void test_call_stack_jump_return() {
+    Fixture fx;
+    fx.enable();
+    const uint8_t helper[] = {0x21, 0x34, 0x12, 0xE3, 0xE9};   // LD HL,$1234; EX (SP),HL; JP (HL)
+    for (size_t i = 0; i < sizeof(helper); ++i)
+        fx.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), helper[i]);
+    fx.emu.mmu().write(0x8000, 0xCD);   // CALL $9000
+    fx.emu.mmu().write(0x8001, 0x00);
+    fx.emu.mmu().write(0x8002, 0x90);
+    fx.backend->set_call_stack_enabled(true);
+    CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+    const auto rows = [&]() {
+        if (!cs) return -1;
+        cs->set_paused(true);
+        cs->refresh();
+        auto* t = cs->findChild<QTableWidget*>();
+        return t ? t->rowCount() : -1;
+    };
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $9000
+    const int open = rows();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // LD HL
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // EX (SP),HL
+    const int mid = rows();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // JP (HL) to $8003
+    const int closed = rows();
+    check("QCSP-04", "the Call Stack shows the helper's CALL until its JP (HL) reaches the return point "
+                     "($8003), then no row for it",
+          fx.pc() == 0x8003 && open == 1 && mid == 1 && closed == 0,
+          "pc " + std::to_string(fx.pc()) + " rows " + std::to_string(open) + "/" + std::to_string(mid) +
+              "/" + std::to_string(closed));
+}
+
 }  // namespace
 
 // ── GH #337: Debug > Source ───────────────────────────────────────────
@@ -7446,6 +7484,7 @@ int main(int argc, char** argv) {
     test_sld_labels_menu();
     test_sld_labels_add_execute();
     test_call_stack_non_page_caller();
+    test_call_stack_jump_return();
     test_source_menu();
     test_z88dk_source_map();
     test_dot_command();

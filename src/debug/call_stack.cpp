@@ -49,6 +49,28 @@ void CallStack::return_to(uint16_t sp, uint16_t pc) {
     pop_frames_to_sp(sp);
 }
 
+// GH #349 (R1): a routine that returns without a RET. sccz80's `l_gintspsp`
+// family (l_gcharspsp, l_g2intspsp, l_g2charspsp, l_glong2sp) loads a value,
+// swaps it into the return slot (`EX (SP),HL`, so the value is "pushed") and
+// leaves by `JP (HL)` to caller_pc + 3: no RET ever runs, and the frame would
+// stay open until the caller's own RET (Step Over never sees depth return).
+// So a JP (HL) / JP (IX) / JP (IY) that lands on the newest CALL frame's return
+// point ends that frame, provided SP is still AT OR BELOW the frame's slot
+// (new_sp <= sp_at_call): the slot was reused as data (the swap, plus the
+// helper's own pushes), which is what makes it a return rather than a coincident
+// jump. `POP HL; JP (HL)` leaves SP ABOVE the slot (sp_at_call + 2) and keeps its
+// frame until a RET ends it by SP (SRCDBG-CS-12): the documented trade-off.
+// Only the newest frame is tested, so recursion (every deeper call is newer, at
+// a lower SP) and interrupts (an INT frame is newest while its ISR runs) cannot
+// close an outer frame. The jump changes no SP, so it is never also a CALL/RET.
+void CallStack::indirect_jump_to(uint16_t sp, uint16_t pc) {
+    if (frames_.empty()) return;
+    const CallFrame& f = frames_.back();
+    if (f.type == CallType::CALL && static_cast<uint16_t>(f.caller_pc + 3) == pc &&
+        sp <= f.sp_at_call)
+        frames_.pop_back();
+}
+
 // The esxDOS shim returns from the RST $08 it serviced: that frame ends, and
 // only that one. newlib's sccz80 esxDOS callees move their return slot up and
 // `jp` to the RST, so the SP rule would end the callee's live CALL frame too.
@@ -132,6 +154,11 @@ void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc,
             return;
         }
     }
+
+    // JP (HL), JP (IX), JP (IY): a return by jump (GH #349 R1).
+    if (new_sp == pre_sp_ &&
+        (pre_opcode_ == 0xE9 || ((pre_opcode_ == 0xDD || pre_opcode_ == 0xFD) && pre_op2_ == 0xE9)))
+        indirect_jump_to(new_sp, new_pc);
 }
 
 void CallStack::on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp,

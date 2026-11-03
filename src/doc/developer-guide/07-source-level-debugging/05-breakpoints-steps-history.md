@@ -166,6 +166,22 @@ that SP alone is wrong for a routine that moves its own return address:
 
 The price is stated in the code: a routine that drops its return address and leaves
 by `JP` (`banked_call` looks like this) keeps its frame until a `RET` ends it by SP.
+
+**A return with no `RET`** (GH #349). sccz80's `l_gintspsp` family (`l_gcharspsp`,
+`l_g2intspsp`, `l_g2charspsp`, `l_glong2sp`: every int or long stack variable) swaps a value
+into the return slot (`EX (SP),HL`) and leaves by `JP (HL)` to `caller_pc + 3`; Step Over
+would never see the depth come back. `CallStack::indirect_jump_to()` ends the newest `CALL`
+frame when a `JP (HL)`, `JP (IX)` or `JP (IY)` lands on its return point with SP at or below
+`sp_at_call`: the slot was reused as data, which is what makes the jump a return. `POP HL;
+JP (HL)` leaves SP above the slot and still keeps its frame (the price above). Only the newest
+frame is tested, so recursion and an interrupt routine (its `INT` frame is the newest) cannot
+end an outer frame. A search of both installs' library sources (`EX (SP),r` followed within six lines by a
+`JP (HL)`/`(IX)`/`(IY)`) finds, besides those five (the `l_g2*` and `l_glong2sp` forms differ
+only by an extra `PUSH`: SP below the slot), `asm_im2_push_registers_8080` (8080 only, same shape);
+every other hit (the classic `*_callee` shims, `call_extrom`, `odd`, the FZX terminal's
+`move_left_right`) jumps to a function, not to the return point, and is not touched. Rows
+`SRCDBG-CS-16` to `-18`, `SRCSTEP-14` to `-21` on the `intarg` fixtures
+(`test/fixtures/z88dk/*/*-intarg`), `QCSP-04` for the panel.
 `CallStack::on_slot_without_fetch()` handles the esxDOS shim, which returns from
 the `RST $08` it serviced: that frame ends, and only that one.
 
