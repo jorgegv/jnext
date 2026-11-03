@@ -24,6 +24,16 @@ A report box tells how many files, labels and comments were written, and anythin
 own earlier files replaced, and nothing else in it is ever touched. A file of the same name that is
 not jnext's makes the export fail before it writes anything.
 
+**One name, one address.** A name is written **once** in an export. z88dk gives the labels
+of a library routine the same name in several routines (`end_x` at `$80CA` and at `$8103`), but SkoolKit
+refuses a label defined twice (`skool2asm.py`: `Duplicate label`) and jnext's own import and labels keep one
+address per name. Of the labels that share a name, the export keeps the first, in this order: the labels
+that belong to no memory, then the memories (RAM pages, ROMs, ...) in the debugger's order, then the
+lowest address. Each of the others is left out and named in the report box, with the one that kept the
+name (`label 'end_x' at P04:$8103 skipped: the name is already used at P04:$80CA`). Give the one you want
+to keep a name of its own first ([Your own labels and comments](16-user-labels-and-comments.md)) if the
+wrong one would win. The Ghidra `view.ghidra.txt` is made unique in itself, the same way.
+
 ## SkoolKit
 
 The Next has 224 pages of 8 KB, and a control file describes one 64 KB view. So the export writes

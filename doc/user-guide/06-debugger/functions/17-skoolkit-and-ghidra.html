@@ -4181,6 +4181,15 @@ labels and comments; each window is then one code block.</p>
 (a name skipped, a memory whose bytes cannot be read). A directory you exported to before has its
 own earlier files replaced, and nothing else in it is ever touched. A file of the same name that is
 not jnext's makes the export fail before it writes anything.</p>
+<p><strong>One name, one address.</strong> A name is written <strong>once</strong> in an export. z88dk gives the labels
+of a library routine the same name in several routines (<code>end_x</code> at <code>$80CA</code> and at <code>$8103</code>), but SkoolKit
+refuses a label defined twice (<code>skool2asm.py</code>: <code>Duplicate label</code>) and jnext's own import and labels keep one
+address per name. Of the labels that share a name, the export keeps the first, in this order: the labels
+that belong to no memory, then the memories (RAM pages, ROMs, ...) in the debugger's order, then the
+lowest address. Each of the others is left out and named in the report box, with the one that kept the
+name (<code>label 'end_x' at P04:$8103 skipped: the name is already used at P04:$80CA</code>). Give the one you want
+to keep a name of its own first (<a href="16-user-labels-and-comments.html">Your own labels and comments</a>) if the
+wrong one would win. The Ghidra <code>view.ghidra.txt</code> is made unique in itself, the same way.</p>
 <h2 id="skoolkit">SkoolKit<a class="headerlink" href="#skoolkit" title="Permanent link">&para;</a></h2>
 <p>The Next has 224 pages of 8 KB, and a control file describes one 64 KB view. So the export writes
 <strong>one control file and one image per memory window</strong>:</p>

@@ -196,6 +196,8 @@ std::string render_window(const std::string& tag, uint16_t base, uint32_t wsz,
 reexport::Output build(const Input& in) {
     reexport::Output out;
     size_t stripped = 0;
+    // One name, one key (GH #349): z88dk's module-local labels repeat across routines.
+    const std::vector<reexport::Label> labels = reexport::unique_names(in.labels, out.notes);
 
     // The spaces to write: every store, and every space a key names.
     std::vector<MemSpace> spaces;
@@ -203,7 +205,7 @@ reexport::Output build(const Input& in) {
         if (std::find(spaces.begin(), spaces.end(), s) == spaces.end()) spaces.push_back(s);
     };
     for (const Store& s : in.stores) add_space(s.space);
-    for (const reexport::Label& l : in.labels) if (l.space) add_space(*l.space);
+    for (const reexport::Label& l : labels) if (l.space) add_space(*l.space);
     for (const reexport::Comment& c : in.comments) add_space(c.space);
     std::sort(spaces.begin(), spaces.end(), [](MemSpace a, MemSpace b) {
         return a.kind != b.kind ? a.kind < b.kind : a.index < b.index;
@@ -217,7 +219,7 @@ reexport::Output build(const Input& in) {
 
         // Keys of this space, by window.
         std::map<uint16_t, std::map<uint32_t, Key>> by_window;
-        for (const reexport::Label& l : in.labels) {
+        for (const reexport::Label& l : labels) {
             if (!l.space || !(*l.space == sp)) continue;
             if (!reexport::name_exportable(l.name)) {
                 out.notes.push_back("label '" + l.name + "' in " + tag + " skipped: its name holds "
@@ -249,7 +251,7 @@ reexport::Output build(const Input& in) {
         // data. So each unpaged address is a label-less key here: the splits that keep a paged
         // label alive (B/C sub-blocks inside an instruction or a data run) then keep it too.
         for (auto& wk : by_window)
-            for (const reexport::Label& l : in.labels)
+            for (const reexport::Label& l : labels)
                 if (!l.space && reexport::name_exportable(l.name) &&
                     static_cast<uint16_t>(l.addr & ~(wsz - 1)) == wk.first)
                     wk.second[l.addr - wk.first];
@@ -270,7 +272,7 @@ reexport::Output build(const Input& in) {
 
     // The unpaged labels: label lines only (no bytes to classify).
     std::map<uint16_t, std::string> cpu;
-    for (const reexport::Label& l : in.labels) {
+    for (const reexport::Label& l : labels) {
         if (l.space) continue;
         if (!reexport::name_exportable(l.name)) {
             out.notes.push_back("label '" + l.name + "' skipped: its name holds whitespace or a "

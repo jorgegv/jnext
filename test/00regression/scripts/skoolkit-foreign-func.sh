@@ -25,6 +25,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #     only: unsplit, they would be cut to `DEFB $ED,$91`).
 # B4  skool2ctl.py -k -h turns A2-style output back into a control file; --import-skoolkit reads it in a
 #     fresh run and that run's export has the same labels and comments (GH #389 stage B).
+# A5  (GH #349) z88dk module-local labels repeat (`end_x` at $80CA and $8103 in two routines): the map
+#     gets both, the export writes the name ONCE (the lowest address) and says so, skool2asm.py -H
+#     accepts the skool file (it refuses `Duplicate label`), `--import-skoolkit` reads the control file
+#     back (it refuses a name at two addresses), and skool2ctl.py -k -h of the skool file imports too.
 # A4  the same imports through the Qt and SDL owners and a failing import of each kind in each (stage B review 1).
 # A3  the Qt (offscreen) and SDL (dummy driver) loop owners write the same directory as the
 #     headless one, byte for byte (a frontend whose exit forgot the export wrote nothing).
@@ -164,6 +168,45 @@ if want skoolkit-foreign-func; then
             elif out=$(sf_py "$sf_check" compare "$sf_dir/D4/8000-P04.ctl" "$sf_dir/D5/8000-P04.ctl" 2>&1); then :; else
                 sf_faults+=("B4: $out")
             fi
+        fi
+
+        # ---- A5: a name at two addresses (GH #349). The dsl_demo map plus two module-local labels of one name,
+        # as the library routines asm_zx_cls_wc_attr and asm_zx_cls_wc_pix give end_x in a newlib program.
+        cp "$sf_map" "$sf_dir/a5.map"
+        printf '%s\n' "end_x                           = \$80CA ; addr, local, , asm_zx_cls_wc_attr, code_user, dsl_demo.asm:90" \
+            "end_x                           = \$8103 ; addr, local, , asm_zx_cls_wc_pix, code_user, dsl_demo.asm:120" >>"$sf_dir/a5.map"
+        sf_jnext "$JNEXT" plain "$sf_dir/a5.log" --machine next --load "$sf_nex" --map "$sf_dir/a5.map" --coverage \
+            --export-skoolkit "$sf_dir/D6" --delayed-automatic-exit-frames 100
+        if [[ ! -f "$sf_dir/D6/8000-P04.ctl" || ! -f "$sf_dir/D6/8000-P04.bin" ]]; then
+            sf_faults+=("A5: no D6/8000-P04.ctl/.bin: $(ls "$sf_dir/D6" 2>&1 | tr '\n' ' ' || true)")
+        else
+            [[ $(grep -c 'label=end_x$' "$sf_dir/D6/8000-P04.ctl" || true) -eq 1 && \
+               $(grep -c '^@ \$80CA label=end_x$' "$sf_dir/D6/8000-P04.ctl" || true) -eq 1 ]] ||
+                sf_faults+=("A5: the control file does not hold end_x exactly once, at \$80CA")
+            grep -q "label 'end_x' at P04:\$8103 skipped: the name is already used at P04:\$80CA" "$sf_dir/a5.log" ||
+                sf_faults+=("A5: jnext did not report the skipped duplicate: $(grep -h 'end_x' "$sf_dir/a5.log" | head -n 2 | tr '\n' ' ' || true)")
+            rc=0
+            sf_py "$sf_root/sna2skool.py" -H -o 0x8000 "$sf_dir/D6/8000-P04.bin" >"$sf_dir/a5.skool" 2>"$sf_dir/a5.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A5: sna2skool exit $rc")
+            rc=0
+            sf_py "$sf_root/skool2asm.py" -H "$sf_dir/a5.skool" >"$sf_dir/a5.asm" 2>"$sf_dir/a5.asmerr" || rc=$?
+            if [[ $rc -ne 0 ]] || grep -q 'Duplicate label' "$sf_dir/a5.asmerr"; then
+                sf_faults+=("A5: skool2asm exit $rc: $(head -n 2 "$sf_dir/a5.asmerr" | tr '\n' ' ' || true)")
+            fi
+            grep -q 'end_x' "$sf_dir/a5.asm" || sf_faults+=("A5: skool2asm's output lacks end_x")
+            # Our importer reads the file the exporter wrote ...
+            rc=0
+            sf_jnext_rc "$JNEXT" plain "$sf_dir/a5i.log" --machine next --load "$sf_nex" --coverage \
+                --import-skoolkit "$sf_dir/D6/8000-P04.ctl" --delayed-automatic-exit-frames 20 || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A5: --import-skoolkit of the export exit $rc: $(grep -h -- '--import-skoolkit' "$sf_dir/a5i.log" | head -n 1 || true)")
+            # ... and skool2ctl.py -k -h's file made from the skool file.
+            rc=0
+            sf_py "$sf_root/skool2ctl.py" -k -h "$sf_dir/a5.skool" >"$sf_dir/a5.ctl" 2>"$sf_dir/a5ctl.err" || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A5: skool2ctl exit $rc")
+            rc=0
+            sf_jnext_rc "$JNEXT" plain "$sf_dir/a5j.log" --machine next --load "$sf_nex" --coverage \
+                --import-skoolkit "$sf_dir/a5.ctl" --delayed-automatic-exit-frames 20 || rc=$?
+            [[ $rc -eq 0 ]] || sf_faults+=("A5: --import-skoolkit of skool2ctl's file exit $rc: $(grep -h -- '--import-skoolkit' "$sf_dir/a5j.log" | head -n 1 || true)")
         fi
 
         # ---- A4: the three loop owners import (GH #389 stage B review 1): the same --import-skoolkit and

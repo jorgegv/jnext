@@ -1076,8 +1076,7 @@ frame ends when a RET lands on its own return point, the NEWEST frame only: a CA
 HALT). Any other taken RET ends every frame whose return slot is below SP (a `PUSH; RET`
 computed jump leaves the frame). RST frames end by SP alone (an inline `DEFW` makes their return
 point vary); the esxDOS shim's return (a slot that fetched no opcode) ends the RST $08 frame it
-serviced and only it. Trade-off: a routine that drops its return address and leaves by JP
-(`POP HL; JP (HL)`) looks like `banked_call`, so its frame stays on the stack until a RET ends
+serviced and only it. A `JP (HL)`/`JP (IX)`/`JP (IY)` ends the newest CALL frame when it lands on its return point, or when SP is above its slot and the routine holds no live stored copy of its return address (a callee prologue's PUSH / EX (SP) puts one there: a `__z88dk_callee` body's internal jumps keep the frame): sccz80's `EX (SP),HL`/`POP r; JP (r)` helpers and `l_case` (GH #349); `banked_call`'s `JP (HL)` is inside `l_jphl`'s own frame and ends nothing. Trade-off: a routine that drops its return address and leaves by a direct `JP nn` keeps its frame on the stack until a RET ends
 it by SP. Out from a function lands at the return
 address, mid-line on the call's own line, as gdb's `finish` does.
 

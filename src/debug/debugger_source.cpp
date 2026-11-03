@@ -607,6 +607,13 @@ const SourceLocation* Debugger::source_location(uint16_t addr) const {
     return m->lookup(source_page(addr), addr);
 }
 
+const SourceLocation* Debugger::source_location(MemSpace space, uint16_t addr) const {
+    impl_->recheck();
+    const SourceMap* m = impl_->live_sources();
+    if (!m || m->empty()) return nullptr;
+    return m->lookup(space, addr);
+}
+
 std::vector<uint32_t> Debugger::executed_source_lines(const std::string& file) const {
     std::vector<uint32_t> lines;
     if (!impl_->mem_cov) return lines;

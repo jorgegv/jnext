@@ -184,8 +184,8 @@ one block, in this order, first wins on every key (`SymbolTable::merge()`):
 3. the z88dk map's symbols, last, and only when **no** `Memory.txt` exists and its
    identity does not mismatch.
 
-The log says what was attached, by `log->info()`: `Loaded N SLD labels from '<file>'` (`log->info()`, `debugger_source.cpp:756`) and
-`Loaded N z88dk symbols from '<file>'` (`log->info()`, `:762`).
+The log says what was attached, by `log->info()`: `Loaded N SLD labels from '<file>'` (`log->info()`, `debugger_source.cpp:763`) and
+`Loaded N z88dk symbols from '<file>'` (`log->info()`, `:769`).
 
 If nothing attached, a previous program's Sidecar symbols are cleared, also when
 the new `Memory.txt` cannot be read (`SidecarLoad::symbols_unreadable`): a

@@ -94,10 +94,10 @@ the pause ownership and stop evidence exactly as `step_into()` sets them.
   `HALT` with interrupts disabled (`Warn`: "Source step stopped at a HALT with
   interrupts disabled"), because each Step there would spend two frames learning
   that only an NMI or a reset ends it; stop when the machine clock has advanced by
-  `SOURCE_STEP_FRAME_LIMIT` frames (100, `SOURCE_STEP_FRAME_LIMIT`, `debugger.h:1313`) since the start
+  `SOURCE_STEP_FRAME_LIMIT` frames (100, `SOURCE_STEP_FRAME_LIMIT`, `debugger.h:1316`) since the start
   (`Warn`); then the delivery below.
 - **The limit.** After `SOURCE_STEP_LIMIT` instructions (1,000,000,
-  `SOURCE_STEP_LIMIT`, `debugger.h:1309`) the step ends with a `Warn`.
+  `SOURCE_STEP_LIMIT`, `debugger.h:1312`) the step ends with a `Warn`.
 - **The delivery.** `debugger_step()` delivers no `Execute` event, because `run_frame()`
   does that before each instruction and a Step does not run through it. So between
   instructions the loop gives the next PC `run_frame()`'s treatment itself, in its
@@ -165,7 +165,73 @@ that SP alone is wrong for a routine that moves its own return address:
   ISR that interrupted it) would pop its frame.
 
 The price is stated in the code: a routine that drops its return address and leaves
-by `JP` (`banked_call` looks like this) keeps its frame until a `RET` ends it by SP.
+by a direct `JP nn` keeps its frame until a `RET` ends it by SP. (A routine that leaves by an
+indirect jump has its frame ended: below.)
+
+**A return with no `RET`** (GH #349). Some sccz80 runtime helpers return by an indirect jump, and
+some routines jump indirectly without returning. `CallStack::indirect_jump_to()`
+(`call_stack.cpp:96`) judges a `JP (HL)`, `JP (IX)` or `JP (IY)` when the newest frame is a
+`CALL` frame; the frame ends in two cases:
+
+- **A. The jump lands on the frame's return point** (`caller_pc + 3`), whatever SP is. The
+  `l_gintspsp` family (`l_gcharspsp`, `l_g2intspsp`, `l_g2charspsp`, `l_glong2sp`: sccz80's loads
+  of an `int`/`char` stack variable) swaps a value into the slot with `EX (SP),HL` and jumps with
+  SP at the slot or one `PUSH` below it. `l_long_sub`, `l_long_and`, `l_long_or`, `l_long_xor`,
+  `l_long_eq` and `l_long_ne` (`long` arithmetic and comparisons) `POP IX` the return address,
+  pop their arguments and `JP (IX)` with SP above the slot. Nothing but a return jumps to the
+  return point.
+- **B. SP is above the frame's slot and the frame has no live stored copy of its return
+  address.** `l_case`, `l_long_case` and `l_i64_case` (`switch`) `POP HL` the "return address" as
+  the inline case table, walk it and `JP (HL)` to a case label (or the default continuation) in
+  the caller: they store nothing back, so they have left.
+
+A *stored copy* is what tells a routine that has left from one that has only moved its return
+address up. A `__z88dk_callee` routine pops its return address and its arguments and pushes the
+return address back (`POP r; POP args; PUSH r`, or `...; EX (SP),r`), so SP is above its CALL's
+slot for the whole body, and its internal jumps are not returns. `CallStack::note_stack_store_()`
+(`call_stack.cpp:59`) records, in `CallFrame::ret_stored_at`, the address where a `PUSH qq`, `PUSH IX`,
+`PUSH IY`, Z80N `PUSH nn` or `EX (SP),HL/IX/IY` put `caller_pc + 3` above the slot of the newest
+`CALL` frame; the latest store wins. The copy is live (`CallStack::ret_copy_live_()`,
+`call_stack.cpp:69`) while it sits at or above SP and still holds that value. The words are read
+through a stack reader that `Emulator::Emulator()` (`emulator.cpp:42`) installs over `Mmu::peek()`
+(`mmu.h:367`), which has no watchpoint or latch side effect. Without a reader (the bare tracker
+rows) nothing is recorded and clause B is "SP above the slot".
+
+Then `pop_frames_to_sp()` ends the older frames whose slot is below SP. Only the newest frame is
+judged and recorded, so recursion (every deeper call is a newer frame at a lower SP) and an
+interrupt routine (its `INT` frame is the newest) cannot end an outer frame. Kept, on purpose:
+
+- **`bit_beep_raw_callee`** (`POP AF; POP HL; POP DE; PUSH AF; JP asm_bit_beep_raw`, which loops by
+  `JP (IX)` with SP four bytes above the slot) and any hand-written `__z88dk_callee` routine: the
+  copy is live.
+- **The classic retrofit callee shims** (`_clga_callee`, `_draw_callee`, ...: `LD HL,retaddr; EX
+  (SP),HL; LD (save),HL; JP (HL)`): SP is AT the slot, which clause B never ends.
+- **`banked_call`**: it `POP`s its return address but enters the target with `CALL l_jphl`; the
+  `JP (HL)` is in `l_jphl`'s own frame, at its slot, to a function (rows `SRCDBG-CS-21`,
+  `SRCSTEP-01` to `-03`, `-08`).
+
+The residuals, stated plainly. A routine that moves its return address above its slot by anything
+but `PUSH`/`EX (SP)` (`LD (IX+n),r`, `LDIR`) or holds it in a register, then jumps internally with SP
+above the slot, loses its frame early. A routine that drops its return address with SP left at or
+below its slot and jumps elsewhere keeps a stale frame until a `RET` ends it by SP (rex's
+`saveRegAlloc`; no z80 target), and so does one that pushes a value equal to `caller_pc + 3` that
+is not its return address. None of these occurs in either install's z80 libraries.
+
+The survey: every `JP (HL)`, `JP (IX)` and `JP (IY)` in both installs' `libsrc` (491 lines, 242
+distinct code windows; `EX (SP)` and `POP r` families included). G1, return by jump: clause A
+(`l_gintspsp` family, `l_long_*`, `l_i64_*`, `l_command_line_parse`, the math48 and mbf helpers,
+`asm_im2_push_registers`, the sdcc 64-bit callees and others). G2, return slot consumed with a jump
+into the caller: clause B (`l_case`, `l_long_case`, `l_i64_case`). G3, trampolines reached by
+`CALL` (`l_jphl`, `l_jpix`, `l_dcal`): SP at their own slot, kept. G4, call emulation (push a
+return label, jump to a function: FZX, cpm, `call_extrom`): SP below the slot, kept. G5, tail
+jumps to a function or state: kept, including after a callee prologue (the copy is live). G6, jumps
+within a routine's own body (`asm_bit_beep_raw`, `beeper`, SP1): kept, including with SP above
+the slot after a callee prologue. G7, other CPUs (Rabbit, GBZ80, 8080/8085): not applicable. Rows
+`SRCDBG-CS-16` to `-27`, `SRCSTEP-14` to `-48` on the `intarg`, `longsw` and `calleejp` z88dk
+fixtures and the `sjasmcallee` SLD fixture (`test/fixtures/z88dk/*/*-intarg`, `*-longsw`,
+`*-calleejp`; `test/fixtures/sjasmcallee`), `QCSP-04` to `-06` for the panel. There is no 80cc
+`calleejp` build: master's `-compiler=80cc` does not honour `__z88dk_callee` on an extern declaration.
+
 `CallStack::on_slot_without_fetch()` handles the esxDOS shim, which returns from
 the `RST $08` it serviced: that frame ends, and only that one.
 
@@ -180,7 +246,7 @@ correctly, which `v2.4/sccz80-banked-run` and `master/sdcc-banked-run`
   `SRCDBG-HIST-*` and `SRCDBG-GATE-*` (Back, Reverse Continue and the generation
   filter), `SRCDBG-CS-*` (the call stack's frame identities; `SRCDBG-CS-08` to `-15` pin the
   frame-ending rule above: the esxDOS shim, a `RET` used as a jump, `__z88dk_callee`,
-  `RETI`/`RETN`, an `RST` frame, an `INT` that ended a `HALT`).
+  `RETI`/`RETN`, an `RST` frame, an `INT` that ended a `HALT`; `SRCDBG-CS-16` to `-27` pin the jump rule).
 - `step_out_test` (the Step Out `RET` predicate, `check_step_out()`) and
   `rewind_call_stack_test` (the tracker restored across a rewind).
 - `script_events_test`: the DSL's `on execute FILE:LINE`.

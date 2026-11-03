@@ -45,6 +45,26 @@ if want ghidra-foreign-func; then
         if [[ ! -s "$gf_dir/G/P04.ghidra.txt" || ! -s "$gf_dir/G/view.ghidra.txt" ]]; then
             gf_faults+=("jnext wrote no P04.ghidra.txt/view.ghidra.txt: $(ls "$gf_dir/G" 2>&1 | tr '\n' ' ' || true)")
         else
+            # GH #349: z88dk module-local labels repeat (`end_x` in two library routines). The export writes a
+            # name once per file, and jnext's own importer (which refuses a name at two addresses) reads both files.
+            cp "$gf_map" "$gf_dir/dup.map"
+            printf '%s\n' "end_x                           = \$80CA ; addr, local, , asm_zx_cls_wc_attr, code_user, dsl_demo.asm:90" \
+                "end_x                           = \$8103 ; addr, local, , asm_zx_cls_wc_pix, code_user, dsl_demo.asm:120" >>"$gf_dir/dup.map"
+            timeout --foreground --kill-after=5s 90s "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine next \
+                --load "$gf_nex" --map "$gf_dir/dup.map" --coverage --export-ghidra "$gf_dir/G2" \
+                --delayed-automatic-exit-frames 100 >"$gf_dir/jnext-dup.log" 2>&1 || true
+            if [[ $(grep -c '^end_x ' "$gf_dir/G2/P04.ghidra.txt" || true) -ne 1 ||
+                  $(grep -c '^end_x ' "$gf_dir/G2/view.ghidra.txt" || true) -ne 1 ]]; then
+                gf_faults+=("a duplicated label name is not written exactly once in P04.ghidra.txt and view.ghidra.txt")
+            fi
+            for f in P04 view; do
+                rc=0
+                timeout --foreground --kill-after=5s 90s "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine next \
+                    --load "$gf_nex" --import-ghidra "$gf_dir/G2/$f.ghidra.txt" --delayed-automatic-exit-frames 20 \
+                    >"$gf_dir/jnext-imp-$f.log" 2>&1 || rc=$?
+                [[ $rc -eq 0 ]] || gf_faults+=("--import-ghidra of the duplicate-name export's $f file exit $rc")
+            done
+
             # The control: two valid labels around a space the program lacks.
             printf '%s\n' "ctl_first P04:0x8010 l" "ctl_second P1E:0x8010 l" "ctl_third P04:0x8018 l" >"$gf_dir/control.txt"
             head -c 65536 /dev/zero >"$gf_dir/zero.bin"

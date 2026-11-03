@@ -83,6 +83,15 @@ struct Imported {
 /// neither whitespace nor a control character (both formats split on whitespace).
 bool name_exportable(const std::string& name);
 
+/// GH #349 (R2): one name, one key. Both import formats refuse a name at two addresses, and the
+/// debugger's own labels hold one key per name (`UserAnnotations`); z88dk's module-local labels
+/// repeat (`end_x` in two library routines). Of the labels sharing an exportable name at
+/// different (memory, address) keys, the writer keeps the FIRST in a fixed order (unpaged
+/// labels, then memories by kind and index, then address) and drops the rest, each with a note
+/// naming the key that kept the name. Names that are not exportable pass through (the writers
+/// report them); the order of the kept labels is the input's.
+std::vector<Label> unique_names(const std::vector<Label>& labels, std::vector<std::string>& notes);
+
 }  // namespace reexport
 }  // namespace dbg
 }  // namespace jnext

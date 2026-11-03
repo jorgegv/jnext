@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <utility>
 #include <vector>
 
 #include "debug/mem_space.h"
@@ -29,6 +31,11 @@ struct CallFrame {
     //    cpu() until that instruction runs (and if none ever does).
     jnext::dbg::MemSpace caller_space = jnext::dbg::MemSpace::cpu();
     jnext::dbg::MemSpace target_space = jnext::dbg::MemSpace::cpu();
+    // GH #349 R1'': where the routine last stored its OWN return address (caller_pc + 3) above
+    // its slot, by PUSH or EX (SP), when the tracker has a stack reader. A __z88dk_callee
+    // prologue (POP r; POP args; PUSH r) moves the return address up this way.
+    bool ret_stored = false;
+    uint16_t ret_stored_at = 0;
 };
 
 /// Tracks CALL/RST/INT/RET to maintain a virtual call stack.
@@ -36,7 +43,11 @@ struct CallFrame {
 /// Call on_instruction_pre() before and on_instruction_post() after each
 /// instruction. The post-call compares SP to detect taken calls/rets.
 /// A frame ends when a RET lands on the newest CALL's return address, else
-/// when a RET raises SP above its return slot (GH #345).
+/// when a RET raises SP above its return slot (GH #345). A JP (HL)/(IX)/(IY) ends
+/// the newest CALL frame (GH #349) when it lands on its return point, or when SP is
+/// above its slot and the routine has no live stored copy of its return address
+/// (a callee prologue's PUSH / EX (SP)): sccz80's EX (SP),HL / POP r; JP (r) helpers
+/// and l_case end the frame, a __z88dk_callee body's internal jumps do not.
 class CallStack {
 public:
     /// Call before instruction execution to capture opcode and pre-SP.
@@ -81,6 +92,10 @@ public:
         have_pre_ = false;
     }
 
+    /// The stack bytes the callee-prologue test reads (`Mmu::peek()` in the emulator).
+    /// Unset, a JP (r) with SP above the slot always ends the frame (GH #349 R1'').
+    void set_stack_reader(std::function<uint8_t(uint16_t)> peek) { peek_ = std::move(peek); }
+
     bool enabled() const { return enabled_; }
     /// A change of state empties the tracker: while it is off the hooks do not
     /// run, so the frames it holds describe a history it stopped observing.
@@ -96,8 +111,13 @@ private:
                     jnext::dbg::MemSpace caller_space);
     void pop_frames_to_sp(uint16_t sp);
     void return_to(uint16_t sp, uint16_t pc);
+    uint16_t peek16_(uint16_t addr) const;
+    void note_stack_store_(uint16_t new_sp);
+    bool ret_copy_live_(const CallFrame& f, uint16_t sp) const;
+    void indirect_jump_to(uint16_t sp, uint16_t pc);
 
     std::vector<CallFrame> frames_;
+    std::function<uint8_t(uint16_t)> peek_;
     bool enabled_ = false;
 
     // Pre-execution state captured by on_instruction_pre()

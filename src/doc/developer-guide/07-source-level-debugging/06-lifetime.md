@@ -145,9 +145,9 @@ where the loader puts the bytes.
   checks (`set_verify_window()`). While it is set the machine is armed (`verify_hold_`
   is an `armed()` contributor of its own, with `magic_hold_`, in `refresh_gates_()` and
   `SuspendScope`). The emulator asks `verify_window_hit(pc)`, two compares, first in
-  `run_frame()`'s armed block (`verify_window_hit`, `emulator.cpp:10058`), before `consume_step_off()`, the
+  `run_frame()`'s armed block (`verify_window_hit`, `emulator.cpp:10061`), before `consume_step_off()`, the
   legacy breakpoint test and the execute gate, and in `step_frame_slot()` for a debugger
-  Step (`verify_window_hit`, `emulator.cpp:11481`).
+  Step (`verify_window_hit`, `emulator.cpp:11484`).
 - **The verdict is recorded, not applied.** On a hit, `Impl::verify_hook(pc)` takes
   `predict_fetch(pc)`, finds the spans of each check that contain `pc` in *that exact
   memory*, judges each unit now with `verify_identity_unit()` (through
@@ -201,8 +201,8 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   `Verified ... the dot command in <space> matches its binary identity`) and keeps the check: it is
   never finished (`checks.push_back` at `debugger_source.cpp:430`), so a later entry that does not match puts the map back
   to pending.
-- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:952`): for a user's map that is a dot map,
-  `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:961-970`); the checks are
+- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:959`): for a user's map that is a dot map,
+  `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:968-977`); the checks are
   re-derived by `dot_landing(fresh)` (`debugger_source.cpp:233`). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (`dot_landing()` skips the others) to `dot_reset()`: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.

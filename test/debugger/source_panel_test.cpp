@@ -2290,6 +2290,120 @@ void test_call_stack_non_page_caller() {
           "frames " + std::to_string(f.size()) + " cell '" + s(cell(cs, 0, 4)) + "'");
 }
 
+// ── QCSP-04 (GH #349 R1): a helper that returns by EX (SP),HL; JP (HL) ─────
+//
+// sccz80's l_gintspsp family leaves by JP (HL) with no RET. Oracle: the library
+// source (libsrc/l/sccz80/8-8080/l_gintspsp.asm). The Call Stack lists the helper's
+// CALL while it runs and no row for it after the jump.
+
+void test_call_stack_jump_return() {
+    Fixture fx;
+    fx.enable();
+    const uint8_t helper[] = {0x21, 0x34, 0x12, 0xE3, 0xE9};   // LD HL,$1234; EX (SP),HL; JP (HL)
+    for (size_t i = 0; i < sizeof(helper); ++i)
+        fx.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), helper[i]);
+    fx.emu.mmu().write(0x8000, 0xCD);   // CALL $9000
+    fx.emu.mmu().write(0x8001, 0x00);
+    fx.emu.mmu().write(0x8002, 0x90);
+    fx.backend->set_call_stack_enabled(true);
+    CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+    const auto rows = [&]() {
+        if (!cs) return -1;
+        cs->set_paused(true);
+        cs->refresh();
+        auto* t = cs->findChild<QTableWidget*>();
+        return t ? t->rowCount() : -1;
+    };
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $9000
+    const int open = rows();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // LD HL
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // EX (SP),HL
+    const int mid = rows();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // JP (HL) to $8003
+    const int closed = rows();
+    check("QCSP-04", "the Call Stack shows the helper's CALL until its JP (HL) reaches the return point "
+                     "($8003), then no row for it",
+          fx.pc() == 0x8003 && open == 1 && mid == 1 && closed == 0,
+          "pc " + std::to_string(fx.pc()) + " rows " + std::to_string(open) + "/" + std::to_string(mid) +
+              "/" + std::to_string(closed));
+}
+
+// ── QCSP-05 (GH #349 R1'): a helper that POPs its return slot and leaves by JP (HL) ─────
+//
+// sccz80's l_case takes the inline case table with POP HL and jumps to a case label in the
+// caller. Oracle: libsrc/l/sccz80/9-common/l_case.asm. The Call Stack lists the helper's CALL
+// while it runs and no row for it after the jump.
+
+void test_call_stack_case_jump() {
+    Fixture fx;
+    fx.enable();
+    const uint8_t helper[] = {0xE1, 0xE9};   // POP HL; JP (HL): the table holds a NOP at $8003 (HL = $8003)
+    for (size_t i = 0; i < sizeof(helper); ++i)
+        fx.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), helper[i]);
+    fx.emu.mmu().write(0x8000, 0xCD);   // CALL $9000
+    fx.emu.mmu().write(0x8001, 0x00);
+    fx.emu.mmu().write(0x8002, 0x90);
+    fx.backend->set_call_stack_enabled(true);
+    CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+    const auto rows = [&]() {
+        if (!cs) return -1;
+        cs->set_paused(true);
+        cs->refresh();
+        auto* t = cs->findChild<QTableWidget*>();
+        return t ? t->rowCount() : -1;
+    };
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $9000
+    const int open = rows();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // POP HL (the return slot is consumed)
+    const int mid = rows();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // JP (HL) to $8003
+    const int closed = rows();
+    check("QCSP-05", "the Call Stack shows the helper's CALL until its JP (HL), taken after POP HL consumed "
+                     "the return slot, leaves, then no row for it",
+          fx.pc() == 0x8003 && open == 1 && mid == 1 && closed == 0,
+          "pc " + std::to_string(fx.pc()) + " rows " + std::to_string(open) + "/" + std::to_string(mid) +
+              "/" + std::to_string(closed));
+}
+
+// ── QCSP-06 (GH #349 R1''): a callee body keeps its frame across an internal JP (HL) ─────
+//
+// A __z88dk_callee routine moves its return address UP (POP HL; POP DE; PUSH HL) and runs on with SP
+// above its CALL's slot; its internal JP (HL) is not a return. Oracle: libsrc/sound/bit/c/sccz80/
+// bit_beep_raw_callee.asm. The Call Stack shows the CALL until the RET.
+
+void test_call_stack_callee_jump() {
+    Fixture fx;
+    fx.enable();
+    const uint8_t caller[] = {0xE5, 0xCD, 0x00, 0x90};                 // PUSH HL; CALL $9000
+    const uint8_t callee[] = {0xE1, 0xD1, 0xE5, 0x21, 0x08, 0x90, 0xE9, 0x00, 0xC9};
+    // POP HL; POP DE; PUSH HL; LD HL,$9008; JP (HL); NOP; RET at $9008
+    for (size_t i = 0; i < sizeof(caller); ++i) fx.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), caller[i]);
+    for (size_t i = 0; i < sizeof(callee); ++i) fx.emu.mmu().write(static_cast<uint16_t>(0x9000 + i), callee[i]);
+    fx.backend->set_call_stack_enabled(true);
+    CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+    const auto rows = [&]() {
+        if (!cs) return -1;
+        cs->set_paused(true);
+        cs->refresh();
+        auto* t = cs->findChild<QTableWidget*>();
+        return t ? t->rowCount() : -1;
+    };
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // PUSH HL
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // CALL $9000
+    const int open = rows();
+    for (int i = 0; i < 4; ++i) fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // POP, POP, PUSH, LD
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // JP (HL) to $9008, SP above the CALL's slot
+    const int after_jump = rows();
+    const unsigned jump_pc = fx.pc();
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // RET
+    const int closed = rows();
+    check("QCSP-06", "the Call Stack keeps a callee body's CALL across its internal JP (HL) (SP above the CALL's "
+                     "slot, the return address stored back by PUSH) and drops it at the RET [837a4ee71: 0 rows after the JP]",
+          jump_pc == 0x9008 && fx.pc() == 0x8004 && open == 1 && after_jump == 1 && closed == 0,
+          "rows " + std::to_string(open) + "/" + std::to_string(after_jump) + "/" + std::to_string(closed) +
+              " pc " + std::to_string(fx.pc()));
+}
+
 }  // namespace
 
 // ── GH #337: Debug > Source ───────────────────────────────────────────
@@ -7446,6 +7560,9 @@ int main(int argc, char** argv) {
     test_sld_labels_menu();
     test_sld_labels_add_execute();
     test_call_stack_non_page_caller();
+    test_call_stack_jump_return();
+    test_call_stack_case_jump();
+    test_call_stack_callee_jump();
     test_source_menu();
     test_z88dk_source_map();
     test_dot_command();
