@@ -116,26 +116,6 @@ std::string VideoRecorder::quote_arg(const std::string& arg, CmdStyle style)
     return out;
 }
 
-std::string VideoRecorder::build_probe_command(CmdStyle style)
-{
-    // `>/dev/null 2>&1` is shell syntax, and on Windows /dev/null is just a
-    // path that does not exist — cmd.exe would try to create \dev\null on the
-    // current drive. GH #56 reports the consequence as ffmpeg_available()
-    // always returning false, leaving File > Record MPEG4 Video permanently
-    // greyed out. NOT INDEPENDENTLY CONFIRMED here: the only Windows-ish
-    // runtime on the dev host is wine, whose file layer special-cases
-    // /dev/null, so it cannot answer the question either way. What IS
-    // confirmed is that the POSIX quoting below made the encode itself
-    // impossible regardless of the probe.
-    //
-    // The Windows command carries no redirection at all: there is no shell to
-    // interpret one, and win_run_hidden() points the child's stdio at NUL
-    // through STARTUPINFO instead.
-    if (style == CmdStyle::Posix)
-        return "ffmpeg -version >/dev/null 2>&1";
-    return "ffmpeg -version";
-}
-
 std::string VideoRecorder::build_encode_command(const EncodeSpec& spec, CmdStyle style)
 {
     std::ostringstream cmd;

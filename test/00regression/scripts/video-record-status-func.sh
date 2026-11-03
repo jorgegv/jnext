@@ -12,13 +12,13 @@ if want video-record-status-func; then
     failed_file="$TMP_DIR/jnext_test_failed_recording.mp4"
     empty_file="$TMP_DIR/jnext_test_empty_recording.mp4"
     fake_bin="$TMP_DIR/fake-ffmpeg-bin"
+    mkdir -p "$TMP_DIR/no-ffmpeg-bin"   # an empty PATH directory: ffmpeg not found, so start() refuses (GH #446)
     mkdir -p "$fake_bin"
     # The directory of `timeout`, so the restricted PATH below still finds it
     # where it is not in /usr/bin (macOS: Homebrew coreutils). /usr/bin on Linux.
     vr_tool_dir=$(dirname "$(command -v timeout)")
     {
         echo '#!/bin/sh'
-        echo '[ "$JNEXT_TEST_FFMPEG_MODE" = "probe-fail" ] && exit 41'
         echo '[ "$1" = "-version" ] && exit 0'
         echo 'for output_path do :; done'
         echo '[ "$JNEXT_TEST_FFMPEG_MODE" = "empty-success" ] && exit 0'
@@ -43,8 +43,8 @@ if want video-record-status-func; then
     # non-empty file so the recorder must remove it before encoding; merely
     # checking "a non-empty file exists afterwards" would accept the stale one.
     printf 'stale recording\n' > "$empty_file"
-    if start_out=$(PATH="$fake_bin:$vr_tool_dir:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=probe-fail \
-        timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
+    if start_out=$(PATH="$TMP_DIR/no-ffmpeg-bin" \
+        "$(command -v timeout)" --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --record "$start_file" \
         --delayed-automatic-exit-frames 5 2>&1); then
         start_rc=0
@@ -93,8 +93,8 @@ if want video-record-status-func; then
     # wall-clock bound.
     abort_file="$TMP_DIR/jnext_test_abort_early.mp4"
     abort_t0=$(date +%s)
-    if abort_out=$(PATH="$fake_bin:$vr_tool_dir:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=probe-fail \
-        timeout --foreground --kill-after=5s 40s "$JNEXT" --headless \
+    if abort_out=$(PATH="$TMP_DIR/no-ffmpeg-bin" \
+        "$(command -v timeout)" --foreground --kill-after=5s 40s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --record "$abort_file" \
         --delayed-automatic-exit-frames 500000 2>&1); then
         abort_rc=0

@@ -94,11 +94,6 @@ public:
     /// The ffmpeg command line stop() runs to mux the recording.
     static std::string build_encode_command(const EncodeSpec& spec, CmdStyle style);
 
-    /// The command line that used to probe for ffmpeg (`ffmpeg -version`).
-    /// No longer run (GH #446: the probe is a PATH lookup); kept with its
-    /// VREC-PR rows.
-    static std::string build_probe_command(CmdStyle style);
-
     /// Start recording to `output_path` (e.g. "/tmp/recording.mp4").
     /// Returns true on success.
     bool start(const std::string& output_path);

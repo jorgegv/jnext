@@ -245,25 +245,6 @@ int main()
     }
 
     // ---------------------------------------------------------------
-    // The probe — the command that decided the menu item was greyed out.
-    // ---------------------------------------------------------------
-    {
-        const std::string got = VideoRecorder::build_probe_command(Style::Posix);
-        check("VREC-PR-01", "the POSIX probe discards output with >/dev/null 2>&1",
-              got == "ffmpeg -version >/dev/null 2>&1",
-              got_want(got, "ffmpeg -version >/dev/null 2>&1"));
-    }
-    {
-        // THE bug. /dev/null in a cmd.exe command line is a nonexistent path,
-        // so the probe could never return 0 on Windows.
-        const std::string got = VideoRecorder::build_probe_command(Style::Windows);
-        check("VREC-PR-02", "the Windows probe carries no /dev/null redirection",
-              !contains(got, "/dev/null"), got_want(got, "no /dev/null"));
-        check("VREC-PR-03", "the Windows probe is a bare argv line (stdio is redirected by the spawner)",
-              got == "ffmpeg -version", got_want(got, "ffmpeg -version"));
-    }
-
-    // ---------------------------------------------------------------
     // The encode command.
     // ---------------------------------------------------------------
     {
