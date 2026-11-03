@@ -1255,6 +1255,7 @@ target_include_directories(source_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # SRCDBG-Z88-* (GH #344) load the committed z88dk fixtures and nodebug.map.
 target_compile_definitions(source_debug_test PRIVATE
     JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ"
+    JNEXT_SJASMCALLEE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmcallee"
     JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk"
     JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
 add_test(NAME source_debug_tests COMMAND source_debug_test)
