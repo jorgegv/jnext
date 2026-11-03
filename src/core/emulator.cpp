@@ -40,6 +40,9 @@
 // ---------------------------------------------------------------------------
 
 Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
+    // GH #349 R1'': the call-stack tracker reads stack words without side effects (a watchpoint
+    // or the +3 latch must not see the debugger's read). Same lifetime as mmu_.
+    call_stack_.set_stack_reader([this](uint16_t a) { return mmu_.peek(a); });
     // Task 3 Input runtime wiring: install the MembraneStick back-pointer
     // on Keyboard so read_rows() AND-folds joystick→membrane directions
     // per VHDL `zxnext_top_issue4.vhd:1843`. Done once in the ctor because

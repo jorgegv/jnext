@@ -49,32 +49,56 @@ void CallStack::return_to(uint16_t sp, uint16_t pc) {
     pop_frames_to_sp(sp);
 }
 
-// GH #349 (R1, R1'): a routine that returns without a RET. Two shapes, both
-// ending the NEWEST frame when it is a CALL frame and the instruction was a
-// JP (HL) / JP (IX) / JP (IY) (the jump moves no SP):
-//  * Lands on the frame's own return point (caller_pc + 3), whatever SP is.
-//    sccz80's `l_gintspsp` family swaps a value into the slot (`EX (SP),HL;
-//    JP (HL)`, SP at or below the slot); its `l_long_sub/and/or/xor/eq/ne` do
-//    `POP IX`, pop their arguments and `JP (IX)` (SP above the slot). Nothing
-//    but a return jumps to the return point.
-//  * Leaves with the return slot already consumed (new_sp > sp_at_call):
-//    `l_case`, `l_long_case`, `l_i64_case` `POP HL` the "return address" as
-//    their inline case table and `JP (HL)` to a case label in the caller. A
-//    routine that has taken its return address off the stack and leaves by an
-//    indirect jump has left, wherever it goes.
-// Then the older frames whose slot is below SP end by the SP rule. The
-// explicit negatives: `banked_call` pops its return address too, but enters
-// the target with `CALL l_jphl`; the JP (HL) is inside `l_jphl`, whose frame is
-// the newest one and whose slot is at SP, and the jump goes to a function, not
-// to its return point: nothing ends (SRCSTEP-01..03, -08). Recursion (every
-// deeper call is a newer frame at a lower SP) and an interrupt routine (its INT
-// frame is the newest) cannot close an outer frame.
+uint16_t CallStack::peek16_(uint16_t addr) const {
+    return static_cast<uint16_t>(peek_(addr) | (peek_(static_cast<uint16_t>(addr + 1)) << 8));
+}
+
+// GH #349 R1'': after a PUSH or EX (SP),r the newest CALL frame may have stored its OWN
+// return address (caller_pc + 3) above its slot: a __z88dk_callee prologue (POP r; POP args;
+// PUSH r). Record where; the latest store wins. Without a reader nothing is recorded.
+void CallStack::note_stack_store_(uint16_t new_sp) {
+    if (!peek_ || frames_.empty()) return;
+    CallFrame& f = frames_.back();
+    if (f.type != CallType::CALL || new_sp <= f.sp_at_call) return;
+    if (peek16_(new_sp) != static_cast<uint16_t>(f.caller_pc + 3)) return;
+    f.ret_stored = true;
+    f.ret_stored_at = new_sp;
+}
+
+// The stored copy is live while it sits at or above SP and still holds the return address.
+bool CallStack::ret_copy_live_(const CallFrame& f, uint16_t sp) const {
+    return peek_ && f.ret_stored && f.ret_stored_at >= sp &&
+           peek16_(f.ret_stored_at) == static_cast<uint16_t>(f.caller_pc + 3);
+}
+
+// GH #349 (R1, R1', R1''): a routine that returns without a RET. A JP (HL) / JP (IX) /
+// JP (IY) (the jump moves no SP) ends the NEWEST frame, when it is a CALL frame, if:
+//  * A. it lands on the frame's own return point (caller_pc + 3), whatever SP is. sccz80's
+//    `l_gintspsp` family swaps a value into the slot (`EX (SP),HL; JP (HL)`, SP at or
+//    below the slot); `l_long_sub/and/or/xor/eq/ne` `POP IX`, pop their arguments and
+//    `JP (IX)` (SP above the slot). Nothing but a return jumps to the return point.
+//  * B. SP is above the frame's slot and the routine has no live stored copy of its return
+//    address. `l_case`, `l_long_case`, `l_i64_case` `POP HL` the "return address" as the inline
+//    case table and `JP (HL)` into the caller, storing nothing back: the routine has left.
+// Then the older frames whose slot is below SP end by the SP rule.
+// Negatives, kept: a __z88dk_callee body (`bit_beep_raw_callee`: POP AF; POP HL; POP DE;
+// PUSH AF; JP asm_bit_beep_raw, which loops by JP (IX)) has SP above its slot but PUSHed its
+// return address back, which note_stack_store_() recorded and which is still at or above SP;
+// the classic retrofit callee shims jump with SP AT the slot; `banked_call` pops its return
+// address but enters the target with `CALL l_jphl`, and that JP (HL) is in l_jphl's own frame at
+// its slot. Recursion (deeper calls are newer frames) and an interrupt routine (its INT frame is
+// newest) cannot close an outer frame.
+// Residual, stated: a routine that moves its return address above its slot by anything but
+// PUSH / EX (SP) (LD (IX+n),r, LDIR) or holds it in a register, then jumps internally with SP
+// above the slot, loses its frame early; a routine that drops its return address with SP left
+// at or below its slot and jumps elsewhere keeps a stale frame until a RET ends it by SP; so does
+// one that pushes a value equal to caller_pc + 3 that is not its return address.
 void CallStack::indirect_jump_to(uint16_t sp, uint16_t pc) {
     if (frames_.empty()) return;
     const CallFrame& f = frames_.back();
     if (f.type != CallType::CALL) return;
     const bool to_return_point = static_cast<uint16_t>(f.caller_pc + 3) == pc;
-    const bool slot_consumed   = sp > f.sp_at_call;
+    const bool slot_consumed   = sp > f.sp_at_call && !ret_copy_live_(f, sp);
     if (!to_return_point && !slot_consumed) return;
     frames_.pop_back();
     pop_frames_to_sp(sp);
@@ -144,6 +168,11 @@ void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc,
             case 0xFF: push_frame(pre_pc_, 0x38, new_sp, CallType::RST, fetched); return;
             default: break;
         }
+
+        // PUSH qq / IX / IY / Z80N PUSH nn: the routine may be storing its return address back.
+        if (op == 0xC5 || op == 0xD5 || op == 0xE5 || op == 0xF5 ||
+            ((op == 0xDD || op == 0xFD) && pre_op2_ == 0xE5) || (op == 0xED && pre_op2_ == 0x8A))
+            note_stack_store_(new_sp);
     }
 
     // Detect taken RETs: SP increased by 2 (return address was popped)
@@ -163,6 +192,11 @@ void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc,
             return;
         }
     }
+
+    // EX (SP),HL / IX / IY: the same store, SP unchanged (GH #349 R1'').
+    if (new_sp == pre_sp_ &&
+        (pre_opcode_ == 0xE3 || ((pre_opcode_ == 0xDD || pre_opcode_ == 0xFD) && pre_op2_ == 0xE3)))
+        note_stack_store_(new_sp);
 
     // JP (HL), JP (IX), JP (IY): a return by jump (GH #349 R1).
     if (new_sp == pre_sp_ &&
