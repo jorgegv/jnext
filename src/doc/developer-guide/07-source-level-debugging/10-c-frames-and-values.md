@@ -84,7 +84,7 @@ writer, from two things:
 `sync_call_stack()` reads the client list and the live source map directly (never `recheck()` or the
 replay-guarded `clients_attached()`), so it cannot recurse, and it runs wherever an input changes: a request,
 an attach or detach, `recheck()`, a source map loaded or cleared, the program sidecars, a reconstruct.
-`CallStack::set_enabled()` empties the tracker only on a change. `call_stack_enabled()` returns the effective state.
+`CallStack::set_enabled()` empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a panel that switched the tracker directly on the `Emulator` is not undone by an attach that changes nothing derived. `call_stack_enabled()` returns the effective state.
 
 ## Fixtures and rows
 

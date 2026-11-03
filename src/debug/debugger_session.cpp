@@ -125,7 +125,7 @@ void Debugger::Impl::clients_changed() {
     sync_call_stack();
 }
 
-void Debugger::Impl::sync_call_stack() {
+void Debugger::Impl::sync_call_stack(bool force) {
     bool asked = false;      // some live client asked for tracking
     bool driven = false;     // a live non-observer client is attached
     for (const auto& c : clients) {
@@ -141,7 +141,8 @@ void Debugger::Impl::sync_call_stack() {
         const auto vs = m ? m->variables() : nullptr;
         on = vs && (!vs->functions().empty() || !vs->variables().empty());
     }
-    emu.call_stack().set_enabled(on);
+    if ((force && on) || on != call_stack_derived) emu.call_stack().set_enabled(on);
+    call_stack_derived = on;
 }
 
 void Debugger::Impl::compact_clients() {

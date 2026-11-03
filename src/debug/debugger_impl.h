@@ -512,7 +512,12 @@ struct Debugger::Impl {
     /// input changes: a request, an attach or detach, `recheck()`, a source map loaded or
     /// cleared, the program sidecars, a reconstruct. `CallStack::set_enabled()` empties the
     /// tracker only on a change.
-    void sync_call_stack();
+    /// The tracker is written only when the derived state CHANGES (`call_stack_derived`), or
+    /// with `force` and the state on (a reconstruct may have replaced the machine, whose own state is off): a
+    /// panel that switched the tracker directly on the `Emulator` (pre-package Q, CTL-12-55) is
+    /// not undone by an attach, a detach or an in-place landing that changes nothing derived.
+    void sync_call_stack(bool force = false);
+    bool call_stack_derived = false;
 
     /// Drop the tombstones. Called only where no fan-out loop is walking the
     /// vector.
