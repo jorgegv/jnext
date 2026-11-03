@@ -14,9 +14,11 @@
 // Every row drives the real TurboSound and an INDEPENDENT reference (struct Ref
 // below) with identical inputs. The reference shares no TurboSound code: it is
 // three standalone AyChips, marked dirty before every tick (so each recomputes
-// its output every tick, the old behaviour), ticked by the turbosound.vhd rule
-// (AY#0 always, AY#1/#2 when enabled or selected) and mixed by the VHDL formula
-// written out again here, every tick. A mutation in TurboSound (a skipped chip
+// its output every tick, the old behaviour), ticked by turbosound.cpp's rule
+// (AY#0 always, AY#1/#2 when enabled or selected; this is jnext's own gating, NOT
+// the VHDL's: there all three chips run on an ungated clock_en_i, turbosound.vhd:
+// 162/217/272, and enable/select gate only the output; tracked as GH #442) and
+// mixed by the VHDL formula written out again here, every tick. A mutation in TurboSound (a skipped chip
 // tick, a lost dirty flag) therefore moves only the side under test. After every
 // tick the PCM mix, every per-chip PCM and every chip output are compared, and
 // the real TurboSound must report its per-chip PCM valid.
