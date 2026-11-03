@@ -666,63 +666,64 @@ vars.c::sum::0::2:
     34  0014  dd5e08dd5609      	ld	de,(ix+8)
     34  001a  dd6e0add660b      	ld	hl,(ix+10)
     34  0020  19                	add	hl,de
-    34  0021  dd7e04            	ld	a,(ix+4)
-    34  0024  ed31              	add	hl,a
-    34  0026  d1                	pop	de
-    34  0027  e5                	push	hl
+    34  0021  dd5e04            	ld	e,(ix+4)
+    34  0024  1600              	ld	d,0
+    34  0026  19                	add	hl,de
+    34  0027  d1                	pop	de
+    34  0028  e5                	push	hl
     34                          	C_LINE	35,"vars.c::sum::0::2"
-    35  0028  7c                	ld	a,h
-    35  0029  07                	rlca
-    35  002a  9f                	sbc	a,a
-    35  002b  5f                	ld	e,a
-    35  002c  57                	ld	d,a
-    35  002d  d5                	push	de
-    35  002e  e5                	push	hl
-    35  002f  29                	add	hl,hl
-    35  0030  cb13              	rl	e
-    35  0032  cb12              	rl	d
-    35  0034  c1                	pop	bc
-    35  0035  09                	add	hl,bc
-    35  0036  eb                	ex	de,hl
-    35  0037  c1                	pop	bc
-    35  0038  ed4a              	adc	hl,bc
-    35  003a  eb                	ex	de,hl
-    35  003b  dd75fadd74fb      	ld	(ix-6),hl
-    35  0041  dd73fcdd72fd      	ld	(ix-4),de
+    35  0029  7c                	ld	a,h
+    35  002a  07                	rlca
+    35  002b  9f                	sbc	a,a
+    35  002c  5f                	ld	e,a
+    35  002d  57                	ld	d,a
+    35  002e  d5                	push	de
+    35  002f  e5                	push	hl
+    35  0030  29                	add	hl,hl
+    35  0031  cb13              	rl	e
+    35  0033  cb12              	rl	d
+    35  0035  c1                	pop	bc
+    35  0036  09                	add	hl,bc
+    35  0037  eb                	ex	de,hl
+    35  0038  c1                	pop	bc
+    35  0039  ed4a              	adc	hl,bc
+    35  003b  eb                	ex	de,hl
+    35  003c  dd75fadd74fb      	ld	(ix-6),hl
+    35  0042  dd73fcdd72fd      	ld	(ix-4),de
     35                          	C_LINE	36,"vars.c::sum::0::2"
-    36  0047  dd6e06dd6607      	ld	hl,(ix+6)
-    36  004d  7c                	ld	a,h
-    36  004e  b5                	or	l
-    36  004f  2816              	jr	z,L_f1_bb_2
+    36  0048  dd6e06dd6607      	ld	hl,(ix+6)
+    36  004e  7c                	ld	a,h
+    36  004f  b5                	or	l
+    36  0050  2816              	jr	z,L_f1_bb_2
     36                          	C_LINE	38,"vars.c::sum::0::2"
-    38  0051  7e23              	ld	a,(hl+)
-    38  0053  56                	ld	d,(hl)
-    38  0054  5f                	ld	e,a
+    38  0052  7e23              	ld	a,(hl+)
+    38  0054  56                	ld	d,(hl)
+    38  0055  5f                	ld	e,a
     38                          	C_LINE	39,"vars.c::sum::0::2"
-    39  0055  e1                	pop	hl
-    39  0056  19                	add	hl,de
-    39  0057  e5                	push	hl
+    39  0056  e1                	pop	hl
+    39  0057  19                	add	hl,de
+    39  0058  e5                	push	hl
     39                          	C_LINE	38,"vars.c::sum::0::2"
-    38  0058  dd6e06dd6607      	ld	hl,(ix+6)
-    38  005e  23                	inc	hl
+    38  0059  dd6e06dd6607      	ld	hl,(ix+6)
     38  005f  23                	inc	hl
-    38  0060  7e23              	ld	a,(hl+)
-    38  0062  56                	ld	d,(hl)
-    38  0063  5f                	ld	e,a
+    38  0060  23                	inc	hl
+    38  0061  7e23              	ld	a,(hl+)
+    38  0063  56                	ld	d,(hl)
+    38  0064  5f                	ld	e,a
     38                          	C_LINE	39,"vars.c::sum::0::2"
-    39  0064  e1                	pop	hl
-    39  0065  19                	add	hl,de
-    39  0066  e5                	push	hl
+    39  0065  e1                	pop	hl
+    39  0066  19                	add	hl,de
+    39  0067  e5                	push	hl
     39                          L_f1_bb_2:
     39                          	C_LINE	41,"vars.c::sum::0::2"
-    41  0067  dd6efadd66fb      	ld	hl,(ix-6)
-    41  006d  eb                	ex	de,hl
-    41  006e  e1                	pop	hl
-    41  006f  e5                	push	hl
-    41  0070  19                	add	hl,de
-    41  0071  ddf9              	ld	sp,ix
-    41  0073  dde1              	pop	ix
-    41  0075  c9                	ret
+    41  0068  dd6efadd66fb      	ld	hl,(ix-6)
+    41  006e  eb                	ex	de,hl
+    41  006f  e1                	pop	hl
+    41  0070  e5                	push	hl
+    41  0071  19                	add	hl,de
+    41  0072  ddf9              	ld	sp,ix
+    41  0074  dde1              	pop	ix
+    41  0076  c9                	ret
     41                          	C_LINE	44,"vars.c::sum::0::2"
     44                          
     44                          ; Function main flags 0x00000000 __stdc
@@ -730,123 +731,118 @@ vars.c::sum::0::2:
     44                          	C_LINE	45,"vars.c::main::0::3"
 vars.c::main::0::3:
     45                          ._main
-    45  0076  dde5              	push	ix
-    45  0078  dd210000          	ld	ix,0
-    45  007c  dd39              	add	ix,sp
-    45  007e  21e7ff            	ld	hl,-25
-    45  0081  39                	add	hl,sp
-    45  0082  f9                	ld	sp,hl
+    45  0077  dde5              	push	ix
+    45  0079  dd210000          	ld	ix,0
+    45  007d  dd39              	add	ix,sp
+    45  007f  21e9ff            	ld	hl,-23
+    45  0082  39                	add	hl,sp
+    45  0083  f9                	ld	sp,hl
     45                          	C_LINE	49,"vars.c::main::0::6"
 vars.c::main::0::6:
-    49  0083  3e78              	ld	a,120
-    49  0085  dd77f5            	ld	(ix-11),a
+    49  0084  3e78              	ld	a,120
+    49  0086  dd77f7            	ld	(ix-9),a
     49                          	C_LINE	52,"vars.c::main::0::6"
-    52  0088  210000            	ld	hl,0
-    52  008b  39                	add	hl,sp
-    52  008c  3603              	ld	(hl),3
-    52  008e  23                	inc	hl
-    52  008f  3600              	ld	(hl),0
-    52  0091  210200            	ld	hl,2
-    52  0094  39                	add	hl,sp
-    52  0095  3604              	ld	(hl),4
-    52  0097  23                	inc	hl
-    52  0098  3600              	ld	(hl),0
-    52  009a  210400            	ld	hl,4
-    52  009d  39                	add	hl,sp
-    52  009e  3605              	ld	(hl),5
+    52  0089  210000            	ld	hl,0
+    52  008c  39                	add	hl,sp
+    52  008d  3603              	ld	(hl),3
+    52  008f  23                	inc	hl
+    52  0090  3600              	ld	(hl),0
+    52  0092  210200            	ld	hl,2
+    52  0095  39                	add	hl,sp
+    52  0096  3604              	ld	(hl),4
+    52  0098  23                	inc	hl
+    52  0099  3600              	ld	(hl),0
+    52  009b  210400            	ld	hl,4
+    52  009e  39                	add	hl,sp
+    52  009f  3605              	ld	(hl),5
     52                          	C_LINE	53,"vars.c::main::0::6"
-    53  00a0  210000            	ld	hl,0
-    53  00a3  39                	add	hl,sp
-    53  00a4  dd75fadd74fb      	ld	(ix-6),hl
+    53  00a1  210000            	ld	hl,0
+    53  00a4  39                	add	hl,sp
+    53  00a5  dd75fcdd74fd      	ld	(ix-4),hl
     53                          	C_LINE	54,"vars.c::main::0::6"
-    54  00aa  21a086            	ld	hl,34464
-    54  00ad  110100            	ld	de,1
-    54  00b0  dd75f6dd74f7      	ld	(ix-10),hl
-    54  00b6  dd73f8dd72f9      	ld	(ix-8),de
+    54  00ab  21a086            	ld	hl,34464
+    54  00ae  110100            	ld	de,1
+    54  00b1  dd75f8dd74f9      	ld	(ix-8),hl
+    54  00b7  dd73fadd72fb      	ld	(ix-6),de
     54                          	C_LINE	55,"vars.c::main::0::6"
-    55  00bc  af                	xor	a
-    55  00bd  dd77f4            	ld	(ix-12),a
+    55  00bd  af                	xor	a
+    55  00be  dd77f6            	ld	(ix-10),a
     55                          	C_LINE	56,"vars.c::main::0::6"
-    56  00c0  210500            	ld	hl,5
-    56  00c3  39                	add	hl,sp
+    56  00c1  210500            	ld	hl,5
+    56  00c4  39                	add	hl,sp
     56                          L_f2_bb_1:
     56                          	C_LINE	55,"vars.c::main::0::6"
-    55  00c4  dd7ef4            	ld	a,(ix-12)
-    55  00c7  fe04              	cp	4
-    55  00c9  d21b01            	jp	nc,L_f2_bb_5
+    55  00c5  dd7ef6            	ld	a,(ix-10)
+    55  00c8  fe04              	cp	4
+    55  00ca  303f              	jr	nc,L_f2_bb_5
     55                          L_f2_bb_3:
     55                          	C_LINE	56,"vars.c::main::0::6"
-    56  00cc  dd7ef4            	ld	a,(ix-12)
-    56  00cf  6f                	ld	l,a
-    56  00d0  2600              	ld	h,0
-    56  00d2  29                	add	hl,hl
-    56  00d3  eb                	ex	de,hl
-    56  00d4  210500            	ld	hl,5
-    56  00d7  39                	add	hl,sp
-    56  00d8  19                	add	hl,de
-    56  00d9  dd75fcdd74fd      	ld	(ix-4),hl
-    56  00df  2a0000            	ld	hl,(_g_int)
-    56  00e2  dd75fedd74ff      	ld	(ix-2),hl
-    56  00e8  dd7ef4            	ld	a,(ix-12)
-    56  00eb  6f                	ld	l,a
-    56  00ec  2600              	ld	h,0
+    56  00cc  dd6ef6            	ld	l,(ix-10)
+    56  00cf  2600              	ld	h,0
+    56  00d1  29                	add	hl,hl
+    56  00d2  eb                	ex	de,hl
+    56  00d3  210500            	ld	hl,5
+    56  00d6  39                	add	hl,sp
+    56  00d7  19                	add	hl,de
+    56  00d8  dd75fedd74ff      	ld	(ix-2),hl
+    56  00de  dd6ef6            	ld	l,(ix-10)
+    56  00e1  2600              	ld	h,0
+    56  00e3  e5                	push	hl
+    56  00e4  2a0000            	ld	hl,(_g_int)
+    56  00e7  e5                	push	hl
+    56  00e8  dd6efcdd66fd      	ld	hl,(ix-4)
     56  00ee  e5                	push	hl
-    56  00ef  dd6efedd66ff      	ld	hl,(ix-2)
-    56  00f5  e5                	push	hl
-    56  00f6  dd6efadd66fb      	ld	hl,(ix-6)
-    56  00fc  e5                	push	hl
-    56  00fd  dd7ef5            	ld	a,(ix-11)
-    56  0100  6f                	ld	l,a
-    56  0101  2600              	ld	h,0
-    56  0103  e5                	push	hl
-    56  0104  cd0000            	call	_sum
-    56  0107  c1                	pop	bc
-    56  0108  c1                	pop	bc
-    56  0109  c1                	pop	bc
-    56  010a  c1                	pop	bc
-    56  010b  eb                	ex	de,hl
-    56  010c  dd6efcdd66fd      	ld	hl,(ix-4)
-    56  0112  73                	ld	(hl),e
-    56  0113  23                	inc	hl
-    56  0114  72                	ld	(hl),d
+    56  00ef  dd7ef7            	ld	a,(ix-9)
+    56  00f2  6f                	ld	l,a
+    56  00f3  e5                	push	hl
+    56  00f4  cd0000            	call	_sum
+    56  00f7  c1                	pop	bc
+    56  00f8  c1                	pop	bc
+    56  00f9  c1                	pop	bc
+    56  00fa  c1                	pop	bc
+    56  00fb  eb                	ex	de,hl
+    56  00fc  dd6efedd66ff      	ld	hl,(ix-2)
+    56  0102  73                	ld	(hl),e
+    56  0103  23                	inc	hl
+    56  0104  72                	ld	(hl),d
     56                          	C_LINE	55,"vars.c::main::0::6"
-    55  0115  dd34f4            	inc	(ix-12)
+    55  0105  dd34f6            	inc	(ix-10)
     55                          	C_LINE	57,"vars.c::main::0::6"
-    57  0118  c3c400            	jp	L_f2_bb_1
+    57  0108  c3c500            	jp	L_f2_bb_1
     57                          L_f2_bb_5:
     57                          	C_LINE	58,"vars.c::main::0::6"
-    58  011b  212100            	ld	hl,_g_node
-    58  011e  222700            	ld	(_g_head),hl
+    58  010b  212100            	ld	hl,_g_node
+    58  010e  222700            	ld	(_g_head),hl
     58                          	C_LINE	59,"vars.c::main::0::6"
-    59  0121  dd6ef6dd66f7      	ld	hl,(ix-10)
-    59  0127  dd5ef8dd56f9      	ld	de,(ix-8)
-    59  012d  222300            	ld	(_g_node+2),hl
-    59  0130  ed532500          	ld	(_g_node+4),de
+    59  0111  dd6ef8dd66f9      	ld	hl,(ix-8)
+    59  0117  dd5efadd56fb      	ld	de,(ix-6)
+    59  011d  222300            	ld	(_g_node+2),hl
+    59  0120  ed532500          	ld	(_g_node+4),de
     59                          	C_LINE	60,"vars.c::main::0::6"
-    60  0134  dd6ef2dd66f3      	ld	hl,(ix-14)
-    60  013a  dd7ef5            	ld	a,(ix-11)
-    60  013d  5f                	ld	e,a
-    60  013e  07                	rlca
-    60  013f  9f                	sbc	a,a
-    60  0140  57                	ld	d,a
-    60  0141  19                	add	hl,de
-    60  0142  222900            	ld	(_s_file),hl
+    60  0124  dd6ef4dd66f5      	ld	hl,(ix-12)
+    60  012a  dd7ef7            	ld	a,(ix-9)
+    60  012d  5f                	ld	e,a
+    60  012e  07                	rlca
+    60  012f  9f                	sbc	a,a
+    60  0130  57                	ld	d,a
+    60  0131  19                	add	hl,de
+    60  0132  222900            	ld	(_s_file),hl
     60                          	C_LINE	61,"vars.c::main::0::6"
-    61  0145  e5                	push	hl
-    61  0146  cd0000            	call	_other
-    61  0149  c1                	pop	bc
-    61  014a  7d                	ld	a,l
-    61  014b  322f00            	ld	(_s_dup),a
+    61  0135  e5                	push	hl
+    61  0136  cd0000            	call	_other
+    61  0139  c1                	pop	bc
+    61  013a  7d                	ld	a,l
+    61  013b  322f00            	ld	(_s_dup),a
     61                          	C_LINE	62,"vars.c::main::0::6"
-    62  014e  210000            	ld	hl,_other
-    62  0151  222d00            	ld	(_g_fnptr2),hl
+    62  013e  210000            	ld	hl,_other
+    62  0141  222d00            	ld	(_g_fnptr2),hl
     62                          L_f2_bb_6:
     62                          	C_LINE	64,"vars.c::main::0::6"
-    64  0154  2a0000            	ld	hl,(_g_int)
-    64  0157  23                	inc	hl
-    64  0158  220000            	ld	(_g_int),hl
+    64  0144  2a0000            	ld	hl,(_g_int)
+    64  0147  23                	inc	hl
+    64  0148  220000            	ld	(_g_int),hl
     64                          	C_LINE	65,"vars.c::main::0::6"
-    65  015b  c35401            	jp	L_f2_bb_6
+    65  014b  c34401            	jp	L_f2_bb_6
     65                          	SECTION	bss_compiler
     65                          	SECTION	code_compiler
     65                          ; --- Start of Optimiser additions ---
@@ -1038,24 +1034,24 @@ vars.c::main::0::6:
     65                          ; F:G$main$0_0$2({0}DF,SI:S),C,0,0,0,0,0
     65                          	PUBLIC	__CDBINFO__F_3aG_24main_24_30_5f_30_24_32_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
     65                          	defc	__CDBINFO__F_3aG_24main_24_30_5f_30_24_32_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1
-    65                          ; S:Lvars.c.main$lp$1_0$4({5}STpoint:S),B,1,-25
-    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24lp_24_31_5f_30_24_34_28_7b_35_7dSTpoint_3aS_29_2cB_2c_31_2c_2d_32_35
-    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24lp_24_31_5f_30_24_34_28_7b_35_7dSTpoint_3aS_29_2cB_2c_31_2c_2d_32_35 = 1
-    65                          ; S:Lvars.c.main$arr$1_0$4({8}DA4x,SI:S),B,1,-20
-    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24arr_24_31_5f_30_24_34_28_7b_38_7dDA_34x_2cSI_3aS_29_2cB_2c_31_2c_2d_32_30
-    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24arr_24_31_5f_30_24_34_28_7b_38_7dDA_34x_2cSI_3aS_29_2cB_2c_31_2c_2d_32_30 = 1
-    65                          ; S:Lvars.c.main$i$1_0$4({1}SC:U),B,1,-12
-    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24i_24_31_5f_30_24_34_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31_32
-    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24i_24_31_5f_30_24_34_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31_32 = 1
-    65                          ; S:Lvars.c.main$c$1_0$4({1}SC:S),B,1,-11
-    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24c_24_31_5f_30_24_34_28_7b_31_7dSC_3aS_29_2cB_2c_31_2c_2d_31_31
-    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24c_24_31_5f_30_24_34_28_7b_31_7dSC_3aS_29_2cB_2c_31_2c_2d_31_31 = 1
-    65                          ; S:Lvars.c.main$big$1_0$4({4}SL:S),B,1,-10
-    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24big_24_31_5f_30_24_34_28_7b_34_7dSL_3aS_29_2cB_2c_31_2c_2d_31_30
-    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24big_24_31_5f_30_24_34_28_7b_34_7dSL_3aS_29_2cB_2c_31_2c_2d_31_30 = 1
-    65                          ; S:Lvars.c.main$pp$1_0$4({2}DG,STpoint:S),B,1,-6
-    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24pp_24_31_5f_30_24_34_28_7b_32_7dDG_2cSTpoint_3aS_29_2cB_2c_31_2c_2d_36
-    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24pp_24_31_5f_30_24_34_28_7b_32_7dDG_2cSTpoint_3aS_29_2cB_2c_31_2c_2d_36 = 1
+    65                          ; S:Lvars.c.main$lp$1_0$4({5}STpoint:S),B,1,-23
+    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24lp_24_31_5f_30_24_34_28_7b_35_7dSTpoint_3aS_29_2cB_2c_31_2c_2d_32_33
+    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24lp_24_31_5f_30_24_34_28_7b_35_7dSTpoint_3aS_29_2cB_2c_31_2c_2d_32_33 = 1
+    65                          ; S:Lvars.c.main$arr$1_0$4({8}DA4x,SI:S),B,1,-18
+    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24arr_24_31_5f_30_24_34_28_7b_38_7dDA_34x_2cSI_3aS_29_2cB_2c_31_2c_2d_31_38
+    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24arr_24_31_5f_30_24_34_28_7b_38_7dDA_34x_2cSI_3aS_29_2cB_2c_31_2c_2d_31_38 = 1
+    65                          ; S:Lvars.c.main$i$1_0$4({1}SC:U),B,1,-10
+    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24i_24_31_5f_30_24_34_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31_30
+    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24i_24_31_5f_30_24_34_28_7b_31_7dSC_3aU_29_2cB_2c_31_2c_2d_31_30 = 1
+    65                          ; S:Lvars.c.main$c$1_0$4({1}SC:S),B,1,-9
+    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24c_24_31_5f_30_24_34_28_7b_31_7dSC_3aS_29_2cB_2c_31_2c_2d_39
+    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24c_24_31_5f_30_24_34_28_7b_31_7dSC_3aS_29_2cB_2c_31_2c_2d_39 = 1
+    65                          ; S:Lvars.c.main$big$1_0$4({4}SL:S),B,1,-8
+    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24big_24_31_5f_30_24_34_28_7b_34_7dSL_3aS_29_2cB_2c_31_2c_2d_38
+    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24big_24_31_5f_30_24_34_28_7b_34_7dSL_3aS_29_2cB_2c_31_2c_2d_38 = 1
+    65                          ; S:Lvars.c.main$pp$1_0$4({2}DG,STpoint:S),B,1,-4
+    65                          	PUBLIC	__CDBINFO__S_3aLvars_2ec_2emain_24pp_24_31_5f_30_24_34_28_7b_32_7dDG_2cSTpoint_3aS_29_2cB_2c_31_2c_2d_34
+    65                          	defc	__CDBINFO__S_3aLvars_2ec_2emain_24pp_24_31_5f_30_24_34_28_7b_32_7dDG_2cSTpoint_3aS_29_2cB_2c_31_2c_2d_34 = 1
     65                          ; F:G$other$0_0$0({0}DF,SI:S),C,0,0,0,0,0
     65                          	PUBLIC	__CDBINFO__F_3aG_24other_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30
     65                          	defc	__CDBINFO__F_3aG_24other_24_30_5f_30_24_30_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30 = 1

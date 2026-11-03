@@ -85,8 +85,8 @@ Producer sources are cited as `<tree> <path>:<line>`:
 
 - `sjasmplus` is `~/src/spectrum/sjasmplus` at v1.23.1, commit `46aae3f`.
 - `z88dk 2.4` is `~/src/spectrum/z88dk-original-2.4` at `4d530b6eb7` (v2.4) and
-  `z88dk master` is `~/src/spectrum/z88dk-original-latest` at `39421a01cd`
-  (`v2.4-2695-g39421a01cd`). These are the two installs the z88dk fixtures were
+  `z88dk master` is `~/src/spectrum/z88dk-original-latest` at `97731e4e29`
+  (`v2.4-2883-g97731e4e29`). These are the two installs the z88dk fixtures were
   made with (`test/fixtures/z88dk/PROVENANCE` files).
 - Boriel ZX Basic and NextBuild are read on GitHub: `boriel-basic/zxbasic` at
   `29f0b2f0ce` and `em00k/NextBuild` at `364b2d13c5`, both on 2026-11-01. The

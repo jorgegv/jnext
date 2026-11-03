@@ -577,27 +577,26 @@ fc.c::fcallee::0::1:
 fc.c::fcallee::0::2:
      4  0016  210600            	ld	hl,6
      4  0019  39                	add	hl,sp
-     4  001a  7e                	ld	a,(hl)
-     4  001b  5f                	ld	e,a
-     4  001c  1600              	ld	d,0
+     4  001a  5e                	ld	e,(hl)
+     4  001b  1600              	ld	d,0
+     4  001d  23                	inc	hl
      4  001e  23                	inc	hl
-     4  001f  23                	inc	hl
-     4  0020  7e23              	ld	a,(hl+)
-     4  0022  66                	ld	h,(hl)
-     4  0023  6f                	ld	l,a
-     4  0024  19                	add	hl,de
-     4  0025  d1                	pop	de
-     4  0026  e5                	push	hl
-     4  0027  f1                	pop	af
-     4  0028  cd0000            	call	l_debug_pop_frame
-     4  002b  c1                	pop	bc
-     4  002c  d9                	exx
-     4  002d  210400            	ld	hl,4
-     4  0030  39                	add	hl,sp
-     4  0031  f9                	ld	sp,hl
-     4  0032  d9                	exx
-     4  0033  c5                	push	bc
-     4  0034  c9                	ret
+     4  001f  7e23              	ld	a,(hl+)
+     4  0021  66                	ld	h,(hl)
+     4  0022  6f                	ld	l,a
+     4  0023  19                	add	hl,de
+     4  0024  d1                	pop	de
+     4  0025  e5                	push	hl
+     4  0026  f1                	pop	af
+     4  0027  cd0000            	call	l_debug_pop_frame
+     4  002a  c1                	pop	bc
+     4  002b  d9                	exx
+     4  002c  210400            	ld	hl,4
+     4  002f  39                	add	hl,sp
+     4  0030  f9                	ld	sp,hl
+     4  0031  d9                	exx
+     4  0032  c5                	push	bc
+     4  0033  c9                	ret
      4                          	C_LINE	5,"fc.c::fcallee::0::2"
      5                          
      5                          ; Function main flags 0x00000000 __stdc
@@ -605,36 +604,36 @@ fc.c::fcallee::0::2:
      5                          	C_LINE	5,"fc.c::main::0::3"
 fc.c::main::0::3:
      5                          ._main
-     5  0035  dde5              	push	ix
-     5  0037  dd210000          	ld	ix,0
-     5  003b  dd39              	add	ix,sp
-     5  003d  f5                	push	af
+     5  0034  dde5              	push	ix
+     5  0036  dd210000          	ld	ix,0
+     5  003a  dd39              	add	ix,sp
+     5  003c  f5                	push	af
      5                          	C_LINE	5,"fc.c::main::0::4"
 fc.c::main::0::4:
-     5  003e  210300            	ld	hl,3
-     5  0041  cd0000            	call	_ffast
-     5  0044  d1                	pop	de
-     5  0045  e5                	push	hl
-     5  0046  220000            	ld	(_g),hl
-     5  0049  e5                	push	hl
-     5  004a  210400            	ld	hl,4
-     5  004d  e5                	push	hl
-     5  004e  cd1200            	call	_fcallee
-     5  0051  545d              	ld	de,hl
-     5  0053  eb                	ex	de,hl
-     5  0054  e1                	pop	hl
-     5  0055  e5                	push	hl
-     5  0056  19                	add	hl,de
-     5  0057  220000            	ld	(_g),hl
+     5  003d  210300            	ld	hl,3
+     5  0040  cd0000            	call	_ffast
+     5  0043  d1                	pop	de
+     5  0044  e5                	push	hl
+     5  0045  220000            	ld	(_g),hl
+     5  0048  e5                	push	hl
+     5  0049  210400            	ld	hl,4
+     5  004c  e5                	push	hl
+     5  004d  cd1200            	call	_fcallee
+     5  0050  545d              	ld	de,hl
+     5  0052  eb                	ex	de,hl
+     5  0053  e1                	pop	hl
+     5  0054  e5                	push	hl
+     5  0055  19                	add	hl,de
+     5  0056  220000            	ld	(_g),hl
      5                          L_f4_bb_1:
-     5  005a  3e01              	ld	a,1
-     5  005c  b7                	or	a
-     5  005d  c25a00            	jp	nz,L_f4_bb_1
+     5  0059  3e01              	ld	a,1
+     5  005b  b7                	or	a
+     5  005c  c25900            	jp	nz,L_f4_bb_1
      5                          L_f4_bb_5:
-     5  0060  210000            	ld	hl,0
-     5  0063  ddf9              	ld	sp,ix
-     5  0065  dde1              	pop	ix
-     5  0067  c9                	ret
+     5  005f  210000            	ld	hl,0
+     5  0062  ddf9              	ld	sp,ix
+     5  0064  dde1              	pop	ix
+     5  0066  c9                	ret
      5                          	SECTION	bss_compiler
      5                          	SECTION	code_compiler
      5                          ; --- Start of Optimiser additions ---

@@ -65,7 +65,7 @@ the rules that normalise and trim the output.
   values moved.
 - **The script exits non-zero** when a build that should succeed fails, and when
   one recorded as not producible starts to build (`EXPECT_FAIL=1`). The failures
-  are recorded too: `v2.4/sdcc-debug` and the two `classic-debug` builds keep only
+  are recorded too: `v2.4/sdcc-debug` and `v2.4/classic-debug` keep only
   a `build.log`.
 - **`MANIFEST.sha256`** lists every file the rows hash: sources, the script, the
   outputs (not `README.md`). `Z88FIX-01` checks every entry's hash; `Z88FIX-02`
