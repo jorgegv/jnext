@@ -120,10 +120,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source maps + symbols |      130 |      130 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (skoolkit/Ghidra export) |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
-| z88dk -debug map adapter |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
+| z88dk -debug map adapter |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk --list listing adapter |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk CDB record decoder |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |      430 |      430 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      437 |      437 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1567 |     1567 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -138,7 +138,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger DSL evaluator (GH #26) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL engine (GH #26) |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger session recorder (GH #20) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ZRCP remote debugger adapter (GH #280) |      223 |      223 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ZRCP remote debugger adapter (GH #280) |      224 |      224 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect rules (pure) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (AppConfig) |      176 |      176 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -183,6 +183,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Panels (GH #278) |      110 |      110 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      270 |      270 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **15347**| **15347**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **15358**| **15358**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
