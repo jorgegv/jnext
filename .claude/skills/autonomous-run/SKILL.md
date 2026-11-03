@@ -65,11 +65,11 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 - **Standalone issue** (bug, feature, …): `gh<N>-<slug>` off `main`; target `main`.
 - **Epic**: `epic<E>-<slug>` off `main`, created when its first sub-issue starts, with its own worktree `~/tmp/worktrees/jnext/epic<E>` (merges and the final gate happen there). Sub-issues: `gh<N>-<slug>` off the epic branch (`worktree-launch` with the epic branch as base, not `main`); target the epic branch, never `main`. Merge `main` into the epic branch after each landing on `main`.
 - **Epic finished** (all sub-issues closed, epic scope done):
-  1. Merge `main` into the epic branch; full gate on it.
+  1. Merge `main` into the epic branch; full gate on it. Push the epic branch and start CI on it (`gh workflow run CI --ref epic<E>-<slug>`); it must be green (it covers Qt5, macOS clang and the bare CI container, which no local gate reaches; GH #444).
   2. Reviewer (`autorun-reviewer`) on the whole epic diff vs `main`: cross-sub-issue interactions, the merge, acceptance criteria of the epic.
   3. APPROVE → merge into `main` as one merge commit, `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`, push (step 10).
   4. Terse summary comment on the epic (what was done, sub-issues closed, version), then close it.
-- Epic branches may be pushed any time (`JNEXT_ALLOW_PUSH=1 git push origin epic<E>-<slug>`, never force; CI does not run on them). Stopping or pausing mid-epic → push it.
+- Epic branches may be pushed any time (`JNEXT_ALLOW_PUSH=1 git push origin epic<E>-<slug>`, never force; a push does not start CI, the finished epic gets a manual run, step 1 above). Stopping or pausing mid-epic → push it.
 
 **Park** = WIP commit + `PAUSE-NOTES.md` on the branch, entry in `decisions.md`, slot moves to the next issue.
 
