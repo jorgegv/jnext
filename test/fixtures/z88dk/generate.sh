@@ -193,7 +193,7 @@ build "$ZM" master sccz80-fc           single:fc.c -clib=new -debug
 build "$ZM" master sdcc-fc             single:fc.c -clib=sdcc_iy -debug
 build "$ZM" master 80cc-fc             single:fc.c -clib=new -compiler=80cc -debug
 
-# every file the rows hash: sources, this script, the outputs (README.md and the manifest itself excluded)
-(cd "$DEST" && find src generate.sh v2.4 v2.4-dotn master -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
+# every file the rows hash: sources, this script, derive-scopes.py, the outputs (README.md and the manifest itself excluded)
+(cd "$DEST" && find src generate.sh derive-scopes.py v2.4 v2.4-dotn master -type f | LC_ALL=C sort | xargs sha256sum) > "$DEST/MANIFEST.sha256"
 if (( BAD )); then echo "unexpected build outcome; scratch kept: $WORK" >&2; exit 1; fi
 rm -rf "$WORK"

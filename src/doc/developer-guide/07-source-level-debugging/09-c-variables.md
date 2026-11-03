@@ -169,6 +169,8 @@ the epic. The store gives them the records, the storage and the scopes.
 `Z88CDB-01` to `-26` in `z88dk_map_test` (the joins, scope tables, order,
 refusals, banked and dot storage, hidden records, listings), `SRCVAR-01` in
 `source_map_test` (the member), and `SRCDBG-VAR-01` to `-12` in
-`source_debug_test` (the lifetime). The fixtures are the committed maps; the
+`source_debug_test` (the lifetime). `Z88CDB-40` compares every function's scope table on 12 maps with a golden that
+`test/fixtures/z88dk/derive-scopes.py` derives from the raw map lines (its header holds the rules).
+The fixtures are the committed maps; the
 `master/*-extern` pair exists for the one case the others lack
 ([7.8](08-tests-and-new-producers.md)).

@@ -2198,11 +2198,11 @@ int main() {
               checked == 3 && all);
     }
     {
-        // The golden is derived by a script that reads only the RAW map lines (highest line per address,
-        // the scope fields, the function of the same module with the greatest entry at or below, equal-line
-        // disagreement unknown, sccz80/80cc cross-check, zsdcc's 10000 split; data/bss/smc records left out),
-        // never from the store. The sum tables of Z88CDB-13..15 are the hand-checked subset of it.
-    static const struct { const char* map; const char* golden; } kScopeGolden[] = {
+        // The golden is the output of test/fixtures/z88dk/derive-scopes.py, which reads only the RAW map
+        // lines (no jnext code); its header holds every rule and the command that prints one map's block.
+        // Re-derive it with that script when a fixture is regenerated or the equal-line rule changes;
+        // never paste this suite's own output. The sum tables of Z88CDB-13..15 are the hand-checked subset.
+        static const struct { const char* map; const char* golden; } kScopeGolden[] = {
         {"master/sccz80-cvars", R"GOLD(main vars_c 8D54
   8D54 L45 K 0/0/3
   8D57 L49 K 1/0/4

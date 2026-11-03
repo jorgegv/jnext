@@ -258,6 +258,15 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
 Not producible: `v2.4/sdcc-cvars` (z88dk#3172). Not built here: zsdcc `-O0` (no records), `+zxn`
 classic `-debug` (Z1), sdcc_ix (the planner measured records identical to sdcc_iy; not re-run here).
 
+### Scope-table golden: `derive-scopes.py`
+
+Row `Z88CDB-40` (`test/debug/z88dk_map_test.cpp`) pins every function's whole scope table on 12 maps
+against a golden derived by `derive-scopes.py` from the RAW map lines only (no jnext code). Its header
+holds the rules and the command that prints one map's block. Re-derive, never paste the suite's output,
+whenever a fixture is regenerated or the equal-line rule changes. The script is hashed in `MANIFEST.sha256`
+(`generate.sh` lists it), because `Z88FIX-02` demands every file here to be in the manifest; nothing runs it
+in a gate.
+
 ## Normalisation and trimming (in `generate.sh`)
 
 Install paths become `z88dk/` (plain) and `z88dk_2f` (z80asm's symbol encoding); zcc temp
