@@ -2233,6 +2233,8 @@
       
         
       
+        
+      
     
     
     
@@ -2990,6 +2992,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3119,7 +3149,7 @@ binaries' bytes). In order:</p>
    patches an opcode, so a listing of this build is never excluded at its true start. The byte at
    <code>c + row address</code> comes from <code>view.byte_at(value, space)</code>, where <code>place()</code> gave the space; it is
    <em>unknown</em> (<code>nullopt</code>) when no section binary covers the byte, <strong>when two or more do</strong> (overlay
-   sections at one ORG: <code>bin_for(..., &amp;more)</code>, <code>z88dk_source_map.cpp:613</code>, and the <code>byte_at</code> lambda, <code>:683-688</code>), and when <code>place()</code> fails (a ROM area: the memory is not a RAM
+   sections at one ORG: <code>bin_for(..., &amp;more)</code>, <code>z88dk_source_map.cpp:695</code>, and the <code>byte_at</code> lambda, <code>:766-771</code>), and when <code>place()</code> fails (a ROM area: the memory is not a RAM
    page, so no byte can be read). The outcome is one of three:</li>
 <li><strong>no start survives</strong> (<code>survivors</code>, <code>z88dk_lis.cpp:655</code>; the search loop over <code>survivors</code>, <code>z88dk_lis.cpp:614-664</code>): the listing is dropped, with "section '<s>': its label-less lines match no
      place in the section binary; this is not the listing of this build" (row <code>Z88LIS-42</code>);</li>

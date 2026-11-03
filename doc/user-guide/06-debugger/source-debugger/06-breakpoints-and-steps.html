@@ -4212,7 +4212,8 @@ reaches another statement — a loop on one line, a <code>HALT</code> with inter
 stops by itself (at a disabled-interrupt <code>HALT</code>, or after a million instructions
 or 100 frames) and says so in the log.</p>
 <p><strong>Over</strong> and <strong>Out</strong> count calls with the call-stack tracker, which runs while
-the debugger window is open. <strong>Back</strong> and <strong>Reverse</strong> need the trace log and
+the debugger window is open, and also while a remote client or a script is attached and the
+loaded z88dk map carries C variable records. <strong>Back</strong> and <strong>Reverse</strong> need the trace log and
 rewind, like <strong>Step Back</strong>
 (<a href="../functions/07-backward-execution-rewind.html">Backward execution (rewind)</a>); they look for
 their target in the instructions the trace has kept.</p>

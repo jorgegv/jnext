@@ -144,12 +144,12 @@ dot command is accepted. Each loop owner makes the load once, at start-up, befor
 `emulator_attach_cli_source_map(dbg, file, deferred = false, dot_only = true, rzx = (case 2))`,
 which passes `dot_only` to `load_source_map()`. After the adapter has parsed the file,
 `dot_only && !candidate.dot()` returns `SourceMapLoad::not_dot` with the error "it is not the map
-of a z88dk dot command" (`SourceMapLoad::not_dot`, `debugger_source.cpp:489`), and the helper words it for the frontend:
+of a z88dk dot command" (`SourceMapLoad::not_dot`, `debugger_source.cpp:494`), and the helper words it for the frontend:
 `--source-map requires --load FILE, or the map of a z88dk dot command: '<file>' is not one`, or,
 for case 2, `--source-map with an RZX replay accepts only the map of a z88dk dot command` (`SourceMapLoad::not_dot`, `emulator_boot.h:120-125`).
 The refusal makes the start-up fail (exit 1). A dot map is deferred whatever
 `verify_at_first_execution` says: `defer = (verify_at_first_execution || candidate.dot()) &&
-!verify_spans().empty()` (`verify_at_first_execution`, `debugger_source.cpp:497`), so it attaches pending with the note "identity
+!verify_spans().empty()` (`verify_at_first_execution`, `debugger_source.cpp:502`), so it attaches pending with the note "identity
 check pending: the dot command loads when it runs", and `source_map_watch_` is set from the result.
 How it is then judged is [7.6](06-lifetime.md); how its sections are placed is
 [7.4.3](04-3-z88dk-map.md), rule 5.
@@ -187,8 +187,8 @@ one block, in this order, first wins on every key (`SymbolTable::merge()`):
 3. the z88dk map's symbols, last, and only when **no** `Memory.txt` exists and its
    identity does not mismatch.
 
-The log says what was attached, by `log->info()`: `Loaded N SLD labels from '<file>'` (`log->info()`, `debugger_source.cpp:769`) and
-`Loaded N z88dk symbols from '<file>'` (`log->info()`, `:775`).
+The log says what was attached, by `log->info()`: `Loaded N SLD labels from '<file>'` (`log->info()`, `debugger_source.cpp:780`) and
+`Loaded N z88dk symbols from '<file>'` (`log->info()`, `:786`).
 
 If nothing attached, a previous program's Sidecar symbols are cleared, also when
 the new `Memory.txt` cannot be read (`SidecarLoad::symbols_unreadable`): a
