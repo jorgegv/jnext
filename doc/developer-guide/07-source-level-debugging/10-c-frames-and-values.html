@@ -3102,7 +3102,7 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 <tr>
 <td><code>SF</code> <code>{6}</code></td>
-<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:360</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
+<td>z88dk's 48-bit float: five mantissa bytes (sign in bit 7 of the fifth, implied leading 1) then an exponent biased by <code>$80</code>; 12 significant digits (<code>c_format_float48()</code>, <code>c_value.cpp:370</code>). Oracle: the bytes z88dk compiled in <code>*-floats</code></td>
 </tr>
 <tr>
 <td><code>SF</code> <code>{4}</code></td>
@@ -3138,25 +3138,37 @@ ostream (QApplication runs <code>setlocale(LC_ALL, "")</code>, and on a Spanish 
 </tr>
 </tbody>
 </table>
-<p><code>c_find_type()</code> (<code>c_value.cpp:447</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
+<p><code>c_find_type()</code> (<code>c_value.cpp:457</code>) finds a struct's <code>T:</code> record: the records of the variable's own scope first (zsdcc's
 copy per module), then those of its module, then a tag that is unique across all records (sccz80 and 80cc: one per
 header). Different definitions at the deciding step are ambiguous, never first-wins. <code>c_type_text()</code>
-(<code>c_value.cpp:440</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
-union marker, so a union is <code>struct word</code>, and no typedef name survives.</p>
-<p><code>c_parse_path()</code> (<code>c_value.cpp:530</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
-the primary a name, <code>fn::name</code> or <code>file.c::name</code>, the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign;
-<code>c_eval_path()</code> (<code>c_value.cpp:618</code>) walks one over a typed location (an array index is checked against its count, a
-pointer index scales by the element size, a null pointer is refused) and <code>c_read_loc()</code> reads and formats it. Every
-refusal says why.</p>
-<p><code>c_visible_locals()</code> (<code>c_value.cpp:712</code>) lists which locals show at a PC: the parameters (ordered by stack position),
-the locals, the static locals. Parameters and level-1 locals are always visible; a local of level &gt;= 2 is visible iff
-its block is the open block or one of its ancestors. The block tree is over the (level, block) pairs of the blocks
-that hold a local; the open block at the scope's level is the greatest block at or below the scope's block, which turns
-sccz80's "last opened block" into the block that is open. With no block data (80cc) or an unknown scope, every block
+(<code>c_value.cpp:450</code>) prints <code>char</code>, <code>unsigned int</code>, <code>struct node *</code>, <code>int [2][3]</code>, <code>int (*)()</code>; the CDB has no
+union marker, so a union is <code>struct word</code>, and no typedef name survives. A zsdcc padding member (<code>__00000000</code>) is
+not shown.</p>
+<p><strong>A struct's size is a declared object's</strong>: an <code>S:</code> record, or a struct member, whose chain is exactly <code>ST&lt;tag&gt;</code>
+(<code>{2}STflags</code> for <code>g_flags</code>), never the extent of its members. sccz80 and 80cc write a bitfield as an int that
+sticks out of the struct (z88dk U2): <code>struct flags</code> is 2 bytes but its member <code>hi</code> is an int at offset 1. A struct
+no declared object has is refused as <code>size unknown (z88dk U2)</code>. Every view of such a member (the whole struct, a
+member path, a pointer, an element <code>p[1]</code>) clamps its read to the enclosing object and zero-fills the overhang, so
+<code>hi</code> is 200 for the bytes <code>8D C8</code> whichever way it is reached, and no read goes past the object.</p>
+<p><code>c_parse_path()</code> (<code>c_value.cpp:540</code>) parses the C paths: <code>['*'] primary {'.' name | '-&gt;' name | '[' index ']'}</code>,
+the primary a name, <code>fn::name</code> or <code>file.c::name</code>, the index decimal, <code>0x&lt;hex&gt;</code> or <code>$&lt;hex&gt;</code> with no sign. As in C the
+postfix operators bind tighter than the <code>*</code>: <code>*x[1]</code> is <code>*(x[1])</code> and <code>*head-&gt;next</code> is <code>*(head-&gt;next)</code>.
+<code>c_eval_path()</code> (<code>c_value.cpp:628</code>) walks the steps over a typed location (an array index is checked against its
+count, a pointer index scales by the element size, the size of a pointed-to array is its whole size, a null pointer is
+refused), then applies the <code>*</code>, and <code>c_read_loc()</code> reads and formats it. Every refusal says why.</p>
+<p><code>c_visible_locals()</code> (<code>c_value.cpp:724</code>) lists which locals show at a PC: the parameters (ordered by stack position),
+the locals, the static locals. A parameter is a record of level 0 (sccz80, 80cc), at a stack offset &gt;= 4, or (zsdcc) in
+a block below the body's first block (the entry scope's), where its register and fastcall parameters sit. Parameters
+and level-1 locals are always visible; a local of level &gt;= 2 is visible iff its block is the open block or one of its
+ancestors. A block's level is its locals' own; a block that holds no local (the <code>else</code> of an <code>if</code> that declared one)
+takes the level of the first scope entry, in offset order, that names it (sccz80 numbers blocks in pre-order, so a
+block just opened is the last opened one). The open block is the greatest known block at the scope's level at or below
+the scope's block, which turns sccz80's "last opened block" into the block that is open and keeps a closed sibling's
+locals hidden; its ancestors are found over the same set. With no block data (80cc) or an unknown scope, every block
 local is shown, marked.
-<code>c_read_register_local()</code> (<code>c_value.cpp:780</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
+<code>c_read_register_local()</code> (<code>c_value.cpp:805</code>) reads an <code>R</code> local of frame 0 (<code>[c,b]</code> is C | B &lt;&lt; 8, with a note
 that it may be stale), refuses <code>[]</code> as optimised out and an outer frame as not available.
-<code>c_param_location_unknown()</code> (<code>c_value.cpp:820</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
+<code>c_param_location_unknown()</code> (<code>c_value.cpp:845</code>) marks a listed <code>__z88dk_fastcall</code> parameter recorded at an offset</p>
 <blockquote>
 <p>= 0 (z88dk U1).</p>
 </blockquote>
@@ -3164,7 +3176,7 @@ that it may be stale), refuses <code>[]</code> as optimised out and an outer fra
 <p><code>Z88CDB-41</code> to <code>-50</code> in <code>z88dk_map_test</code> (the extents against a golden that <code>derive-scopes.py --extents</code>
 derives from the raw map lines, the <code>*-cross</code> fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of <code>Z88CDB-40</code>), and
-<code>CVALF-01</code> to <code>-30</code> in <code>c_value_test</code> (<code>-27a</code> and <code>-28a</code> beside them), and <code>SRCDBG-CVAL-01</code> to <code>-27</code> in <code>source_debug_test</code> (the tracker policy, and the frames of each compiler on a
+<code>CVALF-01</code> to <code>-34</code> in <code>c_value_test</code> (with <code>-27a</code> and <code>-28a</code> to <code>-28d</code>), and <code>SRCDBG-CVAL-01</code> to <code>-27</code> in <code>source_debug_test</code> (the tracker policy, and the frames of each compiler on a
 running fixture: tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, and a
 function that crosses a slot).</p>
 

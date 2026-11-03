@@ -111,11 +111,12 @@ struct CPath {
 };
 CPath c_parse_path(std::string_view text);
 
-/// A typed place: `type.chain` is the chain of THIS object (the outer elements already peeled), `type.size` its size.
+/// A typed place (a struct's size is a declared object's, never its members' extent: "size unknown (z88dk U2)" when there is none): `type.chain` is the chain of THIS object (the outer elements already peeled), `type.size` its size.
 struct CLoc {
     CdbType type;
     uint32_t addr = 0;
     std::string note;   ///< e.g. a member of a bitfield-like struct (z88dk U2)
+    uint32_t end = 0;   ///< exclusive end of the enclosing object (0: none); a read is clamped to it and zero-extended
 };
 struct CEval {
     bool ok = false;

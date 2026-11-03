@@ -529,6 +529,70 @@ int main() {
               names(got) == "v1 v3");
     }
 
+    // Locals built by hand: `S:Lt.c.f$<name>$<level>_0$<block>`.
+    const auto mk_loc = [](const char* name, int level, int block) {
+        CVariable v;
+        const std::string rec = std::string("S:Lt.c.f$") + name + "$" + std::to_string(level) + "_0$" + std::to_string(block) + "({2}SI:S),B,1,-2";
+        v.record = cdb_decode(rec).record;
+        v.text = rec;
+        v.c_name = name;
+        v.function = 0;
+        return v;
+    };
+    const auto mk_scope = [](uint32_t offset, int level, int block) {
+        CScope c;
+        c.known = true;
+        c.offset = offset;
+        c.level = level;
+        c.block = block;
+        return c;
+    };
+    {
+        // if (x) { int t; ... } else { /* here: no locals */ }  (locals v1 (1,1), t (2,2)). sccz80 writes (2,3) on the else block's first
+        // line (a block just opened is the last opened one) and (1,3) after it closed; zsdcc's entries are exact: the same (2,3).
+        CFunction f;
+        f.name = "f";
+        f.scopes = {mk_scope(0, 0, 0), mk_scope(4, 1, 1), mk_scope(8, 2, 2), mk_scope(12, 2, 3), mk_scope(16, 1, 3)};
+        const VariableStore st({f}, {mk_loc("v1", 1, 1), mk_loc("t", 2, 2)}, {}, {}, {});
+        const auto& sc = st.functions()[0].scopes;
+        const std::string in_then = names(c_visible_locals(st, 0, &sc[2]));
+        const std::string in_else = names(c_visible_locals(st, 0, &sc[3]));
+        const std::string after = names(c_visible_locals(st, 0, &sc[4]));
+        check("CVALF-28b", "the else block of an if that declared a local: in the then block `t` and `v1` show, in the else block (scope (2,3), a block with no local "
+                           "of its own, its level from the first entry that names it) only `v1`, and after it closed (sccz80's (1,3)) only `v1`",
+              in_then == "t v1" && in_else == "v1" && after == "v1");
+    }
+    {
+        // a level-3 block sees its level-2 parent's local and the level-1 one
+        CFunction f;
+        f.name = "f";
+        f.scopes = {mk_scope(0, 0, 0), mk_scope(4, 1, 1), mk_scope(8, 2, 2), mk_scope(12, 3, 3)};
+        const VariableStore st({f}, {mk_loc("v1", 1, 1), mk_loc("v2", 2, 2), mk_loc("v3", 3, 3)}, {}, {}, {});
+        const auto& sc = st.functions()[0].scopes;
+        check("CVALF-28c", "nested blocks: the level-3 scope (3,3) sees v3, its level-2 parent's v2 and v1; the level-2 scope sees v2 and v1 but not v3",
+              names(c_visible_locals(st, 0, &sc[3])) == "v1 v2 v3" && names(c_visible_locals(st, 0, &sc[2])) == "v1 v2");
+    }
+    {
+        // ffast(x) __z88dk_fastcall: sccz80 `x` is B,1,4 at level 0, 80cc's `x` B,1,-2 at level 0 (OD-14's correct record), zsdcc's `x` is the register
+        // [l,h] at level 1 in a block (0) below the body's (7)
+        const auto fn_in = [](const VariableStore& s, const char* name) {
+            for (size_t i = 0; i < s.functions().size(); ++i)
+                if (s.functions()[i].name == name && s.functions()[i].module == "fc_c") return static_cast<int>(i);
+            return -1;
+        };
+        Loaded a("master/sccz80-fc"), b("master/80cc-fc"), c("master/sdcc-fc");
+        bool ok = true;
+        for (Loaded* l : {&a, &b, &c}) {
+            const int fi = l->store ? fn_in(*l->store, "ffast") : -1;
+            const auto v = fi >= 0 ? c_visible_locals(*l->store, fi, nullptr) : std::vector<CLocalRef>{};
+            ok = ok && !v.empty() && v[0].var->c_name == "x" && v[0].kind == CVarKind::Param;
+            for (size_t i = 1; i < v.size(); ++i) ok = ok && v[i].kind != CVarKind::Param;
+        }
+        check("CVALF-28d", "on the fc fixtures `x` of ffast is a parameter on sccz80 (B,1,4), 80cc (B,1,-2: level 0) and zsdcc (register [l,h]: a block below the body's), "
+                           "and the locals after it are not",
+              ok);
+    }
+
     // ── CVALF-29: register locals ──────────────────────────────────────────────
     {
         const CVariable* t = nullptr;
@@ -575,6 +639,111 @@ int main() {
                   c_param_location_unknown(CConv::Listed, nominal.record.var).empty() &&
                   c_param_location_unknown(CConv::Unlisted, nominal.record.var).empty() &&
                   c_param_location_unknown(CConv::ListedFastcall, reg.record.var).empty());
+    }
+
+    // ── CVALF-31: sccz80's struct flags (U2): every view agrees and none reads past the object ─────────────────
+    {
+        // struct flags is {2} (g_flags); its member hi is an int at offset 1: it overhangs by one byte. Memory holds ONLY the object: a read of $B002 fails.
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});
+        mem.put(0xB000, {0x8D, 0xC8});
+        CFormatCtx ctx = csc;
+        ctx.read = mem.reader();
+        CLoc p;
+        p.type = ty("{2}DG,STflags:S");
+        p.addr = 0xA000;
+        CLoc g;
+        g.type = ty("{2}STflags:S");
+        g.addr = 0xB000;
+        const CEval whole = c_eval_path(ctx, p, true, {});
+        const CEval idx = c_eval_path(ctx, p, false, c_parse_path("p[1]").steps);
+        const CEval arrow = c_eval_path(ctx, p, false, c_parse_path("p->hi").steps);
+        const CEval dot = c_eval_path(ctx, g, false, c_parse_path("g_flags.hi").steps);
+        const CFormatted fw = whole.ok ? c_read_loc(ctx, whole.loc) : CFormatted{};
+        const CFormatted fa = arrow.ok ? c_read_loc(ctx, arrow.loc) : CFormatted{};
+        const CFormatted fd = dot.ok ? c_read_loc(ctx, dot.loc) : CFormatted{};
+        // a struct with no declared object has no known size: *p is refused
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        const VariableStore bare({}, {}, {rec("T:Fz.h$u[({0}S:S$a$0_0$0({2}SI:U),Z,0,0)({1}S:S$b$0_0$0({2}SI:U),Z,0,0)]", "z_c")}, {}, {});
+        CFormatCtx bctx;
+        bctx.store = &bare;
+        bctx.module = "z_c";
+        bctx.read = mem.reader();
+        const CEval none = c_eval_path(bctx, [&] { CLoc q; q.type = ty("{2}DG,STu:S"); q.addr = 0xA000; return q; }(), true, {});
+        check("CVALF-31", "sccz80's struct flags is 2 bytes (its declared object's size), not 3 (its members' extent): *p, p->hi and g_flags.hi all give hi = 200 "
+                          "with the overhang zero-filled and no read of the byte after the object, p[1] is at +2, and a struct with no declared object is refused as "
+                          "size unknown (z88dk U2)",
+              whole.ok && whole.loc.type.size == 2 && fw.ok && fw.text.find("hi = 200") != std::string::npos && idx.ok && idx.loc.addr == 0xB002 &&
+                  arrow.ok && fa.ok && fa.text == "200" && dot.ok && fd.ok && fd.text == "200" && !none.ok && none.why.find("size unknown (z88dk U2)") != std::string::npos);
+    }
+
+    // ── CVALF-32: `*` applies to the whole postfix expression ─────────────────────────────────────────────────────
+    {
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0, 0x10, 0xB0});   // char *x[2] = {$B000, $B010}
+        mem.put(0xB010, {'z'});
+        mem.put(0xA100, {0x00, 0xB1});               // node_t *head = $B100
+        mem.put(0xB100, {0x00, 0xB2, 0xA0, 0x86, 0x01, 0x00});   // { next = $B200, val = 100000 }
+        mem.put(0xB200, {0x00, 0x00, 0x05, 0x00, 0x00, 0x00});   // { next = NULL, val = 5 }
+        CFormatCtx ctx = csc;
+        ctx.read = mem.reader();
+        CLoc x;
+        x.type = ty("{4}DA2x,DG,SC:S");
+        x.addr = 0xA000;
+        const CPath px = c_parse_path("*x[1]");
+        const CEval ex = c_eval_path(ctx, x, px.deref, px.steps);
+        const CFormatted fx = ex.ok ? c_read_loc(ctx, ex.loc) : CFormatted{};
+        CLoc head;
+        head.type = ty("{2}DG,STnode:S");
+        head.addr = 0xA100;
+        const CPath ph = c_parse_path("*head->next");
+        const CEval eh = c_eval_path(ctx, head, ph.deref, ph.steps);
+        const CFormatted fh = eh.ok ? c_read_loc(ctx, eh.loc) : CFormatted{};
+        check("CVALF-32", "postfix binds tighter than `*`: `*x[1]` is the byte x[1] points at ('z'), `*head->next` is the whole node head->next points at",
+              px.ok && px.deref && ex.ok && fx.ok && fx.text == "122 'z'" && ph.ok && eh.ok && fh.ok && fh.text == "{next = $0000 (NULL), val = 5}");
+    }
+
+    // ── CVALF-33: a pointer to an array ───────────────────────────────────────────────────────────────────────────
+    {
+        Mem mem;
+        mem.put(0xA000, {0x00, 0xB0});
+        mem.put(0xB000, {1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0});
+        CFormatCtx ctx;
+        ctx.read = mem.reader();
+        CLoc p;
+        p.type = ty("{2}DG,DA3x,SI:S");   // int (*p)[3]
+        p.addr = 0xA000;
+        const CEval d = c_eval_path(ctx, p, true, {});
+        const CEval i1 = c_eval_path(ctx, p, false, c_parse_path("p[1]").steps);
+        const CFormatted fd = d.ok ? c_read_loc(ctx, d.loc) : CFormatted{};
+        const CFormatted f1 = i1.ok ? c_read_loc(ctx, i1.loc) : CFormatted{};
+        check("CVALF-33", "int (*p)[3]: *p is 6 bytes ({1, 2, 3}) and p[1] is at +6 ({4, 5, 6}): the size of a pointed-to array is its whole size",
+              d.ok && d.loc.type.size == 6 && fd.ok && fd.text == "{1, 2, 3}" && i1.ok && i1.loc.addr == 0xB006 && f1.ok && f1.text == "{4, 5, 6}");
+    }
+
+    // ── CVALF-34: a zsdcc padding member is not shown ─────────────────────────────────────────────────────────────
+    {
+        const auto rec = [](const char* text, const char* module) {
+            CRecord r;
+            r.text = text;
+            r.module = module;
+            r.record = cdb_decode(text).record;
+            return r;
+        };
+        // struct s { uint8_t a; unsigned :2 (written __00000000); uint8_t b; }
+        const VariableStore st({}, {}, {rec("T:Fv$s[({0}S:S$a$0_0$0({1}SC:U),Z,0,0)({1}S:S$__00000000$0_0$0({1}SB0$2:U),Z,0,0)({2}S:S$b$0_0$0({1}SC:U),Z,0,0)]", "v_c")}, {}, {});
+        CFormatCtx ctx;
+        ctx.store = &st;
+        ctx.scope_name = "v";
+        ctx.module = "v_c";
+        const CFormatted f = fmt(ctx, ty("{3}STs:S"), {1, 0xFF, 3});
+        check("CVALF-34", "a zsdcc padding member (__00000000) of a struct is skipped: bytes 01 FF 03 print {a = 1, b = 3}", f.ok && f.text == "{a = 1, b = 3}");
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

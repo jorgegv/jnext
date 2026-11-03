@@ -273,14 +273,21 @@ struct Formatter {
     }
 };
 
+// A struct's size is a declared object's: an `S:` record, or a struct member, whose chain is exactly `ST<tag>`. It is NOT
+// taken from the members: sccz80 and 80cc write a bitfield as an int that sticks out of the struct (z88dk U2), so
+// the members' extent overstates it. -1: no such object.
 int struct_size(const CFormatCtx& ctx, const std::string& tag)
 {
     if (!ctx.store) return -1;
-    const CTypeLookup lk = c_find_type(*ctx.store, tag, ctx.scope_name, ctx.module);
-    if (!lk.record) return -1;
-    int end = 0;
-    for (const CdbMember& m : lk.record->record.members) end = std::max(end, m.offset + std::max(0, m.var.type.size));
-    return end;
+    const auto exact = [&](const CdbType& t) {
+        return t.chain.size() == 1 && t.chain[0].kind == CdbTypeKind::Struct && t.chain[0].tag == tag && t.size > 0;
+    };
+    for (const CVariable& v : ctx.store->variables())
+        if (exact(v.record.var.type)) return v.record.var.type.size;
+    for (const CRecord& r : ctx.store->types())
+        for (const CdbMember& m : r.record.members)
+            if (exact(m.var.type)) return m.var.type.size;
+    return -1;
 }
 
 CdbType sliced(const CdbType& t, size_t n, int size)
@@ -316,7 +323,9 @@ bool deref_loc(const CFormatCtx& ctx, const CLoc& in, CLoc* out, std::string* wh
     }
     const int sz = c_leaf_size(ctx, in.type.chain, 1);
     if (sz < 0) {
-        *why = "the size of the pointed-to type is not known";
+        *why = in.type.chain.size() > 1 && in.type.chain[1].kind == CdbTypeKind::Struct
+                   ? "size unknown (z88dk U2): no declared object of struct " + in.type.chain[1].tag
+                   : "the size of the pointed-to type is not known";
         return false;
     }
     out->type = sliced(in.type, 1, sz);
@@ -346,6 +355,7 @@ bool member_loc(const CFormatCtx& ctx, const CLoc& in, const std::string& name, 
         if (mem.var.name != name || mem.hidden != CdbHidden::None) continue;
         out->type = mem.var.type;
         out->addr = in.addr + static_cast<uint32_t>(mem.offset);
+        out->end = in.end ? in.end : in.addr + static_cast<uint32_t>(std::max(0, in.type.size));   // a member read stays inside the object
         out->note = overlaps_other(rec, m) ? kU2 : "";
         return true;
     }
@@ -620,14 +630,6 @@ CEval c_eval_path(const CFormatCtx& ctx, const CLoc& root, bool deref, const std
     CEval out;
     CLoc cur = root;
     std::string why;
-    if (deref) {
-        CLoc next;
-        if (!deref_loc(ctx, cur, &next, &why)) {
-            out.why = why;
-            return out;
-        }
-        cur = next;
-    }
     for (const CPathStep& st : steps) {
         CLoc next;
         switch (st.kind) {
@@ -684,6 +686,14 @@ CEval c_eval_path(const CFormatCtx& ctx, const CLoc& root, bool deref, const std
         }
         cur = next;
     }
+    if (deref) {   // C: postfix operators bind tighter, so `*x[1]` is `*(x[1])`
+        CLoc next;
+        if (!deref_loc(ctx, cur, &next, &why)) {
+            out.why = why;
+            return out;
+        }
+        cur = next;
+    }
     out.ok = true;
     out.loc = cur;
     return out;
@@ -697,7 +707,9 @@ CFormatted c_read_loc(const CFormatCtx& ctx, const CLoc& loc)
         return out;
     }
     std::vector<uint8_t> buf(static_cast<size_t>(loc.type.size));
-    if (!ctx.read || !ctx.read(loc.addr, buf.size(), buf.data())) {
+    size_t want = buf.size();
+    if (loc.end > loc.addr && loc.addr + want > loc.end) want = loc.end - loc.addr;   // the overhang of a U2 member is zeros
+    if (!ctx.read || !ctx.read(loc.addr, want, buf.data())) {
         out.why = "unreadable memory at $" + hexw(loc.addr, 4);
         return out;
     }
@@ -719,18 +731,32 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
     for (const CVariable& v : store.variables())
         if (v.function == function && v.record.hidden == CdbHidden::None) mine.push_back(&v);
 
+    // A parameter: level 0 (sccz80, 80cc), a stack offset >= 4, or (zsdcc) a block below the function's first body block
+    // (the block of the scope entry at the function's entry, level 0), which is where its register and fastcall parameters sit.
+    const bool entry_scope = !fn.scopes.empty() && fn.scopes.front().known && fn.scopes.front().offset == 0 && fn.scopes.front().level == 0;
+    const int first_body = entry_scope ? fn.scopes.front().block : -1;
+    const auto is_param = [&](const CdbVar& cv) {
+        if (cv.space == 'E') return false;
+        if (cv.level == 0) return true;
+        if (cv.space == 'B' && cv.stack_offset() >= 4) return true;
+        return first_body > 0 && cv.block < first_body;
+    };
+
+    // The blocks: each local's own (level, block); a block that holds no local takes its level from the first scope entry
+    // (in offset order) that names it: sccz80 numbers blocks in pre-order, so a block just opened is the last opened one.
     bool deep_local = false;
-    std::set<std::pair<int, int>> pairs;   // (level, block) of the blocks that hold a local (a scope entry's own pair is not a block)
+    std::map<int, int> level_of;   // block -> level
     for (const CVariable* v : mine) {
-        if (v->record.var.space == 'E') continue;
-        if (v->record.var.space == 'B' && v->record.var.stack_offset() >= 4) continue;
-        pairs.insert({v->record.var.level, v->record.var.block});
-        deep_local = deep_local || v->record.var.level >= 2;
+        const CdbVar& cv = v->record.var;
+        if (cv.space == 'E' || is_param(cv)) continue;
+        level_of.emplace(cv.block, cv.level);
+        deep_local = deep_local || cv.level >= 2;
     }
     bool block_data = false;
-    for (const CScope& s : fn.scopes) {
-        if (!s.known) continue;
-        block_data = block_data || s.level > 0;
+    for (const CScope& sc : fn.scopes) {
+        if (!sc.known) continue;
+        block_data = block_data || sc.level > 0;
+        if (sc.level > 0) level_of.emplace(sc.block, sc.level);
     }
     const bool unknown = !scope || !scope->known || (deep_local && !block_data);
 
@@ -738,8 +764,8 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
     if (!unknown) {
         const auto below = [&](int level, int limit, bool inclusive) {
             int best = -1;
-            for (const auto& p : pairs)
-                if (p.first == level && (inclusive ? p.second <= limit : p.second < limit)) best = std::max(best, p.second);
+            for (const auto& kv : level_of)
+                if (kv.second == level && (inclusive ? kv.first <= limit : kv.first < limit)) best = std::max(best, kv.first);
             return best;
         };
         int blk = below(scope->level, scope->block, true);
@@ -756,7 +782,7 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
         if (cv.space == 'E') {
             r.kind = CVarKind::StaticLocal;
             statics.push_back(r);
-        } else if (cv.space == 'B' && cv.stack_offset() >= 4) {
+        } else if (is_param(cv)) {
             r.kind = CVarKind::Param;
             params.push_back(r);
         } else {
@@ -768,9 +794,8 @@ std::vector<CLocalRef> c_visible_locals(const VariableStore& store, int function
             locals.push_back(r);
         }
     }
-    std::stable_sort(params.begin(), params.end(), [](const CLocalRef& a, const CLocalRef& b) {
-        return a.var->record.var.stack_offset() < b.var->record.var.stack_offset();
-    });
+    const auto pos = [](const CLocalRef& r) { return r.var->record.var.space == 'B' ? r.var->record.var.stack_offset() : 1 << 20; };
+    std::stable_sort(params.begin(), params.end(), [&](const CLocalRef& a, const CLocalRef& b) { return pos(a) < pos(b); });
     std::vector<CLocalRef> out = params;
     out.insert(out.end(), locals.begin(), locals.end());
     out.insert(out.end(), statics.begin(), statics.end());
