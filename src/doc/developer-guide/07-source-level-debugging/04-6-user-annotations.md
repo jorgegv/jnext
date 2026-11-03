@@ -160,7 +160,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
 - **One menu builder.** `add_annotation_actions()` (`src/debugger/annotation_menu.cpp:77`) appends, behind a
   separator, **Add Label…** / **Rename Label…**, **Remove Label** and **Add Comment…** / **Edit Comment…** to a
   code view's context menu. The Disassembly calls it with the one place of the line, its address and the
-  `entry.space` it was drawn with (in `DisasmPanel::contextMenuEvent()`, `add_annotation_actions` is called at `src/debugger/disasm_panel.cpp:983`); the
+  `entry.space` it was drawn with (in `DisasmPanel::contextMenuEvent()`, `add_annotation_actions` is called at `src/debugger/disasm_panel.cpp:986`); the
   Source tab calls it with the line's `st.starts` (in `SourcePanel::fill_context_menu()`, `add_annotation_actions` is called at
   `src/debugger/source_panel.cpp:1208`), so a line that compiled to several places gets a submenu per entry,
   a place not mapped now stays editable (the key does not depend on the mapping), and a line with no code
@@ -177,11 +177,17 @@ The same two views edit the store and draw it; nothing here changes what the sto
   through the non-const pointer `DebuggerManager` hands them with `set_annotation_backend()`
   (`src/debugger/debugger_manager.cpp:386` and `:390`), and each panel's `annotations_changed()` signal makes the
   manager refresh the panels.
-- **The Disassembly draws it.** `label_column_shown()` (`disasm_panel.cpp:1013`) is true while the symbol table
-  (the composed reader, section 9) holds any label; then the **Label** column sits between the bytes and the
-  mnemonic and every x after it moves by `label_width()` (16 characters), `mnemonic_x()` (`:1020`); with no
-  label the layout is the old one (`QANN-01`). `line_label()` (`:1025`) is the name the reader gives the line's
-  own address in its own memory, shortened with `...`; `line_comment()` (`:1035`) is `; ` and the comment's first
+- **The Disassembly draws it.** `label_column_shown()` (`disasm_panel.cpp:1016`) is true while the symbol table
+  (the composed reader, section 9) holds any label; then the **Label** column sits between the BP column and the
+  mnemonic and every x after it moves by `label_width()` (16 characters). The columns run Mem, Addr, BP column,
+  [Label], mnemonic, opcode bytes, `; comment` (GH #448); `breakpoint_x()` (`:1023`) is the BP column's left edge,
+  `mnemonic_x()` (`:1025`) the mnemonic's (`breakpoint_x() + 20 + 4`, plus `label_width()` with a label),
+  `mnemonic_width()` (`:1030`) the mnemonic column's 20 characters, and `bytes_x(line)` (`:1035`) where that line's
+  bytes start: after the column, or after the mnemonic itself plus a gap when that mnemonic is wider, so a long
+  line pushes only its own bytes. The comment sits 100 px (`BYTES_WIDTH`) after the bytes. The painter and the tests
+  read these accessors (`QDCOL-01`, `QDCOL-03`, `QDCOL-04`; with no label the mnemonic is at 172, `QANN-01`).
+  `line_label()` (`:1056`) is the name the reader gives the line's
+  own address in its own memory, shortened with `...`; `line_comment()` (`:1066`) is `; ` and the comment's first
   line, plus ` ...` when it has more. Both are what the painter draws and what the tests read. The copy
   formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
   file).

@@ -39,8 +39,8 @@ are different bytes with different marks.
 
 ## Where it shows
 
-- **Disassembly** — a green bar left of the address on every line whose
-  instruction ran. The bar follows what the CPU would *fetch* at that address
+- **Disassembly** — a green bar just right of the BP column, before the
+  instruction, on every line whose instruction ran. The bar follows what the CPU would *fetch* at that address
   now, so after the DivMMC pages itself in at `RST 8` the line at `$0008` shows
   the DivMMC ROM's mark, not the ROM's.
 - **Memory** — under each byte a three-part underline, **X | R | W** left to

@@ -3,16 +3,17 @@
 ![Disassembly panel](../../img/debugger-disassembly.png)
 
 Z80 plus all 26 Z80N instructions, disassembled live from memory as the CPU
-sees it. Columns are the breakpoint gutter, the address, the **Mem** column
-(which memory the line's bytes come from: `P04`, `ROM0`, `DIVROM`, or the
-physical address; [details](../index.md#which-memory-an-address-is-in)), the raw
-opcode bytes and the mnemonic. At a DivMMC entry the line at `PC` shows the
+sees it. Columns, left to right, are the **Mem** column (which memory the
+line's bytes come from: `P04`, `ROM0`, `DIVROM`, or the physical address;
+[details](../index.md#which-memory-an-address-is-in)), the address, the **BP**
+column (the breakpoint gutter), the mnemonic and the raw opcode bytes, so the
+instruction sits next to where you set its breakpoint. At a DivMMC entry the line at `PC` shows the
 DivMMC ROM's instruction, the one the CPU is about to run, with `DIVROM` beside it. The line at `PC` is highlighted in yellow and set in bold;
 the lines you select are highlighted in blue — over the top of the yellow, so
-the `PC` line stays recognisable inside a selection, and clear of the gutter,
+the `PC` line stays recognisable inside a selection, and clear of the BP column,
 so breakpoint dots stay visible.
 
-- **Click the gutter** on any line to set or clear an execute breakpoint (shown
+- **Click the BP column** (the gutter between the address and the instruction) on any line to set or clear an execute breakpoint (shown
   as a red dot). A breakpoint that has been
   [suspended](08-breakpoints.md) — unticked in the Breakpoints panel, or
   covered by its master switch — is drawn as a hollow red ring instead;
@@ -20,7 +21,7 @@ so breakpoint dots stay visible.
   breakpoints, never one that GDB, ZRCP, DeZog or a script set: see
   [Whose breakpoints the gutters show and change](08-breakpoints.md#whose-breakpoints-the-gutters-show-and-change).
 - With [memory coverage](../functions/15-memory-coverage.md) on, a green bar
-  sits left of the address on every line whose instruction ran.
+  sits just right of the BP column, before the instruction, on every line whose instruction ran.
 - **Click and drag** over the listing to select a range of lines, or click one
   line to select just that one. **Shift+click** extends the selection from
   where it started, and **Shift + ↑ ↓ Page Up/Down Home End** do the same from
@@ -29,9 +30,9 @@ so breakpoint dots stay visible.
   symbol and press Enter to centre the view there. A number wins over a symbol
   spelled like one; write `@name` to mean the symbol.
 - **Go to PC** re-centres on the current instruction.
-- A **Label** column appears between the bytes and the instruction once any label is known: the name
+- A **Label** column appears between the BP column and the instruction once any label is known: the name
   of the line's own address in its memory, loaded or your own, shortened after 16 characters. Your
-  comment follows the instruction as `; first line`. See
+  comment follows the opcode bytes as `; first line`. See
   [Your own labels and comments](../functions/16-user-labels-and-comments.md).
 - With a source map loaded, a selection here moves the [Source](15-source.md) tab (the cursor goes
   to the line of the instruction you clicked, and the lines of the whole range are tinted), and the
@@ -59,7 +60,8 @@ you paste is what you would have written by hand:
 ```
 
 **Copy with Addresses** is the same selection with the address and opcode
-columns kept, for a bug report or an annotated trace:
+columns kept, for a bug report or an annotated trace. It keeps the order of an
+assembler listing (address, bytes, instruction), not the panel's:
 
 ```
 $8000  21 34 12     LD HL,screen_buf

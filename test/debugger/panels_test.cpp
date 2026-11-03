@@ -69,6 +69,7 @@
 #include <QHeaderView>
 #include <QStyle>
 #include <QFontMetrics>
+#include <QFontDatabase>
 #include <QAbstractButton>
 #include <QApplication>
 #include <QMenuBar>
@@ -232,6 +233,7 @@ int row_count(QWidget* panel) {
 struct PaintedText {
     QPointF pos;     // baseline origin, in widget coordinates
     QString text;
+    QColor pen;      // the pen the text was drawn with (GH #448)
 };
 
 class RecordingEngine : public QPaintEngine {
@@ -262,7 +264,7 @@ public:
         // The painter's transform carries the child widgets' offsets; the
         // Memory panel draws straight onto itself, so its own items land at
         // their widget coordinates.
-        items.push_back({state->transform().map(p), ti.text()});
+        items.push_back({state->transform().map(p), ti.text(), state->pen().color()});
     }
     Type type() const override { return QPaintEngine::User; }
     std::vector<PaintedText> items;
@@ -1948,13 +1950,12 @@ static void test_coverage_panels() {
         w->render(&img);
         return img;
     };
-    // GUTTER_WIDTH is private: the bar sits one pixel past the gutter separator,
-    // which is the panel's first pixel column with the separator's colour.
-    auto gutter_x = [](const QImage& img, const QPalette& p) {
+    // The bar sits one pixel past the BP column's separator, which is the panel's own
+    // breakpoint_x() + GUTTER_WIDTH (GH #448); the separator's colour there is still checked.
+    auto gutter_x = [](const DisasmPanel& d, const QImage& img, const QPalette& p) {
         const QRgb sep = palette_tint::surface(p, QColor(200, 200, 200)).rgb();
-        for (int x = 1; x < 60; ++x)
-            if (img.pixel(x, 60) == sep && img.pixel(x, 61) == sep) return x;
-        return -1;
+        const int x = d.breakpoint_x() + 20;
+        return (img.pixel(x, 60) == sep && img.pixel(x, 61) == sep) ? x : -1;
     };
 
     Emulator emu;
@@ -1984,7 +1985,7 @@ static void test_coverage_panels() {
     dis.refresh();
     mem.refresh();
     const QImage dis_on = image_of(&dis);
-    const int gx = gutter_x(dis_on, pal);
+    const int gx = gutter_x(dis, dis_on, pal);
 
     {   // QCOV-02 (a): the bar is on the executed lines and not on the others
         const auto runs = gx > 0 ? bar_runs(dis_on, gx + 2, coverage_colors::exec(pal).rgb())
@@ -2023,7 +2024,7 @@ static void test_coverage_panels() {
         ndis.activate_follow_pc();
         ndis.refresh();
         const QImage nimg = image_of(&ndis);
-        const int ngx = gutter_x(nimg, pal);
+        const int ngx = gutter_x(ndis, nimg, pal);
         const auto nruns = ngx > 0 ? bar_runs(nimg, ngx + 2, coverage_colors::exec(pal).rgb())
                                    : std::vector<std::pair<int, int>>{};
         const bool follows_fetch = nx_ok && nruns.size() == 1 && nruns[0].second == 16 &&
@@ -2143,7 +2144,7 @@ static void test_coverage_panels() {
         go_to(&mem, "8000");
         mem.refresh();
         const QImage dimg = image_of(&dis), mimg = image_of(&mem);
-        const int dgx = gutter_x(dimg, dpal);
+        const int dgx = gutter_x(dis, dimg, dpal);
         const QColor ex = coverage_colors::exec(dpal), rd = coverage_colors::read(dpal),
                      wr = coverage_colors::write(dpal);
         const int base = dpal.color(QPalette::Base).lightness();
@@ -3560,15 +3561,17 @@ static void test_long_address() {
         const QString pc_phys = after_label(phys, "$0000");
         view_disasm_at(&dis, 0xC000);
         const QString c000 = after_label(painted(&dis), "$C000");
-        // The mnemonic column sits ADDR_WIDTH + MEM_WIDTH + BYTES_WIDTH (48 + 96 + 100) right of the
-        // address; the friendly and the physical paint put it at the same x.
+        // GH #448: the address sits MEM_WIDTH (96) right of the 4-px margin, after the Mem column, and the
+        // mnemonic ADDR_WIDTH + the BP column + 4 (48 + 20 + 4) right of the address; the friendly and the
+        // physical paint put both at the same x.
         const double ax = x_of(friendly, "$0000"), mx = x_of(friendly, "INC A");
-        const bool moved = mx - ax == 48 + 96 + 100 && x_of(phys, "INC A") == mx && x_of(phys, "$0000") == ax;
+        const bool moved = ax == 4 + 96 && mx - ax == 48 + 20 + 4 && x_of(phys, "INC A") == mx &&
+                           x_of(phys, "$0000") == ax;
         const bool fits = QFontMetrics(QFont("Monospace", 10)).horizontalAdvance("BRAM7+$1FFF") <= 96;
         check("QLADDR-02",
               "Physical style: the PC line reads $010000 (DivMMC ROM), a $C000 line over page 0x0E "
-              "reads BRAM7+$0000; the mnemonic column is MEM_WIDTH further right and the same in "
-              "both styles; the widest text fits the column",
+              "reads BRAM7+$0000; the address is MEM_WIDTH from the left margin, and address and "
+              "mnemonic sit at the same x in both styles; the widest text fits the column",
               built && pc_phys == "$010000" && c000 == "BRAM7+$0000" && moved && fits,
               s(pc_phys) + "|" + s(c000) + fmt(" ax=%.0f mx=%.0f", ax, mx));
     }
@@ -3822,19 +3825,19 @@ static void test_annotations() {
         dis.set_paused(true);
         view_disasm_at(&dis, 0xC000);
         dis.refresh();
-        const bool bare_cols = !dis.label_column_shown() && dis.mnemonic_x() == 20 + 4 + 48 + 96 + 100;
+        const bool bare_cols = !dis.label_column_shown() && dis.mnemonic_x() == 172;
         const auto bare = painted(&dis);
         const double bare_mn = x_of(bare, QStringLiteral("NOP"));
         dbg.set_user_label(P10, 0xC000, "banked");
         dis.refresh();
         const auto lab = painted(&dis);
         const bool shown = dis.label_column_shown() && dis.line_label(0) == "banked" &&
-                           x_of(lab, QStringLiteral("banked")) == 20 + 4 + 48 + 96 + 100 &&
-                           x_of(lab, QStringLiteral("Label")) == 20 + 4 + 48 + 96 + 100 &&
-                           x_of(lab, QStringLiteral("NOP")) == dis.mnemonic_x() && dis.mnemonic_x() > 20 + 4 + 48 + 96 + 100;
-        check("QANN-01", "no label in the table: no Label column and the mnemonic at the old x (268); one label: the "
-                         "column (header and 'banked' at the old mnemonic x) is there and the mnemonic moved right",
-              built && bare_cols && bare_mn == 20 + 4 + 48 + 96 + 100 && shown,
+                           x_of(lab, QStringLiteral("banked")) == 172 &&
+                           x_of(lab, QStringLiteral("Label")) == 172 &&
+                           x_of(lab, QStringLiteral("NOP")) == dis.mnemonic_x() && dis.mnemonic_x() > 172;
+        check("QANN-01", "no label in the table: no Label column and the mnemonic at the old x (172, right of the BP column); "
+                         "one label: the column (header and 'banked' at the old mnemonic x) is there and the mnemonic moved right",
+              built && bare_cols && bare_mn == 172 && shown,
               fmt("bare %d mn %.0f; shown %d mn_x %d", bare_cols, bare_mn, shown, dis.mnemonic_x()));
         const std::string at10 = s(dis.line_label(0));
         emu.nextreg().write(0x56, 0x11);
@@ -3921,6 +3924,328 @@ static void test_annotations() {
     }
 }
 
+// ===========================================================================
+// QDCOL -- GH #448: the Disassembly's column order. Mem, Addr, the BP column, [Label], the mnemonic,
+// the opcode bytes, [; comment]. There is no VHDL counterpart: the oracle is the issue's four points
+// and the plan's geometry (doc: user guide panels/03-disassembly.md). The colours are those the panel
+// has always painted with (Addr 100,100,100; Mem 80,40,80; bytes 150,150,150; mnemonic black).
+// ===========================================================================
+namespace {
+// The painted items of the row whose address text is `addr_text` (same baseline as that item).
+std::vector<PaintedText> dcol_row(const std::vector<PaintedText>& items, const QString& addr_text) {
+    std::vector<PaintedText> row;
+    for (const PaintedText& a : items) {
+        if (a.text != addr_text) continue;
+        for (const PaintedText& t : items)
+            if (t.pos.y() == a.pos.y()) row.push_back(t);
+        break;
+    }
+    return row;
+}
+const PaintedText* dcol_item(const std::vector<PaintedText>& row, const QString& text) {
+    for (const PaintedText& t : row) if (t.text == text) return &t;
+    return nullptr;
+}
+double dcol_x(const std::vector<PaintedText>& v, const QString& text) {
+    const PaintedText* t = dcol_item(v, text);
+    return t ? t->pos.x() : -1;
+}
+void dcol_click(DisasmPanel* p, int x, int row) {
+    const QPointF pos(x, 52 + row * 18 + 9);
+    QMouseEvent press(QEvent::MouseButtonPress, pos, p->mapToGlobal(pos.toPoint()), Qt::LeftButton,
+                      Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(p, &press);
+    QMouseEvent rel(QEvent::MouseButtonRelease, pos, p->mapToGlobal(pos.toPoint()), Qt::LeftButton,
+                    Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(p, &rel);
+    QApplication::processEvents();
+}
+QImage dcol_image(QWidget* w) {
+    QImage img(w->size(), QImage::Format_ARGB32);
+    img.fill(Qt::magenta);
+    w->render(&img);
+    return img;
+}
+// A paused ZXN_ISSUE2 with `LD HL,$1234` at $8000 and NOPs after it, the PC at $0000, the view at $8000.
+bool dcol_setup(Emulator& emu) {
+    const bool built = build(emu, MachineType::ZXN_ISSUE2);
+    emu.mmu().set_boot_rom_enabled(false);
+    poke(emu, 0x8000, {0x21, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00});
+    return built;
+}
+}  // namespace
+
+static void test_disasm_columns() {
+    set_group("QDCOL");
+    using jnext::dbg::AddressStyle;
+    using jnext::dbg::MemSpace;
+    const QColor c_addr(100, 100, 100), c_mem(0x80, 0x40, 0x80), c_bytes(150, 150, 150), c_black(0, 0, 0);
+
+    {   // QDCOL-01: the painted x of every column, and the accessors agree with them
+        Emulator emu;
+        const bool built = dcol_setup(emu);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const auto items = painted(&dis);
+        const auto row = dcol_row(items, "$8000");
+        const double mem = dcol_x(row, "P04"), addr = dcol_x(row, "$8000"), mn = dcol_x(row, "LD HL,$1234"),
+                     by = dcol_x(row, "21 34 12");
+        const bool order = mem == 4 && addr == 100 && mn == 172 && mn == dis.mnemonic_x() &&
+                           by == dis.mnemonic_x() + dis.mnemonic_width() && by == dis.bytes_x(0) &&
+                           dis.breakpoint_x() == 148;
+        QFont pf = QFontDatabase::systemFont(QFontDatabase::FixedFont);   // the panel's own font
+        pf.setPointSize(10);
+        const bool width20 = dis.mnemonic_width() == 20 * QFontMetrics(pf).horizontalAdvance('0') + 8;
+        const bool heads = dcol_x(items, "Mem") == 4 && dcol_x(items, "Addr") == 100 && dcol_x(items, "BP") == 150;
+        dis.set_address_style(AddressStyle::Physical);
+        dis.refresh();
+        const auto prow = dcol_row(painted(&dis), "$8000");
+        const PaintedText* pmem = nullptr;
+        for (const PaintedText& t : prow) if (t.pos.x() == 4) pmem = &t;
+        const bool phys = pmem && pmem->text.startsWith('$') && pmem->text != "$8000" &&
+                          dcol_x(prow, "$8000") == 100 && dcol_x(prow, "LD HL,$1234") == 172;
+        check("QDCOL-01",
+              "Disassembly: on the $8000 row Mem (P04) is at x=4, Addr at 100, the instruction at 172 "
+              "(= mnemonic_x()) and its bytes a mnemonic column (20 characters) further right "
+              "(= bytes_x()); the headers Mem, Addr, BP are at 4, 100, 150 and the BP column at 148; "
+              "in the Physical style the Mem text is at 4 and Addr and the instruction do not move",
+              built && order && width20 && heads && phys,
+              fmt("mem=%.0f addr=%.0f mn=%.0f by=%.0f bp=%d order=%d width20=%d heads=%d phys=%d", mem, addr, mn, by,
+                  dis.breakpoint_x(), order, width20, heads, phys));
+    }
+
+    {   // QDCOL-02: the colours are unchanged, the address included (the lighter one)
+        Emulator emu;
+        const bool built = dcol_setup(emu);
+        jnext::dbg::Debugger dbg(emu);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        const QPalette lp = dis.palette();
+        auto pens = [&](const QPalette& pal) {
+            dis.setPalette(pal);
+            const auto row = dcol_row(painted(&dis), "$8000");
+            struct R { QColor addr, mem, bytes, mn; } r;
+            if (const auto* t = dcol_item(row, "$8000")) r.addr = t->pen;
+            if (const auto* t = dcol_item(row, "P04")) r.mem = t->pen;
+            if (const auto* t = dcol_item(row, "21 34 12")) r.bytes = t->pen;
+            if (const auto* t = dcol_item(row, "LD HL,$1234")) r.mn = t->pen;
+            return r;
+        };
+        const auto lt = pens(lp);
+        const bool light = lt.addr == palette_tint::ink(lp, c_addr) && lt.mem == palette_tint::ink(lp, c_mem) &&
+                           lt.bytes == palette_tint::ink(lp, c_bytes) && lt.mn == palette_tint::ink(lp, c_black);
+        const QPalette dp = dark_test_palette();
+        const auto dk = pens(dp);
+        const bool dark = dk.addr == palette_tint::ink(dp, c_addr) && dk.addr != lt.addr;
+        // the address is neither the bytes' grey nor a darker one
+        const bool lighter = lt.addr == c_addr && lt.addr != lt.bytes;
+        dis.setPalette(lp);
+        check("QDCOL-02",
+              "Disassembly: the address keeps its colour (100,100,100: the lighter, not a darker one) and Mem, "
+              "bytes and mnemonic their own (128,64,128 / 150,150,150 / black); on a dark palette the address "
+              "is the palette-adapted ink, which differs from the light one",
+              built && light && dark && lighter,
+              fmt("light=%d dark=%d lighter=%d addr=%s", light, dark, lighter, s(lt.addr.name()).c_str()));
+    }
+
+    {   // QDCOL-03: label, mnemonic, bytes, comment: in that order
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        emu.nextreg().write(0x56, 0x10);
+        jnext::dbg::Debugger dbg(emu);
+        dbg.set_user_label(MemSpace::page(0x10), 0xC000, "banked");
+        dbg.set_user_comment(MemSpace::page(0x10), 0xC000, "note");
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&dbg.symbols());
+        dis.set_annotation_backend(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0xC000);
+        dis.refresh();
+        const auto items = painted(&dis);
+        const auto row = dcol_row(items, "$C000");
+        const double lab = dcol_x(row, "banked"), mn = dcol_x(row, "NOP"), by = dcol_x(row, "00"),
+                     cm = dcol_x(row, "; note");
+        const bool at = dcol_x(items, "Label") == 172 && lab == 172 &&
+                        mn == dis.mnemonic_x() && mn > lab && by == mn + dis.mnemonic_width() &&
+                        by == dis.bytes_x(0) && cm == dis.bytes_x(0) + 100;
+        check("QDCOL-03",
+              "Disassembly with a label and a comment at (P10, $C000): the Label header and 'banked' are at "
+              "172, the NOP at mnemonic_x() (right of the label column), its bytes a mnemonic column "
+              "further right, and '; note' 100 px after the bytes; strictly label < mnemonic < bytes < comment",
+              built && at && lab < mn && mn < by && by < cm,
+              fmt("label_hdr=%.0f lab=%.0f mn=%.0f by=%.0f cm=%.0f", dcol_x(items, "Label"), lab, mn, by, cm));
+    }
+
+    {   // QDCOL-04: a mnemonic wider than its column is painted whole and pushes only its own bytes
+        Emulator emu;
+        const bool built = dcol_setup(emu);
+        jnext::dbg::Debugger dbg(emu);
+        SymbolTable st;
+        const std::string longname = "abcdefghijklmnopqrstuvwxyz0123";   // 30 characters
+        st.add_label(longname, 0x1234, std::nullopt);
+        dbg.set_user_comment(MemSpace::page(0x04), 0x8000, "note");
+        DisasmPanel dis(&dbg);
+        dis.set_symbol_table(&st);
+        dis.set_annotation_backend(&dbg);
+        dis.resize(900, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        dcol_click(&dis, 120, 0);
+        const QString copied = dis.selection_text(disasm_text::CopyFormat::AsmOnly).trimmed();
+        const auto items = painted(&dis);
+        const auto row0 = dcol_row(items, "$8000"), row1 = dcol_row(items, "$8003");
+        const QString want = QString("LD HL,%1").arg(QString::fromStdString(longname));
+        const double mn = dcol_x(row0, want);
+        QFont pf = QFontDatabase::systemFont(QFontDatabase::FixedFont);   // the panel's own font
+        pf.setPointSize(10);
+        const int adv = QFontMetrics(pf).horizontalAdvance(want);
+        const double by0 = dcol_x(row0, "21 34 12"), by1 = dcol_x(row1, "00");
+        const bool whole = mn > 0 && copied == want && want.size() == 36;
+        const bool pushed = by0 > dis.mnemonic_x() + dis.mnemonic_width() && by0 == dis.bytes_x(0) &&
+                            by0 == dis.mnemonic_x() + adv + 8;
+        const bool next = by1 == dis.mnemonic_x() + dis.mnemonic_width() && by1 == dis.bytes_x(1);
+        // the line's comment follows its own pushed bytes (bytes_x + 100), not the column's end
+        const double cm = dcol_x(row0, "; note");
+        const bool comment = cm == dis.bytes_x(0) + 100 && cm > dis.mnemonic_x() + dis.mnemonic_width() + 100;
+        check("QDCOL-04",
+              "Disassembly: a 36-character mnemonic (LD HL, plus a 30-character label) is painted whole and "
+              "equal to the copied text, its own bytes sit after it (past the 20-character column), its "
+              "comment 100 px after those pushed bytes, and the next line's bytes stay at the column",
+              built && whole && pushed && next && comment,
+              fmt("mn=%.0f by0=%.0f by1=%.0f col_end=%d cm=%.0f whole=%d pushed=%d next=%d comment=%d", mn, by0, by1,
+                  dis.mnemonic_x() + dis.mnemonic_width(), cm, whole, pushed, next, comment));
+    }
+
+    {   // QDCOL-05: the BP column is where the clicks toggle
+        Emulator emu;
+        const bool built = dcol_setup(emu);
+        jnext::dbg::Debugger dbg(emu);
+        BreakpointModel model(dbg);
+        DisasmPanel dis(&dbg);
+        dis.set_breakpoint_model(&model);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        // rows: $8000 LD HL, $8003 NOP, $8004 NOP, $8005 NOP
+        const int bx = dis.breakpoint_x();
+        dcol_click(&dis, bx + 10, 0);
+        const bool on0 = model.pc_exists(0x8000);
+        dcol_click(&dis, bx + 19, 2);
+        const bool on2 = model.pc_exists(0x8004);
+        dcol_click(&dis, bx - 1, 1);              // the Addr column: selects, no toggle
+        const bool sel1 = !model.pc_exists(0x8003) && dis.selected_address() == 0x8003;
+        dcol_click(&dis, 10, 3);                  // the old gutter x: now the Mem column
+        const bool sel3 = !model.pc_exists(0x8005) && dis.selected_address() == 0x8005;
+        dcol_click(&dis, bx + 20, 1);             // the separator: selects
+        const bool edge = !model.pc_exists(0x8003) && dis.selected_address() == 0x8003;
+        dcol_click(&dis, bx + 10, 0);             // toggles it off again
+        const bool off0 = !model.pc_exists(0x8000);
+        check("QDCOL-05",
+              "Disassembly: a click at breakpoint_x()+10 / +19 toggles the breakpoint of that row; a click at "
+              "breakpoint_x()-1, at the old gutter's x (10) and at breakpoint_x()+20 only selects the row",
+              built && on0 && on2 && sel1 && sel3 && edge && off0,
+              fmt("on0=%d on2=%d sel1=%d sel3=%d edge=%d off0=%d", on0, on2, sel1, sel3, edge, off0));
+    }
+
+    {   // QDCOL-06: where the dot is drawn, and that the fills leave the BP column alone
+        Emulator emu;
+        const bool built = dcol_setup(emu);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8004;   // row 2
+        emu.cpu().set_registers(r);
+        jnext::dbg::Debugger dbg(emu);
+        BreakpointModel model(dbg);
+        model.add(BreakpointModel::Execute, 0x8003);   // row 1
+        DisasmPanel dis(&dbg);
+        dis.set_breakpoint_model(&model);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        view_disasm_at(&dis, 0x8000);
+        dis.refresh();
+        dcol_click(&dis, 120, 0);   // select row 0
+        const QImage img = dcol_image(&dis);
+        const auto row1 = dcol_row(painted(&dis), "$8003");
+        const double addr_x = dcol_x(row1, "$8003");
+        const QRgb red = qRgb(255, 0, 0);
+        int minx = img.width(), maxx = -1, left_of_bp = 0;
+        for (int y = 52 + 18; y < 52 + 36; ++y)
+            for (int x = 0; x < img.width(); ++x)
+                if (img.pixel(x, y) == red) {
+                    minx = std::min(minx, x); maxx = std::max(maxx, x);
+                    if (x < dis.breakpoint_x()) ++left_of_bp;
+                }
+        const int cx = (minx + maxx) / 2;
+        // the bounding box of the PURE-red pixels is within a pixel of the centre (the disc's rim is anti-aliased)
+        const bool glyph = maxx >= 0 && std::abs(cx - (int(addr_x) + 48 + 10)) <= 1 &&
+                           std::abs(cx - (dis.breakpoint_x() + 10)) <= 1 && minx >= dis.breakpoint_x() &&
+                           maxx < dis.breakpoint_x() + 20 && left_of_bp == 0;
+        const auto at = [&](int x, int row) { return img.pixel(x, 52 + row * 18 + 2); };
+        const bool bp_bare = at(158, 0) == at(158, 3) && at(158, 2) == at(158, 3);
+        const bool mem_tint = at(2, 0) != at(2, 3) && at(2, 2) != at(2, 3);
+        // the Addr column (a blank pixel just left of the BP column) and the area right of the separator
+        // (past every text column) are tinted too, on the selected row and on the PC row
+        const int ax = dis.breakpoint_x() - 2, rx = 500;
+        const bool addr_tint = at(ax, 0) != at(ax, 3) && at(ax, 2) != at(ax, 3);
+        const bool right_tint = at(rx, 0) != at(rx, 3) && at(rx, 2) != at(rx, 3);
+        check("QDCOL-06",
+              "Disassembly: the breakpoint disc is centred in the BP column (within a pixel of Addr x + 48 + 10 = breakpoint_x() + "
+              "10, nothing red left of the column); the selected row and the PC row are tinted from x=0 (Mem "
+              "and Addr columns) and from the separator to the right edge, but not in the BP column, which "
+              "stays the plain background",
+              built && glyph && bp_bare && mem_tint && addr_tint && right_tint,
+              fmt("cx=%d addr_x=%.0f left=%d bp_bare=%d mem_tint=%d addr_tint=%d right_tint=%d", cx, addr_x, left_of_bp,
+                  bp_bare, mem_tint, addr_tint, right_tint));
+    }
+
+    {   // QDCOL-07: the coverage bar sits right of the BP separator
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        poke(emu, 0x8000, {0x3A, 0x00, 0x90, 0x32, 0x01, 0x90, 0x00, 0x00});
+        Z80Registers r0 = emu.cpu().get_registers();
+        r0.PC = 0x8000; r0.SP = 0xFF00; r0.IFF1 = r0.IFF2 = 0;
+        emu.cpu().set_registers(r0);
+        jnext::dbg::Debugger dbg(emu);
+        dbg.mem_coverage_enable(true);
+        for (int i = 0; i < 3; ++i) emu.execute_single_instruction();
+        emu.cpu().set_registers(r0);
+        DisasmPanel dis(&dbg);
+        dis.resize(700, 400);
+        dis.set_paused(true);
+        dis.activate_follow_pc();
+        dis.refresh();
+        const QPalette pal = QApplication::palette();
+        const QImage img = dcol_image(&dis);
+        const QRgb ex = coverage_colors::exec(pal).rgb();
+        const int bar_x = dis.breakpoint_x() + 20 + 2;
+        const auto runs = bar_runs(img, bar_x, ex);
+        bool geometry = runs.size() == 3;
+        for (size_t i = 0; geometry && i < runs.size(); ++i)
+            geometry = runs[i].second == 16 && (i == 0 || runs[i].first - runs[i - 1].first == 18);
+        const QRgb sep = palette_tint::surface(pal, QColor(200, 200, 200)).rgb();
+        const bool sep_ok = img.pixel(dis.breakpoint_x() + 20, 60) == sep;
+        int stray = 0;
+        for (int y = 52; y < img.height(); ++y)
+            for (int x = 0; x < dis.breakpoint_x(); ++x)
+                if (img.pixel(x, y) == ex) ++stray;
+        check("QDCOL-07",
+              "Disassembly with coverage on: the three executed lines' 16-px bars are one pixel pair past the "
+              "BP column's separator (breakpoint_x()+22, 18 px apart), the separator is at breakpoint_x()+20, "
+              "and no bar pixel is left of the BP column (the old place at x 21..23 is empty)",
+              built && geometry && sep_ok && stray == 0,
+              fmt("runs=%zu geometry=%d sep=%d stray=%d", runs.size(), geometry, sep_ok, stray));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -3951,6 +4276,7 @@ int main(int argc, char** argv) {
     test_script_panel();
     test_long_address();
     test_annotations();
+    test_disasm_columns();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

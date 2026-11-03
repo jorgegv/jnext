@@ -40,8 +40,8 @@ source line compiled to.
 ## What the Disassembly shows
 
 When any label is known (yours or a loaded file's), the Disassembly gets a **Label** column between
-the bytes and the instruction, with the name of the line's own address, shortened with `...` after 16
-characters. A comment follows the instruction in a muted colour: `; first line`, with ` ...` when it
+the BP column and the instruction, with the name of the line's own address, shortened with `...` after 16
+characters. A comment follows the opcode bytes in a muted colour: `; first line`, with ` ...` when it
 has more. The copy commands do not copy labels or comments. The Source tab shows your own source file
 and does not draw them.
 
