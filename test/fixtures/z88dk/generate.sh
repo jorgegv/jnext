@@ -22,10 +22,10 @@ enc() { local s=$1 o= c i; for ((i = 0; i < ${#s}; i++)); do c=${s:i:1}
         printf '%s' "$o"; }
 
 # fixture modules: every map line of these is kept
-MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|dot_c|dutil_c)$'
+MODS='^(main_c|util_c|game_util_c|asmfn_asm|banked_c|bmain_c|bankin_asm|incmid_c|intarg_c|longsw_c|calleejp_c|calleejpfn_asm|dot_c|dutil_c)$'
 
 trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_CRT), $3 = for a dot command, the groups that have a prog_<G>.bin; stdout = kept lines, original order
-    awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" '
+    awk -v MODS="$MODS" -v CRT="${2:-}" -v BINS="${3:-}" -v EXTRA="${KEEP_EXTRA:-}" '
     function nm(l,  n) { n = l; sub(/ *=.*/, "", n); return n }
     BEGIN { nb = split(BINS, bg, " "); for (i = 1; i <= nb; i++) keep[bg[i]] = 1 }   # a group with a section binary keeps its bounds even when __<G>_size is 0 (dotx MAIN, GH #351)
     NR == FNR { n = nm($0)
@@ -39,7 +39,8 @@ trim_map() {  # $1 = raw map, $2 = extra module whose addr lines are kept (KEEP_
       if (n ~ /^__.*_(head|tail|size)$/) { s = n; sub(/^__/, "", s); sub(/_(head|tail|size)$/, "", s); if (s in keep) print; next }
       if (BINS != "" && n ~ /^(startupoffset|__crt_org_code)$/) { print; next }   # dot commands only (GH #351)
       if (n ~ /^CRT_ORG_(CODE|BANK_10|BANK_10_L|BANK_10_H|PAGE_20|PAGE_21)$/) { print; next }
-      if (n ~ /^(l_debug_push_frame|l_debug_pop_frame|__debug_framepointer|banked_call|l_jphl)$/) { print; next } }
+      if (n ~ /^(l_debug_push_frame|l_debug_pop_frame|__debug_framepointer|banked_call|l_jphl)$/) { print; next }
+      if (EXTRA != "" && n ~ EXTRA) { print; next } }   # KEEP_EXTRA: library names the rows of one build address (GH #349 R1pp)
     ' "$1" "$1"
 }
 
@@ -68,7 +69,7 @@ build() {
     case $kind in
         plain)  files=(main.c util.c asmfn.asm) ;;
         tape)   files=(main.c util.c asmfn.asm); zcc[${#zcc[@]}-1]=+zx; link=(-m --list -o prog -create-app) ;;
-        single:*) files=("${kind#single:}") ;;
+        single:*) IFS=, read -ra files <<< "${kind#single:}" ;;
         dot:*)  files=(dot.c dutil.c); link=(-m --list "-subtype=${kind#dot:}" -o prog -create-app) ;;
         subdir) mkdir -p "$b/game"; mv "$b/util.c" "$b/game/util.c"; files=(main.c game/util.c asmfn.asm); set -- "$@" -I. ;;
         banked:*) local seg=${kind#banked:} kw=; [[ $seg == *:kw ]] && { kw=-DUSE_BANKED_KW; seg=${seg%:kw}; }
@@ -147,6 +148,8 @@ build "$Z24" v2.4 sccz80-tape   tape           -clib=new -debug
 build "$Z24" v2.4 sccz80-intarg single:intarg.c -clib=new -debug
 # GH #349 R1': long arithmetic (l_long_sub: POP IX ... JP (IX)) and switch (l_case: POP HL ... JP (HL)) are returns with no RET
 build "$Z24" v2.4 sccz80-longsw single:longsw.c -clib=new -debug
+# GH #349 R1'': a __z88dk_callee body with SP above its slot jumps internally (JP (HL)); bit_beep_raw_callee loops by JP (IX)
+KEEP_EXTRA='^(bit_beep_raw_callee|asm_bit_close)$' build "$Z24" v2.4 sccz80-calleejp single:calleejp.c,calleejpfn.asm -clib=new -debug
 # GH #351: NextZXOS dot commands (the dot/dotx/dotn subtypes, startupoffset $100/$200/$300)
 build "$Z24" v2.4 sccz80-dot    dot:dot        -clib=new -debug
 build "$Z24" v2.4 sccz80-dotx   dot:dotx       -clib=new -debug
@@ -164,6 +167,7 @@ build "$ZM" master 80cc-incmid  single:incmid.c -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-intarg single:intarg.c -clib=new -debug
 build "$ZM" master 80cc-intarg  single:intarg.c -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-longsw single:longsw.c -clib=new -debug
+KEEP_EXTRA='^(bit_beep_raw_callee|asm_bit_close)$' build "$ZM" master sccz80-calleejp single:calleejp.c,calleejpfn.asm -clib=new -debug
 build "$ZM" master 80cc-longsw  single:longsw.c -clib=new -compiler=80cc -debug
 build "$ZM" master sccz80-dot   dot:dot        -clib=new -debug
 build "$ZM" master sccz80-dotx  dot:dotx       -clib=new -debug

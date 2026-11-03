@@ -52,6 +52,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-incmid, master/sccz80-incmid, master/80cc-incmid | `incmid.c` only: `-clib=new [-compiler=80cc] -debug` | ok | line-0 records in a code section (G22) |
 | v2.4/sccz80-intarg, master/sccz80-intarg, master/80cc-intarg | `intarg.c` only: `-clib=new [-compiler=80cc] -debug` | ok | GH #349: an int parameter, so sccz80 calls `l_gintspsp` (`EX (SP),HL; JP (HL)`, a return with no RET); 80cc emits no such call for it (the unchanged control) |
 | v2.4/sccz80-longsw, master/sccz80-longsw, master/80cc-longsw | `longsw.c` only: `-clib=new [-compiler=80cc] -debug` | ok | GH #349 R1': `long` subtraction (sccz80 calls `l_long_sub`: `POP IX ... JP (IX)`) and a 6-case `switch` (`l_case`: `POP HL` as the case table, `JP (HL)`); 80cc inlines the subtraction (control) but calls `l_case` |
+| v2.4/sccz80-calleejp, master/sccz80-calleejp | `calleejp.c,calleejpfn.asm`: `-clib=new -debug` | ok | GH #349 R1'': a `__z88dk_callee` routine (ours, `addtwo`) and `bit_beep_raw_callee` jump internally by `JP (HL)`/`JP (IX)` with SP above their CALL's slot. No 80cc build: master's 80cc does not honour `__z88dk_callee` on an extern declaration (it emits `call _addtwo; pop bc; pop de`) |
 | v2.4/sccz80-tape | `zcc +zx -clib=new -debug -m --list -o prog -create-app` | ok, a `.tap` | GH #344 stage 3 (tape programs) |
 | master/sccz80-debug | `-clib=new -debug` | ok | G4 fixed |
 | master/sdcc-debug | `-clib=sdcc_iy -debug` | ok | sdcc map lines, Z2; also keeps the CRT listing (G13-G15) |
