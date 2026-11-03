@@ -3180,7 +3180,9 @@ reason.</p>
 at one address are grouped, and the highest line owns the address (the rule the
 line ranges use). Equal-line owners that disagree make the entry unknown, so no
 order of the map can change the answer. The entry is filed under the function of
-the same module and space whose entry address is the greatest one at or below it.</p>
+the same module and section whose entry map VALUE is the greatest one at or below it (never by comparing
+spaces: a function that crosses an 8 KB slot lives in two, <a href="10-c-frames-and-values.html">7.10</a>), with its
+<code>offset</code> from that entry.</p>
 <p>The compilers write the scope differently:</p>
 <ul>
 <li>sccz80 and 80cc: <code>file::&lt;func&gt;::&lt;level&gt;::&lt;block&gt;:&lt;line&gt;</code>. The level is the
@@ -3209,7 +3211,7 @@ debugging. Every <code>__CDBINFO__</code> line of a map ends up in exactly one o
 (<code>Z88CDB-01</code>).</p>
 <h2 id="canonical-order">Canonical order<a class="headerlink" href="#canonical-order" title="Permanent link">&para;</a></h2>
 <p>The vectors are sorted by the record's text (then module), and a function's scope
-table by address, so the store is the same whatever order the map lists its lines
+table by offset, so the store is the same whatever order the map lists its lines
 in (<code>Z88CDB-20</code>). No map line number is kept. <code>VariableStore</code>'s constructor
 (<code>VariableStore::VariableStore()</code>, <code>src/debug/variable_store.cpp:20</code>) sorts the functions and
 remaps each variable's <code>function</code> to the sorted index.</p>
@@ -3229,7 +3231,7 @@ remaps each variable's <code>function</code> to the sorted index.</p>
 parameter, the text that says why no variables are shown, and the type lookup are the next
 stage of the epic. The store gives them the records, the storage and the scopes.</p>
 <h2 id="rows">Rows<a class="headerlink" href="#rows" title="Permanent link">&para;</a></h2>
-<p>(<code>Z88CDB-41</code> to <code>-46</code> and <code>SRCDBG-CVAL-01</code> to <code>-17</code>: <a href="10-c-frames-and-values.html">7.10</a>.)
+<p>(<code>Z88CDB-41</code> to <code>-50</code> and <code>SRCDBG-CVAL-01</code> to <code>-23</code>: <a href="10-c-frames-and-values.html">7.10</a>.)
 <code>Z88CDB-01</code> to <code>-26</code> in <code>z88dk_map_test</code> (the joins, scope tables, order,
 refusals, banked and dot storage, hidden records, listings), <code>SRCVAR-01</code> in
 <code>source_map_test</code> (the member), and <code>SRCDBG-VAR-01</code> to <code>-12</code> in

@@ -6513,24 +6513,36 @@ int main() {
                   on1 && stale && off_stale && on2 && off_clear && on3);
         }
         {   // SRCDBG-CVAL-06
-            Bare m(MachineType::ZXN_ISSUE2);
+            Bare m;
             jnext::dbg::ClientInfo ci;
             ci.name = "A";
             ci.kind = jnext::dbg::ClientKind::Test;
             const ClientId a = m.dbg->attach(ci).value;
             ci.name = "B";
             const ClientId b = m.dbg->attach(ci).value;
+            jnext::dbg::LoopDriver d;   // the frontend's real cold boot: ~Emulator() and placement-new
+            d.cold_boot = [&]() {
+                emulator_frontend_cold_boot(m.emu, m.emu.config(), std::string(), ColdBootHooks{});
+                return true;
+            };
+            m.dbg->set_loop_driver(d);
             m.dbg->set_call_stack_enabled(a, true);
             m.dbg->set_call_stack_enabled(b, true);
-            m.dbg->reset(a, ResetKind::Hard);
+            m.emu.trace_log().set_enabled(true);   // direct, no request: only a rebuilt machine has it off
+            const Result r1 = m.dbg->reset(a, ResetKind::Hard);
+            const bool rebuilt1 = !m.emu.trace_log().enabled();
             const bool both = m.emu.call_stack().enabled();
             m.dbg->set_call_stack_enabled(a, false);
-            m.dbg->reset(a, ResetKind::Hard);
+            m.emu.trace_log().set_enabled(true);
+            const Result r2 = m.dbg->reset(a, ResetKind::Hard);
+            const bool rebuilt2 = !m.emu.trace_log().enabled();
             const bool one = m.emu.call_stack().enabled();
             m.dbg->set_call_stack_enabled(b, false);
-            m.dbg->reset(a, ResetKind::Hard);
-            check("SRCDBG-CVAL-06", "a hard reset keeps every client's request: both on, A off (B still on), both off",
-                  both && one && !m.emu.call_stack().enabled());
+            m.emu.trace_log().set_enabled(true);
+            const Result r3 = m.dbg->reset(a, ResetKind::Hard);
+            check("SRCDBG-CVAL-06", "a real cold boot (the machine is rebuilt) keeps every client's request: both on, A off (B still on), both off",
+                  r1 == Result::Ok && r2 == Result::Ok && r3 == Result::Ok && rebuilt1 && rebuilt2 && !m.emu.trace_log().enabled() &&
+                      both && one && !m.emu.call_stack().enabled());
         }
         // Frame bases, tracked: the CALL that entered the frame's code recorded SP = E, and fp = E - 2
         // for every compiler (z88dk l_debug_push_frame.asm stores SP-2; `push ix; ld ix,0; add ix,sp` is the same).
@@ -6604,7 +6616,8 @@ int main() {
                                     "the tracked run",
                   tracked.size() >= 2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Prologue &&
                       fr[0].fp == tracked[0].fp && fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Chain &&
-                      fr[1].fp == tracked[1].fp);
+                      fr[1].fp == tracked[1].fp && fr[1].floor == tracked[1].floor && line_no(fr[1]) == line_no(tracked[1]) &&
+                      line_no(fr[1]) == 56);
         }
         {   // SRCDBG-CVAL-12
             Machine m(false, MachineType::ZXN_ISSUE2);
@@ -6617,7 +6630,8 @@ int main() {
                                     "the tracked run",
                   tracked.size() >= 2 && fr.size() >= 2 && fn_name(m, fr[0]) == "sum" && fr[0].how == FrameBase::Prologue &&
                       fr[0].fp == tracked[0].fp && fn_name(m, fr[1]) == "main" && fr[1].how == FrameBase::Chain &&
-                      fr[1].fp == tracked[1].fp);
+                      fr[1].fp == tracked[1].fp && fr[1].floor == tracked[1].floor && line_no(fr[1]) == line_no(tracked[1]) &&
+                      line_no(fr[1]) == 56);
         }
         {   // SRCDBG-CVAL-13
             Machine m(false, MachineType::ZXN_ISSUE2);
@@ -6701,24 +6715,172 @@ int main() {
                       fr[1].floor > fr[1].fp);
         }
         {   // SRCDBG-CVAL-17
+            struct Cross { const char* fx; uint16_t pc; int line; const char* tag; };
+            // the first line after the padding: cross.c:20 on each compiler (derive-scopes.py: $AC75, $AC87, $AC57)
             bool ok = true;
-            for (const char* fx : {"master/sccz80-cross", "master/80cc-cross"}) {
+            for (const Cross& c : {Cross{"master/sccz80-cross", 0xAC75, 20, "c17a"}, Cross{"master/80cc-cross", 0xAC87, 20, "c17b"},
+                                   Cross{"master/sdcc-cross", 0xAC57, 20, "c17c"}}) {
                 Machine m(false, MachineType::ZXN_ISSUE2);
-                cv_load(m, fx, (std::string("c17") + (fx[7] == 's' ? "a" : "b")).c_str());
-                const bool s = cv_run_to(m, fx[7] == 's' ? 0xAC75 : 0xAC87);
+                cv_load(m, c.fx, c.tag);
+                const bool s = cv_run_to(m, c.pc);
                 const auto fr = m.dbg->c_frames();
                 const auto vs = m.dbg->variables();
+                const auto loc = vs && !fr.empty() ? vs->locate(fr[0].pc) : std::nullopt;
+                const jnext::dbg::CScope* sc = loc ? vs->scope_at(loc->function, loc->offset) : nullptr;
                 ok = ok && s && !fr.empty() && fn_name(m, fr[0]) == "cross" && m.pc() >= 0xA000 && fr[0].pc.space == MemSpace::page(5) &&
-                     vs && fr[0].function >= 0 && vs->locate(fr[0].pc) && vs->locate(fr[0].pc)->offset > 0x1000 &&
+                     loc && loc->offset > 0x1000 && sc && sc->at.space == MemSpace::page(5) && sc->at.address == c.pc &&
+                     sc->line == c.line && sc->known && fr[0].line && fr[0].line->line == c.line &&
                      fr.size() >= 2 && fn_name(m, fr[1]) == "main";
             }
-            Machine z(false, MachineType::ZXN_ISSUE2);
-            cv_load(z, "master/sdcc-cross", "c17c");
-            const bool zs = cv_run_to(z, 0xAC57);
-            const auto zf = z.dbg->c_frames();
-            check("SRCDBG-CVAL-17", "a function that crosses an 8 KB slot (cross.c): stopped past $A000 in cross, frame 0 is cross (piece 2, "
-                                    "page 5) with an offset across the pieces, frame 1 is main; sccz80, 80cc and zsdcc",
-                  ok && zs && !zf.empty() && fn_name(z, zf[0]) == "cross");
+            check("SRCDBG-CVAL-17", "a function that crosses an 8 KB slot (cross.c): stopped past $A000 in cross, frame 0 is cross (piece 2, page 5) with "
+                                    "an offset across the pieces, its scope is the page-5 one of line 20, frame 1 is main; sccz80, 80cc and zsdcc",
+                  ok);
+        }
+        {   // SRCDBG-CVAL-18
+            // GH #434 review F1: a __z88dk_callee epilogue pops its arguments after the frame is restored. Oracle: the
+            // fc listings (sccz80: call l_debug_pop_frame; pop bc; pop af; pop af; push bc; ret; zsdcc: pop ix; pop bc; pop af;
+            // inc sp; push bc; ret; 80cc: call l_debug_pop_frame; pop bc; exx; ...; ret) and E measured at fcallee's entry.
+            struct Fc { const char* fx; uint16_t entry, start, later; const char* tag; };
+            bool ok = true;
+            std::string seen;
+            for (const Fc& c : {Fc{"master/sccz80-fc", 0x8C74, 0x8C8D, 0x8C8E, "c18a"}, Fc{"master/sdcc-fc", 0x8C4A, 0x8C60, 0x8C61, "c18b"},
+                                Fc{"master/80cc-fc", 0x8C74, 0x8C8C, 0x8C8D, "c18c"}}) {
+                Machine m(false, MachineType::ZXN_ISSUE2);
+                cv_load(m, c.fx, c.tag);
+                cv_run_to(m, c.entry);
+                const uint16_t E = m.dbg->registers().SP;
+                const bool s1 = cv_run_to(m, c.start);
+                m.emu.call_stack().clear();
+                const auto at_start = m.dbg->c_frames();
+                const bool s2 = cv_run_to(m, c.later);
+                m.emu.call_stack().clear();
+                const auto later = m.dbg->c_frames();
+                // right after the restore SP is E again: the base is E - 2; one instruction later SP has moved and the variable
+                // or IX hold the caller's base, which must never be reported
+                const bool good = s1 && s2 && !at_start.empty() && !later.empty() && at_start[0].how == FrameBase::Prologue &&
+                                  at_start[0].fp == static_cast<uint16_t>(E - 2) &&
+                                  (later[0].how == FrameBase::Unknown || later[0].fp == static_cast<uint16_t>(E - 2)) &&
+                                  !(later[0].how == FrameBase::Prologue && later[0].fp != static_cast<uint16_t>(E - 2));
+                ok = ok && good;
+                if (!good) seen += std::string(" ") + c.fx;
+            }
+            check("SRCDBG-CVAL-18", "a __z88dk_callee epilogue with no frames: right after the frame pointer is restored fp == E - 2; one "
+                                    "instruction later (arguments being popped) the base is Unknown, never the caller's, on sccz80, zsdcc and 80cc",
+                  ok, seen);
+        }
+        {   // SRCDBG-CVAL-19
+            // GH #434 review F2: two frames that keep no saved frame pointer are never chained. Synthetic program: fa (nop; call fb)
+            // and fb (nop; jr $), neither a push-frame nor an IX prologue, in a map of two functions.
+            Bare m(MachineType::ZXN_ISSUE2);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "t";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            m.dbg->attach(ci);
+            const auto esc = [](const std::string& t) {
+                std::string o;
+                for (const unsigned char c : t) {
+                    if (std::isalpha(c)) {
+                        o += static_cast<char>(c);
+                    } else {
+                        char b[8];
+                        std::snprintf(b, sizeof b, "_%02x", c);
+                        o += b;
+                    }
+                }
+                return o;
+            };
+            const std::string map = (z / "c19.map").string();
+            write_text(map,
+                       "_fa = $8000 ; addr, public, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                       "_fb = $8010 ; addr, public, , t_c, code_compiler, t.c::fb::0::0:5\n"
+                       "__C_LINE_1_t_2ec = $8000 ; addr, local, , t_c, code_compiler, t.c::fa::0::0:1\n"
+                       "__C_LINE_5_t_2ec = $8010 ; addr, local, , t_c, code_compiler, t.c::fb::0::0:5\n"
+                       "__code_compiler_tail = $8020 ; const, public, def, , ,\n"
+                       "__CDBINFO__" + esc("F:G$fa$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:1\n"
+                       "__CDBINFO__" + esc("F:G$fb$0_0$0({0}DF,SI:S),C,0,0,0,0,0") + " = $0001 ; const, public, , t_c, code_compiler, t.c:5\n");
+            const auto lr = m.dbg->load_source_map(map, true);
+            const uint8_t code[] = {0x00, 0xCD, 0x10, 0x80, 0x18, 0xFE};
+            for (size_t i = 0; i < sizeof code; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
+            m.emu.mmu().write(0x8010, 0x00);
+            m.emu.mmu().write(0x8011, 0x18);
+            m.emu.mmu().write(0x8012, 0xFE);
+            m.start(0x8000);
+            m.emu.execute_single_instruction();   // nop
+            m.emu.execute_single_instruction();   // call fb
+            const uint16_t sp = m.dbg->registers().SP;
+            m.emu.mmu().write(static_cast<uint16_t>(sp - 2), 0x80);   // fb's "saved frame pointer": a plausible $FF80
+            m.emu.mmu().write(static_cast<uint16_t>(sp - 1), 0xFF);
+            const auto fr = m.dbg->c_frames();
+            const auto vs = m.dbg->variables();
+            const auto name = [&](const Debugger::CFrame& f) {
+                return vs && f.function >= 0 ? vs->functions()[static_cast<size_t>(f.function)].name : std::string("-");
+            };
+            check("SRCDBG-CVAL-19", "frame 0 fb is Tracked and its caller fa, both with no saved frame pointer, is Unknown (never Chain, "
+                                    "though the word at fb's fp looks like a stack address)",
+                  lr.count > 0 && fr.size() == 2 && name(fr[0]) == "fb" && fr[0].how == FrameBase::Tracked && name(fr[1]) == "fa" &&
+                      fr[1].how == FrameBase::Unknown && !fr[1].note.empty());
+        }
+        {   // SRCDBG-CVAL-20
+            // GH #434 review F7 (R12): zsdcc `push ix; ld ix,0; add ix,sp`: after the push (entry+2) and after the ld (entry+6)
+            // SP = E - 2 already, so the base is SP.
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sdcc-cvars", "c20");
+            cv_run_to(m, 0x8C48);
+            const uint16_t E = m.dbg->registers().SP;
+            const bool s1 = cv_run_to(m, 0x8C4A);
+            m.emu.call_stack().clear();
+            const auto a = m.dbg->c_frames();
+            const bool s2 = cv_run_to(m, 0x8C4E);
+            m.emu.call_stack().clear();
+            const auto b = m.dbg->c_frames();
+            check("SRCDBG-CVAL-20", "zsdcc sum at entry + 2 and entry + 6 with no frames: Prologue, fp == E - 2 (SP), not the caller's IX",
+                  s1 && s2 && !a.empty() && !b.empty() && a[0].how == FrameBase::Prologue && b[0].how == FrameBase::Prologue &&
+                      a[0].fp == static_cast<uint16_t>(E - 2) && b[0].fp == static_cast<uint16_t>(E - 2));
+        }
+        {   // SRCDBG-CVAL-21
+            // GH #434 review F7 (R17): a saved frame pointer that is no stack address above this frame ends the chain.
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sccz80-cvars", "c21");
+            cv_run_to(m, 0x8D3E);
+            m.emu.call_stack().clear();
+            const uint16_t fp = m.dbg->c_frames()[0].fp;
+            bool ok = true;
+            for (const uint16_t bad : {uint16_t(0x1234), uint16_t(0xFFFE), static_cast<uint16_t>(fp + 2)}) {
+                m.emu.mmu().write(fp, static_cast<uint8_t>(bad & 0xFF));
+                m.emu.mmu().write(static_cast<uint16_t>(fp + 1), static_cast<uint8_t>(bad >> 8));
+                const auto fr = m.dbg->c_frames();
+                ok = ok && fr.size() == 2 && fr[1].how == FrameBase::Unknown &&
+                     fr[1].note.find("saved frame pointer") != std::string::npos;
+            }
+            check("SRCDBG-CVAL-21", "a saved frame pointer below the frame, at the top of memory or inside the frame itself gives an Unknown "
+                                    "caller with a note, not a Chain",
+                  ok);
+        }
+        {   // SRCDBG-CVAL-22
+            // GH #434 review F7 (R19): a tracked frame whose caller_space was not recorded uses the page mapped now, with a note.
+            Machine m(false, MachineType::ZXN_ISSUE2);
+            cv_load(m, "master/sccz80-cvars", "c22");
+            cv_run_to(m, 0x8D3E);
+            std::vector<CallFrame> frames = m.emu.call_stack().frames();
+            for (CallFrame& f : frames) f.caller_space = MemSpace::cpu();
+            m.emu.call_stack().restore_frames(frames);
+            const auto fr = m.dbg->c_frames();
+            check("SRCDBG-CVAL-22", "a tracked frame with no recorded caller_space: its pc is in the page mapped now, with a note",
+                  fr.size() >= 2 && fr[1].pc.space == m.dbg->source_page(fr[1].pc.address) && !(fr[1].pc.space == MemSpace::cpu()) &&
+                      !fr[1].note.empty() && fn_name(m, fr[1]) == "main");
+        }
+        {   // SRCDBG-CVAL-23
+            // GH #434 review F8: a request needs an attached client.
+            Bare m;
+            jnext::dbg::ClientInfo ci;
+            ci.name = "t";
+            ci.kind = jnext::dbg::ClientKind::Test;
+            const ClientId c = m.dbg->attach(ci).value;
+            m.dbg->detach(c);
+            const Result none = m.dbg->set_call_stack_enabled(jnext::dbg::CLIENT_NONE, true);
+            const Result gone = m.dbg->set_call_stack_enabled(c, true);
+            check("SRCDBG-CVAL-23", "set_call_stack_enabled is RefusedUnavailable for CLIENT_NONE and for a detached client, and changes nothing",
+                  none == Result::RefusedUnavailable && gone == Result::RefusedUnavailable && !m.dbg->call_stack_enabled());
         }
     }
 

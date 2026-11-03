@@ -80,6 +80,38 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
         return Style::Other;
     };
 
+    // The epilogue window of a function (GH #434 review F1): after the instruction that restores the caller's
+    // frame pointer (`call l_debug_pop_frame`, or `pop ix`) and up to the function's `ret`, the variable or IX
+    // already hold the CALLER's base, and a `__z88dk_callee` routine runs more instructions (pops of its
+    // arguments) before it returns. Found by walking the function's code from its entry to `pc`: true when the
+    // newest pop seen has no `ret` after it; `start` is the address right after that pop, where SP is still E.
+    const auto in_epilogue = [&](const CFunction& fn, uint16_t pc, bool ix, uint16_t* start) {
+        if (!fn.entry.resolved) return false;
+        uint16_t a = fn.entry.at.address;
+        uint16_t pop_end = 0;
+        bool open = false;
+        for (int i = 0; i < 4096 && a < pc; ++i) {
+            uint8_t b[3] = {};
+            if (!cpu_byte(a, &b[0]) || !cpu_byte(static_cast<uint16_t>(a + 1), &b[1]) ||
+                !cpu_byte(static_cast<uint16_t>(a + 2), &b[2]))
+                return false;
+            const int len = instruction_length(a);
+            if (len <= 0) return false;
+            if (ix ? (b[0] == 0xDD && b[1] == 0xE1)
+                   : (b[0] == 0xCD && helpers.pop_frame.resolved &&
+                      (b[1] | (b[2] << 8)) == helpers.pop_frame.at.address)) {
+                open = true;
+                pop_end = static_cast<uint16_t>(a + len);
+            } else if (b[0] == 0xC9) {
+                open = false;
+            }
+            a = static_cast<uint16_t>(a + len);
+        }
+        if (a != pc || !open) return false;
+        *start = pop_end;
+        return true;
+    };
+
     const auto describe = [&](CFrame& f) {
         const auto loc = store->locate(f.pc);
         f.function = loc ? loc->function : -1;
@@ -122,14 +154,13 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
                 f.note = "not in a C function, and no tracked frame";
             } else if (style == Style::Push) {
                 f.how = CFrame::Base::Prologue;
-                uint8_t b[3] = {};
-                bool after_pop = false;
-                if (helpers.pop_frame.resolved && cpu_byte(static_cast<uint16_t>(regs.PC - 3), &b[0]) &&
-                    cpu_byte(static_cast<uint16_t>(regs.PC - 2), &b[1]) &&
-                    cpu_byte(static_cast<uint16_t>(regs.PC - 1), &b[2]))
-                    after_pop = b[0] == 0xCD && (b[1] | (b[2] << 8)) == helpers.pop_frame.at.address;
-                if (loc->offset == 0 || after_pop) {
+                uint16_t win = 0;
+                const bool epi = in_epilogue(store->functions()[static_cast<size_t>(f.function)], regs.PC, false, &win);
+                if (loc->offset == 0 || (epi && win == regs.PC)) {
                     f.fp = static_cast<uint16_t>(regs.SP - 2);
+                } else if (epi) {
+                    f.how = CFrame::Base::Unknown;
+                    f.note = "in the epilogue after the frame pointer was restored: the base is not known without the call-stack tracker";
                 } else if (helpers.framepointer.resolved) {
                     const auto& at = helpers.framepointer.at;
                     uint8_t w[2] = {};
@@ -146,12 +177,13 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
                 }
             } else if (style == Style::Ix) {
                 f.how = CFrame::Base::Prologue;
-                uint8_t at_pc = 0, p1 = 0, p2 = 0;
-                const bool at_ret = cpu_byte(regs.PC, &at_pc) && cpu_byte(static_cast<uint16_t>(regs.PC - 2), &p1) &&
-                                    cpu_byte(static_cast<uint16_t>(regs.PC - 1), &p2) &&
-                                    at_pc == 0xC9 && p1 == 0xDD && p2 == 0xE1;
-                if (loc->offset == 0 || at_ret) f.fp = static_cast<uint16_t>(regs.SP - 2);
-                else if (loc->offset == 2 || loc->offset == 6) f.fp = regs.SP;
+                uint16_t win = 0;
+                const bool epi = in_epilogue(store->functions()[static_cast<size_t>(f.function)], regs.PC, true, &win);
+                if (loc->offset == 0 || (epi && win == regs.PC)) f.fp = static_cast<uint16_t>(regs.SP - 2);
+                else if (epi) {
+                    f.how = CFrame::Base::Unknown;
+                    f.note = "in the epilogue after IX was restored: the base is not known without the call-stack tracker";
+                } else if (loc->offset == 2 || loc->offset == 6) f.fp = regs.SP;
                 else f.fp = regs.IX;
             } else {
                 f.note = style_why;
@@ -161,6 +193,8 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
             // keeps its frame the same way.
             if (f.function < 0) {
                 f.note = "not in a C function";
+            } else if (style == Style::Other) {
+                f.note = style_why.empty() ? "this function keeps no saved frame pointer" : style_why;
             } else if (style != prev_style) {
                 f.note = "the caller keeps its frame differently (80cc mixes IX and l_debug_push_frame "
                          "frames); its base is not known without the call-stack tracker";
@@ -179,7 +213,6 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
 
         out.push_back(f);
         if (f.how == CFrame::Base::Unknown && k >= n) break;   // nothing further can be derived
-        if (f.function < 0 && k >= n) break;                    // asm past the tracked frames: stop
         prev_base = f.how != CFrame::Base::Unknown;
         prev_fp = f.fp;
         prev_style = style;

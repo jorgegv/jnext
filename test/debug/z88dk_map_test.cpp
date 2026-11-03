@@ -2649,6 +2649,71 @@ main cross_c AC97
         if (!bad.empty()) std::printf("  Z88CDB-42 differs:%s\n", bad.c_str());
     }
     {
+        // GH #434 review F3: scope_at() on a store built by hand (offsets 4 and 10 of function 0), and on a real one.
+        using jnext::dbg::CScope;
+        CFunction f;
+        f.name = "f";
+        for (const uint32_t off : {4u, 10u}) {
+            CScope c;
+            c.offset = off;
+            c.line = static_cast<int>(off);
+            f.scopes.push_back(c);
+        }
+        const VariableStore hand({f}, {}, {}, {}, {});
+        const auto line_at = [&](int fn, uint32_t off) {
+            const CScope* c = hand.scope_at(fn, off);
+            return c ? c->line : -1;
+        };
+        SourceMap m;
+        load(m, kFixtures / "master/sccz80-cvars" / "prog.map");
+        const VariableStore* s = store_of(m);
+        int sum = -1;
+        for (size_t i = 0; s && i < s->functions().size(); ++i)
+            if (s->functions()[i].name == "sum") sum = static_cast<int>(i);
+        const CScope* first = s ? s->scope_at(sum, 0) : nullptr;       // sum $8CB9 L29
+        const CScope* exact = s ? s->scope_at(sum, 0x8CBC - 0x8CB9) : nullptr;   // L33
+        const CScope* mid = s ? s->scope_at(sum, 0x8CC0 - 0x8CB9) : nullptr;     // between L33 and L34
+        const CScope* last = s ? s->scope_at(sum, 0x8D3E - 0x8CB9 + 0x40) : nullptr;   // past the last: L41
+        check("Z88CDB-48", "scope_at(): the entry with the greatest offset at or below the asked one: null before the first "
+                           "entry, the exact entry at its own offset, the earlier one between two, the last past the end, and "
+                           "null for an unknown function (a hand-built store, then master sccz80-cvars sum)",
+              line_at(0, 3) == -1 && line_at(0, 4) == 4 && line_at(0, 9) == 4 && line_at(0, 10) == 10 && line_at(0, 5000) == 10 &&
+                  line_at(-1, 4) == -1 && line_at(1, 4) == -1 && first && first->line == 29 && exact && exact->line == 33 &&
+                  mid && mid->line == 33 && last && last->line == 41);
+    }
+    {
+        // GH #434 review F4: locate() tells functions that sit at the same CPU address in different pages apart.
+        SourceMap m;
+        load(m, kFixtures / "master/sccz80-cvars-banked" / "prog.map");
+        const VariableStore* s = store_of(m);
+        const auto name_at = [&](MemSpace space, uint16_t a) {
+            const auto loc = s ? s->locate({space, a}) : std::nullopt;
+            return loc ? s->functions()[static_cast<size_t>(loc->function)].name : std::string("-");
+        };
+        const auto at = s ? s->locate({P20, 0xC04C}) : std::nullopt;
+        check("Z88CDB-49", "locate(): bk_sum is at page 20 $C04C (offset $47 from $C005) and nowhere else: pages 21 and 4 at the same address, "
+                           "and the CPU view, name no function",
+              s && name_at(P20, 0xC04C) == "bk_sum" && at && at->offset == 0x47 && name_at(P21, 0xC04C) == "-" &&
+                  name_at(P4, 0xC04C) == "-" && name_at(MemSpace::cpu(), 0xC04C) == "-" && name_at(P20, 0xC000) == "-");
+    }
+    {
+        // GH #434 review F9 (R25): a record of the same module in ANOTHER section is no scope of a function of this one.
+        SourceMap plain, other;
+        load(plain, kFixtures / "master/sccz80-cvars" / "prog.map");
+        std::string body = join_lines(map_lines(kFixtures / "master/sccz80-cvars" / "prog.map"));
+        body += rec("__C_LINE_99_vars_2ec", 0x8D60, "vars_c", "code_user", "vars.c::main::0::6:99");
+        load(other, synth("z88cdb50.map", body));
+        const VariableStore* a = store_of(plain);
+        const VariableStore* b = store_of(other);
+        const CFunction* fa = a ? fn_named(*a, "main") : nullptr;
+        const CFunction* fb = b ? fn_named(*b, "main") : nullptr;
+        bool foreign = false;
+        for (const auto& c : fb ? fb->scopes : std::vector<jnext::dbg::CScope>{}) foreign = foreign || c.line == 99;
+        check("Z88CDB-50", "a line record of the same module in another code section (code_user) above main's entry is filed under no "
+                           "function: main's scope table is as without it",
+              fa && fb && !foreign && fa->scopes.size() == fb->scopes.size());
+    }
+    {
         bool resolved = true, absent = true;
         std::string seen;
         for (const char* map : {"v2.4/sccz80-cvars", "master/sccz80-cvars", "master/80cc-cvars", "v2.4/sccz80-fc",
@@ -2724,10 +2789,18 @@ main cross_c AC97
         load(refused, synth("z88cdb45b.map", join_lines(junk)));
         const VariableStore* b = store_of(nocdb);
         const VariableStore* c = store_of(refused);
+        // master sccz80-cvars without its __CDBINFO__ lines: C_LINE records with a scope, in sccz80's form, not zsdcc's
+        std::vector<std::string> sc_kept;
+        for (const auto& l : map_lines(kFixtures / "master/sccz80-cvars" / "prog.map"))
+            if (!is_cdb_line(l)) sc_kept.push_back(l);
+        SourceMap sc_nocdb;
+        load(sc_nocdb, synth("z88cdb45c.map", join_lines(sc_kept)));
+        const VariableStore* d = store_of(sc_nocdb);
         check("Z88CDB-45", "what a map without variables looks like: v2.4 sdcc-SO2 with its listings has no C_LINE scope; "
                            "master sdcc-cvars without its __CDBINFO__ lines has C_LINE records in zsdcc's form and an "
-                           "empty store; with every record undecodable all of them are refused and the facts stay",
-              a && a->functions().empty() && !a->no_record_facts().c_line_records && !a->no_record_facts().zsdcc_form &&
+                           "empty store; master sccz80-cvars without them has C_LINE records but not in zsdcc's form; with "
+                           "every record undecodable all of them are refused and the facts stay",
+              d && d->functions().empty() && d->no_record_facts().c_line_records && !d->no_record_facts().zsdcc_form && a && a->functions().empty() && !a->no_record_facts().c_line_records && !a->no_record_facts().zsdcc_form &&
                   b && b->functions().empty() && b->refused().empty() && b->no_record_facts().c_line_records &&
                   b->no_record_facts().zsdcc_form && c && c->functions().empty() && cdb > 0 &&
                   c->refused().size() == cdb && c->no_record_facts().c_line_records && c->no_record_facts().zsdcc_form);

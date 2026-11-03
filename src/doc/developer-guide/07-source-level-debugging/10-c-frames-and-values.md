@@ -17,7 +17,7 @@ all three compilers, and the `B` records of a variable are offsets from `fp`.
 | zsdcc | `push ix; ld ix,0; add ix,sp` (`DD E5 DD 21 00 00 DD 39`), so IX = `E - 2`; `[IX]` is the caller's IX | the `vars.c` listing of `master/sdcc-cvars` |
 | 80cc | per function: some use IX, some `l_debug_push_frame` | `master/80cc-cvars` (`sum` and `main` IX, `other` push-frame) and `master/80cc-fc` |
 | banked | `banked_call` pops its own return address and `call l_jphl`s into the function, so `E` holds the return address into `banked_call` and the arguments sit above it | `z88dk/libsrc/target/zxn/far/zxn_banked_call.asm` |
-| the epilogue | after `call l_debug_pop_frame` the variable already holds the CALLER's `fp`, SP = `E` at the `ret`; after `pop ix` IX is the caller's | the same listings |
+| the epilogue | after `call l_debug_pop_frame` the variable already holds the CALLER's `fp`; after `pop ix` IX is the caller's. SP is `E` only right after that instruction: a `__z88dk_callee` routine pops its arguments between it and the `ret` (fc listings of all three compilers), so from the next instruction on the base is not known without the tracker | the same listings |
 
 The helpers (`__debug_framepointer`, `l_debug_push_frame`, `l_debug_pop_frame`) are joined by
 public name in `CFrameHelpers` (`struct CFrameHelpers`, `variable_store.h:99`), by the adapter
@@ -55,10 +55,11 @@ the CPU is; the `CFrame` (`struct CFrame`, `debugger.h:1226`) has its function (
   target is `l_jphl`. An INT or NMI frame fits the same rule.
 - **Prologue** (frame 0, no tracked frame): the entry bytes decide. A call to `l_debug_push_frame`: at the entry
   `fp = SP - 2`, right after `call l_debug_pop_frame` the same, otherwise `peek16(__debug_framepointer)`.
-  The IX form: at the entry `fp = SP - 2`, after the `push ix` and after the `add` `fp = SP`, at a `ret` after
-  `pop ix` `fp = SP - 2`, otherwise IX.
+  The IX form: at the entry `fp = SP - 2`, after the `push ix` and after the `ld ix,0` `fp = SP`, right after
+  `pop ix` `fp = SP - 2`, otherwise IX. Between the restore of the caller's base and the `ret` (found by walking
+  the function's code from its entry, `in_epilogue()`), any other PC is `Unknown` with a note.
 - **Chain** (older frames): `ret = peek16(fp + 2)`, the next PC is `ret - 1`, and the next `fp` is `peek16(fp)`
-  only when the next function keeps its frame in the same style. A change of style ends the walk, the frame
+  only when the next function keeps its frame in the same style, and that style is a push-frame or an IX frame (a function with neither saves no frame pointer). A change of style ends the walk, the frame
   listed `Unknown` with a note (80cc mixes both styles); a next PC in no C function is listed as assembly and stops
   the walk; so does a next `fp` that is not a stack address above this one.
 - **Unknown**: none of the above applies, `note` says why.
@@ -84,13 +85,13 @@ writer, from two things:
 `sync_call_stack()` reads the client list and the live source map directly (never `recheck()` or the
 replay-guarded `clients_attached()`), so it cannot recurse, and it runs wherever an input changes: a request,
 an attach or detach, `recheck()`, a source map loaded or cleared, the program sidecars, a reconstruct.
-`CallStack::set_enabled()` empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a panel that switched the tracker directly on the `Emulator` is not undone by an attach that changes nothing derived. `call_stack_enabled()` returns the effective state.
+`CallStack::set_enabled()` empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a write made outside the backend, directly on the `Emulator` (CTL-12-55, QEN-01), is not undone by an attach or an in-place landing that changes nothing derived. `call_stack_enabled()` returns the effective state.
 
 ## Fixtures and rows
 
-`Z88CDB-41` to `-46` in `z88dk_map_test` (the extents against a golden that `derive-scopes.py --extents`
+`Z88CDB-41` to `-50` in `z88dk_map_test` (the extents against a golden that `derive-scopes.py --extents`
 derives from the raw map lines, the `*-cross` fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of `Z88CDB-40`), and
-`SRCDBG-CVAL-01` to `-17` in `source_debug_test` (the tracker policy, and the frames of each compiler on a
+`SRCDBG-CVAL-01` to `-23` in `source_debug_test` (the tracker policy, and the frames of each compiler on a
 running fixture: tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, and a
 function that crosses a slot).

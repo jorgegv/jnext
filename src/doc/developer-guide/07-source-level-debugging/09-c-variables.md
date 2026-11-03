@@ -109,7 +109,9 @@ Each function has a table of the scopes its code is in, built from the map's own
 at one address are grouped, and the highest line owns the address (the rule the
 line ranges use). Equal-line owners that disagree make the entry unknown, so no
 order of the map can change the answer. The entry is filed under the function of
-the same module and space whose entry address is the greatest one at or below it.
+the same module and section whose entry map VALUE is the greatest one at or below it (never by comparing
+spaces: a function that crosses an 8 KB slot lives in two, [7.10](10-c-frames-and-values.md)), with its
+`offset` from that entry.
 
 The compilers write the scope differently:
 
@@ -143,7 +145,7 @@ debugging. Every `__CDBINFO__` line of a map ends up in exactly one of
 ## Canonical order
 
 The vectors are sorted by the record's text (then module), and a function's scope
-table by address, so the store is the same whatever order the map lists its lines
+table by offset, so the store is the same whatever order the map lists its lines
 in (`Z88CDB-20`). No map line number is kept. `VariableStore`'s constructor
 (`VariableStore::VariableStore()`, `src/debug/variable_store.cpp:20`) sorts the functions and
 remaps each variable's `function` to the sorted index.
@@ -167,7 +169,7 @@ stage of the epic. The store gives them the records, the storage and the scopes.
 
 ## Rows
 
-(`Z88CDB-41` to `-46` and `SRCDBG-CVAL-01` to `-17`: [7.10](10-c-frames-and-values.md).)
+(`Z88CDB-41` to `-50` and `SRCDBG-CVAL-01` to `-23`: [7.10](10-c-frames-and-values.md).)
 `Z88CDB-01` to `-26` in `z88dk_map_test` (the joins, scope tables, order,
 refusals, banked and dot storage, hidden records, listings), `SRCVAR-01` in
 `source_map_test` (the member), and `SRCDBG-VAR-01` to `-12` in

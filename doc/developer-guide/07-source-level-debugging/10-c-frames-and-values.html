@@ -3000,7 +3000,7 @@ all three compilers, and the <code>B</code> records of a variable are offsets fr
 </tr>
 <tr>
 <td>the epilogue</td>
-<td>after <code>call l_debug_pop_frame</code> the variable already holds the CALLER's <code>fp</code>, SP = <code>E</code> at the <code>ret</code>; after <code>pop ix</code> IX is the caller's</td>
+<td>after <code>call l_debug_pop_frame</code> the variable already holds the CALLER's <code>fp</code>; after <code>pop ix</code> IX is the caller's. SP is <code>E</code> only right after that instruction: a <code>__z88dk_callee</code> routine pops its arguments between it and the <code>ret</code> (fc listings of all three compilers), so from the next instruction on the base is not known without the tracker</td>
 <td>the same listings</td>
 </tr>
 </tbody>
@@ -3036,10 +3036,11 @@ the CPU is; the <code>CFrame</code> (<code>struct CFrame</code>, <code>debugger.
   target is <code>l_jphl</code>. An INT or NMI frame fits the same rule.</li>
 <li><strong>Prologue</strong> (frame 0, no tracked frame): the entry bytes decide. A call to <code>l_debug_push_frame</code>: at the entry
   <code>fp = SP - 2</code>, right after <code>call l_debug_pop_frame</code> the same, otherwise <code>peek16(__debug_framepointer)</code>.
-  The IX form: at the entry <code>fp = SP - 2</code>, after the <code>push ix</code> and after the <code>add</code> <code>fp = SP</code>, at a <code>ret</code> after
-  <code>pop ix</code> <code>fp = SP - 2</code>, otherwise IX.</li>
+  The IX form: at the entry <code>fp = SP - 2</code>, after the <code>push ix</code> and after the <code>ld ix,0</code> <code>fp = SP</code>, right after
+  <code>pop ix</code> <code>fp = SP - 2</code>, otherwise IX. Between the restore of the caller's base and the <code>ret</code> (found by walking
+  the function's code from its entry, <code>in_epilogue()</code>), any other PC is <code>Unknown</code> with a note.</li>
 <li><strong>Chain</strong> (older frames): <code>ret = peek16(fp + 2)</code>, the next PC is <code>ret - 1</code>, and the next <code>fp</code> is <code>peek16(fp)</code>
-  only when the next function keeps its frame in the same style. A change of style ends the walk, the frame
+  only when the next function keeps its frame in the same style, and that style is a push-frame or an IX frame (a function with neither saves no frame pointer). A change of style ends the walk, the frame
   listed <code>Unknown</code> with a note (80cc mixes both styles); a next PC in no C function is listed as assembly and stops
   the walk; so does a next <code>fp</code> that is not a stack address above this one.</li>
 <li><strong>Unknown</strong>: none of the above applies, <code>note</code> says why.</li>
@@ -3063,12 +3064,12 @@ writer, from two things:</p>
 <p><code>sync_call_stack()</code> reads the client list and the live source map directly (never <code>recheck()</code> or the
 replay-guarded <code>clients_attached()</code>), so it cannot recurse, and it runs wherever an input changes: a request,
 an attach or detach, <code>recheck()</code>, a source map loaded or cleared, the program sidecars, a reconstruct.
-<code>CallStack::set_enabled()</code> empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a panel that switched the tracker directly on the <code>Emulator</code> is not undone by an attach that changes nothing derived. <code>call_stack_enabled()</code> returns the effective state.</p>
+<code>CallStack::set_enabled()</code> empties the tracker only on a change, and the backend writes it only when the derived state changes (or, after a reconstruct, whenever it is on): a write made outside the backend, directly on the <code>Emulator</code> (CTL-12-55, QEN-01), is not undone by an attach or an in-place landing that changes nothing derived. <code>call_stack_enabled()</code> returns the effective state.</p>
 <h2 id="fixtures-and-rows">Fixtures and rows<a class="headerlink" href="#fixtures-and-rows" title="Permanent link">&para;</a></h2>
-<p><code>Z88CDB-41</code> to <code>-46</code> in <code>z88dk_map_test</code> (the extents against a golden that <code>derive-scopes.py --extents</code>
+<p><code>Z88CDB-41</code> to <code>-50</code> in <code>z88dk_map_test</code> (the extents against a golden that <code>derive-scopes.py --extents</code>
 derives from the raw map lines, the <code>*-cross</code> fixtures, the helpers, the listing evidence for the calling
 convention, the no-record facts, and the unchanged scope tables on the 12 maps of <code>Z88CDB-40</code>), and
-<code>SRCDBG-CVAL-01</code> to <code>-17</code> in <code>source_debug_test</code> (the tracker policy, and the frames of each compiler on a
+<code>SRCDBG-CVAL-01</code> to <code>-23</code> in <code>source_debug_test</code> (the tracker policy, and the frames of each compiler on a
 running fixture: tracked, the fallback, the prologue and epilogue windows, a mid-run attach, banked, and a
 function that crosses a slot).</p>
 

@@ -4578,6 +4578,21 @@ static void wp5_stack_coverage_rows() {
                              "up, leaves both off",
               xst_on && cov_on && !rig.dbg->call_stack_enabled() && !rig.dbg->coverage_enabled());
     }
+    {
+        // GH #434 review F6: the session is the only requester, so `enabled no` switches tracking off at once.
+        Rig rig;
+        bool on = false, off = true;
+        {
+            Zc c(rig);
+            c.cmd("extended-stack enabled yes");
+            on = rig.dbg->call_stack_enabled();
+            c.cmd("extended-stack enabled no");
+            off = rig.dbg->call_stack_enabled();
+        }
+        check("ZRCP-XST-05", "extended-stack enabled yes turns call tracking on and enabled no turns it off, when this session "
+                             "is the only client that asked",
+              on && !off);
+    }
 }
 
 static void wp5_load_rows() {
