@@ -6868,7 +6868,8 @@ void test_source_sync() {
         SyncWin w(fx);
         w.src_move(11);
         QImage img = w.dis_image();
-        const auto px = [&](const QImage& i, int row) { return QColor::fromRgb(i.pixel(i.width() - 20, disasm_row_y(row))); };
+        // GH #448: sampled in the left margin (x = 1, no glyph reaches it); width - 20 now lands on the bytes column.
+        const auto px = [&](const QImage& i, int row) { return QColor::fromRgb(i.pixel(1, disasm_row_y(row))); };
         const QColor lk = source_sync_colors::linked(w.dp->palette()), yellow(255, 255, 204), white(255, 255, 255);
         const int c = w.centre();
         const bool rows = px(img, c + 2) == lk && px(img, c) == yellow && px(img, c + 1) == white && px(img, c + 3) == white;
