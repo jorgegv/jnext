@@ -162,7 +162,7 @@ jobs:
             ripgrep ffmpeg-free bc file xxd dbus-daemon \
             mtools dosfstools rpm-build \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
-            perl-interpreter perl-FindBin perl-File-Temp perl-PathTools \
+            perl-interpreter perl-FindBin perl-File-Temp perl-File-Find perl-PathTools \
             mesa-dri-drivers mesa-libGL java-25-openjdk-devel
           # mtools + dosfstools are the FOREIGN validators the GH #269
           # sdcard-file-add-func row reads the SD image back with (mdir,
@@ -184,16 +184,20 @@ jobs:
           # installed here: `make regression` provisions it (`make z88dk-gdb`,
           # test/provision-z88dk-gdb.sh) with the curl, sha256sum, tar, make and cc
           # this image already has — the same command a developer runs locally.
-          # The four perl-* entries are the traceability tooling's own
-          # dependencies (test/refresh-traceability-matrix.pl,
-          # test/traceability-citations-selftest.pl), declared rather than
+          # The five perl-* entries are the perl tooling's own dependencies
+          # (test/refresh-traceability-matrix.pl,
+          # test/traceability-citations-selftest.pl, and perl-File-Find for
+          # test/lint-devguide-cites.pl, which docs-check runs), declared rather than
           # inherited. They USED to arrive transitively — perl is not in the
           # bare fedora:44 image at all, and something above dragged it in —
           # which held until 2026-07-29, when `make unit-test` failed on
           # `Can't locate FindBin.pm` with no change to the script or the
           # workflow. Reproduced in the real image: after installing exactly
           # the list above, File::Temp/Cwd/File::Spec are present and FindBin
-          # alone is not. Depending on another package's dependency graph is
+          # alone is not. The same held for File::Find (GH #444: `Can't locate
+          # File/Find.pm` in docs-devguide-cites-check; `perl -c` of every perl
+          # script in the real image, after exactly this list, now passes).
+          # Depending on another package's dependency graph is
           # precisely the "discover them one CI run at a time" failure the
           # comment above says this list exists to prevent.
           # libspectrum-devel is the ONLY foreign adjudication in this project
@@ -218,7 +222,7 @@ jobs:
           # locally in a venv with no site-packages, exit 1. This gate was the
           # first one added to `make unit-test` whose tool was not already here;
           # docs-check's pandoc/mkdocs-material/graphviz and
-          # traceability-check's four perl-* entries are the precedent.
+          # traceability-check's perl-* entries are the precedent.
           # liberation-sans-fonts is a docs dependency, not a font preference.
           # The developer guide's .dot sources ask for fontname="Helvetica",
           # which no installed font is actually NAMED: fontconfig resolves it,
