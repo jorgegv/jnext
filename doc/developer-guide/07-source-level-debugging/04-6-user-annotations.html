@@ -3129,7 +3129,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   formats do not include them (<code>QANN-04</code>). The Source tab does not draw comments (it shows the user's own
   file).</li>
 <li><strong>The Map menu.</strong> <code>DebuggerWindow</code> adds <strong>Open Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Annotations As…</strong>
-  (<code>connect</code>, <code>src/debugger/debugger_window.cpp:889-893</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
+  (<code>connect</code>, <code>src/debugger/debugger_window.cpp:890-894</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
   (<code>debugger_manager.cpp:778</code>), <code>on_save_annotations()</code> (<code>:754</code>) and <code>on_save_annotations_as()</code> (<code>:744</code>); Save with no
   current file is Save As, which appends <code>.jdp</code> to a name without a suffix. Failures are warnings with the
   backend's <code>why</code> (an Open names the line).</li>

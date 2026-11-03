@@ -25,7 +25,6 @@
 #include "platform/config_keys.h"
 
 #include <cmath>
-
 #include <QCloseEvent>
 #include <QGuiApplication>
 #include <QScreen>
