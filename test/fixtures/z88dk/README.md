@@ -67,6 +67,7 @@ The exact commands are the `+ zcc ...` lines of each `build.log`.
 | v2.4/sccz80-cvars-banked, master/{sccz80,sdcc,80cc}-cvars-banked | `bk.c` compiled with `--codesegPAGE_20 --constsegPAGE_20 --datasegPAGE_20`, then `bkmain.c bk.o`, the compiler flags of the line above + `-pragma-define:CRT_ORG_PAGE_20=0x14C000 -pragma-define:REGISTER_SP=0xC000` | ok | GH #431: banked code AND data (runnable, as the `-run` builds) |
 | master/sccz80-extern, master/sdcc-extern | `ext_use.c ext_def.c` (+ `ext.h`): `extern int g;` in one module, `int g = 5;` in the other; `-clib=new -debug` / `-clib=sdcc_iy -debug` | ok | GH #433: the record of an `extern` global (section "C variables") |
 | v2.4/sccz80-fc, master/{sccz80,sdcc,80cc}-fc | `fc.c` only, as the `incmid` builds | ok | GH #431: `__z88dk_fastcall` and `__z88dk_callee` |
+| v2.4/sccz80-cross, master/{sccz80,sdcc,80cc}-cross | `cross.c` only: `-clib=new -debug` / `-clib=sdcc_iy -debug` / `-clib=new -compiler=80cc -debug` | ok | GH #434 F-A: `cross()` holds 8192 bytes of padding (`defs 8192`: `#asm` for sccz80 and 80cc, `__asm` for zsdcc), so its code runs from the CODE slot at $8000 into $A000-$BFFF (extent `8C6B-A000` + `A000-AC81` on sccz80); `derive-scopes.py --extents` derives the pieces |
 
 The dot builds (`dot:<subtype>` in `generate.sh`) compile `dot.c dutil.c` with `-subtype=dot|dotx|dotn`
 instead of `-subtype=nex`. Classic dot is not built: `-debug` fails (Z1) and without it there are no lines.
@@ -261,12 +262,12 @@ Facts the decoder and the frame rows rely on (each checked in the files named):
 Not producible: `v2.4/sdcc-cvars` (z88dk#3172). Not built here: zsdcc `-O0` (no records), `+zxn`
 classic `-debug` on v2.4 (Z1), sdcc_ix (the planner measured records identical to sdcc_iy; not re-run here).
 
-### Scope-table golden: `derive-scopes.py`
+### Scope-table and extent goldens: `derive-scopes.py`
 
 Row `Z88CDB-40` (`test/debug/z88dk_map_test.cpp`) pins every function's whole scope table on 12 maps
 against a golden derived by `derive-scopes.py` from the RAW map lines only (no jnext code). Its header
 holds the rules and the command that prints one map's block. Re-derive, never paste the suite's output,
-whenever a fixture is regenerated or the equal-line rule changes. The script is hashed in `MANIFEST.sha256`
+whenever a fixture is regenerated or the equal-line rule changes. `--extents` prints each function's extent (pieces split at the 8 KB boundaries) for rows Z88CDB-41/42 (GH #434). The script is hashed in `MANIFEST.sha256`
 (`generate.sh` lists it), because `Z88FIX-02` demands every file here to be in the manifest; nothing runs it
 in a gate.
 
