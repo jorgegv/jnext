@@ -758,7 +758,7 @@ value: an outage that ends before it starts is refused rather than run.
 Record video and audio to an MP4. Requires **ffmpeg**(1) on the PATH. If
 the recording cannot be produced (encoder failure, no usable output),
 **jnext** reports the error and exits non-zero. If the recording cannot
-even be started (no usable **ffmpeg**), **jnext** exits non-zero
+even be started (no **ffmpeg** on the PATH), **jnext** exits non-zero
 immediately, without running the emulation.
 
 **--wav-record** *FILE*  
