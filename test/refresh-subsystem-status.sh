@@ -204,6 +204,7 @@ BEGIN {
     M["z88dk_map_test"]                = "z88dk -debug map adapter"
     M["z88dk_lis_test"]                = "z88dk --list listing adapter"
     M["cdb_record_test"]               = "z88dk CDB record decoder"
+    M["c_value_test"]                  = "C value formatting (frames and values)"
     M["source_debug_test"]             = "Source debugging (backend)"
     M["reexport_test"]                 = "Source debugging (skoolkit/Ghidra export)"
     M["source_debug_posix_test"]       = "Source debugging (POSIX file types)"

@@ -1250,6 +1250,15 @@ add_test(NAME z88dk_lis_tests COMMAND z88dk_lis_test)
 # The decoder (std only) is compiled into the test itself, with the libstdc++ checked
 # containers on this target only: an out-of-range access in it aborts the suite, and
 # the shipped binary is not hardened by it (libc++ and other STLs ignore the macro).
+add_executable(c_value_test debug/c_value_test.cpp)
+target_link_libraries(c_value_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(c_value_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(c_value_test PRIVATE
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+add_test(NAME c_value_tests COMMAND c_value_test)
 add_executable(cdb_record_test debug/cdb_record_test.cpp ${CMAKE_SOURCE_DIR}/src/debug/cdb_record.cpp)
 target_include_directories(cdb_record_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(cdb_record_test PRIVATE
