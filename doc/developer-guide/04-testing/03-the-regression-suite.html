@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.113</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.111</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.113</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3157,7 +3157,9 @@ all pass the run is stamped, and the stamp names them. Targeted rows run through
 <code>make regression-rows ROWS="..."</code>, which builds the binaries they need. Its Qt
 <code>jnext</code> is the non-PGO Release build (<code>build/gui-release-non-pgo</code>): a branch trains
 no PGO profile, and the same code gives the same pixels. <code>ROWS_PGO=1</code> runs the PGO
-<code>build/gui-release</code> instead; <code>make regression</code> and <code>regression-confirm</code> always do.</p>
+<code>build/gui-release</code> instead; <code>make regression</code> and <code>regression-confirm</code> always do. A row
+name that neither manifest declares (or an empty one) is a harness fault, exit 2, in every
+mode, so a mistyped name can never run nothing and pass.</p>
 <h2 id="a-failure-on-a-loaded-host">A failure on a loaded host<a class="headerlink" href="#a-failure-on-a-loaded-host" title="Permanent link">&para;</a></h2>
 <p>Those two rows are examples, not the list. Rows that merely spawn short-lived
 processes have also failed under a parallel-agent load and never reproduced

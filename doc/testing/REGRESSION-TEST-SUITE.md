@@ -135,6 +135,9 @@ rows; the bare `regression.sh <row>...` form needs them built already. The Qt
 `jnext` is the non-PGO Release build, so a branch never trains a PGO profile
 (same code, same pixels); `ROWS_PGO=1` runs `build/gui-release` (PGO) instead.
 `make regression` and `regression-confirm` always run the PGO build.
+A name that is neither a declared screenshot nor a declared functional row (or an empty
+one) is a harness fault, exit 2, naming it, in every mode (named rows, `--update`,
+`--platform`). A declared row the platform's os= tag leaves out keeps its own refusal.
 
 ## Platform runs: macOS and Windows under wine (GH #319)
 

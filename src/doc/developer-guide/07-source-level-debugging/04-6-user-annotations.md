@@ -186,7 +186,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   formats do not include them (`QANN-04`). The Source tab does not draw comments (it shows the user's own
   file).
 - **The Map menu.** `DebuggerWindow` adds **Open Annotations…**, **Save Annotations** and **Save Annotations As…**
-  (`connect`, `src/debugger/debugger_window.cpp:889-893`), connected to `DebuggerManager::on_open_annotations()`
+  (`connect`, `src/debugger/debugger_window.cpp:890-894`), connected to `DebuggerManager::on_open_annotations()`
   (`debugger_manager.cpp:778`), `on_save_annotations()` (`:754`) and `on_save_annotations_as()` (`:744`); Save with no
   current file is Save As, which appends `.jdp` to a name without a suffix. Failures are warnings with the
   backend's `why` (an Open names the line).
