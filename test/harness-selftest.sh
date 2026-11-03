@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=300  # 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=308  # 300 -> 308: HS-157a..h added (GH #443: a row name neither manifest declares, or an empty one, is a harness fault in every mode). 298 -> 300: HS-100, HS-101 added (GH #389: the skoolkit and Ghidra provisioners refuse a wrong sha256 and install nothing). 243 -> 298: HS-102..156 added (the developer-guide cite check, GH #430). 235 -> 243: HS-99a..t added (GH #383: D-Bus isolation, stall watchdog, per-thread capture, self-check) and 12 HS-98 rows retired (a, e, f, g, p, q, r, s, t, u, v, w). a/f/g/p/r/t pinned the TERM-time capture and its budget, which the watchdog removed; e/q (a winedbg that never answers) became HS-99s; s/w (INT forwarded, status 8) became HS-99o; u (a dead stderr must not kill the runner) became HS-99p, now on the USR1 announcement; v (the exit status through the handler's forks) pinned a fork the TERM handler no longer makes. HS-98b/c/d/h/i/j/k/l/m/n/o/x/y/z (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1403,10 +1403,11 @@ REG="$PROJECT_DIR/test/00regression/regression.sh"
 REG_CONF="$PROJECT_DIR/test/00regression/regression_tests.conf"
 REG_FUNC="$PROJECT_DIR/test/00regression/functional_tests.conf"
 
-run_preflight() {   # run_preflight <conf> <func_conf>
-    JNEXT_REGRESSION_CONF="$1" JNEXT_REGRESSION_FUNC_CONF="$2" \
+run_preflight() {   # run_preflight <conf> <func_conf> [extra regression.sh args]
+    local c=$1 f=$2; shift 2
+    JNEXT_REGRESSION_CONF="$c" JNEXT_REGRESSION_FUNC_CONF="$f" \
         timeout --kill-after=5s "${INVOKE_TIMEOUT_OVERRIDE:-$INVOKE_TIMEOUT}s" \
-        bash "$REG" --preflight-only 2>&1
+        bash "$REG" --preflight-only "$@" 2>&1
 }
 
 out=$(run_preflight "$REG_CONF" "$REG_FUNC"); rc=$?
@@ -1452,6 +1453,35 @@ echo '#!/usr/bin/env bash' > "$T/scripts/bogus-func.sh"
 out=$(JNEXT_REGRESSION_SCRIPTS_DIR="$T/scripts" run_preflight "$REG_CONF" "$REG_FUNC"); rc=$?
 check "HS-32" "regression preflight: a stray scripts/*.sh not declared in the conf is refused" 2 $rc "$out" \
     "HARNESS FAULT" "bogus-func" "NOT declared"
+
+# ---------------- a row name no manifest declares is a fault (GH #443) ----------------
+# want() selects by exact name, so a mistyped name once selected nothing and the run
+# passed on the lints alone. Oracle: the harness contract (a missing test is a LOUD FAILURE).
+out=$(run_preflight "$REG_CONF" "$REG_FUNC" skoolkit-foreing-func); rc=$?
+check "HS-157a" "a row name neither manifest declares is a harness fault naming it" 2 $rc "$out" \
+    "HARNESS FAULT" "declared in neither" "skoolkit-foreing-func"
+shot=$(awk '!/^[[:space:]]*(#|$)/ {print $1; exit}' "$REG_CONF")
+if [[ -z "$shot" ]]; then   # an empty read would make 157b/d vacuous
+    check "HS-157b" "the control: a declared screenshot name is accepted" 0 1 "no screenshot row could be read from $REG_CONF"
+else
+    out=$(run_preflight "$REG_CONF" "$REG_FUNC" "$shot"); rc=$?
+    check "HS-157b" "the control: a declared screenshot name is accepted" 0 $rc "$out" "preflight OK"
+fi
+if ! grep -q '^magic-bp-func\([[:space:]]\|$\)' "$REG_FUNC"; then   # a renamed fixture row would make this control vacuous
+    check "HS-157c" "the control: a declared functional name is accepted" 0 1 "fixture row magic-bp-func is missing from $REG_FUNC"
+else
+    out=$(run_preflight "$REG_CONF" "$REG_FUNC" magic-bp-func); rc=$?
+    check "HS-157c" "the control: a declared functional name is accepted" 0 $rc "$out" "preflight OK"
+fi
+out=$(run_preflight "$REG_CONF" "$REG_FUNC" magic-bp-func skoolkit-foreing-func "$shot" --updat); rc=$?
+check "HS-157d" "every unknown name is listed (declared ones excluded, a mistyped flag included)" 2 $rc "$out" \
+    "skoolkit-foreing-func --updat"
+out=$(run_preflight "$REG_CONF" "$REG_FUNC" --update bogus-shot); rc=$?
+check "HS-157f" "--update with an unknown name is a harness fault naming it" 2 $rc "$out" \
+    "declared in neither" "bogus-shot"
+out=$(run_preflight "$REG_CONF" "$REG_FUNC" ""); rc=$?
+check "HS-157h" "an empty row name is a harness fault, not a bash error" 2 $rc "$out" \
+    "HARNESS FAULT" "an empty row name"
 
 # ---------------- membership checks must never lose to SIGPIPE (Task 88b) ----------------
 # The suite asks "is this name in that list?" in three places: want() in
@@ -2457,6 +2487,10 @@ check "HS-77c" "the control: the same fixture with no SKIPPED row exits 0 and st
 out=$(cd "$SR" && JNEXT=/bin/true timeout --kill-after=3s 30s bash -c \
       "set -euo pipefail; source '$SRT/test-functions.inc'; CURRENT_ROW=lone-row; skip_row ' (stub)'; standalone_summary" 2>&1); rc=$?
 check "HS-77d" "a standalone row script that SKIPS exits 1 from standalone_summary" 1 $rc "$out" "a SKIP is not a pass"
+out=$(skip_run "ok-func" ok-fnuc); rc=$?
+out+=$'\n'"passes=$(count_of "$out" PASS)"
+check "HS-157g" "a real (non-preflight) run with an unknown name is refused before any lint or provision row runs (GH #443)" 2 $rc "$out" \
+    "declared in neither" "ok-fnuc" "passes=0"
 
 # ---------------- a missing TOOL or renderer-version gap FAILS, never skips (owner, 2026-10-06) ----------------
 # Every check below runs a REAL script of the project with a tool hidden from
@@ -2792,6 +2826,8 @@ out=$(run_plat "$T/pt-ok" "$REG_FUNC" video-record-func); rc=$?
 check "HS-92a" "a named row this OS declares absent is refused in a platform run" 2 $rc "$out" "HARNESS FAULT" "declared absent on windows"
 out=$(run_plat "$T/pt-ok" "$REG_FUNC" magic-bp-func); rc=$?
 check "HS-92b" "...and a named admitted row is accepted" 0 $rc "$out" "preflight OK"
+out=$(run_plat "$T/pt-ok" "$REG_FUNC" bogus-func); rc=$?
+check "HS-157e" "an unknown name in a platform run is a harness fault naming it (GH #443)" 2 $rc "$out" "declared in neither" "bogus-func"
 
 # per-OS pins, both directions
 sed "s/^# expect-windows: $fn_win\$/# expect-windows: $(( fn_win - 1 ))/" "$REG_FUNC" > "$T/pin-lo.conf"
