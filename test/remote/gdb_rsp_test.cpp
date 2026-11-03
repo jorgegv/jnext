@@ -2146,6 +2146,28 @@ static void monitor_rows() {
         for (const auto& l : h) listed = listed || l.rfind("  src [ADDR]", 0) == 0;
         check("GDB-MON-34", "monitor help lists src [ADDR]", listed, join(h));
     }
+    // GDB-MON-44 (GH #349 R3): `monitor src NAME` answers in the symbol's OWN memory, as `monitor sym` does.
+    // Oracle: v2.4/sccz80-banked-run's map: banked_add = $14C000 (page 20 = $14, offset $C000), line 6.
+    {
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        const std::string nex = JNEXT_Z88DK_FIXTURE_DIR "/v2.4/sccz80-banked-run/prog.nex";
+        emulator_apply_load(rig.emu, nex, false);
+        rig.dbg->load_program_sidecars(nex);
+        Client c(rig);
+        open_session(c);
+        std::string f1, f2, f3, f4;
+        const auto  sym = c.monitor("sym banked_add", f1);
+        const auto  named = c.monitor("src banked_add", f2);
+        const auto  at_sign = c.monitor("src @banked_add", f3);
+        const auto  mapped = c.monitor("src $C000", f4);   // the memory mapped there now is not page 20
+        check("GDB-MON-44", "monitor src of a banked symbol answers in the symbol's page: banked_add is "
+                            "'$C000 banked.c:6 P14' (as monitor sym says P14), with and without the @; "
+                            "the address form still answers in what is mapped now",
+              sym.size() == 1 && sym[0] == "banked_add = $C000 P14\n" && named.size() == 1 &&
+                  named[0] == "$C000 banked.c:6 P14\n" && at_sign == named && mapped.size() == 1 &&
+                  mapped[0].rfind("$C000 ", 0) == 0 && mapped[0] != named[0],
+              join(sym) + join(named) + join(at_sign) + join(mapped));
+    }
 }
 
 // ── GDB-UNS — unsupported, honestly (§2 rows 26-33) ────────────────────────

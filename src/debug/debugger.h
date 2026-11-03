@@ -1213,6 +1213,9 @@ public:
     /// what you keep. Every location there: `source_map().lookup_all()`.
     const SourceLocation* source_location(uint16_t addr) const;
     const SourceLocation* source_location() const;
+    /// The same in a memory the caller names, whatever is mapped at `addr` now (a
+    /// paged symbol's own page: `monitor src NAME`, GH #349).
+    const SourceLocation* source_location(MemSpace space, uint16_t addr) const;
 
     /// CAP-SRC — the physical 8K page the MMU maps behind logical `addr` now.
     uint8_t effective_page(uint16_t addr) const;

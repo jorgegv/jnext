@@ -1033,22 +1033,26 @@ bool GdbServer::monitor_sym(const std::vector<std::string>& args) {
 bool GdbServer::monitor_src(const std::vector<std::string>& args) {
     if (args.size() > 1) return false;
     std::uint32_t addr = dbg_.registers().PC;
+    // A paged symbol answers in its own memory (as `monitor sym` does), not in what is mapped now.
+    std::optional<jnext::dbg::MemSpace> own;
     if (!args.empty()) {
         if (parse_number(args[0], addr)) {
             if (addr > 0xFFFF) return false;
         } else {
             const std::string name = args[0][0] == '@' ? args[0].substr(1) : args[0];
-            const auto a = dbg_.lookup_name(name);
+            const auto a = dbg_.symbols().find_name(name);
             if (!a) {
                 monitor_line("no symbol " + printable(args[0], 64));
                 return true;
             }
-            addr = *a;
+            addr = a->addr;
+            own = a->space;
         }
     }
     const std::uint16_t a16 = static_cast<std::uint16_t>(addr);
-    const std::string   mem = jnext::dbg::space_tag(dbg_.source_page(a16));
-    const auto*         loc = dbg_.source_location(a16);
+    const jnext::dbg::MemSpace space = own ? *own : dbg_.source_page(a16);
+    const std::string   mem = jnext::dbg::space_tag(space);
+    const auto*         loc = own ? dbg_.source_location(space, a16) : dbg_.source_location(a16);
     const std::string   head = strf("$%04X ", addr);
     if (!loc) monitor_line(head + "unmapped " + mem);
     else      monitor_line(head + printable(loc->file, 200) + ":" + std::to_string(loc->line) +
