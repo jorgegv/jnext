@@ -2533,6 +2533,9 @@ static void ts_prog_all(TurboSound& ts, std::initializer_list<std::pair<int, int
     ts.reg_addr(0xFF);
 }
 
+static const std::initializer_list<std::pair<int, int>> kTsNoiseEnvSet =
+    {{6, 0x01}, {7, 0x37}, {8, 0x0F}, {9, 0x10}, {10, 0}, {11, 0x03}, {12, 0}, {13, 0x0E}};
+
 static void g_reset_scope() {
     set_group("Reset-scope");
 
@@ -2657,19 +2660,19 @@ static void g_reset_scope() {
     {
         TurboSound tp, tf;
         tp.set_enabled(true); tp.set_stereo_mode(true); tp.set_mono_mode(0x05);
-        ts_prog_all(tp, kTsToneSet);
+        ts_prog_all(tp, kTsNoiseEnvSet);
         tp.reg_addr(0xFE);
-        settle(tp, 123);
+        settle(tp, 1234);
         tp.set_reset_held(true);
         tp.power_on();
         bool ok = !tp.enabled() && !tp.stereo_mode() && tp.mono_mode() == 0 &&
                   !tp.reset_held() && tp.reg_read(true) == 0xC0;
         for (TurboSound* t : {&tp, &tf}) {
             t->set_enabled(true); t->set_ay_mode(true);
-            ts_prog_all(*t, kTsToneSet);
+            ts_prog_all(*t, kTsNoiseEnvSet);
         }
         int bad = -1;
-        for (int i = 0; i < 300 && ok; ++i) {
+        for (int i = 0; i < 1500 && ok; ++i) {
             tp.tick(); tf.tick();
             if (!ts_same(tp, tf)) { ok = false; bad = i; }
         }
@@ -2700,7 +2703,11 @@ static void g_reset_scope() {
         ts.reg_addr(0x9F);          // AY#0, pan 00
         const bool sel_ok = (ts.reg_read(true) >> 6) == 3;
         ts.set_reset_held(false);
-        ts_prog(ts, 0xFF, {{7, 0x3F}, {8, 0x0F}, {10, 0x0F}});
+        // Plain register writes (no 0xFF select command: that would reset the pan to 11).
+        for (const auto& rv : std::initializer_list<std::pair<int, int>>{{7, 0x3F}, {8, 0x0F}, {10, 0x0F}}) {
+            ts.reg_addr(static_cast<uint8_t>(rv.first));
+            ts.reg_write(static_cast<uint8_t>(rv.second));
+        }
         settle(ts, 16);
         check("TS-65", "held in reset: the select/pan command is ignored, ay_select stays 11",
               sel_ok && ts.pcm_left() == 0xFF && ts.pcm_right() == 0xFF,

@@ -1172,6 +1172,8 @@ static void test_reset_scope(Emulator& emu) {
     // AUD-NR-07 - zxnext.vhd:6379,6387: psg_mode = "11" HOLDS the AY reset.
     {
         fresh(emu);
+        nr_write(emu, 0x06, 0x01);
+        ay_port_write(emu, 0x00, 0x77);                    // a value the onset reset must clear
         nr_write(emu, 0x06, 0x03);
         ay_port_write(emu, 0x00, 0x55);
         const uint8_t held = emu.turbosound().ay(0).read_register(0);
