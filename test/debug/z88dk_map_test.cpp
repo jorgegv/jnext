@@ -2570,6 +2570,28 @@ sum vars_c 8C62
         if (!bad.empty()) std::printf("  Z88CDB-41 differs:%s\n", bad.c_str());
     }
     {
+        // The extent's bound by ANOTHER module (plan 2.1.1): master/sccz80-cvars with one symbol, and then one line
+        // record, of a module that is not vars_c added inside main ($8D54-$8E38): main ends there. A symbol of
+        // vars_c's own module at the same address bounds nothing.
+        const auto main_end = [&](const char* tag, const std::string& extra) {
+            std::vector<std::string> lines = map_lines(kFixtures / "master/sccz80-cvars" / "prog.map");
+            std::string body = join_lines(lines) + extra;
+            SourceMap m;
+            load(m, synth(tag, body));
+            const VariableStore* s = store_of(m);
+            const CFunction* f = s ? fn_named(*s, "main") : nullptr;
+            return f && f->pieces.size() == 1 && f->pieces[0].at.address == 0x8D54 ? f->pieces[0].hi_excl : 0u;
+        };
+        const unsigned plain = main_end("z88cdb47a.map", "");
+        const unsigned sym = main_end("z88cdb47b.map", "_helper = $8E00 ; addr, public, , zz_asm, code_compiler, zz.asm:3\n");
+        const unsigned line = main_end("z88cdb47c.map", rec("__C_LINE_5_zz_2ec", 0x8E10, "zz_c", "code_compiler", "zz.c:5"));
+        const unsigned own = main_end("z88cdb47d.map", "_helper = $8E00 ; addr, public, , vars_c, code_compiler, vars.c:70\n");
+        check("Z88CDB-47", "a function's extent ends at a symbol, and at a line record, of another module inside it (main of "
+                           "master/sccz80-cvars: $8E38 as built, $8E00 with a foreign symbol there, $8E10 with a foreign line "
+                           "record), and a symbol of its own module bounds nothing",
+              plain == 0x8E38 && sym == 0x8E00 && line == 0x8E10 && own == 0x8E38);
+    }
+    {
         // GH #434 F-A: cross() is 8192 bytes of padding, so its code runs from the $8000 slot into the next 8 KB
         // slot: two pieces (page 4, then page 5), and its records past $A000 are in its scope table with their
         // offsets. The golden is `derive-scopes.py --extents` on the raw map; nothing here is pasted from jnext.
